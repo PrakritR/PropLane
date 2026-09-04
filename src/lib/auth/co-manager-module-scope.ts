@@ -2,9 +2,8 @@ import "server-only";
 
 import { collectLinkedPropertyPermissionsForUser } from "@/lib/auth/manager-lease-scope";
 import {
-  hasCoManagerPermissionLevelForProperty,
+  coManagerModuleAllowed,
   normalizePropertyCoManagerPermissions,
-  permissionsForProperty,
   type CoManagerPermissionId,
   type CoManagerPermissionLevel,
 } from "@/lib/co-manager-permissions";
@@ -14,12 +13,10 @@ import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
 /**
- * Module-access rule for co-manager links: assigning a property IS the grant —
- * a link whose permissions object is empty gives the co-manager every module
- * on that property. When the owner has checked specific modules in the
- * permissions editor, the set becomes a RESTRICTION to those modules.
- * (Without this default, every pre-editor link would grant nothing and the
- * feature would look broken — see AGENTS co-manager notes.)
+ * Module-access rule for co-manager links. Assigning a property is NOT itself
+ * the grant: the module must be positively granted on that property. See
+ * `coManagerModuleAllowed`, which every scope check on both sides of the wire
+ * shares, for why an empty map is now no access rather than all access.
  */
 function moduleAllowed(
   propertyPerms: ReturnType<typeof normalizePropertyCoManagerPermissions> | undefined,
@@ -27,10 +24,7 @@ function moduleAllowed(
   module: CoManagerPermissionId,
   level: CoManagerPermissionLevel = "read",
 ): boolean {
-  const flat = permissionsForProperty(propertyPerms, propertyId);
-  const anyGranted = Object.values(flat).some(Boolean);
-  if (!anyGranted) return true;
-  return hasCoManagerPermissionLevelForProperty(propertyPerms, propertyId, module, level);
+  return coManagerModuleAllowed(propertyPerms, propertyId, module, level);
 }
 
 /**

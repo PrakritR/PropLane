@@ -58,6 +58,7 @@ import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { syncLeasePipelineFromServer } from "@/lib/lease-pipeline-storage";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { CANONICAL_DEMO_MANAGER_NAME } from "@/lib/demo/demo-canonical-accounts";
+import { paymentFailureCopy } from "@/lib/payments/payment-error-copy";
 import { canPayHouseholdChargeWithAxisAch } from "@/lib/household-charge-payment-eligibility";
 import {
   residentPaymentMethodLabel,
@@ -108,6 +109,10 @@ type CheckoutState = {
   clientSecret: string | null;
   loading: boolean;
   error: string | null;
+  /** False when retrying cannot help — a missing key or an unfinished manager setup. */
+  canRetry?: boolean;
+  /** True when the blocker is the manager's payment setup, not the resident's. */
+  blockedByManagerSetup?: boolean;
   subtotalCents?: number;
   processingFeeCents?: number;
   axisFeeCents?: number;
@@ -622,19 +627,32 @@ export function ResidentPaymentsPanel({
           clientSecret?: string;
           url?: string;
           error?: string;
+          code?: string;
           subtotalCents?: number;
           processingFeeCents?: number;
           axisFeeCents?: number;
           totalCents?: number;
         };
         if (!res.ok) {
+          // The server already answers 422 MANAGER_NO_CONNECT_ACCOUNT when the
+          // manager never finished onboarding — that code exists so this screen
+          // can say something useful, and nothing read it. Rendering
+          // `payload.error` raw showed a resident a server string for a bill the
+          // product had just told them they could pay.
+          const copy = paymentFailureCopy({
+            code: payload.code,
+            status: res.status,
+            serverMessage: payload.error,
+          });
           setCheckout({
             key,
             chargeIds: ids,
             paymentMethod: method,
             clientSecret: null,
             loading: false,
-            error: typeof payload.error === "string" ? payload.error : "Could not start payment.",
+            error: copy.message,
+            canRetry: copy.canRetry,
+            blockedByManagerSetup: copy.blockedByManagerSetup,
           });
           return;
         }
@@ -883,7 +901,21 @@ export function ResidentPaymentsPanel({
         {checkout.loading ? (
           <p className="text-sm text-muted">Loading secure checkout…</p>
         ) : checkout.error ? (
-          <p className="rounded-xl border px-4 py-3 text-sm portal-banner-danger">{checkout.error}</p>
+          <div className="rounded-xl border px-4 py-3 text-sm portal-banner-danger" data-attr="resident-payment-error">
+            <p>{checkout.error}</p>
+            {checkout.blockedByManagerSetup ? (
+              // Never a dead end: a resident who cannot pay by card needs
+              // somewhere to go, and Communication is where they reach the
+              // manager who has to fix it.
+              <Link
+                href="/resident/communication/active"
+                className="mt-2 inline-block font-semibold underline underline-offset-2"
+                data-attr="resident-payment-error-contact-manager"
+              >
+                Message your property manager
+              </Link>
+            ) : null}
+          </div>
         ) : checkout.clientSecret ? (
           <StripeEmbeddedCheckout clientSecret={checkout.clientSecret} />
         ) : null}
@@ -1561,7 +1593,21 @@ export function ResidentPaymentsPanel({
                 {checkout?.loading ? (
                   <p className="text-sm text-muted">Loading secure checkout…</p>
                 ) : checkout?.error ? (
-                  <p className="rounded-xl border px-4 py-3 text-sm portal-banner-danger">{checkout.error}</p>
+                  <div className="rounded-xl border px-4 py-3 text-sm portal-banner-danger" data-attr="resident-payment-error">
+            <p>{checkout.error}</p>
+            {checkout.blockedByManagerSetup ? (
+              // Never a dead end: a resident who cannot pay by card needs
+              // somewhere to go, and Communication is where they reach the
+              // manager who has to fix it.
+              <Link
+                href="/resident/communication/active"
+                className="mt-2 inline-block font-semibold underline underline-offset-2"
+                data-attr="resident-payment-error-contact-manager"
+              >
+                Message your property manager
+              </Link>
+            ) : null}
+          </div>
                 ) : payModalCheckoutReady && checkout?.clientSecret ? (
                   <div className="min-h-[min(50vh,28rem)] overflow-hidden rounded-2xl border border-border bg-card">
                     <StripeEmbeddedCheckout clientSecret={checkout.clientSecret} />

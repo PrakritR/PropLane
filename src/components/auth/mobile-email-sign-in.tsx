@@ -6,6 +6,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import Link from "next/link";
 import { useState } from "react";
+import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 
 const LOGIN_TIMEOUT_MS = 6000;
 
@@ -24,7 +25,7 @@ async function tryResidentAutoConfirm(email: string): Promise<boolean> {
     const res = await fetch("/api/auth/confirm-resident-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: email.trim() }),
+      body: JSON.stringify({ email: normalizeAuthEmail(email) }),
     });
     return res.ok;
   } catch {
@@ -54,7 +55,7 @@ export function MobileEmailSignIn({
     try {
       const supabase = createSupabaseBrowserClient();
       let authResult = (await Promise.race([
-        supabase.auth.signInWithPassword({ email: email.trim(), password }),
+        supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }),
         new Promise<never>((_, reject) =>
           window.setTimeout(() => reject(new Error("Login timed out. Check your connection.")), LOGIN_TIMEOUT_MS),
         ),
@@ -64,7 +65,7 @@ export function MobileEmailSignIn({
       if (error?.message.toLowerCase().includes("email not confirmed")) {
         const repaired = await tryResidentAutoConfirm(email);
         if (repaired) {
-          authResult = (await supabase.auth.signInWithPassword({ email: email.trim(), password })) as SignInResult;
+          authResult = (await supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password })) as SignInResult;
           data = authResult.data;
           error = authResult.error;
         }
@@ -92,6 +93,11 @@ export function MobileEmailSignIn({
         id="mobile-sign-in-email"
         type="email"
         autoComplete="email"
+        // iOS/macOS autocapitalise the first letter by default, which used to
+        // make Manager@… a different account from manager@… (PRP-196).
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
         placeholder="Email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}

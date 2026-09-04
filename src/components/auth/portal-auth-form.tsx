@@ -30,8 +30,10 @@ import {
   prospectHandoffFromSearchParams,
 } from "@/lib/auth/prospect-handoff-storage";
 import Link from "next/link";
+import { GET_STARTED_PATH } from "@/lib/auth/get-started-path";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 
 const LOGIN_TIMEOUT_MS = 6000;
 /** Hub signup can lag GoTrue propagation; retries need a longer ceiling than sign-in. */
@@ -55,7 +57,7 @@ async function signInAfterSignup(
   let last: SignInResult = { data: { user: null, session: null }, error: { message: "Sign-in failed" } };
   for (let attempt = 0; attempt < 4; attempt++) {
     last = (await supabase.auth.signInWithPassword({
-      email: email.trim(),
+      email: normalizeAuthEmail(email),
       password,
     })) as SignInResult;
     if (last.data.user && !last.error) return last;
@@ -77,7 +79,28 @@ function friendlyAuthError(raw: string): string {
     return "We could not reach PropLane. Please check your connection and try again.";
   }
   if (raw.includes("NEXT_PUBLIC_SUPABASE")) return "PropLane auth is not configured. Set env vars in .env.local.";
+  // "Invalid login credentials" is Supabase's raw string and is not how the rest
+  // of the product speaks; it also routes nowhere, so someone whose account does
+  // not exist has no way to tell that from a typo (PRP-189).
+  //
+  // It deliberately stays AMBIGUOUS between "wrong password" and "no such
+  // account". Distinguishing them would make this form an account-existence
+  // oracle, which is the exact property `POST /api/auth/password-reset` answers
+  // `{ok:true}` for unknown addresses to avoid. What changes is that it now
+  // speaks plainly and names both ways forward, and the form renders those as
+  // real links beneath it.
+  if (lower.includes("invalid login credentials")) {
+    return "That email and password don't match an account. Check the password, or create an account if you don't have one yet.";
+  }
+  if (lower.includes("email not confirmed")) {
+    return "This account hasn't been confirmed yet. Check your email for the confirmation link.";
+  }
   return raw;
+}
+
+/** Whether the failure is one where "reset it" / "create one" are the next steps. */
+export function authErrorOffersAccountRoutes(message: string | null | undefined): boolean {
+  return (message ?? "").includes("don't match an account");
 }
 
 function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: string): Promise<T> {
@@ -121,7 +144,7 @@ async function tryResidentAutoConfirm(email: string): Promise<boolean> {
     const res = await fetch("/api/auth/confirm-resident-email", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: email.trim() }),
+      body: JSON.stringify({ email: normalizeAuthEmail(email) }),
     });
     return res.ok;
   } catch {
@@ -239,14 +262,14 @@ export function PortalAuthForm({
     try {
       const supabase = createSupabaseBrowserClient();
       let authResult = await withTimeout(
-        supabase.auth.signInWithPassword({ email: email.trim(), password }) as PromiseLike<SignInResult>,
+        supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }) as PromiseLike<SignInResult>,
         LOGIN_TIMEOUT_MS,
         "Login is taking too long. Please check your connection and try again.",
       );
       if (authResult.error?.message.toLowerCase().includes("email not confirmed")) {
         if (await tryResidentAutoConfirm(email)) {
           authResult = await withTimeout(
-            supabase.auth.signInWithPassword({ email: email.trim(), password }) as PromiseLike<SignInResult>,
+            supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }) as PromiseLike<SignInResult>,
             LOGIN_TIMEOUT_MS,
             "Login is taking too long. Please check your connection and try again.",
           );
@@ -260,7 +283,7 @@ export function PortalAuthForm({
       if (!user) throw new Error("No active session.");
       posthog.identify(user.id);
       try {
-        window.localStorage.setItem(REMEMBERED_EMAIL_KEY, email.trim());
+        window.localStorage.setItem(REMEMBERED_EMAIL_KEY, normalizeAuthEmail(email));
       } catch {
         /* ignore */
       }
@@ -293,7 +316,7 @@ export function PortalAuthForm({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            email: email.trim(),
+            email: normalizeAuthEmail(email),
             password,
             fullName: fullName.trim() || undefined,
             phone: phone.trim() || undefined,
@@ -308,7 +331,7 @@ export function PortalAuthForm({
         }
         const supabase = createSupabaseBrowserClient();
         const { data, error } = await withTimeout(
-          supabase.auth.signInWithPassword({ email: email.trim(), password }) as PromiseLike<SignInResult>,
+          supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }) as PromiseLike<SignInResult>,
           LOGIN_TIMEOUT_MS,
           "This is taking too long. Please check your connection and try again.",
         );
@@ -330,7 +353,7 @@ export function PortalAuthForm({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: email.trim(),
+          email: normalizeAuthEmail(email),
           password,
           fullName: fullName.trim() || undefined,
           // Was collected into state and then dropped on the floor here.
@@ -344,7 +367,7 @@ export function PortalAuthForm({
       }
       const supabase = createSupabaseBrowserClient();
       const { data, error } = await withTimeout(
-        signInAfterSignup(supabase, email.trim(), password),
+        signInAfterSignup(supabase, normalizeAuthEmail(email), password),
         SIGNUP_SIGNIN_TIMEOUT_MS,
         "This is taking too long. Please check your connection and try again.",
       );
@@ -434,6 +457,11 @@ export function PortalAuthForm({
       <Input
         type="email"
         autoComplete="email"
+        // iOS/macOS autocapitalise the first letter by default, which used to
+        // make Manager@… a different account from manager@… (PRP-196).
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
         placeholder="Email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
@@ -503,6 +531,11 @@ export function PortalAuthForm({
           className="mt-1.5"
           type="email"
           autoComplete="email"
+          // iOS/macOS autocapitalise the first letter by default, which used to
+          // make Manager@… a different account from manager@… (PRP-196).
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           disabled={busy}
@@ -641,7 +674,25 @@ export function PortalAuthForm({
         </div>
       ) : null}
 
-      {errorText ? <p className="mt-4 text-center text-sm text-rose-600">{errorText}</p> : null}
+      {errorText ? (
+        <div className="mt-4 text-center" data-attr="portal-auth-error">
+          <p className="text-sm text-rose-600">{errorText}</p>
+          {authErrorOffersAccountRoutes(errorText) ? (
+            // The error itself routes somewhere. Previously the only ways
+            // forward were small print at the bottom of the page, so someone
+            // whose account did not exist had nothing to act on (PRP-189).
+            <p className="mt-1.5 text-xs text-muted">
+              <Link className="font-semibold underline underline-offset-2" href="/auth/forgot-password">
+                Reset your password
+              </Link>
+              {" · "}
+              <Link className="font-semibold underline underline-offset-2" href={GET_STARTED_PATH}>
+                Create an account
+              </Link>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <Button
         type="button"

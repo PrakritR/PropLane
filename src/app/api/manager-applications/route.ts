@@ -23,6 +23,7 @@ import { SMS_CONSENT_WORDING_VERSION } from "@/lib/rental-application/sms-consen
 import { revokeApplicationScopedSmsConsentOnWithdrawal } from "@/lib/sms/application-consent.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { bestEffortFailed } from "@/lib/observability/best-effort";
 
 export const runtime = "nodejs";
 
@@ -633,7 +634,9 @@ export async function GET(req?: Request) {
       const existingSet = new Set((existing ?? []).map((p) => (p.email ?? "").trim().toLowerCase()).filter(Boolean));
       const unprovisioned = approved.filter((r) => !existingSet.has(r.email!.trim().toLowerCase()));
       if (unprovisioned.length > 0) {
-        await Promise.allSettled(unprovisioned.map((row) => provisionApprovedResidentAccount(db, row).catch(() => undefined)));
+        await Promise.allSettled(unprovisioned.map((row) => provisionApprovedResidentAccount(db, row).catch(
+            bestEffortFailed("approved resident account provisioning", { application: row.id }),
+          )));
       }
     }
 
@@ -692,7 +695,9 @@ export async function POST(req: Request) {
         const previousRow = (stored?.row_data ?? null) as DemoApplicantRow | null;
         await persistNormalizedRow(db, anchored.id, anchored);
         await revokeMaterializedApplicationConsentAfterWrite(db, stored, anchored);
-        void syncApplicationLifecycleTasks(db, previousRow, anchored).catch(() => undefined);
+        void syncApplicationLifecycleTasks(db, previousRow, anchored).catch(
+          bestEffortFailed("application lifecycle task sync", { application: anchored.id }),
+        );
         if (anchored.bucket === "pending" && anchored.application?.consentCredit) {
           void tryAutoOrderScreening(db, anchored);
         }
@@ -840,16 +845,30 @@ export async function POST(req: Request) {
         clientSetupToken: typeof body.setupToken === "string" ? body.setupToken : null,
       });
       if (!guest.ok) {
-        return NextResponse.json({ error: guest.error }, { status: guest.status });
+        // `existingApplicationId` rides along on a duplicate so the client can
+        // open the application the person already has, instead of stopping at
+        // an error about work they have already done.
+        return NextResponse.json(
+          {
+            error: guest.error,
+            existingApplicationId: guest.existingApplicationId,
+            fieldErrors: guest.fieldErrors,
+          },
+          { status: guest.status },
+        );
       }
       row = anchorServerOwnedSmsConsent(guest.row, existing ?? null);
       const previousRow = existing ?? null;
       await persistNormalizedRow(db, row.id, row);
       await revokeMaterializedApplicationConsentAfterWrite(db, existingRecord ?? null, row);
       if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
-        void notifyManagerApplicationSubmitted(db, row).catch(() => undefined);
+        void notifyManagerApplicationSubmitted(db, row).catch(
+          bestEffortFailed("manager application-submitted notice", { application: row.id, manager: row.managerUserId }),
+        );
       }
-      void syncApplicationLifecycleTasks(db, previousRow, row).catch(() => undefined);
+      void syncApplicationLifecycleTasks(db, previousRow, row).catch(
+        bestEffortFailed("application lifecycle task sync", { application: row.id }),
+      );
       if (row.bucket === "pending" && row.application?.consentCredit) {
         void tryAutoOrderScreening(db, row);
       }
@@ -939,7 +958,14 @@ export async function POST(req: Request) {
         linkProfile: role === "resident",
       });
       if (!linked.ok) {
-        return NextResponse.json({ error: linked.error }, { status: linked.status });
+        return NextResponse.json(
+          {
+            error: linked.error,
+            existingApplicationId: linked.existingApplicationId,
+            fieldErrors: linked.fieldErrors,
+          },
+          { status: linked.status },
+        );
       }
       row = linked.row;
       row = anchorServerOwnedSmsConsent(row, existing ?? null);
@@ -986,9 +1012,13 @@ export async function POST(req: Request) {
     await persistNormalizedRow(db, row.id, row);
     await revokeMaterializedApplicationConsentAfterWrite(db, priorLoad.record, row);
     if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
-      void notifyManagerApplicationSubmitted(db, row).catch(() => undefined);
+      void notifyManagerApplicationSubmitted(db, row).catch(
+          bestEffortFailed("manager application-submitted notice", { application: row.id, manager: row.managerUserId }),
+        );
     }
-    void syncApplicationLifecycleTasks(db, previousRow, row).catch(() => undefined);
+    void syncApplicationLifecycleTasks(db, previousRow, row).catch(
+        bestEffortFailed("application lifecycle task sync", { application: row.id }),
+      );
     if (row.bucket === "pending" && row.application?.consentCredit) {
       void tryAutoOrderScreening(db, row);
     }

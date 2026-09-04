@@ -13,6 +13,7 @@ import { fetchCurrentUserHasPassword } from "@/lib/auth/current-user-has-passwor
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { requestPasswordReset } from "@/lib/auth/request-password-reset";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -82,7 +83,7 @@ export function PortalChangePasswordPanel({ accountEmail }: { accountEmail: stri
       const supabase = createSupabaseBrowserClient();
       if (!settingFirstPassword) {
         const { error: verifyError } = await supabase.auth.signInWithPassword({
-          email,
+          email: normalizeAuthEmail(email),
           password: oldPassword,
         });
         if (verifyError) {

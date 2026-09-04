@@ -244,6 +244,51 @@ describe("payoutVendorForWorkOrder", () => {
     expect(updated.at(-1)).toMatchObject({ status: "paid", stripe_transfer_id: "tr_retry" });
   });
 
+  /**
+   * The manager's bookkeeping succeeds whether or not the transfer does, so the
+   * outcome is the only way anything downstream can learn a vendor is owed
+   * money. Before this the function returned void and the failure lived solely
+   * in a vendor_payouts row with no surface (PRP-233).
+   */
+  it("reports the outcome so the caller can tell somebody", async () => {
+    const paid = fakeDb({ bids: [{ amount_cents: 20000, status: "accepted" }], connectAccountId: "acct_1" });
+    vi.mocked(getStripe).mockReturnValue({
+      transfers: { create: vi.fn().mockResolvedValue({ id: "tr_ok" }) },
+    } as never);
+    vi.mocked(retrieveManagerConnectAccountOrNull).mockResolvedValue({ id: "acct_1" } as never);
+    vi.mocked(connectAccountTransfersActive).mockReturnValue(true);
+    await expect(
+      payoutVendorForWorkOrder(paid.client as never, {
+        workOrderId: "WO-OK",
+        managerUserId: "mgr-1",
+        vendorUserId: "vendor-1",
+        amountCents: 20000,
+      }),
+    ).resolves.toEqual({ status: "paid", amountCents: 20000 });
+
+    const noAccount = fakeDb({ bids: [{ amount_cents: 20000, status: "accepted" }], connectAccountId: null });
+    const failed = await payoutVendorForWorkOrder(noAccount.client as never, {
+      workOrderId: "WO-NOACCT",
+      managerUserId: "mgr-1",
+      vendorUserId: "vendor-1",
+      amountCents: 20000,
+    });
+    expect(failed.status).toBe("failed");
+    // The amount is carried so the notice can name what is owed.
+    expect(failed.amountCents).toBe(20000);
+    expect(failed.failureReason).toMatch(/has not connected a Stripe payout account/i);
+
+    const nothingOwed = fakeDb({ bids: [{ amount_cents: 20000, status: "submitted" }], connectAccountId: "acct_1" });
+    await expect(
+      payoutVendorForWorkOrder(nothingOwed.client as never, {
+        workOrderId: "WO-NOANCHOR",
+        managerUserId: "mgr-1",
+        vendorUserId: "vendor-1",
+        amountCents: 20000,
+      }),
+    ).resolves.toMatchObject({ status: "skipped" });
+  });
+
   it("does not re-claim a payout that already succeeded", async () => {
     const { client, updated } = fakeDb({
       bids: [{ amount_cents: 20000, status: "accepted" }],

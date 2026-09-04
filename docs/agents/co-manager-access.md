@@ -3,18 +3,43 @@
 
 # Co-manager access (module scoping + granular levels)
 
-**A co-manager link grants module access; the permissions editor restricts it.**
-An accepted `account_link_invites` row with an EMPTY permissions object grants
-every module on its assigned properties (assignment IS the grant); once any
-module is checked, the set becomes a restriction. Grants are per-property, per
-module, and now carry LEVELS: legacy `true` = read+edit+delete; the granular
-form is `{ read, edit, delete }` (`edit`/`delete` imply `read`). Model + level
-helpers live in `src/lib/co-manager-permissions.ts`
+**A co-manager link grants nothing until a module is granted.** Assignment is
+NOT the grant: an accepted `account_link_invites` row whose per-property
+permissions entry is absent or `{}` confers **no access**. Grants are
+per-property, per module, and carry LEVELS: legacy `true` = read+edit+delete;
+the granular form is `{ read, edit, delete }` (`edit`/`delete` imply `read`).
+Model + level helpers live in `src/lib/co-manager-permissions.ts`
 (`hasCoManagerPermissionLevel[ForProperty]`).
 
-**`assigned_property_ids` is authorization, not a request field.** Because an
-empty permissions object is a FULL grant, the assigned list alone decides what a
-co-manager reaches. Every route that sets it validates it against real ownership
+**`coManagerModuleAllowed` is the ONE answer to "may this co-manager use this
+module".** The server scope (`src/lib/auth/co-manager-module-scope.ts`) and the
+client portfolio mirror (`src/lib/manager-portfolio-access.ts`) both delegate to
+it, so the two sides cannot drift.
+
+**Empty used to mean FULL, and that was the bug (PRP-199).** An empty map read
+as "no restrictions" — every module at every level, including delete on leases,
+financials and documents — and a manager reached it two ways without ever
+opening the permissions editor:
+
+- checking a property in the invite modal seeded `{}`, so check-two-properties →
+  Send invite was the widest possible grant; and
+- turning every level off DELETED every module key, which also produced `{}` —
+  so the gesture that restricts a co-manager to nothing granted them everything.
+
+Now: the invite modal seeds an explicit read-only grant
+(`buildAllModulesGrant("read")`), the editor's empty state says "No access", and
+the invite modal states the effective grant per property in words
+(`describeCoManagerPermissions`) before it is sent. Full access is stored
+explicitly as every module `true`. Existing links that were relying on the old
+sentinel are rewritten to that explicit full grant by
+`20260904150000_co_manager_permissions_explicit_grant.sql`, so no live
+co-manager loses access — **that migration must be applied (`npm run db:push`)
+in any environment running this code.** Coverage:
+`tests/unit/co-manager-empty-permissions-deny.test.ts`.
+
+**`assigned_property_ids` is still authorization, not a request field.** It
+bounds which properties a grant can even name. Every route that sets it
+validates it against real ownership
 with `findPropertyIdsNotOwnedByManager`
 (`src/lib/auth/co-manager-invite-scope.ts`) and rejects the whole request (403)
 if any id is not the inviter's — a non-existent id counts as unowned, and a
@@ -116,13 +141,17 @@ the entire "co-manager does nothing" bug. `20260716120000` restores the column.
 The panel now defaults to remote mode and only downgrades on a confirmed
 missing table (`migrationRequired`), never on transient errors.
 
-**Work numbers and Communication.** Each property-owning manager provisions
-their own PropLane number; a pure co-manager does not. SMS and email for a
-house use the **owner's** number/inbox. A co-manager with Communication
+**Work numbers and Communication.** Every manager account that clears the plan
+check provisions its **own** PropLane number and its **own** `assist-…@`
+assistant address — a pure co-manager included, inheriting plan eligibility from
+an inviter. Product-sent SMS *for a house* still goes from the house owner's
+number; a co-manager's own number and address are how people reach **them**, and
+resolve to the houses assigned to them across every owner. A co-manager with Communication
 (`inbox`) on ≥1 assigned property of that owner can view those threads
 (`read`), reply and send (`edit`), and delete (`delete`) in PropLane
 Communication — `viewerAndLinkedOwnerIdsForModule(..., "inbox", level)`.
-Empty permissions remain a full grant on assigned properties.
+Communication access, like every other module, must be granted explicitly — an
+empty permissions entry reaches nothing.
 
 The SMS assistant follows the number that was texted, not the portal session:
 texting their **own** work number answers about owned houses plus assigned

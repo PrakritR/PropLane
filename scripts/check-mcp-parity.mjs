@@ -90,6 +90,30 @@ if (parsed) {
         if (!origins.includes(origin)) fail(`playwright --allowed-origins is missing ${origin}`);
       }
     }
+
+    // The app's own BACKENDS, not just its ports.
+    //
+    // The list once held localhost only, so every call to Supabase — auth
+    // included — was refused as ERR_BLOCKED_BY_CLIENT. That does not read as a
+    // config gap: `signInWithPassword` fails with a bare "TypeError: Failed to
+    // fetch", which looks exactly like a product defect. A whole audit's worth
+    // of "console error" bugs was filed off the back of it, and no
+    // authenticated surface had actually been tested at all.
+    //
+    // Guarded here so the same gap fails loudly, the way the port range does.
+    for (const origin of [
+      "https://*.supabase.co",
+      "https://api.stripe.com",
+      "https://js.stripe.com",
+      "https://*.posthog.com",
+    ]) {
+      if (!origins.includes(origin)) {
+        fail(
+          `playwright --allowed-origins is missing ${origin} — browser QA will see ` +
+            `ERR_BLOCKED_BY_CLIENT and report it as an app bug.`,
+        );
+      }
+    }
   }
 }
 

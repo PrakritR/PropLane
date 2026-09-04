@@ -105,3 +105,17 @@ if (candidates.length === 0) {
 } else {
   console.log(`seed-worktree-env: ${copied} copied, ${skipped} skipped.`);
 }
+
+// Next loads `.env.production.local` for ANY production build, so its presence
+// means a local `npm run build` can silently target the PRODUCTION Supabase
+// project. That was documented only in docs/database-environments.md, where you
+// have to already suspect it to go looking — so say it where the file arrives.
+if (candidates.includes(".env.production.local") && existsSync(join(thisRoot, ".env.production.local"))) {
+  console.log(
+    "\n  WARNING  .env.production.local is present in this worktree.\n" +
+      "           Next loads it for any production build, so `npm run build` here can\n" +
+      "           target the PRODUCTION Supabase project rather than dev/test.\n" +
+      "           Confirm the project ref before building: docs/database-environments.md\n" +
+      "           #a-local-production-build-can-silently-target-production",
+  );
+}

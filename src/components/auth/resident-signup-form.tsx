@@ -16,6 +16,8 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { isUnsafeRedirectPath } from "@/lib/auth/normalize-post-auth-path";
 import { nativeAwarePath } from "@/lib/auth/native-auth-entry";
 import { navigateAfterRoleSignup } from "@/lib/auth/navigate-after-role-signup";
+import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
+import { withAuthTimeout } from "@/lib/auth/with-timeout";
 
 type RegisterResponse = {
   error?: string;
@@ -110,7 +112,7 @@ export function ResidentSignupForm({
       const res = await fetch("/api/auth/resident-register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password, fullName: fullName.trim(), phone: phone.trim() }),
+        body: JSON.stringify({ email: normalizeAuthEmail(email), password, fullName: fullName.trim(), phone: phone.trim() }),
       });
       const body = (await res.json()) as RegisterResponse;
       if (!res.ok) {
@@ -118,10 +120,22 @@ export function ResidentSignupForm({
         return;
       }
       const supabase = createSupabaseBrowserClient();
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
+      // BOUNDED — a network-level failure here otherwise never settles and the
+      // button stays busy forever while the account quietly exists (PRP-187).
+      // A stall is treated as a refusal: the fallback below already knows how
+      // to say "account created, sign in to continue".
+      type SignInResult = Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>;
+      let signInData: SignInResult["data"] | null = null;
+      let signInError: unknown = null;
+      try {
+        const result = await withAuthTimeout<SignInResult>(
+          supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }),
+        );
+        signInData = result.data;
+        signInError = result.error;
+      } catch (timeoutOrNetwork) {
+        signInError = timeoutOrNetwork;
+      }
       if (signInError) {
         // Preserve the resident intent + listing context so a manual sign-in
         // still lands them on this application, not a generic portal.
@@ -165,6 +179,11 @@ export function ResidentSignupForm({
       <Input
         type="email"
         autoComplete="email"
+        // iOS/macOS autocapitalise the first letter by default, which used to
+        // make Manager@… a different account from manager@… (PRP-196).
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
         placeholder="Email"
         value={email}
         onChange={(e) => setEmail(e.target.value)}
@@ -217,6 +236,11 @@ export function ResidentSignupForm({
           type="email"
           className="mt-1.5"
           autoComplete="email"
+          // iOS/macOS autocapitalise the first letter by default, which used to
+          // make Manager@… a different account from manager@… (PRP-196).
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           disabled={locked}

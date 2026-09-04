@@ -12,7 +12,10 @@ export function assistantEmailUpsellMessage(
   planTier: ManagerMessagingPlanTier,
   entitlement: ManagerMessagingEntitlement,
 ): string | null {
-  if (planTier === "free" || entitlement.reason === "free") {
+  // `reason` lives only on the not-eligible branch of the union, so narrow
+  // before reading it. Same behaviour — on an eligible entitlement the property
+  // is absent and the comparison was already false — it just typechecks.
+  if (planTier === "free" || (!entitlement.eligible && entitlement.reason === "free")) {
     return "A dedicated PropLane assistant email is included with an active paid Pro or Business plan.";
   }
   if (entitlement.eligible) return null;
@@ -33,7 +36,10 @@ export function assistantEmailEligibilityError(
   entitlement: ManagerMessagingEntitlement,
 ): string {
   if (entitlement.eligible) return "";
-  if (planTier === "free" || entitlement.reason === "free") {
+  // `reason` lives only on the not-eligible branch of the union, so narrow
+  // before reading it. Same behaviour — on an eligible entitlement the property
+  // is absent and the comparison was already false — it just typechecks.
+  if (planTier === "free" || (!entitlement.eligible && entitlement.reason === "free")) {
     return "A paid Pro or Business plan is required for a PropLane assistant email.";
   }
   switch (entitlement.reason) {

@@ -21,6 +21,7 @@ import {
   teamId,
 } from "./linear/graphql.mjs";
 import { signInToPortal, completePostAuthNavigation, dismissDevOverlay } from "./qa-portal-sign-in.mjs";
+import { qaPortalAccounts } from "../tests/fixtures/qa-accounts.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = join(__dirname, "..");
@@ -33,12 +34,8 @@ const OUT_JSON = join(REPO, "docs/linear/manifests", `qa-mobile-${DATE}.json`);
 
 mkdirSync(SHOT_DIR, { recursive: true });
 
-const ACCOUNTS = {
-  manager: { email: "manager@test.proplane.local", password: "TestManager123!", role: "manager", home: "/portal/dashboard" },
-  resident: { email: "resident@test.proplane.local", password: "TestResident123!", role: "resident", home: "/resident/dashboard" },
-  vendor: { email: "vendor@test.proplane.local", password: "TestVendor123!", role: "vendor", home: "/vendor/dashboard" },
-  admin: { email: "admin@test.proplane.local", password: "TestAdmin123!", role: "admin", home: "/admin/dashboard" },
-};
+// One source: tests/fixtures/qa-accounts.mjs (`npm run test:accounts:check`).
+const ACCOUNTS = qaPortalAccounts();
 
 /** @type {Array<Record<string, unknown>>} */
 const findings = [];

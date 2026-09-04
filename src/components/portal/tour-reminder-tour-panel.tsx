@@ -240,7 +240,7 @@ export function TourReminderTourPanel({
             editable={editingReminder.status === "scheduled"}
             busy={detailBusy}
             presentation="detail"
-            recipient={editingReminder.residentEmail}
+            recipient={editingReminder.recipientEmail}
             sendAt={editingReminder.sendAt}
             onCancel={() => void toggleCancelled(editingReminder, true).then(() => setEditingReminder(null))}
             onSendNow={() => {}}

@@ -32,6 +32,7 @@ import {
   type VendorIncomeRow,
 } from "@/lib/vendor-income";
 import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payouts";
+import type { VendorLinkedManager } from "@/lib/vendor-own-record";
 import {
   formatInvoiceMoney,
   normalizeLineItems,
@@ -282,13 +283,19 @@ function SubmitInvoiceModal({
   open,
   onClose,
   onSubmitted,
+  managers,
 }: {
   open: boolean;
   onClose: () => void;
   onSubmitted: () => void;
+  /** Managers this vendor is linked to. Serving several clients is the normal case. */
+  managers: VendorLinkedManager[];
 }) {
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [workOrderId, setWorkOrderId] = useState("");
+  // Only asked for when there is a real choice. The server picks the sole link otherwise, and
+  // refuses an id this vendor is not linked to either way.
+  const [managerUserId, setManagerUserId] = useState("");
   const [memo, setMemo] = useState("");
   const [lines, setLines] = useState<InvoiceFormLine[]>([emptyLine()]);
   const [saving, setSaving] = useState(false);
@@ -310,6 +317,7 @@ function SubmitInvoiceModal({
   function reset() {
     setInvoiceNumber("");
     setWorkOrderId("");
+    setManagerUserId("");
     setMemo("");
     setLines([emptyLine()]);
     setError(null);
@@ -318,6 +326,10 @@ function SubmitInvoiceModal({
   async function handleSubmit() {
     if (previewLines.length === 0) {
       setError("Add at least one line item with an amount.");
+      return;
+    }
+    if (managers.length > 1 && !managerUserId) {
+      setError("Choose which manager this invoice is for.");
       return;
     }
     setSaving(true);
@@ -329,6 +341,7 @@ function SubmitInvoiceModal({
         body: JSON.stringify({
           invoiceNumber: invoiceNumber.trim() || undefined,
           workOrderId: workOrderId.trim() || undefined,
+          managerUserId: managerUserId.trim() || undefined,
           memo: memo.trim() || undefined,
           lineItems: lines.map((l) => ({
             description: l.description,
@@ -376,6 +389,24 @@ function SubmitInvoiceModal({
       }
     >
       <div className="space-y-4">
+        {managers.length > 1 ? (
+          <label className="block space-y-1">
+            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Bill to</span>
+            <select
+              className={INVOICE_FORM_INPUT}
+              value={managerUserId}
+              onChange={(e) => setManagerUserId(e.target.value)}
+              data-attr="vendor-invoice-manager"
+            >
+              <option value="">Choose a manager…</option>
+              {managers.map((m) => (
+                <option key={m.managerUserId} value={m.managerUserId}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block space-y-1">
             <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Invoice # (optional)</span>
@@ -479,6 +510,7 @@ function formatInvoiceDate(iso: string): string {
 
 function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label: string; href: string }[]; tabId: string }) {
   const [invoices, setInvoices] = useState<VendorInvoice[]>([]);
+  const [managers, setManagers] = useState<VendorLinkedManager[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<"all" | VendorInvoiceStatus>("all");
   const [modalOpen, setModalOpen] = useState(false);
@@ -491,8 +523,9 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
         setInvoices([]);
         return;
       }
-      const body = (await res.json()) as { invoices?: VendorInvoice[] };
+      const body = (await res.json()) as { invoices?: VendorInvoice[]; managers?: VendorLinkedManager[] };
       setInvoices(body.invoices ?? []);
+      setManagers(body.managers ?? []);
     } catch {
       setInvoices([]);
     } finally {
@@ -603,7 +636,7 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
         </>
       )}
 
-      <SubmitInvoiceModal open={modalOpen} onClose={() => setModalOpen(false)} onSubmitted={load} />
+      <SubmitInvoiceModal open={modalOpen} onClose={() => setModalOpen(false)} onSubmitted={load} managers={managers} />
     </ManagerPortalPageShell>
   );
 }

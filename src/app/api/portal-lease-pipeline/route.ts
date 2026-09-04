@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import {
   fetchLeasesForManagerUser,
@@ -14,7 +15,11 @@ import {
   leaseAllowsManagerDocumentEdits,
   leaseDocumentBody,
   leaseDocumentBodyChanged,
+  leaseClaimsExecution,
+  refuseResidentLeaseSignatureWrite,
   replacesSignedLeaseDocument,
+  leaseSignatureRoleForgedBy,
+  leaseSignatureWriteRefusal,
   rowHasAnySignature,
 } from "@/lib/lease-execution-evidence";
 import { leaseBodyMatchesManagerFiledLease } from "@/lib/lease-manager-filed-document.server";
@@ -23,6 +28,14 @@ import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { syncLeaseLifecycleTasks } from "@/lib/manager-default-tasks.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+
+/** The resident-identity scope for this route's two reads; null = match nothing. */
+function residentIdentityFilter(user: { id?: string | null; email?: string | null }): string | null {
+  return orFilterForIdentity([
+    ["resident_user_id", user.id],
+    ["resident_email", user.email],
+  ]);
+}
 
 export const runtime = "nodejs";
 
@@ -261,10 +274,14 @@ export async function GET() {
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       records = (data ?? []) as LeaseScopeRecord[];
     } else if (ctx.user.role === "resident") {
+      // A resident with no identity sees nothing — never an unscoped read of a
+      // table that holds every manager's leases.
+      const residentScope = residentIdentityFilter(ctx.user);
+      if (!residentScope) return NextResponse.json({ rows: [] });
       const { data, error } = await ctx.db
         .from("portal_lease_pipeline_records")
         .select("id, row_data, updated_at")
-        .or(`resident_user_id.eq.${ctx.user.id},resident_email.eq.${ctx.user.email ?? ""}`)
+        .or(residentScope)
         .order("updated_at", { ascending: false })
         .limit(500);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -469,14 +486,62 @@ export async function POST(req: Request) {
       // browser also materializes — is admitted only by matching the bytes the
       // manager filed on the application record, keyed on the STORED row's
       // `axisId` and owner.
+      const introducesDocumentClaimingExecution = introducesUntrustedLeaseDocument(
+        storedRow,
+        normalized as unknown as LeasePipelineRow,
+      );
       const untrustedDocument =
-        introducesUntrustedLeaseDocument(storedRow, normalized as unknown as LeasePipelineRow) &&
+        introducesDocumentClaimingExecution &&
         !(await leaseBodyMatchesManagerFiledLease(
           ctx.db,
           storedRow?.axisId,
           existingRecord?.manager_user_id,
           leaseDocumentBody(normalized as unknown as LeasePipelineRow),
         ));
+
+      // The signature itself, same reasoning as the document-body rule above.
+      // `residentSignLease` / `managerSignLease` already refuse a second signature and a row
+      // that was never sent, but they run in the browser against a store the browser owns —
+      // and `row_data` is writable by the row's own resident, so that check was advisory.
+      // Without this, a resident could sign twice (destroying the hash the first signature
+      // recorded, which is the only evidence of what they agreed to) or sign a lease still
+      // sitting in manager review. Keyed on the signature rather than the actor: writing
+      // someone else's signature is the same forgery whoever's session it arrives on.
+      //
+      // Exempt: the corroborated filing of an already-executed OFF-PLATFORM lease, which is
+      // not signing at all. Its trust comes from the bytes matching the lease the manager
+      // filed on the application — the check immediately above — so it legitimately arrives
+      // carrying both signatures on a row that was never "awaiting" either. The exemption is
+      // keyed on that corroboration actually having run and passed, never on a request flag,
+      // and it does not cover a write that adds signatures WITHOUT introducing the document
+      // they attest to: that is the sign-before-send shape this guard exists to refuse.
+      const filesCorroboratedExternalLease = introducesDocumentClaimingExecution && !untrustedDocument;
+      if (storedRow && !filesCorroboratedExternalLease) {
+        const signatureRefusal = leaseSignatureWriteRefusal(
+          storedRow,
+          normalized as unknown as LeasePipelineRow,
+        );
+        if (signatureRefusal) {
+          return NextResponse.json({ error: signatureRefusal }, { status: 409 });
+        }
+
+        // Whose signature it is, which the refusal above deliberately does not judge. From the
+        // row's own state a manager countersignature is legitimate — the lease IS awaiting one
+        // — so nothing else stopped a RESIDENT from writing it and marking the lease fully
+        // executed against a manager who never countersigned. A party may only ever add their
+        // own signature.
+        const forgedRole = leaseSignatureRoleForgedBy(
+          storedRow,
+          normalized as unknown as LeasePipelineRow,
+          ctx.user.role === "resident" ? "resident" : "manager",
+        );
+        if (forgedRole) {
+          return NextResponse.json(
+            { error: `Only the ${forgedRole} can add the ${forgedRole}'s signature.` },
+            { status: 403 },
+          );
+        }
+      }
 
       // P4's signature check above is authoritative once signing begins. These two
       // companion checks close the earlier window: a document must not be replaced
@@ -579,11 +644,13 @@ export async function POST(req: Request) {
         scope = { ...storedScopeColumns(existingRecord), ...clientNamedScopeParts(normalized) };
       } else if (recordExists) {
         if (ctx.user.role === "resident") {
+          const residentScope = residentIdentityFilter(ctx.user);
+          if (!residentScope) return NextResponse.json({ error: "Record not found." }, { status: 404 });
           const { data: visible } = await ctx.db
             .from("portal_lease_pipeline_records")
             .select("id")
             .eq("id", id)
-            .or(`resident_user_id.eq.${ctx.user.id},resident_email.eq.${ctx.user.email ?? ""}`)
+            .or(residentScope)
             .limit(1);
           if (!Array.isArray(visible) || visible.length === 0) {
             return NextResponse.json({ error: "Record not found." }, { status: 404 });
@@ -599,6 +666,16 @@ export async function POST(req: Request) {
               { error: "A lease document cannot be replaced and signed in the same request." },
               { status: 409 },
             );
+          }
+          if (storedRow) {
+            const residentSigningExempt =
+              !untrustedDocument && leaseClaimsExecution(nextRow) && !leaseClaimsExecution(storedRow);
+            const signatureRefusal = refuseResidentLeaseSignatureWrite(storedRow, nextRow, {
+              exemptNotReady: residentSigningExempt,
+            });
+            if (!signatureRefusal.ok) {
+              return NextResponse.json({ error: signatureRefusal.error }, { status: signatureRefusal.status });
+            }
           }
           scope = storedScopeColumns(existingRecord);
         } else {

@@ -408,8 +408,26 @@ describe("smsInboxOwnerIds", () => {
     } as never;
   }
 
-  it("includes the work-number owner when Communication is granted (empty perms = full grant)", async () => {
-    expect(await smsInboxOwnerIds(ctxFor(seed(), delegated), "edit")).toEqual([OWNER]);
+  it("includes the work-number owner when Communication is granted", async () => {
+    const db = seed({
+      account_link_invites: [
+        {
+          id: "link-1",
+          status: "accepted",
+          inviter_user_id: OWNER,
+          invitee_user_id: CO,
+          assigned_property_ids: [ASSIGNED],
+          property_co_manager_permissions: { [ASSIGNED]: { inbox: true } },
+        },
+      ],
+    });
+    expect(await smsInboxOwnerIds(ctxFor(db, delegated), "edit")).toEqual([OWNER]);
+  });
+
+  it("drops the owner when the link grants no modules at all", async () => {
+    // An empty permissions map is NO access, not the full grant it once was.
+    // See tests/unit/co-manager-empty-permissions-deny.test.ts.
+    expect(await smsInboxOwnerIds(ctxFor(seed(), delegated), "edit")).toEqual([]);
   });
 
   it("drops the owner when the assignment excludes Communication", async () => {

@@ -1,46 +1,99 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { attachResidentSetupToken, isResidentSetupTokenValid } from "@/lib/auth/resident-setup-token";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
+import { findDuplicateApplication } from "@/lib/rental-application/duplicate-application.server";
+import { validateSubmittedApplication } from "@/lib/rental-application/validate-submission.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 export type GuestApplicationUpsertResult =
   | { ok: true; row: DemoApplicantRow; setupToken: string }
-  | { ok: false; status: number; error: string };
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      existingApplicationId?: string;
+      /** Per-field messages from the shared wizard validator. */
+      fieldErrors?: Record<string, string>;
+    };
+
+/** Shown when the same person already has a submitted application for this room. */
+export const DUPLICATE_APPLICATION_ERROR =
+  "You have already applied to this room. Open your existing application to check its status.";
 
 export function isValidGuestApplicationEmail(email: string): boolean {
   return EMAIL_RE.test(email.trim().toLowerCase());
 }
 
+/** The message an applicant sees when a listing is no longer taking applications. */
+export const LISTING_NOT_ACCEPTING_APPLICATIONS_ERROR =
+  "This home is no longer accepting applications. Browse other homes to find one that is.";
+
 /**
- * The manager a listing belongs to — the single server-side source of application
- * attribution, shared by the guest and signed-in-resident submit paths. Reads the
- * record's `manager_user_id` first, then the legacy `property_data.managerUserId`.
- * Returns null when the listing is unknown or carries no manager.
+ * Only a LIVE listing accepts applications.
+ *
+ * `manager_property_records.status` is one of pending / live / review /
+ * request_change / unlisted / rejected / draft. A manager unpublishes for real
+ * reasons — the unit is rented, the listing was wrong, the property is
+ * off-market — and applications continuing to arrive undermines the one control
+ * they have. It also bills the applicant for a home that is not available,
+ * which is a refund conversation the product created.
  */
-export async function resolveManagerUserIdForProperty(
+export function propertyStatusAcceptsApplications(status: string | null | undefined): boolean {
+  return (status ?? "").trim() === "live";
+}
+
+export type PropertyApplicationTarget = {
+  managerUserId: string | null;
+  status: string | null;
+  /** Whether a NEW application may be submitted against this listing right now. */
+  acceptsApplications: boolean;
+};
+
+/**
+ * The manager a listing belongs to, and whether it is still taking
+ * applications — the single server-side source of application attribution,
+ * shared by the guest and signed-in-resident submit paths. Reads the record's
+ * `manager_user_id` first, then the legacy `property_data.managerUserId`.
+ */
+export async function resolvePropertyApplicationTarget(
   db: SupabaseClient,
   propertyId: string,
-): Promise<string | null> {
+): Promise<PropertyApplicationTarget> {
   const trimmed = propertyId.trim();
-  if (!trimmed) return null;
+  if (!trimmed) return { managerUserId: null, status: null, acceptsApplications: false };
 
   const { data: propertyRecord } = await db
     .from("manager_property_records")
-    .select("manager_user_id, property_data")
+    .select("manager_user_id, status, property_data")
     .eq("id", trimmed)
     .maybeSingle();
 
   const direct = typeof propertyRecord?.manager_user_id === "string" ? propertyRecord.manager_user_id.trim() : "";
-  if (direct) return direct;
-
   const propertyData =
     propertyRecord?.property_data && typeof propertyRecord.property_data === "object" && !Array.isArray(propertyRecord.property_data)
       ? (propertyRecord.property_data as Record<string, unknown>)
       : null;
   const fromData = typeof propertyData?.managerUserId === "string" ? propertyData.managerUserId.trim() : "";
-  return fromData || null;
+  const status = typeof propertyRecord?.status === "string" ? propertyRecord.status : null;
+
+  return {
+    managerUserId: direct || fromData || null,
+    status,
+    // An unknown listing accepts nothing: fail closed rather than treating a
+    // missing row as permissive.
+    acceptsApplications: Boolean(propertyRecord) && propertyStatusAcceptsApplications(status),
+  };
+}
+
+/** Attribution only. Prefer {@link resolvePropertyApplicationTarget} on a submit path. */
+export async function resolveManagerUserIdForProperty(
+  db: SupabaseClient,
+  propertyId: string,
+): Promise<string | null> {
+  return (await resolvePropertyApplicationTarget(db, propertyId)).managerUserId;
 }
 
 /**
@@ -83,11 +136,59 @@ export async function prepareGuestApplicationUpsert(
     return { ok: false, status: 400, error: "A property is required to submit an application." };
   }
 
-  const managerUserId =
-    (await resolveManagerUserIdForProperty(db, propertyId)) || params.existing?.managerUserId?.trim() || null;
+  const target = await resolvePropertyApplicationTarget(db, propertyId);
+  const managerUserId = target.managerUserId || params.existing?.managerUserId?.trim() || null;
 
   if (!managerUserId) {
     return { ok: false, status: 400, error: "This listing cannot accept applications yet." };
+  }
+
+  // A listing taken down stops accepting NEW applications. An application
+  // already in flight (`params.existing`) may still be saved and completed —
+  // refusing mid-wizard would strand work the applicant has already done, and
+  // this path handles progressive saves as well as the final submit.
+  if (!params.existing && !target.acceptsApplications) {
+    return { ok: false, status: 409, error: LISTING_NOT_ACCEPTING_APPLICATIONS_ERROR };
+  }
+
+  // The only duplicate guard was in the browser's sessionStorage, so it passed
+  // in a new tab, on another device, in incognito, and for every guest — the
+  // manager got two identical pending applications and the applicant could be
+  // billed the fee twice. Skipped for a row that is still a draft: an applicant
+  // partway through the wizard has not applied yet.
+  if (!isDraftShapedApplicationRow(params.row)) {
+    const duplicate = await findDuplicateApplication(db, {
+      residentEmail: email,
+      row: { ...params.row, propertyId },
+      excludeId: normalizeApplicationAxisId(params.row.id),
+    });
+    if (duplicate) {
+      return {
+        ok: false,
+        status: 409,
+        error: DUPLICATE_APPLICATION_ERROR,
+        // So the client can take them to the application they already have
+        // rather than leaving them at an error.
+        existingApplicationId: duplicate.id,
+      };
+    }
+  }
+
+  // A SUBMITTED application is validated against the wizard's own schema,
+  // server-side. Every "required field" used to live only in the browser, so a
+  // scripted or malformed submission landed in the manager's queue looking
+  // legitimate — and approval generates charges and a lease (PRP-202). Skipped
+  // for a draft: the applicant is still filling it in.
+  if (!isDraftShapedApplicationRow(params.row)) {
+    const validation = await validateSubmittedApplication(db, { ...params.row, propertyId });
+    if (validation && !validation.ok) {
+      return {
+        ok: false,
+        status: 422,
+        error: "This application is missing required answers.",
+        fieldErrors: validation.errors,
+      };
+    }
   }
 
   const baseRow: DemoApplicantRow = {

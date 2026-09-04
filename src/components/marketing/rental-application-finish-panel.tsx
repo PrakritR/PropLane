@@ -13,6 +13,8 @@ type FinishPanelProps = {
   syncError?: string;
   /** Guest apply — offer inline account creation instead of email-only instructions. */
   guestFlow?: boolean;
+  /** Signed-in resident portal apply — already has an account. */
+  portalFlow?: boolean;
   /** Mailto fallback when Resend is not configured (local/dev). */
   mailtoHref?: string;
   /** Same-session handoff to resident account setup (guest flow). */
@@ -89,6 +91,7 @@ export function RentalApplicationFinishPanel({
   emailSent,
   syncError,
   guestFlow = false,
+  portalFlow = false,
   mailtoHref,
   setupHref,
   groupLeaderAppId,
@@ -99,6 +102,7 @@ export function RentalApplicationFinishPanel({
   onDone,
 }: FinishPanelProps) {
   const signInHref = `/auth/sign-in?intent=resident&next=${encodeURIComponent("/resident/applications")}`;
+  const applicationsHref = "/resident/applications";
   const emailFailed = guestFlow && emailSent === false;
   const showGroup = Boolean(groupLeaderAppId?.trim() && groupRole === "first");
   const showGroupJoined = groupRole === "joining";
@@ -110,19 +114,23 @@ export function RentalApplicationFinishPanel({
       <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Done</p>
       <h2 className="mt-2 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Application submitted</h2>
       <p className="mt-3 text-sm leading-relaxed text-muted sm:text-base">
-        {guestFlow
-          ? canCreateAccount
-            ? "Create your resident portal account now to track your application."
-            : emailFailed
-              ? "Application saved. We could not send the setup email automatically."
-              : email
-                ? `Check ${email} for your resident account setup link.`
-                : "Check your email for your resident account setup link."
-          : email
-            ? emailSent
-              ? `We emailed a confirmation to ${email}. Sign in to track your application in the resident portal.`
-              : `Confirmation for ${email}`
-            : "Sign in to track your application in the resident portal."}
+        {portalFlow
+          ? email && emailSent
+            ? `Thanks for submitting your application. We'll review it and get back to you. A confirmation was sent to ${email}.`
+            : "Thanks for submitting your application. We'll review it and get back to you."
+          : guestFlow
+            ? canCreateAccount
+              ? "Thanks for submitting your application. We'll review it and get back to you. Create your resident portal account now to track status."
+              : emailFailed
+                ? "Thanks for submitting your application. We saved it, but we could not send the setup email automatically."
+                : email
+                  ? `Thanks for submitting your application. We'll review it and get back to you. Check ${email} for your resident account setup link.`
+                  : "Thanks for submitting your application. We'll review it and get back to you. Check your email for your resident account setup link."
+            : email
+              ? emailSent
+                ? `We emailed a confirmation to ${email}. Sign in to track your application in the resident portal.`
+                : `Confirmation for ${email}`
+              : "Sign in to track your application in the resident portal."}
       </p>
 
       {syncError ? (
@@ -184,6 +192,14 @@ export function RentalApplicationFinishPanel({
               Already have an account? Sign in
             </Link>
           </>
+        ) : portalFlow ? (
+          <Link
+            href={applicationsHref}
+            className="btn-cobalt inline-flex min-h-[44px] w-full items-center justify-center rounded-full px-6 text-[15px] font-semibold sm:min-h-[48px] sm:text-base"
+            onClick={onDone}
+          >
+            View my applications
+          </Link>
         ) : (
           <Link
             href={signInHref}

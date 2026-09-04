@@ -4,6 +4,7 @@
  * rent, expenses, and work-order costs without manual consolidation.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { escapeCsv } from "@/lib/csv";
 import { primeSystemChartOfAccounts, systemChartAccountByCode } from "@/lib/reports/chart-of-accounts-store";
 import { centsToUsd } from "@/lib/reports/money";
 import type { ManagerReportFilters } from "@/lib/reports/types";
@@ -30,10 +31,6 @@ function defaultDateRange(from?: string, to?: string): { from: string; to: strin
   return { from: fromDate, to: toDate };
 }
 
-function escapeCsv(value: string): string {
-  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
-}
 
 function qbAccountName(code: string): string {
   const acct = systemChartAccountByCode(code);

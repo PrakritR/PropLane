@@ -23,7 +23,9 @@ describe("prepareGuestApplicationUpsert", () => {
   beforeEach(() => {
     resolveManager.mockReset();
     resolveManager.mockResolvedValue({
-      data: { manager_user_id: "mgr-1", property_data: null },
+      // `status` is NOT NULL in manager_property_records, and a live listing is
+      // the only one that accepts applications (PRP-206).
+      data: { manager_user_id: "mgr-1", status: "live", property_data: null },
       error: null,
     });
   });
@@ -36,6 +38,17 @@ describe("prepareGuestApplicationUpsert", () => {
             select: vi.fn().mockReturnValue({
               eq: vi.fn().mockReturnValue({
                 maybeSingle: resolveManager,
+              }),
+            }),
+          };
+        }
+        if (table === "manager_application_records") {
+          // The server-side duplicate guard (PRP-204) reads this table; these
+          // fixtures have no prior applications, so it finds none.
+          return {
+            select: vi.fn().mockReturnValue({
+              eq: vi.fn().mockReturnValue({
+                limit: vi.fn().mockResolvedValue({ data: [], error: null }),
               }),
             }),
           };

@@ -622,23 +622,44 @@ export function findCollapsedInboxThreadIdForEmail(
   return collapsed.find((thread) => inboxThreadCounterpartyEmail(thread) === norm)?.id ?? null;
 }
 
+/**
+ * `InboxThreadMessage` says `body: string`, but every message here was read
+ * back out of a `row_data` JSON blob — the type describes what writers intend,
+ * not what storage guarantees. A single legacy message with no `body` used to
+ * throw "Cannot read properties of undefined (reading 'trim')" out of
+ * `collapseAssistantInboxThreads`, and because the resident nav-count poll hits
+ * `GET /api/portal-inbox-threads` on EVERY page, one such row 500'd the whole
+ * resident portal — reported as a console error on ten separate screens.
+ *
+ * Normalizing at this boundary means no consumer downstream has to know that.
+ */
+function normalizeThreadMessage(message: InboxThreadMessage): InboxThreadMessage {
+  return {
+    ...message,
+    id: String(message.id ?? ""),
+    from: String(message.from ?? ""),
+    body: String(message.body ?? ""),
+    at: String(message.at ?? ""),
+  };
+}
+
 export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMessage[] {
   const rootId = `${thread.id}-root`;
-  const root: InboxThreadMessage = {
+  const root: InboxThreadMessage = normalizeThreadMessage({
     id: rootId,
     from: thread.from,
     body: thread.body,
     at: thread.time,
     ...(thread.rootOutbound ? { outbound: true } : {}),
     ...(thread.attachments?.length ? { attachments: thread.attachments } : {}),
-  };
+  });
   // Merged person-threads can carry a prior thread's synthetic root in `messages`.
   // A collapsed row may itself later be persisted and merged again, which can
   // repeat a `merged:<thread>-root` entry. Message ids are their identity, so
   // retain the first occurrence only; otherwise React receives duplicate keys
   // and renders an unreliable timeline.
   const seenIds = new Set([rootId]);
-  const extras = (thread.messages ?? []).filter((message) => {
+  const extras = (thread.messages ?? []).map(normalizeThreadMessage).filter((message) => {
     if (!message.id || seenIds.has(message.id)) return false;
     if (
       isPropLaneAssistantInboxThreadRow(thread) &&

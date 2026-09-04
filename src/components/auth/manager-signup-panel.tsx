@@ -26,6 +26,8 @@ import { stripeLiveJsBlockedMessage } from "@/lib/stripe/stripe-js-client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
+import { withAuthTimeout } from "@/lib/auth/with-timeout";
 
 /**
  * Manager account creation: Continue with Google or the manual details form, with the
@@ -149,7 +151,7 @@ export function ManagerSignupPanel({
       const res = await fetch("/api/auth/manager-register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password, fullName: fullName.trim() }),
+        body: JSON.stringify({ email: normalizeAuthEmail(email), password, fullName: fullName.trim() }),
       });
       const body = (await res.json()) as { error?: string; redirectTo?: string; existingAccount?: boolean };
       if (!res.ok) {
@@ -157,7 +159,18 @@ export function ManagerSignupPanel({
         return;
       }
       const supabase = createSupabaseBrowserClient();
-      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      // BOUNDED — see PRP-187: an unsettled sign-in leaves the button spinning
+      // forever over an account that was in fact created.
+      type SignInResult = Awaited<ReturnType<typeof supabase.auth.signInWithPassword>>;
+      let error: unknown = null;
+      try {
+        const result = await withAuthTimeout<SignInResult>(
+          supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }),
+        );
+        error = result.error;
+      } catch (timeoutOrNetwork) {
+        error = timeoutOrNetwork;
+      }
       if (error) {
         showToast("Account created. Sign in to continue.");
         router.push("/auth/sign-in?role=manager");
@@ -253,6 +266,11 @@ export function ManagerSignupPanel({
           <Input
             type="email"
             autoComplete="email"
+            // iOS/macOS autocapitalise the first letter by default, which used to
+            // make Manager@… a different account from manager@… (PRP-196).
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}

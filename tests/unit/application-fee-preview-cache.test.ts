@@ -21,8 +21,8 @@ import {
   fetchApplicationFeePreview,
 } from "@/lib/rental-application/application-fee-preview-client";
 
-function respondWith(body: Record<string, unknown>) {
-  return Promise.resolve({ ok: true, json: async () => body } as unknown as Response);
+function respondWith(body: Record<string, unknown>, status = 200) {
+  return Promise.resolve({ ok: status >= 200 && status < 300, status, json: async () => body } as unknown as Response);
 }
 
 const previewInput = {
@@ -46,12 +46,12 @@ describe("fetchApplicationFeePreview cache keying", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const anonymous = await fetchApplicationFeePreview(previewInput);
-    expect(anonymous?.repeatApplicantFeeWaived).toBeUndefined();
+    expect(anonymous.preview?.repeatApplicantFeeWaived).toBeUndefined();
 
     safeBrowserGetSession.mockResolvedValue({ session: { user: { id: "user_1" } } });
     const signedIn = await fetchApplicationFeePreview(previewInput);
 
-    expect(signedIn?.repeatApplicantFeeWaived).toBe(true);
+    expect(signedIn.preview?.repeatApplicantFeeWaived).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -66,9 +66,9 @@ describe("fetchApplicationFeePreview cache keying", () => {
     ]);
     const third = await fetchApplicationFeePreview(previewInput);
 
-    expect(first?.repeatApplicantFeeWaived).toBe(true);
-    expect(second?.repeatApplicantFeeWaived).toBe(true);
-    expect(third?.repeatApplicantFeeWaived).toBe(true);
+    expect(first.preview?.repeatApplicantFeeWaived).toBe(true);
+    expect(second.preview?.repeatApplicantFeeWaived).toBe(true);
+    expect(third.preview?.repeatApplicantFeeWaived).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -80,10 +80,35 @@ describe("fetchApplicationFeePreview cache keying", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     safeBrowserGetSession.mockResolvedValue({ session: { user: { id: "user_1" } } });
-    expect((await fetchApplicationFeePreview(previewInput))?.repeatApplicantFeeWaived).toBe(true);
+    expect((await fetchApplicationFeePreview(previewInput)).preview?.repeatApplicantFeeWaived).toBe(true);
 
     safeBrowserGetSession.mockResolvedValue({ session: { user: { id: "user_2" } } });
-    expect((await fetchApplicationFeePreview(previewInput))?.repeatApplicantFeeWaived).toBeUndefined();
+    expect((await fetchApplicationFeePreview(previewInput)).preview?.repeatApplicantFeeWaived).toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns propertyNotFound for a missing listing without caching a fee", async () => {
+    const fetchMock = vi.fn(() => respondWith({}, 404));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchApplicationFeePreview({ propertyId: "missing_prop" });
+    expect(result).toEqual({ preview: null, propertyNotFound: true });
+
+    const cached = await fetchApplicationFeePreview({ propertyId: "missing_prop" });
+    expect(cached.propertyNotFound).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("omits managerUserId from the request when the catalog did not have one", async () => {
+    const fetchMock = vi.fn(() =>
+      respondWith({ applicationFeeCents: 2500, managerUserId: "mgr_from_server" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchApplicationFeePreview({ propertyId: "prop_1" });
+    expect(result.preview?.applicationFeeCents).toBe(2500);
+    expect(result.managerUserId).toBe("mgr_from_server");
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.managerUserId).toBeUndefined();
   });
 });

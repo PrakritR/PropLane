@@ -1,8 +1,10 @@
 import { track } from "@/lib/analytics/posthog";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import {
+  claimVendorInvite,
   findPendingVendorInviteByToken,
   provisionVendorAccountByEmail,
+  releaseVendorInvite,
   vendorUnlinkedNotice,
   type VendorInviteRow,
 } from "@/lib/auth/provision-vendor-account";
@@ -54,7 +56,8 @@ export async function POST(req: Request) {
     const supabase = createSupabaseServiceRoleClient();
 
     if (token) {
-      return await registerFromInvite(supabase, { token, password, fullName });
+      const confirmEmail = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+      return await registerFromInvite(supabase, { token, password, fullName, confirmEmail });
     }
 
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
@@ -68,16 +71,39 @@ export async function POST(req: Request) {
   }
 }
 
-/** Invite path — the emailed link itself is the possession proof, so the account is confirmed immediately. */
+/**
+ * Invite path — the emailed link is the possession proof, so the account is
+ * confirmed immediately. Two things guard that:
+ *
+ * - the address is taken from the INVITE, never from the request body, and a
+ *   body that names a different one is refused rather than quietly ignored, so
+ *   the token can never be redeemed toward an address the manager did not name;
+ * - the invite is claimed atomically before anything is provisioned, so the
+ *   token is single-use in fact and not merely by convention.
+ */
 async function registerFromInvite(
   supabase: ReturnType<typeof createSupabaseServiceRoleClient>,
-  opts: { token: string; password: string; fullName: string },
+  opts: { token: string; password: string; fullName: string; confirmEmail?: string },
 ) {
   const invite = await findPendingVendorInviteByToken(supabase, opts.token);
   if (!invite) {
     return NextResponse.json({ error: "This invite link is invalid or has expired." }, { status: 404 });
   }
   const email = invite.vendor_email.trim().toLowerCase();
+  if (opts.confirmEmail && opts.confirmEmail !== email) {
+    return NextResponse.json(
+      { error: "This invite was sent to a different email address." },
+      { status: 400 },
+    );
+  }
+
+  // Claim FIRST. Two concurrent redemptions of the same token both used to pass
+  // the pending check and both proceed, because the flip to `accepted` happened
+  // at the very end of provisioning.
+  const claimed = await claimVendorInvite(supabase, invite.id, null);
+  if (!claimed) {
+    return NextResponse.json({ error: "This invite has already been used." }, { status: 409 });
+  }
 
   const { userId, error } = await createOrLinkAuthUser(supabase, {
     email,
@@ -85,7 +111,10 @@ async function registerFromInvite(
     fullName: opts.fullName,
     emailConfirm: true,
   });
-  if (error) return error;
+  if (error) {
+    await releaseVendorInvite(supabase, invite.id);
+    return error;
+  }
 
   const provisioned = await provisionVendorAccountByEmail(supabase, {
     userId: userId!,
@@ -95,6 +124,9 @@ async function registerFromInvite(
     confirmEmail: true,
   });
   if (!provisioned.ok) {
+    // Hand the invite back: this failure was not the invitee's doing, and a
+    // burned token would leave them with no way in and the manager unaware.
+    await releaseVendorInvite(supabase, invite.id);
     return NextResponse.json({ error: provisioned.error }, { status: provisioned.status });
   }
 

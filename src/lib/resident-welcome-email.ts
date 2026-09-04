@@ -9,6 +9,7 @@ import {
   appendManagerReachabilityToWelcomeBody,
   managerReachabilityWelcomeHtmlBlock,
   type ManagerReachabilityLines,
+  NO_MANAGER_REACHABILITY,
 } from "@/lib/manager-reachability-for-resident";
 
 export const RESIDENT_WELCOME_EMAIL_SUBJECT = "Your PropLane resident portal — account setup";
@@ -58,7 +59,7 @@ export function buildResidentWelcomeEmailBody(params: {
     "",
     "— PropLane",
   ];
-  return appendManagerReachabilityToWelcomeBody(base, params.managerReachability ?? {}).join("\n");
+  return appendManagerReachabilityToWelcomeBody(base, params.managerReachability ?? NO_MANAGER_REACHABILITY).join("\n");
 }
 
 function escapeHtmlText(s: string): string {
@@ -82,7 +83,7 @@ export function buildResidentWelcomeEmailHtml(params: {
   const id = escapeHtmlText(formatProplaneIdForDisplay(params.axisId));
   const href = escapeHtmlAttr(params.signupUrl);
   const urlPlain = escapeHtmlText(params.signupUrl);
-  const reachBlock = managerReachabilityWelcomeHtmlBlock(params.managerReachability ?? {});
+  const reachBlock = managerReachabilityWelcomeHtmlBlock(params.managerReachability ?? NO_MANAGER_REACHABILITY);
   /* Table-based CTA: best support across Gmail, Outlook, Apple Mail. */
   const ctaButton = `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:20px 0 8px 0">
 <tr>
@@ -131,7 +132,7 @@ function buildResidentWelcomeMailtoBody(params: {
     "",
     "— PropLane",
   ];
-  return appendManagerReachabilityToWelcomeBody(base, params.managerReachability ?? {}).join("\n");
+  return appendManagerReachabilityToWelcomeBody(base, params.managerReachability ?? NO_MANAGER_REACHABILITY).join("\n");
 }
 
 export function buildResidentWelcomeMailtoHref(params: {

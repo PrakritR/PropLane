@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { track } from "@/lib/analytics/posthog";
+import { resolveVendorLinkedManagers } from "@/lib/vendor-own-record";
 import { mapVendorInvoiceRow, VENDOR_INVOICE_SELECT } from "@/lib/vendor-invoices";
 import {
   insertVendorInvoiceRow,
@@ -42,7 +43,11 @@ export async function GET() {
       .order("submitted_at", { ascending: false });
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ invoices: (data ?? []).map(mapVendorInvoiceRow) });
+    // The submit form needs to know WHO it may bill: a vendor linked to more than one manager
+    // must choose, and without the list the POST's `multiple_managers` refusal was unreachable
+    // to satisfy — which permanently blocked every contractor serving two clients.
+    const managers = await resolveVendorLinkedManagers(gate.db, gate.userId);
+    return NextResponse.json({ invoices: (data ?? []).map(mapVendorInvoiceRow), managers });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load invoices.";
     return NextResponse.json({ error: message }, { status: 500 });

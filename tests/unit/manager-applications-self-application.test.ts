@@ -21,7 +21,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 
 const getUser = vi.fn();
 let PROFILE: { role: string; email: string } | null = null;
-let PROPERTY_RECORDS: Record<string, { manager_user_id: string | null; property_data: unknown }> = {};
+let PROPERTY_RECORDS: Record<string, { manager_user_id: string | null; status?: string | null; property_data: unknown }> = {};
 let STORED_ROWS: { id: string; row_data: DemoApplicantRow; manager_user_id?: string | null; resident_email?: string | null }[] = [];
 let UPSERTS: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow }[] = [];
 let INSERTS: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow }[] = [];
@@ -156,7 +156,7 @@ beforeEach(() => {
     data: { user: { id: CALLER, email: CALLER_EMAIL, user_metadata: {} } },
     error: null,
   });
-  PROPERTY_RECORDS = { [LISTING]: { manager_user_id: LISTING_OWNER, property_data: {} } };
+  PROPERTY_RECORDS = { [LISTING]: { manager_user_id: LISTING_OWNER, status: "live", property_data: {} } };
   STORED_ROWS = [];
   UPSERTS = [];
   INSERTS = [];

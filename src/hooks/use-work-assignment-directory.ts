@@ -22,18 +22,30 @@ export type WorkAssignmentTeamMember = {
 export function useWorkAssignmentDirectory(opts?: {
   managerUserId?: string | null;
   managerName?: string | null;
+  /**
+   * Pass false when the viewer is NOT a manager.
+   *
+   * This directory is the manager's own team and vendor list, and
+   * `/api/portal-vendors` answers 403 to anyone else by design. The shared
+   * calendar renders in the vendor portal too, so calling it unconditionally
+   * put a 403 in the console on every vendor calendar load — an authorization
+   * boundary working correctly, reported as a bug because the client asked a
+   * question it had no business asking (PRP-215). Defaults to true.
+   */
+  enabled?: boolean;
 }) {
   const session = useManagerUserId();
+  const enabled = opts?.enabled !== false;
   const userId = opts?.managerUserId ?? session.userId;
   const email = session.email;
   const [relationshipTick, setRelationshipTick] = useState(0);
   const [vendorTick, setVendorTick] = useState(0);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !enabled) return;
     void syncProRelationshipsFromServer(userId).catch(() => undefined);
     void syncManagerVendorsFromServer().catch(() => undefined);
-  }, [userId]);
+  }, [userId, enabled]);
 
   useEffect(() => {
     const onRelationships = () => setRelationshipTick((n) => n + 1);
@@ -47,7 +59,7 @@ export function useWorkAssignmentDirectory(opts?: {
   }, []);
 
   const teamMembers = useMemo((): WorkAssignmentTeamMember[] => {
-    if (!userId) return [];
+    if (!userId || !enabled) return [];
     void relationshipTick;
     const members: WorkAssignmentTeamMember[] = [];
     const selfLabel = opts?.managerName?.trim() || email?.trim() || "You";
@@ -63,13 +75,13 @@ export function useWorkAssignmentDirectory(opts?: {
       });
     }
     return members;
-  }, [userId, email, opts?.managerName, relationshipTick]);
+  }, [userId, email, opts?.managerName, relationshipTick, enabled]);
 
   const vendors = useMemo(() => {
     void vendorTick;
-    if (!userId) return [];
+    if (!userId || !enabled) return [];
     return readOwnManagerVendorRows(userId);
-  }, [userId, vendorTick]);
+  }, [userId, vendorTick, enabled]);
 
   return { teamMembers, vendors, ready: session.ready };
 }

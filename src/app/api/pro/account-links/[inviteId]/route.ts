@@ -10,6 +10,7 @@ import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib
 import { scopedRelationshipDeletesForRevokedInvite } from "@/lib/pro-relationships";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { bestEffortFailed } from "@/lib/observability/best-effort";
 
 export const runtime = "nodejs";
 
@@ -135,7 +136,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
           return NextResponse.json({ error: ownership.error }, { status: 500 });
         }
         if (ownership.unowned.length > 0) {
-          return NextResponse.json({ error: "You can only assign properties you manage." }, { status: 403 });
+          // Same reasoning as the create route: name what failed, because the
+          // usual cause is a listing that has not synced yet (PRP-210).
+          return NextResponse.json(
+            {
+              error: `${ownership.unowned.length === 1 ? "One selected property isn't" : `${ownership.unowned.length} selected properties aren't`} on your account yet (${ownership.unowned.join(", ")}). Open Properties to let them finish saving, then try again.`,
+              unownedPropertyIds: ownership.unowned,
+            },
+            { status: 403 },
+          );
         }
       }
 
@@ -248,6 +257,19 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       return NextResponse.json({ error: "This invite is no longer pending." }, { status: 409 });
     }
 
+    // A pending invite used to be acceptable forever. Combined with one that was
+    // never delivered — so never chased, and forgotten by the manager who sent
+    // it — that is a stale, invisible grant of module access to the assigned
+    // properties (PRP-205). Cancelling is still allowed past the date, so the
+    // inviter can tidy up what lapsed.
+    const expiresAt = invite.expires_at ? Date.parse(String(invite.expires_at)) : Number.NaN;
+    if (actionNorm === "accept" && Number.isFinite(expiresAt) && expiresAt < Date.now()) {
+      return NextResponse.json(
+        { error: "This invite has expired. Ask the manager to send a new one." },
+        { status: 409 },
+      );
+    }
+
     if (actionNorm === "cancel") {
       if (invite.inviter_user_id !== user.id) {
         return NextResponse.json({ error: "Only the inviter can cancel." }, { status: 403 });
@@ -335,8 +357,10 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
             inviteeUserId: invite.invitee_user_id,
             inviteeName,
           });
-        } catch {
-          /* notification failure should not block accept */
+        } catch (error) {
+          bestEffortFailed("co-manager invite-accepted notification", {
+            invite: invite.id,
+          })(error);
         }
       })();
     }

@@ -3,19 +3,15 @@ import {
   applyEntireHomeListingPricing,
   isEntireHomeListing,
   isListingFeeAmountFilled,
-  resolveAllowedLeaseTerms,
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
 import {
+  listingOffersCustomLeaseSurcharge,
+  listingOffersMonthToMonthSurcharge,
   listingPresetFeeAmount,
   removedStandardListingFeeRowSet,
   type ListingFeePresetId,
 } from "@/lib/listing-fees";
-import {
-  CUSTOM_LEASE_TERM,
-  isLegacyFixedLeaseTerm,
-  LONG_TERM_LEASE_TERM,
-} from "@/lib/rental-application/lease-terms";
 import { shortTermNightlyRate } from "@/lib/short-term-stay-pricing";
 
 function listingRoomHasRent(room: ManagerRoomSubmission): boolean {
@@ -201,6 +197,51 @@ function sharedFeeField(row: (typeof LISTING_STANDARD_FEE_ROWS)[number]): boolea
   return Boolean(row.stField && row.ltField && row.stField === row.ltField);
 }
 
+/**
+ * Legacy scalar field → the unified `customFees` preset row it mirrors.
+ *
+ * `resolveListingFees` merges the two and the ROW wins whenever it holds an amount
+ * (`fromFees.amount.trim() ? fromFees.amount : legacyRow.amount`). So a writer that touches
+ * only the scalar is overruled: unchecking a fee cleared the field while the row kept its
+ * amount, leaving a listing that still advertised — and, once the monthly presets started
+ * billing, still charged — a fee whose checkbox read off. Every writer below syncs both.
+ *
+ * The map is keyed by FIELD rather than row id because the deposit and move-in rows carry a
+ * separate short-term preset, and clearing the short-term cell must not clear the long-term
+ * fee (or the reverse).
+ */
+const PRESET_FOR_FEE_FIELD: Partial<Record<keyof ManagerListingSubmissionV1, ListingFeePresetId>> = {
+  securityDeposit: "security_deposit",
+  moveInFee: "move_in_fee",
+  holdingDeposit: "holding_deposit",
+  parkingMonthly: "parking_monthly",
+  hoaMonthly: "hoa_monthly",
+  otherMonthlyFees: "other_monthly",
+  monthToMonthSurcharge: "mtm_surcharge",
+  customLeaseSurcharge: "custom_lease_surcharge",
+  shortTermDailyCost: "short_term_nightly",
+  shortTermDeposit: "short_term_deposit",
+  shortTermMoveInFee: "short_term_move_in",
+};
+
+/** Mirror a scalar fee edit onto its `customFees` preset row, which outranks the scalar. */
+function syncPresetFeeRowAmount(
+  sub: ManagerListingSubmissionV1,
+  field: keyof ManagerListingSubmissionV1,
+  amount: string,
+): ManagerListingSubmissionV1 {
+  const presetId = PRESET_FOR_FEE_FIELD[field];
+  if (!presetId) return sub;
+  const rows = sub.customFees ?? [];
+  if (!rows.some((fee) => (fee as { presetId?: string }).presetId === presetId)) return sub;
+  return {
+    ...sub,
+    customFees: rows.map((fee) =>
+      (fee as { presetId?: string }).presetId === presetId ? { ...fee, amount } : fee,
+    ),
+  };
+}
+
 function clearFeeField(
   sub: ManagerListingSubmissionV1,
   field: keyof ManagerListingSubmissionV1,
@@ -208,7 +249,7 @@ function clearFeeField(
   if (field === "entireHomeMonthlyRent") {
     return applyEntireHomeListingPricing(sub, { entireHomeMonthlyRent: 0 });
   }
-  return { ...sub, [field]: "" };
+  return syncPresetFeeRowAmount({ ...sub, [field]: "" }, field, "");
 }
 
 /** Map ST toggle edits onto submission fields. */
@@ -260,7 +301,7 @@ export function applyListingLtFeeAmount(
       entireHomeMonthlyRent: Number.isFinite(nextRent) ? nextRent : 0,
     });
   }
-  return { ...sub, [field]: sanitizedAmount };
+  return syncPresetFeeRowAmount({ ...sub, [field]: sanitizedAmount }, field, sanitizedAmount);
 }
 
 export function applyListingStFeeAmount(
@@ -270,7 +311,7 @@ export function applyListingStFeeAmount(
 ): ManagerListingSubmissionV1 {
   const row = listingFeeRowById(feeId);
   if (!row?.stField) return sub;
-  return { ...sub, [row.stField]: sanitizedAmount };
+  return syncPresetFeeRowAmount({ ...sub, [row.stField]: sanitizedAmount }, row.stField, sanitizedAmount);
 }
 
 export function applyListingLtFeeAmountForRow(
@@ -347,23 +388,9 @@ export function listingLtFeeFieldsRequired(_hasLongTerm: boolean): (keyof Manage
   return [];
 }
 
-/** Month-to-month surcharge applies only when MTM (or rollover) is offered. */
-export function listingOffersMonthToMonthSurcharge(
-  sub: Pick<ManagerListingSubmissionV1, "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed" | "rolloverToMonthToMonth">,
-): boolean {
-  const terms = resolveAllowedLeaseTerms(sub);
-  return terms.includes("Month-to-Month") || sub.rolloverToMonthToMonth === true;
-}
-
-/** Custom-lease surcharge applies when the listing offers a fixed or custom calendar term. */
-export function listingOffersCustomLeaseSurcharge(
-  sub: Pick<ManagerListingSubmissionV1, "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed">,
-): boolean {
-  const terms = resolveAllowedLeaseTerms(sub);
-  return terms.some(
-    (term) => term === CUSTOM_LEASE_TERM || term === LONG_TERM_LEASE_TERM || isLegacyFixedLeaseTerm(term),
-  );
-}
+// The two lease-length predicates live in listing-fees so the display and lease-document
+// readers there can apply the same gate without importing this module (which imports them).
+export { listingOffersCustomLeaseSurcharge, listingOffersMonthToMonthSurcharge };
 
 /** Standard fee rows hidden until the matching lease length is offered. */
 export function leaseLengthGatedHiddenFeeRowIds(

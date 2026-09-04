@@ -60,7 +60,7 @@ export async function POST(req: Request) {
     } = await auth.auth.getUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-    let body: { applicationId?: unknown; preview?: unknown };
+    let body: { applicationId?: unknown; preview?: unknown; viaEmail?: unknown; viaSms?: unknown; subject?: unknown; text?: unknown };
     try {
       body = (await req.json()) as typeof body;
     } catch {
@@ -116,30 +116,39 @@ export async function POST(req: Request) {
     const origin = appOrigin();
     const resumeUrl = inProgressApplicationResumeUrl(origin, row);
     const signInUrl = `${origin}/auth/sign-in?role=resident`;
-    const text = buildApplicationCompletionReminderBody({
+    const defaultText = buildApplicationCompletionReminderBody({
       applicantName: row.name || undefined,
       propertyTitle: row.property || undefined,
       resumeUrl,
       signInUrl,
     });
-    const html = buildApplicationCompletionReminderHtml({
-      applicantName: row.name || undefined,
-      propertyTitle: row.property || undefined,
-      resumeUrl,
-      signInUrl,
-    });
+    const subjectOverride =
+      typeof body.subject === "string" && body.subject.trim() ? body.subject.trim() : APPLICATION_COMPLETION_REMINDER_SUBJECT;
+    const textOverride =
+      typeof body.text === "string" && body.text.trim() ? body.text.trim() : defaultText;
+    const html =
+      textOverride === defaultText
+        ? buildApplicationCompletionReminderHtml({
+            applicantName: row.name || undefined,
+            propertyTitle: row.property || undefined,
+            resumeUrl,
+            signInUrl,
+          })
+        : `<!DOCTYPE html><html><body style="margin:0;padding:24px;font-family:system-ui,sans-serif;line-height:1.55;color:#0f172a;white-space:pre-wrap">${textOverride.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</body></html>`;
     const mailtoHref = buildApplicationCompletionReminderMailtoHref({
       to: email,
       applicantName: row.name || undefined,
       propertyTitle: row.property || undefined,
       resumeUrl,
       signInUrl,
+      subject: subjectOverride,
+      bodyText: textOverride,
     });
 
     if (previewOnly) {
       return NextResponse.json({
         ok: true,
-        preview: { to: email, subject: APPLICATION_COMPLETION_REMINDER_SUBJECT, text },
+        preview: { to: email, subject: subjectOverride, text: textOverride },
       });
     }
 
@@ -152,7 +161,7 @@ export async function POST(req: Request) {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [email], subject: APPLICATION_COMPLETION_REMINDER_SUBJECT, text, html }),
+      body: JSON.stringify({ from, to: [email], subject: subjectOverride, text: textOverride, html }),
     });
     const payload = (await res.json().catch(() => ({}))) as { message?: string; id?: string };
     if (!res.ok) {

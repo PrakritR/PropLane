@@ -244,7 +244,11 @@ async function auditPath(page, portal, { label, path }, account, role, nextPath)
   }
 
   for (const err of consoleErrors.slice(0, 5)) {
-    if (/favicon|hydration|devtools|posthog|ResizeObserver|Failed to fetch.*auth-js/i.test(err)) continue;
+    // `s` flag: a console error is message + stack across newlines, and `.` does
+    // not cross one — without it this suppressed nothing it was written for.
+    // See scripts/qa-exhaustive-portal-audit.mjs for the full note.
+    if (/favicon|hydration|devtools|posthog|ResizeObserver/is.test(err)) continue;
+    if (/Failed to fetch[\s\S]*auth-js/is.test(err)) continue;
     addFinding(portal, path, "medium", `${label}: console error`, err.slice(0, 300));
   }
   for (const err of pageErrors.slice(0, 3)) {

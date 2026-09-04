@@ -18,7 +18,7 @@ import {
   inboxBubbleClusterRadius,
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
-import { ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Check, Clock, FileText, Paperclip, Pencil, Plus, Sparkles, X } from "lucide-react";
+import { ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Check, Clock, FileText, Paperclip, Plus, Sparkles, X } from "lucide-react";
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
@@ -1663,102 +1663,26 @@ function scheduledSendAtToLocalInput(iso: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function ScheduledMessageActionFooter({
-  showSendActions,
-  editable,
-  hasSaveEdit,
+function ScheduledMessageComposeFooter({
   busy,
-  editing,
   canSave,
-  onCancelSend,
-  onEdit,
-  onCancelEdit,
   onSave,
-  onSendNow,
 }: {
-  showSendActions: boolean;
-  editable: boolean;
-  hasSaveEdit: boolean;
   busy?: boolean;
-  editing?: boolean;
-  canSave?: boolean;
-  onCancelSend: () => void;
-  onEdit: () => void;
-  onCancelEdit?: () => void;
-  onSave?: () => void;
-  onSendNow: () => void;
+  canSave: boolean;
+  onSave: () => void;
 }) {
-  const hasFooter =
-    (showSendActions && true) || (editable && hasSaveEdit) || (editing && hasSaveEdit);
-  if (!hasFooter) return null;
-
   return (
-    <div className="flex w-full flex-wrap items-center justify-end gap-2">
-      {editing && hasSaveEdit ? (
-        <>
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-8 min-h-0 px-3 text-[12px]"
-            onClick={onCancelEdit}
-            disabled={busy}
-            data-attr="inbox-scheduled-cancel-edit"
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="primary"
-            className="h-8 min-h-0 rounded-full px-4 text-[12px]"
-            onClick={onSave}
-            disabled={busy || !canSave}
-            data-attr="inbox-scheduled-save"
-          >
-            {busy ? "Saving…" : "Save"}
-          </Button>
-        </>
-      ) : (
-        <>
-          {showSendActions ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-8 min-h-0 px-3 text-[12px] text-muted hover:text-danger"
-              onClick={onCancelSend}
-              disabled={busy}
-              data-attr="inbox-scheduled-cancel"
-            >
-              Cancel send
-            </Button>
-          ) : null}
-          {editable && hasSaveEdit ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-8 min-h-0 gap-1.5 px-3 text-[12px]"
-              onClick={onEdit}
-              disabled={busy}
-              data-attr="inbox-scheduled-edit"
-            >
-              <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
-              Edit
-            </Button>
-          ) : null}
-          {showSendActions ? (
-            <Button
-              type="button"
-              variant="primary"
-              className="h-8 min-h-0 rounded-full px-4 text-[12px]"
-              onClick={onSendNow}
-              disabled={busy}
-              data-attr="inbox-scheduled-send-now"
-            >
-              Send now
-            </Button>
-          ) : null}
-        </>
-      )}
-    </div>
+    <Button
+      type="button"
+      variant="primary"
+      className="rounded-full"
+      onClick={onSave}
+      disabled={busy || !canSave}
+      data-attr="inbox-scheduled-save"
+    >
+      {busy ? "Saving…" : "Schedule"}
+    </Button>
   );
 }
 
@@ -1812,7 +1736,7 @@ export type InboxScheduledCardProps = {
 export function ScheduledMessageDetailModal({
   open,
   onClose,
-  title = "Scheduled message",
+  title = "Schedule message",
   description,
   assistantContext = "Scheduled message",
   panelClassName,
@@ -1878,10 +1802,10 @@ export function InboxScheduledCard({
   recipient,
   recipientPhone,
   sendAt,
-  onCancel,
-  onSendNow,
+  onCancel: _onCancel,
+  onSendNow: _onSendNow,
   onSaveEdit,
-  showSendActions = true,
+  showSendActions: _showSendActions = true,
   pinActionsInModalFooter = false,
   onModalFooterChange,
 }: InboxScheduledCardProps) {
@@ -1890,13 +1814,14 @@ export function InboxScheduledCard({
     (editable && _source === "manual" && Boolean(onSaveEdit) && (emailAvailable || smsAvailable));
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState(false);
   const [draftSubject, setDraftSubject] = useState(subject);
   const [draftBody, setDraftBody] = useState(body);
   const [draftSendVia, setDraftSendVia] = useState<string[]>([]);
   const [draftSendAt, setDraftSendAt] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  const canCompose = Boolean(editable && onSaveEdit);
 
   const viewSendVia = useMemo(
     () =>
@@ -1909,10 +1834,9 @@ export function InboxScheduledCard({
     [deliverViaEmail, deliverViaSms, emailAvailable, smsAvailable],
   );
 
-  const activeSendVia = editing ? draftSendVia : viewSendVia;
+  const activeSendVia = canCompose ? draftSendVia : viewSendVia;
   const draftChannels = portalMessageChannelsFromSelection(activeSendVia);
-  const draftChannelsOk =
-    !canEditChannels || !editing || draftChannels.viaEmail || draftChannels.viaSms;
+  const draftChannelsOk = !canEditChannels || draftChannels.viaEmail || draftChannels.viaSms;
 
   const recipientDisplay =
     portalMessageRecipientDisplay({
@@ -1924,32 +1848,22 @@ export function InboxScheduledCard({
     recipient?.trim() ||
     "—";
 
-  const sendAtLocal = editing
-    ? draftSendAt
-    : sendAt
-      ? scheduledSendAtToLocalInput(sendAt)
-      : "";
-
   const closeModal = () => {
     setModalOpen(false);
     setSaveError(null);
-    setEditing(false);
   };
 
-  const startEdit = () => {
+  useEffect(() => {
+    if (!modalOpen && presentation !== "detail") return;
     setDraftSubject(subject);
     setDraftBody(body);
     setDraftSendVia(viewSendVia);
     setDraftSendAt(sendAt ? scheduledSendAtToLocalInput(sendAt) : "");
     setSaveError(null);
-    setEditing(true);
-  };
-  const cancelEdit = () => {
-    setSaveError(null);
-    setEditing(false);
-  };
+  }, [modalOpen, presentation, subject, body, sendAt, viewSendVia]);
+
   const saveEdit = () => {
-    if (!onSaveEdit || !draftBody.trim() || !draftChannelsOk) return;
+    if (!onSaveEdit || !canCompose || !draftBody.trim() || !draftChannelsOk) return;
     setSaving(true);
     setSaveError(null);
     const channels = portalMessageChannelsFromSelection(draftSendVia);
@@ -1969,7 +1883,6 @@ export function InboxScheduledCard({
     )
       .then(() => {
         setSaveError(null);
-        setEditing(false);
         if (presentation === "compact") closeModal();
       })
       .catch((e: unknown) => {
@@ -1981,40 +1894,15 @@ export function InboxScheduledCard({
   const pinFooterActions = presentation === "compact" || pinActionsInModalFooter;
   const actionBusy = busy || saving;
 
-  const actionFooter = useMemo(() => {
-    return (
-      <ScheduledMessageActionFooter
-        showSendActions={showSendActions && !editing}
-        editable={editable && !editing}
-        hasSaveEdit={Boolean(onSaveEdit)}
-        busy={actionBusy}
-        editing={editing}
-        canSave={Boolean(draftBody.trim() && draftChannelsOk)}
-        onCancelSend={() => {
-          onCancel();
-          if (presentation === "compact") closeModal();
-        }}
-        onEdit={startEdit}
-        onCancelEdit={cancelEdit}
-        onSave={saveEdit}
-        onSendNow={() => {
-          onSendNow();
-          if (presentation === "compact") closeModal();
-        }}
-      />
-    );
-  }, [
-    actionBusy,
-    draftBody,
-    draftChannelsOk,
-    editable,
-    editing,
-    onCancel,
-    onSaveEdit,
-    onSendNow,
-    presentation,
-    showSendActions,
-  ]);
+  const actionFooter = canCompose
+    ? (
+        <ScheduledMessageComposeFooter
+          busy={actionBusy}
+          canSave={Boolean(draftBody.trim() && draftChannelsOk)}
+          onSave={saveEdit}
+        />
+      )
+    : null;
 
   useEffect(() => {
     if (!pinActionsInModalFooter || !onModalFooterChange) return;
@@ -2028,9 +1916,9 @@ export function InboxScheduledCard({
 
       <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>
         <PortalMessageSubjectField
-          value={editing ? draftSubject : subject}
+          value={canCompose ? draftSubject : subject}
           onChange={setDraftSubject}
-          readOnly={!editing}
+          readOnly={!canCompose}
           dataAttr="inbox-scheduled-edit-subject"
         />
         <PortalMessageSendViaDropdown
@@ -2038,23 +1926,24 @@ export function InboxScheduledCard({
           onChange={setDraftSendVia}
           emailAvailable={emailAvailable}
           smsAvailable={smsAvailable}
-          disabled={!editing || !canEditChannels}
+          disabled={!canCompose || !canEditChannels}
           footerNote={PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE}
           dataAttr="inbox-scheduled-edit-send-via"
         />
       </div>
 
       <PortalMessageBodyField
-        value={editing ? draftBody : body}
+        value={canCompose ? draftBody : body}
         onChange={setDraftBody}
-        readOnly={!editing}
+        readOnly={!canCompose}
+        placeholder="Write your message…"
         minHeightClass="min-h-[7rem]"
         dataAttr="inbox-scheduled-edit-body"
       />
 
-      {meta && !editing ? <p className="text-[11px] text-muted">{meta}</p> : null}
+      {meta && !canCompose ? <p className="text-[11px] text-muted">{meta}</p> : null}
 
-      {editing ? (
+      {canCompose ? (
         <PortalMessageScheduleFields
           scheduleLater
           onScheduleLaterChange={() => {}}
@@ -2076,11 +1965,11 @@ export function InboxScheduledCard({
             />
             <span className="font-medium text-foreground">Schedule for later</span>
           </label>
-          {sendAtLocal ? (
+          {sendAt ? (
             <Input
               type="datetime-local"
               className="min-w-0 flex-1"
-              value={sendAtLocal}
+              value={scheduledSendAtToLocalInput(sendAt)}
               disabled
               readOnly
               aria-label="Send date and time"
@@ -2110,62 +1999,8 @@ export function InboxScheduledCard({
       data-attr="inbox-scheduled-card"
     >
       {composeBody}
-      {!pinFooterActions && !editing ? (
-        <div className="mt-2.5 flex flex-wrap items-center justify-start gap-2">
-          {showSendActions ? (
-            <>
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-8 min-h-0 px-3 text-[12px] text-muted hover:text-danger"
-                onClick={() => {
-                  onCancel();
-                }}
-                disabled={busy}
-                data-attr="inbox-scheduled-cancel"
-              >
-                Cancel send
-              </Button>
-              {editable && onSaveEdit ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-8 min-h-0 gap-1.5 px-3 text-[12px]"
-                  onClick={startEdit}
-                  disabled={busy}
-                  data-attr="inbox-scheduled-edit"
-                >
-                  <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
-                  Edit
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="primary"
-                className="h-8 min-h-0 rounded-full px-4 text-[12px]"
-                onClick={() => {
-                  onSendNow();
-                }}
-                disabled={busy}
-                data-attr="inbox-scheduled-send-now"
-              >
-                Send now
-              </Button>
-            </>
-          ) : editable && onSaveEdit ? (
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-8 min-h-0 gap-1.5 px-3 text-[12px]"
-              onClick={startEdit}
-              disabled={busy}
-              data-attr="inbox-scheduled-edit"
-            >
-              <Pencil className="h-3.5 w-3.5" strokeWidth={2.25} />
-              Edit
-            </Button>
-          ) : null}
-        </div>
+      {!pinFooterActions && actionFooter ? (
+        <div className="mt-2.5 flex justify-end">{actionFooter}</div>
       ) : null}
     </div>
   );
@@ -2195,7 +2030,7 @@ export function InboxScheduledCard({
       <Modal
         open={modalOpen}
         onClose={closeModal}
-        title="Scheduled message"
+        title="Schedule message"
         dense
         assistantContext="Scheduled message"
         scrollableContent={false}

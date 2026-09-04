@@ -106,9 +106,37 @@ npm run test:seed
 npm run test:cleanup -- <testRunId>
 ```
 
+### The seed does not delete other people's accounts by default
+
+`npm run test:seed` / `npm run seed:dev` used to prune every non-canonical
+account it found — which, on the shared dev project, meant deleting accounts
+other lanes were actively using, including two outside the test namespace
+entirely. The teammate then saw "Invalid login credentials" and reasonably read
+it as a product bug.
+
+Now: the prune only ever considers `@test.proplane.local` (plus auth artifacts
+with no email at all), it prints what it left alone, and outside CI it **reports
+instead of deleting** unless you ask:
+
+```bash
+npm run seed:dev                       # seeds; lists strays, deletes nothing
+npm run seed:dev -- --prune            # seeds and deletes them
+SEED_PRUNE_STRAYS=1 npm run seed:dev   # same, for a script
+```
+
+CI still prunes automatically — a disposable database is what the original
+model was right about.
+
 ### Canonical demo portal accounts (`@test.proplane.local`)
 
 `npm run test:seed` provisions the sandbox accounts below **and** writes the dev/test catalog it needs: **20 live listings** on `manager@` (five canonical demo homes plus fifteen `mgr-scale-*` portfolio rows) and the browse catalog on `manager2@`. Every approved catalog applicant gets a **lease pipeline row**, **household charges**, and (when fully signed) a **recurring rent profile**. The primary E2E resident (`resident@`) is seeded as an approved applicant on **Lakeview Studio** with a **signed lease** and payable charges. Default **promotion flyer + listing blurb** rows are seeded for each live `manager@` property. The primary manager is seeded as **Business** tier (`manager_purchases.tier = business`, 20-property cap). The **shared** portfolio seed (`src/lib/demo/canonical-demo-portfolio-db.ts`, the one production provisioning runs) is what adds **no portfolio rows** — it sources `buildDemoIdleSnapshot()` (`src/lib/demo/demo-guided-data.ts`), which ships empty on purpose, since there is no static fictional dataset any more (`src/lib/demo/demo-data.ts` was deleted). See [`docs/agents/demo-sandbox.md`](../docs/agents/demo-sandbox.md) for the two-source model and the mirror switch, and `AGENTS.md` → "Property ownership" for why those five ids are reclaimed to `manager@` before any other seed cleanup step.
+
+The canonical values live in **`tests/fixtures/qa-accounts.mjs`** — one source
+for the docs, the specs, the seed script and the `scripts/qa-*.mjs` audits.
+`npm run test:accounts:check` reports whether each one currently exists, is
+confirmed, carries its role and can actually sign in; it resolves the same
+`E2E_*` overrides, so a `.env.test` pointing somewhere else shows up there
+rather than as a mystery failure three layers down.
 
 | Role | Email | Password (default) |
 |------|-------|---------------------|

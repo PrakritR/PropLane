@@ -1,6 +1,7 @@
 import {
   PAYMENT_AT_SIGNING_OPTIONS,
   isEntireHomeListing,
+  resolveAllowedLeaseTerms,
   type ManagerCustomFeeRow,
   type ManagerListingSubmissionV1,
   type PaymentAtSigningOptionId,
@@ -10,6 +11,11 @@ import {
   shouldBillMonthToMonthSurcharge,
   type LeaseRecurringFeeBillingContext,
 } from "@/lib/custom-lease-billing";
+import {
+  CUSTOM_LEASE_TERM,
+  LONG_TERM_LEASE_TERM,
+  isLegacyFixedLeaseTerm,
+} from "@/lib/rental-application/lease-terms";
 import { parseMoneyAmount } from "@/lib/parse-money";
 
 /** Fee fields must be filled with a dollar amount; use 0 when there is no charge. */
@@ -726,6 +732,47 @@ function legacyFieldKeyForPreset(presetId: ListingFeePresetId): keyof ManagerLis
   }
 }
 
+/** Month-to-month surcharge applies only when MTM (or rollover) is offered. */
+export function listingOffersMonthToMonthSurcharge(
+  sub: Pick<
+    ManagerListingSubmissionV1,
+    "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed" | "rolloverToMonthToMonth"
+  >,
+): boolean {
+  const terms = resolveAllowedLeaseTerms(sub);
+  return terms.includes("Month-to-Month") || sub.rolloverToMonthToMonth === true;
+}
+
+/** Custom-lease surcharge applies when the listing offers a fixed or custom calendar term. */
+export function listingOffersCustomLeaseSurcharge(
+  sub: Pick<
+    ManagerListingSubmissionV1,
+    "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed"
+  >,
+): boolean {
+  const terms = resolveAllowedLeaseTerms(sub);
+  return terms.some(
+    (term) => term === CUSTOM_LEASE_TERM || term === LONG_TERM_LEASE_TERM || isLegacyFixedLeaseTerm(term),
+  );
+}
+
+/**
+ * A surcharge for a lease length the listing does not offer must not be shown or charged.
+ * The wizard already hides the row (`leaseLengthGatedHiddenFeeRowIds`) and billing already
+ * skips it (`listingPresetFeeAmountIfEnabled`), but every reader downstream of
+ * `resolveListingFees` filtered on amount alone — so a listing that dropped Month-to-Month
+ * from its lease terms kept advertising the month-to-month surcharge on its public page and
+ * printing it into the lease document.
+ */
+function leaseLengthGatesOutPreset(
+  sub: ManagerListingSubmissionV1,
+  presetId: ListingFeePresetId | undefined,
+): boolean {
+  if (presetId === "mtm_surcharge") return !listingOffersMonthToMonthSurcharge(sub);
+  if (presetId === "custom_lease_surcharge") return !listingOffersCustomLeaseSurcharge(sub);
+  return false;
+}
+
 export function feeMeaningfulForPublicListing(amount: string): boolean {
   const n = parseMoneyAmount(amount);
   return n > 0;
@@ -987,6 +1034,11 @@ export function leaseDocumentFeeLines(
     const presetId = fee.presetId && fee.presetId !== "custom" ? fee.presetId : undefined;
     if (presetId && LEASE_DOCUMENT_EXCLUDED_PRESET_IDS.has(presetId)) continue;
     if (presetId && excludedRemovedPresets.has(presetId)) continue;
+    // Only for the context-free listing preview. Once there is a real lease, ITS term is
+    // authoritative — a listing may stop offering month-to-month after a month-to-month
+    // lease was signed, and that lease still owes the surcharge. The two `billingContext`
+    // checks below are the gate in that case.
+    if (!billingContext && leaseLengthGatesOutPreset(sub, presetId)) continue;
     if (billingContext && presetId === "mtm_surcharge" && !shouldBillMonthToMonthSurcharge(billingContext)) {
       continue;
     }
@@ -1030,6 +1082,7 @@ export function listingFeeRowsForLeaseBasicsSection(
   for (const fee of fees) {
     if (fee.presetId === "holding_deposit") continue;
     if (fee.presetId && exclude.has(fee.presetId as ListingFeePresetId)) continue;
+    if (leaseLengthGatesOutPreset(sub, fee.presetId as ListingFeePresetId | undefined)) continue;
     if (!feeBelongsInLeaseBasicsSection(fee, section, shortTermOn)) continue;
     const row = listingFeeToDisplayRow(fee, formatPrice, section);
     if (row) rows.push(row);

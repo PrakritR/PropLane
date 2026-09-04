@@ -237,3 +237,27 @@ return 409 if it's already `"accepted"` — do not let it fall through to updati
 still set a price when there's no bid, or the bid is merely `"submitted"` (not yet accepted). A
 regression here shipped after the fix commits (`e07b70c`, `eac1439`) added this exact anchoring
 invariant — see `tests/integration/portal/set-vendor-price.test.ts` for the guarding tests.
+
+## A failed payout is told to somebody
+
+`payoutVendorForWorkOrder` returns a `VendorPayoutOutcome` (`paid` / `failed` /
+`skipped`, with the amount and the reason). It never throws — the manager's
+approve-pay bookkeeping succeeds whichever way the transfer goes — so that
+return value is the ONLY way anything downstream can learn the vendor is owed
+money.
+
+`work-order-approve-pay.server.ts` acts on it:
+
+- the **vendor** gets "approved — payout pending" naming the amount and telling
+  them to finish connecting their payout account, instead of the "approved and
+  paid" notice that would leave them owed money believing it was on the way;
+- the **manager** gets "Payout pending for <job>", because their books say paid
+  and nothing else on screen would ever say otherwise.
+
+The retry itself is automatic: `retryFailedVendorPayoutsForVendor` runs when the
+vendor's Connect status resolves as payment-ready
+(`/api/vendor/stripe-connect/status`), so completing onboarding a day later
+sends the money with no one re-approving the job. Only failures whose reason
+matches `RETRYABLE_VENDOR_PAYOUT_FAILURE` are re-driven.
+
+Coverage: `tests/unit/stripe-vendor-payout.test.ts`.

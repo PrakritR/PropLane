@@ -15,11 +15,14 @@ export async function loadResidentIdentityRows<T>(
   map: (rowData: unknown) => T,
 ): Promise<T[]> {
   const out: T[] = [];
+  // No identity means no rows — never an unfiltered read of a shared table.
+  const scope = residentScopeOrFilter(ctx);
+  if (!scope) return out;
   for (let from = 0; ; from += PAGE_SIZE) {
     let query = ctx.db
       .from(table)
       .select("row_data")
-      .or(residentScopeOrFilter(ctx));
+      .or(scope);
     if (ctx.activeManagerId) query = query.eq("manager_user_id", ctx.activeManagerId);
     const { data, error } = await query.order("id", { ascending: true }).range(from, from + PAGE_SIZE - 1);
     if (error) throw new Error(error.message);
@@ -40,6 +43,8 @@ export async function loadResidentEmailRows<T>(
   map: (rowData: unknown) => T,
 ): Promise<T[]> {
   const out: T[] = [];
+  // Same rule as the identity loader: an empty email must match nothing.
+  if (!ctx.email?.trim()) return out;
   for (let from = 0; ; from += PAGE_SIZE) {
     let query = ctx.db
       .from(table)

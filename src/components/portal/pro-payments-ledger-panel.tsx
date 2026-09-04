@@ -47,7 +47,7 @@ import {
 } from "@/lib/short-term-stay-pricing";
 import { Input } from "@/components/ui/input";
 import {
-  PortalBulkMessageReadonlyCarouselModal,
+  PortalBulkMessageCarouselModal,
 } from "@/components/portal/portal-bulk-message-carousel-modal";
 import {
   PortalNotificationPreviewModal,
@@ -699,7 +699,7 @@ export function ManagerPaymentsLedgerPanel({
   const sendBulkReminders = async (
     targets: Array<
       | DemoManagerPaymentLedgerRow
-      | { row: DemoManagerPaymentLedgerRow; subject: string; body: string }
+      | { row: DemoManagerPaymentLedgerRow; subject: string; body: string; channels?: { viaEmail?: boolean; viaSms?: boolean } }
     > = remindableSelectedRows,
   ) => {
     if (targets.length === 0) {
@@ -715,8 +715,11 @@ export function ManagerPaymentsLedgerPanel({
       for (const target of targets) {
         const row = "row" in target ? target.row : target;
         const draft = "row" in target ? { subject: target.subject, body: target.body } : undefined;
-        // Bulk sends inbox + email only — SMS requires per-charge preview and channel pick.
-        const result = await sendReminderForRow(row, { viaEmail: true, viaSms: false }, draft);
+        const channels =
+          "row" in target && target.channels
+            ? target.channels
+            : { viaEmail: true, viaSms: false };
+        const result = await sendReminderForRow(row, channels, draft);
         if (result.chargePaid) continue;
         if (result.ok) {
           ok += 1;
@@ -917,19 +920,38 @@ export function ManagerPaymentsLedgerPanel({
     );
   };
 
-  const doSendBulkReminders = async () => {
-    if (!bulkReminderPreview?.length) return;
-    // One send per PREVIEW CARD, not per charge: a combined card is one message
-    // that already names every charge it covers, so sending its rows
-    // individually would put the resident back where they started.
-    const items = bulkReminderPreview;
+  const doSendBulkReminders = async (
+    scope: "all" | "single",
+    options: {
+      skipMessage: boolean;
+      channels: { viaEmail: boolean; viaSms: boolean };
+      drafts: Record<string, { subject: string; body: string }>;
+      singleId?: string;
+    },
+  ) => {
+    if (!bulkReminderPreview?.length || options.skipMessage) {
+      setBulkReminderPreview(null);
+      return;
+    }
+    const items =
+      scope === "single" && options.singleId
+        ? bulkReminderPreview.filter((item) => item.id === options.singleId)
+        : bulkReminderPreview;
     const byId = new Map(remindableSelectedRows.map((row) => [row.id, row]));
     const sends = items
       .map((item) => {
         const row = byId.get(item.id);
-        return row ? { row, subject: item.subject, body: item.body } : null;
+        const draft = options.drafts[item.id];
+        return row
+          ? {
+              row,
+              subject: draft?.subject?.trim() || item.subject,
+              body: draft?.body?.trim() || item.body,
+              channels: options.channels,
+            }
+          : null;
       })
-      .filter((entry): entry is { row: DemoManagerPaymentLedgerRow; subject: string; body: string } =>
+      .filter((entry): entry is { row: DemoManagerPaymentLedgerRow; subject: string; body: string; channels: { viaEmail: boolean; viaSms: boolean } } =>
         Boolean(entry),
       );
     setBulkReminderPreview(null);
@@ -1666,6 +1688,8 @@ export function ManagerPaymentsLedgerPanel({
         emailAvailable={Boolean(reminderPreview.row.residentEmail?.includes("@"))}
         smsAvailable
         deliverViaKind="payment_reminder"
+        dynamicSendLabel
+        assistantContext="Payment reminder compose"
         confirmLabel="Send reminder"
         confirmBusy={sendingReminderId === reminderPreview.row.id}
         confirmBusyLabel="Sending…"
@@ -1673,29 +1697,32 @@ export function ManagerPaymentsLedgerPanel({
       />
     )}
     {bulkReminderPreview && bulkReminderPreview.length > 0 ? (
-      <PortalBulkMessageReadonlyCarouselModal
+      <PortalBulkMessageCarouselModal
         open
         title={
           bulkReminderPreview.length === 1
             ? "Send payment reminder"
             : `Send ${bulkReminderPreview.length} payment reminders`
         }
-        intro="Review each message below. Reminders are saved to PropLane inbox and sent by email when an address is on file."
+        intro="Review and edit each reminder before sending. Messages are saved to PropLane inbox."
         items={bulkReminderPreview.map((item) => ({
           id: item.id,
           label: item.chargeLabel,
           recipient: item.recipient,
           subject: item.subject,
           body: item.body,
+          emailAvailable: Boolean(
+            remindableSelectedRows.find((row) => row.id === item.id)?.residentEmail?.includes("@"),
+          ),
+          smsAvailable: true,
         }))}
-        confirmLabel={
-          bulkReminderPreview.length === 1
-            ? "Send reminder"
-            : `Send ${bulkReminderPreview.length} reminders`
-        }
+        confirmLabel="Send reminder"
+        confirmLabelSingle="Send this reminder"
+        showSkipMessage={false}
+        showChannelPicker
         onClose={() => setBulkReminderPreview(null)}
         confirmBusy={sendingReminderId === "bulk"}
-        onConfirm={() => void doSendBulkReminders()}
+        onConfirm={(scope, options) => void doSendBulkReminders(scope, options)}
       />
     ) : null}
     {chargeRemindersRow ? (

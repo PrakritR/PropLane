@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isStaleRefreshTokenError } from "@/lib/supabase/safe-browser-session";
+import { describeAuthRejection } from "@/lib/auth/session-rejection";
 
 export type ServerProfile = {
   id: string;
@@ -54,6 +55,12 @@ export const getServerSessionProfile = cache(
         if (isStaleRefreshTokenError(userError)) {
           await supabase.auth.signOut().catch(() => undefined);
         }
+        // Every server-rendered portal page and the routes built on this
+        // context resolve to "signed out" here. Without a reason, an expired
+        // session, a cookie the server could not read, and a token minted
+        // against a different project all look the same from the outside —
+        // see session-rejection.ts and PRP-259.
+        await describeAuthRejection(userError, "getServerSessionProfile");
         return { user: null, profile: null };
       }
       if (!user) return { user: null, profile: null };

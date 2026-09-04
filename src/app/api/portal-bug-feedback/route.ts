@@ -1,4 +1,5 @@
 import { createJsonRecordRoute } from "@/lib/portal-record-api";
+import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 
 export const runtime = "nodejs";
 
@@ -24,7 +25,11 @@ const route = createJsonRecordRoute({
     };
     const email = user.email?.trim().toLowerCase();
     if (email) {
-      return scoped.or(`reporter_user_id.eq.${user.id},reporter_email.eq.${email}`);
+      const scope = orFilterForIdentity([
+        ["reporter_user_id", user.id],
+        ["reporter_email", email],
+      ]);
+      if (scope) return scoped.or(scope);
     }
     return scoped.eq("reporter_user_id", user.id);
   },

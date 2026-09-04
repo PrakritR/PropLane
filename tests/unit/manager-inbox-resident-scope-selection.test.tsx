@@ -85,7 +85,15 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
     return Number.isNaN(p) ? 0 : p;
   },
   inboxThreadManagerReplyPending: () => false,
-  inboxThreadMessages: () => [],
+  /*
+    Return the thread's own root, the way the real function does, instead of an
+    empty list. The pane then renders that thread's body, which is what lets
+    these tests say WHICH conversation auto-selection opened — the actions used
+    to be that tell, and they moved into the selection-only bulk bar.
+  */
+  inboxThreadMessages: (t: { id: string; from: string; body: string; time: string }) => [
+    { id: `${t.id}-root`, from: t.from, body: t.body, at: t.time },
+  ],
   appendReplyToInboxThread: () => THREADS,
 }));
 
@@ -148,9 +156,15 @@ describe("resident-scoped inbox auto-selection", () => {
   it("opens the resident's live conversation on the default tab", () => {
     renderScoped("unopened");
     expect(screen.queryByText("NOTHING SELECTED")).toBeNull();
-    // A live thread offers Archive, never the trash-only pair.
-    expect(screen.getAllByRole("button", { name: "Archive" }).length).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", { name: "Restore" })).toBeNull();
+    /*
+      Identify the open thread by its own CONTENT rather than by which action
+      buttons are showing. Actions moved into the floating bulk bar, which
+      appears only while a row is selected, so they stopped being a usable tell
+      — and they were always an indirect one. The invariant here is which
+      thread auto-selection lands on, and the body says that outright.
+    */
+    expect(screen.getAllByText(/still open/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/put away/i)).toBeNull();
   });
 
   it("opens the ARCHIVED conversation on the archived tab", () => {
@@ -158,10 +172,9 @@ describe("resident-scoped inbox auto-selection", () => {
     // The regression: the tab-change reset cleared this selection in the same
     // commit, so "Show archived" landed on the empty fallback.
     expect(screen.queryByText("NOTHING SELECTED")).toBeNull();
-    // Restore + Delete prove the OPEN thread is the trashed one, not the live
-    // one the old candidate filter would have admitted here.
-    expect(screen.getAllByRole("button", { name: "Restore" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("button", { name: "Delete" }).length).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
+    // The archived thread's own body proves the OPEN thread is the trashed
+    // one, not the live one the old candidate filter would have admitted here.
+    expect(screen.getAllByText(/put away/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/still open/i)).toBeNull();
   });
 });
