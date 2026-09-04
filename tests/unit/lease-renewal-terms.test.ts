@@ -17,11 +17,15 @@ describe("renewalRentalTypeForTerm", () => {
 });
 
 describe("renewalLeaseTermOptionsForProperty", () => {
-  it("includes 6-Month in the default fallback set", () => {
+  it("offers the four choices in the default fallback set", () => {
+    // The fallback now mirrors what every other picker shows for a listing with
+    // no stored terms: Long-term rather than the retired 3/6/9/12-Month lengths
+    // (AXI-143). Those are still ACCEPTED when stored, just not offered afresh.
     const options = renewalLeaseTermOptionsForProperty("");
-    expect(options).toContain("6-Month");
+    expect(options).toContain("Long-term");
     expect(options).toContain("Month-to-Month");
     expect(options).toContain(SHORT_TERM_LEASE_TERM);
+    expect(options).not.toContain("6-Month");
     expect(options.indexOf("Custom")).toBeGreaterThan(options.indexOf(SHORT_TERM_LEASE_TERM));
   });
 });
