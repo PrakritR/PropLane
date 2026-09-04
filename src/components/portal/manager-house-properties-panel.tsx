@@ -21,6 +21,7 @@ import { ManagerPropertyApplicationQuestionsPanel } from "@/components/portal/ma
 import { ManagerPropertyLeasePanel } from "@/components/portal/manager-property-lease-panel";
 import { ManagerPropertyPromotionPanel } from "@/components/portal/manager-property-promotion-panel";
 import { ManagerPropertyTourPanel } from "@/components/portal/manager-property-tour-panel";
+import { ModalShell } from "@/components/ui/modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/manager-portal-settings-modal";
@@ -83,6 +84,38 @@ import {
 import { isServerSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { managerPropertyLimitMessage, managerTierPropertyLimitReached } from "@/lib/manager-access";
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
+
+/**
+ * Stand-in for the listing wizard while its listing is still resolving from the
+ * local mirror (AXI-141).
+ *
+ * It mirrors the wizard's own shell — same `ModalShell`, same panel shape — so
+ * the swap to the real form is a content change rather than a modal that closes
+ * and reopens. Closable, because a hydration that never lands must not trap the
+ * manager in a spinner.
+ */
+function ListingEditorLoadingModal({ onClose }: { onClose: () => void }) {
+  return (
+    <ModalShell
+      open
+      onClose={onClose}
+      panelClassName="modal-panel relative z-10 flex max-h-[calc(100svh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-border shadow-2xl"
+    >
+      <div
+        className="flex min-h-[16rem] flex-col items-center justify-center gap-3 px-6 py-16"
+        role="status"
+        aria-live="polite"
+        data-attr="listing-editor-loading"
+      >
+        <span
+          className="h-6 w-6 animate-spin rounded-full border-2 border-border border-t-primary"
+          aria-hidden
+        />
+        <p className="text-sm font-medium text-muted">Opening listing…</p>
+      </div>
+    </ModalShell>
+  );
+}
 
 function propertyIdIsLinked(pid: string, linkedIds: Set<string>): boolean {
   if (!pid) return false;
@@ -215,7 +248,7 @@ function ManagerPropertyInlineDetails({
   skuTier: string | null;
   skuLoaded: boolean;
   propCount: number;
-  onSendToProspect?: (listingId: string) => void;
+  onSendToProspect?: (listingIds: string | string[]) => void;
   propertiesBase: string;
   stage: ManagerStageKey;
   detailTab?: PropertyDetailTabId;
@@ -890,7 +923,6 @@ function ManagerPropertyInlineDetails({
           saveTarget={houseSaveTarget}
           managerUserId={managerUserId}
           onUpdated={onUpdated}
-          showToast={showToast}
         />
       ) : null}
 
@@ -981,8 +1013,24 @@ function ManagerPropertyInlineDetails({
         <ManagerAddListingForm {...listingFormProps} wizardScope="full" />
       ) : null}
 
+      {/*
+        Edit resolves its listing from the local mirror, which can still be
+        hydrating on the first click. Until then `listingFormProps` is null and
+        this rendered NOTHING — the manager tapped Edit and the screen sat there
+        for a beat with no acknowledgement, which is what AXI-141 reports. The
+        placeholder makes the click land immediately and is replaced by the real
+        wizard the moment the listing resolves.
+      */}
+      {listingEditorOpen && !listingFormProps ? (
+        <ListingEditorLoadingModal onClose={() => setListingEditorOpen(false)} />
+      ) : null}
+
       {draftEditorOpen && draftFormProps ? (
         <ManagerAddListingForm {...draftFormProps} wizardScope="full" />
+      ) : null}
+
+      {draftEditorOpen && !draftFormProps ? (
+        <ListingEditorLoadingModal onClose={() => setDraftEditorOpen(false)} />
       ) : null}
 
       {destructiveModalCopy ? (
@@ -1041,7 +1089,7 @@ export function ManagerHousePropertiesPanel({
   showToast: (m: string) => void;
   activeStage: ManagerStageKey;
   onStageChange: (stage: ManagerStageKey) => void;
-  onSendToProspect?: (listingId: string) => void;
+  onSendToProspect?: (listingIds: string | string[]) => void;
   skuTier: string | null;
   skuLoaded: boolean;
   propertiesBase: string;
@@ -1137,8 +1185,12 @@ export function ManagerHousePropertiesPanel({
   );
 
   const canBulkEdit = selectedPropertyEntries.length === 1;
+  // Share is NOT gated on a single selection the way Edit is. The share modal's
+  // `listing` and `apply` kinds are multi-select by design — several listings
+  // become a filtered browse link — so requiring exactly one hid the multi-send
+  // the modal already supported (AXI-140).
   const canBulkShareProperties =
-    Boolean(onSendToProspect) && activeStage === "listed" && canBulkEdit;
+    Boolean(onSendToProspect) && activeStage === "listed" && selectedPropertyEntries.length > 0;
   const canBulkUnlist =
     activeStage === "listed" &&
     selectedPropertyEntries.length > 0 &&
@@ -1459,13 +1511,18 @@ export function ManagerHousePropertiesPanel({
                 className={PORTAL_BULK_BAR_BTN}
                 data-attr="properties-bulk-share"
                 onClick={() => {
-                  const first = selectedPropertyEntries[0];
-                  if (!first || !onSendToProspect) return;
-                  onSendToProspect(propertyKeyFromRow(first.row));
+                  if (!onSendToProspect) return;
+                  const keys = selectedPropertyEntries
+                    .map(({ row }) => propertyKeyFromRow(row))
+                    .filter(Boolean);
+                  if (keys.length === 0) return;
+                  onSendToProspect(keys.length === 1 ? keys[0]! : keys);
                   clearSelection();
                 }}
               >
-                Share
+                {selectedPropertyEntries.length > 1
+                  ? `Share ${selectedPropertyEntries.length}`
+                  : "Share"}
               </Button>
             ) : null}
             {canBulkUnlist ? (

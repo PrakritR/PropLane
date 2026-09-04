@@ -1968,6 +1968,43 @@ html[data-native] .application-finish-panel {
   padding: 0;
 }
 
+/*
+ * The apply wizard's Back / Next row pins to the bottom of the phone viewport.
+ *
+ * "Personal information" is by far the longest step — six required fields plus
+ * two ID photo slots with previews and upload/remove buttons — so on a phone its
+ * actions sat well below the fold. Reported as simply being unable to continue
+ * ("i was able to go next for first few application tabs"), which is exactly the
+ * shape of a step that outgrew the viewport rather than a broken button.
+ *
+ * `sticky` rather than `fixed` on purpose: the row stays in normal flow, so it
+ * never overlaps the last field and needs no reserved bottom gap, and it stops
+ * pinning once the shell's end scrolls into view. Only the standalone wizard
+ * gets this; the embedded portal variant keeps the modal footer it already has.
+ */
+@media (max-width: 639px) {
+  .rental-wizard-actions--pinned {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    margin-left: -1rem;
+    margin-right: -1rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+    background: var(--card);
+    box-shadow: 0 -8px 24px -20px rgba(8, 9, 11, 0.5);
+  }
+
+  /* The native shell pads the card by 0.875rem, so match its edge exactly. */
+  html[data-native] .rental-wizard-actions--pinned {
+    margin-left: -0.875rem;
+    margin-right: -0.875rem;
+    padding-left: 0.875rem;
+    padding-right: 0.875rem;
+  }
+}
+
 html[data-native] .rental-wizard {
   padding-top: max(0.5rem, var(--native-safe-top));
   padding-bottom: max(0.75rem, var(--native-safe-bottom));
@@ -2333,25 +2370,6 @@ html[data-native] .portal-mobile-nav-bar {
   }
 
   /* Tours: compact list footer at every width when rows exist above it. */
-  .portal-list-page-body .portal-list-add-row--tour {
-    min-height: 0;
-    flex-direction: row;
-    gap: 0.5rem;
-    border-width: 1px;
-    border-radius: 0.75rem;
-    padding-top: 0.625rem;
-    padding-bottom: 0.625rem;
-  }
-
-  .portal-list-page-body .portal-list-add-row--tour > svg {
-    height: 1.25rem;
-    width: 1.25rem;
-  }
-
-  .portal-list-page-body .portal-list-add-row--tour > span {
-    flex-direction: row;
-    gap: 0.5rem;
-  }
 }
 
 /* Nested scroll panels: desktop only — mobile uses #portal-main-content scroll. */

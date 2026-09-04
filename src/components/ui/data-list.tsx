@@ -69,6 +69,23 @@ export const DATA_LIST_MOBILE_ROW_WITH_LEADING_CLASS =
 export const DATA_LIST_RESIDENT_MOBILE_ROW_CLASS =
   "flex min-h-[56px] items-center gap-3 border-b border-border/80 px-4 py-3 last:border-0 transition-colors";
 
+/**
+ * Hit target around a list checkbox.
+ *
+ * The box itself is 16px, well under the 44px touch minimum, and it sits
+ * directly beside the button that opens the record — so a tap that lands a
+ * couple of pixels off selects nothing and NAVIGATES instead. Reported as the
+ * checkbox "sometimes" opening the application, and going straight in after a
+ * few taps (AXI-157).
+ *
+ * The padding grows the target to ~40px while the negative margin gives the
+ * space back to the layout, so nothing moves. It carries
+ * `data-portal-row-ignore` and stops propagation itself, so even the padding
+ * ring counts as "the checkbox", never as a row click.
+ */
+export const PORTAL_LIST_CHECKBOX_HIT_CLASS =
+  "-m-3 inline-flex shrink-0 cursor-pointer items-center justify-center p-3";
+
 /** Payments-style circular checkbox for resident selectable lists. */
 export const PORTAL_RESIDENT_LIST_CHECKBOX_CLASS =
   "h-4 w-4 shrink-0 rounded-full border-border accent-primary";
@@ -127,19 +144,25 @@ function DataListMobileRow<T>({
   );
   const selection =
     selectable && row.onSelectedChange ? (
-      <input
-        type="checkbox"
-        className={
-          variant === "resident"
-            ? PORTAL_RESIDENT_LIST_CHECKBOX_CLASS
-            : "h-4 w-4 shrink-0 rounded border-border"
-        }
-        checked={row.selected ?? false}
-        onChange={(e) => row.onSelectedChange?.(e.target.checked)}
-        onClick={(e) => e.stopPropagation()}
+      <label
+        className={PORTAL_LIST_CHECKBOX_HIT_CLASS}
         data-portal-row-ignore
-        aria-label={`Select ${row.primary}`}
-      />
+        onClick={(e) => e.stopPropagation()}
+      >
+        <input
+          type="checkbox"
+          className={
+            variant === "resident"
+              ? PORTAL_RESIDENT_LIST_CHECKBOX_CLASS
+              : "h-4 w-4 shrink-0 rounded border-border"
+          }
+          checked={row.selected ?? false}
+          onChange={(e) => row.onSelectedChange?.(e.target.checked)}
+          onClick={(e) => e.stopPropagation()}
+          data-portal-row-ignore
+          aria-label={`Select ${row.primary}`}
+        />
+      </label>
     ) : null;
   const recordContent = (
     <div className="min-w-0 flex-1">
@@ -222,16 +245,22 @@ function DataListDesktopRow<T>({
       data-slot="data-list-desktop-row"
     >
       {selectable && row.onSelectedChange ? (
-        <td className={cn(PORTAL_TABLE_TD, "w-10 px-3")}>
-          <input
-            type="checkbox"
-            className="h-4 w-4 rounded border-border"
-            checked={row.selected ?? false}
-            onChange={(e) => row.onSelectedChange?.(e.target.checked)}
-            onClick={(e) => e.stopPropagation()}
+        <td className={cn(PORTAL_TABLE_TD, "w-10 px-3")} data-portal-row-ignore>
+          <label
+            className={PORTAL_LIST_CHECKBOX_HIT_CLASS}
             data-portal-row-ignore
-            aria-label={`Select ${row.primary}`}
-          />
+            onClick={(e) => e.stopPropagation()}
+          >
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-border"
+              checked={row.selected ?? false}
+              onChange={(e) => row.onSelectedChange?.(e.target.checked)}
+              onClick={(e) => e.stopPropagation()}
+              data-portal-row-ignore
+              aria-label={`Select ${row.primary}`}
+            />
+          </label>
         </td>
       ) : null}
       {row.leading ? (

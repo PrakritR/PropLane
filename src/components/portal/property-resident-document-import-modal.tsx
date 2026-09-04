@@ -7,6 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
 import { readExtraListingsForUser } from "@/lib/demo-property-pipeline";
+import {
+  collectLinkedPropertyIdsForModule,
+  resolvePropertyLabelForId,
+} from "@/lib/manager-portfolio-access";
 import { commitResidentDocumentImport } from "@/lib/resident-document-import/commit-import.client";
 import type { ParsedResidentDocument, ResidentDocumentKind } from "@/lib/resident-document-import/types";
 import {
@@ -96,10 +100,17 @@ export function PropertyResidentDocumentImportModal({
 
   const propertyOptions = useMemo(() => {
     if (!managerUserId) return [];
-    return readExtraListingsForUser(managerUserId).map((row) => ({
+    const owned = readExtraListingsForUser(managerUserId).map((row) => ({
       value: row.id,
       label: row.buildingName?.trim() || row.title?.trim() || row.id,
     }));
+      // Linked listings live in the OWNER's bucket, not this viewer's (AXI-156),
+      // so a co-manager saw an empty picker here.
+    const ownedIds = new Set(owned.map((row) => row.value));
+    const linked = [...collectLinkedPropertyIdsForModule(managerUserId, "residents")]
+      .filter((id) => id && !ownedIds.has(id))
+      .map((id) => ({ value: id, label: resolvePropertyLabelForId(id) }));
+    return [...owned, ...linked];
   }, [managerUserId, open]);
 
   const selectedProperty = useMemo(

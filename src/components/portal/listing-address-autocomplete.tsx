@@ -28,12 +28,27 @@ export function ListingAddressAutocomplete({
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const skipNextFetch = useRef(false);
+  /**
+   * The address text a chosen suggestion settles on — NOT a one-shot "skip the
+   * next fetch" boolean.
+   *
+   * Picking a suggestion updates the field over more than one render: the parent
+   * writes the sanitized street address AND the city / state / ZIP it filled in
+   * from the same suggestion. A one-shot flag was consumed by the first of those
+   * renders, so the next one re-ran the search and reopened the list on top of
+   * the address the manager had just chosen — the dropdown appeared never to
+   * close. Comparing against the applied text instead is idempotent: it holds for
+   * as many renders as it takes to settle, and releases the moment the manager
+   * actually edits the field.
+   */
+  const appliedValueRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (skipNextFetch.current) {
-      skipNextFetch.current = false;
-      return;
+    const settled = appliedValueRef.current;
+    if (settled !== null) {
+      if (value.trim() === settled) return;
+      // Edited since the pick — resume searching.
+      appliedValueRef.current = null;
     }
     const q = value.trim();
     if (q.length < 4) {
@@ -49,6 +64,9 @@ export function ListingAddressAutocomplete({
         .then(async (res) => {
           const data = (await res.json().catch(() => ({}))) as { suggestions?: AddressSuggestion[] };
           if (cancelled) return;
+          // A late response must not reopen the list over an address that was
+          // chosen while the request was in flight.
+          if (appliedValueRef.current !== null) return;
           setSuggestions(Array.isArray(data.suggestions) ? data.suggestions : []);
           setOpen(true);
           setActiveIndex(-1);
@@ -76,7 +94,9 @@ export function ListingAddressAutocomplete({
   }, []);
 
   const applySuggestion = (suggestion: AddressSuggestion) => {
-    skipNextFetch.current = true;
+    // The exact string the parent will write back (same helper, same input), so
+    // the guard above matches whatever render order the parent settles in.
+    appliedValueRef.current = sanitizeStreetAddressInput(suggestion.address || suggestion.label).trim();
     setSuggestions([]);
     setOpen(false);
     setActiveIndex(-1);

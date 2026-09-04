@@ -18,7 +18,11 @@ import {
   readManagerApplicationRows,
   syncManagerApplicationsFromServer,
 } from "@/lib/manager-applications-storage";
-import { applicationVisibleToPortalUser } from "@/lib/manager-portfolio-access";
+import {
+  applicationVisibleToPortalUser,
+  collectLinkedPropertyIdsForModule,
+  resolvePropertyLabelForId,
+} from "@/lib/manager-portfolio-access";
 import { getRoomChoiceLabel } from "@/lib/rental-application/data";
 import {
   PROPERTY_PIPELINE_EVENT,
@@ -65,6 +69,18 @@ function buildManagerPropertyOptions(managerUserId: string | null): PropertyPaym
     const propertyId = property.id.trim();
     if (!propertyId || seen.has(propertyId)) continue;
     const propertyLabel = displayPropertyLabel(property.buildingName.trim());
+    if (!propertyLabel) continue;
+    seen.set(propertyId, { propertyId, propertyLabel });
+  }
+
+  // A co-manager's linked listings live in the OWNER's bucket of the property
+  // pipeline store, never this viewer's, so the two loops above see none of them
+  // and the picker reads "No properties in portfolio" for a co-manager who can
+  // plainly see the same homes on the Properties tab (AXI-156). Same third loop
+  // `manager-add-lease-modal` already had.
+  for (const propertyId of collectLinkedPropertyIdsForModule(managerUserId, "payments")) {
+    if (!propertyId || seen.has(propertyId)) continue;
+    const propertyLabel = displayPropertyLabel(resolvePropertyLabelForId(propertyId));
     if (!propertyLabel) continue;
     seen.set(propertyId, { propertyId, propertyLabel });
   }

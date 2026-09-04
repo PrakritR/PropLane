@@ -28,7 +28,7 @@ export const API_KEY_PRODUCT_AREAS: readonly ApiKeyProductArea[] = [
     label: "Portfolio & residents",
     description: "Properties, listings, residents, documents, and your team.",
     readTools: ["list_properties", "get_property_details", "get_listing_creation_checklist", "get_listing_media_inventory", "list_residents", "list_documents", "list_co_managers"],
-    writeTools: ["create_property", "update_property", "update_property_lease_config", "copy_listing_photos", "share_property_link", "create_listing_draft", "update_listing_draft", "apply_listing_photos", "set_resident_approval", "send_resident_welcome", "revoke_resident_access", "record_move_out"],
+    writeTools: ["create_property", "update_property", "update_room_rent", "update_property_lease_config", "copy_listing_photos", "share_property_link", "create_listing_draft", "update_listing_draft", "apply_listing_photos", "set_resident_approval", "send_resident_welcome", "revoke_resident_access", "record_move_out"],
   },
   {
     id: "leasing",

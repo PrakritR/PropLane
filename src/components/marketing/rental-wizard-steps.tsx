@@ -10,6 +10,7 @@ import { GroupInviteCallout } from "@/components/marketing/group-invite-callout"
 import { GroupLeaderAppIdField } from "@/components/marketing/group-leader-app-id-field";
 import { ApplicationFeeInlinePayment } from "@/components/marketing/application-fee-inline-payment";
 import { ApplicationPhotoField, IncomeProofPhotos } from "@/components/marketing/application-photo-field";
+import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
 import { SmsConsentCheckbox } from "@/components/marketing/sms-consent-checkbox";
 import { listingApplicationFeeChannels, resolveApplicationFeePayChannel, isAchApplicationFeeChannel, resolveApplicationFeeOtherInstructions } from "@/lib/rental-application/application-fee-channel";
 import {
@@ -1224,11 +1225,31 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           <Label htmlFor="currentStreet" required>
             Street address
           </Label>
-          <Input
-            id="currentStreet"
+          {/*
+            The same address search the listing wizard uses, so an applicant
+            picks a REAL address instead of typing anything at all — choosing a
+            suggestion fills city, state and ZIP from the geocoder rather than
+            leaving three free-text boxes to disagree with the street (AXI-168).
+
+            Deliberately NOT a hard block on "must match a suggestion". A
+            geocoder misses new builds, rural routes and recent renumbering, and
+            refusing those would lock a real applicant out of a rental
+            application entirely — a far worse failure than a typo in a field the
+            manager can see. This makes the right answer the easy one.
+          */}
+          <ListingAddressAutocomplete
             value={form.currentStreet}
-            onChange={(e) => patch({ currentStreet: e.target.value })}
-            autoComplete="street-address"
+            onChange={(currentStreet) => patch({ currentStreet })}
+            onSelect={(suggestion) => {
+              patch({
+                currentStreet: suggestion.address || suggestion.label,
+                ...(suggestion.city ? { currentCity: suggestion.city } : {}),
+                ...(suggestion.state ? { currentState: suggestion.state } : {}),
+                ...(suggestion.zip ? { currentZip: suggestion.zip } : {}),
+              });
+            }}
+            placeholder="Start typing your street address…"
+            aria-invalid={Boolean(errors.currentStreet)}
             className={errors.currentStreet ? "border-red-400 ring-2 ring-red-100" : ""}
           />
           <FieldError msg={errors.currentStreet} />
