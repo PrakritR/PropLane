@@ -160,7 +160,7 @@ export function resolvePlacementValuesForRow(
 }
 
 export type ManualResidentPricing = {
-  rentalType: "standard" | "short_term";
+  rentalType: "standard" | "short_term" | "airbnb";
   rent: string;
   utilities: string;
   moveInFee: string;
@@ -258,6 +258,16 @@ export function resolveManualResidentPlacementValues(input: {
 
   const appFields = residentLeaseTermToApplicationFields(leaseTerm, input.leaseTermCustomMode, propertyId);
   const rentalType = appFields.rentalType;
+
+  if (rentalType === "airbnb") {
+    return {
+      rentalType,
+      rent: "0",
+      utilities: "0",
+      moveInFee: "0",
+      securityDeposit: "0",
+    };
+  }
 
   const bundleId = input.bundleId?.trim() ?? "";
   if (bundleId && rentalType !== "short_term") {

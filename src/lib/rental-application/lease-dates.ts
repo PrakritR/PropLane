@@ -1,4 +1,4 @@
-import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { AIRBNB_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
 /** Parse YYYY-MM-DD or M/D/YYYY into a local calendar date. */
 export function parseFlexibleLocalDate(value: string | undefined | null): Date | null {
@@ -42,7 +42,7 @@ export function shouldAutoComputeLeaseEnd(
   leaseTerm: string,
   rentalType?: "standard" | "short_term" | string | null,
 ): boolean {
-  if (rentalType === "short_term") return false;
+  if (rentalType === "short_term" || rentalType === "airbnb") return false;
   const term = leaseTerm.trim();
   if (!term || term === "Month-to-Month" || term === "Custom" || term === SHORT_TERM_LEASE_TERM) return false;
   return leaseTermMonths(term) != null;
@@ -102,7 +102,12 @@ export function resolvePlacementLeaseDates(input: {
   leaseEnd?: string | null;
   rentalType?: "standard" | "short_term" | string | null;
 }): { leaseTerm: string; leaseStart: string; leaseEnd: string } {
-  const leaseTerm = input.rentalType === "short_term" ? SHORT_TERM_LEASE_TERM : input.leaseTerm?.trim() || "";
+  const leaseTerm =
+    input.rentalType === "short_term"
+      ? SHORT_TERM_LEASE_TERM
+      : input.rentalType === "airbnb"
+        ? AIRBNB_LEASE_TERM
+        : input.leaseTerm?.trim() || "";
   const leaseStart = normalizeIsoDateInput(input.leaseStart);
   let leaseEnd = leaseTerm === "Month-to-Month" ? "" : normalizeIsoDateInput(input.leaseEnd);
   if (!leaseEnd && shouldAutoComputeLeaseEnd(leaseTerm, input.rentalType) && leaseStart) {

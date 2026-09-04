@@ -10,6 +10,7 @@ import {
   normalizeSharedSpaceKind,
 } from "@/data/manager-listing-presets";
 import {
+  AIRBNB_LEASE_TERM,
   LEASE_TERM_OPTIONS,
   LISTING_LEASE_TERM_OPTION_SET,
   SHORT_TERM_LEASE_TERM,
@@ -325,6 +326,8 @@ export type ManagerListingSubmissionV1 = {
   /** Display copy derived from `allowedLeaseTerms`; kept for older listings and generated lease text. */
   leaseTermsBody: string;
   shortTermRentalsAllowed?: boolean;
+  /** When enabled, managers may add off-platform Airbnb occupants (no PropLane billing). */
+  airbnbRentalsAllowed?: boolean;
   shortTermRequirements?: string;
   shortTermDailyCost?: string;
   shortTermDeposit?: string;
@@ -623,9 +626,18 @@ export function syncShortTermLeaseTermInAllowed(
   return sortLeaseTermsCanonical(withShortTerm);
 }
 
+export function syncAirbnbLeaseTermInAllowed(terms: string[], airbnbRentalsAllowed: boolean): string[] {
+  const without = terms.filter((t) => t !== AIRBNB_LEASE_TERM);
+  const withAirbnb = airbnbRentalsAllowed ? [...without, AIRBNB_LEASE_TERM] : without;
+  return sortLeaseTermsCanonical(withAirbnb);
+}
+
 export function resolveAllowedLeaseTerms(
   sub:
-    | Pick<ManagerListingSubmissionV1, "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed">
+    | Pick<
+        ManagerListingSubmissionV1,
+        "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed"
+      >
     | null
     | undefined,
 ): string[] {
@@ -648,7 +660,10 @@ export function resolveAllowedLeaseTerms(
       }
     }
   }
-  return syncShortTermLeaseTermInAllowed(terms, Boolean(sub?.shortTermRentalsAllowed));
+  return syncAirbnbLeaseTermInAllowed(
+    syncShortTermLeaseTermInAllowed(terms, Boolean(sub?.shortTermRentalsAllowed)),
+    Boolean(sub?.airbnbRentalsAllowed),
+  );
 }
 
 export type ManagerListingServiceOption = {
@@ -1508,6 +1523,7 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
     houseMoveInVideoDataUrl:
       typeof sub.houseMoveInVideoDataUrl === "string" ? sub.houseMoveInVideoDataUrl || null : null,
     shortTermRentalsAllowed: Boolean(sub.shortTermRentalsAllowed),
+    airbnbRentalsAllowed: Boolean(sub.airbnbRentalsAllowed),
     shortTermRequirements: typeof sub.shortTermRequirements === "string" ? sub.shortTermRequirements : "",
     shortTermDailyCost: typeof sub.shortTermDailyCost === "string" ? sub.shortTermDailyCost : "",
     shortTermDeposit: typeof sub.shortTermDeposit === "string" ? sub.shortTermDeposit : "",
@@ -2136,6 +2152,7 @@ export function createDefaultListingSubmission(): ManagerListingSubmissionV1 {
     leaseTermsBody: "",
     allowedLeaseTerms: [],
     shortTermRentalsAllowed: false,
+    airbnbRentalsAllowed: false,
     shortTermRequirements: "",
     shortTermDailyCost: "",
     shortTermDeposit: "",

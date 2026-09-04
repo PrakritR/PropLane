@@ -1,10 +1,15 @@
 import { listingAllowedLeaseTerms } from "@/lib/rental-application/data";
-import { CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import {
+  AIRBNB_LEASE_TERM,
+  CUSTOM_LEASE_TERM,
+  SHORT_TERM_LEASE_TERM,
+} from "@/lib/rental-application/lease-terms";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 
 /** Manual-resident lease type buckets (add/edit resident modals). */
 export const RESIDENT_LEASE_TERM_SHORT = "short_term";
 export const RESIDENT_LEASE_TERM_LONG = "long_term";
+export const RESIDENT_LEASE_TERM_AIRBNB = "airbnb";
 export const RESIDENT_LEASE_TERM_CUSTOM = "__custom__";
 
 const LONG_TERM_LISTING_PREFERENCE = ["12-Month", "Month-to-Month", "6-Month", "9-Month", "3-Month"] as const;
@@ -16,6 +21,7 @@ const LEGACY_LISTING_TO_RESIDENT: Record<string, string> = {
   "6-Month": RESIDENT_LEASE_TERM_LONG,
   "3-Month": RESIDENT_LEASE_TERM_LONG,
   [SHORT_TERM_LEASE_TERM]: RESIDENT_LEASE_TERM_SHORT,
+  [AIRBNB_LEASE_TERM]: RESIDENT_LEASE_TERM_AIRBNB,
 };
 
 const LEGACY_RESIDENT_TO_LISTING: Record<string, string> = {
@@ -27,6 +33,8 @@ const LEGACY_RESIDENT_TO_LISTING: Record<string, string> = {
   [SHORT_TERM_LEASE_TERM]: SHORT_TERM_LEASE_TERM,
   [RESIDENT_LEASE_TERM_SHORT]: SHORT_TERM_LEASE_TERM,
   [RESIDENT_LEASE_TERM_LONG]: "12-Month",
+  [AIRBNB_LEASE_TERM]: AIRBNB_LEASE_TERM,
+  [RESIDENT_LEASE_TERM_AIRBNB]: AIRBNB_LEASE_TERM,
 };
 
 function resolveLongTermListingLease(propertyId: string): string {
@@ -42,9 +50,10 @@ export function normalizeApplicationLeaseTerm(raw: string, propertyId = ""): str
   const t = raw.trim();
   if (!t) return "";
   if (t === RESIDENT_LEASE_TERM_SHORT) return SHORT_TERM_LEASE_TERM;
+  if (t === RESIDENT_LEASE_TERM_AIRBNB) return AIRBNB_LEASE_TERM;
   if (t === RESIDENT_LEASE_TERM_LONG) return resolveLongTermListingLease(propertyId);
   if (LEGACY_RESIDENT_TO_LISTING[t]) return LEGACY_RESIDENT_TO_LISTING[t]!;
-  if (t === "Month-to-Month" || t === CUSTOM_LEASE_TERM) return t;
+  if (t === "Month-to-Month" || t === CUSTOM_LEASE_TERM || t === AIRBNB_LEASE_TERM) return t;
   const legacyMonths = t.match(/^(\d+)\s*months?$/i);
   if (legacyMonths) return `${legacyMonths[1]}-Month`;
   return t;
@@ -63,6 +72,9 @@ export function residentLeaseTermToApplicationFields(
     if (fromCustom === SHORT_TERM_LEASE_TERM) {
       return { leaseTerm: SHORT_TERM_LEASE_TERM, rentalType: "short_term" };
     }
+    if (fromCustom === AIRBNB_LEASE_TERM) {
+      return { leaseTerm: AIRBNB_LEASE_TERM, rentalType: "airbnb" };
+    }
     const standardTerms = new Set([
       "Month-to-Month",
       "3-Month",
@@ -80,12 +92,18 @@ export function residentLeaseTermToApplicationFields(
   if (trimmed === RESIDENT_LEASE_TERM_SHORT || trimmed === SHORT_TERM_LEASE_TERM) {
     return { leaseTerm: SHORT_TERM_LEASE_TERM, rentalType: "short_term" };
   }
+  if (trimmed === RESIDENT_LEASE_TERM_AIRBNB || trimmed === AIRBNB_LEASE_TERM) {
+    return { leaseTerm: AIRBNB_LEASE_TERM, rentalType: "airbnb" };
+  }
   if (trimmed === RESIDENT_LEASE_TERM_LONG) {
     return { leaseTerm: resolveLongTermListingLease(propertyId), rentalType: "standard" };
   }
   const canonical = normalizeApplicationLeaseTerm(trimmed, propertyId);
   if (canonical === CUSTOM_LEASE_TERM) {
     return { leaseTerm: CUSTOM_LEASE_TERM, rentalType: "standard" };
+  }
+  if (canonical === AIRBNB_LEASE_TERM) {
+    return { leaseTerm: AIRBNB_LEASE_TERM, rentalType: "airbnb" };
   }
   return { leaseTerm: canonical, rentalType: "standard" };
 }
@@ -96,6 +114,7 @@ export function listingLeaseTermToResidentValue(term: string): string {
   if (!t) return "";
   if (LEGACY_LISTING_TO_RESIDENT[t]) return LEGACY_LISTING_TO_RESIDENT[t]!;
   if (t === SHORT_TERM_LEASE_TERM) return RESIDENT_LEASE_TERM_SHORT;
+  if (t === AIRBNB_LEASE_TERM) return RESIDENT_LEASE_TERM_AIRBNB;
   if (t === CUSTOM_LEASE_TERM) return RESIDENT_LEASE_TERM_CUSTOM;
   if (/^\d+-Month$/i.test(t) || t === "Month-to-Month") return RESIDENT_LEASE_TERM_LONG;
   return t;
@@ -103,7 +122,7 @@ export function listingLeaseTermToResidentValue(term: string): string {
 
 export type ResidentLeaseTermOption = { value: string; label: string };
 
-/** Lease term choices for add/edit resident modals — short, long, or custom. */
+/** Lease term choices for add/edit resident modals — short, long, airbnb, or custom. */
 export function residentLeaseTermOptionsForProperty(propertyId: string): ResidentLeaseTermOption[] {
   const pid = propertyId.trim();
   const allowed = pid ? listingAllowedLeaseTerms(pid) : [];
@@ -114,6 +133,11 @@ export function residentLeaseTermOptionsForProperty(propertyId: string): Residen
   const shortAllowed = !pid || allowed.includes(SHORT_TERM_LEASE_TERM);
   if (shortAllowed) {
     options.unshift({ value: RESIDENT_LEASE_TERM_SHORT, label: "Short term" });
+  }
+  const airbnbAllowed = !pid || allowed.includes(AIRBNB_LEASE_TERM);
+  if (airbnbAllowed) {
+    const insertAt = shortAllowed ? 1 : 0;
+    options.splice(insertAt, 0, { value: RESIDENT_LEASE_TERM_AIRBNB, label: "Airbnb" });
   }
   return options;
 }
