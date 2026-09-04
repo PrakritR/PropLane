@@ -5,7 +5,7 @@
 //  2. A long message renders in FULL (pre-wrap, no clamp/truncate) so a reply
 //     bubble never clips.
 //  3. Scheduled messages render as a compact chip in the thread; tap opens a
-//     popup with the full body and Send now / Cancel / Edit actions.
+//     compose-style popup with Schedule for later checked.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import {
@@ -72,13 +72,13 @@ describe("inbox thread omnichannel primitives", () => {
     expect(screen.queryByText(LONG)).toBeNull();
     openScheduledDetail();
     expect(screen.getByText(LONG)).toBeTruthy();
-    expect(screen.getByText("Send now")).toBeTruthy();
-    expect(screen.getByText("Cancel send")).toBeTruthy();
+    expect(screen.getByText("Schedule")).toBeTruthy();
+    expect(screen.queryByText("Send now")).toBeNull();
+    expect(screen.queryByText("Cancel send")).toBeNull();
   });
 
-  it("shows the full body and Cancel/Send-now actions that fire from the popup", () => {
-    const onCancel = vi.fn();
-    const onSendNow = vi.fn();
+  it("compose popup: Schedule saves edits without an Edit step", () => {
+    const onSaveEdit = vi.fn();
     render(
       <InboxScheduledCard
         sendLabel="Jul 25, 2026, 9:00 AM"
@@ -86,42 +86,16 @@ describe("inbox thread omnichannel primitives", () => {
         body={LONG}
         source="manual"
         editable
-        onCancel={onCancel}
-        onSendNow={onSendNow}
-        onSaveEdit={vi.fn()}
-      />,
-    );
-    openScheduledDetail();
-    expect(screen.getByText(LONG)).toBeTruthy();
-    fireEvent.click(screen.getByText("Send now"));
-    expect(onSendNow).toHaveBeenCalledTimes(1);
-    openScheduledDetail();
-    fireEvent.click(screen.getByText("Cancel send"));
-    expect(onCancel).toHaveBeenCalledTimes(1);
-  });
-
-  it("editable detail popup: Edit swaps to inline textareas and Save persists edits", () => {
-    const onSaveEdit = vi.fn();
-    render(
-      <InboxScheduledCard
-        sendLabel="Jul 25"
-        subject="Rent reminder"
-        body="Original body"
-        source="manual"
-        editable
-        smsAvailable
         onCancel={vi.fn()}
         onSendNow={vi.fn()}
         onSaveEdit={onSaveEdit}
       />,
     );
     openScheduledDetail();
-    fireEvent.click(screen.getByText("Edit"));
     const bodyField = document.querySelector('[data-attr="inbox-scheduled-edit-body"]') as HTMLTextAreaElement;
     expect(bodyField).toBeTruthy();
-    expect(document.querySelector('[data-attr="inbox-scheduled-edit-send-via"]')).toBeTruthy();
     fireEvent.change(bodyField, { target: { value: "Edited body" } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getByText("Schedule"));
     expect(onSaveEdit).toHaveBeenCalledTimes(1);
     expect(onSaveEdit.mock.calls[0][0]).toMatchObject({
       body: "Edited body",
@@ -145,10 +119,9 @@ describe("inbox thread omnichannel primitives", () => {
       />,
     );
     openScheduledDetail();
-    fireEvent.click(screen.getByText("Edit"));
     const bodyField = document.querySelector('[data-attr="inbox-scheduled-edit-body"]') as HTMLTextAreaElement;
     fireEvent.change(bodyField, { target: { value: "Edited body" } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getByText("Schedule"));
 
     await waitFor(() =>
       expect(document.querySelector('[data-attr="inbox-scheduled-save-error"]')?.textContent).toBe(
