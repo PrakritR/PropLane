@@ -179,29 +179,44 @@ describe("manager inbox search", () => {
     expect(screen.getAllByText("To: sam@example.com").length).toBeGreaterThan(0);
   });
 
+  /**
+   * Actions live in the floating bulk bar now, which exists only while
+   * something is SELECTED — the house convention every list follows. So these
+   * two select a row rather than clicking it (a click opens the thread), and
+   * then read the bar. The invariant being guarded is unchanged and is the
+   * whole point of the first one: a live row surfaced by searching from the
+   * Trash tab must never offer the trash-only Restore / Delete-forever.
+   */
+  const selectRowFor = (name: string | RegExp) => {
+    const box = screen.getAllByRole("checkbox", {
+      name: typeof name === "string" ? new RegExp(`Select conversation with .*${name}`, "i") : name,
+    })[0]!;
+    fireEvent.click(box);
+  };
+
   it("never offers permanent delete on a search row opened from the Trash tab", () => {
     render(<ManagerInbox tabId="trash" embeddedInCommunication externalTitleActions suppressCompose />);
     fireEvent.change(searchBox(), { target: { value: "roof" } });
 
-    // The rows on screen are live inbox/sent messages, so the trash-only
-    // Restore / Delete-forever actions must be gone.
-    const rows = screen.getAllByText("Roof leak in unit 2");
-    fireEvent.click(rows[0]!);
+    // Positive control FIRST: the live row really is on screen, so the
+    // absences below mean "not offered on this screen" rather than "the search
+    // returned nothing and there was never anything to act on".
+    expect(screen.getAllByText("Roof leak in unit 2").length).toBeGreaterThan(0);
 
+    // The rows on screen are live inbox/sent messages, so the trash-only
+    // Restore / Delete-forever actions must not be reachable. Search results
+    // render without the selection checkbox, so there is no bulk bar here at
+    // all — which satisfies the invariant, and is why this asserts absence
+    // across the whole screen rather than selecting first.
     expect(screen.queryByRole("button", { name: "Restore" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
-    // The live-row action is labelled "Archive" in the unified inbox (it still
-    // calls `moveToTrash`; "archived" is what a trashed conversation is called
-    // now). This is the positive control — the invariant under test is the two
-    // trash-only actions being absent above.
-    expect(screen.getAllByRole("button", { name: "Archive" }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("checkbox", { name: /Select conversation with/i })).toBeNull();
   });
 
   it("keeps the trash tab's own actions when no search is active", () => {
     render(<ManagerInbox tabId="trash" embeddedInCommunication externalTitleActions suppressCompose />);
 
-    const rows = screen.getAllByText("Roof flyer");
-    fireEvent.click(rows[0]!);
+    selectRowFor(/./);
 
     expect(screen.getAllByRole("button", { name: "Restore" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: "Delete" }).length).toBeGreaterThan(0);

@@ -174,14 +174,22 @@ Listed newest first; the ones already fixed say so.
 
 ### Open
 
-* **Three inbox tests expect buttons the new bulk bar only shows on selection.**
-  `manager-inbox-search`, `manager-inbox-resident-scope-selection` and
-  `resident-refused-send-not-delivered` look for Archive / Restore as
-  always-present buttons; the unified-inbox redesign moved them into
-  `CommunicationListBulkBar`, which renders only while something is selected.
-  Left for the communication lane, since it is their contract to settle — the
-  tests may simply need to select a row first, or the buttons may be meant to
-  stay.
+* **A resident's manual Send-via choice is overwritten when SMS availability
+  resolves.** `resident-inbox-panel` re-derives the default channels in an
+  effect keyed on `activeSmsAvailable`, and that value flips false→true
+  asynchronously after `/api/resident/sms-conversations` answers. A channel
+  picked BEFORE that read lands is silently reset — the trigger falls back to
+  "Email" with nothing said. In the real app the fetch usually wins the race, so
+  it is rarely seen; in tests it is reliable, which is why the two remaining
+  cases in `resident-refused-send-not-delivered` cannot select SMS at all.
+  Suspected, not proven — the effect is the communication lane's. They have
+  since landed a change to that file and the two cases now pass, so the symptom
+  is gone; whether the underlying race was fixed or only avoided in the test is
+  worth one look before trusting it.
+  The other two files in that group ARE fixed: `manager-inbox-search` and
+  `manager-inbox-resident-scope-selection` now drive selection, or identify the
+  open thread by its own content, rather than reading action buttons that moved
+  into the selection-only bulk bar.
 * **Vendor Payments never names the manager who owes the money.** `managerName`
   is not a field on the vendor work-order row at all, so `row.managerName` is
   always `undefined`: demo prints the canonical "Test Manager" on every row and
