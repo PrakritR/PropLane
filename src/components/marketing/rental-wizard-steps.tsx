@@ -21,7 +21,7 @@ import {
 } from "@/lib/rental-application/application-fee-display";
 import { ApplyFieldRow } from "@/app/(public)/rent/apply/apply-field-row";
 import {
-  LEASE_TERM_OPTIONS,
+  LEASE_TERM_CHOICES,
   SHORT_TERM_LEASE_TERM,
   getBundleChoiceLabel,
   getBundleOptionsForProperty,
@@ -648,7 +648,10 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     // separate "Application type" toggle that could contradict the term.
     const leaseTermOptions = form.propertyId.trim()
       ? listingAllowedLeaseTerms(form.propertyId)
-      : [...LEASE_TERM_OPTIONS];
+      // The four offered choices, not every accepted value — a listing that
+      // still stores "12-Month" surfaces it through listingAllowedLeaseTerms,
+      // but nobody is offered the old lengths afresh (AXI-143).
+      : [...LEASE_TERM_CHOICES];
     /**
      * The ranked 1st/2nd/3rd choices offer only rooms that are ACTUALLY
      * AVAILABLE. This list used to pass `includeUnavailable: true`, so an

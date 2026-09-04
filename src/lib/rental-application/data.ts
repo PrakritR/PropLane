@@ -12,10 +12,15 @@ import {
 import { effectiveApplicationForRow, readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { isEntireHomeListing, normalizeManagerListingSubmissionV1, resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
 import { bundleShortTermPriceLabel } from "@/lib/listing-bundle-short-term";
-import { LEASE_TERM_OPTIONS, SHORT_TERM_LEASE_TERM, type LeaseTermOption } from "@/lib/rental-application/lease-terms";
+import {
+  LEASE_TERM_CHOICES,
+  LEASE_TERM_OPTIONS,
+  SHORT_TERM_LEASE_TERM,
+  type LeaseTermOption,
+} from "@/lib/rental-application/lease-terms";
 import { roomDailyRentPrice } from "@/lib/room-pricing";
 
-export { LEASE_TERM_OPTIONS, SHORT_TERM_LEASE_TERM, type LeaseTermOption };
+export { LEASE_TERM_CHOICES, LEASE_TERM_OPTIONS, SHORT_TERM_LEASE_TERM, type LeaseTermOption };
 
 function normFloorLabel(raw: string): string {
   if (!raw.trim()) return "";
@@ -26,9 +31,9 @@ function normFloorLabel(raw: string): string {
 export function listingAllowedLeaseTerms(propertyId: string): string[] {
   const prop = getPropertyById(propertyId);
   const sub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
-  if (!sub) return [...LEASE_TERM_OPTIONS];
+  if (!sub) return [...LEASE_TERM_CHOICES];
   const terms = resolveAllowedLeaseTerms(sub);
-  return terms.length > 0 ? terms : [...LEASE_TERM_OPTIONS];
+  return terms.length > 0 ? terms : [...LEASE_TERM_CHOICES];
 }
 
 /** Separates listing property id from submission room id in `roomChoice*` values. */

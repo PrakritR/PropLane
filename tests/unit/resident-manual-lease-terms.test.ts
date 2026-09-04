@@ -49,7 +49,9 @@ describe("resident manual lease terms", () => {
 
   it("maps resident lease choices to application fields for template generation", () => {
     expect(residentLeaseTermToApplicationFields(RESIDENT_LEASE_TERM_LONG, false, "demo-property-1")).toEqual({
-      leaseTerm: "12-Month",
+      // "Long-term" is the offered term now (AXI-143); the named lengths are
+      // still accepted but a resident's "long term" choice resolves to this.
+      leaseTerm: "Long-term",
       rentalType: "standard",
     });
     expect(residentLeaseTermToApplicationFields(RESIDENT_LEASE_TERM_SHORT, false)).toEqual({
@@ -60,6 +62,6 @@ describe("resident manual lease terms", () => {
       leaseTerm: AIRBNB_LEASE_TERM,
       rentalType: "airbnb",
     });
-    expect(normalizeApplicationLeaseTerm(RESIDENT_LEASE_TERM_LONG, "demo-property-1")).toBe("12-Month");
+    expect(normalizeApplicationLeaseTerm(RESIDENT_LEASE_TERM_LONG, "demo-property-1")).toBe("Long-term");
   });
 });

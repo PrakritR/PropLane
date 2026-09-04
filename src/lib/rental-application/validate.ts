@@ -1,4 +1,7 @@
-import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
+import {
+  applicationRentalTypeFor,
+  isLegacyFixedLeaseTerm,
+} from "@/lib/rental-application/lease-terms";
 import { validateGroupLeaderAppIdInput } from "@/lib/rental-application/group-leader-link";
 import {
   validateDateRequired,
@@ -215,7 +218,12 @@ export function validateStandardWizardStep(
       f.leaseTerm.trim()
     ) {
       const allowed = leaseTermsForProperty(f.propertyId, prop);
-      if (allowed.length > 0 && !allowed.includes(f.leaseTerm)) {
+      // A legacy fixed length (3/6/9/12-Month) is still VALID even though it is
+      // no longer offered: applications in flight, resumed drafts and imported
+      // rows carry one, and failing them would strand an applicant on a term
+      // they were legitimately given (AXI-143).
+      const acceptable = allowed.includes(f.leaseTerm) || isLegacyFixedLeaseTerm(f.leaseTerm);
+      if (allowed.length > 0 && !acceptable) {
         e.leaseTerm = "This lease term is not offered for the selected property.";
       }
     }

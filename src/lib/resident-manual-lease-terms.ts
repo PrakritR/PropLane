@@ -2,6 +2,7 @@ import { listingAllowedLeaseTerms } from "@/lib/rental-application/data";
 import {
   AIRBNB_LEASE_TERM,
   CUSTOM_LEASE_TERM,
+  LONG_TERM_LEASE_TERM,
   SHORT_TERM_LEASE_TERM,
 } from "@/lib/rental-application/lease-terms";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
@@ -12,9 +13,25 @@ export const RESIDENT_LEASE_TERM_LONG = "long_term";
 export const RESIDENT_LEASE_TERM_AIRBNB = "airbnb";
 export const RESIDENT_LEASE_TERM_CUSTOM = "__custom__";
 
-const LONG_TERM_LISTING_PREFERENCE = ["12-Month", "Month-to-Month", "6-Month", "9-Month", "3-Month"] as const;
+/**
+ * What a resident's "long term" choice resolves to on the listing, best first.
+ *
+ * `Long-term` leads now that it is the offered term (AXI-143); the named lengths
+ * stay behind it so a listing that still carries one keeps resolving to it
+ * rather than falling all the way through to Month-to-Month, which is a
+ * different kind of tenancy, not a shorter one.
+ */
+const LONG_TERM_LISTING_PREFERENCE = [
+  LONG_TERM_LEASE_TERM,
+  "12-Month",
+  "Month-to-Month",
+  "6-Month",
+  "9-Month",
+  "3-Month",
+] as const;
 
 const LEGACY_LISTING_TO_RESIDENT: Record<string, string> = {
+  [LONG_TERM_LEASE_TERM]: RESIDENT_LEASE_TERM_LONG,
   "Month-to-Month": RESIDENT_LEASE_TERM_LONG,
   "12-Month": RESIDENT_LEASE_TERM_LONG,
   "9-Month": RESIDENT_LEASE_TERM_LONG,
@@ -32,7 +49,7 @@ const LEGACY_RESIDENT_TO_LISTING: Record<string, string> = {
   "3 months": "3-Month",
   [SHORT_TERM_LEASE_TERM]: SHORT_TERM_LEASE_TERM,
   [RESIDENT_LEASE_TERM_SHORT]: SHORT_TERM_LEASE_TERM,
-  [RESIDENT_LEASE_TERM_LONG]: "12-Month",
+  [RESIDENT_LEASE_TERM_LONG]: LONG_TERM_LEASE_TERM,
   [AIRBNB_LEASE_TERM]: AIRBNB_LEASE_TERM,
   [RESIDENT_LEASE_TERM_AIRBNB]: AIRBNB_LEASE_TERM,
 };
@@ -42,7 +59,7 @@ function resolveLongTermListingLease(propertyId: string): string {
   for (const term of LONG_TERM_LISTING_PREFERENCE) {
     if (allowed.length === 0 || allowed.includes(term)) return term;
   }
-  return "12-Month";
+  return LONG_TERM_LEASE_TERM;
 }
 
 /** Normalize manual-resident or legacy labels to application/listing lease-term values for templates and dates. */

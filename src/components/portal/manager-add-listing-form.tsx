@@ -183,7 +183,7 @@ import {
   wizardFieldErrorClass,
   wizardSectionErrorClass,
 } from "@/lib/wizard-field-errors";
-import { LEASE_TERM_OPTIONS } from "@/lib/rental-application/data";
+import { LEASE_TERM_CHOICES } from "@/lib/rental-application/lease-terms";
 import { AIRBNB_LEASE_TERM, CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { usePortalContainer } from "@/components/ui/portal-container-context";
 
@@ -3820,7 +3820,14 @@ export function ManagerAddListingForm({
                     {/* Standard lengths, then Short-term (a listing-wide toggle, not a lease
                         term), then Custom last — Short-term sits with the other lease-length
                         choices instead of a separate titled block. */}
-                    {[...LEASE_TERM_OPTIONS.filter((t) => t !== CUSTOM_LEASE_TERM), "__short_term__", "__airbnb__", CUSTOM_LEASE_TERM].map((term) => {
+                    {/*
+                      LEASE_TERM_CHOICES, not LEASE_TERM_OPTIONS: a manager now
+                      offers Long-term rather than picking among 3/6/9/12-Month
+                      (AXI-143). A listing that still carries a legacy length
+                      keeps it — normalization accepts the whole option set —
+                      it just is not offered again here.
+                    */}
+                    {[...LEASE_TERM_CHOICES.filter((t) => t !== CUSTOM_LEASE_TERM), "__short_term__", "__airbnb__", CUSTOM_LEASE_TERM].map((term) => {
                       if (term === "__short_term__") {
                         const on = Boolean(sub.shortTermRentalsAllowed);
                         return (
