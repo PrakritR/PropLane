@@ -1,0 +1,47 @@
+---
+description: Lavish plan gate — no code until ticket exists and captain approves plan
+alwaysApply: true
+---
+
+# Lavish plan gate (Phase ②)
+
+Part of **`captain-dev-workflow.mdc`**. A Linear ticket **must exist** before a Lavish plan.
+**No product code** until the captain approves the plan.
+
+## When captain describes work
+
+Run **one command** (creates ticket + plan + opens Lavish):
+
+```bash
+npm run workflow:plan -- --chat "<captain's words>"
+```
+
+Or if ticket already exists:
+
+```bash
+npm run workflow:plan -- --ticket PRP-### --title "..." --summary "..."
+```
+
+Reply with:
+
+1. **PRP-###** + Linear URL
+2. Path to `plan.html` + `npx -y lavish-axi poll …` command
+3. **"Waiting for approved — build"** — do not implement yet
+
+## While waiting
+
+- `npx -y lavish-axi poll <plan.html>` — apply Lavish annotations
+- Enrich plan HTML (scope, approach, risks, test plan, UI mock sections)
+- For UI work: read `docs/agents/ui-change-checklist.md` and link it in the plan
+
+## Build gate
+
+Implement **only** after captain says **`approved — build`** (or `LGTM build`, `ship it`).
+
+Skip plan only when captain says **`skip plan`** (hotfix).
+
+## Do not
+
+- Write feature code before plan approval
+- Scaffold Lavish without a **PRP-###** ticket id
+- Skip ticket phase (unless `no ticket`)

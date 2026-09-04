@@ -48,6 +48,7 @@ New tickets from `npm run linear:ticket` get the same assignee + priority automa
 Cursor rule: `.cursor/rules/linear-chat-tickets.mdc`.
 
 **Full pipeline:** Ticket is phase ① only. See **`docs/agents/captain-dev-workflow.md`**
+and **`docs/share/proplane-collaborator-workflow.md`** (share with collaborators)
 for ② Lavish plan → ③ build → ④ review → ⑤ promote to prakrit.
 
 ---

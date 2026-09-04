@@ -28,8 +28,11 @@ The captain reviews plans in **Lavish** before any build.
 **create a ticket first**, even when they did not ask for one.
 
 ```bash
-npm run linear:ticket -- --chat "<captain message>"
+npm run workflow:plan -- --chat "<captain message>"
 ```
+
+One step creates **PRP-###**, scaffolds Lavish `plan.html`, links plan on the ticket, opens browser.
+Or ticket-only first: `npm run linear:ticket -- --chat "…"` then `npm run workflow:plan -- --ticket PRP-### …`.
 
 - Attach **PRP-###** + URL in chat.
 - Route to numbered project + milestone (`docs/linear-ticket-system.md`).
@@ -41,23 +44,23 @@ npm run linear:ticket -- --chat "<captain message>"
 
 Before writing product code:
 
-1. `npx -y lavish-axi playbook plan` (and `comparison` / `diagram` if needed).
-2. Scaffold:
-
 ```bash
-npm run lavish:plan -- --ticket PRP-### --title "..." --summary "..." \
-  --image /path/to/cursor-attachment.png --open
+npm run workflow:plan -- --ticket PRP-### --title "..." --summary "..." --image /path.png
 ```
 
-3. **Images from Cursor chat:** copy every captain attachment into the plan with
-   `--image` (stored under `.lavish/plans/.../assets/`). Embed in HTML — do not
-   only describe screenshots in prose.
+Or combined with ticket create: `npm run workflow:plan -- --chat "…"`.
+
+Manual steps if needed:
+
+1. `npx -y lavish-axi playbook plan` (and `comparison` / `diagram` if needed).
+2. Enrich `.lavish/plans/PRP-###-slug/plan.html` (scope, approach, UI sections).
+3. **Images:** pass `--image` (stored under `.lavish/plans/.../assets/`). Embed in HTML.
 4. Open: `npx -y lavish-axi .lavish/plans/PRP-###-slug/plan.html`
 5. Poll until approval: `npx -y lavish-axi poll <plan.html>` (background OK).
 6. Apply Lavish annotations; reply with `--agent-reply`.
 7. **Stop polling and wait** until captain says **approved — build** (chat or Lavish).
 
-Update the Linear ticket description with a link to the plan path when stable.
+`npm run workflow:plan` links the plan on the Linear ticket automatically.
 
 ---
 
@@ -146,7 +149,10 @@ then `production` when ready (`proplane-ladder` skill / `npm run ship:production
 | Linear filing | `.cursor/rules/linear-chat-tickets.mdc` |
 | Linear folders | `docs/linear-ticket-system.md` |
 | Branch ladder | firstmate skill `proplane-ladder` |
-| Plan scaffold | `npm run lavish:plan` |
+| Plan scaffold | `npm run workflow:plan` (preferred) or `npm run lavish:plan` |
+| Collaborator guide (share) | `docs/share/proplane-collaborator-workflow.md` |
+| MCP setup | `docs/cursor-mcp-setup.md` |
+| UI checklist | `docs/agents/ui-change-checklist.md` |
 | Test branch | `scripts/proplane-test-branch.sh` |
 
 ---

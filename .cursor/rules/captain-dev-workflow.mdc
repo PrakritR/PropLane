@@ -11,29 +11,28 @@ Read **`docs/agents/captain-dev-workflow.md`** for full detail. Every task follo
 
 ## ① Ticket first (default)
 
-If the captain describes work, a bug, an idea, or pastes feedback — **create a Linear
-ticket before anything else**, even if they did not ask.
+If the captain describes work, a bug, an idea, or pastes feedback — run **workflow
+plan** (ticket + Lavish) before anything else, even if they did not ask.
 
 ```bash
-npm run linear:ticket -- --chat "<their message>"
+npm run workflow:plan -- --chat "<their message>"
 ```
+
+Ticket only (no plan yet): `npm run linear:ticket -- --chat "…"`
 
 Skip only when they explicitly say **"no ticket"**.
 
-Reply with **PRP-###** + full Linear URL.
+Reply with **PRP-###** + full Linear URL + plan path. **Stop until approved — build.**
+
+See **`lavish-plan-gate.mdc`** and `docs/share/proplane-collaborator-workflow.md`.
 
 ## ② Plan in Lavish (before code)
 
-**Do not implement** until the captain approves the plan.
+**Do not implement** until the captain approves the plan. Phase ② is included in
+`npm run workflow:plan` above; enrich the HTML and poll for feedback:
 
-1. `npm run lavish:plan -- --ticket PRP-### --title "..." --summary "..."`
-2. **Images:** for every image the captain attached in chat, pass
-   `--image <absolute-path>` (Cursor saves under `.cursor/.../assets/`). Copy into
-   `.lavish/plans/PRP-###-slug/assets/` and show in the HTML.
-3. `npx -y lavish-axi playbook plan` before writing HTML; add comparison/diagram if useful.
-4. `npx -y lavish-axi .lavish/plans/.../plan.html` to open.
-5. `npx -y lavish-axi poll <plan.html>` — wait for annotations; apply feedback.
-6. **Stop** until captain says **"approved — build"** (or equivalent).
+1. `npx -y lavish-axi poll .lavish/plans/PRP-###-…/plan.html`
+2. UI work: follow `docs/agents/ui-change-checklist.md`
 
 Skip only when they say **"skip plan"** (hotfix).
 
