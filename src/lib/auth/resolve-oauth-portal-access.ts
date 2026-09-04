@@ -205,8 +205,24 @@ export async function resolveOAuthPortalRedirect(
     return finish(`/auth/create-account?${params.toString()}`);
   }
 
-  // Unknown account: no role, no purchase, no application. Do NOT silently provision —
-  // send the signed-in user to the role chooser (explicit OAuth intent included).
+  // Unknown account: no role, no purchase, no application.
+  //
+  // A prospect who clicked "Apply" or a tour link arrived carrying
+  // `role=resident`, and the OAuth round trip preserves that as the sign-in
+  // intent — so asking "how do you want to use PropLane?" here is re-asking a
+  // question they already answered, on the far side of a Google redirect they
+  // did not choose to take. The chooser honours a `role` it is handed, so it
+  // provisions and moves on through the SAME path a manual pick would take.
+  //
+  // Only `resident` is auto-honoured. Manager still stops at the chooser because
+  // its option leads into plan selection, and vendor because vendors arrive by
+  // invite — neither is a question the intent alone has answered.
+  if (intent === "resident") {
+    const params = new URLSearchParams({ role: "resident" });
+    // Keep where they were going, so the detour through the chooser is invisible.
+    if (!isGenericOAuthContinuePath(safeIntended)) params.set("next", safeIntended);
+    return finish(`${GET_STARTED_PATH}?${params.toString()}`);
+  }
   return finish(GET_STARTED_PATH);
 }
 

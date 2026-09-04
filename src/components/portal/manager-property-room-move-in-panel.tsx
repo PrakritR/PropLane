@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Textarea } from "@/components/ui/input";
 import {
   PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
@@ -97,6 +98,8 @@ export function ManagerPropertyRoomMoveInPanel({
   const [houseVideo, setHouseVideo] = useState(sub.houseMoveInVideoDataUrl ?? null);
   const [savingRoomId, setSavingRoomId] = useState<string | null>(null);
   const [savingHouse, setSavingHouse] = useState(false);
+  const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([]);
+  const [copyingToRooms, setCopyingToRooms] = useState(false);
 
   useEffect(() => {
     setDraftByRoomId(Object.fromEntries(sub.rooms.map((room) => [room.id, room])));
@@ -106,6 +109,7 @@ export function ManagerPropertyRoomMoveInPanel({
     setSelectedRoomId((current) =>
       current && sub.rooms.some((room) => room.id === current) ? current : null,
     );
+    setSelectedRoomIds((current) => current.filter((id) => sub.rooms.some((room) => room.id === id)));
   }, [sub]);
 
   const persistSubmission = (nextSub: ManagerListingSubmissionV1, successMessage: string) => {
@@ -175,6 +179,43 @@ export function ManagerPropertyRoomMoveInPanel({
       "Move-in details saved.",
     );
     setSavingHouse(false);
+  };
+
+  /** Copying is only meaningful once the house section has something SAVED to copy. */
+  const houseHasSavedDetails =
+    Boolean(sub.houseMoveInInstructions?.trim()) ||
+    (sub.houseMoveInPhotoDataUrls?.length ?? 0) > 0 ||
+    Boolean(sub.houseMoveInVideoDataUrl);
+
+  const toggleRoomSelected = (roomId: string) => {
+    setSelectedRoomIds((current) =>
+      current.includes(roomId) ? current.filter((id) => id !== roomId) : [...current, roomId],
+    );
+  };
+
+  /**
+   * Put the SAVED house move-in details onto the selected rooms.
+   *
+   * Most of what a manager types per room is the same door code and parking note
+   * repeated, so this is the whole reason the rooms are selectable. It copies the
+   * saved values, not the unsaved draft, so what lands on a room is exactly what
+   * the house section shows.
+   */
+  const copyHouseToSelectedRooms = () => {
+    const targets = new Set(selectedRoomIds);
+    if (targets.size === 0) return;
+    setCopyingToRooms(true);
+    const saved = {
+      moveInInstructions: sub.houseMoveInInstructions ?? "",
+      moveInPhotoDataUrls: [...(sub.houseMoveInPhotoDataUrls ?? [])],
+      moveInVideoDataUrl: sub.houseMoveInVideoDataUrl ?? null,
+    };
+    const ok = persistSubmission(
+      { ...sub, rooms: sub.rooms.map((room) => (targets.has(room.id) ? { ...room, ...saved } : room)) },
+      targets.size === 1 ? "Copied to 1 room." : `Copied to ${targets.size} rooms.`,
+    );
+    if (ok) setSelectedRoomIds([]);
+    setCopyingToRooms(false);
   };
 
   if (entireHome) {
@@ -298,39 +339,122 @@ export function ManagerPropertyRoomMoveInPanel({
   }
 
   return (
-    <PortalPropertyDetailSection>
-      <p className="mb-3 px-1 text-sm text-muted">
-        Select a room to add access notes for placed residents.
-      </p>
-      <div className="divide-y divide-border/50">
-        {roomIndices.map((index) => {
-          const room = sub.rooms[index]!;
-          const label = room.name.trim() || `Room ${index + 1}`;
-
-          return (
-            <button
-              key={room.id}
+    <>
+      {/*
+        A room-by-room listing has TWO kinds of move-in detail and only ever
+        offered one (AXI-163): the shared house facts — front door code, parking,
+        bins — and then what is specific to each room. The house section was
+        entire-home only, so there was nowhere to put the shared half except into
+        every room by hand.
+      */}
+      <PortalPropertyDetailSection
+        actions={
+          canEdit ? (
+            <Button
               type="button"
-              data-attr={`property-move-in-room-${room.id}`}
-              className={cn(
-                PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
-                "w-full cursor-pointer rounded-lg px-1 text-left transition hover:bg-accent/20",
-              )}
-              onClick={() => setSelectedRoomId(room.id)}
+              variant="primary"
+              className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
+              data-attr="house-move-in-save"
+              disabled={!houseDirty || savingHouse}
+              onClick={saveHouse}
             >
-              <div className="flex min-w-0 flex-1 items-start gap-2">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-foreground">{label}</p>
-                  <p className="mt-0.5 text-xs text-muted">
-                    {[room.floor.trim() || null, roomMoveInSummary(room)].filter(Boolean).join(" · ")}
-                  </p>
-                </div>
-                <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted" aria-hidden />
+              {savingHouse ? "Saving…" : "Save"}
+            </Button>
+          ) : null
+        }
+      >
+        <div className="px-1">
+          <p className="text-sm font-semibold text-foreground">The whole house</p>
+          <p className="mt-0.5 text-sm text-muted">
+            Shown to every resident here, whichever room they take.
+          </p>
+          <div className="mt-4">
+            <MoveInInstructionsField
+              moveInInstructions={houseInstructions}
+              disabled={!canEdit}
+              onInstructionsChange={setHouseInstructions}
+            />
+            <MoveInMediaFields
+              photoDataUrls={housePhotos}
+              videoDataUrl={houseVideo}
+              disabled={!canEdit}
+              onPhotosChange={setHousePhotos}
+              onVideoChange={setHouseVideo}
+              onError={showToast}
+            />
+          </div>
+        </div>
+      </PortalPropertyDetailSection>
+
+      <PortalPropertyDetailSection>
+        <p className="mb-3 px-1 text-sm text-muted">
+          Then anything specific to a room. Tick rooms to copy the house details into them.
+        </p>
+        <div className="divide-y divide-border/50">
+          {roomIndices.map((index) => {
+            const room = sub.rooms[index]!;
+            const label = room.name.trim() || `Room ${index + 1}`;
+            const checked = selectedRoomIds.includes(room.id);
+
+            return (
+              <div
+                key={room.id}
+                className={cn(
+                  PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
+                  "flex items-start gap-2.5 rounded-lg px-1 transition",
+                  checked ? "border-l-2 border-l-primary bg-primary/5" : "hover:bg-accent/20",
+                )}
+              >
+                {canEdit ? (
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 shrink-0 rounded border-border"
+                    checked={checked}
+                    aria-label={`Select ${label}`}
+                    data-attr={`property-move-in-room-select-${room.id}`}
+                    onChange={() => toggleRoomSelected(room.id)}
+                  />
+                ) : null}
+                <button
+                  type="button"
+                  data-attr={`property-move-in-room-${room.id}`}
+                  className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 text-left"
+                  onClick={() => setSelectedRoomId(room.id)}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground">{label}</p>
+                    <p className="mt-0.5 text-xs text-muted">
+                      {[room.floor.trim() || null, roomMoveInSummary(room)].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                  <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted" aria-hidden />
+                </button>
               </div>
-            </button>
-          );
-        })}
-      </div>
-    </PortalPropertyDetailSection>
+            );
+          })}
+        </div>
+      </PortalPropertyDetailSection>
+
+      <BulkActionBar count={selectedRoomIds.length}>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-9 min-h-0 rounded-full px-4 text-[13px]"
+          onClick={() => setSelectedRoomIds([])}
+        >
+          Clear
+        </Button>
+        <Button
+          type="button"
+          variant="primary"
+          className="h-9 min-h-0 rounded-full px-4 text-[13px]"
+          data-attr="property-move-in-copy-house"
+          disabled={copyingToRooms || !houseHasSavedDetails}
+          onClick={() => copyHouseToSelectedRooms()}
+        >
+          Copy house details here
+        </Button>
+      </BulkActionBar>
+    </>
   );
 }

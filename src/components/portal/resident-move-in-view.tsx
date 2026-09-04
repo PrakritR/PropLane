@@ -132,24 +132,58 @@ function AmenitiesTabContent({ resolved }: { resolved: ResidentMoveInResolved })
   );
 }
 
+/**
+ * Move-in details split into the two things they actually are: what applies to
+ * the whole house, and what applies to the resident's own space.
+ *
+ * A room-by-room listing has both — the front door code is not the same fact as
+ * which key opens Room 3 — and the house level used to be written by the manager
+ * and read by nobody (AXI-163).
+ */
 function InstructionsTabContent({ resolved }: { resolved: ResidentMoveInResolved }) {
+  const hasHouse =
+    Boolean(resolved.houseInstructions) ||
+    resolved.houseMoveInPhotoDataUrls.length > 0 ||
+    Boolean(resolved.houseMoveInVideoDataUrl);
+
   return (
     <div className={PORTAL_LIST_PAGE_BODY}>
       <p className="mb-4 text-sm text-muted">
         Keys, parking, access codes, and anything to know before arrival.
       </p>
-      <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-        {resolved.instructions ?? (
-          <span className="text-muted">
-            No house instructions have been added for this room yet. Your property manager can add keys,
-            parking, access codes, and house rules when they edit the listing.
-          </span>
-        )}
-      </div>
-      <ResidentMoveInMediaGallery
-        photoDataUrls={resolved.moveInPhotoDataUrls}
-        videoDataUrl={resolved.moveInVideoDataUrl}
-      />
+
+      {hasHouse ? (
+        <section className="mb-6" data-attr="resident-move-in-house-section">
+          <h3 className="mb-1.5 text-sm font-semibold text-foreground">The whole house</h3>
+          <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+            {resolved.houseInstructions}
+          </div>
+          <ResidentMoveInMediaGallery
+            photoDataUrls={resolved.houseMoveInPhotoDataUrls}
+            videoDataUrl={resolved.houseMoveInVideoDataUrl}
+          />
+        </section>
+      ) : null}
+
+      <section data-attr="resident-move-in-room-section">
+        {hasHouse ? (
+          <h3 className="mb-1.5 text-sm font-semibold text-foreground">
+            {resolved.roomLabel.trim() ? resolved.roomLabel : "Your room"}
+          </h3>
+        ) : null}
+        <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+          {resolved.instructions ?? (
+            <span className="text-muted">
+              No house instructions have been added for this room yet. Your property manager can add keys,
+              parking, access codes, and house rules when they edit the listing.
+            </span>
+          )}
+        </div>
+        <ResidentMoveInMediaGallery
+          photoDataUrls={resolved.moveInPhotoDataUrls}
+          videoDataUrl={resolved.moveInVideoDataUrl}
+        />
+      </section>
     </div>
   );
 }

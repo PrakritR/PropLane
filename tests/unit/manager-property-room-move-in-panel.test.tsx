@@ -48,13 +48,19 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       />,
     );
 
-    expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
+    // The list now carries the whole-house section (AXI-163), so the room
+    // editor is identified by its own save action rather than by "is there a
+    // move-in textarea on screen at all".
+    expect(screen.getByText(/The whole house/i)).toBeTruthy();
+    expect(screen.queryByTestId?.("room-move-in-save") ?? null).toBeNull();
+    expect(screen.getAllByPlaceholderText(/Keys, parking/i)).toHaveLength(1);
     expect(screen.queryByText(/Earliest move-in date/i)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Room B/i }));
 
     expect(screen.getByDisplayValue("Lockbox on porch")).toBeTruthy();
-    expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
+    expect(screen.getAllByPlaceholderText(/Keys, parking/i)).toHaveLength(1);
+    expect(screen.queryByText(/The whole house/i)).toBeNull();
     expect(screen.queryByText(/Earliest move-in date/i)).toBeNull();
   });
 
@@ -83,10 +89,12 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Room A/i }));
     expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
+    expect(screen.queryByText(/The whole house/i)).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Rooms/i }));
 
     expect(screen.getByRole("button", { name: /Room A/i })).toBeTruthy();
-    expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
+    // Back on the list: the house section, not the room editor.
+    expect(screen.getByText(/The whole house/i)).toBeTruthy();
   });
 });
