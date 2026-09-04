@@ -80,7 +80,7 @@ PLAYWRIGHT_SKIP_WEBSERVER=1 PLAYWRIGHT_BASE_URL=http://localhost:3010 \
   E2E_TESTS_ENABLED=1 npx playwright test tests/e2e/portal-interconnect.spec.ts
 ```
 
-**Known-failing e2e on `main`:** see `docs/ship-gate.md` § "Known-failing specs" — do not re-triage those 18 without checking if band-only header fixes already resolved them.
+**Known-failing e2e (nightly `e2e-full`, not the `main` smoke gate):** see `docs/ship-gate.md` § "Known-failing specs" — do not re-triage those 18 without checking if band-only header fixes already resolved them.
 
 ---
 

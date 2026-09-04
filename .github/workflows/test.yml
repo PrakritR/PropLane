@@ -4,8 +4,9 @@ on:
   push:
     # `prakrit` is the integration branch every lane merges through, so it is the
     # one branch where breakage actually accumulates — yet it had no test trigger,
-    # and `main` sat red for days before anyone noticed. The `e2e` job stays gated
-    # on `main`/`schedule` below, so this adds unit + integration + check only.
+    # and `main` sat red for days before anyone noticed. The browser jobs stay
+    # gated below (`e2e` on `main`, `e2e-full` on schedule/dispatch), so this adds
+    # unit + integration + lint + build only.
     branches: [main, prakrit]
   pull_request:
   workflow_dispatch:
@@ -31,7 +32,9 @@ jobs:
   # not build reached `production` — the site only stayed up because Vercel keeps
   # the last good deployment serving. Each job does its own checkout and `npm ci`
   # and consumes nothing from the others, so running them in parallel costs only
-  # machine time and buys an honest signal per dimension.
+  # machine time and buys an honest signal per dimension. The one job with
+  # `needs` is `check`, which runs no validation of its own and is `if: always()`,
+  # so it reports on the others without ever cancelling one.
   integration:
     runs-on: ubuntu-latest
     steps:
@@ -52,14 +55,76 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
 
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+
+  # Fast production-path smoke for main. `--no-deps` skips the three storage-state
+  # setup tests, but Playwright globalSetup still proves that the admin, manager,
+  # and resident credentials can authenticate before these public flows run.
+  # The complete 158-case suite is intentionally a separate scheduled/manual job:
+  # running it serially with CI retries exceeded this job's budget on every push.
+  # `test:e2e:smoke` carries a 12-minute `--global-timeout` because the config's
+  # 45-minute default is sized for `e2e-full` and would let GitHub kill this job
+  # with no Playwright report at all. The 6 minutes between that cap and
+  # `timeout-minutes` are for the steps Playwright does not govern: `npm ci` and
+  # `npx playwright install --with-deps chromium` routinely take 4+ minutes
+  # together, and if they eat the whole margin GitHub kills the job before
+  # Playwright's own cap can abort and report.
   e2e:
     runs-on: ubuntu-latest
-    # Backstop so a hung suite costs minutes, not GitHub's 6h job default. The
-    # real guards against hanging are Playwright's globalSetup preflight and
-    # globalTimeout (see playwright.config.ts); this is the outer safety net that
-    # also covers the setup steps (npm ci, browser install, build).
-    timeout-minutes: 30
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'schedule'
+    timeout-minutes: 18
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e:smoke
+        env:
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          PROPLANE_PAYMENT_WAIVER_CODE: FREE100
+          AXIS_ADMIN_REGISTER_KEY: ${{ secrets.TEST_AXIS_ADMIN_REGISTER_KEY }}
+          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+          E2E_ADMIN_PASSWORD: ${{ secrets.E2E_ADMIN_PASSWORD }}
+          E2E_MANAGER_EMAIL: ${{ secrets.E2E_MANAGER_EMAIL }}
+          E2E_MANAGER_PASSWORD: ${{ secrets.E2E_MANAGER_PASSWORD }}
+          E2E_RESIDENT_EMAIL: ${{ secrets.E2E_RESIDENT_EMAIL }}
+          E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
+          E2E_TESTS_ENABLED: "1"
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      # This is the only per-push browser signal on `main`, so its failures are
+      # the ones most likely to be read. Traces/screenshots/videos are written on
+      # the runner and discarded with it unless they are uploaded.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-smoke-test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # Broad diagnostic coverage belongs off the per-push critical path. Zero
+  # retries makes every flaky/failing case visible once instead of tripling its
+  # 60-second timeout and preventing the suite from ever reaching later files.
+  e2e-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -85,17 +150,56 @@ jobs:
           E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
           E2E_TESTS_ENABLED: "1"
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      # The whole point of this job is diagnosis, and traces/screenshots/videos
+      # are written on the runner. Without this they are discarded with it and a
+      # nightly failure leaves only reporter text.
+      #
+      # Unlike the smoke job's public flows, most specs here sign in, and a trace
+      # records the `fill` arguments and auth response bodies of that sign-in —
+      # so this artifact carries the seeded dev/test passwords and their Supabase
+      # session tokens, readable by anyone with repo read access. Those accounts
+      # exist only in the dev/test project (their default passwords are in
+      # `tests/fixtures/index.ts` already), so the traces stay; the retention
+      # window is kept just long enough to triage a Friday-night nightly.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-full-test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 5
 
+  # Branch protection's single required status name. It runs no validation of its
+  # own — `npm run check` here repeated all 6,240 unit cases and a production
+  # build that `unit` and `build` already run — it AGGREGATES. `if: always()`
+  # plus the loop below means the name reports success only when every dimension
+  # it depends on actually succeeded, so a failed, cancelled, or skipped
+  # dependency can never merge behind a green `check`. Its `needs` list is
+  # exactly what `npm run check` used to cover (lint + unit + build), so the
+  # merge gate is unchanged in scope and only stopped duplicating the work.
+  # Two jobs are deliberately absent, and both stay visible in CI on their own:
+  #   - `e2e` is skipped on pull requests and runs only after a push to `main`,
+  #     so depending on it would make `check` permanently red on every PR.
+  #   - `integration` talks to the live dev/test Supabase project, so a paused
+  #     project, a rotated service-role key, or a fork PR (which GitHub gives no
+  #     secrets) would block every merge on infrastructure rather than on code.
+  # Add a new HERMETIC validation job to `needs` and it is enforced automatically.
   check:
     runs-on: ubuntu-latest
+    needs: [unit, lint, build]
+    if: always()
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: npm ci
-      - run: npm run check
+      - name: Require every validation job to succeed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "dependency results: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != "success" ]; then
+              echo "::error::A required validation job did not succeed ($RESULTS)."
+              exit 1
+            fi
+          done
 
   # Deploy gate. `npm run check` is `lint && test:unit && build`, so it stops at
   # the unit suite and never reaches the build — decoupling the JOBS above is not

@@ -50,9 +50,9 @@ test.describe("Public home", () => {
     expect(resting).not.toBe("matrix(1, 0, 0, 1, 0, 0)");
 
     await note.hover();
-    await page.waitForTimeout(400);
-    // rotate(0deg) translateY(-4px)
-    expect(await note.evaluate((el) => getComputedStyle(el).transform)).toBe("matrix(1, 0, 0, 1, 0, -4)");
+    // rotate(0deg) translateY(-4px), polled: the 0.22s transition can outlast a
+    // fixed sleep on a loaded runner, and a one-shot read has nothing to retry.
+    await expect(note).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, -4)");
   });
 
   test("reduced motion freezes the note tilt on hover", async ({ browser }) => {
@@ -64,8 +64,10 @@ test.describe("Public home", () => {
 
     const resting = await note.evaluate((el) => getComputedStyle(el).transform);
     await note.hover();
+    // Settle past the 0.22s transition this rule is supposed to suppress, then
+    // assert the tilt never moved.
     await page.waitForTimeout(400);
-    expect(await note.evaluate((el) => getComputedStyle(el).transform)).toBe(resting);
+    await expect(note).toHaveCSS("transform", resting);
     await context.close();
   });
 

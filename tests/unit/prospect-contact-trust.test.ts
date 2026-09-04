@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import {
   isBlockedSelfServiceProfileEmail,
   resolveTrustedProspectContactEmail,
@@ -46,7 +47,7 @@ describe("resolveTrustedProspectContactEmail", () => {
 
 describe("isBlockedSelfServiceProfileEmail", () => {
   it("blocks the primary admin fallback email", () => {
-    expect(isBlockedSelfServiceProfileEmail("founders@axis-seattle-housing.com")).toBe(true);
+    expect(isBlockedSelfServiceProfileEmail(PRIMARY_ADMIN_EMAIL)).toBe(true);
     expect(isBlockedSelfServiceProfileEmail("resident@example.com")).toBe(false);
   });
 });

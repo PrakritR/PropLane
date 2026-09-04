@@ -105,7 +105,8 @@ For Stripe webhooks locally, use `node scripts/stripe-listen.mjs` (see `docs/str
 | `npm run check` | Lint + unit tests + build |
 | `npm run test:unit` | Vitest unit tests |
 | `npm run test:integration` | Vitest API integration tests |
-| `npm run test:e2e` | Playwright browser tests |
+| `npm run test:e2e` | Playwright browser tests (full 158-case suite) |
+| `npm run test:e2e:smoke` | Bounded 9-case public smoke — the browser gate CI runs on `main` |
 | `npm run test:all` | All Vitest + Playwright |
 | `npm run db:apply-sql` | Apply `supabase/migrations/` to Postgres |
 | `npm run cap:sync` / `cap:ios` / `cap:android` | Capacitor sync & open native IDEs |
@@ -120,7 +121,8 @@ Use a **dedicated Supabase test project** — never production credentials.
 # Configure .env.test with a dedicated Supabase test project (see tests/README.md)
 npm run test:unit
 npm run test:integration
-npm run test:e2e                 # requires running app + .env.test
+npm run test:e2e:smoke           # bounded public smoke (same slice CI runs on main)
+npm run test:e2e                 # full suite; requires running app + .env.test
 ```
 
 Full details: [`tests/README.md`](tests/README.md).

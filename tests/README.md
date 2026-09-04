@@ -9,6 +9,7 @@ cp .env.test.example .env.test
 npm run test:unit          # Fast pure-logic tests (no external deps)
 npm run test:integration   # API route tests (needs .env.test or mocked)
 npm run test:e2e           # Playwright browser tests (needs .env.test + running app)
+npm run test:e2e:smoke     # Bounded main-branch browser gate (9 cases + auth preflight)
 npm run test:all           # All Vitest + Playwright
 ```
 
@@ -36,14 +37,21 @@ For manager E2E signup, set `PROPLANE_PAYMENT_WAIVER_CODE=FREE100` to skip Strip
 
 For manager/resident/admin portal E2E tests, run `npm run test:seed` then set `E2E_TESTS_ENABLED=1` in `.env.test`.
 
+Use the smoke command or an explicit spec list during local development. The
+full suite contains 158 tests and intentionally runs with one worker; it belongs
+in the scheduled/manual CI job unless a change genuinely spans the whole app.
+For repeated local browser runs, build/start once and set
+`PLAYWRIGHT_SKIP_WEBSERVER=1` rather than using `next dev`, whose cold route
+compilation can dominate time and memory on a constrained machine.
+
 > **`E2E_TESTS_ENABLED=1` is a promise that the portal accounts are reachable.**
 > The portal specs sign in as seeded accounts before asserting anything, so with
 > the flag on but the accounts unseeded (or the `E2E_*` credentials wrong) every
 > spec stalls on `waitForURL`. Playwright's `globalSetup`
 > (`tests/global-setup.ts`) does one real sign-in per seeded role (admin,
 > manager, resident) first and fails the run in seconds with an actionable
-> message instead of letting 131 specs grind for hours. Only turn the flag on
-> where the accounts actually exist.
+> message instead of letting all 158 cases grind for the whole `globalTimeout`.
+> Only turn the flag on where the accounts actually exist.
 
 ## Multi-role accounts & the portal chooser
 
@@ -58,11 +66,11 @@ account is single-role. The seed marks `manager@` `onlyRole: true`, but it can
 still acquire a `resident` role by applying from its own portal — that is
 legitimate, and the helpers handle it.
 
-> **The `e2e` CI job does NOT run `test:seed`.** It signs in as whatever the
-> shared test project currently holds, so account state (including the roles
-> above) persists between runs. If a role goes missing or an account's state
-> drifts, re-run `npm run test:seed`. Adding a seed step to the `e2e` workflow is
-> a sensible follow-up.
+> **Neither browser CI job (`e2e`, `e2e-full`) runs `test:seed`.** They sign in
+> as whatever the shared test project currently holds, so account state
+> (including the roles above) persists between runs. If a role goes missing or an
+> account's state drifts, re-run `npm run test:seed`. Adding a seed step to those
+> workflow jobs is a sensible follow-up.
 
 ## GitHub Actions secrets
 
@@ -79,9 +87,11 @@ Configure these in your repository settings for CI:
 | `STRIPE_WEBHOOK_SECRET` | Stripe test webhook secret |
 | `CRON_SECRET` | Cron route auth |
 
-The `e2e` job additionally sets `E2E_TESTS_ENABLED=1`, so it also needs the portal
+Both browser jobs set `E2E_TESTS_ENABLED=1`, so they also need the portal
 credentials below **and** the matching accounts seeded into the test project — the
-`globalSetup` preflight fails the job fast if they are absent:
+`globalSetup` preflight fails the job fast if they are absent. That holds for the
+`e2e` smoke job too: its 9 cases are public flows, but the preflight still signs
+in as all three roles before any of them run:
 
 | Secret | Purpose |
 |--------|---------|

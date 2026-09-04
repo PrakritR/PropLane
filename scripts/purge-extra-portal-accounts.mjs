@@ -16,7 +16,7 @@ const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const confirm = process.env.CONFIRM_PURGE === "yes";
 
 /** Keep in sync with src/lib/auth/primary-admin.ts and ensure-admin-account.mjs. */
-const PRIMARY_ADMIN_EMAIL = "founders@axis-seattle-housing.com";
+const PRIMARY_ADMIN_EMAIL = "prakritramachandran@gmail.com";
 
 /**
  * The sole ops admin (src/lib/auth/primary-admin.ts). It is admin-ONLY: it must

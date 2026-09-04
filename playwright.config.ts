@@ -20,24 +20,34 @@ export default defineConfig({
   globalSetup: "./tests/global-setup.ts",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  // Zero retries everywhere, local and CI. A retry hides a flake in Playwright's
+  // `flaky` bucket and triples a failing case's 60s timeout, which is how the
+  // full suite used to exhaust its budget before reaching later spec files. This
+  // is the ONE place retries are set — no npm script or CI step overrides it.
+  retries: 0,
   // Serial workers: parallel file execution overloads the local dev server and
   // causes auth/navigation flakes (sign-in never leaves /auth/sign-in).
   workers: 1,
   reporter: process.env.CI ? "github" : "list",
   timeout: 60_000,
   // Hard suite-wide wall-clock cap so a broken run can never hang. Per-test
-  // timeouts (60s) don't bound the whole suite: 131 specs run serially at
-  // retries: 2, so a systemic failure (e.g. sign-in never succeeding) can burn
-  // hours before GitHub's 6h job default. globalSetup fails such runs in seconds;
-  // this is the backstop if a run degrades some other way. E2E has no measured
-  // healthy runtime on main yet, so this is a deliberately generous cap kept
-  // under the CI job's 30-min timeout-minutes, which is the hard backstop.
-  globalTimeout: 40 * 60_000,
+  // timeouts (60s) don't bound the whole suite: 158 cases run serially, so a
+  // systemic failure (e.g. sign-in never succeeding) can burn hours before
+  // GitHub's 6h job default. globalSetup fails such runs in seconds; this is the
+  // backstop if a run degrades some other way. It must stay UNDER the CI budget
+  // that governs it, minus headroom for the job's checkout/npm ci/browser-install
+  // steps, so Playwright reports the abort instead of GitHub killing the job with
+  // no report at all. This value is sized for the full suite's `e2e-full` job
+  // (50-min timeout-minutes); the far tighter `e2e` smoke job (18 min) cannot use
+  // it, so `test:e2e:smoke` passes its own `--global-timeout`.
+  // `tests/unit/ci-test-workflow.test.ts` fails if either number drifts.
+  globalTimeout: 45 * 60_000,
   expect: { timeout: 10_000 },
   use: {
     baseURL,
-    trace: "on-first-retry",
+    // `on-first-retry` records nothing at `retries: 0` — there is never a first
+    // retry — which would leave a failure with only reporter text to debug.
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },

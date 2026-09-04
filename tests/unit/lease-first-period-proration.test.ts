@@ -107,6 +107,26 @@ describe("computeProratedLastMonthTotals", () => {
     expect(leaseEndProration("2027-11-30").prorated).toBe(false);
   });
 
+  it("does not apply to a MONTHLY-priced term that ends inside its own first month", () => {
+    // Sep 10 -> Sep 25 is one 16-day period. Billing 21/30 up front and 25/30 at the end
+    // charges 46/30 of a month for half a month, whatever the room's pricing basis is.
+    const first = computeProratedFirstMonthTotals({
+      monthlyRent: 900,
+      monthlyUtilities: 0,
+      leaseStart: "2026-09-10",
+      leaseEnd: "2026-09-25",
+    });
+    expect(first.proratedRent).toBe(480);
+
+    const totals = computeProratedLastMonthTotals({
+      monthlyRent: 900,
+      monthlyUtilities: 0,
+      leaseEnd: "2026-09-25",
+      endsInsideFirstMonth: true,
+    });
+    expect(totals.applies).toBe(false);
+  });
+
   it("does not apply to a daily-priced stay that ends inside its own first month", () => {
     // The ledger bills that term once as its first period, so a second last-month charge
     // would double-bill it — the document has to skip it on the same condition.

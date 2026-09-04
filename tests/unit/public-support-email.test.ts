@@ -46,8 +46,13 @@ describe("public support email", () => {
     );
   });
 
-  it("leaves the real admin account identity on its own domain", () => {
-    expect(PRIMARY_ADMIN_EMAIL).toBe("founders@axis-seattle-housing.com");
+  it("keeps the admin account identity separate from the public support address", () => {
+    // The value itself is the captain's to choose (it moved to
+    // prakritramachandran@gmail.com when that became the only admin). What must
+    // hold is that the two are never the same address: support@ is published on
+    // the marketing site, and `filterAdminUserIds` grants admin on a profile
+    // email match, so collapsing them would hand admin to whoever writes in.
     expect(PRIMARY_ADMIN_EMAIL).not.toBe(PUBLIC_SUPPORT_EMAIL);
+    expect(PRIMARY_ADMIN_EMAIL).toContain("@");
   });
 });
