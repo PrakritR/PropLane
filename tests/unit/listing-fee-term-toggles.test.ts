@@ -1,15 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyListingLtFeeAmountForRow,
   applyListingLtFeeToggle,
   applyListingStFeeAmount,
   applyListingStFeeToggle,
   deriveListingLtFeeToggles,
   deriveListingStFeeToggles,
+  listingPresetFeeAmountIfEnabled,
   readListingFeeCellAmount,
   validateListingLtFeeToggles,
   validateListingStFeeToggles,
 } from "@/lib/listing-fee-term-toggles";
-import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
+import { createDefaultListingSubmission, normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { validateListingWizardStep } from "@/lib/listing-wizard-validation";
 
 describe("listing fee term toggles", () => {
@@ -158,5 +160,62 @@ describe("listing wizard ST fee validation integration", () => {
       ltFeeToggles: { ...deriveListingLtFeeToggles(sub), rent: false },
     });
     expect(errs.monthlyRent).toBeUndefined();
+  });
+});
+
+/**
+ * A fee edit must reach the `customFees` preset row, not just the legacy scalar (PRP-219).
+ * `resolveListingFees` lets the row outrank the scalar, and
+ * `normalizeManagerListingSubmissionV1` re-derives the scalar FROM the row on every load — so
+ * a writer that touched only the scalar had its edit erased on the next read. Unchecking a
+ * fee left the amount standing; retyping the amount was discarded.
+ */
+describe("fee writes reach the unified fee row", () => {
+  function withOtherFeeRow(amount: string) {
+    const sub = createDefaultListingSubmission();
+    sub.customFees = [
+      { id: "cf-other", label: "Other monthly fees", amount, frequency: "monthly", presetId: "other_monthly" },
+    ] as never;
+    return normalizeManagerListingSubmissionV1(sub);
+  }
+
+  function otherFeeRowAmount(sub: ReturnType<typeof withOtherFeeRow>) {
+    return (sub.customFees ?? []).find((fee) => (fee as { presetId?: string }).presetId === "other_monthly")?.amount;
+  }
+
+  it("unchecking a fee clears the row, so the amount does not come back on reload", () => {
+    const off = normalizeManagerListingSubmissionV1(
+      applyListingLtFeeToggle(withOtherFeeRow("150"), "otherMonthlyFees", false),
+    );
+
+    expect(otherFeeRowAmount(off)).toBe("");
+    expect(off.otherMonthlyFees).toBe("");
+    expect(deriveListingLtFeeToggles(off).otherMonthlyFees).toBe(false);
+    expect(listingPresetFeeAmountIfEnabled(off, "other_monthly")).toBe(0);
+  });
+
+  it("editing a fee amount survives the reload instead of reverting to the stored row", () => {
+    const edited = normalizeManagerListingSubmissionV1(
+      applyListingLtFeeAmountForRow(withOtherFeeRow("150"), "otherMonthlyFees", "200"),
+    );
+
+    expect(otherFeeRowAmount(edited)).toBe("200");
+    expect(edited.otherMonthlyFees).toBe("200");
+    expect(listingPresetFeeAmountIfEnabled(edited, "other_monthly")).toBe(200);
+  });
+
+  it("clearing the short-term cell leaves the long-term fee alone", () => {
+    const sub = createDefaultListingSubmission();
+    sub.customFees = [
+      { id: "cf-dep", label: "Security deposit", amount: "1000", frequency: "one-time", presetId: "security_deposit" },
+      { id: "cf-st-dep", label: "Security deposit", amount: "500", frequency: "one-time", presetId: "short_term_deposit" },
+    ] as never;
+    const seeded = normalizeManagerListingSubmissionV1(sub);
+
+    const next = normalizeManagerListingSubmissionV1(
+      applyListingStFeeAmount(seeded, "securityDeposit", ""),
+    );
+
+    expect(listingPresetFeeAmountIfEnabled(next, "security_deposit")).toBe(1000);
   });
 });

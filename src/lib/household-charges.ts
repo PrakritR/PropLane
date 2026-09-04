@@ -17,7 +17,7 @@ import {
   type ManagerListingSubmissionV1,
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
-import { resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
+import { resolvedShortTermPlacementDeposit, type ListingFeePresetId } from "@/lib/listing-fees";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
 import { formatRoomPriceAmount, resolveStayPricing, roomDailyRentPrice } from "@/lib/room-pricing";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
@@ -2863,13 +2863,51 @@ export function recordSubmittedApplicationFeeCharge(row: DemoApplicantRow, manag
   return Boolean(charge && !beforeIds.has(charge.id));
 }
 
-/** Genuinely-custom fee rows (the "+ Add custom fee" rows) — preset-backed rows bill through
- *  their own legacy fields and are excluded here. */
+/** Genuinely-custom fee rows (the "+ Add custom fee" rows). Most preset-backed rows bill
+ *  through their own legacy fields (deposit, move-in, holding, the surcharges) and are
+ *  excluded here; the three in {@link SELF_BILLING_PRESET_FEE_IDS} have no such field and
+ *  bill through {@link selfBillingPresetFees} instead. */
 function genuinelyCustomFees(sub: ManagerListingSubmissionV1 | null | undefined): ManagerCustomFeeRow[] {
   return (sub?.customFees ?? []).filter((fee) => {
     const presetId = (fee as { presetId?: string }).presetId;
     return !presetId || presetId === "custom";
   });
+}
+
+/**
+ * Preset fee rows that own no legacy submission field a charge generator reads. Parking, HOA
+ * and "other monthly fees" were materialized into `customFees` by the unified-fees migration
+ * and then excluded from billing as "preset-backed", but unlike every other preset there was
+ * no field billing them either — so a fee the manager entered, and the public listing
+ * advertises as a monthly cost, was never charged to anyone.
+ */
+const SELF_BILLING_PRESET_FEE_IDS = new Set<ListingFeePresetId>([
+  "parking_monthly",
+  "hoa_monthly",
+  "other_monthly",
+]);
+
+/**
+ * Bill the self-billing presets, gated on the wizard checkbox. The amount comes from
+ * `listingPresetFeeAmountIfEnabled` rather than the stored row, so an unchecked or removed
+ * row resolves to 0 and emits nothing even when a stale amount survives on the row — that
+ * gate is the whole point, not a side effect of the row happening to be blank.
+ */
+function selfBillingPresetFees(
+  sub: ManagerListingSubmissionV1 | null | undefined,
+  cadence: "one-time" | "monthly",
+): { id: string; label: string; amount: number }[] {
+  if (!sub) return [];
+  return (sub.customFees ?? [])
+    .flatMap((fee) => {
+      const presetId = (fee as { presetId?: string }).presetId as ListingFeePresetId | undefined;
+      if (!presetId || !SELF_BILLING_PRESET_FEE_IDS.has(presetId)) return [];
+      const matchesCadence = cadence === "one-time" ? fee.frequency === "one-time" : fee.frequency !== "one-time";
+      if (!matchesCadence) return [];
+      const amount = listingPresetFeeAmountIfEnabled(sub, presetId);
+      if (!(amount > 0)) return [];
+      return [{ id: fee.id, label: fee.label?.trim() || "Fee", amount }];
+    });
 }
 
 /** Custom fees the manager set to bill once (frequency "one-time"). */
@@ -3229,10 +3267,13 @@ function syncPendingApprovedChargesFromListing(
 /** Monthly custom fees (default cadence) resolved to a stable {id,label,amount} for the
  *  recurring rent profile — only positive amounts bill. */
 function monthlyCustomFees(sub: ManagerListingSubmissionV1 | null | undefined): { id: string; label: string; amount: number }[] {
-  return genuinelyCustomFees(sub)
-    .filter((fee) => fee.frequency !== "one-time")
-    .map((fee) => ({ id: fee.id, label: fee.label?.trim() || "Custom fee", amount: parseMoneyAmount(fee.amount ?? "") }))
-    .filter((fee) => fee.amount > 0);
+  return [
+    ...genuinelyCustomFees(sub)
+      .filter((fee) => fee.frequency !== "one-time")
+      .map((fee) => ({ id: fee.id, label: fee.label?.trim() || "Custom fee", amount: parseMoneyAmount(fee.amount ?? "") }))
+      .filter((fee) => fee.amount > 0),
+    ...selfBillingPresetFees(sub, "monthly"),
+  ];
 }
 
 export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerUserId: string | null, force = false): boolean {
@@ -3658,6 +3699,10 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
       const amt = parseMoneyAmount(fee.amount ?? "");
       if (amt > 0)
         pushCharge("other_cost", amt, fee.label?.trim() || chargeTitle("other_cost"), false, "Before move-in", fee.id);
+    }
+    // Parking / HOA / other fees a manager switched to one-time cadence. Same checkbox gate.
+    for (const fee of selfBillingPresetFees(sub, "one-time")) {
+      pushCharge("other_cost", fee.amount, fee.label, false, "Before move-in", fee.id);
     }
   }
 
