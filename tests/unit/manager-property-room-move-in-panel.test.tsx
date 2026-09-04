@@ -58,7 +58,7 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
 
     expect(screen.getByDisplayValue("Lockbox on porch")).toBeTruthy();
     expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
-    expect(screen.getByTestId("move-in-editor-save")).toBeTruthy();
+    expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
     expect(screen.getByRole("button", { name: /Back/i })).toBeTruthy();
   });
 
@@ -115,6 +115,6 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
     expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /The whole house/i }));
     expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
-    expect(screen.getByTestId("move-in-editor-save")).toHaveAttribute("data-attr", "house-move-in-save");
+    expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
   });
 });

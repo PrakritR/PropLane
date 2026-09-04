@@ -101,7 +101,7 @@ export function MoveInMediaFields({
   };
 
   return (
-    <div className="mt-6 space-y-5 border-t border-border/60 pt-5">
+    <div className="mt-6 grid grid-cols-1 gap-5 border-t border-border/60 pt-5 sm:grid-cols-2">
       <div>
         <p className="text-xs font-semibold text-muted">
           Move-in photos

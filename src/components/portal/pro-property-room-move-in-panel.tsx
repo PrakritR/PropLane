@@ -4,13 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Badge } from "@/components/ui/badge";
-import { Input, Textarea } from "@/components/ui/input";
-import {
-  PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS,
-  PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
-  PortalPropertyDetailSection,
-} from "@/components/portal/portal-property-detail-section";
-import { PortalListClusterSelectCheckbox } from "@/components/portal/application-household-list";
+import { Textarea } from "@/components/ui/input";
+import { PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS, PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { MoveInMediaFields } from "@/components/portal/move-in-media-fields";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
@@ -60,39 +55,12 @@ function MoveInInstructionsField({
   );
 }
 
-function MoveInAvailableDateField({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: string;
-  disabled: boolean;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="mt-4">
-      <label className="text-xs font-semibold text-muted">
-        Additional info
-        <span className="ml-1.5 font-normal text-muted">— earliest move-in date or other notes for residents</span>
-      </label>
-      <Input
-        type="date"
-        className="mt-1 max-w-xs text-sm"
-        disabled={disabled}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    </div>
-  );
-}
-
 function houseMoveInSummary(sub: ManagerListingSubmissionV1): string {
   const parts: string[] = [];
   if (sub.houseMoveInInstructions?.trim()) parts.push("Instructions set");
   const photoCount = sub.houseMoveInPhotoDataUrls?.length ?? 0;
   if (photoCount > 0) parts.push(photoCount === 1 ? "1 photo" : `${photoCount} photos`);
   if (sub.houseMoveInVideoDataUrl) parts.push("Video");
-  if (sub.houseMoveInAvailableDate?.trim()) parts.push("Availability set");
   return parts.length > 0 ? parts.join(" · ") : "Nothing set yet";
 }
 
@@ -104,7 +72,6 @@ function roomMoveInSummary(room: ManagerRoomSubmission): string {
     parts.push(count === 1 ? "1 photo" : `${count} photos`);
   }
   if (room.moveInVideoDataUrl) parts.push("Video");
-  if (room.moveInAvailableDate?.trim()) parts.push("Availability set");
   if (parts.length > 0) return parts.join(" · ");
   return "No move-in details yet";
 }
@@ -141,27 +108,24 @@ export function ManagerPropertyRoomMoveInPanel({
 }) {
   const entireHome = isEntireHomeListing(sub);
   const roomIndices = useMemo(() => sortRoomIndicesByFloor(sub.rooms), [sub.rooms]);
-  const allRoomIds = useMemo(() => roomIndices.map((index) => sub.rooms[index]!.id), [roomIndices, sub.rooms]);
 
   const [editingTarget, setEditingTarget] = useState<MoveInEditTarget | null>(null);
   const [draftByRoomId, setDraftByRoomId] = useState<Record<string, ManagerRoomSubmission>>({});
   const [houseInstructions, setHouseInstructions] = useState(sub.houseMoveInInstructions ?? "");
   const [housePhotos, setHousePhotos] = useState(sub.houseMoveInPhotoDataUrls ?? []);
   const [houseVideo, setHouseVideo] = useState(sub.houseMoveInVideoDataUrl ?? null);
-  const [houseAvailableDate, setHouseAvailableDate] = useState(sub.houseMoveInAvailableDate ?? "");
-  const [savingRoomId, setSavingRoomId] = useState<string | null>(null);
-  const [savingHouse, setSavingHouse] = useState(false);
   const [selectedRoomIds, setSelectedRoomIds] = useState<string[]>([]);
+  const [houseSelected, setHouseSelected] = useState(false);
   const [copyingToRooms, setCopyingToRooms] = useState(false);
 
-  const selectionActive = selectedRoomIds.length > 0;
+  const selectionActive = houseSelected || selectedRoomIds.length > 0;
+  const selectionCount = (houseSelected ? 1 : 0) + selectedRoomIds.length;
 
   useEffect(() => {
     setDraftByRoomId(Object.fromEntries(sub.rooms.map((room) => [room.id, room])));
     setHouseInstructions(sub.houseMoveInInstructions ?? "");
     setHousePhotos(sub.houseMoveInPhotoDataUrls ?? []);
     setHouseVideo(sub.houseMoveInVideoDataUrl ?? null);
-    setHouseAvailableDate(sub.houseMoveInAvailableDate ?? "");
     setEditingTarget((current) => {
       if (!current || current === HOUSE_MOVE_IN_TARGET_ID) return current;
       return sub.rooms.some((room) => room.id === current) ? current : null;
@@ -194,14 +158,12 @@ export function ManagerPropertyRoomMoveInPanel({
     const draft = roomDraft(room);
     return (
       (draft.moveInInstructions ?? "") !== (room.moveInInstructions ?? "") ||
-      (draft.moveInAvailableDate ?? "") !== (room.moveInAvailableDate ?? "") ||
       !roomMediaMatches(draft, room)
     );
   };
 
   const saveRoom = (room: ManagerRoomSubmission) => {
     const draft = roomDraft(room);
-    setSavingRoomId(room.id);
     const ok = persistSubmission(
       {
         ...sub,
@@ -210,7 +172,7 @@ export function ManagerPropertyRoomMoveInPanel({
             ? {
                 ...r,
                 moveInInstructions: draft.moveInInstructions ?? "",
-                moveInAvailableDate: draft.moveInAvailableDate ?? "",
+                moveInAvailableDate: r.moveInAvailableDate ?? "",
                 moveInPhotoDataUrls: [...(draft.moveInPhotoDataUrls ?? [])],
                 moveInVideoDataUrl: draft.moveInVideoDataUrl ?? null,
               }
@@ -219,29 +181,25 @@ export function ManagerPropertyRoomMoveInPanel({
       },
       "Move-in details saved.",
     );
-    setSavingRoomId(null);
     if (ok) setEditingTarget(null);
   };
 
   const houseDirty =
     houseInstructions !== (sub.houseMoveInInstructions ?? "") ||
-    houseAvailableDate !== (sub.houseMoveInAvailableDate ?? "") ||
     housePhotos.join("|") !== (sub.houseMoveInPhotoDataUrls ?? []).join("|") ||
     (houseVideo ?? null) !== (sub.houseMoveInVideoDataUrl ?? null);
 
   const saveHouse = () => {
-    setSavingHouse(true);
     const ok = persistSubmission(
       {
         ...sub,
         houseMoveInInstructions: houseInstructions,
-        houseMoveInAvailableDate: houseAvailableDate,
+        houseMoveInAvailableDate: sub.houseMoveInAvailableDate ?? "",
         houseMoveInPhotoDataUrls: [...housePhotos],
         houseMoveInVideoDataUrl: houseVideo,
       },
       "Move-in details saved.",
     );
-    setSavingHouse(false);
     if (ok) setEditingTarget(null);
   };
 
@@ -257,18 +215,14 @@ export function ManagerPropertyRoomMoveInPanel({
     );
   };
 
-  const toggleAllRoomsSelected = (ids: readonly string[]) => {
-    const allSelected = ids.length > 0 && ids.every((id) => selectedRoomIds.includes(id));
-    if (allSelected) {
-      setSelectedRoomIds([]);
-      return;
-    }
-    setSelectedRoomIds([...ids]);
+  const toggleHouseSelected = () => {
+    setHouseSelected((current) => !current);
   };
 
   const openEditor = (target: MoveInEditTarget) => {
     setEditingTarget(target);
     setSelectedRoomIds([]);
+    setHouseSelected(false);
   };
 
   const copyHouseToSelectedRooms = () => {
@@ -284,12 +238,19 @@ export function ManagerPropertyRoomMoveInPanel({
       { ...sub, rooms: sub.rooms.map((room) => (targets.has(room.id) ? { ...room, ...saved } : room)) },
       targets.size === 1 ? "Copied to 1 room." : `Copied to ${targets.size} rooms.`,
     );
-    if (ok) setSelectedRoomIds([]);
+    if (ok) {
+      setSelectedRoomIds([]);
+      setHouseSelected(false);
+    }
     setCopyingToRooms(false);
   };
 
   const handleBulkEdit = () => {
-    if (selectedRoomIds.length === 1) {
+    if (houseSelected && selectedRoomIds.length === 0) {
+      openEditor(HOUSE_MOVE_IN_TARGET_ID);
+      return;
+    }
+    if (selectedRoomIds.length === 1 && !houseSelected) {
       openEditor(selectedRoomIds[0]!);
       return;
     }
@@ -310,14 +271,10 @@ export function ManagerPropertyRoomMoveInPanel({
     title,
     subtitle,
     instructions,
-    availableDate,
     photoDataUrls,
     videoDataUrl,
     dirty,
-    saving,
-    saveDataAttr,
     onInstructionsChange,
-    onAvailableDateChange,
     onPhotosChange,
     onVideoChange,
     onSave,
@@ -325,14 +282,10 @@ export function ManagerPropertyRoomMoveInPanel({
     title: string;
     subtitle?: string;
     instructions: string;
-    availableDate: string;
     photoDataUrls: string[];
     videoDataUrl: string | null;
     dirty: boolean;
-    saving: boolean;
-    saveDataAttr: string;
     onInstructionsChange: (value: string) => void;
-    onAvailableDateChange: (value: string) => void;
     onPhotosChange: (urls: string[]) => void;
     onVideoChange: (url: string | null) => void;
     onSave: () => void;
@@ -342,7 +295,14 @@ export function ManagerPropertyRoomMoveInPanel({
         bare
         title={title}
         subtitle={subtitle}
-        onBack={() => setEditingTarget(null)}
+        hideBackText
+        onBack={() => {
+          if (canEdit && dirty) {
+            onSave();
+            return;
+          }
+          setEditingTarget(null);
+        }}
         dataAttrBack="property-move-in-editor-back"
       />
       <div className="px-1 pt-4">
@@ -350,11 +310,6 @@ export function ManagerPropertyRoomMoveInPanel({
           moveInInstructions={instructions}
           disabled={!canEdit}
           onInstructionsChange={onInstructionsChange}
-        />
-        <MoveInAvailableDateField
-          value={availableDate}
-          disabled={!canEdit}
-          onChange={onAvailableDateChange}
         />
         <MoveInMediaFields
           photoDataUrls={photoDataUrls}
@@ -364,21 +319,6 @@ export function ManagerPropertyRoomMoveInPanel({
           onVideoChange={onVideoChange}
           onError={showToast}
         />
-        {canEdit ? (
-          <div className="mt-6 flex justify-end">
-            <Button
-              type="button"
-              variant="primary"
-              className={PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS}
-              data-attr={saveDataAttr}
-              data-testid="move-in-editor-save"
-              disabled={!dirty || saving}
-              onClick={onSave}
-            >
-              {saving ? "Saving…" : "Save"}
-            </Button>
-          </div>
-        ) : null}
       </div>
     </PortalPropertyDetailSection>
   );
@@ -390,14 +330,10 @@ export function ManagerPropertyRoomMoveInPanel({
         ? "Whole-home move-in details shown to placed residents."
         : "Shown to every resident here, whichever room they take.",
       instructions: houseInstructions,
-      availableDate: houseAvailableDate,
       photoDataUrls: housePhotos,
       videoDataUrl: houseVideo,
       dirty: houseDirty,
-      saving: savingHouse,
-      saveDataAttr: "house-move-in-save",
       onInstructionsChange: setHouseInstructions,
-      onAvailableDateChange: setHouseAvailableDate,
       onPhotosChange: setHousePhotos,
       onVideoChange: setHouseVideo,
       onSave: saveHouse,
@@ -417,21 +353,13 @@ export function ManagerPropertyRoomMoveInPanel({
       title: label,
       subtitle: room.floor.trim() || undefined,
       instructions: draft.moveInInstructions ?? "",
-      availableDate: draft.moveInAvailableDate ?? "",
       photoDataUrls: draft.moveInPhotoDataUrls ?? [],
       videoDataUrl: draft.moveInVideoDataUrl ?? null,
       dirty: roomDirty(room),
-      saving: savingRoomId === room.id,
-      saveDataAttr: "room-move-in-save",
       onInstructionsChange: (value) =>
         setDraftByRoomId((prev) => ({
           ...prev,
           [room.id]: { ...draft, moveInInstructions: value },
-        })),
-      onAvailableDateChange: (value) =>
-        setDraftByRoomId((prev) => ({
-          ...prev,
-          [room.id]: { ...draft, moveInAvailableDate: value },
         })),
       onPhotosChange: (urls) =>
         setDraftByRoomId((prev) => ({
@@ -483,13 +411,19 @@ export function ManagerPropertyRoomMoveInPanel({
   }
 
   const houseRowDirty = houseDirty;
+  const bulkEditOpensEditor =
+    (houseSelected && selectedRoomIds.length === 0) ||
+    (selectedRoomIds.length === 1 && !houseSelected);
+  const bulkEditCopiesToRooms = selectedRoomIds.length > 0 && !bulkEditOpensEditor;
+  const bulkEditDisabled = copyingToRooms || (bulkEditCopiesToRooms && !houseHasSavedDetails);
+  const bulkEditLabel = copyingToRooms ? "Applying…" : bulkEditOpensEditor ? "Edit" : "Copy house details";
 
   return (
     <>
       <PortalPropertyDetailSection>
         <p className="mb-3 px-1 text-sm text-muted">
-          Tick rooms to copy the house details into them, or open a row to edit move-in instructions, availability,
-          photos, and video.
+          Set shared house details (front door code, parking, bins) for every resident. Tick individual rooms to copy
+          saved house details into them, or open a row to edit move-in instructions, photos, and video.
         </p>
         <div className="divide-y divide-border/50">
           <div className="px-1">
@@ -497,14 +431,18 @@ export function ManagerPropertyRoomMoveInPanel({
               className={cn(
                 PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
                 "flex items-start gap-2.5 rounded-lg transition",
+                houseSelected ? "border-l-2 border-l-primary bg-primary/5" : "hover:bg-accent/20",
               )}
             >
               {canEdit ? (
-                <PortalListClusterSelectCheckbox
-                  ids={allRoomIds}
-                  selectedIds={new Set(selectedRoomIds)}
-                  onToggleCluster={toggleAllRoomsSelected}
-                  ariaLabel="Select all rooms"
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 shrink-0 rounded border-border accent-primary"
+                  checked={houseSelected}
+                  aria-label="Select the whole house"
+                  data-attr="property-move-in-house-select"
+                  onChange={toggleHouseSelected}
+                  onClick={(e) => e.stopPropagation()}
                 />
               ) : null}
               <button
@@ -587,25 +525,17 @@ export function ManagerPropertyRoomMoveInPanel({
       </PortalPropertyDetailSection>
 
       {selectionActive ? (
-        <BulkActionBar count={selectedRoomIds.length} hideCount variant="payments">
+        <BulkActionBar count={selectionCount} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             <Button
               type="button"
               variant="outline"
               className={PORTAL_BULK_BAR_BTN}
-              onClick={() => setSelectedRoomIds([])}
-            >
-              Clear
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_BULK_BAR_BTN}
               data-attr="property-move-in-bulk-edit"
-              disabled={copyingToRooms || (selectedRoomIds.length > 1 && !houseHasSavedDetails)}
+              disabled={bulkEditDisabled}
               onClick={handleBulkEdit}
             >
-              {selectedRoomIds.length > 1 && copyingToRooms ? "Applying…" : "Edit"}
+              {bulkEditLabel}
             </Button>
             <Button
               type="button"
