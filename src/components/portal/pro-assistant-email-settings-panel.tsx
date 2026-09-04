@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CheckCircle2, Mail } from "lucide-react";
+import { AlertCircle, CheckCircle2, Mail } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
@@ -11,32 +11,19 @@ import {
 } from "@/components/portal/portal-settings-ui";
 import { Button } from "@/components/ui/button";
 import { copyTextToClipboard } from "@/lib/manager-property-links";
+import {
+  assistantEmailEntitlementIsUnverified,
+  assistantEmailUpsellMessage,
+} from "@/lib/manager-assistant-email/assistant-email-eligibility-copy";
 import type { ManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 
 const ENDPOINT = "/api/manager/assistant-email";
-
-function upsellMessage(status: ManagerAssistantEmailStatus): string | null {
-  if (status.workspaceRole === "co_manager") {
-    return "Co-managers email the account owner's assistant address from the email on their PropLane profile.";
-  }
-  if (status.entitlement.eligible) return null;
-  if (status.entitlement.reason === "free") {
-    return "Upgrade to Pro or Business to get a dedicated PropLane assistant email.";
-  }
-  if (
-    status.entitlement.reason === "plan_unreadable" ||
-    status.entitlement.reason === "legacy_unknown"
-  ) {
-    return "We could not confirm your plan yet. Refresh eligibility or request your assistant email to check again.";
-  }
-  return "A paid Pro or Business plan is required for a PropLane assistant email.";
-}
 
 export function ManagerAssistantEmailSettingsPanel() {
   const { showToast } = useAppUi();
   const [status, setStatus] = useState<ManagerAssistantEmailStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [pending, setPending] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"request" | "refresh" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -70,28 +57,37 @@ export function ManagerAssistantEmailSettingsPanel() {
     showToast(ok ? "Assistant email copied." : "Could not copy address.");
   }, [showToast, status?.address]);
 
-  const requestAddress = useCallback(async () => {
-    setPending(true);
-    setError(null);
-    try {
-      const res = await fetch(ENDPOINT, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "request_address" }),
-      });
-      const body = (await res.json().catch(() => ({}))) as ManagerAssistantEmailStatus & {
-        error?: string;
-      };
-      if (!res.ok) throw new Error(body.error ?? "Could not set up assistant email.");
-      setStatus(body);
-      showToast("Your PropLane assistant email is ready.");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not set up assistant email.");
-    } finally {
-      setPending(false);
-    }
-  }, [showToast]);
+  const postAction = useCallback(
+    async (action: "request_address" | "refresh_eligibility") => {
+      setPendingAction(action === "refresh_eligibility" ? "refresh" : "request");
+      setError(null);
+      try {
+        const res = await fetch(ENDPOINT, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        });
+        const body = (await res.json().catch(() => ({}))) as ManagerAssistantEmailStatus & {
+          error?: string;
+        };
+        if (!res.ok) throw new Error(body.error ?? "Could not update assistant email settings.");
+        setStatus(body);
+        if (action === "request_address" && body.address) {
+          showToast("Your PropLane assistant email is ready.");
+        } else if (action === "refresh_eligibility") {
+          showToast("Eligibility updated.");
+        }
+      } catch (cause) {
+        setError(
+          cause instanceof Error ? cause.message : "Could not update assistant email settings.",
+        );
+      } finally {
+        setPendingAction(null);
+      }
+    },
+    [showToast],
+  );
 
   if (loading && !status) {
     return (
@@ -123,8 +119,15 @@ export function ManagerAssistantEmailSettingsPanel() {
 
   if (!status) return null;
 
-  const planMessage = upsellMessage(status);
+  const planMessage =
+    status.workspaceRole === "co_manager"
+      ? "Co-managers email the account owner's assistant address from the email on their PropLane profile."
+      : assistantEmailUpsellMessage(status.planTier, status.entitlement);
   const isCoManager = status.workspaceRole === "co_manager";
+  const unverifiedEntitlement = assistantEmailEntitlementIsUnverified(status.entitlement);
+  const canRefreshEligibility =
+    !status.entitlement.eligible && (Boolean(status.address) || unverifiedEntitlement);
+  const storageBlocked = status.storageReady === false;
 
   return (
     <PortalSettingsSection
@@ -154,39 +157,70 @@ export function ManagerAssistantEmailSettingsPanel() {
           }
         />
         <div className="space-y-4 px-4 py-4">
-          {status.canUse ? (
+          {status.address ? (
             <div className="flex items-start gap-2 text-sm text-foreground">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
               <p>
-                Email this address from your PropLane account email to reach the assistant. Reply
-                with <strong>YES</strong> or <strong>NO</strong> to confirm proposed actions, just
-                like SMS.
+                Email this address from your PropLane profile email to talk to PropLane Assistant.
+                Messages also appear in{" "}
+                <strong>Communication → PropLane Assistant</strong>. Share the address with
+                co-managers on your workspace — only verified workspace emails are accepted.
               </p>
             </div>
           ) : planMessage ? (
             <div className="space-y-3">
               <p className="text-sm leading-relaxed text-muted">{planMessage}</p>
-              {!status.entitlement.eligible && status.entitlement.reason === "free" ? (
+              {status.planTier === "free" || status.entitlement.reason === "free" ? (
                 <Button asChild variant="outline" data-attr="assistant-email-open-billing">
                   <Link href="/portal/profile?tab=billing">View plans</Link>
                 </Button>
               ) : null}
             </div>
+          ) : unverifiedEntitlement ? (
+            <p className="text-sm leading-relaxed text-muted">
+              Your plan has not been checked yet. Check eligibility, then request your assistant
+              email.
+            </p>
+          ) : null}
+
+          {storageBlocked ? (
+            <p className="text-sm leading-relaxed text-muted" role="status">
+              Assistant email storage is not ready on this environment yet. A database migration
+              must be applied before setup can complete.
+            </p>
+          ) : null}
+
+          {error ? (
+            <div className="flex items-start gap-2 text-sm text-danger" role="alert">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <p>{error}</p>
+            </div>
+          ) : null}
+
+          {canRefreshEligibility ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={pendingAction !== null}
+              aria-busy={pendingAction === "refresh"}
+              onClick={() => postAction("refresh_eligibility")}
+              data-attr="assistant-email-refresh-eligibility"
+            >
+              {pendingAction === "refresh" ? "Checking…" : "Check eligibility"}
+            </Button>
           ) : null}
 
           {status.canRequest ? (
             <Button
               type="button"
-              onClick={() => requestAddress()}
-              loading={pending}
+              onClick={() => postAction("request_address")}
+              loading={pendingAction === "request"}
               data-attr="assistant-email-request"
             >
               <Mail className="h-4 w-4" aria-hidden />
               Set up assistant email
             </Button>
           ) : null}
-
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
         </div>
       </PortalSettingsGroup>
     </PortalSettingsSection>

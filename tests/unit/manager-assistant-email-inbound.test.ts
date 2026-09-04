@@ -1,18 +1,23 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  resolveManagerIdByAssistantEmailToken: vi.fn(),
+  resolveManagerIdByAssistantInboundAddresses: vi.fn(),
   resolveManagerEmailInboundIdentity: vi.fn(),
   resolveManagerSmsAgentContext: vi.fn(),
   runManagerEmailAgentTurn: vi.fn(),
   loadManagerAssistantEmail: vi.fn(),
   deliverManagerEmailReply: vi.fn(),
   resolveInboundEmailBody: vi.fn(),
+  mirrorAssistantEmailTurnToInbox: vi.fn(),
 }));
 
 vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({
-  resolveManagerIdByAssistantEmailToken: mocks.resolveManagerIdByAssistantEmailToken,
+  resolveManagerIdByAssistantInboundAddresses: mocks.resolveManagerIdByAssistantInboundAddresses,
   loadManagerAssistantEmail: mocks.loadManagerAssistantEmail,
+}));
+
+vi.mock("@/lib/manager-assistant-email/mirror-assistant-email-to-inbox.server", () => ({
+  mirrorAssistantEmailTurnToInbox: mocks.mirrorAssistantEmailTurnToInbox,
 }));
 
 vi.mock("@/lib/manager-assistant-email/manager-email-access.server", () => ({
@@ -52,7 +57,7 @@ describe("processManagerAssistantInboundEmail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.ASSISTANT_EMAIL_DOMAIN = "prop-lane.space";
-    mocks.resolveManagerIdByAssistantEmailToken.mockResolvedValue("mgr-1");
+    mocks.resolveManagerIdByAssistantInboundAddresses.mockResolvedValue("mgr-1");
     mocks.resolveManagerEmailInboundIdentity.mockResolvedValue({
       workNumberOwnerId: "mgr-1",
       actorUserId: "mgr-1",
@@ -70,6 +75,7 @@ describe("processManagerAssistantInboundEmail", () => {
       address: "assistant+tok12345678@prop-lane.space",
       provisionState: "active",
     });
+    mocks.mirrorAssistantEmailTurnToInbox.mockResolvedValue(undefined);
     mocks.deliverManagerEmailReply.mockResolvedValue({ ok: true });
 
     const insert = vi.fn().mockResolvedValue({ error: null });
@@ -88,6 +94,7 @@ describe("processManagerAssistantInboundEmail", () => {
     const result = await processManagerAssistantInboundEmail(db, parsed);
     expect(result).toEqual({ handled: true, replied: true });
     expect(mocks.runManagerEmailAgentTurn).toHaveBeenCalled();
+    expect(mocks.mirrorAssistantEmailTurnToInbox).toHaveBeenCalled();
     expect(mocks.deliverManagerEmailReply).toHaveBeenCalledWith(
       expect.objectContaining({ toEmail: "mgr@example.com" }),
     );
