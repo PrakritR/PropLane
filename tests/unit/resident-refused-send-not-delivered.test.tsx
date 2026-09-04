@@ -31,7 +31,8 @@ const THREAD = {
 const upsertPersistedInboxRows = vi.fn(async () => true);
 const persistInbox = vi.fn();
 
-vi.mock("@/lib/portal-inbox-storage", () => ({
+vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",
   RESIDENT_INBOX_STORAGE_KEY: "resident-inbox",
   collapsePersonInboxThreads: (threads: unknown[]) => threads,

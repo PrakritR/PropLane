@@ -533,14 +533,28 @@ export function inboxThreadCounterpartyEmail(
   return email;
 }
 
+/**
+ * Reads defensively on purpose.
+ *
+ * `inboxThreadManagerReplyPending` takes a `Pick<…, "folder" | "body" |
+ * "messages" | "rootOutbound">` — its signature promises `id` and `from` are
+ * NOT needed — and then casts to the full row on the way here. A caller that
+ * honours that contract passed a row with no `id`, and this threw
+ * `Cannot read properties of undefined (reading 'startsWith')` rather than
+ * answering "no, not an assistant thread". Persisted rows come from
+ * localStorage and server JSON too, so a missing field is a real shape, not
+ * only a test one.
+ */
 function isPropLaneAssistantInboxThreadRow(thread: PersistedInboxThread): boolean {
   const extended = thread as PersistedInboxThread & { threadType?: string };
+  const id = typeof thread.id === "string" ? thread.id : "";
+  const from = typeof thread.from === "string" ? thread.from : "";
   return (
     extended.threadType === "resident_agent" ||
     extended.threadType === "agent_notice" ||
-    thread.id.startsWith("resident-agent-") ||
-    thread.id.startsWith("agent_notice_") ||
-    thread.from.trim() === RESIDENT_AGENT_FROM_NAME
+    id.startsWith("resident-agent-") ||
+    id.startsWith("agent_notice_") ||
+    from.trim() === RESIDENT_AGENT_FROM_NAME
   );
 }
 

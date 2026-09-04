@@ -384,7 +384,7 @@ export function VendorCommunication({
           dataAttr: "communication-segment-archived",
         },
       ]}
-      activeDestinationId={listSegment}
+      activeDestinationId={listSegment === "unread" ? "active" : listSegment}
       destinationAriaLabel="Conversation folders"
       destinationNavSize="toolbar"
       search={{

@@ -36,7 +36,8 @@ let vendorRows = [{ ...BASE_THREAD }];
 const upsertPersistedInboxRows = vi.fn(async () => true);
 const showToast = vi.fn();
 
-vi.mock("@/lib/portal-inbox-storage", () => ({
+vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   MANAGER_INBOX_STORAGE_KEY: "manager-inbox",
   VENDOR_INBOX_STORAGE_KEY: "vendor-inbox",
   PORTAL_INBOX_CHANGED_EVENT: "portal-inbox-changed",

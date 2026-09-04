@@ -131,3 +131,74 @@ Two readings of the instruction, very different in size:
    SMS agents, the payout anchor and the confirm gate.
 
 Reading 1 is a subset of reading 2, so it is safe to start there either way.
+
+## Found while implementing the admin + vendor redesigns (Sep 4)
+
+Each of these is a real defect found in the code, not a styling preference.
+Listed newest first; the ones already fixed say so.
+
+### Fixed
+
+* **The vendor availability editor was mounted nowhere.** `VendorAvailabilityEditor`
+  was exported from `vendor-settings-panel.tsx` and rendered by no page, so a
+  vendor could not set weekly hours, open a one-off date, or block one — the
+  whole availability feature was unreachable from the product. It now has a
+  pane in the vendor Settings rail.
+* **`/admin/communication` redirected to a folder that no longer existed.** The
+  section's own nav href pointed at `/communication/inbox/unopened` while the
+  panel had stopped reading which folder was in the URL, so all five tabs
+  rendered the same view. Collapsed to one inbox; legacy paths still resolve.
+* **The Free-plan "+ Add property" button had become a dead click.** At the cap
+  it was rendered `disabled`, so the one moment the product has to explain the
+  limit and offer the upgrade passed in silence. Restored to a live button that
+  refuses and says why — the same rule as the sidebar's `upsell` nav lock.
+* **Resident and vendor Communication grew a third segment.** Active / Unread /
+  Archived, where the manager inbox — the stated reference — has two, and
+  `AGENTS.md` says one inbox with no folder tabs. Unread is a filter, not a
+  folder. Removed the tab; the `/unread` URL still resolves.
+* **A build-breaking import and two non-narrowing Sets.**
+  `use-unified-communication-bulk` imported `unarchiveManagerSmsConversation`,
+  which does not exist (`restoreManagerSmsConversation` is the module's
+  inverse), and two payments clusters built a charge-id `Set` through
+  `.filter(Boolean)`, which does not narrow away `undefined`.
+
+### Open
+
+* **Three inbox tests expect buttons the new bulk bar only shows on selection.**
+  `manager-inbox-search`, `manager-inbox-resident-scope-selection` and
+  `resident-refused-send-not-delivered` look for Archive / Restore as
+  always-present buttons; the unified-inbox redesign moved them into
+  `CommunicationListBulkBar`, which renders only while something is selected.
+  Left for the communication lane, since it is their contract to settle — the
+  tests may simply need to select a row first, or the buttons may be meant to
+  stay.
+* **Vendor Payments never names the manager who owes the money.** `managerName`
+  is not a field on the vendor work-order row at all, so `row.managerName` is
+  always `undefined`: demo prints the canonical "Test Manager" on every row and
+  production prints "Property manager" on every row. Fixing it means threading
+  the manager through the vendor work-order read — a data change, not a label
+  one. Until then the vendor cannot tell two managers' invoices apart.
+* **`pro-unified-inbox.tsx` carries a dead third segment.** Its internal
+  toolbar renders Active / Unread / Archived, but the only caller
+  (`pro-communication.tsx`) passes `listChrome="external"`, so that branch never
+  runs. Harmless today; the moment someone passes `internal` they get an inbox
+  that disagrees with every other one. Delete the branch or drop its Unread
+  entry.
+* **Vendor Communication has no filter sheet.** The manager and resident panels
+  both mount `PortalFilterSortSheet`; `vendor-communication.tsx` does not. Pure
+  parity gap, in the communication lane's territory.
+* **Vendor Finances and Payments are still two nav entries.** The redesign
+  merges them into one money section (Owed / Invoiced / Paid). Not started.
+* **Vendor Calendar and Dashboard** are still on their own layouts. Calendar
+  inherits the shared calendar's sticky date row and scroll fixes once it adopts
+  the component. (Tasks is done — it took the list surface and floating dock.)
+
+### Decisions still needed before those can finish
+
+* **May a vendor decline a job?** They cannot today. The redesign's dock makes
+  it one click, which is a capability change rather than a UI one.
+* **Does a bid stay a form?** A bid is a money entry with an amount and a time,
+  so it is left in the expanded row rather than becoming a dock action.
+* **Do admin Settings need Staff and Platform groups?** Team access, audit log,
+  service fee and feature flags were a guess — some may not exist, and some may
+  not be wanted in staff hands.
