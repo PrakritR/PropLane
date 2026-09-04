@@ -5,7 +5,10 @@ export type ManagerNotificationCategory =
   | "maintenance"
   | "payment_reminders"
   | "applications"
-  | "leasing";
+  | "leasing"
+  | "attention_digest";
+
+export type ManagerAttentionDigestCadence = "off" | "daily" | "weekly";
 
 export type ManagerNotificationCategoryPreferences = Record<ManagerNotificationCategory, boolean>;
 
@@ -35,6 +38,11 @@ export const MANAGER_NOTIFICATION_CATEGORIES = [
     label: "Leasing",
     description: "Tour requests and new listing inquiries.",
   },
+  {
+    id: "attention_digest",
+    label: "Needs-attention digest",
+    description: "Scheduled summary of unpaid charges, service work, applications, and unsigned leases.",
+  },
 ] as const satisfies ReadonlyArray<{
   id: ManagerNotificationCategory;
   label: string;
@@ -50,7 +58,14 @@ export const DEFAULT_MANAGER_NOTIFICATION_CATEGORIES: ManagerNotificationCategor
   payment_reminders: true,
   applications: true,
   leasing: true,
+  attention_digest: true,
 };
+
+export function normalizeManagerAttentionDigestCadence(
+  value: unknown,
+): ManagerAttentionDigestCadence {
+  return value === "daily" || value === "weekly" ? value : "off";
+}
 
 export function normalizeManagerNotificationDestination(
   value: unknown,
@@ -83,6 +98,8 @@ export function managerNotificationCategoryForEvent(
       return "payment_reminders";
     case "applications":
       return "applications";
+    case "attention_digest":
+      return "attention_digest";
     case "leases":
     case "leasing":
       return "leasing";

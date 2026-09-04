@@ -3,9 +3,11 @@ import {
   DEFAULT_MANAGER_NOTIFICATION_CATEGORIES,
   DEFAULT_MANAGER_NOTIFICATION_DESTINATION,
   normalizeManagerNotificationCategories,
+  normalizeManagerAttentionDigestCadence,
   normalizeManagerNotificationDestination,
   type ManagerNotificationCategoryPreferences,
   type ManagerNotificationDestination,
+  type ManagerAttentionDigestCadence,
 } from "@/lib/manager-notification-preferences";
 
 export type PaymentReminderKind = "pre_due" | "same_day" | "post_due" | "overdue_daily" | "late_fee" | "set_date";
@@ -22,6 +24,8 @@ export type ManagerAutomationSettings = {
   managerNotificationDestination: ManagerNotificationDestination;
   /** Topics eligible for manager-cell SMS when the selected destination includes it. */
   managerNotificationCategories: ManagerNotificationCategoryPreferences;
+  /** Opt-in schedule for the manager's Needs-attention summary. */
+  managerAttentionDigestCadence: ManagerAttentionDigestCadence;
   preDueReminderDays: number[];
   /** One-time reminders after the due date (legacy; day 1 migrates to overdueDailyEnabled). */
   postDueReminderDays: number[];
@@ -133,6 +137,7 @@ export const DEFAULT_TOUR_REMINDER_TEMPLATE: ReminderTemplate = {
 export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   managerNotificationDestination: DEFAULT_MANAGER_NOTIFICATION_DESTINATION,
   managerNotificationCategories: { ...DEFAULT_MANAGER_NOTIFICATION_CATEGORIES },
+  managerAttentionDigestCadence: "off",
   preDueReminderDays: [...DEFAULT_PRE_DUE_REMINDER_DAYS],
   postDueReminderDays: [...DEFAULT_POST_DUE_REMINDER_DAYS],
   setDateReminders: [],
@@ -336,6 +341,9 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
     ),
     managerNotificationCategories: normalizeManagerNotificationCategories(
       row.managerNotificationCategories,
+    ),
+    managerAttentionDigestCadence: normalizeManagerAttentionDigestCadence(
+      row.managerAttentionDigestCadence,
     ),
     preDueReminderDays: normalizePreDueDays(row.preDueReminderDays),
     postDueReminderDays,
