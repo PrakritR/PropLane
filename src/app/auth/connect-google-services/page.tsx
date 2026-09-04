@@ -12,7 +12,7 @@ import {
   workNumberOnboardingPhone,
   type WorkNumberOnboardingStatus,
 } from "@/lib/sms/work-number-onboarding";
-import { BANNER_INFO_CLASS, BANNER_NEUTRAL_CLASS } from "@/lib/ui-styles";
+import { BANNER_INFO_CLASS } from "@/lib/ui-styles";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 
@@ -125,44 +125,28 @@ function ConnectGoogleServicesContent() {
     window.location.assign(`/api/portal/google-calendar/connect?origin=${origin}&returnTo=${returnTo}`);
   };
 
-  const connectGmail = () => {
-    if (!status?.gmailConfigured) {
-      showToast("Gmail OAuth is not configured on this server.");
-      return;
-    }
-    const origin = encodeURIComponent(window.location.origin);
-    const returnTo = encodeURIComponent(MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH);
-    window.location.assign(`/api/portal/gmail-payments/connect?origin=${origin}&returnTo=${returnTo}`);
-  };
-
-  const skipForNow = async () => {
+  /**
+   * Mark the step seen and go to the portal.
+   *
+   * This replaces a "Skip for now" and an "Enter portal" that both POSTed the
+   * same `skip` and landed in the same place — the only difference was that one
+   * of them was hidden until something was connected. A step this optional needs
+   * one button, and a failed write must not strand the manager on it, so the
+   * navigation happens either way.
+   */
+  const continueToPortal = async () => {
     setSkipping(true);
     try {
-      const res = await fetch("/api/auth/manager-google-services", {
+      await fetch("/api/auth/manager-google-services", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "skip" }),
-      });
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (!res.ok) {
-        showToast(body.error ?? "Could not save your choice.");
-        return;
-      }
+      }).catch(() => undefined);
       router.replace(portalDashboardPath("manager"));
     } finally {
       setSkipping(false);
     }
-  };
-
-  const enterPortal = async () => {
-    await fetch("/api/auth/manager-google-services", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "skip" }),
-    }).catch(() => undefined);
-    router.replace(portalDashboardPath("manager"));
   };
 
   if (loading || !status) {
@@ -173,15 +157,6 @@ function ConnectGoogleServicesContent() {
     );
   }
 
-  const canEnter = status.calendarConnected || status.gmailConnected;
-  const sharedGoogleEmail =
-    status.calendarConnected &&
-    status.gmailConnected &&
-    status.calendarEmail &&
-    status.gmailEmail &&
-    status.calendarEmail.toLowerCase() === status.gmailEmail.toLowerCase()
-      ? status.calendarEmail
-      : null;
 
   const provisionedNumber = workNumberOnboardingPhone(workNumber);
   const workNumberCard = shouldOfferWorkNumberSetup(workNumber) ? (
@@ -190,8 +165,7 @@ function ConnectGoogleServicesContent() {
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-foreground">PropLane work number</p>
           <p className="mt-1 text-xs leading-relaxed text-muted">
-            A dedicated number for texting residents and prospects, with replies landing in your
-            PropLane inbox.
+            Text residents and prospects; replies land in your inbox.
           </p>
           {provisionedNumber ? (
             <p className="mt-2 text-xs font-medium text-[var(--status-confirmed-fg)]">
@@ -219,22 +193,10 @@ function ConnectGoogleServicesContent() {
       <div className="auth-plan-picker auth-plan-picker-wide">
         <AuthPageHeader
           eyebrow="Manager"
-          title="Connect Google services"
-          subtitle="Optional — connect only what you need. Google asks you to approve each permission separately."
+          title="Connect Google Calendar"
+          subtitle="Optional. You can do this later in Settings."
           accent={false}
         />
-
-        <div className={`mt-5 ${BANNER_NEUTRAL_CLASS}`}>
-          Link Calendar to sync tours and block double-bookings, or Gmail to read supported payment
-          receipt emails and match Zelle/Venmo payments automatically. You can connect either, both, or skip
-          and set this up later in Payment setup or Calendar settings.
-        </div>
-
-        {sharedGoogleEmail ? (
-          <p className="mt-4 text-xs font-medium text-[var(--status-confirmed-fg)]">
-            Google account · {sharedGoogleEmail}
-          </p>
-        ) : null}
 
         <div className="mt-5 space-y-3">
           <div className="rounded-xl border border-border bg-card p-4">
@@ -242,12 +204,12 @@ function ConnectGoogleServicesContent() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-foreground">Google Calendar</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted">
-                  Synchronize tours and prevent double-booking when prospects book online.
+                  Keeps tours in sync so nothing double-books.
                 </p>
                 {status.calendarConnected ? (
                   <p className="mt-2 text-xs font-medium text-[var(--status-confirmed-fg)]">
                     Connected
-                    {!sharedGoogleEmail && status.calendarEmail ? ` · ${status.calendarEmail}` : ""}
+                    {status.calendarEmail ? ` · ${status.calendarEmail}` : ""}
                   </p>
                 ) : null}
               </div>
@@ -266,67 +228,29 @@ function ConnectGoogleServicesContent() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-border bg-card p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-foreground">Gmail payment receipts</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted">
-                  Read supported Zelle and Venmo payment emails to automatically match resident payments.
-                </p>
-                {status.gmailConnected ? (
-                  <p className="mt-2 text-xs font-medium text-[var(--status-confirmed-fg)]">
-                    Connected
-                    {!sharedGoogleEmail && status.gmailEmail ? ` · ${status.gmailEmail}` : ""}
-                  </p>
-                ) : null}
-              </div>
-              {!status.gmailConnected ? (
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="rounded-full"
-                  data-attr="onboarding-connect-gmail"
-                  disabled={!status.gmailConfigured}
-                  onClick={connectGmail}
-                >
-                  Connect Gmail for payment tracking
-                </Button>
-              ) : null}
-            </div>
-          </div>
-
           {workNumberCard}
         </div>
 
-        {!status.calendarConfigured && !status.gmailConfigured ? (
-          <div className={`mt-4 ${BANNER_INFO_CLASS}`}>
-            Google OAuth is not configured in this environment. Skip for now and connect later when it is
-            available.
-          </div>
+        {!status.calendarConfigured ? (
+          <div className={`mt-4 ${BANNER_INFO_CLASS}`}>Google sign-in is not set up on this server yet.</div>
         ) : null}
 
-        <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
+        {/*
+          One way forward, not two. "Skip for now" and "Enter portal" did the same
+          thing — mark the step seen and go to the portal — and having both made a
+          single optional connection look like a decision with consequences.
+        */}
+        <div className="mt-6">
           <Button
             type="button"
-            variant="outline"
-            className="rounded-full"
-            data-attr="onboarding-skip-google-services"
+            variant="primary"
+            className="w-full rounded-full"
+            data-attr="onboarding-google-services-continue"
             disabled={skipping}
-            onClick={() => void skipForNow()}
+            onClick={() => void continueToPortal()}
           >
-            {skipping ? "Saving…" : "Skip for now"}
+            {skipping ? "One moment…" : "Continue"}
           </Button>
-          {canEnter ? (
-            <Button
-              type="button"
-              variant="primary"
-              className="rounded-full"
-              data-attr="onboarding-enter-portal"
-              onClick={enterPortal}
-            >
-              Enter portal
-            </Button>
-          ) : null}
         </div>
       </div>
     </AuthCard>

@@ -8,9 +8,11 @@ export async function reachManagerPortal(page: Page) {
   }
 
   if (page.url().includes("/auth/connect-google-services")) {
-    const skip = page.locator('[data-attr="onboarding-skip-google-services"]');
-    await expect(skip).toBeEnabled({ timeout: 30_000 });
-    await Promise.all([page.waitForURL(/\/portal/, { timeout: 60_000 }), skip.click()]);
+    // One button now: "Skip for now" and "Enter portal" both marked the step
+    // seen and went to the portal, so they collapsed into Continue.
+    const continueBtn = page.locator('[data-attr="onboarding-google-services-continue"]');
+    await expect(continueBtn).toBeEnabled({ timeout: 30_000 });
+    await Promise.all([page.waitForURL(/\/portal/, { timeout: 60_000 }), continueBtn.click()]);
   }
 
   if (page.url().includes("/auth/choose-portal")) {
