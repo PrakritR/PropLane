@@ -1094,6 +1094,34 @@ describe("portal filter dropdown positioning", () => {
     document.body.removeChild(button);
   });
 
+  it("start-aligns the filter dropdown to the trigger's left edge", () => {
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+    button.getBoundingClientRect = () =>
+      ({
+        top: 120,
+        left: 248,
+        right: 368,
+        bottom: 160,
+        width: 120,
+        height: 40,
+        x: 248,
+        y: 120,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    Object.defineProperty(window, "innerWidth", { value: 1280, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 900, configurable: true });
+
+    const rect = computePortalFilterDropdownRect(button, 168, {
+      widthPx: 352,
+      alignToTrigger: "start",
+      horizontalBoundary: { left: 224, right: 1248 },
+    });
+    expect(rect.left).toBe(248);
+
+    document.body.removeChild(button);
+  });
+
   it("opens inward when right alignment would cover the title band's adjacent rail", () => {
     const button = document.createElement("button");
     document.body.appendChild(button);

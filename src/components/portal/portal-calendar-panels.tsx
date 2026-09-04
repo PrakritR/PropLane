@@ -2554,7 +2554,13 @@ export function PortalCalendarPanels({
             className={CALENDAR_AVAILABILITY_FOOTER_BUTTON_CLASS}
             data-attr="calendar-copy-to-houses"
             disabled={!onCopyWeekToHouses || !otherProperties?.length}
-            title={!otherProperties?.length ? "Add another house to copy availability" : undefined}
+            title={
+              !onCopyWeekToHouses
+                ? "Filter to one house to copy its schedule to others"
+                : !otherProperties?.length
+                  ? "Add another house to copy availability"
+                  : undefined
+            }
             onClick={() => {
               setSelectedHouseIds(new Set());
               setCopyToHousesScope("week");

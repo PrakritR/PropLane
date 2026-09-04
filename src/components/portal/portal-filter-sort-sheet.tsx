@@ -220,6 +220,8 @@ export function PortalFilterSortSheet({
   mobileSheetRaised = false,
   /** Keep portal popovers inside the page content instead of covering an adjacent rail. */
   constrainDropdownToTitleBand = true,
+  /** Pin the desktop dropdown's left edge to the trigger (command-strip filters on the left). */
+  dropdownAlign = "end",
   commandStripTrigger = false,
   open: controlledOpen,
   defaultOpen = false,
@@ -242,6 +244,8 @@ export function PortalFilterSortSheet({
   mobileSheetRaised?: boolean;
   /** Enabled by default; outside a portal page this safely falls back to viewport bounds. */
   constrainDropdownToTitleBand?: boolean;
+  /** Desktop dropdown horizontal alignment to the Filter trigger. */
+  dropdownAlign?: "start" | "end";
   /** Match list command-strip outline buttons (Properties Share, Residents Filter). */
   commandStripTrigger?: boolean;
   open?: boolean;
@@ -360,6 +364,7 @@ export function PortalFilterSortSheet({
     align: "end",
     fullBleed: isMobile,
     constrainToTitleBand: constrainDropdownToTitleBand,
+    filterDropdownAlign: dropdownAlign,
     closeOnOutsidePointerDown: false,
     closeOnEscape: false,
   });
