@@ -80,15 +80,19 @@ describe("manager move-in panel", () => {
 
   it("offers the house section to a room-by-room listing too", () => {
     expect(panel).toContain("The whole house");
-    expect(panel).toContain('"house-move-in-save"');
+    expect(panel).toContain("hideBackText");
     expect(panel).toContain('data-attr="property-move-in-house"');
+    expect(panel).not.toContain("move-in-editor-save");
+    expect(panel).not.toContain("earliest move-in date");
   });
 
   it("makes rooms selectable with edit and share bulk actions", () => {
+    expect(panel).toContain("property-move-in-house-select");
     expect(panel).toContain("property-move-in-room-select-");
     expect(panel).toContain('data-attr="property-move-in-bulk-edit"');
     expect(panel).toContain('data-attr="property-move-in-share"');
     expect(panel).toContain("<BulkActionBar");
+    expect(panel).not.toContain(">Clear<");
   });
 
   it("copies the SAVED house details, never the unsaved draft", () => {
