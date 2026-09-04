@@ -229,6 +229,7 @@ import {
   EXISTING_RESIDENT_WELCOME_EMAIL_SUBJECT,
   buildExistingResidentWelcomeEmailBody,
 } from "@/lib/existing-resident-welcome-email";
+import { fetchManagerReachabilityForWelcome } from "@/lib/manager-reachability-client";
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { groupIdForRow, groupRowInputForRow } from "@/components/portal/application-group-section";
 import { ManagerCosignerReadonlyReview } from "@/components/portal/pro-cosigner-readonly-review";
@@ -1562,17 +1563,20 @@ export function ManagerResidents({
         opts?.draft?.subject?.trim() ||
         (res.manuallyAdded ? EXISTING_RESIDENT_WELCOME_EMAIL_SUBJECT : RESIDENT_WELCOME_EMAIL_SUBJECT);
       const signupUrl = residentAccountCreationUrl(window.location.origin, res.axisId);
+      const managerReachability = await fetchManagerReachabilityForWelcome();
       const defaultBody = res.manuallyAdded
         ? buildExistingResidentWelcomeEmailBody({
             residentName: res.name,
             axisId: res.axisId,
             signupUrl,
             propertyLabel: res.propertyLabel,
+            managerReachability,
           })
         : buildResidentWelcomeEmailBody({
             residentName: res.name,
             axisId: res.axisId,
             signupUrl,
+            managerReachability,
           });
       const body = opts?.draft?.body?.trim() || defaultBody;
       const viaEmail = opts?.channels?.viaEmail !== false;
@@ -2207,12 +2211,14 @@ export function ManagerResidents({
     })();
   }
 
-  function openResidentEmailSetup(resident: ActiveResident) {
+  async function openResidentEmailSetup(resident: ActiveResident) {
     const signupUrl = residentAccountCreationUrl(window.location.origin, resident.axisId);
+    const managerReachability = await fetchManagerReachabilityForWelcome();
     const previewBody = buildResidentWelcomeEmailBody({
       residentName: resident.name,
       axisId: resident.axisId,
       signupUrl,
+      managerReachability,
     });
     setWelcomePreviewContent(previewBody);
     setWelcomePreviewFor(resident);

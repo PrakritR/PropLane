@@ -1155,6 +1155,12 @@ export const ManagerInbox = forwardRef<
   const canAddThreadPhone = Boolean(
     smsUiEnabled && !activeSmsAvailable && activeThread?.email?.trim() && !embeddedResidentChat,
   );
+  const canEditThreadContact = Boolean(
+    activeThread &&
+      !activeIsAssistantThread &&
+      !embeddedResidentChat &&
+      inboxThreadHasEmail(activeThread.email),
+  );
 
   const saveThreadContact = useCallback(
     async (values: PortalContactDetailsValues) => {
@@ -1938,8 +1944,22 @@ export const ManagerInbox = forwardRef<
     </div>
   );
 
+  const threadContactEditButton = canEditThreadContact ? (
+    <button
+      type="button"
+      className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+      aria-label="Edit contact details"
+      data-attr="inbox-thread-contact-edit"
+      onClick={openThreadPhone}
+    >
+      <Pencil className="h-4 w-4" aria-hidden />
+    </button>
+  ) : null;
+
+  const showThreadHeaderActions = !embeddedInCommunication || externalTitleActions;
+
   const threadHeaderActions =
-    activeThread && !embeddedInCommunication ? (
+    activeThread && showThreadHeaderActions ? (
     activeThread.folder === "trash" ? (
       <>
         <Button
@@ -1961,17 +1981,7 @@ export const ManagerInbox = forwardRef<
       </>
     ) : (
       <>
-        {canAddThreadPhone ? (
-          <button
-            type="button"
-            className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
-            aria-label="Edit contact details"
-            data-attr="inbox-thread-contact-edit"
-            onClick={openThreadPhone}
-          >
-            <Pencil className="h-4 w-4" aria-hidden />
-          </button>
-        ) : null}
+        {threadContactEditButton}
         <Button
           type="button"
           variant="outline"
@@ -1993,6 +2003,8 @@ export const ManagerInbox = forwardRef<
         </button>
       </>
     )
+  ) : activeThread && embeddedInCommunication ? (
+    threadContactEditButton
   ) : null;
 
   const scheduledCards =
@@ -2042,7 +2054,11 @@ export const ManagerInbox = forwardRef<
           ? activeThread.email || undefined
           : activeThread.from || activeThread.email || undefined
       }
-      subtitle={activeThread.subject || (activeIsSent ? undefined : activeThread.email)}
+      subtitle={
+        activeIsAssistantThread
+          ? undefined
+          : activeThread.subject || (activeIsSent ? undefined : activeThread.email)
+      }
       messages={activeBubbles}
       threadKey={activeThread.id}
       onBack={embeddedResidentChat ? undefined : () => setExpandedId(null)}
@@ -2200,7 +2216,7 @@ export const ManagerInbox = forwardRef<
         onClose={() => setThreadPhoneOpen(false)}
         initial={{
           name: activeThread?.from?.trim() || "",
-          phone: "",
+          phone: activeSmsTarget?.phone?.trim() || "",
           email: activeThread?.email?.trim() || "",
         }}
         onSave={(values) => void saveThreadContact(values)}

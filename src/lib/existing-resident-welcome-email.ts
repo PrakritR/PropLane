@@ -5,6 +5,11 @@
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { residentAccountCreationUrl } from "@/lib/resident-welcome-email";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
+import {
+  appendManagerReachabilityToWelcomeBody,
+  managerReachabilityWelcomeHtmlBlock,
+  type ManagerReachabilityLines,
+} from "@/lib/manager-reachability-for-resident";
 
 export const EXISTING_RESIDENT_WELCOME_EMAIL_SUBJECT =
   "Your PropLane resident portal — pay rent and manage your home";
@@ -14,13 +19,14 @@ export function buildExistingResidentWelcomeEmailBody(params: {
   axisId: string;
   signupUrl: string;
   propertyLabel?: string;
+  managerReachability?: ManagerReachabilityLines;
 }): string {
   const greeting = params.residentName?.trim() ? `Hi ${params.residentName.trim()},` : "Hi,";
   const id = formatProplaneIdForDisplay(params.axisId);
   const propertyLine = params.propertyLabel?.trim()
     ? `You're set up for ${params.propertyLabel.trim()} on PropLane.`
     : "You're set up on PropLane as a resident.";
-  return [
+  const base = [
     greeting,
     "",
     propertyLine,
@@ -42,7 +48,8 @@ export function buildExistingResidentWelcomeEmailBody(params: {
     "Use the same email address on your lease or application when you sign in. Continue with Google usually works when that email is a Gmail account.",
     "",
     "— PropLane",
-  ].join("\n");
+  ];
+  return appendManagerReachabilityToWelcomeBody(base, params.managerReachability ?? {}).join("\n");
 }
 
 function escapeHtmlText(s: string): string {
@@ -58,6 +65,7 @@ export function buildExistingResidentWelcomeEmailHtml(params: {
   axisId: string;
   signupUrl: string;
   propertyLabel?: string;
+  managerReachability?: ManagerReachabilityLines;
 }): string {
   const greeting = params.residentName?.trim()
     ? `Hi ${escapeHtmlText(params.residentName.trim())},`
@@ -68,6 +76,7 @@ export function buildExistingResidentWelcomeEmailHtml(params: {
   const propertyLine = params.propertyLabel?.trim()
     ? `You're set up for <strong>${escapeHtmlText(params.propertyLabel.trim())}</strong> on PropLane.`
     : "You're set up on PropLane as a resident.";
+  const reachBlock = managerReachabilityWelcomeHtmlBlock(params.managerReachability ?? {});
   const ctaButton = `<table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:20px 0 8px 0">
 <tr>
 <td style="border-radius:10px;background:#2563eb">
@@ -85,6 +94,7 @@ export function buildExistingResidentWelcomeEmailHtml(params: {
 <p style="margin:0 0 12px 0">Use PropLane to <strong>pay rent and charges</strong>, submit <strong>maintenance requests</strong>, and view <strong>documents</strong> your manager shares with you.</p>
 <p style="margin:0 0 12px 0">Your lease is already on file — no application or e-sign step is required in the portal.</p>
 <p style="margin:0 0 8px 0"><strong>Your PropLane ID:</strong> ${id}</p>
+${reachBlock}
 ${ctaButton}
 <p style="margin:0 0 12px 0">Use the same email address shown on your lease when you create your account.</p>
 <p style="margin:16px 0 0 0;color:#64748b;font-size:14px">— PropLane</p>
@@ -100,6 +110,7 @@ export function buildExistingResidentWelcomeMailtoHref(params: {
   origin: string;
   setupToken?: string;
   propertyLabel?: string;
+  managerReachability?: ManagerReachabilityLines;
 }): string {
   const signupUrl = residentAccountCreationUrl(
     params.origin || resolveEmailLinkBaseUrl(),
@@ -111,6 +122,7 @@ export function buildExistingResidentWelcomeMailtoHref(params: {
     axisId: params.axisId,
     signupUrl,
     propertyLabel: params.propertyLabel,
+    managerReachability: params.managerReachability,
   });
   const subject = encodeURIComponent(EXISTING_RESIDENT_WELCOME_EMAIL_SUBJECT);
   return `mailto:${encodeURIComponent(params.residentEmail)}?subject=${subject}&body=${encodeURIComponent(body)}`;

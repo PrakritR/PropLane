@@ -1264,6 +1264,13 @@ export const ResidentInboxPanel = forwardRef<
   }, [expandedId]);
 
   const activeIsSent = activeThread?.folder === "sent";
+  const activeThreadAvatarName = activeThread
+    ? activeIsAssistantThread
+      ? "PropLane Assistant"
+      : activeIsSent
+        ? activeThread.email || undefined
+        : activeThread.from || activeThread.email || undefined
+    : undefined;
   const activeFolder = activeThread
     ? activeThread.folder === "trash"
       ? inferPreviousFolder(activeThread)
@@ -1779,7 +1786,12 @@ export const ResidentInboxPanel = forwardRef<
                   ? activeThread.email || "Unknown recipient"
                   : activeThread.from || activeThread.email || "Unknown sender"
               }
-              subtitle={activeThread.subject || (activeIsSent ? undefined : activeThread.email)}
+              avatarName={activeThreadAvatarName}
+              subtitle={
+                activeIsAssistantThread
+                  ? undefined
+                  : activeThread.subject || (activeIsSent ? undefined : activeThread.email)
+              }
               messages={activeBubbles}
               afterMessages={residentScheduledCards}
               threadKey={activeThread.id}
@@ -1894,7 +1906,12 @@ export const ResidentInboxPanel = forwardRef<
                     ? activeThread.email || "Unknown recipient"
                     : activeThread.from || activeThread.email || "Unknown sender"
                 }
-                subtitle={activeThread.subject || (activeIsSent ? undefined : activeThread.email)}
+                avatarName={activeThreadAvatarName}
+                subtitle={
+                activeIsAssistantThread
+                  ? undefined
+                  : activeThread.subject || (activeIsSent ? undefined : activeThread.email)
+              }
                 messages={activeBubbles}
                 afterMessages={residentScheduledCards}
                 threadKey={activeThread.id}

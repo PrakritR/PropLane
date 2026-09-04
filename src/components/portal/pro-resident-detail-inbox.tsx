@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { Pencil } from "lucide-react";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
 import {
   InboxComposer,
@@ -59,6 +60,11 @@ import {
   hasInboxReplyChannelSelected,
   resolveCommunicationPersonThreadReplyChannels,
 } from "@/lib/manager-inbox-reply-channels";
+import {
+  PortalContactDetailsModal,
+  type PortalContactDetailsValues,
+} from "@/components/portal/portal-contact-details-modal";
+import { dispatchManagerSmsContactsChanged } from "@/lib/manager-sms-messages";
 
 function loadResidentThreadBubbles(email: string): InboxBubbleMessage[] {
   const norm = email.trim().toLowerCase();
@@ -132,6 +138,7 @@ export function ResidentDirectChatPane({
   smsResident,
   smsUiEnabled,
   onSent,
+  onBack,
   scheduledRefreshKey = 0,
 }: {
   residentEmail: string;
@@ -139,6 +146,8 @@ export function ResidentDirectChatPane({
   smsResident?: ManagerSmsResidentConversation | null;
   smsUiEnabled: boolean;
   onSent: () => void;
+  /** Mobile Communication tab: back to the conversation list + show tenant name in the thread header. */
+  onBack?: () => void;
   scheduledRefreshKey?: number;
 }) {
   const { showToast } = useAppUi();
@@ -153,6 +162,9 @@ export function ResidentDirectChatPane({
   const [inboxTick, setInboxTick] = useState(0);
   const [manualScheduledMessages, setManualScheduledMessages] = useState<ScheduledInboxMessageRecord[]>([]);
   const [scheduledBusyId, setScheduledBusyId] = useState<string | null>(null);
+  const [contactEditOpen, setContactEditOpen] = useState(false);
+  const [contactEditSaving, setContactEditSaving] = useState(false);
+  const [contactEditError, setContactEditError] = useState<string | null>(null);
   const { messages: scheduledPaymentMessages, reload: reloadAutomationScheduled } = useScheduledPaymentMessages({
     includeHidden: false,
   });
@@ -589,13 +601,76 @@ export function ResidentDirectChatPane({
     />
   );
 
+  const contactEditInitial = useMemo(
+    () => ({
+      name: displayName,
+      email,
+      phone: smsResident?.phone?.trim() || "",
+    }),
+    [displayName, email, smsResident?.phone],
+  );
+
+  const saveContactDetails = useCallback(
+    async (values: PortalContactDetailsValues) => {
+      const nextEmail = values.email.trim().toLowerCase() || email;
+      if (!nextEmail) {
+        setContactEditError("Enter an email address.");
+        return;
+      }
+      setContactEditSaving(true);
+      setContactEditError(null);
+      try {
+        const res = await fetch("/api/manager/sms-contacts", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phone: values.phone,
+            email: nextEmail,
+            displayName: (values.name || displayName || nextEmail).slice(0, 80),
+          }),
+        });
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) throw new Error(body.error ?? "Could not save contact details.");
+        setContactEditOpen(false);
+        showToast("Contact details saved.");
+        dispatchManagerSmsContactsChanged();
+        onSent();
+      } catch (cause) {
+        setContactEditError(cause instanceof Error ? cause.message : "Could not save contact details.");
+      } finally {
+        setContactEditSaving(false);
+      }
+    },
+    [displayName, email, onSent, showToast],
+  );
+
+  const threadHeaderActions = (
+    <button
+      type="button"
+      className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+      aria-label="Edit contact details"
+      data-attr="inbox-thread-contact-edit"
+      onClick={() => {
+        setContactEditError(null);
+        setContactEditOpen(true);
+      }}
+    >
+      <Pencil className="h-4 w-4" aria-hidden />
+    </button>
+  );
+
   return (
+    <>
     <InboxThreadView
-      title=""
+      title={displayName}
+      subtitle={email || undefined}
+      avatarName={displayName}
       messages={messages}
       threadKey={`direct-${email}`}
       scrollMode="pane"
-      hideIdentityHeader
+      onBack={onBack}
+      headerActions={threadHeaderActions}
       emptyLabel="No messages yet. Send the first message below."
       composer={
         <>
@@ -654,6 +729,16 @@ export function ResidentDirectChatPane({
         </>
       }
     />
+    <PortalContactDetailsModal
+      open={contactEditOpen}
+      onClose={() => setContactEditOpen(false)}
+      initial={contactEditInitial}
+      onSave={(values) => void saveContactDetails(values)}
+      saving={contactEditSaving}
+      error={contactEditError}
+      formId="resident-direct-chat-contact-edit"
+    />
+    </>
   );
 }
 

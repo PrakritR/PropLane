@@ -1,22 +1,16 @@
 "use client";
 
 /**
- * "Text your manager" — the work number a resident can reach their manager on.
- *
- * Sits ABOVE the conversation list, not inside a thread: it is the first thing
- * on the screen they opened in order to reach someone, and it stays put instead
- * of scrolling away once a conversation is open.
- *
- * Renders nothing at all when there is no sendable number. A number that cannot
- * receive a text is worse than none — the resident texts it, hears nothing, and
- * concludes their manager is ignoring them.
+ * Manager work line + assistant email for residents — shown above the conversation
+ * list so it stays visible before a thread is opened.
  */
 import { useEffect, useState } from "react";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 
 type ResidentManagerContact = {
-  phone: string;
+  phone: string | null;
+  assistantEmail: string | null;
   propertyLabel: string | null;
   leaseStart: string | null;
   leaseEnd: string | null;
@@ -39,7 +33,7 @@ export function managerContactCaption(
   contact: ResidentManagerContact,
   multiple: boolean,
 ): string {
-  if (!multiple) return "Replies show up here too.";
+  if (!multiple) return "Replies in PropLane show up in your conversations below.";
   if (contact.status === "upcoming") {
     const from = shortDate(contact.leaseStart);
     return from ? `From ${from}` : "Starting soon";
@@ -49,7 +43,7 @@ export function managerContactCaption(
     return until ? `Until ${until}` : "Previous home";
   }
   const until = shortDate(contact.leaseEnd);
-  return until ? `Until ${until}` : "Replies show up here too.";
+  return until ? `Until ${until}` : "Replies in PropLane show up in your conversations below.";
 }
 
 export function ResidentManagerNumberCard() {
@@ -63,7 +57,11 @@ export function ResidentManagerNumberCard() {
       .then((body) => {
         if (cancelled || !body || typeof body !== "object") return;
         const rows = (body as { contacts?: ResidentManagerContact[] }).contacts;
-        setContacts(Array.isArray(rows) ? rows.filter((row) => Boolean(row?.phone)) : []);
+        setContacts(
+          Array.isArray(rows)
+            ? rows.filter((row) => Boolean(row?.phone?.trim() || row?.assistantEmail?.trim()))
+            : [],
+        );
       })
       .catch(() => {
         // A missing number is not an error worth showing — the section is
@@ -81,23 +79,32 @@ export function ResidentManagerNumberCard() {
     <div className="space-y-2 px-3 pt-3" data-attr="resident-manager-number">
       {contacts.map((contact) => (
         <div
-          key={`${contact.phone}-${contact.propertyLabel ?? ""}`}
+          key={`${contact.phone ?? ""}-${contact.assistantEmail ?? ""}-${contact.propertyLabel ?? ""}`}
           className="rounded-xl border border-primary/25 bg-primary/[0.05] px-3.5 py-3"
         >
           <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">
-            Text your manager
+            Contact your manager
             {multiple && contact.propertyLabel ? ` · ${contact.propertyLabel}` : ""}
           </p>
-          {/* A tel: link so a phone opens its dialer/messages pre-addressed
-              rather than making the resident copy digits off the screen. */}
-          <a
-            href={`sms:${contact.phone}`}
-            className="mt-0.5 block font-mono text-[17px] font-semibold text-foreground"
-            data-attr="resident-manager-number-link"
-          >
-            {formatSmsPhoneLabel(contact.phone) || contact.phone}
-          </a>
-          <p className="text-xs text-muted">{managerContactCaption(contact, multiple)}</p>
+          {contact.phone ? (
+            <a
+              href={`sms:${contact.phone}`}
+              className="mt-1 block font-mono text-[17px] font-semibold text-foreground"
+              data-attr="resident-manager-number-link"
+            >
+              {formatSmsPhoneLabel(contact.phone) || contact.phone}
+            </a>
+          ) : null}
+          {contact.assistantEmail ? (
+            <a
+              href={`mailto:${contact.assistantEmail}`}
+              className={`block text-sm font-medium text-primary ${contact.phone ? "mt-1" : "mt-1"}`}
+              data-attr="resident-manager-email-link"
+            >
+              {contact.assistantEmail}
+            </a>
+          ) : null}
+          <p className="mt-1 text-xs text-muted">{managerContactCaption(contact, multiple)}</p>
         </div>
       ))}
     </div>

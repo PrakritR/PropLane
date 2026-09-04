@@ -14,12 +14,15 @@
  * and misrouting a message then is worse than showing an extra line.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadManagerAssistantEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
 
 export type ResidentManagerContact = {
   managerUserId: string;
   /** Sendable work number in E.164, or null when they have none yet. */
   phone: string | null;
+  /** Manager's PropLane assistant inbox, when provisioned. */
+  assistantEmail: string | null;
   /** House this tenancy is for — rendered only when there are several. */
   propertyLabel: string | null;
   leaseStart: string | null;
@@ -106,6 +109,7 @@ export async function resolveResidentManagerContacts(
     const contact: ResidentManagerContact = {
       managerUserId,
       phone: null,
+      assistantEmail: null,
       propertyLabel: text(rowData.propertyLabel) ?? text(rowData.propertyName) ?? text(row.property_id),
       leaseStart,
       leaseEnd,
@@ -124,19 +128,26 @@ export async function resolveResidentManagerContacts(
 
 /**
  * The resolver plus the numbers, filtered to those that can ACTUALLY receive a
- * text. A number that is not sendable is worse than none: the resident texts it
- * and hears nothing, which reads as being ignored by their manager.
+ * text or email. A number that is not sendable is worse than none: the resident
+ * texts it and hears nothing, which reads as being ignored by their manager.
  */
 export async function resolveResidentManagerPhones(
   db: SupabaseClient,
   args: { residentUserId?: string | null; residentEmail?: string | null; nowMs?: number },
 ): Promise<ResidentManagerContact[]> {
   const contacts = await resolveResidentManagerContacts(db, args);
-  const withPhones = await Promise.all(
-    contacts.map(async (contact) => ({
-      ...contact,
-      phone: await resolveActiveManagerSendNumber(db, contact.managerUserId).catch(() => null),
-    })),
+  const withChannels = await Promise.all(
+    contacts.map(async (contact) => {
+      const [phone, assistantRow] = await Promise.all([
+        resolveActiveManagerSendNumber(db, contact.managerUserId).catch(() => null),
+        loadManagerAssistantEmail(db, contact.managerUserId).catch(() => null),
+      ]);
+      return {
+        ...contact,
+        phone,
+        assistantEmail: assistantRow?.address?.trim() || null,
+      };
+    }),
   );
-  return withPhones.filter((contact) => Boolean(contact.phone));
+  return withChannels.filter((contact) => Boolean(contact.phone || contact.assistantEmail));
 }

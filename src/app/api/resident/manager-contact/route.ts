@@ -43,6 +43,7 @@ export async function GET() {
       {
         contacts: contacts.map((contact) => ({
           phone: contact.phone,
+          assistantEmail: contact.assistantEmail,
           propertyLabel: contact.propertyLabel,
           leaseStart: contact.leaseStart,
           leaseEnd: contact.leaseEnd,

@@ -302,6 +302,7 @@ function ResidentUnifiedInbox({
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <ResidentManagerNumberCard />
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
         {merged.length === 0 ? (
           listSegment === "archived" ? (
