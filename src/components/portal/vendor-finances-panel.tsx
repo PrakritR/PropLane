@@ -32,6 +32,7 @@ import {
   type VendorIncomeRow,
 } from "@/lib/vendor-income";
 import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payouts";
+import type { VendorLinkedManager } from "@/lib/vendor-own-record";
 import {
   formatInvoiceMoney,
   normalizeLineItems,
@@ -41,11 +42,6 @@ import {
   type VendorInvoice,
   type VendorInvoiceStatus,
 } from "@/lib/vendor-invoices";
-
-type VendorLinkedManagerOption = {
-  managerUserId: string;
-  label: string;
-};
 
 const VENDOR_FINANCE_TABS = [
   { id: "income", label: "Income" },
@@ -287,15 +283,18 @@ function SubmitInvoiceModal({
   open,
   onClose,
   onSubmitted,
-  linkedManagers,
+  managers,
 }: {
   open: boolean;
   onClose: () => void;
   onSubmitted: () => void;
-  linkedManagers: VendorLinkedManagerOption[];
+  /** Managers this vendor is linked to. Serving several clients is the normal case. */
+  managers: VendorLinkedManager[];
 }) {
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [workOrderId, setWorkOrderId] = useState("");
+  // Only asked for when there is a real choice. The server picks the sole link otherwise, and
+  // refuses an id this vendor is not linked to either way.
   const [managerUserId, setManagerUserId] = useState("");
   const [memo, setMemo] = useState("");
   const [lines, setLines] = useState<InvoiceFormLine[]>([emptyLine()]);
@@ -314,33 +313,11 @@ function SubmitInvoiceModal({
     [lines],
   );
   const totalCents = useMemo(() => sumLineItemsCents(previewLines), [previewLines]);
-  const showManagerPicker = linkedManagers.length > 1;
-
-  useEffect(() => {
-    if (!open) return;
-    if (linkedManagers.length === 1) {
-      setManagerUserId(linkedManagers[0]!.managerUserId);
-      return;
-    }
-    if (linkedManagers.length > 1 && !managerUserId) {
-      setManagerUserId(linkedManagers[0]!.managerUserId);
-    }
-  }, [open, linkedManagers, managerUserId]);
-
-  useEffect(() => {
-    const trimmed = workOrderId.trim();
-    if (!trimmed) return;
-    const workOrder = readVendorWorkOrderRows().find((row) => row.id === trimmed);
-    const ownerId = workOrder?.managerUserId?.trim();
-    if (ownerId && linkedManagers.some((m) => m.managerUserId === ownerId)) {
-      setManagerUserId(ownerId);
-    }
-  }, [workOrderId, linkedManagers]);
 
   function reset() {
     setInvoiceNumber("");
     setWorkOrderId("");
-    setManagerUserId(linkedManagers.length === 1 ? linkedManagers[0]!.managerUserId : "");
+    setManagerUserId("");
     setMemo("");
     setLines([emptyLine()]);
     setError(null);
@@ -351,8 +328,8 @@ function SubmitInvoiceModal({
       setError("Add at least one line item with an amount.");
       return;
     }
-    if (showManagerPicker && !managerUserId.trim()) {
-      setError("Choose which manager to bill.");
+    if (managers.length > 1 && !managerUserId) {
+      setError("Choose which manager this invoice is for.");
       return;
     }
     setSaving(true);
@@ -412,18 +389,19 @@ function SubmitInvoiceModal({
       }
     >
       <div className="space-y-4">
-        {showManagerPicker ? (
+        {managers.length > 1 ? (
           <label className="block space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Manager</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.06em] text-muted">Bill to</span>
             <select
               className={INVOICE_FORM_INPUT}
               value={managerUserId}
               onChange={(e) => setManagerUserId(e.target.value)}
-              data-attr="vendor-invoice-manager-picker"
+              data-attr="vendor-invoice-manager"
             >
-              {linkedManagers.map((manager) => (
-                <option key={manager.managerUserId} value={manager.managerUserId}>
-                  {manager.label}
+              <option value="">Choose a manager…</option>
+              {managers.map((m) => (
+                <option key={m.managerUserId} value={m.managerUserId}>
+                  {m.name}
                 </option>
               ))}
             </select>
@@ -532,7 +510,7 @@ function formatInvoiceDate(iso: string): string {
 
 function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label: string; href: string }[]; tabId: string }) {
   const [invoices, setInvoices] = useState<VendorInvoice[]>([]);
-  const [linkedManagers, setLinkedManagers] = useState<VendorLinkedManagerOption[]>([]);
+  const [managers, setManagers] = useState<VendorLinkedManager[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<"all" | VendorInvoiceStatus>("all");
   const [modalOpen, setModalOpen] = useState(false);
@@ -540,22 +518,16 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      void syncManagerWorkOrdersFromServer();
       const res = await fetch("/api/vendor/invoices");
       if (!res.ok) {
         setInvoices([]);
-        setLinkedManagers([]);
         return;
       }
-      const body = (await res.json()) as {
-        invoices?: VendorInvoice[];
-        linkedManagers?: VendorLinkedManagerOption[];
-      };
+      const body = (await res.json()) as { invoices?: VendorInvoice[]; managers?: VendorLinkedManager[] };
       setInvoices(body.invoices ?? []);
-      setLinkedManagers(body.linkedManagers ?? []);
+      setManagers(body.managers ?? []);
     } catch {
       setInvoices([]);
-      setLinkedManagers([]);
     } finally {
       setLoading(false);
     }
@@ -664,12 +636,7 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
         </>
       )}
 
-      <SubmitInvoiceModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        onSubmitted={load}
-        linkedManagers={linkedManagers}
-      />
+      <SubmitInvoiceModal open={modalOpen} onClose={() => setModalOpen(false)} onSubmitted={load} managers={managers} />
     </ManagerPortalPageShell>
   );
 }
