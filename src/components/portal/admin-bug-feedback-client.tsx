@@ -1,26 +1,16 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { PORTAL_DATA_TABLE, PortalDataTableColGroup, portalTableColumnPercents, PORTAL_DATA_TABLE_SCROLL,
-  PORTAL_DATA_TABLE_WRAP,
-  PORTAL_DETAIL_BTN,
-  PORTAL_MOBILE_CARD_CLASS,
-  PORTAL_MOBILE_DETAIL_EXPAND,
-  PortalDataTableEmpty,
-  PORTAL_TABLE_DETAIL_CELL,
-  PORTAL_TABLE_DETAIL_ROW,
-  PORTAL_TABLE_HEAD_ROW,
-  PORTAL_TABLE_TR_EXPANDABLE,
-  PORTAL_TABLE_TD,
-  PortalTableInlineExpand,
-  createPortalRowExpandClick,} from "@/components/portal/portal-data-table";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import {
-  MANAGER_TABLE_TH,
   ManagerPortalFilterRow,
   ManagerPortalPageShell,
   ManagerPortalStatusPills,
   PortalToolbarSortSelect,
 } from "@/components/portal/portal-metrics";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Button } from "@/components/ui/button";
 import { Select, Textarea } from "@/components/ui/input";
@@ -35,7 +25,7 @@ import {
   type BugFeedbackStatus,
   type PortalBugFeedbackRow,
 } from "@/lib/portal-bug-feedback";
-import { roleGroupLabelForFeedback, feedbackStatusLabel } from "@/lib/portal-bug-feedback-utils";
+import { roleGroupLabelForFeedback } from "@/lib/portal-bug-feedback-utils";
 
 function formatWhen(iso: string) {
   try {
@@ -69,19 +59,6 @@ function portalForRole(role: BugFeedbackReporterRole): PortalFilter {
   return "managers";
 }
 
-function feedbackStatusClass(status: BugFeedbackStatus) {
-  switch (status) {
-    case "open":
-      return "portal-badge-pending ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
-    case "in_progress":
-      return "portal-badge-info ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
-    case "completed":
-      return "portal-badge-success ring-1 ring-[color-mix(in_srgb,currentColor_25%,transparent)]";
-    default:
-      return "bg-accent/30 text-muted ring-1 ring-border";
-  }
-}
-
 function sortFeedbackRows(rows: PortalBugFeedbackRow[], sort: SortFilter): PortalBugFeedbackRow[] {
   const next = [...rows];
   if (sort === "oldest") {
@@ -97,11 +74,22 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
   const [sortFilter, setSortFilter] = useState<SortFilter>("newest");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [schemaMissing, setSchemaMissing] = useState(false);
   const [applyingSchema, setApplyingSchema] = useState(false);
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const refresh = useCallback(async () => {
     const result = await syncBugFeedbackFromServer({ force: true });
@@ -258,6 +246,7 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
           onChange={(id) => {
             setStatusFilter(id as StatusFilter);
             setExpandedId(null);
+            setSelectedIds(new Set());
           }}
         />
       </div>
@@ -286,106 +275,77 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
     </ManagerPortalFilterRow>
   );
 
-  const renderTable = (tableRows: PortalBugFeedbackRow[]) => (
-    <>
-      <div className="space-y-2 lg:hidden">
-        {tableRows.map((row) => {
-          const open = expandedId === row.id;
-          return (
-            <div key={row.id} className={PORTAL_MOBILE_CARD_CLASS}>
-              <button
-                type="button"
-                className="w-full text-left"
-                onClick={() => setExpandedId((cur) => (cur === row.id ? null : row.id))}
-              >
-                <div className="flex items-start justify-between gap-2.5">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-foreground">{row.title}</p>
-                    <p className="mt-0.5 truncate text-xs text-muted">
-                      From {row.reporterName || row.reporterEmail} · {formatWhen(row.createdAt)}
-                    </p>
-                  </div>
-                  <span
-                    className={`inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize ${feedbackStatusClass(row.status)}`}
-                  >
-                    {feedbackStatusLabel(row.status)}
-                  </span>
-                </div>
-              </button>
-              <div className="mt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={PORTAL_DETAIL_BTN}
-                  onClick={() => setExpandedId((cur) => (cur === row.id ? null : row.id))}
-                >
-                  {open ? "Less" : "Details"}
-                </Button>
-              </div>
-              {open ? <div className={PORTAL_MOBILE_DETAIL_EXPAND}>{renderRowDetail(row)}</div> : null}
-            </div>
-          );
-        })}
-      </div>
-      <div className={`${PORTAL_DATA_TABLE_WRAP} hidden lg:block`}>
-        <div className={PORTAL_DATA_TABLE_SCROLL}>
-          <table className={PORTAL_DATA_TABLE}>
-            <PortalDataTableColGroup percents={portalTableColumnPercents(4, [16, 30, 36, 18])} />
-            <thead>
-              <tr className={PORTAL_TABLE_HEAD_ROW}>
-                <th className={`${MANAGER_TABLE_TH} text-left`}>When</th>
-                <th className={`${MANAGER_TABLE_TH} text-left`}>From</th>
-                <th className={`${MANAGER_TABLE_TH} text-left`}>Title</th>
-                <th className={`${MANAGER_TABLE_TH} text-left`}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tableRows.map((row) => {
-                const open = expandedId === row.id;
-                return (
-                  <Fragment key={row.id}>
-                    <tr
-                      className={PORTAL_TABLE_TR_EXPANDABLE}
-                      onClick={createPortalRowExpandClick(() =>
-                        setExpandedId((cur) => (cur === row.id ? null : row.id)),
-                      )}
-                      aria-expanded={open}
-                    >
-                      <td className={`${PORTAL_TABLE_TD} whitespace-nowrap text-xs text-muted`}>
-                        {formatWhen(row.createdAt)}
-                      </td>
-                      <td className={PORTAL_TABLE_TD}>
-                        <p className="font-medium text-foreground">{row.reporterName || row.reporterEmail}</p>
-                        <p className="text-xs text-muted">
-                          {roleGroupLabelForFeedback(row.reporterRole)} · {row.reporterEmail}
-                        </p>
-                      </td>
-                      <td className={`${PORTAL_TABLE_TD} font-medium text-foreground`}>
-                        <PortalTableInlineExpand expanded={open}>{row.title}</PortalTableInlineExpand>
-                      </td>
-                      <td className={PORTAL_TABLE_TD}>
-                        <span
-                          className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold capitalize ${feedbackStatusClass(row.status)}`}
-                        >
-                          {feedbackStatusLabel(row.status)}
-                        </span>
-                      </td>
-                    </tr>
-                    {open ? (
-                      <tr className={PORTAL_TABLE_DETAIL_ROW}>
-                        <td colSpan={4} className={PORTAL_TABLE_DETAIL_CELL}>
-                          {renderRowDetail(row)}
-                        </td>
-                      </tr>
-                    ) : null}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </>
+  /**
+   * Bulk status moves.
+   *
+   * The dock carries the transitions that are NOT the tab you are standing in —
+   * a Completed button on the Completed tab moves nothing. Delete deliberately
+   * stays inside the row editor: it is the one action here that cannot be
+   * undone, and the house rule keeps destructive actions behind the editor
+   * rather than one click away in a bar.
+   */
+  const moveSelectedTo = async (status: BugFeedbackStatus) => {
+    const targets = visibleRows.filter((r) => selectedIds.has(r.id));
+    if (targets.length === 0) return;
+    setBulkBusy(true);
+    try {
+      for (const row of targets) {
+        await updateBugFeedbackRow(row.id, { status, adminNotes: row.adminNotes || undefined });
+      }
+      await refresh();
+      showToast(targets.length === 1 ? "Updated." : `Updated ${targets.length} items.`);
+      setSelectedIds(new Set());
+    } catch {
+      showToast("Could not update.");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const bulkActions = (
+    <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+      {STATUS_OPTIONS.filter((o) => o.value !== statusFilter).map((o) => (
+        <Button
+          key={o.value}
+          type="button"
+          variant="outline"
+          className={PORTAL_BULK_BAR_BTN}
+          disabled={bulkBusy}
+          data-attr={`admin-feedback-bulk-${o.value}`}
+          onClick={() => moveSelectedTo(o.value)}
+        >
+          {o.value === "open" ? "Reopen" : `Mark ${o.label.toLowerCase()}`}
+        </Button>
+      ))}
+    </div>
+  );
+
+  const renderList = (listRows: PortalBugFeedbackRow[]) => (
+    <PortalRecordListSurface
+      bulkCount={listRows.filter((r) => selectedIds.has(r.id)).length}
+      bulkActions={bulkActions}
+      dataAttr="admin-feedback-list"
+    >
+      {listRows.map((row) => {
+        const open = expandedId === row.id;
+        return (
+          <div key={row.id}>
+            <PortalServiceRecordRow
+              title={row.title}
+              subtitle={`${roleGroupLabelForFeedback(row.reporterRole)} · ${row.reporterName || row.reporterEmail} · ${formatWhen(row.createdAt)}`}
+              selected={open}
+              checked={selectedIds.has(row.id)}
+              onSelectedChange={() => toggleSelected(row.id)}
+              onOpen={() => setExpandedId((cur) => (cur === row.id ? null : row.id))}
+              dataAttr="admin-feedback-row"
+            />
+            {open ? (
+              <div className="border-b border-border/50 bg-accent/10 px-4 py-4">{renderRowDetail(row)}</div>
+            ) : null}
+          </div>
+        );
+      })}
+    </PortalRecordListSurface>
   );
 
   const content = (
@@ -440,7 +400,7 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
       ) : visibleRows.length === 0 ? (
         <PortalDataTableEmpty icon="feedback" message="No feedback matching these filters." />
       ) : (
-        renderTable(visibleRows)
+        renderList(visibleRows)
       )}
     </>
   );
