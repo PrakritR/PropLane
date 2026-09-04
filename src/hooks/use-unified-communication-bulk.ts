@@ -11,7 +11,7 @@ import {
   archiveManagerSmsConversation,
   loadManagerSmsArchivedIds,
   persistManagerSmsArchivedIds,
-  unarchiveManagerSmsConversation,
+  restoreManagerSmsConversation,
 } from "@/lib/manager-sms-archive.client";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import { useInboxRowSelection } from "@/components/portal/portal-inbox-selection";
@@ -138,7 +138,7 @@ export function useUnifiedCommunicationBulk({
     }
 
     for (const id of smsIds) {
-      unarchiveManagerSmsConversation(id);
+      restoreManagerSmsConversation(id);
     }
     if (smsIds.length > 0) onSmsArchiveChange?.();
 

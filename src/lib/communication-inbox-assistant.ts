@@ -1,29 +1,14 @@
 import {
   RESIDENT_AGENT_FROM_NAME,
   RESIDENT_AGENT_THREAD_TYPE,
-} from "@/lib/agent/resident-inbox-agent.server";
+  canonicalResidentAgentThreadId,
+  parseResidentAgentThreadId,
+} from "@/lib/agent/resident-inbox-agent-ids";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
-
-const RESIDENT_AGENT_ID_RE =
-  /^resident-agent-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))?$/i;
 
 const AGENT_NOTICE_ID_RE = /^agent_notice_([0-9a-f-]{36})/i;
 
-export function canonicalResidentAgentThreadId(residentUserId: string): string {
-  return `resident-agent-${residentUserId}`;
-}
-
-export function parseResidentAgentThreadId(threadId: string): {
-  residentUserId: string;
-  managerUserId?: string;
-} | null {
-  const match = threadId.trim().match(RESIDENT_AGENT_ID_RE);
-  if (!match) return null;
-  return {
-    residentUserId: match[1]!,
-    managerUserId: match[2],
-  };
-}
+export { canonicalResidentAgentThreadId, parseResidentAgentThreadId };
 
 export function isPropLaneAssistantInboxThread(thread: PersistedInboxThread): boolean {
   const extended = thread as PersistedInboxThread & { threadType?: string };
