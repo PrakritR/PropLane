@@ -58,6 +58,7 @@ export function PortalSegmentedControl<T extends string>({
   onChange,
   size = "md",
   optionDisabled,
+  ariaLabel = "View",
 }: {
   options: { id: T; label: string }[];
   value: T;
@@ -65,10 +66,11 @@ export function PortalSegmentedControl<T extends string>({
   size?: "sm" | "md";
   /** When true, option is inactive (e.g. paid-only portal arm for Free tier). */
   optionDisabled?: (id: T) => boolean;
+  ariaLabel?: string;
 }) {
   const pad = size === "sm" ? "px-3 py-1 text-xs" : "px-4 py-1.5 text-sm";
   return (
-    <div className="flex w-full max-w-full flex-wrap items-center gap-1 rounded-full border border-border bg-accent/30 p-1" role="tablist" aria-label="View">
+    <div className="flex w-full max-w-full flex-wrap items-center gap-1 rounded-full border border-border bg-accent/30 p-1" role="tablist" aria-label={ariaLabel}>
       {options.map((opt) => {
         const disabled = optionDisabled?.(opt.id) ?? false;
         return (

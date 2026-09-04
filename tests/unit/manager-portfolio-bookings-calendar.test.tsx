@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
 vi.mock("@/lib/channel-calendar/client", () => ({
   fetchManagerChannelBookings: () => Promise.resolve([]),
@@ -31,18 +31,37 @@ describe("ManagerPortfolioBookingsCalendar", () => {
     });
 
     expect(screen.getByText("September 2026")).toBeTruthy();
+    expect(screen.getByText("Booked nights")).toBeTruthy();
 
     fireEvent.click(screen.getByLabelText("Next month"));
     expect(screen.getByText("October 2026")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Week" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Week" }));
     expect(screen.getByText(/booked day/i)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Year" }));
-    expect(screen.getByText("2026")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Year" }));
     expect(screen.getByText("September")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Day" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Day" }));
     expect(screen.getByText(/bookings this day/i)).toBeTruthy();
+  });
+
+  it("switches to the list hub", async () => {
+    render(
+      <ManagerPortfolioBookingsCalendar
+        propertyIds={["mgr-house-1"]}
+        showToast={() => {}}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const hubTabs = within(screen.getAllByRole("tablist", { name: "Bookings layout" })[0]!);
+    fireEvent.click(hubTabs.getByRole("tab", { name: "List" }));
+    expect(screen.getByText("All stays (0)")).toBeTruthy();
+    expect(screen.getByText(/No stays in this view/i)).toBeTruthy();
   });
 });

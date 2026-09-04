@@ -1201,6 +1201,7 @@ export function ManagerApplications({
   const sendApplicationReminder = async (
     row: DemoApplicantRow,
     channels?: { viaEmail?: boolean; viaSms?: boolean },
+    draft?: { subject?: string; body?: string },
   ) => {
     if (reminderBusyId) return;
     setReminderBusyId(row.id);
@@ -1218,6 +1219,8 @@ export function ManagerApplications({
           applicationId: row.id,
           viaEmail: channels?.viaEmail !== false,
           viaSms: channels?.viaSms === true,
+          subject: draft?.subject?.trim() || undefined,
+          text: draft?.body?.trim() || undefined,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; mailtoHref?: string };
@@ -1806,18 +1809,19 @@ export function ManagerApplications({
         recipient={reminderPreview?.to ?? ""}
         subject={reminderPreview?.subject ?? APPLICATION_COMPLETION_REMINDER_SUBJECT}
         body={reminderPreview?.text ?? ""}
-        intro="Choose Email and/or SMS. Always saved to PropLane inbox."
         showSkipMessage={false}
         showChannelPicker
         emailAvailable
         smsAvailable
         deliverViaKind="applications"
+        dynamicSendLabel
+        assistantContext="Application completion reminder"
         confirmLabel="Send reminder"
         confirmBusy={reminderBusyId !== null}
         confirmBusyLabel="Sending…"
-        onConfirm={(_skip, channels) => {
+        onConfirm={(_skip, channels, draft) => {
           if (!reminderPreview) return;
-          void sendApplicationReminder(reminderPreview.row, channels);
+          void sendApplicationReminder(reminderPreview.row, channels, draft);
         }}
       />
       <ShareLeadLinkModal

@@ -4,61 +4,78 @@
  * "list out all residents by name not by phone number or email … have separate
  * sections for messages (potential resident, current resident, past resident) …
  * remove proplane admin from manager"
+ *
+ * Updated: manager picker groups by house, with Manager / Vendor / Admin sections.
  */
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { composeDirectoryCategories } from "@/lib/inbox-compose-recipients";
+import {
+  composeDirectoryCategories,
+  houseComposeCategoryLabel,
+  residentHousesFromContacts,
+} from "@/lib/inbox-compose-recipients";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 
 const person = (over: Partial<InboxScopedContact>): InboxScopedContact =>
   ({ id: "x", name: "X", email: "x@example.com", role: "resident", ...over }) as InboxScopedContact;
 
-const applicant = person({ id: "a1", name: "Ada Applicant", tenancyStatus: "applicant" });
-const current = person({ id: "r1", name: "Rae Resident", tenancyStatus: "resident" });
-const past = person({ id: "p1", name: "Pat Past", tenancyStatus: "past" });
+const applicant = person({
+  id: "a1",
+  name: "Ada Applicant",
+  tenancyStatus: "applicant",
+  propertyId: "p1",
+  propertyLabel: "Brooklyn House",
+});
+const current = person({
+  id: "r1",
+  name: "Rae Resident",
+  tenancyStatus: "resident",
+  propertyId: "p1",
+  propertyLabel: "Brooklyn House",
+});
+const past = person({
+  id: "p1",
+  name: "Pat Past",
+  tenancyStatus: "past",
+  propertyId: "p2",
+  propertyLabel: "Ballard House",
+});
 const coManager = person({ id: "m1", name: "Mo Manager", role: "manager" });
 const vendor = person({ id: "v1", name: "Vic Vendor", role: "vendor" });
 
-describe("the three resident sections", () => {
-  it("splits potential, current and past", () => {
-    expect(composeDirectoryCategories("manager", [applicant, current, past])).toEqual([
-      "applicant",
-      "resident",
-      "past_resident",
-    ]);
-  });
-
-  it("only shows a bucket that has someone in it", () => {
-    // A manager with no applicants should not be offered an empty section.
-    expect(composeDirectoryCategories("manager", [current])).toEqual(["resident"]);
-    expect(composeDirectoryCategories("manager", [applicant, current])).toEqual([
-      "applicant",
-      "resident",
-    ]);
-  });
-
-  it("always keeps Current residents, even with none yet", () => {
-    // It is the section every other bucket is defined against; a brand new
-    // manager still needs somewhere to write.
-    expect(composeDirectoryCategories("manager", [])).toEqual(["resident"]);
-  });
-
-  it("treats a resident with no recorded status as current", () => {
-    expect(composeDirectoryCategories("manager", [person({ id: "u1", name: "Unknown" })])).toEqual([
-      "resident",
-    ]);
-  });
-
-  it("still offers co-managers and vendors when they exist", () => {
-    expect(composeDirectoryCategories("manager", [current, coManager, vendor])).toEqual([
-      "resident",
+describe("manager compose sections group by house", () => {
+  it("lists one section per house, then Manager, Vendor, and PropLane admin", () => {
+    expect(composeDirectoryCategories("manager", [applicant, current, past, coManager, vendor])).toEqual([
+      "house:p1",
+      "house:p2",
       "management",
       "vendor",
+      "admin",
     ]);
   });
 
-  it("never offers a manager PropLane admin", () => {
-    expect(composeDirectoryCategories("manager", [current, coManager, vendor])).not.toContain("admin");
+  it("sorts houses by label", () => {
+    expect(residentHousesFromContacts([current, past]).map((h) => h.label)).toEqual([
+      "Ballard House",
+      "Brooklyn House",
+    ]);
+  });
+
+  it("labels a house section from the property name", () => {
+    expect(houseComposeCategoryLabel("house:p1", [current])).toBe("Brooklyn House");
+  });
+
+  it("always offers Manager, Vendor, and PropLane admin even with an empty directory", () => {
+    expect(composeDirectoryCategories("manager", [])).toEqual(["management", "vendor", "admin"]);
+  });
+
+  it("adds an unassigned bucket when a resident has no house", () => {
+    expect(composeDirectoryCategories("manager", [person({ id: "u1", name: "Unknown" })])).toEqual([
+      "unassigned_residents",
+      "management",
+      "vendor",
+      "admin",
+    ]);
   });
 });
 
@@ -71,19 +88,16 @@ describe("what a recipient row says", () => {
   });
 
   it("falls back to the address only when there is no name at all", () => {
-    // A blank row is worse than an address.
     expect(src).toContain("if (!name) return contact.email;");
   });
 
-  it("labels the sections in the captain's words", () => {
-    expect(src).toContain('return "Potential residents"');
-    expect(src).toContain('return "Current residents"');
-    expect(src).toContain('return "Past residents"');
+  it("labels role groups in the captain's words", () => {
+    expect(src).toContain('return "Manager"');
+    expect(src).toContain('return "Vendor"');
+    expect(src).toContain('return "PropLane admin"');
   });
 
-  it("scopes the broadcast row to CURRENT residents", () => {
-    // "All residents" that also reached applicants and people who moved out is
-    // the thing the split exists to prevent.
-    expect(src).toContain('label: "All current residents"');
+  it("scopes the house broadcast row to CURRENT residents of that house", () => {
+    expect(src).toContain("houseBroadcastOptions(currentResidents)");
   });
 });

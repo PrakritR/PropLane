@@ -9,12 +9,13 @@ import {
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
   PortalMessageBodyField,
   PortalMessageComposeModalBody,
-  PortalMessageRecipientReadonly,
+  PortalMessageRecipientLockedField,
   PortalMessageScheduleFields,
   PortalMessageSendViaDropdown,
   PortalMessageSubjectField,
   portalMessageChannelsFromSelection,
   portalMessageRecipientDisplay,
+  portalMessageSendViaFooterNote,
   PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE,
   PORTAL_MESSAGE_SEND_VIA_OPTIONS,
   portalMessageFieldLabel,
@@ -417,7 +418,7 @@ export function PortalBulkMessageCarouselModal({
           <p className="text-xs font-semibold text-foreground">{activeItem.label}</p>
         ) : null}
 
-        <PortalMessageRecipientReadonly recipient={toRecipientDisplay || "—"} />
+        <PortalMessageRecipientLockedField recipient={toRecipientDisplay || "—"} dataAttr="portal-bulk-carousel-recipient" />
 
         <div
           className={
@@ -436,7 +437,7 @@ export function PortalBulkMessageCarouselModal({
               onChange={setSendVia}
               emailAvailable={emailAvailable}
               smsAvailable={smsAvailable}
-              footerNote={PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE}
+              footerNote={portalMessageSendViaFooterNote(smsAvailable)}
               dataAttr="portal-bulk-carousel-send-via"
             />
           ) : null}
@@ -474,7 +475,7 @@ export function PortalBulkMessageCarouselModal({
   );
 }
 
-/** Read-only stacked preview (payments bulk reminders) with horizontal card picker. */
+/** Read-only stacked preview with horizontal card picker — uses compose field chrome. */
 export function PortalBulkMessageReadonlyCarouselModal({
   open,
   title,
@@ -533,92 +534,80 @@ export function PortalBulkMessageReadonlyCarouselModal({
 
   return (
     <Modal open title={title} onClose={onClose} dense footer={footer} panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}>
-      {intro ? <p className="mb-4 text-sm leading-snug text-muted">{intro}</p> : null}
-      {count > 1 ? (
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <BulkCarouselArrow
-            direction="left"
-            ariaLabel="Previous reminder"
-            disabled={activeIndex <= 0}
-            onClick={() => scrollToIndex(activeIndex - 1)}
-          />
-          <p className="text-center text-xs font-medium tabular-nums text-muted">
-            {activeIndex + 1} of {count}
-          </p>
-          <BulkCarouselArrow
-            direction="right"
-            ariaLabel="Next reminder"
-            disabled={activeIndex >= count - 1}
-            onClick={() => scrollToIndex(activeIndex + 1)}
-          />
-        </div>
-      ) : null}
-      {count > 1 ? (
-        <div
-          ref={scrollRef}
-          className="mb-4 flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [scrollbar-width:thin]"
-          onScroll={() => {
-            const el = scrollRef.current;
-            if (!el) return;
-            const mid = el.scrollLeft + el.clientWidth / 2;
-            let best = 0;
-            let bestDist = Infinity;
-            for (let i = 0; i < el.children.length; i++) {
-              const child = el.children[i] as HTMLElement;
-              const center = child.offsetLeft + child.offsetWidth / 2;
-              const dist = Math.abs(center - mid);
-              if (dist < bestDist) {
-                bestDist = dist;
-                best = i;
+      <PortalMessageComposeModalBody>
+        {intro ? <p className="text-sm leading-snug text-muted">{intro}</p> : null}
+        {count > 1 ? (
+          <div className="flex items-center justify-between gap-2">
+            <BulkCarouselArrow
+              direction="left"
+              ariaLabel="Previous reminder"
+              disabled={activeIndex <= 0}
+              onClick={() => scrollToIndex(activeIndex - 1)}
+            />
+            <p className="text-center text-xs font-medium tabular-nums text-muted">
+              {activeIndex + 1} of {count}
+            </p>
+            <BulkCarouselArrow
+              direction="right"
+              ariaLabel="Next reminder"
+              disabled={activeIndex >= count - 1}
+              onClick={() => scrollToIndex(activeIndex + 1)}
+            />
+          </div>
+        ) : null}
+        {count > 1 ? (
+          <div
+            ref={scrollRef}
+            className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 [scrollbar-width:thin]"
+            onScroll={() => {
+              const el = scrollRef.current;
+              if (!el) return;
+              const mid = el.scrollLeft + el.clientWidth / 2;
+              let best = 0;
+              let bestDist = Infinity;
+              for (let i = 0; i < el.children.length; i++) {
+                const child = el.children[i] as HTMLElement;
+                const center = child.offsetLeft + child.offsetWidth / 2;
+                const dist = Math.abs(center - mid);
+                if (dist < bestDist) {
+                  bestDist = dist;
+                  best = i;
+                }
               }
-            }
-            setActiveIndex(best);
-          }}
-        >
-          {items.map((item, index) => (
-            <button
-              key={item.id}
-              type="button"
-              className={cn(
-                "min-w-[85%] shrink-0 snap-center rounded-xl border px-3 py-2 text-left sm:min-w-[70%]",
-                index === activeIndex ? "border-primary/40 bg-primary/[0.06]" : "border-border bg-accent/10",
-              )}
-              onClick={() => scrollToIndex(index)}
-            >
-              <p className="truncate text-xs font-semibold text-foreground">{item.label}</p>
-              <p className="mt-0.5 truncate text-[11px] text-muted">{item.recipient}</p>
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {activeItem ? (
-        <div className="space-y-2 rounded-xl border border-border bg-accent/10 p-3">
+              setActiveIndex(best);
+            }}
+          >
+            {items.map((item, index) => (
+              <button
+                key={item.id}
+                type="button"
+                className={cn(
+                  "min-w-[85%] shrink-0 snap-center rounded-xl border px-3 py-2 text-left sm:min-w-[70%]",
+                  index === activeIndex ? "border-primary/40 bg-primary/[0.06]" : "border-border bg-accent/10",
+                )}
+                onClick={() => scrollToIndex(index)}
+              >
+                <p className="truncate text-xs font-semibold text-foreground">{item.label}</p>
+                <p className="mt-0.5 truncate text-[11px] text-muted">{item.recipient}</p>
+              </button>
+            ))}
+          </div>
+        ) : activeItem ? (
           <p className="text-xs font-semibold text-foreground">{activeItem.label}</p>
-          <div>
-            <p className={portalMessageFieldLabel()}>To</p>
-            <p className={cn("mt-0.5 truncate text-sm text-foreground", MODAL_INSET_BOX_CLASS, "py-1.5")}>
-              {activeItem.recipient}
-            </p>
-          </div>
-          <div>
-            <p className={portalMessageFieldLabel()}>Subject</p>
-            <p className={cn("mt-0.5 truncate text-sm text-foreground", MODAL_INSET_BOX_CLASS, "py-1.5")}>
-              {activeItem.subject}
-            </p>
-          </div>
-          <div>
-            <p className={portalMessageFieldLabel()}>Message</p>
-            <pre
-              className={cn(
-                MODAL_INSET_BOX_CLASS,
-                "mt-0.5 max-h-40 overflow-y-auto whitespace-pre-wrap py-2 text-sm leading-relaxed",
-              )}
-            >
-              {activeItem.body}
-            </pre>
-          </div>
-        </div>
-      ) : null}
+        ) : null}
+        {activeItem ? (
+          <>
+            <PortalMessageRecipientLockedField recipient={activeItem.recipient} dataAttr="portal-bulk-readonly-recipient" />
+            <PortalMessageSubjectField value={activeItem.subject} readOnly dataAttr="portal-bulk-readonly-subject" />
+            <PortalMessageBodyField
+              value={activeItem.body}
+              readOnly
+              minHeightClass="min-h-[7rem]"
+              dataAttr="portal-bulk-readonly-body"
+            />
+          </>
+        ) : null}
+      </PortalMessageComposeModalBody>
     </Modal>
   );
 }

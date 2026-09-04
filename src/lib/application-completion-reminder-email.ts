@@ -74,15 +74,18 @@ export function buildApplicationCompletionReminderMailtoHref(params: {
   propertyTitle?: string;
   resumeUrl: string;
   signInUrl: string;
+  subject?: string;
+  bodyText?: string;
 }): string {
-  const subject = encodeURIComponent(APPLICATION_COMPLETION_REMINDER_SUBJECT);
+  const subject = encodeURIComponent(params.subject?.trim() || APPLICATION_COMPLETION_REMINDER_SUBJECT);
   const body = encodeURIComponent(
-    buildApplicationCompletionReminderBody({
-      applicantName: params.applicantName,
-      propertyTitle: params.propertyTitle,
-      resumeUrl: params.resumeUrl,
-      signInUrl: params.signInUrl,
-    }),
+    params.bodyText?.trim() ||
+      buildApplicationCompletionReminderBody({
+        applicantName: params.applicantName,
+        propertyTitle: params.propertyTitle,
+        resumeUrl: params.resumeUrl,
+        signInUrl: params.signInUrl,
+      }),
   );
   return `mailto:${encodeURIComponent(params.to.trim())}?subject=${subject}&body=${body}`;
 }

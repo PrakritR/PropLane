@@ -1,17 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import {
   BookingsDayDetailModal,
   type BookingsDayEntry,
 } from "@/components/portal/bookings-day-detail-modal";
-import {
-  PORTAL_TOOLBAR_PILL_BUTTON,
-  PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE,
-} from "@/components/portal/portal-metrics";
+import { BookingsKpiStrip } from "@/components/portal/bookings-kpi-strip";
+import { ManagerBookingsListPanel } from "@/components/portal/bookings-list-panel";
+import { PORTAL_CALENDAR_FRAME, PortalSegmentedControl } from "@/components/portal/portal-metrics";
 import { fetchManagerChannelBookings } from "@/lib/channel-calendar/client";
-import { bookingGuestShortLabel } from "@/lib/channel-calendar/booking-guest-label";
+import { bookingGuestShortLabel, bookingGuestLabel } from "@/lib/channel-calendar/booking-guest-label";
 import {
   airbnbBookingEntries,
   bookedDayKeyCountInMonth,
@@ -19,6 +19,13 @@ import {
   filterBookingEntriesByRoom,
   type PropertyBookingEntry,
 } from "@/lib/channel-calendar/property-bookings";
+import {
+  bookingOccupancyStats,
+  bookingSourceLabel,
+  bookingStatusTone,
+  formatBookingStayRange,
+  type BookingsHubMode,
+} from "@/lib/channel-calendar/bookings-ui";
 import {
   addDays,
   addMonths,
@@ -32,11 +39,16 @@ const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 type BookingsCalendarView = "day" | "week" | "month" | "year";
 
-const VIEW_OPTIONS: { id: BookingsCalendarView; label: string }[] = [
+const CALENDAR_VIEW_OPTIONS: { id: BookingsCalendarView; label: string }[] = [
   { id: "day", label: "Day" },
   { id: "week", label: "Week" },
   { id: "month", label: "Month" },
   { id: "year", label: "Year" },
+];
+
+const HUB_OPTIONS: { id: BookingsHubMode; label: string }[] = [
+  { id: "calendar", label: "Calendar" },
+  { id: "list", label: "List" },
 ];
 
 function shiftAnchor(anchor: Date, view: BookingsCalendarView, direction: -1 | 1): Date {
@@ -77,6 +89,13 @@ function formatNavTitle(anchor: Date, view: BookingsCalendarView): string {
   return String(anchor.getFullYear());
 }
 
+function kpiPeriodLabel(view: BookingsCalendarView): string {
+  if (view === "day") return "Today";
+  if (view === "week") return "This week";
+  if (view === "month") return "This month";
+  return "This year";
+}
+
 function bookedDayKeyCountInRange(
   entries: PropertyBookingEntry[],
   start: Date,
@@ -98,12 +117,28 @@ function bookedDaysInYear(entries: PropertyBookingEntry[], year: number): number
   return count;
 }
 
-function dayCellClassName(booked: boolean, isToday: boolean): string {
-  return `flex min-h-0 flex-1 flex-col items-stretch rounded-md border p-1.5 text-left text-xs transition ${
-    booked
-      ? "border-amber-300 bg-amber-50 text-amber-950 hover:border-amber-400 [html[data-theme=dark]_&]:border-amber-700 [html[data-theme=dark]_&]:bg-amber-950/40 [html[data-theme=dark]_&]:text-amber-100"
-      : "border-border bg-card text-foreground hover:border-primary/30 hover:bg-accent/30"
-  } ${isToday ? "ring-1 ring-primary/40" : ""}`;
+function dominantSourceForDay(
+  dayBookings: PropertyBookingEntry[],
+): PropertyBookingEntry["source"] | null {
+  if (dayBookings.length === 0) return null;
+  if (dayBookings.some((b) => b.source === "proplane")) return "proplane";
+  return "airbnb";
+}
+
+function dayCellClassName(
+  booked: boolean,
+  isToday: boolean,
+  source: PropertyBookingEntry["source"] | null,
+): string {
+  const base =
+    "flex min-h-0 flex-1 flex-col items-stretch rounded-lg border p-1.5 text-left text-xs transition hover:shadow-[var(--shadow-sm)]";
+  if (!booked) {
+    return `${base} border-border/80 bg-card/90 text-foreground hover:border-primary/25 hover:bg-accent/25`;
+  }
+  if (source === "proplane") {
+    return `${base} border-[color-mix(in_srgb,var(--status-approved-fg)_35%,transparent)] bg-[var(--status-approved-bg)] text-[var(--status-approved-fg)]`;
+  }
+  return `${base} border-[color-mix(in_srgb,var(--status-pending-fg)_35%,transparent)] bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]`;
 }
 
 function DayBookingCell({
@@ -122,31 +157,135 @@ function DayBookingCell({
   const booked = dayBookings.length > 0;
   const isToday = key === dateKey(today);
   const preview = dayBookings[0];
+  const source = dominantSourceForDay(dayBookings);
 
   return (
     <button
       type="button"
       data-attr={`portfolio-booking-day-${key}`}
-      className={dayCellClassName(booked, isToday)}
+      className={dayCellClassName(booked, isToday, source)}
       onClick={() => onOpenDay(key)}
     >
-      <span className={`text-[11px] font-semibold ${isToday ? "text-primary" : ""}`}>
-        {cell.getDate()}
-      </span>
-      {booked ? (
+      <div className="flex items-start justify-between gap-0.5">
+        <span
+          className={`text-[11px] font-bold tabular-nums ${isToday ? "text-primary" : ""}`}
+        >
+          {cell.getDate()}
+        </span>
+        {booked && source ? (
+          <span
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+              source === "proplane" ? "bg-primary" : "bg-[var(--status-pending-fg)]"
+            }`}
+            aria-hidden
+          />
+        ) : null}
+      </div>
+      {booked && preview ? (
         <div className="mt-1 min-h-0 flex-1 space-y-0.5 overflow-hidden">
-          <p className="truncate text-[10px] font-medium leading-tight">
-            {preview?.source === "airbnb"
-              ? bookingGuestShortLabel(preview?.summary, 14)
-              : preview?.summary}
+          <p className="truncate text-[10px] font-semibold leading-tight">
+            {preview.source === "airbnb"
+              ? bookingGuestShortLabel(preview.summary, 14)
+              : preview.summary}
           </p>
           <p className="truncate text-[9px] opacity-80">
-            {preview?.roomLabel}
+            {preview.roomLabel}
             {dayBookings.length > 1 ? ` +${dayBookings.length - 1}` : ""}
           </p>
         </div>
       ) : null}
     </button>
+  );
+}
+
+function YearMonthMiniGrid({
+  year,
+  month,
+  entries,
+  isCurrentMonth,
+  onSelect,
+}: {
+  year: number;
+  month: number;
+  entries: PropertyBookingEntry[];
+  isCurrentMonth: boolean;
+  onSelect: () => void;
+}) {
+  const monthStart = new Date(year, month, 1);
+  const cells = buildMonthDayCells(monthStart);
+  const booked = bookedDayKeyCountInMonth(entries, year, month);
+  const label = monthStart.toLocaleDateString("en-US", { month: "long" });
+
+  return (
+    <button
+      type="button"
+      data-attr={`bookings-calendar-year-month-${month + 1}`}
+      className={`flex min-h-0 flex-col rounded-xl border p-2 text-left transition hover:border-primary/35 hover:shadow-[var(--shadow-sm)] ${
+        isCurrentMonth
+          ? "border-primary/40 bg-card ring-1 ring-primary/25"
+          : "border-border bg-card/90"
+      }`}
+      onClick={onSelect}
+    >
+      <div className="flex items-baseline justify-between gap-1">
+        <span className="text-sm font-semibold text-foreground">{label}</span>
+        <span className="text-[10px] font-medium text-muted">{booked}d</span>
+      </div>
+      <div className="mt-1.5 grid grid-cols-7 gap-px">
+        {cells.map((cell, index) => {
+          if (!cell) {
+            return <span key={`pad-${index}`} className="aspect-square" aria-hidden />;
+          }
+          const key = dateKey(cell);
+          const filled = bookingEntriesForDayKey(entries, key).length > 0;
+          const src = dominantSourceForDay(bookingEntriesForDayKey(entries, key));
+          return (
+            <span
+              key={key}
+              className={`aspect-square rounded-[2px] ${
+                filled
+                  ? src === "proplane"
+                    ? "bg-primary/70"
+                    : "bg-[var(--status-pending-fg)]/55"
+                  : "bg-border/40"
+              }`}
+              aria-hidden
+            />
+          );
+        })}
+      </div>
+    </button>
+  );
+}
+
+function DayViewStayCard({ booking }: { booking: PropertyBookingEntry }) {
+  const name =
+    booking.source === "airbnb" ? bookingGuestLabel(booking.summary) : booking.summary;
+  return (
+    <li
+      className="rounded-xl border border-border bg-card/95 p-3 shadow-[var(--shadow-sm)]"
+      data-attr="bookings-day-stay-card"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="font-semibold text-foreground">{name}</p>
+          <p className="mt-0.5 text-xs text-muted">
+            {[booking.propertyLabel, booking.roomLabel].filter(Boolean).join(" · ")}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-1">
+          <Badge tone={booking.source === "airbnb" ? "pending" : "info"}>
+            {bookingSourceLabel(booking.source)}
+          </Badge>
+          {booking.statusLabel ? (
+            <Badge tone={bookingStatusTone(booking)}>{booking.statusLabel}</Badge>
+          ) : null}
+        </div>
+      </div>
+      <p className="mt-2 text-sm text-foreground">
+        {formatBookingStayRange(booking.start, booking.end, booking.openEnded)}
+      </p>
+    </li>
   );
 }
 
@@ -162,21 +301,44 @@ export function ManagerPortfolioBookingsCalendar({
   propertyIds: string[];
   showToast: (message: string) => void;
   refreshSignal?: number;
-  /**
-   * PropLane's own stays, supplied by the caller (it owns the lease store and
-   * the property/room labels). Merged with the Airbnb ranges this component
-   * fetches so a day cell reflects the house's real occupancy, not just one
-   * channel.
-   */
   extraEntries?: PropertyBookingEntry[];
-  /** "" / "all" = every room. Only offered for rent-by-room listings. */
   roomFilterId?: string;
   emptyMessage?: string;
-  /** Standalone Bookings nav page — no nested card chrome. */
+  variant?: "embedded" | "standalone";
+}) {
+  return (
+    <ManagerBookingsHub
+      propertyIds={propertyIds}
+      showToast={showToast}
+      refreshSignal={refreshSignal}
+      extraEntries={extraEntries}
+      roomFilterId={roomFilterId}
+      emptyMessage={emptyMessage}
+      variant={variant}
+    />
+  );
+}
+
+export function ManagerBookingsHub({
+  propertyIds,
+  showToast,
+  refreshSignal = 0,
+  extraEntries,
+  roomFilterId = "",
+  emptyMessage,
+  variant = "embedded",
+}: {
+  propertyIds: string[];
+  showToast: (message: string) => void;
+  refreshSignal?: number;
+  extraEntries?: PropertyBookingEntry[];
+  roomFilterId?: string;
+  emptyMessage?: string;
   variant?: "embedded" | "standalone";
 }) {
   const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hubMode, setHubMode] = useState<BookingsHubMode>("calendar");
   const [view, setView] = useState<BookingsCalendarView>("month");
   const [anchorDate, setAnchorDate] = useState(() => startOfLocalDay(new Date()));
   const [dayModalOpen, setDayModalOpen] = useState(false);
@@ -223,6 +385,11 @@ export function ManagerPortfolioBookingsCalendar({
     [airbnbEntries, extraEntries, roomFilterId],
   );
 
+  const stats = useMemo(
+    () => bookingOccupancyStats(entries, anchorDate, view),
+    [entries, anchorDate, view],
+  );
+
   const selectedDayBookings = useMemo<BookingsDayEntry[]>(
     () => (selectedDayKey ? bookingEntriesForDayKey(entries, selectedDayKey) : []),
     [entries, selectedDayKey],
@@ -264,6 +431,7 @@ export function ManagerPortfolioBookingsCalendar({
   const goToMonth = (year: number, month: number) => {
     setAnchorDate(new Date(year, month, 1));
     setView("month");
+    setHubMode("calendar");
   };
 
   if (propertyIds.length === 0) {
@@ -276,13 +444,17 @@ export function ManagerPortfolioBookingsCalendar({
   }
 
   if (loading) {
-    return <p className="text-sm text-muted">Loading bookings…</p>;
+    return (
+      <div className="flex min-h-[12rem] items-center justify-center rounded-2xl border border-border bg-card/60">
+        <p className="text-sm text-muted">Loading bookings…</p>
+      </div>
+    );
   }
 
   const shellClass =
     variant === "standalone"
-      ? "flex min-h-0 flex-1 flex-col overflow-hidden"
-      : "flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card p-3 sm:p-4";
+      ? "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden"
+      : "flex min-h-0 flex-1 flex-col gap-3 overflow-hidden";
 
   const prevLabel =
     view === "day"
@@ -305,162 +477,175 @@ export function ManagerPortfolioBookingsCalendar({
 
   return (
     <>
-      <div className={shellClass}>
-        <div className="mb-2 flex shrink-0 flex-wrap items-center justify-center gap-1">
-          {VIEW_OPTIONS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              data-attr={`bookings-calendar-view-${option.id}`}
-              className={view === option.id ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : PORTAL_TOOLBAR_PILL_BUTTON}
-              onClick={() => setView(option.id)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+      <div className={shellClass} data-attr="bookings-hub">
+        <PortalSegmentedControl
+          options={HUB_OPTIONS}
+          value={hubMode}
+          onChange={setHubMode}
+          ariaLabel="Bookings layout"
+        />
 
-        <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
-          <button
-            type="button"
-            aria-label={prevLabel}
-            data-attr="bookings-calendar-prev"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted transition hover:border-primary/45 hover:bg-accent/35 hover:text-foreground"
-            onClick={() => setAnchorDate((current) => shiftAnchor(current, view, -1))}
-          >
-            <ChevronLeft className="h-4 w-4" aria-hidden />
-          </button>
-          <div className="min-w-0 flex-1 text-center">
-            <p className="truncate text-sm font-semibold text-foreground">
-              {formatNavTitle(anchorDate, view)}
-            </p>
-            <p className="mt-0.5 text-[11px] font-medium text-muted">{navSubtitle}</p>
-          </div>
-          <button
-            type="button"
-            aria-label={nextLabel}
-            data-attr="bookings-calendar-next"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted transition hover:border-primary/45 hover:bg-accent/35 hover:text-foreground"
-            onClick={() => setAnchorDate((current) => shiftAnchor(current, view, 1))}
-          >
-            <ChevronRight className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
+        {hubMode === "list" ? (
+          <ManagerBookingsListPanel entries={entries} onOpenDay={openDay} />
+        ) : (
+          <div className={PORTAL_CALENDAR_FRAME}>
+            <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4">
+              <BookingsKpiStrip stats={stats} periodLabel={kpiPeriodLabel(view)} />
 
-        {view === "day" ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card p-3">
-            <p className="shrink-0 text-3xl font-semibold tabular-nums text-foreground">
-              {anchorDate.getDate()}
-            </p>
-            {dayViewBookings.length === 0 ? (
-              <p className="mt-2 text-sm text-muted">No bookings on this day.</p>
-            ) : (
-              <ul className="mt-2 min-h-0 flex-1 space-y-2 overflow-hidden">
-                {dayViewBookings.map((booking, index) => (
-                  <li
-                    key={`${booking.start}-${booking.roomId}-${index}`}
-                    className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 [html[data-theme=dark]_&]:border-amber-700 [html[data-theme=dark]_&]:bg-amber-950/40 [html[data-theme=dark]_&]:text-amber-100"
-                  >
-                    <p className="font-medium">
-                      {booking.source === "airbnb"
-                        ? bookingGuestShortLabel(booking.summary, 40)
-                        : booking.summary}
-                    </p>
-                    <p className="text-xs opacity-80">
-                      {booking.roomLabel}
-                      {booking.statusLabel ? ` · ${booking.statusLabel}` : ""}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        ) : null}
+              <PortalSegmentedControl
+                options={CALENDAR_VIEW_OPTIONS}
+                value={view}
+                onChange={setView}
+                size="sm"
+                ariaLabel="Calendar period"
+              />
 
-        {view === "week" ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="mb-1 grid shrink-0 grid-cols-7 gap-1">
-              {WEEKDAY_LABELS.map((label) => (
-                <div
-                  key={label}
-                  className="py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-muted"
-                >
-                  {label}
-                </div>
-              ))}
-            </div>
-            <div className="grid min-h-0 flex-1 grid-cols-7 gap-1">
-              {weekDays.map((cell) => (
-                <DayBookingCell
-                  key={dateKey(cell)}
-                  cell={cell}
-                  entries={entries}
-                  today={today}
-                  onOpenDay={openDay}
-                />
-              ))}
-            </div>
-          </div>
-        ) : null}
-
-        {view === "month" ? (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div className="mb-1 grid shrink-0 grid-cols-7 gap-1">
-              {WEEKDAY_LABELS.map((label) => (
-                <div
-                  key={label}
-                  className="py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-muted"
-                >
-                  {label}
-                </div>
-              ))}
-            </div>
-            <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-7 gap-1">
-              {monthCells.map((cell, index) => {
-                if (!cell) {
-                  return <div key={`pad-${index}`} className="min-h-0" aria-hidden />;
-                }
-                return (
-                  <DayBookingCell
-                    key={dateKey(cell)}
-                    cell={cell}
-                    entries={entries}
-                    today={today}
-                    onOpenDay={openDay}
-                  />
-                );
-              })}
-            </div>
-          </div>
-        ) : null}
-
-        {view === "year" ? (
-          <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-3 gap-2 sm:grid-cols-4">
-            {Array.from({ length: 12 }, (_, month) => {
-              const year = anchorDate.getFullYear();
-              const booked = bookedDayKeyCountInMonth(entries, year, month);
-              const label = new Date(year, month, 1).toLocaleDateString("en-US", { month: "long" });
-              const isCurrentMonth =
-                year === today.getFullYear() && month === today.getMonth();
-              return (
+              <div className="flex shrink-0 items-center justify-between gap-2">
                 <button
-                  key={month}
                   type="button"
-                  data-attr={`bookings-calendar-year-month-${month + 1}`}
-                  className={`flex min-h-0 flex-col items-start justify-center rounded-lg border p-2 text-left transition hover:border-primary/30 hover:bg-accent/30 ${
-                    isCurrentMonth ? "border-primary/40 ring-1 ring-primary/30" : "border-border bg-card"
-                  }`}
-                  onClick={() => goToMonth(year, month)}
+                  aria-label={prevLabel}
+                  data-attr="bookings-calendar-prev"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted shadow-[var(--shadow-sm)] transition hover:border-primary/45 hover:text-foreground"
+                  onClick={() => setAnchorDate((current) => shiftAnchor(current, view, -1))}
                 >
-                  <span className="text-sm font-semibold text-foreground">{label}</span>
-                  <span className="mt-0.5 text-[11px] text-muted">
-                    {booked} booked day{booked === 1 ? "" : "s"}
-                  </span>
+                  <ChevronLeft className="h-4 w-4" aria-hidden />
                 </button>
-              );
-            })}
+                <div className="min-w-0 flex-1 text-center">
+                  <p className="truncate text-sm font-semibold text-foreground">
+                    {formatNavTitle(anchorDate, view)}
+                  </p>
+                  <p className="mt-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-muted">
+                    {navSubtitle}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label={nextLabel}
+                  data-attr="bookings-calendar-next"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-card text-muted shadow-[var(--shadow-sm)] transition hover:border-primary/45 hover:text-foreground"
+                  onClick={() => setAnchorDate((current) => shiftAnchor(current, view, 1))}
+                >
+                  <ChevronRight className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
+
+              {view === "day" ? (
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card/80 p-4">
+                  {dayViewBookings.length === 0 ? (
+                    <div className="flex flex-1 flex-col items-center justify-center gap-3 py-8 text-center">
+                      <CalendarDays className="h-10 w-10 text-muted" aria-hidden />
+                      <p className="text-sm font-medium text-foreground">No bookings on this day</p>
+                      <p className="max-w-xs text-xs text-muted">
+                        Stays from PropLane leases and linked Airbnb calendars appear here when a
+                        room is occupied.
+                      </p>
+                    </div>
+                  ) : (
+                    <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+                      {dayViewBookings.map((booking, index) => (
+                        <DayViewStayCard
+                          key={`${booking.start}-${booking.roomId}-${index}`}
+                          booking={booking}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
+
+              {view === "week" ? (
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                  <div className="mb-1 grid shrink-0 grid-cols-7 gap-1">
+                    {WEEKDAY_LABELS.map((label) => (
+                      <div
+                        key={label}
+                        className="py-1 text-center text-[10px] font-bold uppercase tracking-wide text-muted"
+                      >
+                        {label}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid min-h-0 flex-1 grid-cols-7 gap-1">
+                    {weekDays.map((cell) => (
+                      <DayBookingCell
+                        key={dateKey(cell)}
+                        cell={cell}
+                        entries={entries}
+                        today={today}
+                        onOpenDay={openDay}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {view === "month" ? (
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                  <div className="mb-1 grid shrink-0 grid-cols-7 gap-1">
+                    {WEEKDAY_LABELS.map((label) => (
+                      <div
+                        key={label}
+                        className="py-1 text-center text-[10px] font-bold uppercase tracking-wide text-muted"
+                      >
+                        {label}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-7 gap-1">
+                    {monthCells.map((cell, index) => {
+                      if (!cell) {
+                        return <div key={`pad-${index}`} className="min-h-0" aria-hidden />;
+                      }
+                      return (
+                        <DayBookingCell
+                          key={dateKey(cell)}
+                          cell={cell}
+                          entries={entries}
+                          today={today}
+                          onOpenDay={openDay}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              {view === "year" ? (
+                <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3 lg:grid-cols-4">
+                  {Array.from({ length: 12 }, (_, month) => {
+                    const year = anchorDate.getFullYear();
+                    const isCurrentMonth =
+                      year === today.getFullYear() && month === today.getMonth();
+                    return (
+                      <YearMonthMiniGrid
+                        key={month}
+                        year={year}
+                        month={month}
+                        entries={entries}
+                        isCurrentMonth={isCurrentMonth}
+                        onSelect={() => goToMonth(year, month)}
+                      />
+                    );
+                  })}
+                </div>
+              ) : null}
+
+              <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border/60 pt-2 text-[10px] text-muted">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-primary" aria-hidden />
+                  PropLane stay
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className="h-2 w-2 rounded-full bg-[var(--status-pending-fg)]"
+                    aria-hidden
+                  />
+                  Airbnb
+                </span>
+              </div>
+            </div>
           </div>
-        ) : null}
+        )}
       </div>
 
       <BookingsDayDetailModal

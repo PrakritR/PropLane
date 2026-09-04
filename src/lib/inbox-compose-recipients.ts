@@ -7,36 +7,72 @@ export type InboxComposeDirectoryCategory =
   | "past_resident"
   | "management"
   | "admin"
-  | "vendor";
+  | "vendor"
+  /** Residents with no property attached — rare, but must not vanish from the picker. */
+  | "unassigned_residents"
+  /** Manager portal: one section per house that has at least one resident contact. */
+  | `house:${string}`;
+
+export function isHouseComposeCategory(
+  category: string,
+): category is `house:${string}` {
+  return category.startsWith("house:");
+}
+
+export function houseIdFromComposeCategory(category: `house:${string}`): string {
+  return category.slice("house:".length);
+}
+
+/** Stable house list for the manager To picker — sorted by property label. */
+export function residentHousesFromContacts(
+  contacts: InboxScopedContact[],
+): { id: string; label: string }[] {
+  const map = new Map<string, string>();
+  for (const contact of contacts) {
+    if (contact.role !== "resident") continue;
+    const id = contact.propertyId?.trim();
+    const label = contact.propertyLabel?.trim();
+    if (!id || !label) continue;
+    map.set(id, label);
+  }
+  return [...map.entries()]
+    .map(([id, label]) => ({ id, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+}
+
+export function houseComposeCategoryLabel(
+  category: `house:${string}`,
+  contacts: InboxScopedContact[],
+): string {
+  const propertyId = houseIdFromComposeCategory(category);
+  const label = contacts.find((c) => c.propertyId?.trim() === propertyId)?.propertyLabel?.trim();
+  return label ?? "House";
+}
 
 /**
- * Manager portal: management = co-managers; vendor only when the directory has
- * vendors.
+ * Manager portal: houses first, then Manager / Vendor / PropLane admin.
  *
- * "PropLane admin" is deliberately NOT offered to a manager (PRP-150). A manager
- * writing to us is a support request, not portal correspondence, and having it
- * sit in the same picker as their own residents and co-managers made the list
- * read as though PropLane were one of their contacts. Residents and vendors keep
- * it — for them it is the only way to reach anyone outside their own manager.
+ * Resident tenancy buckets (potential / current / past) stay available on
+ * resident and vendor portals. Managers pick people by house so "everyone at
+ * Brooklyn" is one tap at portfolio scale, with role groups beside the houses.
  */
 export function composeDirectoryCategories(
   portal: "resident" | "manager" | "vendor",
   contacts: InboxScopedContact[],
 ): InboxComposeDirectoryCategory[] {
   if (portal === "manager") {
-    // Three resident buckets, not one (PRP-150): writing to "residents" should
-    // not silently include an applicant who has not moved in or someone who
-    // moved out. Each only appears when it has someone in it.
     const cats: InboxComposeDirectoryCategory[] = [];
-    const residentsWith = (status: InboxScopedContact["tenancyStatus"]) =>
-      contacts.some((c) => c.role === "resident" && (c.tenancyStatus ?? "resident") === status);
-    if (residentsWith("applicant")) cats.push("applicant");
-    // Always offered: a manager with no residents yet still needs the section to
-    // exist, and it is the one every other bucket is defined against.
-    cats.push("resident");
-    if (residentsWith("past")) cats.push("past_resident");
-    if (contacts.some((c) => c.role === "manager")) cats.push("management");
-    if (contacts.some((c) => c.role === "vendor")) cats.push("vendor");
+    for (const house of residentHousesFromContacts(contacts)) {
+      cats.push(`house:${house.id}`);
+    }
+    if (
+      contacts.some(
+        (c) => c.role === "resident" && !(c.propertyId?.trim() && c.propertyLabel?.trim()),
+      )
+    ) {
+      cats.push("unassigned_residents");
+    }
+    cats.push("management", "vendor", "admin");
     return cats;
   }
   if (portal === "vendor") return ["management", "admin"];

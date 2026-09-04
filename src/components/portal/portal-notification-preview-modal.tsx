@@ -20,12 +20,14 @@ import {
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
   PortalMessageBodyField,
   PortalMessageComposeModalBody,
-  PortalMessageRecipientReadonly,
+  PortalMessageRecipientLockedField,
   PortalMessageScheduleFields,
   PortalMessageSendViaDropdown,
   PortalMessageSubjectField,
   portalMessageChannelsFromSelection,
+  portalMessageConfirmSendLabel,
   portalMessageRecipientDisplay,
+  portalMessageSendViaFooterNote,
   PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE,
   PORTAL_MESSAGE_SEND_VIA_OPTIONS,
   portalMessageFieldLabel,
@@ -81,6 +83,9 @@ export function PortalNotificationPreviewModal({
   confirmBusy = false,
   confirmBusyLabel = "Working…",
   cancelLabel = "Cancel",
+  /** When true, primary button reads Send email / Send SMS / Send message like New message. */
+  dynamicSendLabel = false,
+  assistantContext,
   onConfirm,
   panelClassName,
   assigneeKind,
@@ -124,6 +129,8 @@ export function PortalNotificationPreviewModal({
   confirmBusy?: boolean;
   confirmBusyLabel?: string;
   cancelLabel?: string;
+  dynamicSendLabel?: boolean;
+  assistantContext?: string;
   onConfirm: (
     skipMessage: boolean,
     channels?: NotificationDeliveryChannels,
@@ -245,6 +252,21 @@ export function PortalNotificationPreviewModal({
       showChannelPicker && !skipMessage ? viaSms : Boolean(recipientPhone?.trim()),
   });
 
+  const primaryButtonLabel = portalMessageConfirmSendLabel({
+    busy: confirmBusy,
+    busyLabel: confirmBusyLabel,
+    skipMessage,
+    staticLabel: effectiveConfirmLabel,
+    scheduleLater: showSchedule && scheduleLater && !skipMessage,
+    viaEmail,
+    viaSms,
+    dynamic: dynamicSendLabel && !skipMessage,
+  });
+
+  const sendViaFooterNote =
+    footerNote?.trim() ||
+    portalMessageSendViaFooterNote(Boolean(smsAvailable && smsSetup?.canSend !== false));
+
   const footer = (
     <ModalFooter>
       <Button
@@ -255,7 +277,7 @@ export function PortalNotificationPreviewModal({
         disabled={confirmBusy || !channelsOk || !messageReady || smsBlocked}
         onClick={() => onConfirm(skipMessage, portalMessageChannelsFromSelection(sendVia), confirmDraft)}
       >
-        {confirmBusy ? confirmBusyLabel : effectiveConfirmLabel}
+        {primaryButtonLabel}
       </Button>
     </ModalFooter>
   );
@@ -267,6 +289,7 @@ export function PortalNotificationPreviewModal({
       onClose={onClose}
       dense
       footer={footer}
+      assistantContext={assistantContext ?? title}
       panelClassName={cn(PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS, panelClassName)}
     >
       <PortalMessageComposeModalBody>
@@ -283,7 +306,7 @@ export function PortalNotificationPreviewModal({
         ) : null}
         {intro ? <p className="text-sm leading-snug text-muted">{intro}</p> : null}
 
-        <PortalMessageRecipientReadonly recipient={toRecipientDisplay || "—"} />
+        <PortalMessageRecipientLockedField recipient={toRecipientDisplay || recipient || "—"} />
 
         <div
           className={
@@ -304,7 +327,7 @@ export function PortalNotificationPreviewModal({
               onChange={setSendVia}
               emailAvailable={emailAvailable}
               smsAvailable={smsAvailable && smsSetup?.canSend !== false}
-              footerNote={footerNote?.trim() || PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE}
+              footerNote={sendViaFooterNote}
               dataAttr="portal-notification-send-via"
             />
           ) : null}
@@ -340,6 +363,8 @@ export function PortalNotificationPreviewModal({
           readOnly={!editableBody}
           placeholder="Write your message…"
           minHeightClass="min-h-[7rem]"
+          maxLength={viaSms ? 1600 : undefined}
+          showCharCount={viaSms}
           dataAttr="portal-notification-body"
         />
 
