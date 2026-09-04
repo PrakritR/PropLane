@@ -215,7 +215,7 @@ function ManagerPropertyInlineDetails({
   skuTier: string | null;
   skuLoaded: boolean;
   propCount: number;
-  onSendToProspect?: (listingId: string) => void;
+  onSendToProspect?: (listingIds: string | string[]) => void;
   propertiesBase: string;
   stage: ManagerStageKey;
   detailTab?: PropertyDetailTabId;
@@ -1041,7 +1041,7 @@ export function ManagerHousePropertiesPanel({
   showToast: (m: string) => void;
   activeStage: ManagerStageKey;
   onStageChange: (stage: ManagerStageKey) => void;
-  onSendToProspect?: (listingId: string) => void;
+  onSendToProspect?: (listingIds: string | string[]) => void;
   skuTier: string | null;
   skuLoaded: boolean;
   propertiesBase: string;
@@ -1137,8 +1137,12 @@ export function ManagerHousePropertiesPanel({
   );
 
   const canBulkEdit = selectedPropertyEntries.length === 1;
+  // Share is NOT gated on a single selection the way Edit is. The share modal's
+  // `listing` and `apply` kinds are multi-select by design — several listings
+  // become a filtered browse link — so requiring exactly one hid the multi-send
+  // the modal already supported (AXI-140).
   const canBulkShareProperties =
-    Boolean(onSendToProspect) && activeStage === "listed" && canBulkEdit;
+    Boolean(onSendToProspect) && activeStage === "listed" && selectedPropertyEntries.length > 0;
   const canBulkUnlist =
     activeStage === "listed" &&
     selectedPropertyEntries.length > 0 &&
@@ -1459,13 +1463,18 @@ export function ManagerHousePropertiesPanel({
                 className={PORTAL_BULK_BAR_BTN}
                 data-attr="properties-bulk-share"
                 onClick={() => {
-                  const first = selectedPropertyEntries[0];
-                  if (!first || !onSendToProspect) return;
-                  onSendToProspect(propertyKeyFromRow(first.row));
+                  if (!onSendToProspect) return;
+                  const keys = selectedPropertyEntries
+                    .map(({ row }) => propertyKeyFromRow(row))
+                    .filter(Boolean);
+                  if (keys.length === 0) return;
+                  onSendToProspect(keys.length === 1 ? keys[0]! : keys);
                   clearSelection();
                 }}
               >
-                Share
+                {selectedPropertyEntries.length > 1
+                  ? `Share ${selectedPropertyEntries.length}`
+                  : "Share"}
               </Button>
             ) : null}
             {canBulkUnlist ? (

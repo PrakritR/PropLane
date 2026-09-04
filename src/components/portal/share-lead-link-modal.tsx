@@ -95,12 +95,21 @@ export function ShareLeadLinkModal({
   kind,
   properties,
   preselectedPropertyId,
+  preselectedPropertyIds,
 }: {
   open: boolean;
   onClose: () => void;
   kind: LeadInviteKind;
   properties: ManagerPropertyFilterOption[];
   preselectedPropertyId?: string;
+  /**
+   * Several properties to open with, for a bulk share from the Properties list.
+   * `listing` and `apply` are already multi-select inside the modal — this just
+   * lets a caller seed the whole selection instead of one row. Unknown ids are
+   * dropped rather than shown, matching the singular prop's behaviour. Takes
+   * precedence over `preselectedPropertyId` when both are supplied.
+   */
+  preselectedPropertyIds?: string[];
 }) {
   const { showToast } = useAppUi();
   const { isNative } = useIsNativeApp();
@@ -130,11 +139,17 @@ export function ShareLeadLinkModal({
     if (wasOpenRef.current) return;
     wasOpenRef.current = true;
 
-    const initialId =
-      preselectedPropertyId && properties.some((p) => p.id === preselectedPropertyId)
-        ? preselectedPropertyId
-        : properties[0]?.id ?? "";
-    setPropertyIds(initialId ? [initialId] : []);
+    const knownIds = new Set(properties.map((p) => p.id));
+    const preselectedMany = (preselectedPropertyIds ?? []).filter((id) => knownIds.has(id));
+    if (preselectedMany.length > 0) {
+      setPropertyIds(preselectedMany);
+    } else {
+      const initialId =
+        preselectedPropertyId && knownIds.has(preselectedPropertyId)
+          ? preselectedPropertyId
+          : properties[0]?.id ?? "";
+      setPropertyIds(initialId ? [initialId] : []);
+    }
     setRoomChoice("");
     setApplyRentalTypes(["standard"]);
     setProspectName("");
@@ -144,7 +159,7 @@ export function ShareLeadLinkModal({
     setNote("");
     setSendPreviewOpen(false);
     setSendBusy(false);
-  }, [open, preselectedPropertyId, properties]);
+  }, [open, preselectedPropertyId, preselectedPropertyIds, properties]);
 
   useEffect(() => {
     if (!open) return;

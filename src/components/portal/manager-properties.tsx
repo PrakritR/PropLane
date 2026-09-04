@@ -63,6 +63,8 @@ export function ManagerProperties({
   const [portfolioTick, setPortfolioTick] = useState(0);
   const [shareListingOpen, setShareListingOpen] = useState(false);
   const [shareListingPropertyId, setShareListingPropertyId] = useState<string | undefined>();
+  /** Several selected listings, for a bulk share from the Properties list (AXI-140). */
+  const [shareListingPropertyIds, setShareListingPropertyIds] = useState<string[] | undefined>();
   const [demoStage, setDemoStage] = useState<ManagerStageKey>("listed");
 
   const activeStage = isDemoModeActive()
@@ -205,8 +207,10 @@ export function ManagerProperties({
     };
   }, [setActiveStage]);
 
-  const openShareListing = (listingId?: string) => {
-    setShareListingPropertyId(listingId);
+  const openShareListing = (listingIds?: string | string[]) => {
+    const many = Array.isArray(listingIds) ? listingIds.filter(Boolean) : [];
+    setShareListingPropertyIds(many.length > 1 ? many : undefined);
+    setShareListingPropertyId(many.length > 0 ? many[0] : (listingIds as string | undefined));
     setShareListingOpen(true);
   };
 
@@ -288,6 +292,7 @@ export function ManagerProperties({
         kind="listing"
         properties={shareableProperties}
         preselectedPropertyId={shareListingPropertyId}
+        preselectedPropertyIds={shareListingPropertyIds}
       />
     </>
   );
