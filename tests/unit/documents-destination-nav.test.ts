@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { DOCUMENT_TABS } from "@/components/portal/pro-documents-panel";
+import { DOCUMENT_TAB_DESTINATIONS } from "@/components/portal/pro-documents-panel";
 
 describe("documents list chrome", () => {
   it("uses Properties/Tours-style command tabs instead of a left rail", () => {
@@ -16,12 +16,11 @@ describe("documents list chrome", () => {
     expect(source).not.toContain("lg:flex-row lg:items-start");
   });
 
-  it("lists application and leasing document views first", () => {
-    expect(DOCUMENT_TABS.slice(0, 4).map((tab) => tab.id)).toEqual([
+  it("lists application, lease, and other document views only", () => {
+    expect(DOCUMENT_TAB_DESTINATIONS.map((tab) => tab.id)).toEqual([
       "applications",
       "leases",
-      "income-documents",
-      "expense-documents",
+      "other",
     ]);
   });
 });
