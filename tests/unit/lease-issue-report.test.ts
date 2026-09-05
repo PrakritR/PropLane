@@ -52,7 +52,7 @@ describe("reportResidentLeaseIssue", () => {
           return {
             select: () => ({
               eq: () => ({
-                eq: () => ({
+                or: () => ({
                   maybeSingle: async () => ({
                     data: {
                       id: row.id,
@@ -60,6 +60,7 @@ describe("reportResidentLeaseIssue", () => {
                       manager_user_id: "mgr-1",
                       property_id: "prop-1",
                       resident_email: "resident@test.com",
+                      resident_user_id: "user-1",
                     },
                     error: null,
                   }),
@@ -68,7 +69,7 @@ describe("reportResidentLeaseIssue", () => {
             }),
             update: (payload: unknown) => ({
               eq: () => ({
-                eq: async () => {
+                or: async () => {
                   update(payload);
                   return { error: null };
                 },
@@ -111,5 +112,44 @@ describe("reportResidentLeaseIssue", () => {
         subject: expect.stringContaining("Lease issue reported"),
       }),
     );
+  });
+
+  it("refuses when the lease belongs to another resident user id", async () => {
+    const row = lease();
+    const db = {
+      from: vi.fn((table: string) => {
+        if (table === "portal_lease_pipeline_records") {
+          return {
+            select: () => ({
+              eq: () => ({
+                or: () => ({
+                  maybeSingle: async () => ({
+                    data: {
+                      id: row.id,
+                      row_data: row,
+                      manager_user_id: "mgr-1",
+                      property_id: "prop-1",
+                      resident_email: "resident@test.com",
+                      resident_user_id: "other-user",
+                    },
+                    error: null,
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+        throw new Error(`unexpected table ${table}`);
+      }),
+    };
+
+    const result = await reportResidentLeaseIssue(db as never, {
+      residentUserId: "user-1",
+      residentEmail: "resident@test.com",
+      leaseId: row.id,
+      message: "Wrong dates.",
+    });
+
+    expect(result).toEqual({ ok: false, error: "Lease not found." });
   });
 });

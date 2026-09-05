@@ -10,6 +10,7 @@ import {
   type LeaseThreadRole,
 } from "@/lib/lease-pipeline-storage";
 import { formatPacificDateTime } from "@/lib/pacific-time";
+import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 
 const MAX_ISSUE_LENGTH = 4000;
 
@@ -68,6 +69,17 @@ export function residentLeaseIssueAllowed(row: LeasePipelineRow): boolean {
   );
 }
 
+function residentOwnsLeaseRecord(
+  record: { resident_user_id?: string | null; resident_email?: string | null },
+  residentUserId: string,
+  email: string,
+): boolean {
+  const storedUserId = String(record.resident_user_id ?? "").trim();
+  const storedEmail = String(record.resident_email ?? "").trim().toLowerCase();
+  if (storedUserId) return storedUserId === residentUserId;
+  return storedEmail === email;
+}
+
 export async function reportResidentLeaseIssue(
   db: SupabaseClient,
   input: {
@@ -89,15 +101,23 @@ export async function reportResidentLeaseIssue(
   const leaseId = input.leaseId.trim();
   if (!leaseId) return { ok: false, error: "Lease not found." };
 
+  const identityFilter = orFilterForIdentity([
+    ["resident_user_id", input.residentUserId],
+    ["resident_email", email],
+  ]);
+  if (!identityFilter) return { ok: false, error: "No email on file." };
+
   const { data: leaseRecord, error } = await db
     .from("portal_lease_pipeline_records")
     .select("id, row_data, manager_user_id, property_id, resident_email, resident_user_id")
     .eq("id", leaseId)
-    .eq("resident_email", email)
+    .or(identityFilter)
     .maybeSingle();
 
   if (error) return { ok: false, error: error.message };
-  if (!leaseRecord) return { ok: false, error: "Lease not found." };
+  if (!leaseRecord || !residentOwnsLeaseRecord(leaseRecord, input.residentUserId, email)) {
+    return { ok: false, error: "Lease not found." };
+  }
 
   const previousRow = normalizeLeasePipelineRow(leaseRecord.row_data);
   if (!residentLeaseIssueAllowed(previousRow)) {
@@ -127,7 +147,7 @@ export async function reportResidentLeaseIssue(
       updated_at: iso,
     })
     .eq("id", leaseId)
-    .eq("resident_email", email);
+    .or(identityFilter);
 
   if (updateError) return { ok: false, error: updateError.message };
 
