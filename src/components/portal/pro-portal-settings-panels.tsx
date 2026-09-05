@@ -53,7 +53,9 @@ import {
 } from "@/components/portal/manager-reminder-rule-settings";
 import {
   ApplicationRemindersSettingsBundle,
+  IncomingPaymentRemindersSettingsBundle,
   LeaseRemindersSettingsBundle,
+  OutgoingPaymentRemindersSettingsBundle,
   ServiceRemindersSettingsBundle,
 } from "@/components/portal/reminder-settings-bundles";
 import { ReminderTypePicker } from "@/components/portal/reminder-type-picker";
@@ -794,76 +796,18 @@ export function PaymentsSettingsPanel({
 
   if (mode === "outgoing") {
     return (
-      <div className="space-y-3">
-        <p className="text-xs text-muted">
-          Outgoing payments are bills you need to pay. These reminders go to you (and optional team
-          members), not to payees.
-        </p>
-        <ManagerReminderRuleSettingsPanel
-          kind="outgoing_payment"
-          audienceMode="manager"
-          sectionTitle="Outgoing payment reminders"
-          teamMembers={teamMembers}
-          formRef={outgoingReminderFormRef}
-        />
-      </div>
+      <OutgoingPaymentRemindersSettingsBundle
+        teamMembers={teamMembers}
+        formRef={outgoingReminderFormRef}
+      />
     );
   }
 
   return (
-    <IncomingPaymentsSettingsPanel onSaved={onSaved} formRef={formRef} />
-  );
-}
-
-function IncomingPaymentsSettingsPanel({
-  onSaved,
-  formRef,
-}: {
-  onSaved?: () => void;
-  formRef?: React.Ref<PaymentAutomationSettingsHandle>;
-}) {
-  const { showToast } = useAppUi();
-  const demo = isDemoModeActive();
-  const [loading, setLoading] = useState(true);
-  const [settings, setSettings] = useState<ManagerAutomationSettings | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        if (demo) {
-          if (!cancelled) setSettings(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
-          return;
-        }
-        const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
-        if (!res.ok) throw new Error("Could not load payment settings.");
-        const body = (await res.json()) as { settings: ManagerAutomationSettings };
-        if (!cancelled) setSettings(normalizeManagerAutomationSettings(body.settings));
-      } catch (e) {
-        showToast(e instanceof Error ? e.message : "Could not load payment settings.");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [demo, showToast]);
-
-  if (loading || !settings) return <p className="text-sm text-muted">Loading…</p>;
-
-  return (
-    <PaymentAutomationSettingsPanel
-      settings={settings}
-      variant="payments"
-      layout="modal"
-      autoSaveOnClose
+    <IncomingPaymentRemindersSettingsBundle
+      teamMembers={teamMembers}
+      onSaved={onSaved}
       formRef={formRef}
-      onSaved={(next) => {
-        setSettings(next);
-        onSaved?.();
-      }}
     />
   );
 }

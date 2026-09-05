@@ -75,6 +75,10 @@ export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRo
     return leaseIsCurrent(db, row, expectedAnchor);
   }
 
+  if (row.kind === "payment_manager") {
+    return paymentManagerReminderIsCurrent(db, row, expectedAnchor);
+  }
+
   if (row.kind === "outgoing_payment") {
     return outgoingPaymentIsCurrent(db, row, expectedAnchor);
   }
@@ -201,5 +205,26 @@ async function outgoingPaymentIsCurrent(
   const dueDate = data.due_date ? String(data.due_date).slice(0, 10) : "";
   if (!dueDate) return false;
   const anchorIso = new Date(`${dueDate}T12:00:00`).toISOString();
+  return reminderAnchorMatches(expectedAnchor, anchorIso);
+}
+
+async function paymentManagerReminderIsCurrent(
+  db: SupabaseClient,
+  row: ReminderQueueRow,
+  expectedAnchor: unknown,
+): Promise<boolean> {
+  const { data, error } = await db
+    .from("portal_household_charge_records")
+    .select("manager_user_id, row_data")
+    .eq("id", row.subjectId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data || String(data.manager_user_id ?? "") !== row.managerUserId) return false;
+  const charge = (data.row_data ?? {}) as Record<string, unknown>;
+  const status = String(charge.status ?? "").toLowerCase();
+  if (status === "paid" || status === "void" || status === "canceled") return false;
+  const dueIso = String(charge.dueDateIso ?? charge.dueDate ?? "");
+  if (!dueIso.trim()) return false;
+  const anchorIso = dueIso.includes("T") ? dueIso : new Date(`${dueIso.slice(0, 10)}T12:00:00`).toISOString();
   return reminderAnchorMatches(expectedAnchor, anchorIso);
 }

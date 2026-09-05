@@ -48,6 +48,7 @@ const SUBJECT_DIRECTIONS: Record<ReminderSubjectKind, TimingDirection[]> = {
   application_post_tour: ["after"],
   lease: ["after"],
   lease_manager: ["after"],
+  payment_manager: ["after"],
   outgoing_payment: ["before"],
 };
 

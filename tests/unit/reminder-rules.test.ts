@@ -93,12 +93,14 @@ describe("settings normalize from whatever is stored", () => {
       "application_post_tour",
       "lease",
       "lease_manager",
+      "payment_manager",
       "outgoing_payment",
     ] as const) {
       expect(settings.rules[kind]).toEqual(DEFAULT_REMINDER_RULES[kind]);
     }
     expect(REMINDER_SUBJECT_KINDS).toContain("application_post_tour");
     expect(REMINDER_SUBJECT_KINDS).toContain("lease_manager");
+    expect(REMINDER_SUBJECT_KINDS).toContain("payment_manager");
   });
 
   it("splits legacy combined application and lease rules on read", () => {
