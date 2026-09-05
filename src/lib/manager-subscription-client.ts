@@ -24,6 +24,7 @@
 
 let cachedTier: string | null | undefined;
 let cachedEffectiveTier: string | null | undefined;
+let cachedPaymentWaiverGranted: boolean | undefined;
 let inflight: Promise<void> | null = null;
 
 function loadSubscription(): Promise<void> {
@@ -34,10 +35,12 @@ function loadSubscription(): Promise<void> {
         tier?: string | null;
         effectiveTier?: string | null;
         planUnknown?: boolean;
+        paymentWaiverGranted?: boolean;
       };
       if (!res.ok) {
         cachedTier = null;
         cachedEffectiveTier = null;
+        cachedPaymentWaiverGranted = false;
         return;
       }
       // The route could not read this account's plan. Caching that would freeze
@@ -51,10 +54,12 @@ function loadSubscription(): Promise<void> {
       // to the raw tier keeps the pre-check at its pre-cap behaviour rather
       // than inventing a Free plan the server is not enforcing.
       cachedEffectiveTier = body.effectiveTier ?? body.tier ?? null;
+      cachedPaymentWaiverGranted = body.paymentWaiverGranted === true;
     })
     .catch(() => {
       cachedTier = null;
       cachedEffectiveTier = null;
+      cachedPaymentWaiverGranted = false;
     })
     .finally(() => {
       inflight = null;
@@ -80,9 +85,15 @@ export function loadManagerEffectivePlanTierClient(): Promise<string | null> {
   return loadSubscription().then(() => cachedEffectiveTier ?? null);
 }
 
+export function loadManagerPaymentWaiverGrantedClient(): Promise<boolean> {
+  if (cachedPaymentWaiverGranted !== undefined) return Promise.resolve(cachedPaymentWaiverGranted);
+  return loadSubscription().then(() => cachedPaymentWaiverGranted === true);
+}
+
 /** Test / sign-out hooks may clear the cache. */
 export function resetManagerSubscriptionTierClientCache() {
   cachedTier = undefined;
   cachedEffectiveTier = undefined;
+  cachedPaymentWaiverGranted = undefined;
   inflight = null;
 }

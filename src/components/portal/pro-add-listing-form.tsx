@@ -63,7 +63,15 @@ import { getPortalListingNote } from "@/lib/portal-listing-notes";
 import {
   managerPropertyLimitMessage,
   managerTierPropertyLimitReached,
+  normalizeManagerSkuTier,
 } from "@/lib/manager-access";
+import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
+import {
+  listingServiceFeePayerUiValue,
+  managerCanSelectManagerAbsorbServiceFee,
+  managerCanSelectProplaneServiceFee,
+  type ServiceFeePayer,
+} from "@/lib/payment-policy";
 import {
   applyListingBedroomSlots,
   applyListingBathroomSlots,
@@ -1452,6 +1460,20 @@ export function ManagerAddListingForm({
    * lay out beside it (wide screens) instead of always stacking above it. Opens
    * to the left by default on desktop; collapsed on narrow screens. */
   const [assistantExpanded, setAssistantExpanded] = useState(prefersAssistantOpenBeside);
+  const [paymentWaiverGranted, setPaymentWaiverGranted] = useState(false);
+  const managerSkuTier = normalizeManagerSkuTier(skuTier) ?? "free";
+  const canSelectProplaneFee = managerCanSelectProplaneServiceFee(managerSkuTier, paymentWaiverGranted);
+  const canSelectManagerAbsorbFee = managerCanSelectManagerAbsorbServiceFee(managerSkuTier);
+  const serviceFeePayerUi = listingServiceFeePayerUiValue(
+    sub.serviceFeePayer,
+    managerSkuTier,
+    paymentWaiverGranted,
+  );
+
+  useEffect(() => {
+    if (isDemoModeActive()) return;
+    void loadManagerPaymentWaiverGrantedClient().then(setPaymentWaiverGranted);
+  }, []);
   const resumedStepIndex = clampWizardStep(initialStepIndex);
   const resumedMaxStepReached = Math.max(clampWizardStep(initialMaxStepReached), resumedStepIndex);
   const [stepIndex, setStepIndex] = useState(resumedStepIndex);
@@ -4300,26 +4322,29 @@ export function ManagerAddListingForm({
                   <GridField>
                     <FieldLabel>Processing fee paid by</FieldLabel>
                     <Select
-                      value={sub.serviceFeePayer ?? "inherit"}
-                      onChange={(e) =>
-                        setSub((s) => ({
-                          ...s,
-                          // "inherit" stores null so this property keeps FOLLOWING the account
-                          // setting. Storing today's account value instead would freeze it here,
-                          // and changing the account default later would appear to do nothing.
-                          serviceFeePayer:
-                            e.target.value === "resident" || e.target.value === "manager"
-                              ? e.target.value
-                              : null,
-                        }))
-                      }
+                      value={serviceFeePayerUi}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const next: ServiceFeePayer =
+                          raw === "proplane" || raw === "manager" || raw === "resident" ? raw : "resident";
+                        if (next === "proplane" && !canSelectProplaneFee) return;
+                        if (next === "manager" && !canSelectManagerAbsorbFee) return;
+                        setSub((s) => ({ ...s, serviceFeePayer: next }));
+                      }}
                     >
-                      <option value="inherit">Same as my account setting</option>
                       <option value="resident">Resident pays</option>
-                      <option value="manager">I absorb it</option>
+                      <option value="manager" disabled={!canSelectManagerAbsorbFee}>
+                        Manager pays{canSelectManagerAbsorbFee ? "" : " (needs paid plan)"}
+                      </option>
+                      <option value="proplane" disabled={!canSelectProplaneFee}>
+                        PropLane absorbs
+                        {canSelectProplaneFee && managerSkuTier === "free" ? " (FREE100)" : ""}
+                        {!canSelectProplaneFee ? " (needs FREE100 or paid plan)" : ""}
+                      </option>
                     </Select>
                     <p className="mt-1 text-xs text-muted">
-                      Applies to this property only. Absorbing the fee needs a paid plan.
+                      Applies to this property only. Resident payments deposit to the property owner&apos;s bank
+                      account. PropLane absorb on Free requires the FREE100 waiver code on your account.
                     </p>
                   </GridField>
                   <GridField>

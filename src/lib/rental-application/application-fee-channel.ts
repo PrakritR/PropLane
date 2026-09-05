@@ -15,8 +15,8 @@ export function listingApplicationFeeChannels(
   other: boolean;
 } {
   const ach = sub?.axisPaymentsEnabled !== false;
-  const zelle = Boolean(sub?.zellePaymentsEnabled && sub?.zelleContact?.trim());
-  const venmo = Boolean(sub?.venmoPaymentsEnabled && sub?.venmoContact?.trim());
+  const zelle = false;
+  const venmo = false;
   const listingOther = Boolean(
     sub?.applicationFeeOtherEnabled && sub?.applicationFeeOtherInstructions?.trim(),
   );
@@ -45,12 +45,8 @@ export function resolveApplicationFeePayChannel(
   const channels = listingApplicationFeeChannels(sub, managerOther);
   const pref = preference === "stripe" ? "ach" : preference;
   if (pref === "ach" && channels.ach) return "ach";
-  if (pref === "zelle" && channels.zelle) return "zelle";
-  if (pref === "venmo" && channels.venmo) return "venmo";
   if (pref === "other" && channels.other) return "other";
   if (channels.ach) return "ach";
-  if (channels.zelle) return "zelle";
-  if (channels.venmo) return "venmo";
   if (channels.other) return "other";
   return "ach";
 }

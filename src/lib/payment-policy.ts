@@ -1,7 +1,7 @@
 import { parseMoneyAmount } from "@/lib/parse-money";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { platformFeeCents } from "@/lib/platform-fees";
-import type { ManagerSkuTier } from "@/lib/manager-access";
+import { isWaiverGrantedManagerPurchase, type ManagerSkuTier } from "@/lib/manager-access";
 
 export type RentDueDayMode = "first_of_month" | "last_of_month";
 
@@ -88,7 +88,39 @@ export type ServiceFeePayerInputs = {
   propertyChoice?: ServiceFeePayer | null;
   /** The manager's account-wide default. */
   managerChoice?: ServiceFeePayer | null;
+  /**
+   * Server-validated payment-waiver grant (e.g. FREE100). Lets a Free-tier manager
+   * select PropLane-absorbed fees where the product allows it.
+   */
+  waiverGranted?: boolean;
 };
+
+/** Whether PropLane absorb is selectable in Pricing / payment setup for this account. */
+export function managerCanSelectProplaneServiceFee(
+  tier: ManagerSkuTier,
+  waiverGranted: boolean,
+): boolean {
+  return tier !== "free" || waiverGranted;
+}
+
+/** Whether the manager-absorb option is selectable (paid capability). */
+export function managerCanSelectManagerAbsorbServiceFee(tier: ManagerSkuTier): boolean {
+  return tier !== "free";
+}
+
+/** UI value when a listing has no explicit per-property choice yet. */
+export function listingServiceFeePayerUiValue(
+  stored: ServiceFeePayer | null | undefined,
+  tier: ManagerSkuTier,
+  waiverGranted = false,
+): ServiceFeePayer {
+  if (stored === "resident" || stored === "manager" || stored === "proplane") return stored;
+  return managerCanSelectProplaneServiceFee(tier, waiverGranted) ? "proplane" : "resident";
+}
+
+export function waiverGrantedFromPromoCode(promoCode: string | null | undefined): boolean {
+  return isWaiverGrantedManagerPurchase(promoCode);
+}
 
 /**
  * Who pays the processing fee on one payment.
@@ -123,17 +155,19 @@ export type ServiceFeePayerInputs = {
 export function resolveServiceFeePayerFor(input: ServiceFeePayerInputs): ServiceFeePayer {
   if (input.adminOverride) return normalizeServiceFeeChoice(input.adminOverride);
 
+  const waiverGranted = input.waiverGranted === true;
+  const effectiveTier: ManagerSkuTier = input.tier === "free" && waiverGranted ? "pro" : input.tier;
   // `??` rather than a normalize call, so "nothing is set" stays distinguishable
   // from "explicitly resident" — normalizeServiceFeeChoice collapses both to
   // "resident", which would make the paid-plan default unreachable.
   const stored = input.propertyChoice ?? input.managerChoice ?? null;
-  const planDefault: ServiceFeePayer = input.tier === "free" ? "resident" : "proplane";
+  const planDefault: ServiceFeePayer = effectiveTier === "free" ? "resident" : "proplane";
   const normalized = stored == null ? planDefault : normalizeServiceFeeChoice(stored);
   // Absorbing the fee is a paid capability; a value that appears on Free anyway is
-  // discarded rather than honoured.
+  // discarded rather than honoured — unless the account has a server-validated waiver.
   const manageable: ServiceFeePayer =
-    normalized === "proplane" && input.tier === "free" ? "resident" : normalized;
-  return resolveServiceFeePayer(input.tier, manageable);
+    normalized === "proplane" && input.tier === "free" && !waiverGranted ? "resident" : normalized;
+  return resolveServiceFeePayer(effectiveTier, manageable);
 }
 
 /**
@@ -302,25 +336,19 @@ export function residentPaymentMethodsSummary(
   > | null | undefined,
 ): string[] {
   if (!sub) return ["Contact your property manager for payment instructions."];
-  const methods: string[] = [];
-  if (sub.zellePaymentsEnabled && sub.zelleContact?.trim()) methods.push(`Zelle (${sub.zelleContact.trim()})`);
-  if (sub.venmoPaymentsEnabled && sub.venmoContact?.trim()) methods.push(`Venmo (${sub.venmoContact.trim()})`);
   if (axisPaymentsEnabledOnListing(sub)) {
-    methods.push("PropLane payments — bank (ACH), card (Apple Pay), or Link with no added fees");
+    return ["PropLane payments — bank (ACH), card (Apple Pay), or Link"];
   }
-  if (methods.length === 0) methods.push("Zelle, Venmo, ACH, or cash — your manager marks payments received.");
-  return methods;
+  return ["PropLane online payments — ask your manager to finish payment setup."];
 }
 
-/** The payment method a resident settles a charge with — manager-controlled per property, chosen by the resident. */
-export type ResidentAcceptedPaymentMethod = "zelle" | "venmo" | "ach" | "card";
+/** Stripe checkout methods only — Zelle/Venmo are retired from the product. */
+export type ResidentAcceptedPaymentMethod = "ach" | "card";
 
-export const RESIDENT_ACCEPTED_PAYMENT_METHODS: ResidentAcceptedPaymentMethod[] = ["zelle", "venmo", "ach", "card"];
+export const RESIDENT_ACCEPTED_PAYMENT_METHODS: ResidentAcceptedPaymentMethod[] = ["ach", "card"];
 
 export const RESIDENT_ACCEPTED_PAYMENT_METHOD_LABELS: Record<ResidentAcceptedPaymentMethod, string> = {
-  zelle: "Zelle",
-  venmo: "Venmo",
-  ach: "ACH",
+  ach: "Bank (ACH)",
   card: RESIDENT_CARD_PAYMENT_DISPLAY_LABEL,
 };
 
@@ -328,12 +356,16 @@ export function isResidentAcceptedPaymentMethod(value: unknown): value is Reside
   return typeof value === "string" && (RESIDENT_ACCEPTED_PAYMENT_METHODS as string[]).includes(value);
 }
 
-/** Payment methods a property accepts from residents. Unset/empty = every method is accepted (default). */
+/** Payment methods a property accepts from residents — Stripe (ACH + card) only. */
 export function acceptedPaymentMethodsForListing(
   sub: Pick<ManagerListingSubmissionV1, "acceptedPaymentMethods"> | null | undefined,
 ): ResidentAcceptedPaymentMethod[] {
   const raw = sub?.acceptedPaymentMethods;
+  const stripeOnly = (RESIDENT_ACCEPTED_PAYMENT_METHODS as readonly string[]);
   if (!Array.isArray(raw) || raw.length === 0) return [...RESIDENT_ACCEPTED_PAYMENT_METHODS];
-  const filtered = RESIDENT_ACCEPTED_PAYMENT_METHODS.filter((m) => raw.includes(m));
+  const filtered = raw.filter(
+    (m): m is ResidentAcceptedPaymentMethod =>
+      typeof m === "string" && stripeOnly.includes(m),
+  );
   return filtered.length > 0 ? filtered : [...RESIDENT_ACCEPTED_PAYMENT_METHODS];
 }

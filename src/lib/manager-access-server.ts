@@ -3,6 +3,7 @@ import { cache } from "react";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { generateManagerId } from "@/lib/manager-id";
 import {
+  isWaiverGrantedManagerPurchase,
   normalizeManagerSkuTier,
   pickBestManagerPurchaseRow,
   resolveEffectiveManagerSkuTier,
@@ -296,7 +297,7 @@ export async function getManagerServiceFeePayerByManagerId(
     const supabase = createSupabaseServiceRoleClient();
     const { data } = await supabase
       .from("manager_purchases")
-      .select("user_id, tier")
+      .select("user_id, tier, promo_code")
       .eq("manager_id", normalized)
       .maybeSingle();
     if (!data) return "resident";
@@ -308,6 +309,9 @@ export async function getManagerServiceFeePayerByManagerId(
       adminOverride: settings?.adminServiceFeeOverride ?? null,
       propertyChoice: options.propertyChoice ?? null,
       managerChoice: settings?.serviceFeePayer ?? null,
+      waiverGranted: isWaiverGrantedManagerPurchase(
+        (data as { promo_code?: string | null }).promo_code ?? null,
+      ),
     });
   } catch {
     return "resident";

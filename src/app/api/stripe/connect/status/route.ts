@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { resolveStripePayoutContext } from "@/lib/auth/manager-stripe-payout-access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import {
   clearManagerConnectAccountId,
@@ -26,10 +28,14 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    const { data: profile } = await supabase
+    const service = createSupabaseServiceRoleClient();
+    const payout = await resolveStripePayoutContext(service, user.id);
+    const payoutOwnerUserId = payout.payoutOwnerUserId;
+
+    const { data: profile } = await service
       .from("profiles")
       .select("stripe_connect_account_id")
-      .eq("id", user.id)
+      .eq("id", payoutOwnerUserId)
       .maybeSingle();
 
     const accountId =
@@ -44,6 +50,9 @@ export async function GET() {
         transfersEnabled: false,
         paymentReady: false,
         detailsSubmitted: false,
+        payoutOwnerUserId,
+        canEditBankAccount: payout.canEditBankAccount,
+        isCoManagerForPayout: payout.isCoManagerForPayout,
       });
     }
 
@@ -51,7 +60,7 @@ export async function GET() {
       const stripe = getStripe();
       const existing = await retrieveManagerConnectAccountOrNull(stripe, accountId);
       if (!existing) {
-        await clearManagerConnectAccountId(supabase, user.id);
+        await clearManagerConnectAccountId(supabase, payoutOwnerUserId);
         return NextResponse.json({
           connected: false,
           accountId: null,
@@ -60,6 +69,9 @@ export async function GET() {
           transfersEnabled: false,
           paymentReady: false,
           detailsSubmitted: false,
+          payoutOwnerUserId,
+          canEditBankAccount: payout.canEditBankAccount,
+          isCoManagerForPayout: payout.isCoManagerForPayout,
           stripeError:
             "Your saved Stripe payout account is no longer linked to this platform. Connect again below.",
         });
@@ -77,6 +89,9 @@ export async function GET() {
         paymentReady,
         transfersStatus: acct.capabilities?.transfers ?? null,
         detailsSubmitted: Boolean(acct.details_submitted),
+        payoutOwnerUserId,
+        canEditBankAccount: payout.canEditBankAccount,
+        isCoManagerForPayout: payout.isCoManagerForPayout,
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Stripe error";

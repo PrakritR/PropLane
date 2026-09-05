@@ -67,7 +67,7 @@ describe("application-fee-channel", () => {
     expect(resolveApplicationFeePayChannel(sub, "other")).toBe("other");
   });
 
-  it("includes zelle and venmo when contacts are set", () => {
+  it("never enables zelle or venmo application-fee channels", () => {
     const sub = normalizeManagerListingSubmissionV1({
       ...createDefaultListingSubmission(),
       zellePaymentsEnabled: true,
@@ -76,8 +76,8 @@ describe("application-fee-channel", () => {
       venmoContact: "@landlord",
     });
     const channels = listingApplicationFeeChannels(sub);
-    expect(channels.zelle).toBe(true);
-    expect(channels.venmo).toBe(true);
+    expect(channels.zelle).toBe(false);
+    expect(channels.venmo).toBe(false);
   });
 
   it("includes ACH when axis payments are enabled", () => {
