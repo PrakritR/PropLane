@@ -942,6 +942,167 @@ fails a new route that branches on `"resident"` without consulting
 `profile_roles`. Its deferred-route allowlist is a shrinking record of known
 violations (task `axis-dual-portal-role-resolution`), never a place to add a new
 one.
+- **No folder tabs.** The list shows ALL live conversations (inbox + sent).
+  Manager / resident / vendor route on
+  `/communication/{active|archived}[/{threadId}]` — `PortalListControlStack`
+  destinations that scope that ONE list and deep-link the open thread, never
+  folders: `archived` is the trashed view. Unread is NOT a segment — it is a
+  per-row dot on `InboxConversationRow` that clears when the thread is opened,
+  and the legacy `/communication/unread` path redirects to `active` (keeping the
+  deep-linked thread id). Admin still routes
+  `/communication/inbox/{tab}` and reaches archived through its
+  `admin-inbox-archived-toggle` button. Trash/restore live in the open thread —
+  never re-add a top-level Schedule/Trash tab. `INBOX_TAB_DEFS` and the standalone
+  tabbed panels survive only for the /demo path and legacy route redirects — on
+  those three portals every legacy `inbox` / `email` / `sms` path now folds into a
+  segment rather than resolving a tab.
+- **Scheduled messages render INLINE in the recipient's thread** as a COMPACT,
+  collapsible "Scheduled · sends <when> · <subject>" card (`InboxScheduledCard`)
+  that expands for the full body + Send now / Cancel send / Edit; Edit is an
+  INLINE textarea saved via `onSaveEdit` (no separate form). The standalone
+  Schedule table is gone from production. Matching is pure:
+  `scheduledItemsForRecipient(email, manual, automation)` in
+  `src/lib/inbox-scheduled-thread.ts`. Edit permissions are unchanged —
+  resident-originated / resident-side rows are cancel-only (the resident
+  scheduled-message route only patches status), so residents pass no `onSaveEdit`.
+  `onSaveEdit` MUST reject on failure (see `saveScheduledEdit` in
+  `manager-inbox.tsx`) — the card keeps the editor open and shows the error
+  instead of closing and discarding the manager's text.
+  **Admin is the one exception to "inline".** Its Communication is a flat table
+  with no chat pane, and a scheduled send to someone admin has never messaged has
+  no conversation row to sit in, so admin keeps a reachable Scheduled view behind
+  an `admin-inbox-scheduled-toggle` button beside the archive toggle. It is a
+  view toggle, not a folder tab; do not delete it while the admin compose modal
+  can still schedule — that leaves scheduled sends uncancellable.
+- **`scheduled-message-path-id.ts` must NEVER use the `base64url` encoding
+  token.** It runs client-side (building the scheduled-message action URL), and
+  Next's browser Buffer polyfill throws "Unknown encoding: base64url" — that
+  crashed Send now / Cancel / Edit on automation messages. Use btoa/atob + the
+  `base64` transform only (`tests/unit/scheduled-message-path-id.test.ts` guards
+  this with a throwing-Buffer shim).
+- **Thread messages are channel-tagged** (`InboxBubbleMessage.channel`,
+  `InboxChannel = email|sms|whatsapp|gmail`). Email is the only live channel; the
+  tag exists so SMS/WhatsApp/Gmail tag into the SAME per-person thread (built on
+  the one-thread-per-person `portal-inbox-delivery.ts` foundation) rather than a
+  parallel list. Bubbles render the FULL body (pre-wrap, no clamp).
+- **SMS UI is gated by `isSmsCommUiEnabled()`** (`src/lib/sms-comm-ui-flag.server.ts`,
+  env `SMS_COMM_UI_ENABLED`, default OFF, server-resolved). `render-portal-section.tsx`
+  threads it as the `smsUiEnabled` prop into all four Communication components
+  (manager / resident / vendor / admin), which gate their compose "via SMS"
+  channel, SMS rows, and SMS panel on it. It gates ONLY the UI — SMS transport,
+  both SMS agents, and phone provisioning stay live. ⚠️ While hidden, inbound-SMS
+  notices must stay visible: `filterEmailInboxThreads(rows, { keepSmsLike:
+  !smsUiEnabled })` lets them fall through into the conversation list instead of
+  vanishing into the hidden SMS panel. Coverage:
+  `tests/unit/unified-conversation-inbox.test.tsx`,
+  `tests/unit/resident-conversation-inbox.test.tsx`,
+  `tests/unit/vendor-conversation-inbox.test.tsx`,
+  `tests/unit/portal-nav-communication-count.test.tsx`,
+  `tests/unit/inbox-scheduled-thread.test.ts`,
+  `tests/unit/inbox-thread-omnichannel.test.tsx`,
+  `tests/unit/sms-comm-ui-flag.test.ts`.
+- **Residents cannot schedule a compose** — `disabled={portal === "resident"}` on
+  `PortalMessageScheduleFields`, which RETURNS NULL when disabled, so the control
+  is removed rather than greyed out. Deliberate (commit `e021015a`, "hide resident
+  compose scheduling"); reviewers keep re-raising it as a regression. Distinct
+  from the separate rule that resident-originated scheduled rows are cancel-only.
+  The resident send path still handles `scheduleLater`, so reversing it is a
+  one-line prop change.
+- **A message enters the thread store only AFTER the send is authorized — on
+  both sides.** `/api/portal/send-inbox-message` can still answer
+  `403 "You can only message people connected to your account."` well past the
+  thread-ownership check, so the route RESOLVES the target thread up front
+  (`resolveInboxThreadReplyTarget`, read-only) and defers the write
+  (`commitInboxThreadReply`) until after `filterRecipientsBySenderScope` passes;
+  the combined `appendInboxThreadReply` is safe only where ownership is the only
+  gate. The client mirrors this: `resident-inbox-panel.tsx` renders the
+  optimistic bubble in local state but calls `upsertPersistedInboxRows` only
+  once a channel succeeds, withdrawing the bubble and surfacing the server's own
+  error text on refusal. Appending first shipped a 403-then-200 sequence where a
+  refused message became the thread's `preview`, so the conversation list read
+  "You: …" and residents believed a maintenance request had been delivered.
+  The manager (`manager-inbox.tsx`) and vendor (`vendor-inbox-panel.tsx`) reply
+  paths are NOT migrated yet — they still let a refused reply reach the store —
+  so copy the resident panel's shape rather than theirs. Coverage:
+  `tests/unit/resident-refused-send-not-delivered.test.tsx`,
+  `tests/integration/portal/send-inbox-message.test.ts`.
+- **A conversation's `time` is BOTH its label and its sort key, so every writer
+  must stamp it identically.** The canonical shape is `formatInboxStamp`
+  (`portal-inbox-storage.ts`) — `"Aug 3, 5:31 PM"`, en-US and pinned to
+  **Pacific** (`formatPacificDateTime`), which server-side writers call
+  directly. The stamp carries no year and no timezone and is re-parsed by
+  `parseInboxStampMs`, so a bare `toLocaleString()` is never acceptable: the
+  delivery path runs UTC on Vercel while the browser renders local, and the same
+  instant stored two ways let an older message outrank a newer one.
+  `appendReplyToInboxThread` normalizes a foreign stamp on the way in AND
+  advances `thread.time`, and rows sort on `inboxThreadSortMs(id, thread.time)`
+  — the thread's own normalized stamp, never a message's raw `at`, with the id's
+  millisecond epoch only as a last resort. A withdrawn (refused) optimistic
+  reply must restore `time` alongside `messages` / `preview` / `unread`, or a
+  send that never happened keeps the thread pinned to the top. Coverage:
+  `tests/unit/inbox-thread-recency-order.test.ts`,
+  `tests/unit/portal-inbox-send-threading.test.ts`.
+- **Client surfaces re-filter on the email embedded in `row_data`, while the
+  server authorizes on the `resident_email` COLUMN.** When the two disagree the
+  server hands the row over and the client silently discards it — a Fully Signed
+  lease vanishes from `/resident/lease` while the charge generator keeps billing
+  under it. Only the applications path carries a legacy-domain shim
+  (`resident-application-ownership.ts`); lease and messaging do NOT, by
+  decision. Repair drifted dev data with
+  `npm run test:seed:repair-identity-drift` (dev/test only, verifies after
+  writing); it also realigns `profiles.manager_id` / `user_metadata.axis_id`,
+  which `residentLeaseAuthorized` compares against `row.axisId` and which hides
+  a lease just as effectively as a stale email.
+
+## Inbox attachments
+
+`src/lib/inbox-attachments.ts` (client) + `.server.ts` +
+`/api/portal/inbox-attachments`. Images and PDFs, ≤4 per message.
+
+- **The serve route NEVER answers `inline`.** The bytes are attacker-supplied and
+  the route is on the app's own origin, so an inline response is a same-origin
+  document the uploader authored — survivable while every allowed type was an
+  inert raster image, an escalation the moment `application/pdf` was allow-listed.
+  `contentDispositionForInboxAttachmentPath` is deliberately type-BLIND so a
+  future `ALLOWED_MIME` edit cannot reopen it, and the response also carries
+  `default-src 'none'; sandbox`, `nosniff`, and `Cross-Origin-Resource-Policy`.
+  `Content-Disposition` does not affect subresource loads, so `<img>` previews are
+  unaffected; clicking any attachment downloads it.
+- ⚠️ **That download does NOT work in the Capacitor shell.** WKWebView turns an
+  attachment disposition into a download only when the host app implements
+  `WKDownloadDelegate` (it does not), and it ignores a synthetic `<a download>`
+  too — so on iOS the plain anchor is a tap that does nothing.
+  `InboxAttachmentChip` (`portal-inbox-ui.tsx`) therefore intercepts the click on
+  `isNativeRuntimeSync()` ONLY — never `prefersFileShareSheet()`, which is also
+  true in iOS Safari — fetches the same-origin URL with credentials and hands the
+  blob to `downloadOrShareFile`. Handing a `File` to the OS never renders the
+  bytes on-origin, so this does not reopen the rule above. Any new attachment
+  surface needs the same treatment.
+- **The storage key carries the uploader's file name**:
+  `<userId>/<ts>-<uuid>/<sanitized name>`. It is the only visible label on a PDF
+  chip, and nothing else stores it. Keeping it IN the key means the label can
+  never drift from the bytes, and every "derive the name from the path" reader is
+  correct with no plumbing. `sanitizeInboxAttachmentFileName` restricts it to
+  `[A-Za-z0-9._-]` (Supabase key charset; also blocks `..`, separators, and
+  `Content-Disposition` header injection). Ownership checks still read `path[0]`,
+  and two-segment legacy paths still resolve.
+- **Read the name from `?path=`, never the URL's last segment.** The serve URL
+  percent-encodes the whole path, so splitting the URL yields the route name;
+  that is why recipient-side chips were all labelled "inbox-attachments", and why
+  the `row_data` copy has to beat the URL segment. Sender and recipient share one
+  helper, `inboxAttachmentChipName`: key segment → stored `name` → URL segment
+  (`inboxAttachmentDisplayName`).
+- **`.pdf` is a SUFFIX test, not a substring** (`inboxAttachmentLooksLikePdf`) —
+  `floorplan.pdf.png` is an image and must preview inline.
+- ⚠️ **The `portal-inbox-attachments` bucket's own `allowed_mime_types` and size
+  limit gate uploads independently of the route's `ALLOWED_MIME` /
+  `MAX_PDF_BYTES`,** and no migration in this repo creates or configures that
+  bucket. A type the route accepts but the bucket does not fails as a 500
+  "mime type … is not supported" that surfaces to the user as "PDF upload
+  failed." Check the bucket when adding a type or raising a size cap.
+- Coverage: `tests/unit/inbox-attachments.server.test.ts`,
+  `tests/unit/inbox-attachment-display.test.ts`,
+  `tests/unit/inbox-attachment-chip.test.tsx`.
 
 # Emailed auth links are `token_hash`, never a PKCE `code`
 
@@ -1085,6 +1246,305 @@ dispatch, bidding, invoicing and Connect payouts hanging off them. They share a
 counts when adding features to either. Where copy must tell them apart, the
 add-on side is "add-on service" / "add-on request"; the maintenance side is
 plain "service".
+counts when adding features to either.
+
+# Property ownership: only Properties reads it, so drift is nearly invisible
+
+`/portal/properties` is the ONLY manager surface scoped by
+`manager_property_records.manager_user_id` (owned + accepted co-manager links,
+`GET /api/property-records`). Residents, Applications, and the Communication
+property filter read **denormalized** property labels off application/lease rows
+(`propertyOptionsFromContacts` in `src/lib/manager-inbox-contacts.ts` builds the
+house list from `manager_application_records`, never from the property record).
+
+So a property row that changes owner takes Properties to `0 / 0 / 0` while every
+other surface keeps listing the same houses — which reads as "the Properties
+page is broken" or "the seed has no properties" when the data is fine and the
+OWNER moved. When those surfaces disagree, diff the two sources before touching
+either.
+
+- **`POST /api/property-records` never MOVES an owned row from the request body
+  — not even for an admin.** Every client posts `managerUserId` straight out of a
+  browser-local pipeline bucket (`mirrorLocalPropertyPipelineToServer`,
+  `mirrorAdminPropertyRecord`, `promoteLegacyPendingListingsToLive`), so honoring
+  it let a stale local bucket keyed by another user id silently hand live
+  listings to that account. Ownership changes have exactly one door:
+  `transferPropertyOwnership` (requires an accepted co-manager link, audited,
+  notifies both sides). Only a MISSING row on an UPSERT is a create, and only
+  there does the body's `managerUserId` win (the admin inventory publishes on a
+  manager's behalf; a non-admin naming anyone else gets 403). A **DELETE of a
+  missing row is 404, refused before owner resolution — never a create.** The
+  create branch has no stored owner to authorize against and only 403s a caller
+  who NAMES someone else, so a delete that fell into it was unchecked, and the
+  delete branch then ran `clearHousingAccessForDeletedProperty` with the
+  SERVICE-ROLE client — a globally scoped helper that strips co-manager grants
+  and scrubs residents' housing fields to "Moved out" across EVERY manager. That
+  helper matches property ids EXACTLY for the same reason (a normalizing token
+  folded one manager's id onto another's, so deleting a listing you legitimately
+  own reached a victim's rows). Deliberately a 404 rather than a silent 200
+  no-op; the client reads it as "already gone"
+  (`deletePropertyRecordFromServer`) so the refusal cannot strand an unclearable
+  local draft. A FAILED owner lookup is a 500, never an absent row — falling
+  through would 404 a delete whose row is still there, which the client reports
+  as success. An EXISTING row whose
+  `manager_user_id` is blank — the column is `on delete set null`, so an
+  OWNERLESS row is a real production state — is still an edit, not a create: an
+  admin may adopt it onto a manager, and every other caller goes through the
+  same co-manager gate as an owned row, so knowing a public listing id never
+  adopts an orphan. The co-manager branch preserves that absence as `null` and
+  never writes `""` (not a uuid — Postgres rejects the whole upsert, which
+  surfaced as a 500 on an ordinary save) and never `user.id` (that would be the
+  silent adoption this route was hardened against). Coverage:
+  `tests/unit/property-records-owner-not-reassignable.test.ts`,
+  `tests/unit/property-records-delete-missing-row.test.ts`,
+  `tests/unit/clear-property-housing-access-exact-id-match.test.ts`.
+- **The seed reclaims drifted owners before anything else reads ownership.**
+  `tests/helpers/reclaim-canonical-property-owners.mjs` (called from
+  `seed-test-db.mjs`, also runnable as `npm run test:seed:reclaim-properties`)
+  is not the only writer — the canonical catalog upsert earlier in the seed also
+  rewrites `manager_user_id` for those ids — but it is the only step that
+  *verifies*: it re-reads after writing and throws if a row is still mis-owned,
+  and it runs before the account prune, which deletes property rows BY stray
+  owner (a canonical id still mis-owned at prune time is deleted rather than
+  reclaimed). Every other cleanup check scopes
+  `.in("manager_user_id", testManagerIds)` and therefore cannot see a canonical
+  id parked on a stranger's account at all. Standalone, it always reclaims to
+  the canonical demo manager and refuses to run when `E2E_MANAGER_EMAIL` names
+  a different account.
+
+# Plan entitlements: the displayed plan and the enforced plan are one value
+
+`MANAGER_PLAN_TIERS` (`src/data/manager-plan-tiers.ts`) is the advertised copy;
+`src/lib/manager-access.ts` is the enforcement model. Two rules, both learned the
+hard way (audit F-SET-1: Settings read "CURRENT PLAN Free · 1 property listing"
+on an account with five listings and no paywall anywhere).
+
+- **`resolveEffectiveManagerSkuTier` is the ONLY plan a quota may read.**
+  `manager_purchases.tier` is `null` for an ordinary account that signed up and
+  never reached pricing (`provisionPendingManagerAccount` inserts `tier: null`),
+  and `maxPropertiesForManagerTier(null)` means *uncapped* — so the raw column
+  reported "Free" to `getManagerSubscriptionTier` and "no limit" to the property
+  cap for the same row. No committed SKU and no live Stripe/Apple grant behind
+  it → Free. `GET /api/manager/subscription` exposes it as `effectiveTier` and
+  derives `propertyLimit` / `accountLinkLimit` from it;
+  `getEffectiveManagerSkuTier` is the server-side twin, and it returns a RESULT
+  — an unreadable plan and "no committed SKU" both produce zero purchase rows,
+  so collapsing them would enforce Free on a transient DB error and refuse a
+  paying Business manager their sixth listing. Callers fail closed on
+  `ok: false`. **That rule has to reach BOTH halves or it is worse than not
+  having it**, because the client caches what the route says: a plan the server
+  could not read is reported as `planUnknown: true` with `effectiveTier`,
+  `propertyLimit` and `accountLinkLimit` all `null` and `isFree: false`, so
+  Properties draws no limit banner and pre-refuses nothing — the client stops
+  pre-judging and the server gate, which already 500s on that path, decides.
+  `manager-subscription-client.ts` does NOT cache an unknown read, or one
+  transient error would freeze a Business manager at "reached your plan limit of
+  1 property" for the whole session. **It caches BOTH values and they
+  are not interchangeable**: `loadManagerEffectivePlanTierClient`
+  (`effectiveTier`) is for the property-limit pre-checks only, because the
+  server re-resolves that same value; every other client gate mirroring a server
+  check that still reads `null` as legacy full access wants the raw
+  `loadManagerSubscriptionTierClient`. Screenings is why — caching
+  `effectiveTier` for everyone paywalled a panel `orderScreeningForApplication`
+  still serves.
+- **The property cap is enforced server-side, not in the wizard.**
+  `assertManagerPropertyListingQuota`
+  (`src/lib/manager-property-quota.server.ts`) runs on every
+  `POST /api/property-records` upsert AND in the two assistant write tools that
+  put a record into a slot without passing through that route —
+  `create_property` (inserts `pending`) and `update_property` (sets `live`).
+  Otherwise a manager at their cap could ask the agent for the listing the
+  portal's disabled "+ Add property" and its Relist button both refuse. The
+  other tool-layer writers of `manager_property_records` are deliberately
+  ungated and say so in a comment: `copy_listing_photos`,
+  `update_property_lease_config` and `apply_listing_photos` patch only
+  `row_data`/`property_data`, and `upsertManagerListingDraft` always writes
+  `draft`. Any NEW writer that can move a record into a listing slot needs the
+  same call. The client checks are courtesy
+  pre-checks so a manager hears it before their photos upload; every layer
+  prints the same sentence from `managerPropertyLimitMessage`, and the route's
+  403 body (`MANAGER_PROPERTY_LIMIT_ERROR_CODE`) travels back through
+  `upsertPropertyRecordToServer`'s `onError(message, code)` into the wizard
+  toast — a refusal must never degrade to "Could not submit listing."
+  `mirrorLocalPropertyPipelineToServer` sends its writes SEQUENTIALLY for the
+  same reason: fired concurrently, N creates each read the slot count before any
+  of them lands, so the cap would be racy on the path most likely to send
+  several at once. It reports the first refusal once per run, never per row —
+  and it has exactly ONE owner (`ManagerProperties`; the properties panel it
+  renders deliberately does not mirror, or every load doubled the writes and
+  toasted twice). The mirror keys on the `code`, never on "the body had an
+  error": it is background work the manager never initiated, so a 500's raw
+  Postgres text stays silent. Only a caller the manager is waiting on — the
+  wizard — shows the server's message verbatim.
+- **It gates the TRANSITION INTO a listing slot, never the state of being over
+  the cap.** `LISTING_SLOT_PROPERTY_STATUSES` (`persisted-property-records.ts`)
+  is `pending`/`live`/`review` — derived from `propertyRowsToSnapshot`, which is
+  what the portal itself counts, so drafts and unlisted rows are free. A row
+  already in a slot is never re-charged, which is what lets a seeded or
+  downgraded over-limit portfolio keep editing, unlisting, relisting-in-place
+  and deleting. **Block creation; never delete or hide a manager's records.** A
+  failed slot count — or a plan that cannot be read — is a 500, never "zero
+  used" and never the Free cap.
+- **Relist transitions ONE record in place, and must never pair its upsert with
+  a delete of the same id.** Every unlisted row comes from
+  `unlistManagerListing` via `mockToAdminRow(removed, listingId)`, so
+  `adminRefId === listingId` and the upsert `listAdminRow` mirrors already
+  carries that id. `listAdminRow` used to follow it with a fire-and-forget
+  `deleteMirroredPropertyRecord` at that same id, which only looked harmless
+  while every upsert was accepted and the next mirror re-created the row. A
+  refusal the viewer-scoped client pre-check cannot predict — an owner at their
+  cap behind a co-managed listing, or a plan the server could not read — would
+  otherwise let the delete land alone and take
+  `clearHousingAccessForDeletedProperty` with it. Coverage:
+  `tests/unit/manager-relist-in-place.test.ts`.
+- **Section entitlements are a separate, page-level gate** and deliberately
+  unchanged here: `managerSectionAllowedForTier` + `subscriptionGated` in
+  `render-portal-section.tsx` paywall Residents/Leases/Services/Communication
+  for a committed Free plan, but an account with NO `manager_purchases` row
+  still resolves to `null` in `getManagerSubscriptionTier` (legacy full access).
+  Locking those sections would make existing records unreachable, so it is a
+  product decision, not a bug to quietly fix. Their API routes are also ungated
+  — a free manager can still read/write residents, leases and inbox rows over
+  HTTP. Known gap, deliberately not closed alongside the property cap.
+- Coverage: `tests/unit/manager-effective-plan-tier.test.ts`,
+  `property-records-plan-property-limit.test.ts`,
+  `property-listing-slot-statuses.test.ts`,
+  `manager-listing-publish-limit-feedback.test.ts`,
+  `manager-subscription-tier-client.test.ts`,
+  `manager-subscription-route-unknown-plan.test.ts`,
+  `manager-relist-in-place.test.ts`,
+  `tools/property-resident-writes.test.ts`.
+
+# Property drafts (save add-property progress)
+
+A manager can save an in-progress "add property" wizard and finish it later. This
+is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
+(`src/lib/persisted-property-records.ts`) — **NOT** a parallel drafts store, and
+**NOT** `"unlisted"` (which means a previously-live listing the manager took
+*down*; a draft has never been published). Key invariants:
+
+- **Drafts never reach a prospect surface.** They have `status = "draft"` (never
+  `"live"`) and no `property_data`, so `getPublicListings()`
+  (`src/lib/public-listings.server.ts`, filters `status = "live"`) and the browse
+  /search components exclude them with zero extra code. The record's RLS
+  `select_own` policy keeps a draft private to its owner; co-managers never see
+  another manager's drafts (they carry no linked-property grant).
+- **Storage = the existing side-bucket pattern.** A draft is an `AdminPropertyRow`
+  (carrying the full `submission` for resume) in a new `drafts` side bucket
+  (`PropertyPipelineSnapshot`, `SideBuckets`, `AdminPropertyBucketIndex` 5). Save
+  /publish/delete live in `demo-admin-property-inventory.ts`
+  (`saveManagerPropertyDraftToServer` / `publishManagerPropertyDraftToServer` /
+  `deleteManagerPropertyDraft`).
+- **The draft's record id IS the eventual live `mgr-…` listing id.** Publishing
+  (final "Submit listing") re-upserts the SAME id `draft → live` and drops it
+  from the drafts bucket — no orphaned duplicate. A brand-new wizard that was
+  closed mid-way also publishes-in-place via the remembered id (`draftIdRef`
+  in `manager-add-listing-form.tsx`), never a second row.
+- **That id is therefore a permanent public URL, so it is never minted from a
+  blank name.** A save made before the manager typed a property name gets a
+  neutral `mgr-listing-<rand>` id flagged `draftIdProvisional`, never a
+  blank-slug `mgr---<rand>`. The first later save *in the same wizard session*
+  re-keys it to the real `mgr-<building>-<unit>-<rand>` id — **write before
+  delete**: the re-keyed row is upserted first and only then is the superseded
+  row deleted, so a failed save can never leave the draft with *no* server
+  record. If that delete fails the stale row deliberately stays visible in the
+  Drafts list so the manager can remove it; a short-lived duplicate draft is the
+  only tolerated intermediate state, never a missing one. A **resumed** draft
+  keeps its id (`allowIdUpgrade: false`) — re-keying it would change the drafts
+  table row key and unmount the open editor. Publishing is always in place, so
+  the one-record invariant holds either way. Unnamed drafts render as "Untitled
+  draft" in the list.
+- **Closing the wizard also saves — there is no "Save draft" button.** Every
+  close affordance (footer Close, header ✕, backdrop click) routes through
+  `closeWizard` in `manager-add-listing-form.tsx`, which flushes any unsaved
+  edits as a draft and only then calls `onClose`. While the wizard stays open,
+  **background autosave** debounces (`LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS` in
+  `manager-listing-draft-autosave.ts`) and persists in-progress work to Drafts
+  without closing. Two guards make implicit save safe to leave: an UNTOUCHED
+  wizard closes without writing anything (the baseline fingerprint captured on
+  first render, `manager-listing-draft-autosave.ts`, compares the whole
+  submission rather than an allowlist of fields, so a field added to the wizard
+  tomorrow is covered), and every EDIT mode (pending / live listing /
+  request-change / `preview` scope) is excluded, because those rows are already
+  persisted elsewhere and drafting one would fork it. A failed draft write leaves
+  the wizard OPEN with the work intact rather than closing on a lie. Coverage:
+  `tests/unit/listing-wizard-draft-autosave.test.tsx` drives the real component
+  through the real save path.
+- **Draft saving is unvalidated** (partial-friendly, on every step) and does NOT
+  count toward the plan property limit; **publishing** runs full validation +
+  the limit gate like any new listing — so the wizard's `skuTier`/`skuLoaded`
+  come from the one `/api/manager/subscription` load in `manager-properties.tsx`
+  (a null tier reads as "no limit", so Continue editing waits for `skuLoaded`).
+  Saving also persists the wizard position (`draftStepIndex` /
+  `draftMaxStepReached`) so resuming reopens on the saved step with the earlier
+  chips unlocked. The list surface is the "Drafts" stage in `MANAGER_STAGES`
+  (`manager-house-properties-panel.tsx`) with Continue editing / Delete draft.
+  Migration: `…_manager_property_records_draft_status.sql` adds `'draft'` to the
+  status CHECK.
+- **The wizard is the only editor of a draft.** The drafts row (bucket 5) hides
+  every detail panel that persists through `houseSaveTarget` (House details,
+  Application questions, Lease) — a draft is absent from the extras catalog, so
+  those panels would resolve to `{mode: "listing"}` and their save would mirror
+  the record `status: "live"`. **Unlisted rows (bucket 3) hide the same three
+  panels for the same reason**: `unlistManagerListing` calls
+  `removeExtraListing`, so an unlisted listing is likewise absent from the live
+  catalog and saving one used to silently re-list it. Relist it to edit it.
+  `updateExtraListingFromSubmission` refuses an id it cannot find in the live
+  catalog (searching every owner's key, so co-managed listings still save),
+  which is the backstop for that whole class of "edit a non-live row into the
+  public catalog" bug.
+- **Deleting a draft reclaims its uploads.** `deleteManagerPropertyDraft` is
+  async: it awaits the server delete and reports success only when the row is
+  really gone (a failed delete leaves the draft visible instead of letting it
+  reappear on the next sync), then removes the submission's `listing-photos`
+  objects via `deleteSubmissionMediaObjects`
+  (`src/lib/listing-media-storage.ts`). **A record does not own its uploads
+  exclusively** — an object's URL lives on the submission, so the two draft rows
+  a partially-failed re-key leaves behind reference the *same* bucket objects.
+  `deleteSubmissionMediaObjects` therefore takes every surviving submission
+  (`survivingSubmissions`: the other side-bucket rows, the live catalog and the
+  pending queue) and skips any path still referenced; deleting the leftover
+  duplicate must never strip the surviving draft's photos. Draft *count* is
+  deliberately uncapped.
+
+## Group applications & lease bundles (independent accounts)
+
+A "group application" (roommates / a bundled lease household) is **several
+independent applications tied by a shared Group ID**, never one merged record.
+Each member keeps their own application row (`manager_application_records`), own
+email, own AXIS id, own screening, and — once approved — their own resident
+account and single-resident `LeasePipelineRow`. Nothing about the group changes
+the 1-application → 1-account → 1-lease model; the group is a **reconciliation
+view**, so every resident on a bundled lease still owns an independent login,
+portal, and identity while the household reads as one unit.
+
+- **Shared Group ID (`AXISGRP-…`).** The first applicant mints it on submit
+  (`resolveSubmitGroupId` in `src/lib/rental-application/application-groups.ts`);
+  it is stored on `application.groupId` in that member's snapshot and echoed on
+  the finish screen (`rental-application-finish-panel.tsx`) to copy/share.
+  Joining applicants paste it in wizard step 1 (`rental-wizard-steps.tsx`) and it
+  validates via `validateAxisGroupId` (prefix + length ≥ 12).
+- **Reconciliation is pure + testable.** `application-groups.ts` groups rows by
+  normalized `groupId`, derives expected size from the first applicant's
+  `groupSize`, and computes `submittedCount` / `missingCount` / `isComplete`.
+  `manager-applications.tsx` renders it as a "Group N/M" row badge plus a
+  per-application "Group application" roster (`ApplicationGroupSection`).
+- **No silent deadlock.** A group never *blocks* — approvals stay per-member.
+  An unfinished member surfaces as "waiting on N", it does not gate the others.
+- **Money-adjacent surfaces for bundle+group households.** When applicants apply as a
+  group **and** select the same `bundleId`, move-in charges split equally across the
+  declared household size (`src/lib/bundle-group/bundle-cost-split.ts` →
+  `household-charges.ts`). Each member still has their own charge rows with split
+  metadata; amounts are equal shares of bundle totals (deposit, utilities, rent,
+  move-in fee).
+- **Joint bundle lease.** When every member of a complete bundle group is approved,
+  `lease-pipeline-storage.ts` creates one `leaseKind: "joint_bundle"` row (not one
+  lease per person). All co-tenants appear on the lease document; the manager reviews
+  and sends a single household lease. Per-member lease rows are suppressed for joint
+  members.
+- The listing-side `ManagerBundleRow` (grouped rooms at one price, applicant's
+  `bundleId`) and group applications (`groupId`) are linked when both are present —
+  use `src/lib/bundle-group/` for reconciliation, split math, and joint lease helpers.
 
 # Financials UI cleanup (Blue Steel consolidation)
 

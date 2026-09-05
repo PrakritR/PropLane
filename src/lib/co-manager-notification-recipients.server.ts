@@ -62,7 +62,9 @@ export async function resolvePropertyScopedManagerRecipientIds(
       return [...recipientIds];
     }
 
-    const module = input.channel;
+    // Not named `module`: Next forbids assigning that identifier
+    // (@next/next/no-assign-module-variable).
+    const permissionModule = input.channel;
     for (const row of links ?? []) {
       const inviteeId = String(row.invitee_user_id ?? "").trim();
       if (!inviteeId) continue;
@@ -71,7 +73,7 @@ export async function resolvePropertyScopedManagerRecipientIds(
       const perms = readPropertyPermissionsFromRow(
         row as Parameters<typeof readPropertyPermissionsFromRow>[0],
       );
-      if (!hasCoManagerPermissionLevelForProperty(perms, propertyId, module, "notification")) continue;
+      if (!hasCoManagerPermissionLevelForProperty(perms, propertyId, permissionModule, "notification")) continue;
       recipientIds.add(inviteeId);
     }
   } catch {
