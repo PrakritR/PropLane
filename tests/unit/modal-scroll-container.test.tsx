@@ -8,11 +8,16 @@
 // cannot ship again.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { Modal } from "@/components/ui/modal";
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // Radix FocusScope restores focus in a queued setTimeout(0) on unmount.
+  // Let it finish while this jsdom realm is still installed: otherwise its
+  // CustomEvent can be constructed after environment teardown and dispatched
+  // onto an element from the old realm, which fails EventTarget's type check.
+  await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 0)); });
   vi.unstubAllGlobals();
 });
 
