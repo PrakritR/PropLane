@@ -44,8 +44,6 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<InspectionDetail | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [application, setApplication] = useState(applicationId ?? "");
   const [date, setDate] = useState(() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`; });
@@ -98,7 +96,6 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const residencies = data.residencies.filter(r => (!applicationId || r.id === applicationId) && r.canCreate);
   const candidates = data.reports.filter(r => r.application_id === application && r.kind === "move-in" && r.status === "completed" && r.inspection_date <= date);
   const reports = data.reports.filter(r => r.kind === kind);
-  const filtered = reports.filter(r => (status === "all" || r.status === status) && `${r.resident_name} ${r.property_label} ${r.room_label}`.toLowerCase().includes(search.toLowerCase()));
   const create = () => run(async () => {
     const parsed = createInspectionSchema.safeParse({ applicationId: application, kind, inspectionDate: date, baselineId: kind === "move-out" && baseline ? baseline : null });
     if (!parsed.success) throw new Error(parsed.error.issues[0]?.message || "Check the inspection details.");
@@ -114,19 +111,15 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     <PortalListControlStack variant="command" stickyDestinations={false} destinationAriaLabel="Inspection type" activeDestinationId={kind}
       destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: data.reports.filter(r => r.kind === id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
       destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: data.reports.filter(r => r.kind === id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
-      search={{ value: search, onChange: value => { setSearch(value); setSelected(new Set()); }, placeholder: "Search inspections…", ariaLabel: "Search inspections", dataAttr: "inspection-search" }}
-      actions={<Button variant="outline" disabled={busy} onClick={() => refresh(true)} data-attr="inspection-list-refresh">Refresh</Button>}
-      filterRow={<Select aria-label="Inspection status" value={status} onChange={e => { setStatus(e.target.value); setSelected(new Set()); }} data-attr="inspection-status-filter"><option value="all">All statuses</option><option value="draft">Draft</option><option value="submitted">Awaiting review</option><option value="completed">Completed</option></Select>}
     />
-    <p className="text-sm text-muted">Document condition, notes and photos for each residency. Move-out reports can compare against a completed move-in inspection.</p>
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error}</p>}
     {loading ? <div role="status" aria-label="Loading inspections" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div> : <PortalRecordListSurface
-      isEmpty={filtered.length === 0}
-      empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to create and review residency inspections." : reports.length ? "No inspections match these filters." : `No ${kindLabel(kind).toLowerCase()} inspections yet.${residencies.length ? " Add an inspection to start documenting condition." : " An approved resident with a property placement is needed to start."}`}</p>}
+      isEmpty={reports.length === 0}
+      empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to create and review residency inspections." : `No ${kindLabel(kind).toLowerCase()} inspections yet.${residencies.length ? " Add an inspection to start documenting condition." : " An approved resident with a property placement is needed to start."}`}</p>}
       add={residencies.length ? { ariaLabel: `Add ${kindLabel(kind).toLowerCase()} inspection`, onClick: () => { setApplication(applicationId ?? residencies[0]?.id ?? ""); setBaseline(""); setCreateOpen(true); }, dataAttr: "inspection-add" } : undefined}
       bulkCount={selected.size}
       bulkActions={<PortalSectionActionRow variant="header"><Button variant="outline" disabled={busy} onClick={() => run(async () => { for (const id of selected) await downloadInspection(role, id); })} data-attr="inspection-bulk-download">Download PDF{selected.size > 1 ? "s" : ""}</Button>{selected.size === 1 && <Button disabled={busy} onClick={() => open([...selected][0]!)} data-attr="inspection-bulk-open">View inspection</Button>}</PortalSectionActionRow>}
-    >{filtered.map(report => <PortalPersonRecordRow key={report.id} name={report.resident_name} subtitle={`${report.property_label}${report.room_label ? ` · ${inspectionRoomLabel(report.room_label)}` : ""}`} preview={`${kindLabel(report.kind)} inspection · ${report.inspection_date}`} meta={report.inspection_date} badge={<Badge tone={report.status === "completed" ? "success" : report.status === "submitted" ? "warning" : "neutral"}>{statusLabel(report.status)}</Badge>} checked={selected.has(report.id)} onSelectedChange={checked => setSelected(current => { const next = new Set(current); if (checked) next.add(report.id); else next.delete(report.id); return next; })} onOpen={() => { void open(report.id); }} dataAttr="inspection-row" />)}</PortalRecordListSurface>}
+    >{reports.map(report => <PortalPersonRecordRow key={report.id} name={report.resident_name} subtitle={`${report.property_label}${report.room_label ? ` · ${inspectionRoomLabel(report.room_label)}` : ""}`} preview={`${kindLabel(report.kind)} inspection · ${report.inspection_date}`} trailing={<Badge tone={report.status === "completed" ? "success" : report.status === "submitted" ? "warning" : "neutral"}>{statusLabel(report.status)}</Badge>} checked={selected.has(report.id)} onSelectedChange={checked => setSelected(current => { const next = new Set(current); if (checked) next.add(report.id); else next.delete(report.id); return next; })} onOpen={() => { void open(report.id); }} dataAttr="inspection-row" />)}</PortalRecordListSurface>}
     <Modal open={createOpen} onClose={() => { if (!busy) setCreateOpen(false); }} dismissBlocked={busy} title={`New ${kindLabel(kind).toLowerCase()} inspection`} assistantStrip={false} footer={<Button onClick={create} disabled={busy || !application || !date} data-attr="inspection-create">Create inspection</Button>}>
       <div className="space-y-4">
         <label className="block space-y-1 text-sm">Resident and placement<Select aria-label="Resident and placement" value={application} disabled={Boolean(applicationId)} onChange={e => { setApplication(e.target.value); setBaseline(""); }} data-attr="inspection-residency">{residencies.map(r => <option key={r.id} value={r.id}>{r.name} · {r.property}{r.room ? ` · ${inspectionRoomLabel(r.room)}` : ""}</option>)}</Select></label>

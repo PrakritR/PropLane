@@ -17,6 +17,8 @@ export type InspectionItem = { id: string; label: string; manager: InspectionObs
 export type InspectionArea = { id: string; label: string; items: InspectionItem[] };
 export type InspectionHistory = { action: string; role: InspectionRole; userId: string; at: string };
 export type InspectionDocument = {
+  /** New reports pin the actual room assignment; legacy reports retain their saved shape. */
+  roomScope?: { assignment: string; label: string };
   areas: InspectionArea[];
   history: InspectionHistory[];
   residentAcknowledgment: { userId: string; at: string } | null;
