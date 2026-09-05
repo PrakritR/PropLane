@@ -23,6 +23,29 @@ import {
 } from "@/components/portal/pro-messaging-settings-panel";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 
+/**
+ * The panel now also mounts the pay-as-you-go billing card, which fetches
+ * /api/manager/comms-billing on mount. A plain `mockResolvedValueOnce` queue
+ * gets consumed by that call, so every positional assertion below shifted.
+ * Route by URL instead: billing answers "disabled" (the card renders nothing),
+ * and the queued responses stay reserved for the work-number endpoint.
+ */
+function messagingFetchMock(responses: Response[]) {
+  const queue = [...responses];
+  const fn = vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input).includes("/api/manager/comms-billing")) {
+      return Response.json({ paygEnabled: false });
+    }
+    return queue.shift() ?? Response.json({});
+  });
+  return fn;
+}
+
+/** Only the work-number calls — billing noise excluded. */
+function numberCalls(fn: ReturnType<typeof messagingFetchMock>) {
+  return fn.mock.calls.filter((c) => !String(c[0]).includes("/api/manager/comms-billing"));
+}
+
 vi.mock("@/hooks/use-manager-user-id", () => ({
   useManagerUserId: () => ({ userId: "mgr-test", email: "mgr@example.com", ready: true }),
 }));
@@ -128,10 +151,7 @@ describe("ManagerMessagingSettingsPanel", () => {
       },
       canRequest: false,
     };
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json(readyToRequest))
-      .mockResolvedValueOnce(Response.json(requested));
+    const fetchMock = messagingFetchMock([Response.json(readyToRequest), Response.json(requested)]);
     vi.stubGlobal("fetch", fetchMock);
     render(<ManagerMessagingSettingsPanel />);
 
@@ -141,10 +161,10 @@ describe("ManagerMessagingSettingsPanel", () => {
     expect((screen.getByLabelText("Preferred area code (optional)") as HTMLInputElement).value).toBe("510");
     fireEvent.click(request);
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(fetchMock.mock.calls[0]?.[1]).not.toMatchObject({ method: "POST" });
-    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+    await waitFor(() => expect(numberCalls(fetchMock)).toHaveLength(2));
+    expect(numberCalls(fetchMock)[0]?.[1]).not.toMatchObject({ method: "POST" });
+    expect(numberCalls(fetchMock)[1]?.[1]).toMatchObject({ method: "POST" });
+    expect(JSON.parse(String(numberCalls(fetchMock)[1]?.[1]?.body))).toEqual({
       action: "request_number",
       areaCode: "510",
     });
@@ -200,10 +220,7 @@ describe("ManagerMessagingSettingsPanel", () => {
         lastError: null,
       },
     };
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json(readyToRequest))
-      .mockResolvedValueOnce(Response.json(assigned));
+    const fetchMock = messagingFetchMock([Response.json(readyToRequest), Response.json(assigned)]);
     vi.stubGlobal("fetch", fetchMock);
     render(<ManagerMessagingSettingsPanel />);
 
@@ -389,18 +406,15 @@ describe("ManagerMessagingSettingsPanel", () => {
         lastError: null,
       },
     };
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json(ineligible))
-      .mockResolvedValueOnce(Response.json(ineligible));
+    const fetchMock = messagingFetchMock([Response.json(ineligible), Response.json(ineligible)]);
     vi.stubGlobal("fetch", fetchMock);
     render(<ManagerMessagingSettingsPanel />);
 
     fireEvent.click(
       await screen.findByRole("button", { name: "Check eligibility" }),
     );
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+    await waitFor(() => expect(numberCalls(fetchMock)).toHaveLength(2));
+    expect(JSON.parse(String(numberCalls(fetchMock)[1]?.[1]?.body))).toEqual({
       action: "refresh_eligibility",
     });
   });
@@ -415,32 +429,29 @@ describe("ManagerMessagingSettingsPanel", () => {
       entitlement: { eligible: false, reason: "plan_unreadable" },
       number: null,
     };
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json(unchecked))
-      .mockResolvedValueOnce(
-        Response.json({
+    const fetchMock = messagingFetchMock([Response.json(unchecked), Response.json({
           ...unchecked,
           // Once reconciled, the plan class settles — here to a confirmed free
           // plan, which is what the upsell copy keys off under plan-tier gating.
           planTier: "free",
           entitlement: { eligible: false, reason: "free" },
-        }),
-      );
+        }),]);
     vi.stubGlobal("fetch", fetchMock);
     render(<ManagerMessagingSettingsPanel />);
 
     fireEvent.click(
       await screen.findByRole("button", { name: "Check eligibility" }),
     );
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
+    await waitFor(() => expect(numberCalls(fetchMock)).toHaveLength(2));
+    expect(JSON.parse(String(numberCalls(fetchMock)[1]?.[1]?.body))).toEqual({
       action: "refresh_eligibility",
     });
     // Once checked, the state is a real plan answer with a real next step.
     expect(
       await screen.findByText(
-        "A dedicated number is included with an active paid Pro or Business plan.",
+        // PAYG changed this line: a number is no longer "included" with a paid
+        // plan, so the free-plan next step is upgrade AND a payment method.
+        "Upgrade to Pro or Business, then add a payment method for pay-as-you-go texting and voice.",
       ),
     ).toBeTruthy();
     expect(screen.getByRole("link", { name: "View plans" })).toBeTruthy();
@@ -560,15 +571,10 @@ describe("ManagerMessagingSettingsPanel", () => {
           "Twilio Messaging Service sender-pool attachment failed (code 20403, HTTP 403). The purchased number was released.",
       },
     };
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json(ready))
-      .mockResolvedValueOnce(
-        Response.json(
+    const fetchMock = messagingFetchMock([Response.json(ready), Response.json(
           { ...failed, error: failed.number?.lastError },
           { status: 502 },
-        ),
-      );
+        ),]);
     vi.stubGlobal("fetch", fetchMock);
     render(<ManagerMessagingSettingsPanel />);
 
@@ -612,10 +618,7 @@ describe("ManagerMessagingSettingsPanel", () => {
       error:
         "Twilio release was not confirmed after a failed attach. PropLane will not retry automatically.",
     };
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(Response.json(readyToRequest))
-      .mockResolvedValueOnce(Response.json(quarantined, { status: 502 }));
+    const fetchMock = messagingFetchMock([Response.json(readyToRequest), Response.json(quarantined, { status: 502 })]);
     vi.stubGlobal("fetch", fetchMock);
     render(<ManagerMessagingSettingsPanel />);
 
