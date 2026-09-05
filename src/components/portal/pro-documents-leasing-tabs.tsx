@@ -80,7 +80,13 @@ function LeasingDocumentsPropertyFilter({
   dataAttr: string;
 }) {
   if (propertyOptions.length === 0) return null;
-  const options = [{ id: "", label: "All properties" }, ...propertyOptions];
+  // The filter primitives key on `value`; the shared portfolio builder returns
+  // `id`. Map at the boundary, as every other caller does — matching on `id`
+  // makes filterSingleSelectSummary's lookup miss and shows the raw id.
+  const options = [
+    { value: "", label: "All properties" },
+    ...propertyOptions.map((p) => ({ value: p.id, label: p.label })),
+  ];
   return (
     <div className="mb-3 px-1">
       <FilterFieldsAccordion>
