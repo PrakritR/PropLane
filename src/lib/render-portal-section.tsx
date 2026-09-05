@@ -84,12 +84,13 @@ const LEGACY_FINANCIALS_TAB_MAP: Record<string, string> = {
   "cash-flow": "cash-flow-statement",
 };
 
-const DOCUMENTS_TABS = ["library", "templates", "applications", "leases", "income-documents", "expense-documents", "occupancy", "1099", "tax-summary"] as const;
+const DOCUMENTS_TABS = ["applications", "leases", "other", "library", "templates", "income-documents", "expense-documents", "occupancy", "1099", "tax-summary"] as const;
 
 const LEGACY_DOCUMENTS_TAB_MAP: Record<string, string> = {
   summary: "tax-summary",
   "rent-receipts": "income-documents",
   "rental-days": "income-documents",
+  library: "other",
 };
 const FINANCIALS_TABS = ["income", "expenses", "trial-balance", "balance-sheet", "general-ledger", "cash-flow-statement", "payout-history", "trust-account-balance", "security-deposits", "financial-diagnostics", "ap-aging", "bills", "budget-vs-actual", "bank-reconciliation", "owner-statement", "owner-distributions"] as const;
 
@@ -159,7 +160,7 @@ async function renderManagerDocumentsSection(
 ) {
   if (section !== "documents") return null;
   if (!tabParts?.length) {
-    redirect(`${basePath}/documents/library`);
+    redirect(`${basePath}/documents/applications`);
   }
   if (tabParts.length > 2) notFound();
   const docTab = tabParts[0]!;

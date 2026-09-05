@@ -59,13 +59,19 @@ import {
 } from "@/components/portal/pro-document-library";
 import { ManagerDocumentTemplatesPanel } from "@/components/portal/pro-document-templates-panel";
 
-export const DOCUMENT_TABS = [
+export const DOCUMENT_TAB_DESTINATIONS = [
   { id: "applications", label: "Applications" },
   { id: "leases", label: "Leases" },
-  { id: "income-documents", label: "Rent documents" },
-  { id: "expense-documents", label: "Expense documents" },
+  { id: "other", label: "Other" },
+] as const;
+
+/** Every routable documents tab id (including hidden report views kept for bookmarks). */
+export const DOCUMENT_TABS = [
+  ...DOCUMENT_TAB_DESTINATIONS,
   { id: "library", label: "All files" },
   { id: "templates", label: "Templates" },
+  { id: "income-documents", label: "Rent documents" },
+  { id: "expense-documents", label: "Expense documents" },
   { id: "occupancy", label: "Occupancy" },
   { id: "1099", label: "1099 forms" },
   { id: "tax-summary", label: "Tax summary" },
@@ -267,8 +273,7 @@ export function ManagerDocumentsPanel({
   const showTaxYear = tabId === "1099";
   const showScope = tabId === "income-documents" || tabId === "expense-documents";
   const isLeasingDocumentsTab = tabId === "applications" || tabId === "leases";
-  const isLibraryTab = tabId === "library";
-  const isTemplatesTab = tabId === "templates";
+  const isOtherDocumentsTab = tabId === "other" || tabId === "library";
   const activeTabLabel = DOCUMENT_TABS.find((tab) => tab.id === tabId)?.label ?? "Documents";
 
   const handleGenerateReport = useCallback(() => {
@@ -277,9 +282,16 @@ export function ManagerDocumentsPanel({
   }, [runReport]);
 
   const documentTabItems = useMemo(
-    () => DOCUMENT_TABS.map((tab) => ({ ...tab, href: `${basePath}/documents/${tab.id}` })),
+    () => DOCUMENT_TAB_DESTINATIONS.map((tab) => ({ ...tab, href: `${basePath}/documents/${tab.id}` })),
     [basePath],
   );
+
+  const activeDestinationId =
+    tabId === "library" || tabId === "templates"
+      ? "other"
+      : DOCUMENT_TAB_DESTINATIONS.some((tab) => tab.id === tabId)
+        ? tabId
+        : "applications";
 
   const exportActions = (
     <>
@@ -313,7 +325,7 @@ export function ManagerDocumentsPanel({
       Boolean(incomeReceiptExportHref && generated));
 
   const documentsCommandActions =
-    !isLeasingDocumentsTab && !isLibraryTab && !isTemplatesTab ? (
+    !isLeasingDocumentsTab && !isOtherDocumentsTab && tabId !== "templates" ? (
       <>
         {hasExportActions ? exportActions : null}
         <Button
@@ -357,15 +369,15 @@ export function ManagerDocumentsPanel({
           href: tab.href,
           dataAttr: `documents-tab-${tab.id}`,
         }))}
-        activeDestinationId={tabId}
+        activeDestinationId={activeDestinationId}
         destinationAriaLabel="Document view"
         actions={documentsCommandActions}
       />
-      {tabId === "library" ? (
-            <ManagerDocumentLibrary ref={libraryRef} userId={userId ?? null} hideFilterChrome />
-          ) : tabId === "templates" ? (
+      {tabId === "templates" ? (
           <ManagerDocumentTemplatesPanel />
-        ) : tabId === "applications" ? (
+        ) : isOtherDocumentsTab ? (
+            <ManagerDocumentLibrary ref={libraryRef} userId={userId ?? null} />
+          ) : tabId === "applications" ? (
           <ManagerApplicationDocumentsTab userId={userId ?? null} basePath={basePath} />
         ) : tabId === "leases" ? (
           <ManagerLeaseDocumentsTab userId={userId ?? null} />

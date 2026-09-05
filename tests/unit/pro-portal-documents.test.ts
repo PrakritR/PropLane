@@ -9,42 +9,15 @@ describe("pro portal documents section", () => {
     expect(sections).toContain("financials");
   });
 
-  it("documents tabs include library, templates, applications, leases, income/expense docs, occupancy, 1099, and tax summary", () => {
+  it("documents tabs are applications, leases, and other", () => {
     const documents = proPortal.sections.find((s) => s.section === "documents");
-    expect(documents?.tabs.map((t) => t.id)).toEqual([
-      "library",
-      "templates",
-      "applications",
-      "leases",
-      "income-documents",
-      "expense-documents",
-      "occupancy",
-      "1099",
-      "tax-summary",
-    ]);
+    expect(documents?.tabs.map((t) => t.id)).toEqual(["applications", "leases", "other"]);
   });
 
-  it("finances tabs are income and expenses", () => {
+  it("finances tabs are income and expenses only in nav", () => {
     const financials = proPortal.sections.find((s) => s.section === "financials");
     expect(financials?.label).toBe("Finances");
-    expect(financials?.tabs.map((t) => t.id)).toEqual([
-      "income",
-      "expenses",
-      "trial-balance",
-      "balance-sheet",
-      "general-ledger",
-      "cash-flow-statement",
-      "payout-history",
-      "trust-account-balance",
-      "security-deposits",
-      "financial-diagnostics",
-      "ap-aging",
-      "bills",
-      "budget-vs-actual",
-      "bank-reconciliation",
-      "owner-statement",
-      "owner-distributions",
-    ]);
+    expect(financials?.tabs.map((t) => t.id)).toEqual(["income", "expenses"]);
   });
 
   it("orders leasing → tenancy → operations → marketing → team → finances, then feedback before profile", () => {

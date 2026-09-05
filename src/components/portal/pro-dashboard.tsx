@@ -871,8 +871,8 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
     docExpirySummary && (docExpirySummary.expired > 0 || docExpirySummary.within30 > 0);
   const docExpiryHref =
     docExpirySummary && docExpirySummary.expired > 0
-      ? `${BASE}/documents/library?expiry=expired`
-      : `${BASE}/documents/library?expiry=expiring30`;
+      ? `${BASE}/documents/other?expiry=expired`
+      : `${BASE}/documents/other?expiry=expiring30`;
 
   return (
     <ManagerPortalPageShell

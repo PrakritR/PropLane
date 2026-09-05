@@ -381,9 +381,13 @@ function FinancesDataTable({
   );
 }
 
-const FINANCE_TABS = [
+const FINANCE_TAB_DESTINATIONS = [
   { id: "income", label: "Income" },
   { id: "expenses", label: "Expenses" },
+] as const;
+
+const FINANCE_TABS = [
+  ...FINANCE_TAB_DESTINATIONS,
   { id: "trial-balance", label: "Trial balance" },
   { id: "balance-sheet", label: "Balance sheet" },
   { id: "general-ledger", label: "General ledger" },
@@ -823,9 +827,12 @@ export function ManagerFinancesPanel({
   })();
 
   const financeTabItems = useMemo(
-    () => FINANCE_TABS.map((tab) => ({ ...tab, href: `${basePath}/financials/${tab.id}` })),
+    () => FINANCE_TAB_DESTINATIONS.map((tab) => ({ ...tab, href: `${basePath}/financials/${tab.id}` })),
     [basePath],
   );
+
+  const activeFinanceDestinationId =
+    tabId === "income" || tabId === "expenses" ? tabId : "income";
 
   const specialFinancePanels = new Set(["bills", "bank-reconciliation", "security-deposits", "owner-distributions"]);
   const showScopedReportFilters = !specialFinancePanels.has(tabId);
@@ -1037,7 +1044,7 @@ export function ManagerFinancesPanel({
           href: tab.href,
           dataAttr: `finances-tab-${tab.id}`,
         }))}
-        activeDestinationId={tabId}
+        activeDestinationId={activeFinanceDestinationId}
         destinationAriaLabel="Finance view"
         actions={financesCommandActions}
         activeFilterChips={
