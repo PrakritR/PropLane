@@ -487,6 +487,7 @@ export function Modal({
   const [assistantConversationInstance, setAssistantConversationInstance] = useState(1);
   const [assistantExpanded, setAssistantExpanded] = useState(assistantDefaultExpanded);
   const [editorDismissed, setEditorDismissed] = useState(false);
+  const [detachedScope, setDetachedScope] = useState("");
   const [assistantTriggerTarget, setAssistantTriggerTarget] = useState<HTMLSpanElement | null>(null);
   const wasOpenRef = useRef(false);
   useLayoutEffect(() => {
@@ -527,11 +528,13 @@ export function Modal({
   if (!open) return null;
 
   if (showAssistantStrip) {
+    const workspaceFullScreen = fullPage || (presentation === "drawer" && fullScreenMobile);
     const closeEditor = () => {
       if (dismissBlocked) return;
       if (!assistantExpanded) { onClose(); return; }
       // Remove the draft's mounted controls and rotate its scoped conversation:
       // a preview for the discarded editor must never remain actionable.
+      setDetachedScope(`Detached assistant ${crypto.randomUUID()}`);
       setEditorDismissed(true);
       setAssistantConversationInstance((n) => n + 1);
     };
@@ -557,14 +560,20 @@ export function Modal({
         <div
           data-modal-assistant-workspace=""
           className={cn(
-            "pointer-events-none flex min-h-0 min-w-0 flex-1 items-center justify-center p-4",
-            assistantExpanded && "lg:pr-[25rem]",
+            "pointer-events-none flex min-h-0 min-w-0 flex-1 items-center justify-center",
+            workspaceFullScreen ? "p-0" : "p-4",
+            assistantExpanded && (workspaceFullScreen ? "lg:pr-96" : "lg:pr-[25rem]"),
             assistantExpanded && "max-lg:invisible",
           )}
           inert={assistantExpanded && presentation === "drawer" ? true : undefined}
         >
           {!editorDismissed ? (
-            <div className={cn(MODAL_PANEL_CLASS, "pointer-events-auto min-h-0 @container max-lg:max-h-[calc(100dvh-2rem)]", resolvedPanelClassName, fullPage && "h-full max-w-none")}>
+            <div className={cn(
+              MODAL_PANEL_CLASS,
+              "pointer-events-auto min-h-0 @container max-lg:max-h-[calc(100dvh-2rem)]",
+              resolvedPanelClassName,
+              workspaceFullScreen && cn(MODAL_FULL_PAGE_PANEL_CLASS, "!relative !inset-auto !h-full !max-h-full", dense ? "px-4" : "px-5"),
+            )}>
               <ModalPanelInner
                 {...panelInnerProps}
                 onClose={closeEditor}
@@ -582,7 +591,7 @@ export function Modal({
         <ModalAssistantStrip
           contextHint={editorDismissed ? null : assistantHint}
           editHint={editorDismissed ? null : assistantEditHint}
-          storageScopeKey={editorDismissed ? "Detached assistant" : assistantStorageScopeKey?.trim() || assistantHint}
+          storageScopeKey={editorDismissed ? detachedScope : assistantStorageScopeKey?.trim() || assistantHint}
           conversationInstance={assistantConversationInstance}
           onExpandedChange={closeOrToggleAssistant}
           defaultExpanded={editorDismissed || assistantDefaultExpanded}

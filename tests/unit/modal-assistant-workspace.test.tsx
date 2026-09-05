@@ -143,6 +143,39 @@ describe("modal assistant workspace", () => {
     expect(screen.queryByTestId("assistant")).not.toBeInTheDocument();
   });
 
+  it("gives separately mounted detached assistants fresh storage identities", async () => {
+    const user = userEvent.setup();
+    const first = render(<Workspace />);
+    await user.click(screen.getByRole("button", { name: "Ask PropLane" }));
+    await user.click(screen.getByRole("button", { name: "Close", exact: true }));
+    const firstScope = screen.getByTestId("conversation").getAttribute("data-scope");
+    first.unmount();
+    render(<Workspace />);
+    await user.click(screen.getByRole("button", { name: "Ask PropLane" }));
+    await user.click(screen.getByRole("button", { name: "Close", exact: true }));
+    expect(screen.getByTestId("conversation").getAttribute("data-scope")).not.toBe(firstScope);
+  });
+
+  it.each([true, false])("preserves fullScreenMobile=%s with the assistant closed", (fullScreenMobile) => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() }));
+    render(<PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName="Manager">
+      <Modal open title="Mobile editor" onClose={() => {}} fullScreenMobile={fullScreenMobile}><Editor /></Modal>
+    </PortalAssistantConfigProvider>);
+    const panel = screen.getByRole("textbox", { name: "Message draft" }).closest(".modal-panel")!;
+    expect(panel.className.includes("!max-w-none")).toBe(fullScreenMobile);
+    expect(panel.className.includes("native-safe-top")).toBe(true);
+  });
+
+  it("preserves fullPage sizing and safe-area padding with the assistant closed", () => {
+    render(<PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName="Manager">
+      <Modal open title="Full-page editor" onClose={() => {}} fullPage><Editor /></Modal>
+    </PortalAssistantConfigProvider>);
+    const panel = screen.getByRole("textbox", { name: "Message draft" }).closest(".modal-panel")!;
+    expect(panel.className).toContain("!max-w-none");
+    expect(panel.className).toContain("!relative");
+    expect(panel.className).toContain("native-safe-top");
+  });
+
   it.each(["Escape", "outside", "dialog canvas"])("dismisses both panels via %s", async (method) => {
     const user = userEvent.setup();
     render(<Workspace />);

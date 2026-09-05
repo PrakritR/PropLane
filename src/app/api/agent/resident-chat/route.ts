@@ -7,12 +7,11 @@ import type { ActionPreview } from "@/lib/tools/registry";
 import { RESIDENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { sanitizeChatMessages, lastUserText, applyChatAttachments } from "@/lib/agent/chat-handler";
 import { createPendingAction } from "@/lib/tools/pending-actions";
-import { handlePendingActionDecision } from "@/lib/agent/pending-action-decision";
+import { agentChatRateLimitResponse, handlePendingActionDecision } from "@/lib/agent/pending-action-decision";
 import { ensureAgentSession, appendAgentMessages } from "@/lib/agent/sessions";
 import { handleAgentChatHistoryDeleteRequest, handleAgentChatHistoryRequest } from "@/lib/agent/chat-history-route";
 import { MODAL_CHAT_SESSION_KIND, PORTAL_CHAT_SESSION_KIND } from "@/lib/agent/chat-history";
 import { loadAgentCustomInstructions, withAgentCustomInstructions } from "@/lib/agent/user-preferences";
-import { rateLimit } from "@/lib/rate-limit";
 import { track } from "@/lib/analytics/posthog";
 import { traceAgentTurn } from "@/lib/observability/langfuse";
 import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
@@ -50,19 +49,18 @@ export async function POST(req: Request) {
   const ctx = await resolveResidentAgentContext();
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-  if (!rateLimit(`resident-chat:${ctx.userId}`, 20, 300_000).ok) {
-    return NextResponse.json(
-      { error: "You're sending messages a little fast — please wait a moment and try again." },
-      { status: 429 },
-    );
-  }
-
   let body: Record<string, unknown> = {};
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    const parsed: unknown = await req.json();
+    body = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
   } catch {
     body = {};
   }
+
+  const limited = agentChatRateLimitResponse(body, ctx.userId, "resident");
+  if (limited) return limited;
 
   // Confirm / deny of an earlier proposal: the body carries ONLY the action id.
   // The stored input is re-validated and the handler re-resolves state itself.

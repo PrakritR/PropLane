@@ -3456,3 +3456,14 @@ html[data-native] [data-listing-subnav] {
     visibility: hidden;
   }
 }
+
+/* Vaul normally transforms partial sheets. While its assistant is open, expand
+   that same focus boundary to the viewport so the fixed rail is not clipped or
+   offset by a raised sheet. Closing chat restores the sheet's original layout. */
+[data-vaul-drawer][data-modal-assistant-open] {
+  inset: 0 !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  transform: none !important;
+  will-change: auto !important;
+}

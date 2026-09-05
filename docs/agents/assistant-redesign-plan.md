@@ -206,3 +206,22 @@ The user approved the mock in saved chat `01a07021-29b9-75b0-8897-a7d12d1ace8d`
 - Resource constraint: single-worker unit checks with a 768 MB heap; no Next
   build, dependency installation, authenticated live-provider test or deployment.
   The temporary preview server was stopped after verification.
+
+
+## Staging validation follow-up
+
+The user requested direct unit/browser validation and explicitly stopped the
+no-mistakes run. Review findings were fixed directly before promotion:
+
+- Pure authenticated denials have a separate per-role/user rate-limit bucket;
+  chat and confirms retain their previous limits and all ownership gates.
+- Each detached assistant gets a fresh random scope, preventing restoration of
+  another dialog's detached transcript.
+- Full-page and full-screen mobile editor sizing/safe areas are preserved.
+- An active assistant expands Vaul's focus boundary to the viewport and removes
+  its transform containing block; closing it restores the raised/partial sheet.
+
+Validation: 110 tests across 12 focused unit suites passed; changed-file ESLint
+and diff checks passed. Real-component browser checks passed at desktop/tablet/
+phone widths, including a raised Vaul sheet and typed confirmation with simulated
+API responses. Full compilation is delegated to the staging Vercel deployment.
