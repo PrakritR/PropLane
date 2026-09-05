@@ -10,9 +10,10 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { normalizeLeasePipelineRow, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   loadManagerReminderRecipients,
-  loadTeamReminderRecipientsByManager,
+  loadTeamReminderRecipients,
   teamReminderRecipients,
 } from "@/lib/reminders/manager-recipients.server";
+import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
 import { materializeReminders } from "@/lib/reminders/queue.server";
 import type { ReminderRecipient } from "@/lib/reminders/queue.server";
 import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
@@ -106,13 +107,6 @@ export async function sweepLeaseReminders(db: SupabaseClient, now: Date = new Da
     loadReminderSettingsForManagers(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),
   ]);
-  const teamRecipientsByManager = await loadTeamReminderRecipientsByManager(
-    db,
-    managerIds.map((managerUserId) => ({
-      managerUserId,
-      teamUserIds: settingsByManager.get(managerUserId)?.rules.lease.teamUserIds ?? [],
-    })),
-  );
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
 
   let queued = 0;
@@ -120,9 +114,12 @@ export async function sweepLeaseReminders(db: SupabaseClient, now: Date = new Da
     const settings = settingsByManager.get(entry.managerUserId);
     if (!settings?.rules.lease.enabled) continue;
     const managerRecipient = managerRecipients.get(entry.managerUserId);
-    const teamRecipients = settings.rules.lease.audience.team
-      ? teamReminderRecipients(teamRecipientsByManager.get(entry.managerUserId) ?? [])
-      : [];
+    const teamRecipients = teamReminderRecipients(
+      await loadTeamReminderRecipients(db, entry.managerUserId, settings.rules.lease.teamUserIds ?? [], {
+        module: REMINDER_SUBJECT_CO_MANAGER_MODULE.lease,
+        propertyId: entry.lease.propertyId ?? null,
+      }),
+    );
     const leaseUrl = `${origin}/resident/lease`;
     const propertyLabel = entry.lease.unit?.trim() || null;
 

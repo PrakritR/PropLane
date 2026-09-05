@@ -23,11 +23,11 @@ import {
   loadManagerReminderRecipients,
   loadTeamReminderRecipients,
   teamReminderRecipients,
-  type TeamReminderRecipient,
 } from "@/lib/reminders/manager-recipients.server";
 import type { ManagerReminderRecipient } from "@/lib/reminders/manager-recipients.server";
 import type { ReminderRecipient } from "@/lib/reminders/queue.server";
 import { managerNotificationCategoryForTask } from "@/lib/manager-notification-preferences";
+import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
 
 /** How far ahead to look. Comfortably past the longest lead time a rule allows. */
 const HORIZON_DAYS = 31;
@@ -77,7 +77,6 @@ async function sweepManagerTasks(
   tasks: readonly ManagerTask[],
   settings: ReminderSettings,
   managerRecipient: ManagerReminderRecipient | undefined,
-  teamMembers: readonly TeamReminderRecipient[],
   now: Date,
 ): Promise<number> {
   const rule = settings.rules.task;
@@ -101,9 +100,14 @@ async function sweepManagerTasks(
         userId: managerUserId,
       });
     }
-    if (rule.audience.team) {
-      recipients.push(...teamReminderRecipients(teamMembers));
-    }
+    recipients.push(
+      ...teamReminderRecipients(
+        await loadTeamReminderRecipients(db, managerUserId, rule.teamUserIds ?? [], {
+          module: REMINDER_SUBJECT_CO_MANAGER_MODULE.task,
+          propertyId: task.propertyId ?? null,
+        }),
+      ),
+    );
     if (rule.audience.counterparty && assigneeAddress) {
       recipients.push({
         email: assigneeAddress,
@@ -174,16 +178,12 @@ export async function sweepTaskReminders(db: SupabaseClient, now: Date = new Dat
     if (tasks.length === 0) continue;
     const settings = settingsByManager.get(row.manager_user_id);
     if (!settings) continue;
-    const teamMembers = settings.rules.task.audience.team
-      ? await loadTeamReminderRecipients(db, row.manager_user_id, settings.rules.task.teamUserIds)
-      : [];
     queued += await sweepManagerTasks(
       db,
       row.manager_user_id,
       tasks,
       settings,
       managerRecipients.get(row.manager_user_id),
-      teamMembers,
       now,
     );
   }

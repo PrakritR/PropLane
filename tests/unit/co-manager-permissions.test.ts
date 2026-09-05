@@ -39,12 +39,26 @@ describe("buildAllModulesGrant (editor presets)", () => {
     expect(hasCoManagerPermissionLevel(del, "documents", "edit")).toBe(false);
   });
 
-  it("full grants all three levels (collapses to legacy true)", () => {
+  it("full grants all four levels (collapses to legacy true)", () => {
     const g = buildAllModulesGrant("full");
     expect(g.calendar).toBe(true);
-    for (const level of ["read", "edit", "delete"] as const) {
+    for (const level of ["read", "edit", "delete", "notification"] as const) {
       expect(hasCoManagerPermissionLevel(g, "calendar", level)).toBe(true);
     }
+  });
+
+  it("notification can be granted without read access", () => {
+    const g = normalizeCoManagerPermissions({ payments: { notification: true } });
+    expect(hasCoManagerPermissionLevel(g, "payments", "notification")).toBe(true);
+    expect(hasCoManagerPermissionLevel(g, "payments", "read")).toBe(false);
+  });
+
+  it("read implies notification unless notification is explicitly false", () => {
+    const implied = normalizeCoManagerPermissions({ payments: { read: true } });
+    expect(hasCoManagerPermissionLevel(implied, "payments", "notification")).toBe(true);
+    const optedOut = normalizeCoManagerPermissions({ payments: { read: true, notification: false } });
+    expect(hasCoManagerPermissionLevel(optedOut, "payments", "notification")).toBe(false);
+    expect(hasCoManagerPermissionLevel(optedOut, "payments", "read")).toBe(true);
   });
 });
 

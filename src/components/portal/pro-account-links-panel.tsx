@@ -224,26 +224,34 @@ function teamInviteStatusLabel(inv: AccountLinkInviteDto): string {
   return TEAM_MEMBER_ROLE_LABEL;
 }
 
-type GrantLevels = { read?: boolean; edit?: boolean; delete?: boolean };
+type GrantLevels = { read?: boolean; edit?: boolean; delete?: boolean; notification?: boolean };
 
 function grantToLevels(grant: CoManagerPermissions[CoManagerPermissionId]): GrantLevels {
-  if (grant === true) return { read: true, edit: true, delete: true };
+  if (grant === true) return { read: true, edit: true, delete: true, notification: true };
   if (grant && typeof grant === "object") {
+    const read = grant.read === true || grant.edit === true || grant.delete === true;
+    const notification =
+      grant.notification === false
+        ? false
+        : grant.notification === true || read || grant.edit === true || grant.delete === true;
     return {
-      read: grant.read === true || grant.edit === true || grant.delete === true,
+      read,
       edit: grant.edit === true,
       delete: grant.delete === true,
+      notification,
     };
   }
   return {};
 }
 
 function levelsToGrant(levels: GrantLevels): CoManagerPermissions[CoManagerPermissionId] | undefined {
-  if (levels.read && levels.edit && levels.delete) return true;
+  if (levels.read && levels.edit && levels.delete && levels.notification) return true;
   const grant: GrantLevels = {};
   if (levels.read) grant.read = true;
   if (levels.edit) grant.edit = true;
   if (levels.delete) grant.delete = true;
+  if (levels.notification) grant.notification = true;
+  if (levels.notification === false) grant.notification = false;
   return Object.keys(grant).length > 0 ? grant : undefined;
 }
 
@@ -323,8 +331,14 @@ function CoManagerPermissionsEditor({
     // removes the module outright, delete included.
     const normalized: GrantLevels =
       variant === "readWrite"
-        ? levels.read || levels.edit
-          ? { read: levels.read, edit: levels.edit, delete: grantToLevels(value[id]).delete }
+        ? levels.read || levels.edit || levels.notification
+          ? {
+              read: levels.read,
+              edit: levels.edit,
+              delete:
+                levels.read || levels.edit ? grantToLevels(value[id]).delete : undefined,
+              notification: levels.notification,
+            }
           : {}
         : levels;
     const grant = levelsToGrant(normalized);
@@ -353,7 +367,7 @@ function CoManagerPermissionsEditor({
       </div>
       {isEmpty ? (
         <p className="rounded-lg border border-dashed border-border bg-accent/20 px-3 py-2 text-xs text-muted">
-          No access. Turn on Read or Write for each module below, or use a preset above.
+          No access. Turn on Read, Write, or Notify for each module below, or use a preset above.
         </p>
       ) : null}
       <div className="space-y-2">
@@ -381,8 +395,17 @@ function CoManagerPermissionsEditor({
                     setLevels(
                       id,
                       levels.read
-                        ? { edit: levels.edit, delete: variant === "full" ? levels.delete : undefined }
-                        : { read: true, edit: levels.edit, delete: variant === "full" ? levels.delete : undefined },
+                        ? {
+                            edit: levels.edit,
+                            delete: variant === "full" ? levels.delete : undefined,
+                            notification: levels.notification,
+                          }
+                        : {
+                            read: true,
+                            edit: levels.edit,
+                            delete: variant === "full" ? levels.delete : undefined,
+                            notification: levels.notification ?? true,
+                          },
                     )
                   }
                 />
@@ -395,8 +418,32 @@ function CoManagerPermissionsEditor({
                     setLevels(
                       id,
                       levels.edit
-                        ? { read: levels.read || (variant === "full" ? levels.delete : false) }
-                        : { read: true, edit: true },
+                        ? { read: levels.read || (variant === "full" ? levels.delete : false), notification: levels.notification }
+                        : { read: true, edit: true, notification: levels.notification ?? true },
+                    )
+                  }
+                />
+                <PermissionLevelToggle
+                  label="Notify"
+                  active={Boolean(levels.notification)}
+                  disabled={disabled}
+                  dataAttr={`co-manager-${id}-notify`}
+                  onToggle={() =>
+                    setLevels(
+                      id,
+                      levels.notification
+                        ? {
+                            read: levels.read,
+                            edit: levels.edit,
+                            delete: variant === "full" ? levels.delete : undefined,
+                            notification: false,
+                          }
+                        : {
+                            read: levels.read,
+                            edit: levels.edit,
+                            delete: variant === "full" ? levels.delete : undefined,
+                            notification: true,
+                          },
                     )
                   }
                 />

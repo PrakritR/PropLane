@@ -23,15 +23,16 @@ export type CoManagerPermissionId =
   | (typeof LEGACY_CO_MANAGER_PERMISSION_IDS)[number];
 
 /** Access dimensions per module (granular RBAC). */
-export type CoManagerPermissionLevel = "read" | "edit" | "delete";
+export type CoManagerPermissionLevel = "read" | "edit" | "delete" | "notification";
 
 /**
- * A module grant: legacy `true` = full access (read+edit+delete); the granular
- * object form scopes by level. `edit` / `delete` imply `read`.
+ * A module grant: legacy `true` = full access (read+edit+delete+notification); the granular
+ * object form scopes by level. `edit` / `delete` imply `read`. Existing read/edit/delete
+ * grants still receive operational alerts unless `notification: false` is set explicitly.
  */
 export type CoManagerPermissionGrant =
   | boolean
-  | { read?: boolean; edit?: boolean; delete?: boolean };
+  | { read?: boolean; edit?: boolean; delete?: boolean; notification?: boolean };
 
 export type CoManagerPermissions = Partial<Record<CoManagerPermissionId, CoManagerPermissionGrant>>;
 
@@ -57,10 +58,17 @@ export function buildAllModulesGrant(preset: CoManagerBulkPreset): CoManagerPerm
   return out;
 }
 
+function grantAllowsNotification(grant: { notification?: boolean; read?: boolean; edit?: boolean; delete?: boolean }): boolean {
+  if (grant.notification === false) return false;
+  if (grant.notification === true) return true;
+  return grant.read === true || grant.edit === true || grant.delete === true;
+}
+
 function grantAllows(grant: CoManagerPermissionGrant | undefined, level: CoManagerPermissionLevel): boolean {
   if (grant === true) return true;
   if (!grant || typeof grant !== "object") return false;
   if (level === "read") return grant.read === true || grant.edit === true || grant.delete === true;
+  if (level === "notification") return grantAllowsNotification(grant);
   return grant[level] === true;
 }
 
@@ -68,10 +76,12 @@ function normalizeGrant(raw: unknown): CoManagerPermissionGrant | undefined {
   if (raw === true) return true;
   if (raw && typeof raw === "object") {
     const o = raw as Record<string, unknown>;
-    const grant: { read?: boolean; edit?: boolean; delete?: boolean } = {};
+    const grant: { read?: boolean; edit?: boolean; delete?: boolean; notification?: boolean } = {};
     if (o.read === true) grant.read = true;
     if (o.edit === true) grant.edit = true;
     if (o.delete === true) grant.delete = true;
+    if (o.notification === true) grant.notification = true;
+    if (o.notification === false) grant.notification = false;
     return Object.keys(grant).length > 0 ? grant : undefined;
   }
   return undefined;
@@ -82,11 +92,14 @@ function unionGrants(
   b: CoManagerPermissionGrant | undefined,
 ): CoManagerPermissionGrant | undefined {
   if (a === true || b === true) return true;
-  const merged: { read?: boolean; edit?: boolean; delete?: boolean } = {};
-  for (const level of ["read", "edit", "delete"] as const) {
-    if (grantAllows(a, level) || grantAllows(b, level)) merged[level] = true;
+  const merged: { read?: boolean; edit?: boolean; delete?: boolean; notification?: boolean } = {};
+  for (const level of ["read", "edit", "delete", "notification"] as const) {
+    if (grantAllows(a, level) || grantAllows(b, level)) {
+      if (level === "notification") merged.notification = true;
+      else merged[level] = true;
+    }
   }
-  if (merged.read && merged.edit && merged.delete) return true;
+  if (merged.read && merged.edit && merged.delete && merged.notification) return true;
   return Object.keys(merged).length > 0 ? merged : undefined;
 }
 
@@ -273,6 +286,7 @@ export function coManagerPermissionsAreEmpty(permissions: CoManagerPermissions |
 export function describeCoManagerPermissions(permissions: CoManagerPermissions | undefined): string {
   const granted = CO_MANAGER_PERMISSION_OPTIONS.filter(({ id }) => hasCoManagerPermission(permissions, id));
   if (granted.length === 0) return "No access to any module.";
+  const canNotify = granted.filter(({ id }) => hasCoManagerPermissionLevel(permissions, id, "notification"));
   const canDelete = granted.filter(({ id }) => hasCoManagerPermissionLevel(permissions, id, "delete"));
   const canEdit = granted.filter(({ id }) => hasCoManagerPermissionLevel(permissions, id, "edit"));
   const readOnly = granted.filter(
@@ -284,6 +298,7 @@ export function describeCoManagerPermissions(permissions: CoManagerPermissions |
   if (readOnly.length > 0) parts.push(`view ${readOnly.map(({ label }) => label).join(", ")}`);
   if (canEdit.length > 0) parts.push(`edit ${canEdit.map(({ label }) => label).join(", ")}`);
   if (canDelete.length > 0) parts.push(`delete in ${canDelete.map(({ label }) => label).join(", ")}`);
+  if (canNotify.length > 0) parts.push(`receive alerts for ${canNotify.map(({ label }) => label).join(", ")}`);
   return `Can ${parts.join("; ")}.`;
 }
 
