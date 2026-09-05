@@ -7,6 +7,7 @@ import {
   normalizeLeasePipelineRow,
   type LeasePipelineRow,
   type LeaseThreadMessage,
+  type LeaseThreadRole,
 } from "@/lib/lease-pipeline-storage";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 
@@ -17,7 +18,10 @@ function asObject(v: unknown): Record<string, unknown> | null {
   return v as Record<string, unknown>;
 }
 
-function threadMessage(role: "resident" | "manager" | "system", body: string): LeaseThreadMessage {
+// `LeaseThreadRole` is manager | admin | resident — a thread message has no
+// "system" role to store. Typed to the real union so a call that tried to write
+// one fails here rather than producing a row the reader cannot classify.
+function threadMessage(role: LeaseThreadRole, body: string): LeaseThreadMessage {
   return {
     id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
     at: new Date().toISOString(),
@@ -47,13 +51,20 @@ async function propertyLabelForLease(
   return title || leaseRow.unit?.trim() || undefined;
 }
 
+/**
+ * A resident may only push a lease back while it is genuinely waiting on THEIR
+ * signature and they have not already signed it.
+ *
+ * Pinning `status` to "Resident Signature Pending" already excludes "Fully
+ * Signed" and "Voided" — the two extra comparisons that used to sit here could
+ * never be false, which is what the compiler was reporting. Removing them
+ * changes nothing this function accepts.
+ */
 export function residentLeaseIssueAllowed(row: LeasePipelineRow): boolean {
   return (
     row.bucket === "resident" &&
     row.status === "Resident Signature Pending" &&
-    !row.residentSignature &&
-    row.status !== "Fully Signed" &&
-    row.status !== "Voided"
+    !row.residentSignature
   );
 }
 

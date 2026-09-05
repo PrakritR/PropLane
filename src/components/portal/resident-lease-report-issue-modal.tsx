@@ -43,7 +43,7 @@ export function ResidentLeaseReportIssueModal({
       onClose={handleClose}
       title="Report issue"
       description="Tell your property manager what needs to change. The lease goes back to them for review — you will not sign until they send an updated version."
-      size="md"
+      panelClassName="max-w-md"
     >
       <label className="block">
         <span className={MODAL_FIELD_LABEL_CLASS}>What needs to change?</span>
