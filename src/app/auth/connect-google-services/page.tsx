@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { AuthCard } from "@/components/auth/auth-card";
 import { AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -7,6 +8,12 @@ import { Button } from "@/components/ui/button";
 import { MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH } from "@/lib/auth/manager-google-services-onboarding";
 import { formatGoogleCalendarConnectError } from "@/lib/google-calendar/connect-errors";
 import { portalDashboardPath } from "@/lib/auth/portal-roles";
+import { assistantEmailUpsellMessage } from "@/lib/manager-assistant-email/assistant-email-eligibility-copy";
+import {
+  MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF,
+  type ManagerAssistantEmailStatus,
+} from "@/lib/manager-assistant-email/manager-assistant-email-status";
+import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
 import {
   shouldOfferWorkNumberSetup,
   workNumberOnboardingPhone,
@@ -15,12 +22,7 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 
-/**
- * The full provisioning flow (area code, plan gate, retry diagnostics) stays in
- * Settings — this step SHOWS the state and routes there, rather than growing a
- * second copy of a flow that buys a real phone number.
- */
-const MESSAGING_SETTINGS_PATH = "/portal/profile";
+const MESSAGING_SETTINGS_PATH = MANAGER_MESSAGING_SETTINGS_HREF;
 
 type GoogleServicesStatus = {
   dismissed: boolean;
@@ -32,6 +34,11 @@ type GoogleServicesStatus = {
   gmailEmail: string | null;
 };
 
+type PhoneSettings = {
+  phone: string | null;
+  phoneVerifiedAt: string | null;
+};
+
 function formatGcalConnectError(reason: string | null): string {
   return formatGoogleCalendarConnectError(reason);
 }
@@ -39,6 +46,52 @@ function formatGcalConnectError(reason: string | null): string {
 function formatGmailConnectError(reason: string | null): string {
   if (!reason) return "Could not connect Gmail.";
   return `Could not connect Gmail: ${decodeURIComponent(reason)}`;
+}
+
+function formatUsPhone(e164: string | null | undefined): string {
+  const digits = String(e164 ?? "").replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  return e164?.trim() || "";
+}
+
+function SetupOptionCard({
+  title,
+  description,
+  statusLabel,
+  statusTone = "confirmed",
+  action,
+}: {
+  title: string;
+  description: string;
+  statusLabel?: string | null;
+  statusTone?: "confirmed" | "muted";
+  action?: ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-foreground">{title}</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted">{description}</p>
+          {statusLabel ? (
+            <p
+              className={`mt-2 text-xs font-medium ${
+                statusTone === "confirmed" ? "text-[var(--status-confirmed-fg)]" : "text-muted"
+              }`}
+            >
+              {statusLabel}
+            </p>
+          ) : null}
+        </div>
+        {action}
+      </div>
+    </div>
+  );
 }
 
 function ConnectGoogleServicesContent() {
@@ -49,6 +102,8 @@ function ConnectGoogleServicesContent() {
   const [loading, setLoading] = useState(true);
   const [skipping, setSkipping] = useState(false);
   const [workNumber, setWorkNumber] = useState<WorkNumberOnboardingStatus | null>(null);
+  const [phoneSettings, setPhoneSettings] = useState<PhoneSettings | null>(null);
+  const [assistantEmail, setAssistantEmail] = useState<ManagerAssistantEmailStatus | null>(null);
 
   const loadStatus = useCallback(async () => {
     const res = await fetch("/api/auth/manager-google-services", { credentials: "include", cache: "no-store" });
@@ -66,20 +121,18 @@ function ConnectGoogleServicesContent() {
   }, [router, showToast]);
 
   useEffect(() => {
-    // Best-effort: a failure here must never block the Google step, so the card
-    // simply does not render rather than surfacing an error the manager did not
-    // ask for during signup.
     void (async () => {
       try {
-        const res = await fetch("/api/manager/messaging-number", {
-          credentials: "include",
-          cache: "no-store",
-        });
-        if (!res.ok) return;
-        const body = (await res.json()) as WorkNumberOnboardingStatus;
-        setWorkNumber(body);
+        const [workRes, phoneRes, emailRes] = await Promise.all([
+          fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }),
+          fetch("/api/manager/phone", { credentials: "include", cache: "no-store" }),
+          fetch("/api/manager/assistant-email", { credentials: "include", cache: "no-store" }),
+        ]);
+        if (workRes.ok) setWorkNumber((await workRes.json()) as WorkNumberOnboardingStatus);
+        if (phoneRes.ok) setPhoneSettings((await phoneRes.json()) as PhoneSettings);
+        if (emailRes.ok) setAssistantEmail((await emailRes.json()) as ManagerAssistantEmailStatus);
       } catch {
-        /* ignore */
+        /* optional signup step — failed reads stay quiet */
       }
     })();
   }, []);
@@ -124,15 +177,6 @@ function ConnectGoogleServicesContent() {
     window.location.assign(`/api/portal/google-calendar/connect?origin=${origin}&returnTo=${returnTo}`);
   };
 
-  /**
-   * Mark the step seen and go to the portal.
-   *
-   * This replaces a "Skip for now" and an "Enter portal" that both POSTed the
-   * same `skip` and landed in the same place — the only difference was that one
-   * of them was hidden until something was connected. A step this optional needs
-   * one button, and a failed write must not strand the manager on it, so the
-   * navigation happens either way.
-   */
   const continueToPortal = async () => {
     setSkipping(true);
     try {
@@ -156,110 +200,140 @@ function ConnectGoogleServicesContent() {
     );
   }
 
-
   const provisionedNumber = workNumberOnboardingPhone(workNumber);
-  const workNumberCard = shouldOfferWorkNumberSetup(workNumber) ? (
-    <div className="rounded-xl border border-border bg-card p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground">PropLane work number</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted">
-            Text residents and prospects; replies land in your inbox.
-          </p>
-          {provisionedNumber ? (
-            <p className="mt-2 text-xs font-medium text-[var(--status-confirmed-fg)]">
-              Active · {provisionedNumber}
-            </p>
-          ) : null}
-        </div>
-        {!provisionedNumber ? (
-          <Button
-            type="button"
-            variant="primary"
-            className="rounded-full"
-            data-attr="onboarding-set-up-work-number"
-            onClick={() => router.push(MESSAGING_SETTINGS_PATH)}
-          >
-            Set up work number
-          </Button>
-        ) : null}
-      </div>
-    </div>
-  ) : null;
+  const phoneVerified = Boolean(phoneSettings?.phoneVerifiedAt);
+  const phoneDisplay = formatUsPhone(phoneSettings?.phone);
+  const assistantAddress = assistantEmail?.address?.trim() || "";
+  const assistantReady = Boolean(assistantAddress);
+  const assistantUpsell =
+    assistantEmail && !assistantEmail.canRequest
+      ? assistantEmailUpsellMessage(assistantEmail.planTier, assistantEmail.entitlement)
+      : null;
+
+  const settingsButton = (label: string, dataAttr: string, href = MESSAGING_SETTINGS_PATH) => (
+    <Button
+      type="button"
+      variant="primary"
+      className="min-h-0 h-8 rounded-full px-4 text-xs"
+      data-attr={dataAttr}
+      onClick={() => router.push(href)}
+    >
+      {label}
+    </Button>
+  );
 
   return (
     <AuthCard wide variant="blend">
       <div className="auth-plan-picker auth-plan-picker-wide">
         <AuthPageHeader
           eyebrow="Manager"
-          title="Connect Google Calendar"
+          title="Set up your account"
           subtitle="Optional. You can do this later in Settings."
           accent={false}
         />
 
         <div className="mt-5 space-y-3">
-          <div className="rounded-xl border border-border bg-card p-4">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-foreground">Google Calendar</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted">
-                  Keeps tours in sync so nothing double-books.
-                </p>
-                {status.calendarConnected ? (
-                  <p className="mt-2 text-xs font-medium text-[var(--status-confirmed-fg)]">
-                    Connected
-                    {status.calendarEmail ? ` · ${status.calendarEmail}` : ""}
-                  </p>
-                ) : null}
-              </div>
-              {!status.calendarConnected ? (
+          <SetupOptionCard
+            title="Personal phone"
+            description="Verify your cell so PropLane can text you alerts and forward inbound SMS."
+            statusLabel={
+              phoneVerified && phoneDisplay
+                ? `Verified · ${phoneDisplay}`
+                : phoneDisplay
+                  ? `Added · ${phoneDisplay} — verification pending`
+                  : "Not added yet"
+            }
+            statusTone={phoneVerified ? "confirmed" : "muted"}
+            action={
+              !phoneVerified
+                ? settingsButton("Verify phone", "onboarding-verify-personal-phone")
+                : null
+            }
+          />
+
+          <SetupOptionCard
+            title="PropLane work number"
+            description="Text residents and prospects; replies land in your inbox."
+            statusLabel={
+              provisionedNumber
+                ? `Active · ${provisionedNumber}`
+                : shouldOfferWorkNumberSetup(workNumber)
+                  ? "Not set up yet"
+                  : "Available in Settings when SMS is enabled on your plan"
+            }
+            statusTone={provisionedNumber ? "confirmed" : "muted"}
+            action={
+              !provisionedNumber && shouldOfferWorkNumberSetup(workNumber)
+                ? settingsButton("Set up work number", "onboarding-set-up-work-number")
+                : !provisionedNumber
+                  ? settingsButton("Open Settings", "onboarding-work-number-settings")
+                  : null
+            }
+          />
+
+          <SetupOptionCard
+            title="PropLane assistant email"
+            description="Email your assistant from any device — same capabilities as texting your work number."
+            statusLabel={
+              assistantReady
+                ? `Ready · ${assistantAddress}`
+                : assistantUpsell ?? (assistantEmail?.canRequest ? "Not requested yet" : "Check eligibility in Settings")
+            }
+            statusTone={assistantReady ? "confirmed" : "muted"}
+            action={
+              !assistantReady && assistantEmail?.canRequest
+                ? settingsButton(
+                    "Set up assistant email",
+                    "onboarding-set-up-assistant-email",
+                    MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF,
+                  )
+                : !assistantReady
+                  ? settingsButton(
+                      "Open Settings",
+                      "onboarding-assistant-email-settings",
+                      MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF,
+                    )
+                  : null
+            }
+          />
+
+          <SetupOptionCard
+            title="Google Calendar"
+            description="Keeps tours in sync so nothing double-books."
+            statusLabel={
+              status.calendarConnected
+                ? `Connected${status.calendarEmail ? ` · ${status.calendarEmail}` : ""}`
+                : null
+            }
+            statusTone="confirmed"
+            action={
+              !status.calendarConnected ? (
                 <Button
                   type="button"
                   variant="primary"
-                  className="rounded-full"
+                  className="min-h-0 h-8 rounded-full px-4 text-xs"
                   data-attr="onboarding-connect-calendar"
                   disabled={!status.calendarConfigured}
                   onClick={connectCalendar}
                 >
                   Connect Calendar
                 </Button>
-              ) : null}
-            </div>
-          </div>
-
-          {workNumberCard}
+              ) : null
+            }
+          />
         </div>
 
         {!status.calendarConfigured ? (
-          /*
-            Quiet helper text, not an alert panel (PRP-188).
-
-            This was an info banner announcing that Google LOGIN was
-            unconfigured on the server, shown on a step the card directly above
-            calls optional. Three things were wrong with it: it read as an error
-            about something the manager had just been told they could skip; it
-            named the wrong integration, so they could not tell whether calendar
-            sync or login was broken; and it described the deployment, which is
-            not a fact the person reading it can act on.
-
-            The Connect button is already `disabled` when this is false, so the
-            state is visible without a panel claiming something is wrong.
-          */
-          <p className="mt-3 text-center text-xs text-muted" data-attr="onboarding-calendar-unavailable">
+          <p className="mt-3 text-xs text-muted" data-attr="onboarding-calendar-unavailable">
             Calendar sync isn&apos;t available in this environment. You can connect it later in Settings.
           </p>
         ) : null}
 
-        {/*
-          One way forward, not two. "Skip for now" and "Enter portal" did the same
-          thing — mark the step seen and go to the portal — and having both made a
-          single optional connection look like a decision with consequences.
-        */}
-        <div className="mt-6">
+        <div className="mt-6 flex justify-start">
           <Button
             type="button"
             variant="primary"
-            className="w-full rounded-full"
+            className="min-h-0 h-9 rounded-full px-5 text-[13px]"
             data-attr="onboarding-google-services-continue"
             disabled={skipping}
             onClick={() => void continueToPortal()}

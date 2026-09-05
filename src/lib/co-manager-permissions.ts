@@ -49,10 +49,10 @@ export function buildAllModulesGrant(preset: CoManagerBulkPreset): CoManagerPerm
     preset === "full"
       ? true
       : preset === "read"
-        ? { read: true }
+        ? { read: true, notification: true }
         : preset === "edit"
-          ? { read: true, edit: true }
-          : { read: true, delete: true };
+          ? { read: true, edit: true, notification: true }
+          : { read: true, delete: true, notification: true };
   const out: CoManagerPermissions = {};
   for (const { id } of CO_MANAGER_PERMISSION_OPTIONS) out[id] = grant;
   return out;

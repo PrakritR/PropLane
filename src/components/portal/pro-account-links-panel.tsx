@@ -268,6 +268,7 @@ const CO_MANAGER_PERMISSION_PRESETS: { label: string; preset: CoManagerBulkPrese
 const CO_MANAGER_READ_WRITE_PRESETS: { label: string; preset: CoManagerBulkPreset }[] = [
   { label: "All read-only", preset: "read" },
   { label: "All write", preset: "edit" },
+  { label: "All full access", preset: "full" },
 ];
 
 const permissionToggleActive =
@@ -367,7 +368,7 @@ function CoManagerPermissionsEditor({
       </div>
       {isEmpty ? (
         <p className="rounded-lg border border-dashed border-border bg-accent/20 px-3 py-2 text-xs text-muted">
-          No access. Turn on Read, Write, or Notify for each module below, or use a preset above.
+          No access. Turn on Read, Write, and Notify for each module below, or use a preset above.
         </p>
       ) : null}
       <div className="space-y-2">

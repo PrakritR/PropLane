@@ -23,19 +23,22 @@ describe("buildAllModulesGrant (editor presets)", () => {
     }
   });
 
-  it("read grants read only, not edit/delete", () => {
+  it("read grants read + notify, not edit/delete", () => {
     const g = buildAllModulesGrant("read");
     expect(hasCoManagerPermissionLevel(g, "payments", "read")).toBe(true);
+    expect(hasCoManagerPermissionLevel(g, "payments", "notification")).toBe(true);
     expect(hasCoManagerPermissionLevel(g, "payments", "edit")).toBe(false);
     expect(hasCoManagerPermissionLevel(g, "payments", "delete")).toBe(false);
   });
 
-  it("edit grants read+edit but not delete; delete grants read+delete but not edit", () => {
+  it("edit grants read+edit+notify but not delete; delete grants read+delete+notify but not edit", () => {
     const edit = buildAllModulesGrant("edit");
     expect(hasCoManagerPermissionLevel(edit, "documents", "edit")).toBe(true);
+    expect(hasCoManagerPermissionLevel(edit, "documents", "notification")).toBe(true);
     expect(hasCoManagerPermissionLevel(edit, "documents", "delete")).toBe(false);
     const del = buildAllModulesGrant("delete");
     expect(hasCoManagerPermissionLevel(del, "documents", "delete")).toBe(true);
+    expect(hasCoManagerPermissionLevel(del, "documents", "notification")).toBe(true);
     expect(hasCoManagerPermissionLevel(del, "documents", "edit")).toBe(false);
   });
 
