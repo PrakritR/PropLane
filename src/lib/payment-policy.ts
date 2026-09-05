@@ -111,11 +111,34 @@ export function managerCanSelectManagerAbsorbServiceFee(tier: ManagerSkuTier): b
 /** UI value when a listing has no explicit per-property choice yet. */
 export function listingServiceFeePayerUiValue(
   stored: ServiceFeePayer | null | undefined,
-  tier: ManagerSkuTier,
-  waiverGranted = false,
+  _tier: ManagerSkuTier,
+  _waiverGranted = false,
 ): ServiceFeePayer {
   if (stored === "resident" || stored === "manager" || stored === "proplane") return stored;
-  return managerCanSelectProplaneServiceFee(tier, waiverGranted) ? "proplane" : "resident";
+  return "resident";
+}
+
+/**
+ * Per-listing storage: `proplane` is kept only with a valid FREE100 waiver code;
+ * otherwise fall back to resident pays (never persist absorb without the code).
+ */
+export function persistListingServiceFeePayer(
+  payer: ServiceFeePayer | null | undefined,
+  waiverCode: string | null | undefined,
+): { serviceFeePayer: ServiceFeePayer | null; serviceFeeWaiverCode?: string } {
+  if (payer === "resident" || payer === "manager") {
+    return { serviceFeePayer: payer, serviceFeeWaiverCode: undefined };
+  }
+  if (payer === "proplane" && listingPaymentWaiverCodeMatches(waiverCode)) {
+    return {
+      serviceFeePayer: "proplane",
+      serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(waiverCode ?? ""),
+    };
+  }
+  if (payer === "proplane") {
+    return { serviceFeePayer: "resident", serviceFeeWaiverCode: undefined };
+  }
+  return { serviceFeePayer: null, serviceFeeWaiverCode: undefined };
 }
 
 export function waiverGrantedFromPromoCode(promoCode: string | null | undefined): boolean {
@@ -141,13 +164,13 @@ export function listingPaymentWaiverCodeMatches(code: string | null | undefined)
   return normalized.length > 0 && normalized === LISTING_PAYMENT_WAIVER_CODE;
 }
 
-/** Free-tier PropLane absorb without an account-level waiver needs a per-listing code. */
+/** PropLane absorb in the listing wizard requires a per-listing FREE100 code. */
 export function listingProplaneAbsorbNeedsWaiverCode(
-  tier: ManagerSkuTier,
+  _tier: ManagerSkuTier,
   serviceFeePayer: ServiceFeePayer | null | undefined,
-  accountWaiverGranted: boolean,
+  _accountWaiverGranted: boolean,
 ): boolean {
-  return tier === "free" && !accountWaiverGranted && serviceFeePayer === "proplane";
+  return serviceFeePayer === "proplane";
 }
 
 /**

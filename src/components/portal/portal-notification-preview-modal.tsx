@@ -66,6 +66,7 @@ export function PortalNotificationPreviewModal({
   warning,
   warningLead = "AI-generated draft.",
   footerNote,
+  hideSendViaFooterNote = false,
   showSkipMessage = true,
   skipMessageLabel = "Don't message resident",
   showChannelPicker = true,
@@ -109,6 +110,8 @@ export function PortalNotificationPreviewModal({
   /** Prefix before `warning` text. Omit for a plain warning with no lead-in label. */
   warningLead?: string | null;
   footerNote?: string;
+  /** When true, no helper copy under Send via (lease send preview, etc.). */
+  hideSendViaFooterNote?: boolean;
   showSkipMessage?: boolean;
   skipMessageLabel?: string;
   showChannelPicker?: boolean;
@@ -195,6 +198,7 @@ export function PortalNotificationPreviewModal({
     deliverViaKind,
     channelsFor,
     initialScheduleLater,
+    effectiveSmsAvailable,
   ]);
 
   useEffect(() => {
@@ -266,9 +270,10 @@ export function PortalNotificationPreviewModal({
     dynamic: dynamicSendLabel && !skipMessage,
   });
 
-  const sendViaFooterNote =
-    footerNote?.trim() ||
-    portalMessageSendViaFooterNote(Boolean(smsAvailable && smsSetup?.canSend !== false));
+  const sendViaFooterNote = hideSendViaFooterNote
+    ? ""
+    : footerNote?.trim() ||
+      portalMessageSendViaFooterNote(Boolean(smsAvailable && smsSetup?.canSend !== false));
 
   const footer = (
     <ModalFooter>

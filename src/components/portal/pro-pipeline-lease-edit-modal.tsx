@@ -293,8 +293,12 @@ export function ManagerPipelineLeaseEditModal({
   return (
     <Modal
       open={open}
-      title="Edit lease"
-      description="Lease review — edits save automatically. Send when you are ready for the resident to sign."
+      title={canEdit ? "Edit lease" : "View lease"}
+      description={
+        canEdit
+          ? "Lease review — edits save automatically. Send when you are ready for the resident to sign."
+          : "The lease document is locked while signing is in progress."
+      }
       onClose={handleClose}
       dismissBlocked={regenerating}
       dense
@@ -305,8 +309,10 @@ export function ManagerPipelineLeaseEditModal({
         "min-h-[min(85dvh,52rem)]",
       )}
       assistantDefaultExpanded={false}
-      assistantContext={assistantContext}
-      assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
+      assistantContext={canEdit ? assistantContext : undefined}
+      assistantEditHint={
+        canEdit ? "Type in chat to edit the lease — changes apply after you confirm." : undefined
+      }
       assistantStorageScopeKey={`Lease packet edit · ${row.id}`}
       footer={
         hasFooterActions ? (
