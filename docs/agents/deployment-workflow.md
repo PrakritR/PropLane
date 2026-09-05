@@ -44,14 +44,16 @@ agent branch  →  main  →  staging  →  production
 1. Land feature work on your agent / feature branch only.
 2. Merge to `main` after captain approval; verify on the `main` Preview and
    localhost.
-3. Fast-forward `main` → `staging` (`npm run ship:staging` or the **Promote**
-   GitHub Action with target `staging`).
-4. Dedicated QA tests the staging URL. Staging talks to
+3. **One command for steps 2–3:** `npm run ship:integrate -- --source cursor-1`
+   (or `prakrit`) merges `origin/<source>` into `main`, pushes, then
+   fast-forwards `staging`. GitHub Action: **Promote** with target `integrate`.
+4. Or run separately: `npm run ship:staging` (or **Promote** target `staging`).
+5. Dedicated QA tests the staging URL. Staging talks to
    `xwszcafaontidfgznlxd`, never the live production project.
-5. Apply production Supabase migrations **before** pushing `production`.
-6. Fast-forward `staging` → `production` (`npm run ship:production` or the
+6. Apply production Supabase migrations **before** pushing `production`.
+7. Fast-forward `staging` → `production` (`npm run ship:production` or the
    **Promote** Action with target `production`).
-7. Confirm Vercel Production **and** iOS TestFlight succeeded.
+8. Confirm Vercel Production **and** iOS TestFlight succeeded.
 
 ## Enforcement (do not weaken)
 

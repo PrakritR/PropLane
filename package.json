@@ -82,6 +82,7 @@
     "cap:ios": "cap open ios",
     "cap:android": "cap open android",
     "ship:preflight": "bash scripts/ship-preflight.sh",
+    "ship:integrate": "bash scripts/integrate-source-to-main-and-staging.sh",
     "ship:staging": "bash scripts/promote-main-to-staging.sh",
     "ship:production": "bash scripts/promote-staging-to-production.sh",
     "vercel:deploy:staging": "bash scripts/vercel-deploy-cli.sh staging",
