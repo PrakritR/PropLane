@@ -3446,7 +3446,7 @@ html[data-native] [data-listing-subnav] {
 /* One width contract for page chat and dialog chat. Reserve the rail before
    centering/sizing the editor, so narrow and wide dialogs both move left. */
 :root {
-  --portal-assistant-rail-width: clamp(20rem, 28vw, 24rem);
+  --portal-assistant-rail-width: clamp(18rem, 22vw, 20rem);
   --portal-assistant-panel-gap: 1rem;
 }
 

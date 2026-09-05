@@ -37,6 +37,9 @@ vi.mock("@/lib/stripe-axis-ach-checkout", () => ({
 
 vi.mock("@/lib/household-charge-payment-eligibility", () => ({
   listingFromPropertyData: vi.fn(() => null),
+}));
+
+vi.mock("@/lib/household-charge-payment-eligibility.server", () => ({
   resolveListingForHouseholdCharge: vi.fn().mockResolvedValue(null),
 }));
 
@@ -205,7 +208,7 @@ describe("ACH checkout routes", () => {
       const res = await householdChargeCheckout(req);
       const { status, data } = await parseJsonResponse<{ clientSecret?: string; sessionId?: string }>(res);
 
-      expect(status).toBe(200);
+      expect(status, JSON.stringify(data)).toBe(200);
       expect(data.clientSecret).toBe("cs_ach_secret");
       expect(data.sessionId).toBe("cs_ach_session");
     });
@@ -257,7 +260,7 @@ describe("ACH checkout routes", () => {
         body: { chargeId: "charge_1", embedded: true, paymentMethod: "card" },
       });
       const res = await householdChargeCheckout(req);
-      expect(res.status).toBe(200);
+      expect(res.status, await res.clone().text()).toBe(200);
       const call = vi.mocked(createAxisAchCheckoutSession).mock.calls[0];
       expect(call?.[1]).toMatchObject({ paymentMethod: "card" });
     });

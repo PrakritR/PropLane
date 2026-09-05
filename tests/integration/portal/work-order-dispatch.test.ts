@@ -2,20 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/push-notifications.server", () => ({ sendPushToUser: vi.fn().mockResolvedValue({ sent: 1 }) }));
 vi.mock("@/lib/twilio", () => ({ sendSms: vi.fn().mockResolvedValue({ sent: true }), normalizeE164: (p: string) => p }));
-vi.mock("@/lib/vendor-notification-delivery", () => ({
-  sendVendorNotification: vi.fn().mockResolvedValue({ emailSent: true, inboxDelivered: true, skippedDemoEmail: false }),
+vi.mock("@/lib/work-order-events.server", () => ({
+  workOrderEvent: vi.fn().mockResolvedValue({ duplicate: false, delivered: 2, deferred: 0, failed: 0 }),
 }));
 vi.mock("@/lib/vendor-availability-server", () => ({
   resolveVendorNextAvailableSlot: vi.fn().mockResolvedValue({ iso: "2026-07-16T17:00:00.000Z" }),
 }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
-vi.mock("@/lib/portal-inbox-delivery", () => ({
-  deliverPortalInboxMessage: vi.fn().mockResolvedValue({ ok: true, recipientCount: 1 }),
-}));
 
 import { sendPushToUser } from "@/lib/push-notifications.server";
-import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
-import { sendVendorNotification } from "@/lib/vendor-notification-delivery";
+import { workOrderEvent } from "@/lib/work-order-events.server";
 import { resolveVendorNextAvailableSlot } from "@/lib/vendor-availability-server";
 import { declineDispatch, executeDispatch, prepareDispatch } from "@/lib/work-order-dispatch.server";
 import type { WorkOrderRowWithDispatch } from "@/lib/work-order-dispatch";
@@ -120,6 +116,12 @@ function mockDb(opts: {
       }
       if (table === "portal_inbox_thread_records") {
         return {
+          // Agent notices append to the manager's existing assistant thread.
+          select: () => ({
+            eq: (_column: string, id: string) => ({
+              maybeSingle: async () => ({ data: inboxRows.findLast((row) => row.id === id) ?? null, error: null }),
+            }),
+          }),
           upsert: async (row: Record<string, unknown>) => {
             inboxRows.push(row);
             return { error: null };
@@ -300,19 +302,27 @@ describe("executeDispatch", () => {
     expect(row.dispatch?.status).toBe("approved");
     expect(row.dispatch?.decidedBy).toBe("manager");
     expect((workOrders.get("REQ-1") as WoRec & { vendor_user_id?: string }).vendor_user_id).toBe("vendor-user-1");
-    expect(vi.mocked(sendVendorNotification)).toHaveBeenCalledTimes(1);
-    // Resident hears about both the assignment and the booked visit.
-    expect(vi.mocked(deliverPortalInboxMessage)).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(deliverPortalInboxMessage).mock.calls[0]![1]).toMatchObject({
-      toEmails: ["res@a.com"],
-      deliverToPortalInbox: true,
-      deliverViaEmail: false,
+    // The canonical event delivers one scheduled notice to each audience;
+    // dispatch no longer sends duplicate assignment + booked-visit messages.
+    expect(vi.mocked(workOrderEvent)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(workOrderEvent).mock.calls[0]![1]).toMatchObject({
+      eventId: "REQ-1:scheduled:dispatch_execute:REQ-1",
+      event: "scheduled",
+      managerUserId: "mgr-a",
+      workOrderId: "REQ-1",
+      senderUserId: "mgr-a",
+      facts: { title: "Leaking sink", vendorName: "Pipes R Us", scheduledFor: expect.any(String) },
+      recipients: [
+        { audience: "vendor", userId: "vendor-user-1", email: "pipes@example.com" },
+        { audience: "resident", email: "res@a.com" },
+      ],
     });
     expect(auditRows.some((r) => r.dedupe_key === "dispatch_execute:REQ-1")).toBe(true);
 
     const second = await executeDispatch(db, { workOrderId: "REQ-1", landlordId: "mgr-a", actor: ACTOR, decidedBy: "manager" });
     expect(second.ok).toBe(false);
     if (!second.ok) expect(second.status).toBe(409);
+    expect(vi.mocked(workOrderEvent)).toHaveBeenCalledTimes(1);
   });
 
   it("assigns without booking when the vendor has no availability", async () => {
@@ -327,6 +337,7 @@ describe("executeDispatch", () => {
     expect(row.vendorId).toBe("v-plumb");
     expect(row.bucket).toBe("open");
     expect(row.scheduledAtIso).toBeUndefined();
+    expect(vi.mocked(workOrderEvent).mock.calls[0]![1]).toMatchObject({ event: "accepted" });
   });
 
   it("rejects a non-owner landlord (403) without side effects", async () => {

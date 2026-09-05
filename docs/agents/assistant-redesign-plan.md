@@ -228,7 +228,7 @@ API responses. Full compilation is delegated to the staging Vercel deployment.
 
 ## Follow-up: reserve space beside pages and custom editors
 
-The shared rail width is `clamp(20rem, 28vw, 24rem)`. At 768px and above,
+The shared rail width is `clamp(18rem, 22vw, 20rem)`. At 768px and above,
 opening the assistant reserves a column before the editor is centered; custom
 listing and Vaul shells narrow and shift left. Communication's standalone thread
 assistant also marks the active page layout, and the ordinary popup reserves space
@@ -238,5 +238,11 @@ is a rounded pill across shared dialogs, listing, lease, resident, and sheet flo
 Browser verification uses the real shared components with simulated API responses:
 1440/1024/768px shared and custom editors, page-thread content, and raised sheets
 have non-overlapping bounding boxes; 390px preserves drafts after closing chat.
-The broad normal suite also exposes existing failures in unchanged payment and
-work-order integration tests; those are separate from the focused UI checks.
+The listing wizard uses the shared viewport workspace so its editor and assistant
+are sized as separate columns. Chromium and WebKit checks at 1440/1024/768px
+assert at least a 16px gap and fully visible Close/Continue buttons.
+
+The normal suite exposed stale integration fixtures for work-order event delivery,
+vendor inbox identity, the moved ACH resolver, OAuth requests, and the admin
+allowlist. Fixtures now follow the current contracts; ownership and replay
+assertions remain strict. All 11 previously failing integration cases pass.

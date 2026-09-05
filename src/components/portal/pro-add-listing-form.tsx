@@ -1101,7 +1101,7 @@ async function uploadVideoFile(file: File): Promise<string> {
 
 /**
  * Desktop widths open the PropLane Assistant beside the form by default, so the
- * manager sees it "to the left" without hunting for the collapsed strip; phones
+ * manager sees it beside the editor without hunting for the collapsed strip; phones
  * and tablets start collapsed so the fields keep the full width (a two-column
  * split is worse than the original on a narrow screen). SSR-guarded — the wizard
  * only mounts on the client, but a `useState` initializer still runs during any
@@ -3551,20 +3551,27 @@ export function ManagerAddListingForm({
     <ModalShell
       open
       onClose={requestWizardClose}
-      presentation={presentation}
+      presentation="dialog"
       portalContainer={portalContainer}
-      showDrawerHandle={isDrawer}
       lockScroll
-      panelClassName={cn(
-        "@container flex w-full flex-col overflow-hidden",
+      dismissBlocked={busy || closingDraft}
+      dismissOnCanvasPointerDown
+      panelClassName="pointer-events-none fixed inset-0 flex min-h-0 min-w-0 outline-none"
+    >
+      <div
+        data-modal-assistant-workspace=""
+        data-full-screen={isDrawer ? "true" : "false"}
+        className={cn("pointer-events-none flex min-h-0 min-w-0 flex-1 items-center justify-center", isDrawer ? "p-0" : "p-4")}
+      >
+      <div data-listing-editor="" className={cn(
+        "pointer-events-auto @container flex min-h-0 min-w-0 w-full flex-col overflow-hidden",
         isDrawer
           ? cn(
               MODAL_FULL_PAGE_PANEL_CLASS,
-              "border-border bg-[#111827] [html[data-theme=light]_&]:bg-white",
+              "!relative !inset-auto !h-full !max-h-full border-border bg-[#111827] [html[data-theme=light]_&]:bg-white",
             )
           : "modal-panel relative z-10 flex max-h-[calc(100svh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-white/15 bg-[#111827] shadow-2xl sm:max-h-[calc(100svh-1.5rem)] lg:max-h-[calc(100svh-2rem)] [html[data-theme=light]_&]:border-border [html[data-theme=light]_&]:bg-white",
-      )}
-    >
+      )}>
       {/* A plain container, not a <form>: the PropLane Assistant embedded in the
           body has its own <form> for the chat composer, and a form-in-form is
           invalid HTML that throws a hydration error whenever the assistant is
@@ -5336,6 +5343,8 @@ export function ManagerAddListingForm({
           </div>
           </div>
         </div>
+      </div>
+      </div>
       </div>
     </ModalShell>
   );

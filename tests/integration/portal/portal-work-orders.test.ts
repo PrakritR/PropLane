@@ -20,6 +20,7 @@ function mockDb(
   vendorDirSeed: VendorDirRec[] = [],
 ) {
   const store = new Map(seed.map((r) => [r.id, r]));
+  const otherTableStores = new Map<string, Map<string, Rec>>();
   const vendorDirs = new Map(vendorDirSeed.map((r) => [r.id, r]));
   const upserts: Rec[] = [];
   const deletes: string[] = [];
@@ -75,9 +76,13 @@ function mockDb(
       // builder. List queries (owned .eq, legacy .is, linked .in, resident .eq)
       // await the builder itself or .limit(); POST ownership lookups terminate
       // with .maybeSingle(); writes use upsert / delete().eq.
+      // Notification rows must never be counted as work orders or returned by
+      // work-order ownership queries: Supabase stores these in separate tables.
+      if (!otherTableStores.has(table)) otherTableStores.set(table, new Map());
+      const rowStore = table === "portal_work_order_records" ? store : otherTableStores.get(table)!;
       const filters: { op: "eq" | "is" | "in"; col: string; val: unknown }[] = [];
       const matches = () =>
-        [...store.values()].filter((r) =>
+        [...rowStore.values()].filter((r) =>
           filters.every((f) => {
             const cell = (r as unknown as Record<string, unknown>)[f.col];
             if (f.op === "eq") return cell === f.val;
@@ -108,14 +113,14 @@ function mockDb(
             error: null,
           }),
         upsert: async (rec: Rec) => {
-          upserts.push(rec);
-          store.set(rec.id, rec);
+          if (table === "portal_work_order_records") upserts.push(rec);
+          rowStore.set(rec.id, rec);
           return { error: null };
         },
         delete: () => ({
           eq: async (_col: string, id: string) => {
-            deletes.push(id);
-            store.delete(id);
+            if (table === "portal_work_order_records") deletes.push(id);
+            rowStore.delete(id);
             return { error: null };
           },
         }),
@@ -211,6 +216,8 @@ describe("/api/portal-work-orders security", () => {
     expect(status).toBe(200);
     expect(upserts).toHaveLength(1);
     expect(upserts[0]!.manager_user_id).toBe("mgr-b");
+    expect(upserts[0]!.resident_email).toBe("res@b.com");
+    expect(upserts.some((row) => row.manager_user_id === "mgr-a")).toBe(false);
   });
 
   it("lets a resident file a work order with their real manager", async () => {
