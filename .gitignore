@@ -117,3 +117,6 @@ graphify-out/
 
 # Scratch dir for local QA reproduction scripts (see docs/agent-mcp-setup.md).
 .qa-tmp/
+
+# Production → staging dump snapshots (PII). Never commit.
+.staging-prod-sync/
