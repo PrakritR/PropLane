@@ -1892,8 +1892,12 @@ export function InboxScheduledCard({
   const actionBusy = busy || saving;
   const canSave = Boolean(draftBody.trim() && draftChannelsOk);
 
+  // Read only from the footer's onClick, never during render, so the latest-ref
+  // effect keeps it current without writing to a ref while rendering.
   const saveEditRef = useRef(saveEdit);
-  saveEditRef.current = saveEdit;
+  useEffect(() => {
+    saveEditRef.current = saveEdit;
+  });
 
   useEffect(() => {
     if (!pinActionsInModalFooter || !onModalFooterChange) return;

@@ -26,7 +26,7 @@ const PATCH_ROUTE = readFileSync(
 describe("anything selectable in the picker is acceptable to the server", () => {
   it("marks a not-yet-synced property and refuses to select it", () => {
     expect(PANEL).toContain("notYetSynced");
-    expect(PANEL).toContain("disabled={p.notYetSynced}");
+    expect(PANEL).toContain("disabled: Boolean(p.notYetSynced)");
   });
 
   it("keeps it visible rather than hiding a property the manager can see elsewhere", () => {

@@ -1003,7 +1003,11 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       propertyOptions.map((p) => ({
         value: p.id,
         label: p.label,
+        // A listing that exists only in this browser's cache would be rejected by
+        // the server, so it stays visible but unselectable — and says why, rather
+        // than reading as an arbitrarily dead row (PRP-210).
         disabled: Boolean(p.notYetSynced),
+        hint: p.notYetSynced ? "Still saving — you can assign this once it finishes." : undefined,
       })),
     [propertyOptions],
   );
