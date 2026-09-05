@@ -7,7 +7,8 @@ export type CommsBillingMeter =
   | "voice_speech_gather"
   | "voice_recording_minute"
   | "ai_agent_turn"
-  | "work_number_monthly";
+  | "work_number_monthly"
+  | "work_number_setup";
 
 export const COMMS_BILLING_RATES_CENTS: Record<CommsBillingMeter, number> = {
   sms_outbound_segment: 3,
@@ -17,6 +18,10 @@ export const COMMS_BILLING_RATES_CENTS: Record<CommsBillingMeter, number> = {
   voice_recording_minute: 1,
   ai_agent_turn: 15,
   work_number_monthly: 300,
+  // One-time, charged when a manager requests their number. This is what makes
+  // a free-tier work number possible: the cost is billed rather than bundled
+  // into a plan.
+  work_number_setup: 500,
 };
 
 export const COMMS_BILLING_METER_LABELS: Record<CommsBillingMeter, string> = {
@@ -27,6 +32,7 @@ export const COMMS_BILLING_METER_LABELS: Record<CommsBillingMeter, string> = {
   voice_recording_minute: "Call recording (per minute)",
   ai_agent_turn: "AI assistant turn",
   work_number_monthly: "Work number (monthly)",
+  work_number_setup: "Work number setup (one-time)",
 };
 
 export function isCommsPaygBillingEnabled(): boolean {

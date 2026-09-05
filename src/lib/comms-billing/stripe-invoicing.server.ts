@@ -66,6 +66,10 @@ export async function invoiceManagerCommsUsage(
   if (billable.length === 0) return { ok: true, invoiced: false, reason: "no_usage" };
 
   const sku = await getManagerPurchaseSku(managerUserId);
+  // A failed read is NOT "this manager has no Stripe customer". Collapsing the
+  // two would silently skip a paying manager and report the run as clean — the
+  // same unreadable-as-default trap AGENTS.md calls out for plan reads.
+  if (sku?.readFailed) return { ok: false, error: "manager purchase read failed" };
   const customerId = sku?.stripeCustomerId?.trim() || null;
   if (!customerId) return { ok: true, invoiced: false, reason: "no_customer" };
 
@@ -84,58 +88,92 @@ export async function invoiceManagerCommsUsage(
   const nowIso = new Date().toISOString();
   let totalCents = 0;
 
+  // The invoice is created FIRST, as a draft, and every item is attached to it
+  // by id. Creating items loose on the customer and then calling invoices.create
+  // sweeps up EVERY pending item that customer has — including subscription
+  // prorations from a mid-month tier change — and charges them here, on an
+  // invoice that claims to be communication usage.
+  let draftInvoiceId = "";
+  try {
+    const draft = await stripe.invoices.create({
+      customer: customerId,
+      collection_method: "charge_automatically",
+      auto_advance: false,
+      description: "PropLane communication usage",
+      pending_invoice_items_behavior: "exclude",
+      metadata: { proplane_comms_usage: "1" },
+    });
+    draftInvoiceId = draft.id ?? "";
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "invoice creation failed" };
+  }
+  if (!draftInvoiceId) return { ok: false, error: "stripe returned an invoice with no id" };
+
   for (const row of billable) {
     const meter = row.meter as CommsBillingMeter;
     const amount = Math.round(Number(row.total_cents));
+
+    // CLAIM the event before charging it. Stripe idempotency keys expire after
+    // 24 hours, so "create the item, then mark it" loses the race permanently:
+    // if the mark failed, the next month's run would create a SECOND item under
+    // an expired key and the manager pays twice. Claiming first makes the only
+    // failure mode an under-charge, which is the right way round.
+    const { data: claimed, error: claimError } = await db
+      .from("manager_comms_usage_events")
+      .update({ billed_at: nowIso })
+      .eq("id", row.id)
+      .is("billed_at", null)
+      .select("id");
+    if (claimError) return { ok: false, error: `claim ${row.id}: ${claimError.message}` };
+    // Another run already claimed it — not an error, just not ours to bill.
+    if (!claimed || claimed.length === 0) continue;
+
     try {
       const item = await stripe.invoiceItems.create(
         {
           customer: customerId,
+          invoice: draftInvoiceId,
           amount,
           currency: "usd",
           description: `${COMMS_BILLING_METER_LABELS[meter] ?? meter} × ${row.quantity}`,
           metadata: { proplane_usage_event_id: row.id, meter: String(row.meter) },
         },
-        // The usage event id, so a retried run reuses the same invoice item
-        // instead of charging twice.
         { idempotencyKey: `proplane_comms_usage_${row.id}` },
       );
-      const { error: markError } = await db
+      await db
         .from("manager_comms_usage_events")
-        .update({ stripe_invoice_item_id: item.id, billed_at: nowIso })
-        .eq("id", row.id)
-        .is("billed_at", null);
-      if (markError) {
-        // The charge exists but we could not record it. Stop rather than
-        // continue — carrying on would risk re-billing this event next run.
-        return { ok: false, error: `usage ${row.id} billed but not marked: ${markError.message}` };
-      }
+        .update({ stripe_invoice_item_id: item.id })
+        .eq("id", row.id);
       totalCents += amount;
     } catch (e) {
+      // Release the claim so a later run can retry this event rather than
+      // leaving it marked billed against nothing.
+      await db
+        .from("manager_comms_usage_events")
+        .update({ billed_at: null })
+        .eq("id", row.id)
+        .is("stripe_invoice_item_id", null);
       return { ok: false, error: e instanceof Error ? e.message : "invoice item failed" };
     }
   }
 
+  if (totalCents === 0) {
+    // Everything was already claimed by a concurrent run. Leave the empty draft
+    // rather than finalizing a $0 invoice at the customer.
+    return { ok: true, invoiced: false, reason: "no_usage" };
+  }
+
   try {
-    const invoice = await stripe.invoices.create({
-      customer: customerId,
-      collection_method: "charge_automatically",
-      auto_advance: true,
-      description: "PropLane communication usage",
-      metadata: { proplane_comms_usage: "1" },
-    });
-    const invoiceId = invoice.id ?? "";
-    if (invoiceId) {
-      await stripe.invoices.finalizeInvoice(invoiceId);
-      await db
-        .from("manager_comms_billing_accounts")
-        .update({ last_invoiced_at: nowIso, last_invoice_id: invoiceId, updated_at: nowIso })
-        .eq("manager_user_id", managerUserId);
-    }
-    return { ok: true, invoiced: true, invoiceId, itemCount: billable.length, totalCents };
+    await stripe.invoices.finalizeInvoice(draftInvoiceId, { auto_advance: true });
+    await db
+      .from("manager_comms_billing_accounts")
+      .update({ last_invoiced_at: nowIso, last_invoice_id: draftInvoiceId, updated_at: nowIso })
+      .eq("manager_user_id", managerUserId);
+    return { ok: true, invoiced: true, invoiceId: draftInvoiceId, itemCount: billable.length, totalCents };
   } catch (e) {
-    // The items are already attached to the customer, so they ride on the next
-    // invoice. Nothing is lost and nothing is double-charged.
-    return { ok: false, error: e instanceof Error ? e.message : "invoice creation failed" };
+    // The items are attached to this draft, so the charges are not lost — the
+    // draft can be finalized by hand or by the next run. Reported as a failure
+    // so it is not silently counted as invoiced.
+    return { ok: false, error: e instanceof Error ? e.message : "invoice finalize failed" };
   }
 }
