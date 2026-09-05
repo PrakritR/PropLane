@@ -19,7 +19,7 @@ describe("resolvePropertyScopedManagerRecipientIds", () => {
     expect(db.from).not.toHaveBeenCalled();
   });
 
-  it("includes co-managers with inbox access on the property", async () => {
+  it("includes co-managers with notification access on the property", async () => {
     const db = {
       from: vi.fn(() => ({
         select: vi.fn(() => ({
@@ -29,12 +29,17 @@ describe("resolvePropertyScopedManagerRecipientIds", () => {
                 {
                   invitee_user_id: "co-1",
                   assigned_property_ids: ["prop-a"],
-                  property_co_manager_permissions: { "prop-a": { inbox: true } },
+                  property_co_manager_permissions: { "prop-a": { inbox: { read: true, notification: true } } },
                 },
                 {
                   invitee_user_id: "co-2",
                   assigned_property_ids: ["prop-a"],
-                  property_co_manager_permissions: { "prop-a": { calendar: true } },
+                  property_co_manager_permissions: { "prop-a": { calendar: { read: true, notification: true } } },
+                },
+                {
+                  invitee_user_id: "co-3",
+                  assigned_property_ids: ["prop-a"],
+                  property_co_manager_permissions: { "prop-a": { inbox: { read: true, notification: false } } },
                 },
               ],
               error: null,
@@ -53,7 +58,7 @@ describe("resolvePropertyScopedManagerRecipientIds", () => {
     ).resolves.toEqual(["owner-1", "co-1"]);
   });
 
-  it("includes co-managers with services access on the property", async () => {
+  it("includes co-managers with services notification on the property", async () => {
     const db = {
       from: vi.fn(() => ({
         select: vi.fn(() => ({
@@ -63,12 +68,12 @@ describe("resolvePropertyScopedManagerRecipientIds", () => {
                 {
                   invitee_user_id: "co-services",
                   assigned_property_ids: ["prop-a"],
-                  property_co_manager_permissions: { "prop-a": { services: true } },
+                  property_co_manager_permissions: { "prop-a": { services: { notification: true } } },
                 },
                 {
                   invitee_user_id: "co-inbox-only",
                   assigned_property_ids: ["prop-a"],
-                  property_co_manager_permissions: { "prop-a": { inbox: true } },
+                  property_co_manager_permissions: { "prop-a": { inbox: { notification: true } } },
                 },
               ],
               error: null,
@@ -97,12 +102,12 @@ describe("resolvePropertyScopedManagerRecipientIds", () => {
       {
         invitee_user_id: "co-calendar",
         assigned_property_ids: ["prop-a"],
-        property_co_manager_permissions: { "prop-a": { calendar: true } },
+        property_co_manager_permissions: { "prop-a": { calendar: { notification: true } } },
       },
       {
         invitee_user_id: "co-both",
         assigned_property_ids: ["prop-a"],
-        property_co_manager_permissions: { "prop-a": { inbox: true, calendar: true } },
+        property_co_manager_permissions: { "prop-a": { inbox: { notification: true }, calendar: { notification: true } } },
       },
     ];
     const db = {

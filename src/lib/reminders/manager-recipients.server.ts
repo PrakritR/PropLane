@@ -1,4 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  loadCoManagerNotificationRecipients,
+  type CoManagerNotificationRecipient,
+} from "@/lib/co-manager-notification-recipients.server";
+import type { CoManagerPermissionId } from "@/lib/co-manager-permissions";
 import type { ReminderRecipient } from "@/lib/reminders/queue.server";
 
 export type ManagerReminderRecipient = {
@@ -36,16 +41,34 @@ export async function loadManagerReminderRecipients(
 }
 
 /**
- * Accepted co-managers for reminder fan-out.
+ * Co-managers with **notification** permission on a module (property-scoped when provided).
  *
- * An empty `teamUserIds` means every linked teammate; a non-empty list is the
- * manager's explicit allowlist from Settings.
+ * An empty `teamUserIds` means every eligible teammate; a non-empty list is the
+ * manager's explicit allowlist from Reminder settings.
  */
 export async function loadTeamReminderRecipients(
   db: SupabaseClient,
   managerUserId: string,
   teamUserIds: readonly string[],
+  options?: {
+    module?: CoManagerPermissionId;
+    propertyId?: string | null;
+  },
 ): Promise<TeamReminderRecipient[]> {
+  if (options?.module) {
+    const rows = await loadCoManagerNotificationRecipients(db, {
+      ownerManagerUserId: managerUserId,
+      module: options.module,
+      propertyId: options.propertyId,
+      teamUserIds,
+    });
+    return rows.map((member) => ({
+      userId: member.userId,
+      email: member.email,
+      name: member.name,
+    }));
+  }
+
   const ownerId = managerUserId.trim();
   if (!ownerId) return [];
 
@@ -100,7 +123,12 @@ export function teamReminderRecipients(members: readonly TeamReminderRecipient[]
 /** Load team recipients once per manager when a sweep needs them. */
 export async function loadTeamReminderRecipientsByManager(
   db: SupabaseClient,
-  entries: ReadonlyArray<{ managerUserId: string; teamUserIds: readonly string[] }>,
+  entries: ReadonlyArray<{
+    managerUserId: string;
+    teamUserIds: readonly string[];
+    module?: CoManagerPermissionId;
+    propertyId?: string | null;
+  }>,
 ): Promise<Map<string, TeamReminderRecipient[]>> {
   const out = new Map<string, TeamReminderRecipient[]>();
   const seen = new Set<string>();
@@ -108,7 +136,15 @@ export async function loadTeamReminderRecipientsByManager(
     const managerUserId = entry.managerUserId.trim();
     if (!managerUserId || seen.has(managerUserId)) continue;
     seen.add(managerUserId);
-    out.set(managerUserId, await loadTeamReminderRecipients(db, managerUserId, entry.teamUserIds));
+    out.set(
+      managerUserId,
+      await loadTeamReminderRecipients(db, managerUserId, entry.teamUserIds, {
+        module: entry.module,
+        propertyId: entry.propertyId,
+      }),
+    );
   }
   return out;
 }
+
+export type { CoManagerNotificationRecipient };
