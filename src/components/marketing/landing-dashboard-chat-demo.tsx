@@ -367,7 +367,7 @@ function DemoDashboardShell({
   dashLive: boolean;
 }) {
   return (
-    <div className="lp-dash-inner space-y-5">
+    <div className="lp-dash-inner space-y-5" tabIndex={0} role="region" aria-label="Dashboard preview">
       <div>
         <h2 className="text-[1.35rem] font-bold tracking-[-0.02em] text-foreground sm:text-[1.5rem]">
           Dashboard
@@ -375,7 +375,12 @@ function DemoDashboardShell({
         <p className="mt-0.5 text-sm text-muted">Welcome, Alex</p>
       </div>
 
-      <div className="-mx-1 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div
+        className="-mx-1 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        tabIndex={0}
+        role="region"
+        aria-label="Key metrics"
+      >
         <div className="flex gap-2.5">
           <KpiTile label="Rooms vacant" value={1} sub="listed & available" accent />
           <KpiTile label="Applicants to review" value={2} sub="pending review" />

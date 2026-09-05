@@ -298,7 +298,7 @@ export function LandingInboxApproveDemo() {
                 </span>
               </div>
 
-              <div className="lp-ibx-thread-body">
+              <div className="lp-ibx-thread-body" tabIndex={0} role="region" aria-label="Message thread">
                 <div className="lp-ibx-msg">{current.body}</div>
 
                 <div

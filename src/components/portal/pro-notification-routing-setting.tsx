@@ -11,6 +11,7 @@ import {
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   MANAGER_NOTIFICATION_CATEGORIES,
+  type ManagerAttentionDigestCadence,
   type ManagerNotificationDestination,
 } from "@/lib/manager-notification-preferences";
 import {
@@ -54,6 +55,16 @@ const DESTINATIONS: ReadonlyArray<{
     description: "Notify PropLane Assistant and send a copy to your phone.",
     icon: BellRing,
   },
+];
+
+const DIGEST_CADENCES: ReadonlyArray<{
+  id: ManagerAttentionDigestCadence;
+  label: string;
+  description: string;
+}> = [
+  { id: "off", label: "Off", description: "Do not send a scheduled summary." },
+  { id: "daily", label: "Daily", description: "Send each day when something needs attention." },
+  { id: "weekly", label: "Weekly", description: "Send Monday when something needs attention." },
 ];
 
 type LoadState = "loading" | "ready" | "error";
@@ -116,6 +127,7 @@ export function ManagerNotificationRoutingSetting() {
         body: JSON.stringify({
           managerNotificationDestination: settings.managerNotificationDestination,
           managerNotificationCategories: settings.managerNotificationCategories,
+          managerAttentionDigestCadence: settings.managerAttentionDigestCadence,
         }),
       });
       if (!response.ok) throw new Error("Could not save manager alert preferences.");
@@ -183,6 +195,44 @@ export function ManagerNotificationRoutingSetting() {
               </Link>
             ) : null}
           </div>
+
+          <PortalSettingsGroup>
+            <fieldset>
+              <legend className="px-4 pb-2 pt-4 text-sm font-semibold text-foreground">
+                Needs-attention digest
+              </legend>
+              <p className="px-4 pb-2 text-xs leading-relaxed text-muted">
+                Uses your manager-alert destination and sends only when your queue has open items.
+              </p>
+              {DIGEST_CADENCES.map((cadence) => (
+                <label
+                  key={cadence.id}
+                  className="flex min-h-14 cursor-pointer items-start gap-3 border-b border-border px-4 py-3.5 last:border-0 hover:bg-accent/30"
+                >
+                  <input
+                    type="radio"
+                    name="manager-attention-digest-cadence"
+                    value={cadence.id}
+                    checked={settings.managerAttentionDigestCadence === cadence.id}
+                    onChange={() =>
+                      setSettings((current) => ({
+                        ...current,
+                        managerAttentionDigestCadence: cadence.id,
+                      }))
+                    }
+                    className="mt-1 h-4 w-4 shrink-0 accent-primary focus-visible:ring-2 focus-visible:ring-ring"
+                    data-attr={`manager-attention-digest-${cadence.id}`}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-foreground">{cadence.label}</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-muted">
+                      {cadence.description}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          </PortalSettingsGroup>
 
           <PortalSettingsGroup>
             <fieldset>

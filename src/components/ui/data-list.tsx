@@ -11,7 +11,6 @@ import {
   PORTAL_TABLE_TD,
   PORTAL_TABLE_TR,
   PortalResponsiveDataView,
-  isPortalRowClickIgnored,
 } from "@/components/portal/portal-data-table";
 import { MANAGER_TABLE_TH } from "@/components/portal/portal-metrics";
 import {
@@ -233,15 +232,7 @@ function DataListDesktopRow<T>({
 }) {
   return (
     <tr
-      className={cn(
-        PORTAL_TABLE_TR,
-        row.leading ? "min-h-11" : DATA_LIST_DESKTOP_ROW_CLASS,
-        row.onClick && "cursor-pointer",
-      )}
-      onClick={(e) => {
-        if (!row.onClick || isPortalRowClickIgnored(e.target)) return;
-        row.onClick();
-      }}
+      className={cn(PORTAL_TABLE_TR, row.leading ? "min-h-11" : DATA_LIST_DESKTOP_ROW_CLASS)}
       data-slot="data-list-desktop-row"
     >
       {selectable && row.onSelectedChange ? (
@@ -278,7 +269,18 @@ function DataListDesktopRow<T>({
             col.cellClassName,
           )}
         >
-          {col.cell(row.data)}
+          {index === 0 && row.onClick ? (
+            // The row's own activation lives here, as a real sibling of the
+            // checkbox/action controls below — never nested inside or wrapping
+            // them. A clickable <tr> with no accessible role was invisible to
+            // keyboard and AT users; a <tr> can't itself be a <button> without
+            // breaking table semantics, so the primary cell carries it instead.
+            <button type="button" className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => row.onClick?.()}>
+              {col.cell(row.data)}
+            </button>
+          ) : (
+            col.cell(row.data)
+          )}
         </td>
       ))}
       {(row.inlineAction || row.overflowActions) ? (

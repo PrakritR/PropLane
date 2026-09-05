@@ -10,8 +10,9 @@ import {
   inferMaintenanceTitle,
   looksLikeMaintenanceRequest,
 } from "@/lib/claw-maintenance-detect";
-import { notifyManagerOfResidentFiledItem } from "@/lib/work-order-notification.server";
+import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { prepareDispatch } from "@/lib/work-order-dispatch.server";
+import { workOrderEvent } from "@/lib/work-order-events.server";
 import { workOrderCategoryForResidentLabel } from "@/lib/work-order-taxonomy";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { residentPortalUrl } from "@/lib/claw-resident-links";
@@ -31,6 +32,7 @@ export type CreateWorkOrderFromResidentSmsResult =
       workOrderId: string;
       title: string;
       category: string;
+      reference?: string;
       alreadyOpen?: false;
     }
   | {
@@ -38,6 +40,7 @@ export type CreateWorkOrderFromResidentSmsResult =
       workOrderId: string;
       title: string;
       category: string;
+      reference?: string;
       alreadyOpen: true;
     }
   | { created: false; error: string };
@@ -183,6 +186,7 @@ export async function createWorkOrderFromResidentSms(args: {
         workOrderId: String((row as { id?: string }).id ?? rd.id ?? ""),
         title: rd.title || title,
         category,
+        reference: rd.reference?.trim() || undefined,
       };
     }
   }
@@ -217,39 +221,61 @@ export async function createWorkOrderFromResidentSms(args: {
     residentEmail,
   };
 
-  const { error } = await db.from("portal_work_order_records").upsert(
-    {
-      id,
-      manager_user_id: managerUserId,
-      resident_email: residentEmail,
-      property_id: ctx.propertyId,
-      assigned_property_id: ctx.assignedPropertyId ?? ctx.propertyId,
-      vendor_user_id: null,
-      row_data: row,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "id" },
-  );
+  const { data: persisted, error } = await db
+    .from("portal_work_order_records")
+    .upsert(
+      {
+        id,
+        manager_user_id: managerUserId,
+        resident_email: residentEmail,
+        property_id: ctx.propertyId,
+        assigned_property_id: ctx.assignedPropertyId ?? ctx.propertyId,
+        vendor_user_id: null,
+        row_data: row,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" },
+    )
+    .select("row_data")
+    .maybeSingle();
   if (error) return { created: false, error: error.message };
+
+  const persistedRow = (persisted?.row_data ?? row) as DemoManagerWorkOrderRow;
+  const reference = persistedRow.reference?.trim() || undefined;
 
   const senderUserId = args.senderUserId?.trim() || args.residentUserId?.trim() || "";
   if (senderUserId) {
-    await notifyManagerOfResidentFiledItem(db, {
-      kind: "work-order",
+    const managerRecipients = await resolvePropertyScopedManagerRecipientIds(db, {
+      ownerManagerUserId: managerUserId,
+      propertyId: ctx.assignedPropertyId ?? ctx.propertyId ?? undefined,
+      channel: "services",
+    }).catch(() => [managerUserId]);
+    await workOrderEvent(db, {
+      eventId: `${id}:created`,
+      event: "created",
+      managerUserId,
+      workOrderId: id,
       senderUserId,
       senderEmail: residentEmail,
       senderName: ctx.residentName,
-      managerUserId,
-      propertyId: ctx.assignedPropertyId ?? ctx.propertyId ?? undefined,
-      title,
-      description: text,
-      propertyLabel: ctx.propertyName,
+      facts: {
+        reference: reference || "Work order",
+        title,
+        propertyLabel: ctx.propertyName,
+        emergency: priority === "Emergency",
+      },
+      recipients: [
+        ...managerRecipients.map((userId) => ({ audience: "manager" as const, userId })),
+        args.residentUserId
+          ? { audience: "resident" as const, userId: args.residentUserId }
+          : { audience: "resident" as const, email: residentEmail },
+      ],
     }).catch(() => undefined);
   }
 
   await prepareDispatch(db, id).catch(() => undefined);
 
-  return { created: true, workOrderId: id, title, category };
+  return { created: true, workOrderId: id, title, category, reference };
 }
 
 export function maintenanceWorkOrderResidentAck(result: CreateWorkOrderFromResidentSmsResult): string | null {
@@ -263,8 +289,9 @@ export function maintenanceWorkOrderResidentAck(result: CreateWorkOrderFromResid
     ].join("\n");
   }
   if (result.created) {
+    const reference = result.reference ? ` ${result.reference}` : "";
     return [
-      `Got it, I put in a service for "${result.title}".`,
+      `Got it, I put in service${reference} for "${result.title}".`,
       `Your manager will follow up here.`,
     ].join("\n");
   }

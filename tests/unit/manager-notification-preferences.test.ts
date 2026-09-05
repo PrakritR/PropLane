@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_MANAGER_NOTIFICATION_CATEGORIES,
   managerNotificationCategoryForEvent,
+  normalizeManagerAttentionDigestCadence,
   normalizeManagerNotificationCategories,
   normalizeManagerNotificationDestination,
   resolveManagerNotificationRoute,
@@ -13,6 +14,8 @@ describe("manager notification preferences", () => {
     expect(normalizeManagerNotificationCategories(null)).toEqual(
       DEFAULT_MANAGER_NOTIFICATION_CATEGORIES,
     );
+    expect(normalizeManagerAttentionDigestCadence(undefined)).toBe("off");
+    expect(normalizeManagerAttentionDigestCadence("weekly")).toBe("weekly");
   });
 
   it("falls back to Assistant until both phone legs are ready", () => {
@@ -64,5 +67,6 @@ describe("manager notification preferences", () => {
     expect(managerNotificationCategoryForEvent("maintenance")).toBe("maintenance");
     expect(managerNotificationCategoryForEvent("leases")).toBe("leasing");
     expect(managerNotificationCategoryForEvent("applications")).toBe("applications");
+    expect(managerNotificationCategoryForEvent("attention_digest")).toBe("attention_digest");
   });
 });

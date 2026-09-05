@@ -64,6 +64,65 @@ export type TraceActor = {
   metadata?: Record<string, unknown>;
 };
 
+/**
+ * Trace a system-initiated notification (cron/job rather than an LLM turn).
+ * Keep the payload deliberately structured and PII-free: stable actor/entity
+ * ids and enum-like delivery facts are enough to reproduce routing decisions.
+ */
+export async function traceSystemNotification<T>(opts: {
+  domain: string;
+  managerUserId: string;
+  recipientUserId?: string | null;
+  entityId?: string | null;
+  cadence?: string | null;
+  run: () => Promise<T>;
+  summarize: (result: T) => Record<string, unknown>;
+}): Promise<T> {
+  const lf = getClient();
+  if (!lf) return opts.run();
+
+  let trace: ReturnType<Langfuse["trace"]> | null = null;
+  try {
+    trace = lf.trace({
+      name: "axis-system-notification",
+      userId: opts.managerUserId,
+      sessionId: `system:${opts.domain}:${opts.managerUserId}`,
+      metadata: {
+        landlordId: opts.managerUserId,
+        domain: opts.domain,
+        recipientUserId: opts.recipientUserId ?? null,
+        entityId: opts.entityId ?? null,
+        cadence: opts.cadence ?? null,
+      },
+      input: {
+        domain: opts.domain,
+        entityId: opts.entityId ?? null,
+        cadence: opts.cadence ?? null,
+      },
+    });
+  } catch {
+    trace = null;
+  }
+
+  try {
+    const result = await opts.run();
+    safe(() => trace?.update({ output: opts.summarize(result) }));
+    return result;
+  } catch (error) {
+    safe(() =>
+      trace?.update({
+        output: {
+          ok: false,
+          error: error instanceof Error ? error.message : "notification_failed",
+        },
+      }),
+    );
+    throw error;
+  } finally {
+    await flushTelemetry(lf);
+  }
+}
+
 /** The subset of a Langfuse trace the observer uses; lets us unit-test the mapping. */
 export type TraceLike = {
   update(args: Record<string, unknown>): void;

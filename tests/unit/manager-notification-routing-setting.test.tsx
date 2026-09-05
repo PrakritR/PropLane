@@ -58,7 +58,8 @@ describe("ManagerNotificationRoutingSetting", () => {
     expect(await screen.findByText("Phone connection ready")).toBeTruthy();
     expect(screen.getByRole("radio", { name: /^PropLane Assistant/ })).toHaveProperty("checked", true);
     expect(screen.getByRole("radio", { name: /No updates/ })).toBeTruthy();
-    expect(screen.getAllByRole("checkbox")).toHaveLength(5);
+    expect(screen.getAllByRole("checkbox")).toHaveLength(6);
+    expect(screen.getByRole("radio", { name: /^Off/ })).toHaveProperty("checked", true);
   });
 
   it("saves a destination and per-topic text selection", async () => {
@@ -77,6 +78,7 @@ describe("ManagerNotificationRoutingSetting", () => {
     render(<ManagerNotificationRoutingSetting />);
     fireEvent.click(await screen.findByRole("radio", { name: /Both/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: /Maintenance/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /^Weekly/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(showToast).toHaveBeenCalledWith("Manager alert preferences saved."));
@@ -85,9 +87,11 @@ describe("ManagerNotificationRoutingSetting", () => {
     const body = JSON.parse(String(patchCall?.[1]?.body)) as {
       managerNotificationDestination: string;
       managerNotificationCategories: Record<string, boolean>;
+      managerAttentionDigestCadence: string;
     };
     expect(body.managerNotificationDestination).toBe("both");
     expect(body.managerNotificationCategories.maintenance).toBe(false);
+    expect(body.managerAttentionDigestCadence).toBe("weekly");
   });
 
   it("explains the Assistant fallback when work-number setup is incomplete", async () => {

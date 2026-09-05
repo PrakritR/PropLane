@@ -518,7 +518,10 @@ html [data-surface="light"] .btn-metallic {
   --color-secondary-foreground: var(--secondary-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+  /* Schibsted Grotesk (see src/app/fonts.ts). The former system stack stays
+     behind it as the fallback, so a failed font load degrades to exactly the
+     previous rendering rather than to a default serif. */
+  --font-sans: var(--font-brand-sans), -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", monospace;
 }
 
@@ -694,20 +697,24 @@ html {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0) 100%);
 }
 
-/* Layer 4 — radial legibility wash (≥4.5:1 body copy in the calm center). */
+/* Layer 4 — radial legibility wash (≥4.5:1 body copy in the calm center).
+   The wash must darken/lighten the CENTER, where content actually sits, and
+   fade out toward the edges — it previously did the opposite (transparent at
+   center, opaque at the edge), so content placed centered on the page (every
+   consumer of this substrate) rode the unmuted decorative layers underneath. */
 .chrome-substrate-full__wash {
   background: radial-gradient(
     ellipse 80% 65% at 50% 50%,
-    transparent 20%,
-    rgba(4, 7, 18, 0.6) 88%
+    rgba(4, 7, 18, 0.6) 0%,
+    transparent 80%
   );
 }
 
 [data-theme="light"] .chrome-substrate-full__wash {
   background: radial-gradient(
     ellipse 80% 65% at 50% 50%,
-    transparent 20%,
-    rgba(220, 232, 248, 0.55) 88%
+    rgba(220, 232, 248, 0.55) 0%,
+    transparent 80%
   );
 }
 
