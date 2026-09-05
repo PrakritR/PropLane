@@ -2396,9 +2396,15 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
                 />
               </label>
               <p className="mt-3 text-xs leading-relaxed text-muted">
-                Enter the {AXIS_ID_LABEL} of the manager you want to add. Next you&apos;ll choose which properties
-                they co-manage and what they can do on each. After you send the invite, you&apos;ll get a shareable
-                link they can open to accept.
+                {/*
+                  One interpolated string rather than text around a `{...}` in
+                  JSX: the previous form put the label next to a line break and
+                  rendered as "PropLane IDof the manager".
+                */}
+                {`Ask them for their ${AXIS_ID_LABEL} — it is on their PropLane Settings page. Next you'll pick which properties they co-manage and what they can do on each, then send the invite.`}
+              </p>
+              <p className="mt-2 text-xs leading-relaxed text-muted">
+                {`Don't have their ${AXIS_ID_LABEL}? Create a shareable invite link instead — you set the properties and permissions first, then anyone who opens the link joins with exactly that access.`}
               </p>
               </div>
             </form>
