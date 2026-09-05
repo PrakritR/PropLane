@@ -85,3 +85,7 @@ existing security-review follow-up, not a property established by these
 encryption tests. The synthetic smoke disables notifications using only its
 generated owner's blank profile email, held until teardown; it performs no
 provider sends or live screening/calendar synchronization.
+
+## CI test synchronization follow-up
+
+Main CI run `33997444356` passed integration, lint, build and browser smoke, but one of 7,569 unit tests raced the PDF renderer's final event-loop yield. The test published all three images before loading-state finalization. Its final loading-removal assertion now uses `waitFor`, retaining the same expected result and all image/truncation assertions. All nine focused preview tests pass. Bugbot and security-review independently approved the test-only change; application source is unchanged.

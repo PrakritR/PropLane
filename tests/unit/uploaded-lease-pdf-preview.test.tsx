@@ -169,7 +169,8 @@ describe("UploadedLeasePdfPreview", () => {
 
     releaseSecondPage();
     await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(3));
-    expect(screen.queryByText(/Loading more pages/)).toBeNull();
+    // Publishing the last page precedes the renderer's final event-loop yield.
+    await waitFor(() => expect(screen.queryByText(/Loading more pages/)).toBeNull());
     expect(screen.queryByText(/Preview shows the first/)).toBeNull();
   });
 
