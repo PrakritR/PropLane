@@ -90,12 +90,12 @@ describe("buildLeaseBillingSnapshot", () => {
     expect(pending.securityDeposit).toBe(400);
     expect(pending.securityDepositDue).toBe(400 - amount);
     expect(pending.dueAtSigning).toBe(550);
-    expect(pending.holdingDeposit).toEqual({ amount, amountDue: amount });
+    expect(pending.holdingDeposit).toEqual({ amount, amountDue: amount, received: 0 });
     markHouseholdChargePaid(holding.charge.id);
     const paid = buildLeaseBillingSnapshot(row, MANAGER_ID);
     expect(paid.securityDeposit).toBe(400);
     expect(paid.securityDepositDue).toBe(400 - amount);
-    expect(paid.holdingDeposit).toEqual({ amount, amountDue: 0 });
+    expect(paid.holdingDeposit).toEqual({ amount, amountDue: 0, received: amount });
     expect(paid.dueAtSigning).toBe(550 - amount);
   });
 
@@ -152,7 +152,7 @@ describe("buildLeaseBillingSnapshot", () => {
       { ...moveIn, status: "partially_paid", balanceLabel: "$50.00", paidAmountCents: 10_000 },
     ]);
     const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
-    expect(billing.holdingDeposit).toEqual({ amount: 100, amountDue: 100 });
+    expect(billing.holdingDeposit).toEqual({ amount: 100, amountDue: 100, received: 0 });
     expect(billing.securityDepositDue).toBe(300);
     expect(billing.moveInFeeDue).toBe(50);
     expect(billing.dueAtSigning).toBe(450);
@@ -210,6 +210,100 @@ describe("buildLeaseBillingSnapshot", () => {
     expect(billing.securityDepositDue).toBe(400);
     expect(billing.moveInFeeDue).toBe(50);
     expect(billing.dueAtSigning).toBe(450);
+  });
+
+  it.each(["cancelled", "refunded"] as const)("does not let a %s holding charge disclose or credit a deposit", (status) => {
+    for (const withSecurityRow of [true, false]) {
+      const propertyId = `prop-void-holding-${status}-${withSecurityRow}`;
+      const email = `void-holding-${status}-${withSecurityRow}@example.com`;
+      removeResidentHouseholdPaymentData(email);
+      seedListing(propertyId, normalizeManagerListingSubmissionV1({
+        ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150",
+        rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
+      }));
+      const row = applicantRow(propertyId, email);
+      setApplicantHoldingFee({ residentEmail: email, residentName: row.name, residentUserId: null, propertyId, applicationId: row.id, managerUserId: MANAGER_ID, amount: 100 });
+      recordApprovedApplicationCharges(row, MANAGER_ID, true);
+      const holding = readHouseholdCharges().find((c) => c.applicationId === row.id && c.kind === "holding_deposit")!;
+      const patches = [{ ...holding, status }];
+      const security = readHouseholdCharges().find((c) => c.applicationId === row.id && c.kind === "security_deposit");
+      if (!withSecurityRow && security) applyHouseholdChargePatches([{ ...security, status: "cancelled" as const }]);
+      applyHouseholdChargePatches(patches);
+      const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
+      expect(billing.holdingDeposit).toBeUndefined();
+      expect(billing.securityDeposit).toBe(400);
+      // A real net security charge keeps its exact balance; a waived one owes nothing.
+      expect(billing.securityDepositDue).toBe(withSecurityRow ? 300 : 0);
+      expect(billing.securityDepositReceived).toBe(0);
+      const html = buildLeaseHtml({
+        application: row.application!,
+        submission: normalizeManagerListingSubmissionV1({ ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150" }),
+        leaseBilling: billing,
+        generatedAtIso: "2026-09-01T00:00:00.000Z",
+      }, SEATTLE_LEASE_CONFIG);
+      expect(html).not.toContain("Holding deposit");
+      expect(html).not.toContain("Already received");
+    }
+  });
+
+  it("reads a cleared holding beside a waived security balance as settled, not paid in full", () => {
+    const propertyId = "prop-mixed-deposit-settlement";
+    const email = "mixed-deposit@example.com";
+    removeResidentHouseholdPaymentData(email);
+    seedListing(propertyId, normalizeManagerListingSubmissionV1({
+      ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150",
+      rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
+    }));
+    const row = applicantRow(propertyId, email);
+    const holding = setApplicantHoldingFee({ residentEmail: email, residentName: row.name, residentUserId: null, propertyId, applicationId: row.id, managerUserId: MANAGER_ID, amount: 100 });
+    expect(holding.ok).toBe(true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    if (holding.ok) markHouseholdChargePaid(holding.charge.id);
+    const security = readHouseholdCharges().find((c) => c.applicationId === row.id && c.kind === "security_deposit")!;
+    applyHouseholdChargePatches([{ ...security, status: "cancelled" }]);
+    const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
+    expect(billing.holdingDeposit).toEqual({ amount: 100, amountDue: 0, received: 100 });
+    expect(billing.securityDepositDue).toBe(0);
+    expect(billing.securityDepositReceived).toBe(100);
+    const html = buildLeaseHtml({
+      application: row.application!,
+      submission: normalizeManagerListingSubmissionV1({ ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150" }),
+      leaseBilling: billing,
+      generatedAtIso: "2026-09-01T00:00:00.000Z",
+    }, SEATTLE_LEASE_CONFIG);
+    expect(html).toContain("Security deposit: <strong>$400.00</strong> — no payment due");
+    expect(html).not.toContain("Security deposit: <strong>$400.00</strong> — paid");
+    expect(html).toContain("Holding deposit:</strong> $100.00 (paid)");
+    expect(html).toContain("Already received toward the security deposit and move-in fee: <strong>$100.00</strong>");
+  });
+
+  it("reads a zero-balance one-time custom fee without receipts as no payment due", () => {
+    const propertyId = "prop-waived-custom-fee";
+    const email = "waived-custom-fee@example.com";
+    removeResidentHouseholdPaymentData(email);
+    seedListing(propertyId, normalizeManagerListingSubmissionV1({
+      ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150",
+      customFees: [{ id: "one-time", label: "Key replacement", amount: "100", frequency: "one-time" }],
+      rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
+    }));
+    const row = applicantRow(propertyId, email);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    const fee = readHouseholdCharges().find((c) => c.applicationId === row.id && c.customFeeId === "one-time")!;
+    applyHouseholdChargePatches([{ ...fee, status: "cancelled" }]);
+    const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
+    expect(billing.oneTimeCustomFeeBalances?.["one-time"]).toBe(0);
+    expect(billing.oneTimeCustomFeeReceived?.["one-time"]).toBe(0);
+    const html = buildLeaseHtml({
+      application: row.application!,
+      submission: normalizeManagerListingSubmissionV1({
+        ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150",
+        customFees: [{ id: "one-time", label: "Key replacement", amount: "100", frequency: "one-time" }],
+      }),
+      leaseBilling: billing,
+      generatedAtIso: "2026-09-01T00:00:00.000Z",
+    }, SEATTLE_LEASE_CONFIG);
+    expect(html).toContain("Key replacement: <strong>$100.00</strong> — no payment due");
+    expect(html).not.toContain("Key replacement: <strong>$100.00</strong> — paid");
   });
 
   it("keeps an ad-hoc manager charge out of the signing itemization and total", () => {

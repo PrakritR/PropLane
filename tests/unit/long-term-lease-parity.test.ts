@@ -376,7 +376,7 @@ describe("long-term lease parity", () => {
 
   it.each([0, 100])("itemizes a holding deposit with %s outstanding without reducing the contractual deposit", (amountDue) => {
     const ctx = longTermContext();
-    ctx.leaseBilling = { ...ctx.leaseBilling!, securityDepositDue: 300, holdingDeposit: { amount: 100, amountDue }, dueAtSigning: 500 + amountDue };
+    ctx.leaseBilling = { ...ctx.leaseBilling!, securityDepositDue: 300, holdingDeposit: { amount: 100, amountDue, received: amountDue ? 0 : 100 }, dueAtSigning: 500 + amountDue };
     const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
     expect(html).toContain("<strong>Security Deposit:</strong> $400.00");
     expect(html).toContain("part of the security deposit, not an additional fee");

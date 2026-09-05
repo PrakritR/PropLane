@@ -1720,8 +1720,16 @@ away. "Already received" is its own figure (`securityDepositReceived` /
 `moveInFeeReceived` / `receivedBeforeMoveIn`), summed from dollars that actually
 CLEARED rather than inferred by subtracting the balance from the obligation. A
 clearing, waived or refunded charge is therefore never described to a resident as
-a payment received; a settled line with no cleared dollars reads "no payment due"
-rather than "paid".
+a payment received. Every settled line in every document — deposit, move-in fee,
+holding deposit, one-time custom fee, other signing cost — reads "paid" only when
+cleared receipts cover the WHOLE stated obligation (`clearedInFull`); a zero
+balance with partial, absent or unknown receipt evidence reads "no payment due".
+Zero due is never by itself proof of payment, so a `received` figure that is
+undefined can only produce "no payment due". A voided holding charge is also not
+an active holding record: `buildLeaseBillingSnapshot` selects a non-cancelled,
+non-refunded `holding_deposit` row, so a waived holding neither raises the
+holding-deposit disclosure nor credits the security-deposit fallback, while a
+real security charge keeps its own exact balance either way.
 
 The signing total is a FIRST-PERIOD figure and is resolved AFTER proration in
 `build-lease-html.ts`. Resolving it earlier quoted a full month of rent and

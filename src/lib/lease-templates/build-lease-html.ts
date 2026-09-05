@@ -35,7 +35,7 @@ import {
   disclosureVerbatimHtmlForSection,
   evaluateDisclosureRules,
 } from "@/lib/lease-templates/disclosure-rules";
-import { buildCompactRoomLeaseBody } from "@/lib/lease-templates/build-compact-room-lease-html";
+import { buildCompactRoomLeaseBody, clearedInFull } from "@/lib/lease-templates/build-compact-room-lease-html";
 import {
   computeProratedFirstMonthTotals,
   leaseFirstPeriodProration,
@@ -1229,8 +1229,15 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
   }
 
   const billing = ctx.leaseBilling;
+  const holdingDepositState = billing?.holdingDeposit
+    ? billing.holdingDeposit.amountDue > 0
+      ? `${fmtUsd(billing.holdingDeposit.amountDue)} outstanding`
+      : clearedInFull(billing.holdingDeposit.received, billing.holdingDeposit.amount)
+        ? "paid"
+        : "no payment due"
+    : "";
   const holdingDepositHtml = billing?.holdingDeposit && billing.holdingDeposit.amount > 0
-    ? `<p><strong>Holding deposit:</strong> ${fmtUsd(billing.holdingDeposit.amount)} (${billing.holdingDeposit.amountDue > 0 ? `${fmtUsd(billing.holdingDeposit.amountDue)} outstanding` : "paid"}). This is part of the security deposit, not an additional fee. The separate security-deposit balance is <strong>${fmtUsd(billing.securityDepositDue ?? Math.max(0, billing.securityDeposit - billing.holdingDeposit.amount))}</strong>.${billing.holdingDeposit.amountDue > 0 ? " The outstanding holding deposit remains payable separately; it has not been recorded as paid." : ""}</p>`
+    ? `<p><strong>Holding deposit:</strong> ${fmtUsd(billing.holdingDeposit.amount)} (${holdingDepositState}). This is part of the security deposit, not an additional fee. The separate security-deposit balance is <strong>${fmtUsd(billing.securityDepositDue ?? Math.max(0, billing.securityDeposit - billing.holdingDeposit.amount))}</strong>.${billing.holdingDeposit.amountDue > 0 ? " The outstanding holding deposit remains payable separately; it has not been recorded as paid." : ""}</p>`
     : "";
   const summaryMonthlyRent = billing
     ? fmtUsd(billing.monthlyRent)
@@ -1379,7 +1386,7 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
       holdingDepositHtml,
       moveInFee,
       moveInFeeDue: billing?.moveInFeeDue,
-      otherSigningCost: showOtherSigningCost ? { label: rawOtherCostLabel, amount: otherCostNum!, amountDue: billing?.otherCostDue } : undefined,
+      otherSigningCost: showOtherSigningCost ? { label: rawOtherCostLabel, amount: otherCostNum!, amountDue: billing?.otherCostDue, received: billing?.otherCostReceived } : undefined,
       paySigning,
       paySigningNum,
       firstPartialMonthPayment,
@@ -1395,6 +1402,7 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
       billableOneTimeCustomFees: billableOneTimeCustomFees.map((fee) => ({
         ...fee,
         amountDue: billing?.oneTimeCustomFeeBalances?.[fee.id],
+        received: billing?.oneTimeCustomFeeReceived?.[fee.id],
       })),
       billableMonthlyCustomFees,
       supplementalOneTimeLeaseFees,

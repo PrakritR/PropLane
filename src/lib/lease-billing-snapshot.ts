@@ -35,13 +35,15 @@ export type LeaseBillingSnapshot = {
   securityDeposit: number;
   /** Full contractual deposit stays separate from the remaining collection. */
   securityDepositDue?: number;
-  holdingDeposit?: { amount: number; amountDue: number };
+  holdingDeposit?: { amount: number; amountDue: number; received: number };
   moveInFee: number;
   moveInFeeDue?: number;
   otherCostLabel: string;
   otherCostAmount: number;
   otherCostDue?: number;
+  otherCostReceived?: number;
   oneTimeCustomFeeBalances?: Record<string, number>;
+  oneTimeCustomFeeReceived?: Record<string, number>;
   proratedRent?: number;
   proratedUtilities?: number;
   proratedLastMonthRent?: number;
@@ -84,6 +86,11 @@ const SETTLED_CHARGE_STATUSES = new Set<HouseholdCharge["status"]>(["paid", "can
 
 function chargeIsSettled(c: HouseholdCharge): boolean {
   return SETTLED_CHARGE_STATUSES.has(c.status);
+}
+
+// Voided money: waived or returned, so it never becomes a disclosure, a credit, or a receipt.
+function chargeIsVoided(c: HouseholdCharge): boolean {
+  return c.status === "cancelled" || c.status === "refunded";
 }
 
 // Money that has not CLEARED is still owed. A clearing ACH ("processing"), a part payment
@@ -256,11 +263,14 @@ export function buildLeaseBillingSnapshot(
       : applicant.manualResidentDetails?.moveInFee ?? (isShortTerm
         ? parseMoneyLabel(selectedRoom?.shortTermMoveInFee?.trim() || sub?.shortTermMoveInFee || "0")
         : placement.moveInFee));
-  const holdingCharge = !isShortTerm ? placementCharges.find((c) => c.kind === "holding_deposit") : undefined;
+  const holdingCharge = !isShortTerm
+    ? placementCharges.find((c) => c.kind === "holding_deposit" && !chargeIsVoided(c))
+    : undefined;
   const holdingDeposit = holdingCharge
     ? {
         amount: parseMoneyLabel(holdingCharge.amountLabel),
         amountDue: chargeOutstandingAmount(holdingCharge),
+        received: chargeReceivedAmount(holdingCharge),
       }
     : undefined;
   const remainingForKind = (kind: HouseholdChargeKind, fallback: number) => {
@@ -278,11 +288,17 @@ export function buildLeaseBillingSnapshot(
   const otherCostDue = otherCostCharges.length
     ? otherCostCharges.reduce((sum, c) => sum + chargeOutstandingAmount(c), 0)
     : placement.otherCostAmount;
+  const otherCostReceived = otherCostCharges.length
+    ? Math.round(otherCostCharges.reduce((sum, c) => sum + chargeReceivedAmount(c), 0) * 100) / 100
+    : 0;
   const oneTimeCustomFeeBalances: Record<string, number> = {};
+  const oneTimeCustomFeeReceived: Record<string, number> = {};
   for (const c of placementCharges) {
     if (c.kind !== "other_cost" || !c.customFeeId || c.rentMonth) continue;
     oneTimeCustomFeeBalances[c.customFeeId] = (oneTimeCustomFeeBalances[c.customFeeId] ?? 0) +
       chargeOutstandingAmount(c);
+    oneTimeCustomFeeReceived[c.customFeeId] = (oneTimeCustomFeeReceived[c.customFeeId] ?? 0) +
+      chargeReceivedAmount(c);
   }
   const customOneTimeFeesDue = (sub?.customFees ?? []).reduce((sum, fee) => {
     const presetId = (fee as { presetId?: string }).presetId;
@@ -397,7 +413,9 @@ export function buildLeaseBillingSnapshot(
     otherCostLabel: placement.otherCostLabel,
     otherCostAmount: placement.otherCostAmount,
     otherCostDue,
+    otherCostReceived,
     oneTimeCustomFeeBalances,
+    oneTimeCustomFeeReceived,
     proratedRent: resolvedProratedRent,
     proratedUtilities: resolvedProratedUtilities,
     proratedLastMonthRent: chargeProratedLastMonthRent,
