@@ -37,8 +37,11 @@ describe("portal invite choice step", () => {
     expect(CHOICE).toContain("if (!onCreateInviteLink)");
   });
 
-  it("passes invite kind through the mint modal", () => {
-    expect(MODAL).toContain("kind?: InviteLinkKind");
-    expect(MODAL).toContain("kind,");
+  // A redeemed link only ever yields a co-manager invite, so the mint modal has no
+  // vendor mode to render — the refusal is a compile-time fact, not a runtime 400.
+  it("mints co-manager links only", () => {
+    expect(MODAL).not.toContain("kind?: InviteLinkKind");
+    expect(MODAL).not.toContain("isManagerLink");
+    expect(MODAL).toContain('kind: "manager"');
   });
 });

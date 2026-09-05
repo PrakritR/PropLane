@@ -13,3 +13,25 @@ Resident tools `get_housemates`, `get_housemate_sharing`, and `update_housemate_
 Apply `20260905213000_resident_housemate_sharing.sql` before deployment. It is applied to dev/test only; staging and production use the release ladder.
 
 Coverage: `resident-housemate-sharing*.test.ts`, `resident-housemate-disclosure-loader.test.ts`, resident navigation/tool-gating and platform-parity tests. Browser verification uses two dev residents to exercise save, opt-in disclosure, opt-out redaction, mobile layout, cross-origin rejection and identity-injection rejection.
+
+## Housemates: scoped, paged, and named from the listing
+
+`loadHousematesForProperty` (`src/lib/resident-move-in-info.ts`) reads
+`manager_application_records` scoped to ONE property and paged in 500-row batches. An
+unfiltered landlord-wide read stopped at Supabase's 1,000-row ceiling, so a manager with a
+large application history silently lost housemates from a resident's My home list.
+
+It queries every placement path `propertyIdFromAppRow` reads — the `property_id` and
+`assigned_property_id` COLUMNS plus the `row_data->>assignedPropertyId`,
+`row_data->>propertyId` and `row_data->application->>propertyId` JSON copies — deduped by
+row id. The JSON fallbacks are load-bearing: an older row can carry the placement only in
+`row_data` while the scalar column is null or stale, and scoping on the columns alone
+dropped exactly those peers. The JS predicate still decides membership, so a row matched on
+one path whose resolved property is a different house is discarded, and the current-resident
+and per-field opt-in checks are unchanged.
+
+A peer's room label comes from the listing (`property_data->listingSubmission->rooms`, or the
+legacy `row_data->submission->rooms`) keyed on the structured room id, so a housemate who
+opted into sharing their room reads "Garden Room" rather than the raw `home::room-3`
+placement id. Consent is unaffected — without `shareRoom` the label is still redacted to an
+empty string, and roommate identity still resolves from the structured id, never the label.

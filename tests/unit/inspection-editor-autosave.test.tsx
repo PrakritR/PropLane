@@ -148,3 +148,83 @@ it("keeps a completed server report authoritative and holds recovered notes asid
   fireEvent.click(screen.getByRole("button", { name: "Discard unsent notes" }));
   expect(screen.queryByText("Never sent")).toBeNull();
 });
+
+/**
+ * The freeze can also arrive mid-session: Review latest returns a report the manager
+ * has since completed. The captured file is still in live state at that moment, and
+ * `draftRef` stops tracking it the instant editing closes — so without a handoff a
+ * back gesture silently threw the photo away.
+ */
+it("keeps a captured photo recoverable when a refresh freezes the report", async () => {
+  const photo = { previewUrl: "blob:frozen-photo", file: new File(["image"], "room.jpg", { type: "image/jpeg" }) };
+  capture.mockResolvedValue(photo);
+  const completed = structuredClone(detail);
+  completed.report.status = "completed";
+  completed.report.revision = 5;
+  request.mockRejectedValueOnce(new Error("Upload interrupted")).mockResolvedValueOnce(completed);
+  mount();
+
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Upload photos" })); });
+  fireEvent.click(screen.getByRole("button", { name: "Review latest", exact: true }));
+  await act(async () => { fireEvent.click(screen.getByRole("dialog").querySelector("button")!); });
+
+  const writes = () => request.mock.calls.filter(call => call[2]?.method && call[2].method !== "GET").length;
+  const writesAfterRefresh = writes();
+  expect(screen.queryByRole("button", { name: "Retry upload" })).toBeNull();
+  expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(photo.previewUrl);
+
+  cleanup(); // Browser/native back on the frozen report.
+  detail = completed;
+  render(<InspectionEditor initial={detail} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+
+  fireEvent.click(screen.getByRole("button", { name: /Unsent notes and photos/ }));
+  expect(screen.getByAltText("Photo that was never uploaded")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Save photo to device" })).toBeTruthy();
+  await pause();
+  expect(writes()).toBe(writesAfterRefresh);
+});
+
+/**
+ * The panel is a statement about an evidence document, so it must not relist notes
+ * the server already acknowledged as "never sent".
+ */
+it("lists only observations the server never acknowledged", async () => {
+  request.mockResolvedValue(savedNotes("Saved earlier"));
+  mount();
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Saved earlier" } });
+  await pause();
+  expect(request).toHaveBeenCalledTimes(1);
+
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Saved earlier plus a later thought" } });
+  cleanup();
+
+  const completed = structuredClone(savedNotes("Saved earlier"));
+  completed.report.status = "completed";
+  detail = completed;
+  render(<InspectionEditor initial={detail} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+
+  fireEvent.click(screen.getByRole("button", { name: /Unsent notes and photos/ }));
+  expect(screen.getByText("Saved earlier plus a later thought")).toBeTruthy();
+  expect(screen.queryByText("Saved earlier")).toBeNull();
+});
+
+/**
+ * A section the listing has since dropped (furnished at move-in, unfurnished now)
+ * still has move-in photos. They stay visible as read-only history rather than
+ * disappearing from the comparison.
+ */
+it("keeps baseline room sections the current listing no longer has", () => {
+  const furnished = createRoomInspectionDocument({ assignment: "home::a", label: "Room A", furnished: true, privateBathroom: false });
+  furnished.areas.find(a => a.id === "room-furniture")!.items[0]!.resident.notes = "Desk chipped at move-in";
+  detail = {
+    report: reportFixture({ kind: "move-out", document: createRoomInspectionDocument({ assignment: "home::a", label: "Room A", furnished: false, privateBathroom: false }) }),
+    baseline: reportFixture({ id: "baseline-1", document: furnished }),
+    canEdit: true,
+  };
+  render(<InspectionEditor initial={detail} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+
+  fireEvent.click(screen.getByRole("button", { name: /Move-in sections not in this report/ }));
+  expect(screen.getByText("Desk chipped at move-in")).toBeTruthy();
+  // Read-only history, never an item of this inspection.
+  expect(screen.queryByRole("textbox", { name: "Furniture notes" })).toBeNull();
+});

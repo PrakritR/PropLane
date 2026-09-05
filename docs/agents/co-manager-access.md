@@ -188,4 +188,9 @@ co-manager accepted by TWO owners returns `"ambiguous_owner"` instead of the fir
 of an unordered query. A manager with no listings and no accepted link still resolves to
 their OWN account, so a brand-new account can onboard. Clearing a stale Connect id on
 the status route needs `canEditBankAccount`, because it rewrites the owner's profile.
-Coverage: `tests/unit/manager-stripe-payout-context.test.ts`.
+
+A refused status answers `{ error }` and nothing else, so the client reads that body only
+AFTER the `!res.ok` guard: reading `canEditBankAccount` first resolved `undefined !== false`
+to `true` and left the bank control enabled while discarding the only sentence that says
+why it cannot work. Coverage: `tests/unit/manager-stripe-payout-context.test.ts`,
+`tests/unit/manager-payment-setup-refusal.test.tsx`.

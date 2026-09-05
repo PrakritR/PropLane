@@ -8,17 +8,45 @@ let peerName = "Private Peer";
 let selfStage = "Approved";
 let peerStage = "Approved";
 let peerMoveOut: string | undefined;
-const application = (email: string, room: string, name: string) => ({ id: email, resident_email: email, manager_user_id: "manager", property_id: "home", assigned_property_id: "home", row_data: { id: email, email, name, bucket: "approved", propertyId: "home", assignedPropertyId: "home", stage: email.startsWith("self") ? selfStage : peerStage, manualResidentDetails: { roomNumber: room, moveOutDate: email.startsWith("self") ? undefined : peerMoveOut } } });
+let scalarPlacement = true;
+let peerRoomChoice: string | undefined;
+let listingRooms: { id: string; name: string }[] = [];
+const application = (email: string, room: string, name: string) => ({
+  id: email,
+  resident_email: email,
+  manager_user_id: "manager",
+  // A row written before the scalar placement columns existed carries the property
+  // only inside `row_data`; the loader must still find it.
+  property_id: scalarPlacement ? "home" : null,
+  assigned_property_id: scalarPlacement ? "home" : null,
+  row_data: {
+    id: email, email, name, bucket: "approved", propertyId: "home", assignedPropertyId: "home",
+    stage: email.startsWith("self") ? selfStage : peerStage,
+    ...(email.startsWith("self") || !peerRoomChoice ? {} : { assignedRoomChoice: peerRoomChoice }),
+    manualResidentDetails: {
+      roomNumber: email.startsWith("self") || !peerRoomChoice ? room : "",
+      moveOutDate: email.startsWith("self") ? undefined : peerMoveOut,
+    },
+  },
+});
+/** PostgREST JSON paths the loader falls back to, resolved against the fake row. */
+const jsonPath = (row: Record<string, unknown>, key: string): unknown => {
+  if (!key.includes("->")) return row[key];
+  const [base, ...rest] = key.replace(/->>/g, "->").split("->");
+  let value: unknown = row[base!];
+  for (const segment of rest) value = (value as Record<string, unknown> | undefined)?.[segment];
+  return value;
+};
 const db = { from: (table: string) => {
   const data: Record<string, unknown>[] = table === "manager_application_records" ? [application("self@example.test", "Room 1", "Self"), application("peer@example.test", "Room 2", peerName)]
-    : table === "manager_property_records" ? [{ id: "home", property_data: { id: "home", title: "Test home", address: "Test address" }, row_data: {} }]
+    : table === "manager_property_records" ? [{ id: "home", property_data: { id: "home", title: "Test home", address: "Test address", listingSubmission: { rooms: listingRooms } }, row_data: {} }]
     : table === "profiles" ? [{ id: "peer-id", email: "peer@example.test", full_name: peerName, phone: "2065550100" }]
     : preferences ? [{ user_id: "peer-id", preferences }] : [];
   let values = data;
   const result = () => ({ data: values, error: table === "resident_housemate_sharing" && prefError ? { message: "unavailable" } : null });
-  const q = { select: () => q, order: () => q, range: () => q, eq: (key: string, value: string) => { values = values.filter(row => row[key] === value); return q; }, in: (key: string, allowed: string[]) => { values = values.filter(row => allowed.includes(String(row[key]))); return q; }, maybeSingle: async () => ({ ...result(), data: values[0] ?? null }), then: (resolve: (r: ReturnType<typeof result>) => unknown) => Promise.resolve(result()).then(resolve) }; return q;
+  const q = { select: () => q, order: () => q, range: () => q, eq: (key: string, value: string) => { values = values.filter(row => jsonPath(row, key) === value); return q; }, in: (key: string, allowed: string[]) => { values = values.filter(row => allowed.includes(String(row[key]))); return q; }, maybeSingle: async () => ({ ...result(), data: values[0] ?? null }), then: (resolve: (r: ReturnType<typeof result>) => unknown) => Promise.resolve(result()).then(resolve) }; return q;
 } };
-beforeEach(() => { preferences = null; prefError = false; peerName = "Private Peer"; selfStage = "Approved"; peerStage = "Approved"; peerMoveOut = undefined; });
+beforeEach(() => { preferences = null; prefError = false; peerName = "Private Peer"; selfStage = "Approved"; peerStage = "Approved"; peerMoveOut = undefined; scalarPlacement = true; peerRoomChoice = undefined; listingRooms = []; });
 it("redacts peers before the server passes house details to the browser", async () => {
   const result = await loadResidentMoveInForEmail("self@example.test");
   expect(result?.housemates).toHaveLength(1);
@@ -55,4 +83,30 @@ it("excludes former peers and peers whose move-out date passed", async () => {
   expect((await loadResidentMoveInForEmail("self@example.test"))?.housemates).toEqual([]);
   peerStage = "Approved"; peerMoveOut = "2020-01-01";
   expect((await loadResidentMoveInForEmail("self@example.test"))?.housemates).toEqual([]);
+});
+
+it("still finds a peer whose placement lives only in row_data", async () => {
+  scalarPlacement = false;
+  preferences = { ...DEFAULT_HOUSEMATE_SHARING, shareName: true };
+  const housemates = (await loadResidentMoveInForEmail("self@example.test"))?.housemates;
+  expect(housemates).toHaveLength(1);
+  expect(housemates?.[0]).toMatchObject({ name: "Private Peer" });
+});
+
+it("shows the listing's room name rather than the raw placement id", async () => {
+  peerRoomChoice = "home::room-3";
+  listingRooms = [{ id: "room-3", name: "Garden Room" }];
+  preferences = { ...DEFAULT_HOUSEMATE_SHARING, shareName: true, shareRoom: true };
+  const mate = (await loadResidentMoveInForEmail("self@example.test"))?.housemates[0];
+  expect(mate?.roomLabel).toBe("Garden Room");
+  expect(JSON.stringify(mate)).not.toContain("home::room-3");
+});
+
+it("keeps the room private when the peer did not opt in", async () => {
+  peerRoomChoice = "home::room-3";
+  listingRooms = [{ id: "room-3", name: "Garden Room" }];
+  preferences = { ...DEFAULT_HOUSEMATE_SHARING, shareName: true };
+  const mate = (await loadResidentMoveInForEmail("self@example.test"))?.housemates[0];
+  expect(mate?.roomLabel).toBe("");
+  expect(mate?.isRoommate).toBe(false);
 });

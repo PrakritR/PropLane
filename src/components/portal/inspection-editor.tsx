@@ -13,6 +13,7 @@ import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell
 import { useNativeCamera, type CapturedPhoto } from "@/lib/native/use-native-camera";
 import { inspectionDraftKey, discardInspectionDraft, retainInspectionDraft, peekInspectionDraft, takeInspectionDraft, type InspectionEditorDraft } from "@/lib/inspections/editor-drafts";
 import { downloadInspection, inspectionRequest } from "@/lib/inspections/client";
+import { downloadBlobFile } from "@/lib/portal-document-download";
 import { inspectionRoomLabel, INSPECTION_CONDITIONS, type InspectionDetail, type InspectionItem, type InspectionObservation, type InspectionRole, type InspectionArea } from "@/lib/inspections/model";
 
 const observations = (detail: InspectionDetail, role: InspectionRole) => detail.report.document.areas.flatMap(a => a.items).map(i => ({ itemId: i.id, condition: i[role].condition, notes: i[role].notes }));
@@ -86,6 +87,14 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const activeArea = roomAreas.find(a => a.id === activeAreaId);
   const photoCount = report.document.areas.flatMap(a => a.items).reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
   const baselineItems = new Map(baseline?.document.areas.flatMap(a => a.items).map(i => [i.id, i]) ?? []);
+  // Baseline evidence with no counterpart in this report — a legacy 15-area move-in,
+  // or a room section (furniture, ensuite) the listing has since dropped. It stays
+  // visible as read-only history; it never becomes an item of this inspection.
+  const retainedBaselineItems = !baseline || !report.document.roomScope
+    ? []
+    : baseline.document.roomScope
+      ? baseline.document.areas.flatMap(a => a.items).filter(item => !report.document.areas.some(area => area.items.some(i => i.id === item.id)))
+      : baseline.document.areas.filter(area => area.id === "area-0").flatMap(area => area.items);
 
   // While frozen there is nothing to resume, so the retained entry stays the unsent
   // material itself rather than the authoritative report the person is only reading.
@@ -94,6 +103,15 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
       ? { dirty, value: { detail, saved, pendingPhoto } }
       : unsent ? { dirty: true, value: unsent } : null;
   }, [dirty, detail, saved, pendingPhoto, editable, unsent]);
+  // A refresh mid-session can freeze a report that still holds a captured file or
+  // unsaved typing. Hand that material to the recovery panel rather than leaving it
+  // in live state, where `draftRef` would drop it on the next navigation.
+  useEffect(() => {
+    if (editable || unsent) return;
+    if (!dirty && !pendingPhoto) return;
+    setUnsent({ detail, saved, pendingPhoto });
+    if (pendingPhoto) setPendingPhoto(null);
+  }, [editable, unsent, dirty, detail, saved, pendingPhoto]);
   useEffect(() => {
     live.current = true; takeInspectionDraft(draftKey);
     return () => {
@@ -230,14 +248,47 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     <p className="border-t border-border pt-5 text-sm text-muted">{report.document.residentAcknowledgment ? `Resident acknowledged on ${new Date(report.document.residentAcknowledgment.at).toLocaleDateString()}.` : "Resident acknowledgment pending."} {report.status === "completed" ? "Manager approved. This completed report is preserved." : "Manager approval pending."}</p>
   </article>;
   const itemLabels = new Map(report.document.areas.flatMap(a => a.items).map(i => [i.id, i.label]));
-  const unsentNotes = unsent
-    ? observations(unsent.detail, role).filter(entry => entry.notes.trim() || entry.condition !== "unchecked")
-    : [];
+  // Only what the server never acknowledged. `saved` is the last accepted snapshot,
+  // so an observation matching it IS in the report above and must not be relisted
+  // as never sent — this panel is read as a statement about an evidence document.
+  const unsentNotes = (() => {
+    if (!unsent) return [];
+    let acknowledged: Map<string, { notes: string; condition: InspectionObservation["condition"] }>;
+    try {
+      acknowledged = new Map(
+        (JSON.parse(unsent.saved) as ReturnType<typeof observations>).map(entry => [entry.itemId, entry]),
+      );
+    } catch {
+      acknowledged = new Map();
+    }
+    return observations(unsent.detail, role).filter(entry => {
+      if (!entry.notes.trim() && entry.condition === "unchecked") return false;
+      const prior = acknowledged.get(entry.itemId);
+      return !prior || prior.notes !== entry.notes || prior.condition !== entry.condition;
+    });
+  })();
   const discardUnsent = () => {
     if (unsent?.pendingPhoto) URL.revokeObjectURL(unsent.pendingPhoto.photo.previewUrl);
     setUnsent(null);
     discardInspectionDraft(draftKey);
   };
+  const saveUnsentPhoto = async () => {
+    const photo = unsent?.pendingPhoto?.photo;
+    if (!photo) return;
+    const result = await downloadBlobFile({
+      fileName: photo.file.name || "inspection-photo.jpg",
+      mimeType: photo.file.type || "image/jpeg",
+      blob: photo.file,
+      title: "Inspection photo",
+    });
+    setNotice(result === "failed" ? "" : "Photo saved to your device.");
+    if (result === "failed") setError("Could not save the photo to your device.");
+  };
+  const frozenReason = report.status === "completed"
+    ? "completed"
+    : report.status === "submitted"
+      ? "submitted for review"
+      : "no longer editable";
   const areaCount = (area: InspectionArea) => area.items.reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
   const backLabel = documentOpen || activeArea ? "Back to room sections" : "Back to inspections";
   const status = report.status === "completed" ? "Completed" : report.status === "submitted" ? "Awaiting review" : "Draft";
@@ -246,28 +297,31 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     <div className="flex flex-wrap items-center gap-3 px-2 text-sm text-muted"><span>{report.kind === "move-in" ? "Move-in" : "Move-out"} · {report.inspection_date}</span><Badge tone={report.status === "completed" ? "success" : report.status === "submitted" ? "warning" : "neutral"}>{status}</Badge><span role="status" className="ml-auto">{busy ? "Saving…" : dirty ? "Changes waiting to save" : `${photoCount} photo${photoCount === 1 ? "" : "s"} in report`}</span></div>
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error} {dirty ? "Your unsaved notes remain here." : ""}</p>}
     {notice && <p role="status" className="px-2 text-sm text-muted">{notice}</p>}
-    {pendingPhoto && <div className="flex items-center gap-4 rounded-xl border border-border p-3"><Image src={pendingPhoto.photo.previewUrl} unoptimized width={96} height={72} alt="Photo waiting to upload" className="ph-no-capture ph-no-record h-18 w-24 rounded-lg object-cover" /><p className="text-sm text-muted">{busy ? "Uploading photo…" : "This photo has not uploaded. Use Retry upload below."}</p></div>}
+    {pendingPhoto && <div className="flex items-center gap-4 rounded-xl border border-border p-3"><Image src={pendingPhoto.photo.previewUrl} unoptimized width={96} height={72} alt="Photo waiting to upload" className="ph-no-capture ph-no-record h-18 w-24 rounded-lg object-cover" /><p className="text-sm text-muted">{busy ? "Uploading photo…" : editable ? "This photo has not uploaded. Use Retry upload below." : "This photo has not uploaded and this report can no longer be edited."}</p></div>}
     {documentOpen ? renderDocument() : activeArea ? <div className="space-y-4 px-2">{activeArea.items.map(renderItem)}</div> : <div>
       <p className="px-2 pb-4 text-sm text-muted">Open a section to add photos of the assigned room. Photos and notes update the document automatically.</p>
       {roomAreas.map(area => <div key={area.id} className={`flex min-h-24 items-center gap-4 border-b border-l-2 border-b-border px-3 py-5 ${selected.has(area.id) ? "border-l-primary bg-primary/5" : "border-l-transparent"}`} data-attr="inspection-section-row"><input type="checkbox" className="h-4 w-4 shrink-0 accent-primary" aria-label={`Select ${area.label}`} checked={selected.has(area.id)} onChange={e => setSelected(current => { const next = new Set(current); if (e.target.checked) next.add(area.id); else next.delete(area.id); return next; })} /><button className="min-w-0 flex-1 text-left" onClick={() => setActiveAreaId(area.id)} data-attr="inspection-area-open"><span className="flex items-center gap-2 text-base font-semibold">{area.label}<ChevronRight className="h-4 w-4 text-muted" /></span><span className="mt-1 block text-sm text-muted">{areaCount(area) ? `${areaCount(area)} photo${areaCount(area) === 1 ? "" : "s"} added` : "Photos and optional notes"}</span></button></div>)}
     </div>}
     {report.status === "submitted" && !report.document.residentAcknowledgment && <p className="px-2 text-sm text-muted">The resident needs to confirm review before the manager can approve.</p>}
     {unsent && (unsentNotes.length > 0 || unsent.pendingPhoto) && <PortalCollapsibleSection title="Unsent notes and photos from this device" defaultExpanded={false}>
-      <p className="pb-3 text-sm text-muted">This report was {report.status === "completed" ? "completed" : "submitted"} before these were saved, so they are <strong>not part of the report</strong> above and were never sent. Copy anything you still need, then discard them.</p>
+      <p className="pb-3 text-sm text-muted">This report became {frozenReason} before these reached the server, so they are <strong>not part of the report</strong> above and were never sent. Keep anything you still need, then discard them.</p>
       {unsentNotes.map(entry => <div key={entry.itemId} className="space-y-1 border-t border-border py-3">
         <p className="text-sm font-semibold">{itemLabels.get(entry.itemId) ?? entry.itemId}</p>
         {entry.condition !== "unchecked" && <p className="text-xs text-muted">{INSPECTION_CONDITIONS[entry.condition]}</p>}
         {entry.notes.trim() && <p className="ph-no-capture ph-no-record whitespace-pre-wrap break-words text-sm">{entry.notes}</p>}
       </div>)}
-      {unsent.pendingPhoto && <div className="flex items-center gap-4 border-t border-border py-3">
+      {unsent.pendingPhoto && <div className="flex flex-wrap items-center gap-4 border-t border-border py-3">
         <Image src={unsent.pendingPhoto.photo.previewUrl} unoptimized width={96} height={72} alt="Photo that was never uploaded" className="ph-no-capture ph-no-record h-18 w-24 rounded-lg object-cover" />
-        <p className="text-sm text-muted">This photo never uploaded and cannot be added to a locked report.</p>
+        <p className="min-w-0 flex-1 text-sm text-muted">This photo never uploaded and cannot be added to a locked report. Save it to your device if you still need it.</p>
+        <Button variant="outline" onClick={() => saveUnsentPhoto()} data-attr="inspection-unsent-photo-save">Save photo to device</Button>
       </div>}
       <Button variant="ghost" className="mt-2" onClick={discardUnsent} data-attr="inspection-unsent-discard">Discard unsent notes</Button>
     </PortalCollapsibleSection>}
-    {baseline && report.document.roomScope && !baseline.document.roomScope && <PortalCollapsibleSection title="Original move-in room photos" defaultExpanded={false}>
-      <p className="pb-3 text-sm text-muted">Room observations preserved from the original move-in report.</p>
-      {baseline.document.areas.filter(area => area.id === "area-0").flatMap(area => area.items).map(item => <div key={item.id} className="space-y-3 border-t border-border py-4"><h3 className="text-sm font-semibold">{item.label}</h3><ReadObservation label="Move-in / resident" value={item.resident} /><ReadObservation label="Move-in / manager" value={item.manager} /></div>)}
+    {retainedBaselineItems.length > 0 && <PortalCollapsibleSection title={baseline?.document.roomScope ? "Move-in sections not in this report" : "Original move-in room photos"} defaultExpanded={false}>
+      <p className="pb-3 text-sm text-muted">{baseline?.document.roomScope
+        ? "Room observations preserved from the move-in report for sections the listing no longer includes. Read-only history — they are not part of this inspection."
+        : "Room observations preserved from the original move-in report."}</p>
+      {retainedBaselineItems.map(item => <div key={item.id} className="space-y-3 border-t border-border py-4"><h3 className="text-sm font-semibold">{item.label}</h3><ReadObservation label="Move-in / resident" value={item.resident} /><ReadObservation label="Move-in / manager" value={item.manager} /></div>)}
     </PortalCollapsibleSection>}
     <PortalCollapsibleSection title="Record history" defaultExpanded={false}>{report.document.history.map((event, i) => <p key={i} className="py-1 text-xs text-muted">{new Date(event.at).toLocaleString()} · {event.role} · {event.action}</p>)}</PortalCollapsibleSection>
     <PortalPageFooterActions pinned rowVariant="header">

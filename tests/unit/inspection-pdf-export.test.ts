@@ -93,3 +93,21 @@ describe("a legacy baseline whose item ids no longer match", () => {
     expect(drawn.some((line) => line.startsWith("Move-in baseline (original report"))).toBe(false);
   });
 });
+
+describe("a room section the listing has since dropped", () => {
+  it("keeps its move-in evidence in the export", async () => {
+    const furnished = createRoomInspectionDocument({ assignment: "home::a", label: "Room A", furnished: true, privateBathroom: false });
+    const baseline = reportFixture({ id: "44444444-4444-4444-8444-444444444444", document: furnished });
+    reports = [
+      reportFixture({ document: roomDocument(), kind: "move-out", baseline_id: baseline.id }),
+      baseline,
+    ];
+
+    await inspectionPdf(actor as never, reports[0]!.id);
+
+    expect(drawn.some((line) => line.startsWith("Move-in baseline (original report"))).toBe(true);
+    expect(drawn).toContain("Furniture");
+    // Matched sections stay inline, so they are not repeated in the retained block.
+    expect(drawn.filter((line) => line === "Room overview")).toHaveLength(1);
+  });
+});
