@@ -43,6 +43,9 @@ const SUBJECT_DIRECTIONS: Record<ReminderSubjectKind, TimingDirection[]> = {
   task: ["before", "after"],
   service_order: ["before"],
   work_order: ["before"],
+  application: ["after"],
+  lease: ["after"],
+  outgoing_payment: ["before"],
 };
 
 /** Multi-select dropdown. Closes on outside click and on Escape. */

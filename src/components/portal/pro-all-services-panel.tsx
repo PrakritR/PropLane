@@ -74,6 +74,7 @@ import {
 } from "@/components/portal/pro-service-request-detail";
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
 import { ManagerEditServiceRequestsModal } from "@/components/portal/pro-edit-service-requests-modal";
+import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -132,6 +133,7 @@ export function ManagerAllServicesPanel({
   const [addServiceOpen, setAddServiceOpen] = useState(false);
   const [serviceState, setServiceState] = useState<ServiceRowState>("open");
   const [editServiceRequestsOpen, setEditServiceRequestsOpen] = useState(false);
+  const [servicesSettingsOpen, setServicesSettingsOpen] = useState(false);
   const typeFilter: FilterType = tabId;
 
   const propertyOptions = useMemo(() => {
@@ -503,6 +505,15 @@ export function ManagerAllServicesPanel({
               type="button"
               variant="outline"
               className={PORTAL_COMMAND_ACTION_BTN}
+              data-attr="services-settings-open"
+              onClick={() => setServicesSettingsOpen(true)}
+            >
+              Settings
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_COMMAND_ACTION_BTN}
               data-attr="edit-service-requests-open"
               onClick={() => setEditServiceRequestsOpen(true)}
               disabled={propertyOptions.length === 0}
@@ -584,6 +595,13 @@ export function ManagerAllServicesPanel({
         managerUserId={userId}
         onSaved={() => setPropertyTick((t) => t + 1)}
         showToast={showToast}
+      />
+
+      <ManagerPortalSettingsModal
+        open={servicesSettingsOpen}
+        onClose={() => setServicesSettingsOpen(false)}
+        initialTab="services"
+        scopedTitle="Services"
       />
 
       {selectedIds.size > 0 ? (

@@ -15,7 +15,11 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { materializeReminders } from "@/lib/reminders/queue.server";
 import type { ReminderSettings, ReminderSubjectKind } from "@/lib/reminders/rules";
 import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
-import { loadManagerReminderRecipients } from "@/lib/reminders/manager-recipients.server";
+import {
+  loadManagerReminderRecipients,
+  loadTeamReminderRecipientsByManager,
+  teamReminderRecipients,
+} from "@/lib/reminders/manager-recipients.server";
 
 const HORIZON_DAYS = 31;
 /** Ceiling on rows examined per sweep, so one tick can never run unbounded. */
@@ -91,12 +95,22 @@ async function sweepRecordTable(
     loadReminderSettingsForManagers(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),
   ]);
+  const teamRecipientsByManager = await loadTeamReminderRecipientsByManager(
+    db,
+    managerIds.map((managerUserId) => ({
+      managerUserId,
+      teamUserIds: settingsByManager.get(managerUserId)?.rules[kind].teamUserIds ?? [],
+    })),
+  );
 
   let queued = 0;
   for (const row of rows) {
     const settings: ReminderSettings | undefined = settingsByManager.get(row.manager_user_id);
     if (!settings?.rules[kind]?.enabled) continue;
     const managerRecipient = managerRecipients.get(row.manager_user_id);
+    const teamRecipients = settings.rules[kind].audience.team
+      ? teamReminderRecipients(teamRecipientsByManager.get(row.manager_user_id) ?? [])
+      : [];
 
     const parsed = read(row);
     if (!parsed.subjectId || !parsed.active) continue;
@@ -116,6 +130,7 @@ async function sweepRecordTable(
           ...(managerRecipient
             ? [{ email: managerRecipient.email, role: "manager" as const, name: managerRecipient.name, userId: row.manager_user_id }]
             : []),
+          ...teamRecipients,
           ...(hasResidentRecipient
             ? [{ email: residentEmail, role: "counterparty" as const, name: parsed.residentName }]
             : []),
