@@ -15,7 +15,6 @@ import { isEntireHomeListing, resolveAllowedLeaseTerms, type ManagerListingSubmi
 import type { ManagerSkuTier } from "@/lib/manager-access";
 import {
   listingPaymentWaiverCodeMatches,
-  listingProplaneAbsorbNeedsWaiverCode,
 } from "@/lib/payment-policy";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
@@ -142,10 +141,8 @@ export function validateListingWizardStep(
     }
     Object.assign(errs, validateListingBundleShortTermPricing(sub));
 
-    const tier = opts.managerSkuTier ?? "free";
-    const accountWaiver = opts.accountPaymentWaiverGranted === true;
     if (
-      listingProplaneAbsorbNeedsWaiverCode(tier, sub.serviceFeePayer, accountWaiver) &&
+      sub.serviceFeePayer === "proplane" &&
       !listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
     ) {
       errs.serviceFeeWaiverCode = "Enter a valid waiver code (FREE100).";

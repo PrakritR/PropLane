@@ -78,6 +78,7 @@ export function CheckboxMultiSelect({
   selected,
   onChange,
   disabled,
+  readOnly = false,
   emptyMenuText = "No options",
   emptyLabel = "None selected",
   /** When set and `selected` is non-empty, shown on the trigger instead of summarizing selected labels. */
@@ -97,6 +98,8 @@ export function CheckboxMultiSelect({
   selected: string[];
   onChange: (next: string[]) => void;
   disabled?: boolean;
+  /** Menu opens and shows the current selection; picks cannot change it. */
+  readOnly?: boolean;
   emptyMenuText?: string;
   emptyLabel?: string;
   selectionTriggerLabel?: string;
@@ -144,6 +147,7 @@ export function CheckboxMultiSelect({
   });
 
   const toggle = (value: string) => {
+    if (readOnly) return;
     const option = flatOptions.find((o) => o.value === value);
     if (option?.disabled) return;
     onChange(selected.includes(value) ? selected.filter((v) => v !== value) : [...selected, value]);
@@ -167,6 +171,7 @@ export function CheckboxMultiSelect({
   }, [groups, options, query]);
 
   const listRef = useFieldSelectListboxPointerPick((value) => {
+    if (readOnly) return;
     const option = flatOptions.find((o) => o.value === value);
     if (!option || option.disabled || disabled) return;
     toggle(value);
@@ -174,7 +179,7 @@ export function CheckboxMultiSelect({
 
   const renderCheckboxOption = (opt: CheckboxMultiSelectOption) => {
     const checked = selected.includes(opt.value);
-    const optionDisabled = Boolean(disabled || opt.disabled);
+    const optionDisabled = Boolean(disabled || readOnly || opt.disabled);
     return (
       <label
         key={opt.value}
@@ -285,14 +290,17 @@ export function CheckboxMultiSelect({
       <button
         ref={buttonRef}
         type="button"
-        disabled={disabled}
+        disabled={disabled && !readOnly}
         aria-label={label}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={listId}
         data-attr={dataAttr}
         className={triggerClassForVariant(variant, pill || hideLabel, triggerClassName)}
-        onClick={() => setOpenAndReset(!open)}
+        onClick={() => {
+          if (disabled && !readOnly) return;
+          setOpenAndReset(!open);
+        }}
       >
         <span className={`min-w-0 truncate ${selected.length === 0 ? "text-muted" : ""}`}>{buttonLabel}</span>
         <ChevronDown className={FIELD_SELECT_CHEVRON_CLASS} aria-hidden />

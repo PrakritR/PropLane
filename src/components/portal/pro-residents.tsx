@@ -4339,7 +4339,7 @@ export function ManagerResidents({
           leaseSentPreview ? leaseLandlordNameWarning(leaseSentPreview.lease) ?? undefined : undefined
         }
         warningLead={null}
-        footerNote="The lease will be released to the resident portal after you confirm. This message is delivered to PropLane inbox and email."
+        hideSendViaFooterNote
         confirmLabel="Send lease & notification"
         confirmLabelWithoutMessage="Send lease only"
         confirmBusy={leaseSendBusy}
