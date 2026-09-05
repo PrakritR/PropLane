@@ -48,6 +48,9 @@ export function portalMessageConfirmSendLabel(args: {
   if (args.scheduleLater) return "Schedule";
   if (args.viaEmail && args.viaSms) return "Send message";
   if (args.viaSms) return "Send SMS";
+  // PropLane-only: nothing leaves the product, so "Send email" was a promise
+  // the send does not keep.
+  if (!args.viaEmail) return "Send message";
   return "Send email";
 }
 
@@ -263,6 +266,9 @@ export function portalMessageRecipientDisplay(input: {
   const phone = input.phone?.trim();
   if (input.viaEmail && email) parts.push(email);
   if (input.viaSms && phone) parts.push(phone);
+  // A PropLane-only send still has a destination; an empty To line read as a
+  // missing recipient rather than an in-product delivery.
+  if (parts.length === 0) return "PropLane inbox";
   return parts.join(" · ");
 }
 

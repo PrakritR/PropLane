@@ -478,12 +478,14 @@ export function ManagerLeaseDocumentsTab({
     if (selectedRows.length === 0) return;
     setExporting(true);
     let exported = 0;
+    let failed = false;
     for (const row of selectedRows) {
       if (!leaseHasDownloadableDocument(row)) continue;
       const result = await downloadLeaseFromRow(row);
       const message = portalDownloadToastMessage(result, "lease");
       if (result === "failed") {
         if (message) showToast(message);
+        failed = true;
         break;
       }
       exported += 1;
@@ -491,7 +493,9 @@ export function ManagerLeaseDocumentsTab({
     if (exported > 0) {
       showToast(exported === 1 ? "Exported 1 lease." : `Exported ${exported} leases.`);
       clearSelection();
-    } else {
+    } else if (!failed) {
+      // Only when nothing was exportable — a failure already toasted its own
+      // reason, and adding "no document to export yet" contradicted it.
       showToast("Selected leases do not have a document to export yet.");
     }
     setExporting(false);

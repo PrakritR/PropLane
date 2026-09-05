@@ -171,8 +171,11 @@ export function PortalNotificationPreviewModal({
       const saved = deliverViaKind
         ? channelsFor(deliverViaKind)
         : { viaEmail: defaultViaEmail, viaSms: defaultViaSms };
+      // effectiveSmsAvailable, not the raw prop: with smsSetup.canSend false the
+      // state could start carrying "sms", and the dropdown filters that only for
+      // DISPLAY — so an untouched control still submitted viaSms: true.
       setSendVia(
-        portalMessageSelectionFromDeliverVia(saved, smsAvailable),
+        portalMessageSelectionFromDeliverVia(saved, effectiveSmsAvailable),
       );
       setScheduleLater(initialScheduleLater);
       setSendAt(defaultPortalMessageScheduleAt());

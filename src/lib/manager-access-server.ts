@@ -465,6 +465,12 @@ export async function ensureProfileProplaneId(
 
   if (error) return { ok: false, error: error.message };
 
+  // maybeSingle() gives data: null with error: null when the row is absent, and
+  // the UPDATE below would then match zero rows and report no error — returning
+  // ok with a PropLane ID that exists on no profile. An invite minted from that
+  // carries an inviter_axis_id nobody holds, attributed to nobody.
+  if (!profile) return { ok: false, error: "Missing profile axis id." };
+
   let proplaneId = profile?.manager_id?.trim() ?? "";
   if (!proplaneId) {
     proplaneId = generateManagerId();
