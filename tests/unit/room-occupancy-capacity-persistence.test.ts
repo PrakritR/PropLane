@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import {
   createDefaultListingSubmission,
+  duplicateRoomEntry,
+  emptyRoom,
   normalizeManagerListingSubmissionV1,
   type ManagerListingSubmissionV1,
   type ManagerRoomSubmission,
@@ -43,6 +46,18 @@ describe("occupancyCapacity survives normalization", () => {
     for (const bad of [0, -1, 2.5, 21, Number.NaN, "many", {}, []]) {
       expect(normalizedRoom({ occupancyCapacity: bad as number }).occupancyCapacity).toBe(1);
     }
+  });
+
+  it("carries capacity onto a duplicated room", () => {
+    // duplicateRoomEntry spreads the source today, so this passes by construction —
+    // it is here so converting that spread to an explicit field list cannot silently
+    // drop capacity and turn a copied shared room back into a single.
+    const source = normalizedRoom({ occupancyCapacity: 4 });
+    expect(duplicateRoomEntry(source).occupancyCapacity).toBe(4);
+  });
+
+  it("gives a brand-new room a single resident", () => {
+    expect(normalizeRoomOccupancyCapacity(emptyRoom(0).occupancyCapacity)).toBe(1);
   });
 
   it("does not disturb the room's pricing fields", () => {

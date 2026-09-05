@@ -100,6 +100,7 @@ import {
   type ManagerSharedSpaceSubmission,
   type PaymentAtSigningOptionId,
 } from "@/lib/manager-listing-submission";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { applyListingFeeContextDefaults } from "@/lib/listing-fee-defaults";
 import { syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-template-sync";
 import {
@@ -3137,6 +3138,32 @@ export function ManagerAddListingForm({
                       />
                       <StepFieldError msg={roomRentErr} />
                     </div>
+                  </GridField>
+                  <GridField>
+                    <FieldLabel>Beds (residents)</FieldLabel>
+                    <Select
+                      aria-label={`Number of residents for ${roomLabel}`}
+                      className={selectInputCls}
+                      data-attr="listing-room-occupancy-capacity"
+                      value={String(normalizeRoomOccupancyCapacity(room.occupancyCapacity))}
+                      onChange={(e) => {
+                        expandListingItem(priceKey);
+                        // The select can only emit 1..20, so normalizing here is a
+                        // backstop rather than the gate; junk cannot be typed in.
+                        setRoom(i, { occupancyCapacity: normalizeRoomOccupancyCapacity(e.target.value) });
+                      }}
+                    >
+                      {LISTING_BEDROOM_SLOT_OPTIONS.map((n) => (
+                        <option key={n} value={n}>
+                          {n === 1 ? "1 resident" : `${n} residents`}
+                        </option>
+                      ))}
+                    </Select>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {normalizeRoomOccupancyCapacity(room.occupancyCapacity) > 1
+                        ? "Rented by the bed — each resident signs their own lease and pays the full rate above."
+                        : "One resident holds this room."}
+                    </p>
                   </GridField>
                   <GridField>
                     <FieldLabel>Security deposit</FieldLabel>
