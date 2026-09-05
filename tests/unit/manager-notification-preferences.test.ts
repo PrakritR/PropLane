@@ -9,8 +9,12 @@ import {
 } from "@/lib/manager-notification-preferences";
 
 describe("manager notification preferences", () => {
-  it("defaults to the in-app Assistant route and enables every topic", () => {
-    expect(normalizeManagerNotificationDestination(undefined)).toBe("assistant");
+  it("defaults to PropLane AND a text, and enables every topic", () => {
+    // Was "assistant" — PropLane plus the always-on email leg, never a text, so
+    // the channel a manager reads soonest was off unless they went and found
+    // the setting. "both" only turns the preference on; the hard gates (topic
+    // enabled, verified cell, active work number) still decide.
+    expect(normalizeManagerNotificationDestination(undefined)).toBe("both");
     expect(normalizeManagerNotificationCategories(null)).toEqual(
       DEFAULT_MANAGER_NOTIFICATION_CATEGORIES,
     );

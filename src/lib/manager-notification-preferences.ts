@@ -55,8 +55,23 @@ export const MANAGER_NOTIFICATION_CATEGORIES = [
   description: string;
 }>;
 
+/**
+ * A new manager is reached on every channel: PropLane, email, and a text.
+ *
+ * This was "assistant" — PropLane plus the always-on email leg, never a text —
+ * so the one channel a manager reads within minutes was off for everybody who
+ * had not gone into Settings to turn it on.
+ *
+ * "both" is not a way to text someone who never asked for it.
+ * `resolveManagerNotificationRoute` still requires `smsReady`: the topic
+ * enabled, a VERIFIED personal cell that has not replied STOP and still has
+ * inbound forwarding on, AND an active work number to send from. A manager
+ * missing any of those gets exactly what they got before. Texts are metered
+ * against the communication allowance like any other, which is the reason this
+ * is a default rather than something forced.
+ */
 export const DEFAULT_MANAGER_NOTIFICATION_DESTINATION: ManagerNotificationDestination =
-  "assistant";
+  "both";
 
 export const DEFAULT_MANAGER_NOTIFICATION_CATEGORIES: ManagerNotificationCategoryPreferences = {
   messages: true,

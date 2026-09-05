@@ -57,7 +57,9 @@ describe("ManagerNotificationRoutingSetting", () => {
     render(<ManagerNotificationRoutingSetting />);
 
     expect(await screen.findByText("Phone connection ready")).toBeTruthy();
-    expect(screen.getByRole("radio", { name: /^PropLane Assistant/ })).toHaveProperty("checked", true);
+    // The default is Both — PropLane plus a copy to the manager's phone.
+    expect(screen.getByRole("radio", { name: /^Both/ })).toHaveProperty("checked", true);
+    expect(screen.getByRole("radio", { name: /^PropLane Assistant/ })).toHaveProperty("checked", false);
     expect(screen.getByRole("radio", { name: /No updates/ })).toBeTruthy();
     expect(screen.getAllByRole("checkbox")).toHaveLength(MANAGER_NOTIFICATION_CATEGORIES.length);
     expect(screen.getByRole("radio", { name: /^Off/ })).toHaveProperty("checked", true);

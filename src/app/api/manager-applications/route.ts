@@ -9,6 +9,7 @@ import { managerHasCoManagerPermissionForProperty } from "@/lib/auth/manager-lea
 import { linkedOwnerForProperty, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { provisionApprovedResidentAccount } from "@/lib/auth/provision-approved-resident";
 import { isDraftApplicationRow, normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import { emitApplicationTransition } from "@/lib/domain-action-events.server";
 import {
   notifyManagerApplicationSubmitted,
   shouldNotifyManagerOfApplicationSubmit,
@@ -884,6 +885,16 @@ export async function POST(req: Request) {
       void syncApplicationLifecycleTasks(db, previousRow, row).catch(
         bestEffortFailed("application lifecycle task sync", { application: row.id }),
       );
+      // The applicant's own side of every application transition. The manager's
+      // submit notice stays with notifyManagerApplicationSubmitted above, which
+      // is the only path that resolves property-scoped co-managers.
+      if (row.managerUserId) {
+        void emitApplicationTransition(db, {
+          managerUserId: row.managerUserId,
+          previous: previousRow,
+          application: row,
+        }).catch(bestEffortFailed("application action event", { application: row.id }));
+      }
       if (row.bucket === "pending" && row.application?.consentCredit) {
         void tryAutoOrderScreening(db, row);
       }
@@ -1047,6 +1058,14 @@ export async function POST(req: Request) {
     void syncApplicationLifecycleTasks(db, previousRow, row).catch(
         bestEffortFailed("application lifecycle task sync", { application: row.id }),
       );
+    if (row.managerUserId) {
+      void emitApplicationTransition(db, {
+        managerUserId: row.managerUserId,
+        previous: previousRow,
+        application: row,
+        actor: { userId: user.id, email: user.email ?? "" },
+      }).catch(bestEffortFailed("application action event", { application: row.id }));
+    }
     if (row.bucket === "pending" && row.application?.consentCredit) {
       void tryAutoOrderScreening(db, row);
     }

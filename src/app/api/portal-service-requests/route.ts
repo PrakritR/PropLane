@@ -10,6 +10,7 @@ import {
   repairServiceRequestScopesForManager,
   shouldRunScopeRepair,
 } from "@/lib/repair-service-request-scopes.server";
+import { emitServiceRequestTransition } from "@/lib/domain-action-events.server";
 import {
   notifyManagerOfResidentFiledItem,
   notifyManagersOfManagerAuthoredItem,
@@ -306,9 +307,14 @@ export async function POST(req: Request) {
     // existence check BEFORE the write — only brand-new rows notify.
     const { data: preExisting } = await db
       .from("portal_service_request_records")
-      .select("id")
+      // `row_data` comes along so the status BEFORE this write is known. Without
+      // it, approve / deny / returned were indistinguishable from any other edit
+      // and notified neither party.
+      .select("id, row_data")
       .eq("id", body.row.id)
       .maybeSingle();
+    const previousStatus =
+      (preExisting?.row_data as ServiceRequest | null | undefined)?.status ?? null;
     const record = recordForActor(actor, role, stamped);
     const { error } = await db
       .from("portal_service_request_records")
@@ -354,6 +360,16 @@ export async function POST(req: Request) {
           }).catch(() => undefined);
         }
       }
+    }
+    if (managerUserId && !actor.admin) {
+      // The resident's own side of a submission, and BOTH sides of every status
+      // change after it — none of which reached anybody before.
+      void emitServiceRequestTransition(db, {
+        managerUserId,
+        previousStatus,
+        request: record.row_data as ServiceRequest,
+        actor: { userId: actor.userId, email: actor.email },
+      }).catch(() => undefined);
     }
     return NextResponse.json({ ok: true, row: record.row_data });
   } catch (e) {

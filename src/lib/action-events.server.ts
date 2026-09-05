@@ -5,7 +5,13 @@ import type { NotificationCategory } from "@/lib/notification-preferences";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { isWithinQuietHours } from "@/lib/sms/number-registration-policy";
 
-export type ActionEventDomain = "work_order" | "payment" | "lease";
+export type ActionEventDomain =
+  | "work_order"
+  | "payment"
+  | "lease"
+  | "application"
+  | "service_request"
+  | "tour";
 export type ActionEventAudience = "manager" | "resident" | "vendor";
 export type ActionEventRendered = { subject: string; text: string; smsText?: string };
 export type ActionEventRecipient = {
