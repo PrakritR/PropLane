@@ -133,9 +133,21 @@ describe("minting a link", () => {
     expect(MODAL).toContain('method: "DELETE"');
   });
 
-  it("is reachable from the team panel", () => {
+  it("is reachable from the team panel AND from the Link account dialog", () => {
     expect(PANEL).toContain("ManagerInviteLinkModal");
     expect(PANEL).toContain('data-attr="co-manager-invite-link-open"');
+    // The dialog offers the other door as an ACTION, not as a paragraph
+    // explaining that one exists somewhere else.
+    expect(PANEL).toContain('data-attr="link-account-invite-link"');
+    expect(PANEL).not.toContain("it is on their PropLane Settings page");
+  });
+
+  it("closes the Link account dialog rather than stacking the two", () => {
+    // Both flows pick properties and permissions; two open dialogs would be
+    // arguing over the same choice.
+    const trigger = PANEL.slice(PANEL.indexOf('data-attr="link-account-invite-link"'));
+    expect(trigger.slice(0, 260)).toContain("closeLinkModal()");
+    expect(trigger.slice(0, 260)).toContain("setInviteLinkModalOpen(true)");
   });
 });
 

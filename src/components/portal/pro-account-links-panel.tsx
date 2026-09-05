@@ -2431,17 +2431,23 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
                   className="mt-1 font-mono"
                 />
               </label>
-              <p className="mt-3 text-xs leading-relaxed text-muted">
-                {/*
-                  One interpolated string rather than text around a `{...}` in
-                  JSX: the previous form put the label next to a line break and
-                  rendered as "PropLane IDof the manager".
-                */}
-                {`Ask them for their ${AXIS_ID_LABEL} — it is on their PropLane Settings page. Next you'll pick which properties they co-manage and what they can do on each, then send the invite.`}
-              </p>
-              <p className="mt-2 text-xs leading-relaxed text-muted">
-                {`Don't have their ${AXIS_ID_LABEL}? Create a shareable invite link instead — you set the properties and permissions first, then anyone who opens the link joins with exactly that access.`}
-              </p>
+              {/*
+                The second way in, offered as an action rather than as a
+                paragraph explaining that one exists. Closes this modal first:
+                the two flows both pick properties and permissions, and stacking
+                them would leave two dialogs arguing over the same choice.
+              */}
+              <button
+                type="button"
+                className="mt-3 text-xs font-semibold text-primary hover:opacity-90"
+                data-attr="link-account-invite-link"
+                onClick={() => {
+                  closeLinkModal();
+                  setInviteLinkModalOpen(true);
+                }}
+              >
+                Don&apos;t have their {AXIS_ID_LABEL}? Create an invite link instead
+              </button>
               </div>
             </form>
           ) : (
