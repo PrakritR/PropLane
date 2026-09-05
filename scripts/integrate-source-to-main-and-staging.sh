@@ -63,24 +63,56 @@ if ! git rev-parse origin/main >/dev/null 2>&1; then
   exit 1
 fi
 
-git checkout main
-git reset --hard origin/main
+find_worktree_for_branch() {
+  local branch="$1"
+  git worktree list --porcelain | awk -v target="refs/heads/${branch}" '
+    /^worktree / { wt = substr($0, 10) }
+    /^branch / {
+      if ($2 == target) { print wt; exit }
+    }
+  '
+}
 
-if git merge-base --is-ancestor "origin/$SOURCE" HEAD; then
-  echo "main already contains origin/$SOURCE ($(git rev-parse --short "origin/$SOURCE"))"
-else
-  if git merge-base --is-ancestor HEAD "origin/$SOURCE"; then
-    echo "fast-forwarding main to origin/$SOURCE"
-    git merge --ff-only "origin/$SOURCE"
-  else
-    echo "merging origin/$SOURCE into main (diverged histories)"
-    git merge --no-edit "origin/$SOURCE" \
-      -m "integrate($SOURCE): merge into main"
+MAIN_WT="$(find_worktree_for_branch main || true)"
+MAIN_TMP=""
+cleanup_main_worktree() {
+  if [ -n "$MAIN_TMP" ] && [ -d "$MAIN_TMP" ]; then
+    git worktree remove -f "$MAIN_TMP" 2>/dev/null || true
   fi
-  git push origin main
-  echo "pushed origin/main at $(git rev-parse --short HEAD)"
+}
+trap cleanup_main_worktree EXIT
+
+if [ -z "$MAIN_WT" ]; then
+  MAIN_TMP="$(mktemp -d "${TMPDIR:-/tmp}/proplane-integrate-main.XXXXXX")"
+  git worktree add -f "$MAIN_TMP" origin/main -B main
+  MAIN_WT="$MAIN_TMP"
 fi
 
-bash "$ROOT/scripts/promote-main-to-staging.sh"
+run_main() {
+  git -C "$MAIN_WT" "$@"
+}
 
-echo "integrate: ok — main and staging aligned ($(git rev-parse --short origin/main))"
+run_main fetch origin "$SOURCE" main
+
+run_main checkout main
+run_main reset --hard origin/main
+
+if run_main merge-base --is-ancestor "origin/$SOURCE" HEAD; then
+  echo "main already contains origin/$SOURCE ($(git rev-parse --short "origin/$SOURCE"))"
+else
+  if run_main merge-base --is-ancestor HEAD "origin/$SOURCE"; then
+    echo "fast-forwarding main to origin/$SOURCE"
+    run_main merge --ff-only "origin/$SOURCE"
+  else
+    echo "merging origin/$SOURCE into main (diverged histories)"
+    run_main merge --no-edit "origin/$SOURCE" \
+      -m "integrate($SOURCE): merge into main"
+  fi
+  run_main push origin main
+  echo "pushed origin/main at $(run_main rev-parse --short HEAD)"
+fi
+
+bash "$MAIN_WT/scripts/promote-main-to-staging.sh"
+
+git fetch origin main staging
+echo "integrate: ok — main and staging at $(git rev-parse --short origin/main)"
