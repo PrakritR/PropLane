@@ -59,6 +59,7 @@ import {
   getRoomUnavailabilityWindows,
   isRoomApprovedConflict,
   isRoomChoiceAvailable,
+  roomBedAvailability,
 } from "@/lib/rental-application/data";
 
 const ROOM = "prop-1::r1";
@@ -185,5 +186,26 @@ describe("what the manager and prospect are shown agrees with the gate", () => {
     rows.push(approved("app-1", "2020-01-01", null));
     rows.push(approved("app-2", "2020-01-01", null));
     expect(effectiveRoomAvailabilityLabel(ROOM, "Now")).toBe("Unavailable (occupied)");
+  });
+});
+
+describe("bed counts shown to a prospect", () => {
+  it("reports both beds free on an empty shared room", () => {
+    roomCapacity = 2;
+    expect(roomBedAvailability(ROOM)).toEqual({ capacity: 2, remaining: 2 });
+  });
+
+  it("counts down as beds fill", () => {
+    roomCapacity = 2;
+    rows.push(approved("app-1", "2020-01-01", null));
+    expect(roomBedAvailability(ROOM)).toEqual({ capacity: 2, remaining: 1 });
+    rows.push(approved("app-2", "2020-01-01", null));
+    expect(roomBedAvailability(ROOM)).toEqual({ capacity: 2, remaining: 0 });
+  });
+
+  it("reads a single room as one bed, which is what the old flat label assumed", () => {
+    expect(roomBedAvailability(ROOM)).toEqual({ capacity: 1, remaining: 1 });
+    rows.push(approved("app-1", "2020-01-01", null));
+    expect(roomBedAvailability(ROOM)).toEqual({ capacity: 1, remaining: 0 });
   });
 });

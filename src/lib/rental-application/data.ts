@@ -309,6 +309,28 @@ function pendingConflictForRoom(
   }).hasRoom;
 }
 
+/**
+ * How many of this room's beds are free over the requested window. Used by the
+ * public catalog so a shared room can say "1 of 2 beds available" instead of the
+ * flat "1 available" that was correct only while every room held one person.
+ */
+export function roomBedAvailability(
+  roomChoiceValue: string,
+  options: RoomAvailabilityOptions = {},
+): { capacity: number; remaining: number } {
+  const targetStart = parseFlexibleLocalDate(options.leaseStart) ?? startOfToday();
+  const targetEnd = parseFlexibleLocalDate(options.leaseEnd) ?? targetStart;
+  const { capacity, remaining } = evaluateRoomOccupancy({
+    capacity: roomCapacityForChoice(roomChoiceValue),
+    placements: occupancyToPlacements(
+      approvedOccupancyForRoom(roomChoiceValue, options.excludeApplicationId),
+    ),
+    windowStart: targetStart,
+    windowEnd: targetEnd,
+  });
+  return { capacity, remaining };
+}
+
 export function isRoomApprovedConflict(
   roomChoiceValue: string,
   leaseStart: string | null | undefined,
