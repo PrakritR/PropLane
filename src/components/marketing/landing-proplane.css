@@ -1050,6 +1050,12 @@
   display: grid;
   gap: 0;
   min-width: 0;
+  /* .lp-pt's white-on-blue text can't hold 4.5:1 against every point on
+     .lp-ops-sky's gradient (the lightest stop, --pl-blue-soft, gets white text
+     to only ~3.2:1 on its own) — this scrim guarantees the floor regardless of
+     where the section lands the tab strip vertically. */
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.4);
 }
 
 @media (min-width: 700px) {

@@ -38,6 +38,7 @@ describe("maintenanceWorkOrderResidentAck", () => {
     const ack = maintenanceWorkOrderResidentAck({
       created: true,
       workOrderId: "REQ-SMS-1",
+      reference: "WO-1042",
       title: "Toilet issue",
       category: "plumbing",
     });
@@ -46,5 +47,6 @@ describe("maintenanceWorkOrderResidentAck", () => {
     // the tools and this module keep the work-order name internally.
     expect(ack).toMatch(/service/i);
     expect(ack).not.toMatch(/work order/i);
+    expect(ack).toContain("WO-1042");
   });
 });
