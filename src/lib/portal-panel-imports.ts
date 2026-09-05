@@ -24,6 +24,10 @@ export async function loadManagerTours() {
   return (await import("@/components/portal/pro-tours")).ManagerTours;
 }
 
+export async function loadManagerBookings() {
+  return (await import("@/components/portal/pro-bookings")).ManagerBookings;
+}
+
 export async function loadPortalCalendar() {
   return (await import("@/components/portal/portal-calendar")).PortalCalendar;
 }
