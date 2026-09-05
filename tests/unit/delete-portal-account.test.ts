@@ -34,6 +34,7 @@ vi.mock("@/lib/manager-admin-purchase", () => ({ isAdminManagedManagerPurchase }
 
 import {
   canHardDeleteResident,
+  deleteAdminPortalAccount,
   deleteOwnAccount,
   deleteOwnPortalAccount,
   deletePortalAccountCompletely,
@@ -266,6 +267,46 @@ describe("delete-portal-account", () => {
     expect(result.signedOut).toBe(false);
     expect(result.redirectTo).toBe("/resident");
     expect(purgeManagerPortalData).toHaveBeenCalledWith(db, "user-dual");
+  });
+
+  it("admin delete runs the same full teardown as self-delete", async () => {
+    const cancel = vi.fn(async () => ({}));
+    getStripe.mockReturnValue({ subscriptions: { cancel } });
+    isAdminManagedManagerPurchase.mockReturnValue(false);
+
+    const deleteUser = vi.fn(async () => ({ error: null }));
+    const db = {
+      from: (table: string) => {
+        if (table === "manager_purchases") {
+          return {
+            select: () => ({
+              eq: () => ({ maybeSingle: async () => ({ data: null }) }),
+            }),
+          };
+        }
+        if (table === "profiles") {
+          return {
+            select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { email: "mgr@test.com" } }) }) }),
+            delete: () => ({ eq: async () => ({ error: null }) }),
+          };
+        }
+        if (table === "profile_roles") {
+          return { delete: () => ({ eq: async () => ({ error: null }) }) };
+        }
+        return {
+          update: () => ({ eq: async () => ({ error: null }) }),
+          delete: () => ({ eq: async () => ({ error: null }) }),
+        };
+      },
+      auth: { admin: { deleteUser } },
+    };
+
+    const result = await deleteAdminPortalAccount(db as never, "admin-target");
+
+    expect(purgeManagerPortalData).toHaveBeenCalledWith(db, "admin-target");
+    expect(purgeResidentPortalData).toHaveBeenCalled();
+    expect(deleteUser).toHaveBeenCalledWith("admin-target");
+    expect(result).toEqual({ ok: true, mode: "deleted_auth_user" });
   });
 
   it("self-delete cancels the active Stripe subscription, cleans vendor data, and deletes the auth user", async () => {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { userHoldsAdminRole } from "@/lib/auth/admin-role";
-import { deleteResidentAccount } from "@/lib/auth/delete-portal-account";
+import { deleteAdminPortalAccount } from "@/lib/auth/delete-portal-account";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -94,7 +94,7 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "You cannot delete your own account while signed in." }, { status: 400 });
     }
 
-    const result = await deleteResidentAccount(supabase, { userId: id });
+    const result = await deleteAdminPortalAccount(supabase, id);
     return NextResponse.json({ ok: true, mode: result.mode });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";

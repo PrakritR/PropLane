@@ -108,4 +108,21 @@ describe("purgeManagerPortalData", () => {
     expect(buckets).toContain("application-documents");
     expect(removed.flatMap((r) => r.paths)).toContain("application/PROPLANE-APP1/idPhotoFront-1-abc.jpg");
   });
+
+  it("purges ledger, GL, vendor AP, service requests, and agent rows", async () => {
+    const chain = mockDeleteChain();
+    const db = { from: vi.fn(() => chain), storage: mockStorage().storage } as unknown as Parameters<
+      typeof purgeManagerPortalData
+    >[0];
+
+    await purgeManagerPortalData(db, "mgr-user-1");
+
+    const tables = db.from.mock.calls.map((call) => call[0]);
+    expect(tables).toContain("ledger_entries");
+    expect(tables).toContain("gl_journal_entries");
+    expect(tables).toContain("portal_service_request_records");
+    expect(tables).toContain("vendor_invoices");
+    expect(tables).toContain("agent_pending_actions");
+    expect(tables).toContain("manager_sms_numbers");
+  });
 });

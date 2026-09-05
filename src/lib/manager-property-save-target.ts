@@ -1,6 +1,15 @@
-import { readExtraListingsForUser, readPendingManagerPropertiesForUser } from "@/lib/demo-property-pipeline";
+import {
+  readAllExtraListings,
+  readAllPendingManagerProperties,
+  readExtraListingsForUser,
+  readPendingManagerPropertiesForUser,
+  updateExtraListingFromSubmission,
+  updateExtraListingFromSubmissionOnServer,
+  updatePendingManagerProperty,
+  updatePendingManagerPropertyOnServer,
+} from "@/lib/demo-property-pipeline";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
-import { updateExtraListingFromSubmission, updatePendingManagerProperty } from "@/lib/demo-property-pipeline";
+import { collectLinkedPropertyIds } from "@/lib/manager-portfolio-access";
 import { parseMonthlyRent } from "@/lib/listings-search";
 import {
   legacyAdminFieldsToSubmission,
@@ -94,6 +103,21 @@ export function persistManagerListingSubmission(
   return updateRequestChangeProperty(saveTarget.saveId, managerUserId, next);
 }
 
+/** Server-confirmed persist — use for lease/application edits that must survive reload. */
+export async function persistManagerListingSubmissionOnServer(
+  saveTarget: ManagerPropertySaveTarget,
+  managerUserId: string,
+  next: ManagerListingSubmissionV1,
+): Promise<boolean> {
+  if (saveTarget.mode === "pending") {
+    return updatePendingManagerPropertyOnServer(saveTarget.saveId, next, managerUserId);
+  }
+  if (saveTarget.mode === "listing") {
+    return updateExtraListingFromSubmissionOnServer(saveTarget.saveId, managerUserId, next);
+  }
+  return persistManagerListingSubmission(saveTarget, managerUserId, next);
+}
+
 /** Apply the same lease configuration fields to each property id (demo + live). */
 export function persistLeaseConfigToPropertyIds(
   managerUserId: string,
@@ -178,11 +202,15 @@ export function resolveManagerListingSubmissionForPropertyId(
   const saveTarget = resolvePropertySaveTargetById(managerUserId, propertyId);
   if (!saveTarget || !managerUserId) return null;
   const id = propertyId.trim();
-  const listing = readExtraListingsForUser(managerUserId).find((p) => p.id === id);
+  const listing =
+    readExtraListingsForUser(managerUserId).find((p) => p.id === id) ??
+    readAllExtraListings().find((p) => p.id === id);
   if (listing) {
     return { sub: submissionForListedEdit(listing), saveTarget };
   }
-  const pending = readPendingManagerPropertiesForUser(managerUserId).find((p) => p.id === id);
+  const pending =
+    readPendingManagerPropertiesForUser(managerUserId).find((p) => p.id === id) ??
+    readAllPendingManagerProperties().find((p) => p.id === id);
   if (pending) {
     return { sub: submissionForPendingEdit(pending), saveTarget };
   }
@@ -224,7 +252,13 @@ export function resolvePropertySaveTargetById(
   if (readExtraListingsForUser(managerUserId).some((p) => p.id === id)) {
     return resolvePropertySaveTarget({ listingId: id });
   }
+  if (readAllExtraListings().some((p) => p.id === id) || collectLinkedPropertyIds(managerUserId).has(id)) {
+    return resolvePropertySaveTarget({ listingId: id });
+  }
   if (readPendingManagerPropertiesForUser(managerUserId).some((p) => p.id === id)) {
+    return resolvePropertySaveTarget({ bucket: 0, adminRefId: id });
+  }
+  if (readAllPendingManagerProperties().some((p) => p.id === id)) {
     return resolvePropertySaveTarget({ bucket: 0, adminRefId: id });
   }
   return null;

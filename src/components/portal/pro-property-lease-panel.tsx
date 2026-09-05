@@ -16,7 +16,7 @@ import { usePublishModalBulkActions } from "@/hooks/use-publish-modal-bulk-actio
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import {
-  persistManagerListingSubmission,
+  persistManagerListingSubmissionOnServer,
   resolveManagerListingSubmissionForPropertyId,
 } from "@/lib/manager-property-save-target";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
@@ -139,9 +139,10 @@ export function ManagerPropertyLeasePanel({
   }, [settingsPropertyId, settingsPropertyLabel]);
 
   const persistSubmission = useCallback(
-    (nextSub: ManagerListingSubmissionV1, successMessage: string) => {
+    async (nextSub: ManagerListingSubmissionV1, successMessage: string) => {
       if (!managerUserId || !saveTarget) return false;
-      if (!persistManagerListingSubmission(saveTarget, managerUserId, nextSub)) {
+      const ok = await persistManagerListingSubmissionOnServer(saveTarget, managerUserId, nextSub);
+      if (!ok) {
         showToast("Could not save lease settings.");
         return false;
       }
@@ -151,7 +152,7 @@ export function ManagerPropertyLeasePanel({
     [managerUserId, saveTarget, showToast],
   );
 
-  const persistTemplates = (nextTemplates: PropertyLeaseTemplate[]) => {
+  const persistTemplates = async (nextTemplates: PropertyLeaseTemplate[]) => {
     if (!managerUserId) return false;
 
     if (bulkPropertyIds.length > 0) {
@@ -165,7 +166,7 @@ export function ManagerPropertyLeasePanel({
         }
         const base = syncPropertyLeaseTemplatesFromListing(hit.sub);
         const next = syncLegacyLeaseFieldsFromTemplates(base, nextTemplates);
-        if (persistManagerListingSubmission(hit.saveTarget, managerUserId, next)) saved += 1;
+        if (await persistManagerListingSubmissionOnServer(hit.saveTarget, managerUserId, next)) saved += 1;
         else failed += 1;
       }
       if (saved === 0) {
@@ -182,7 +183,7 @@ export function ManagerPropertyLeasePanel({
 
     if (!saveTarget) return false;
     const next = syncLegacyLeaseFieldsFromTemplates(syncedSub, nextTemplates);
-    return persistManagerListingSubmission(saveTarget, managerUserId, next);
+    return persistManagerListingSubmissionOnServer(saveTarget, managerUserId, next);
   };
 
   const openAdd = useCallback(() => {
@@ -227,65 +228,67 @@ export function ManagerPropertyLeasePanel({
 
   const addSeedTemplate = useCallback(
     (seedKey: PropertyLeaseListingSeedKey) => {
-      if (bulkPropertyIds.length > 0) {
-        if (!managerUserId) return;
-        let saved = 0;
-        let failed = 0;
-        let skipped = 0;
-        for (const bulkPropertyId of bulkPropertyIds) {
-          const hit = resolveManagerListingSubmissionForPropertyId(managerUserId, bulkPropertyId);
-          if (!hit) {
-            failed += 1;
-            continue;
+      void (async () => {
+        if (bulkPropertyIds.length > 0) {
+          if (!managerUserId) return;
+          let saved = 0;
+          let failed = 0;
+          let skipped = 0;
+          for (const bulkPropertyId of bulkPropertyIds) {
+            const hit = resolveManagerListingSubmissionForPropertyId(managerUserId, bulkPropertyId);
+            if (!hit) {
+              failed += 1;
+              continue;
+            }
+            const base = syncPropertyLeaseTemplatesFromListing(hit.sub);
+            const nextSub = addLeaseTemplateFromSeed(base, seedKey);
+            if (nextSub === base) {
+              skipped += 1;
+              continue;
+            }
+            if (await persistManagerListingSubmissionOnServer(hit.saveTarget, managerUserId, nextSub)) saved += 1;
+            else failed += 1;
           }
-          const base = syncPropertyLeaseTemplatesFromListing(hit.sub);
-          const nextSub = addLeaseTemplateFromSeed(base, seedKey);
-          if (nextSub === base) {
-            skipped += 1;
-            continue;
+          if (saved === 0) {
+            showToast(
+              skipped > 0 && failed === 0
+                ? "That lease is already on every selected property."
+                : "Could not add lease.",
+            );
+            return;
           }
-          if (persistManagerListingSubmission(hit.saveTarget, managerUserId, nextSub)) saved += 1;
-          else failed += 1;
-        }
-        if (saved === 0) {
-          showToast(
-            skipped > 0 && failed === 0
-              ? "That lease is already on every selected property."
-              : "Could not add lease.",
-          );
+          if (failed > 0) {
+            showToast(`Added lease on ${saved} properties (${failed} could not be saved).`);
+          } else if (saved > 1) {
+            showToast(`Added lease on ${saved} properties.`);
+          } else {
+            const seedLabel =
+              availableLeaseTemplateSeeds(syncedSub).find((s) => s.seedKey === seedKey)?.label ??
+              "Lease";
+            showToast(
+              skipped > 0
+                ? `${seedLabel} added on ${saved} properties (${skipped} already had it).`
+                : `${seedLabel} added.`,
+            );
+          }
+          onUpdated();
           return;
         }
-        if (failed > 0) {
-          showToast(`Added lease on ${saved} properties (${failed} could not be saved).`);
-        } else if (saved > 1) {
-          showToast(`Added lease on ${saved} properties.`);
-        } else {
-          const seedLabel =
-            availableLeaseTemplateSeeds(syncedSub).find((s) => s.seedKey === seedKey)?.label ??
-            "Lease";
-          showToast(
-            skipped > 0
-              ? `${seedLabel} added on ${saved} properties (${skipped} already had it).`
-              : `${seedLabel} added.`,
-          );
-        }
-        onUpdated();
-        return;
-      }
 
-      if (!saveTarget) {
-        showToast("Could not add lease.");
-        return;
-      }
-      const nextSub = addLeaseTemplateFromSeed(syncedSub, seedKey);
-      if (nextSub === syncedSub) {
-        showToast("That lease is already on this property.");
-        return;
-      }
-      const seedLabel =
-        availableLeaseTemplateSeeds(syncedSub).find((s) => s.seedKey === seedKey)?.label ?? "Lease";
-      if (!persistSubmission(nextSub, `${seedLabel} added.`)) return;
-      onUpdated();
+        if (!saveTarget) {
+          showToast("Could not add lease.");
+          return;
+        }
+        const nextSub = addLeaseTemplateFromSeed(syncedSub, seedKey);
+        if (nextSub === syncedSub) {
+          showToast("That lease is already on this property.");
+          return;
+        }
+        const seedLabel =
+          availableLeaseTemplateSeeds(syncedSub).find((s) => s.seedKey === seedKey)?.label ?? "Lease";
+        if (!(await persistSubmission(nextSub, `${seedLabel} added.`))) return;
+        onUpdated();
+      })();
     },
     [
       bulkPropertyIds,
@@ -303,7 +306,7 @@ export function ManagerPropertyLeasePanel({
     return () => onRegisterAddLease?.(null);
   }, [onRegisterAddLease, openAdd]);
 
-  const deleteTemplateAcrossProperties = (target: PropertyLeaseTemplate) => {
+  const deleteTemplateAcrossProperties = async (target: PropertyLeaseTemplate) => {
     if (!managerUserId) return false;
     let saved = 0;
     let failed = 0;
@@ -322,7 +325,7 @@ export function ManagerPropertyLeasePanel({
         continue;
       }
       const next = syncLegacyLeaseFieldsFromTemplates(base, remaining);
-      if (persistManagerListingSubmission(hit.saveTarget, managerUserId, next)) saved += 1;
+      if (await persistManagerListingSubmissionOnServer(hit.saveTarget, managerUserId, next)) saved += 1;
       else failed += 1;
     }
     if (saved === 0) {
@@ -347,19 +350,21 @@ export function ManagerPropertyLeasePanel({
     const target = templates.find((t) => t.id === templateId);
     if (!target) return;
 
-    if (bulkPropertyIds.length > 0) {
-      if (!deleteTemplateAcrossProperties(target)) return;
-      onUpdated();
-      return;
-    }
+    void (async () => {
+      if (bulkPropertyIds.length > 0) {
+        if (!(await deleteTemplateAcrossProperties(target))) return;
+        onUpdated();
+        return;
+      }
 
-    const next = removePropertyLeaseTemplate(templates, templateId);
-    if (!persistTemplates(next)) {
-      showToast("Could not delete lease.");
-      return;
-    }
-    onUpdated();
-    showToast("Lease deleted.");
+      const next = removePropertyLeaseTemplate(templates, templateId);
+      if (!(await persistTemplates(next))) {
+        showToast("Could not delete lease.");
+        return;
+      }
+      onUpdated();
+      showToast("Lease deleted.");
+    })();
   };
 
   if (!managerUserId || (!saveTarget && bulkPropertyIds.length === 0)) return null;
@@ -453,8 +458,8 @@ export function ManagerPropertyLeasePanel({
         onDelete={
           editingTemplateId ? () => handleDelete(editingTemplateId) : undefined
         }
-        onSave={(nextTemplates) => {
-          if (!persistTemplates(nextTemplates)) {
+        onSave={async (nextTemplates) => {
+          if (!(await persistTemplates(nextTemplates))) {
             showToast("Could not save lease.");
             return false;
           }

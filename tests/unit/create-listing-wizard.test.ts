@@ -26,6 +26,7 @@ import {
 
 function filledPricingSubmission() {
   const sub = createDefaultListingSubmission();
+  sub.buildingName = "Maple Court";
   sub.address = "123 Main St";
   sub.city = "Seattle";
   sub.state = "WA";
@@ -48,9 +49,10 @@ function filledPricingSubmission() {
 }
 
 describe("create listing wizard", () => {
-  it("requires address, city, state, and valid zip on home step", () => {
+  it("requires address, city, state, valid zip, and property name on home step", () => {
     const sub = createDefaultListingSubmission();
     const errs = validateListingWizardStep(0, sub);
+    expect(errs.buildingName).toMatch(/property name/i);
     expect(errs.address).toMatch(/required/i);
     expect(errs.city).toMatch(/required/i);
     expect(errs.state).toMatch(/state/i);
@@ -88,6 +90,19 @@ describe("create listing wizard", () => {
     sub.listingBedroomSlots = 0;
     const errs = validateListingWizardStep(0, sub);
     expect(errs.listingBedroomSlots).toMatch(/bedroom/i);
+  });
+
+  it("requires property name in edit mode too", () => {
+    const sub = createDefaultListingSubmission();
+    sub.address = "123 Main St";
+    sub.city = "Seattle";
+    sub.state = "WA";
+    sub.zip = "98101";
+    const errs = validateListingWizardStep(0, sub, { isEditMode: true });
+    expect(errs.buildingName).toMatch(/property name/i);
+    sub.buildingName = "Maple Court";
+    const ok = validateListingWizardStep(0, sub, { isEditMode: true });
+    expect(ok.buildingName).toBeUndefined();
   });
 
   it("skips property setup validation in edit mode", () => {

@@ -57,6 +57,7 @@ export const RENTAL_WIZARD_STEP_FIELD_ORDER: Record<number, string[]> = {
 export const LISTING_STEP_FIELD_ORDER: Record<number, string[]> = {
   0: [
     "listingPropertyTypeId",
+    "buildingName",
     "address",
     "city",
     "state",

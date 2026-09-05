@@ -25,6 +25,10 @@ vi.mock("@/lib/manager-property-save-target", () => ({
     PERSISTED = next;
     return true;
   },
+  persistManagerListingSubmissionOnServer: async (_t: unknown, _u: unknown, next: unknown) => {
+    PERSISTED = next;
+    return true;
+  },
   resolveManagerListingSubmissionForPropertyId: () => null,
 }));
 

@@ -130,7 +130,8 @@ import {
   parseFurnitureSet,
   roomFurnishingIsFurnished,
   sanitizeRoomAmenityText,
-  splitLineList,
+  splitCommaSeparatedList,
+  listingAmenityLinesFromValue,
 } from "@/data/manager-listing-presets";
 import { loadListingPresetConfig, type ListingPresetConfig } from "@/lib/site-content";
 import {
@@ -790,6 +791,29 @@ const SHARED_SPACE_TEMPLATES = [
   },
 ] as const;
 
+/** Ignore the second click of a double-click on wizard template tiles (detail > 1). */
+function ignoreMultiClick(e: { detail: number }) {
+  return e.detail > 1;
+}
+
+function buildBathroomPreset(
+  index: number,
+  type: "full" | "half" | "ensuite",
+): ManagerBathroomSubmission {
+  const base = emptyBathroom(index);
+  const preset =
+    type === "half"
+      ? { shower: false, bathtub: false, toilet: true, sink: true, mirror: false }
+      : type === "ensuite"
+        ? { shower: true, bathtub: false, toilet: true, sink: true, mirror: true, allResidents: false }
+        : { shower: true, bathtub: false, toilet: true, sink: true, mirror: true };
+  return {
+    ...base,
+    ...preset,
+    name: `Bathroom ${index + 1}`,
+  };
+}
+
 const LISTING_FORM_STEPS = [
   { id: "home",        label: "Home",           icon: "🏠" },
   { id: "rooms",       label: "Rooms",          icon: "🛏" },
@@ -1183,14 +1207,22 @@ function PresetCheckboxGroup({
   otherPlaceholder?: string;
 }) {
   const presetLabels = presets.map((p) => p.label);
-  const lines = splitLineList(value);
+  const lines = listingAmenityLinesFromValue(value);
   const checked = new Set(lines.filter((l) => presetLabels.includes(l)));
   const custom = lines.filter((l) => !presetLabels.includes(l));
   const allChecked = presets.length > 0 && checked.size === presets.length;
   const someChecked = checked.size > 0 && !allChecked;
   const otherOpen = otherForcedOpen || custom.length > 0;
   const write = (nextChecked: Set<string>, nextCustom: string[]) =>
-    onChange([...presetLabels.filter((l) => nextChecked.has(l)), ...nextCustom].join("\n"));
+    onChange(
+      [...presetLabels.filter((l) => nextChecked.has(l)), ...nextCustom.filter((entry) => entry.length > 0)].join("\n"),
+    );
+  const presetSelectionKey = [...checked].sort().join("|");
+  const [otherDraft, setOtherDraft] = useState(() => custom.join(", "));
+  useEffect(() => {
+    if (!otherOpen) return;
+    setOtherDraft(custom.join(", "));
+  }, [presetSelectionKey, otherOpen]);
   return (
     <>
       <div className={`mt-1 grid gap-x-4 gap-y-1.5 sm:grid-cols-2 ${columns}`}>
@@ -1235,8 +1267,13 @@ function PresetCheckboxGroup({
       {otherOpen ? (
         <Input
           className="mt-2 h-9 text-sm"
-          value={custom.join(", ")}
-          onChange={(e) => write(checked, splitLineList(e.target.value))}
+          value={otherDraft}
+          onChange={(e) => {
+            const raw = e.target.value;
+            setOtherDraft(raw);
+            write(checked, splitCommaSeparatedList(raw));
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
           placeholder={otherPlaceholder}
         />
       ) : null}
@@ -2067,12 +2104,11 @@ export function ManagerAddListingForm({
   };
 
   const addBathroom = () => {
-    if (sub.bathrooms.length >= 12) return;
-    const next = emptyBathroom(sub.bathrooms.length);
-    expandListingItem(listingItemKey("bathroom", next.id));
     setSub((s) => {
-      if (s.bathrooms.length === 0) return { ...s, bathrooms: [next] };
-      return { ...s, bathrooms: [s.bathrooms[0]!, next, ...s.bathrooms.slice(1)] };
+      if (s.bathrooms.length >= 12) return s;
+      const next = emptyBathroom(s.bathrooms.length);
+      expandListingItem(listingItemKey("bathroom", next.id));
+      return { ...s, bathrooms: [...s.bathrooms, next] };
     });
   };
 
@@ -2084,23 +2120,11 @@ export function ManagerAddListingForm({
    * one chip away inside the row, so nothing is taken off the table.
    */
   const addBathroomOfType = (type: "full" | "half" | "ensuite") => {
-    if (sub.bathrooms.length >= 12) return;
-    const base = emptyBathroom(sub.bathrooms.length);
-    const preset =
-      type === "half"
-        ? { shower: false, bathtub: false, toilet: true, sink: true, mirror: false }
-        : type === "ensuite"
-          ? { shower: true, bathtub: false, toilet: true, sink: true, mirror: true, allResidents: false }
-          : { shower: true, bathtub: false, toilet: true, sink: true, mirror: true };
-    const next = {
-      ...base,
-      ...preset,
-      name: `Bathroom ${sub.bathrooms.length + 1}`,
-    };
-    expandListingItem(listingItemKey("bathroom", next.id));
     setSub((s) => {
-      if (s.bathrooms.length === 0) return { ...s, bathrooms: [next] };
-      return { ...s, bathrooms: [s.bathrooms[0]!, next, ...s.bathrooms.slice(1)] };
+      if (s.bathrooms.length >= 12) return s;
+      const next = buildBathroomPreset(s.bathrooms.length, type);
+      expandListingItem(listingItemKey("bathroom", next.id));
+      return { ...s, bathrooms: [...s.bathrooms, next] };
     });
   };
 
@@ -2111,24 +2135,28 @@ export function ManagerAddListingForm({
   };
 
   const addSharedSpace = () => {
-    if (sub.sharedSpaces.length >= 24) return;
-    const next = emptySharedSpace(sub.sharedSpaces.length);
-    expandListingItem(listingItemKey("shared", next.id));
-    setSub((s) => ({ ...s, sharedSpaces: [...s.sharedSpaces, next] }));
+    setSub((s) => {
+      if (s.sharedSpaces.length >= 24) return s;
+      const next = emptySharedSpace(s.sharedSpaces.length);
+      expandListingItem(listingItemKey("shared", next.id));
+      return { ...s, sharedSpaces: [...s.sharedSpaces, next] };
+    });
   };
 
   const addSharedSpaceFromTemplate = (template: (typeof SHARED_SPACE_TEMPLATES)[number]) => {
-    if (sub.sharedSpaces.length >= 24) return;
-    const row = {
-      ...emptySharedSpace(sub.sharedSpaces.length),
-      name: template.label,
-      spaceKind: template.kind,
-      detail: template.detail,
-      amenitiesText: template.amenities.join("\n"),
-      roomAccessIds: sub.rooms.map((room) => room.id),
-    };
-    expandListingItem(listingItemKey("shared", row.id));
-    setSub((s) => ({ ...s, sharedSpaces: [...s.sharedSpaces, row] }));
+    setSub((s) => {
+      if (s.sharedSpaces.length >= 24) return s;
+      const row = {
+        ...emptySharedSpace(s.sharedSpaces.length),
+        name: template.label,
+        spaceKind: template.kind,
+        detail: template.detail,
+        amenitiesText: template.amenities.join("\n"),
+        roomAccessIds: s.rooms.map((room) => room.id),
+      };
+      expandListingItem(listingItemKey("shared", row.id));
+      return { ...s, sharedSpaces: [...s.sharedSpaces, row] };
+    });
   };
 
   const removeSharedSpace = (i: number) => {
@@ -3699,7 +3727,7 @@ export function ManagerAddListingForm({
               </div>
 
               <div data-wizard-field="buildingName">
-                <FieldLabel optional>Building name</FieldLabel>
+                <FieldLabel required>Property name</FieldLabel>
                 <Input
                   value={sub.buildingName}
                   onChange={(e) => {
@@ -3987,6 +4015,7 @@ export function ManagerAddListingForm({
               <div>
                 <FieldLabel>Common amenities</FieldLabel>
                 <PresetCheckboxGroup
+                  key="house-amenities"
                   presets={dedupedPresets.houseWide}
                   value={sub.amenitiesText}
                   onChange={(v) => setSub((s) => ({ ...s, amenitiesText: v }))}
@@ -4533,6 +4562,7 @@ export function ManagerAddListingForm({
                                         className="mt-2 h-9 text-sm"
                                         value={room.detail}
                                         onChange={(e) => setRoom(i, { detail: e.target.value })}
+                                        onKeyDown={(e) => e.stopPropagation()}
                                         placeholder="Other furnishing, comma-separated"
                                       />
                                     ) : null}
@@ -4546,6 +4576,7 @@ export function ManagerAddListingForm({
                       <div className="sm:col-span-2">
                         <FieldLabel>Room amenities</FieldLabel>
                         <PresetCheckboxGroup
+                          key={`room-amenities-${room.id}`}
                           presets={dedupedPresets.room}
                           value={room.roomAmenitiesText}
                           onChange={(v) => setRoom(i, { roomAmenitiesText: v })}
@@ -4696,8 +4727,12 @@ export function ManagerAddListingForm({
                     type="button"
                     data-attr={`listing-add-bathroom-${option.id}`}
                     disabled={sub.bathrooms.length >= 12}
-                    onClick={() => addBathroomOfType(option.id)}
-                    className="rounded-xl border border-border bg-card px-3 py-3 text-center transition hover:border-primary/35 hover:bg-primary/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={(e) => {
+                      if (ignoreMultiClick(e)) return;
+                      addBathroomOfType(option.id);
+                    }}
+                    onDoubleClick={(e) => e.preventDefault()}
+                    className="touch-manipulation select-none rounded-xl border border-border bg-card px-3 py-3 text-center transition hover:border-primary/35 hover:bg-primary/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span className="block text-xl leading-none" aria-hidden>
                       {option.icon}
@@ -4865,6 +4900,7 @@ export function ManagerAddListingForm({
                       <div className="sm:col-span-2">
                         <FieldLabel>Bathroom amenities</FieldLabel>
                         <PresetCheckboxGroup
+                          key={`bath-amenities-${b.id}`}
                           presets={dedupedPresets.bathroom}
                           value={b.amenitiesText ?? ""}
                           onChange={(v) => setBath(i, { amenitiesText: v })}
@@ -4969,34 +5005,44 @@ export function ManagerAddListingForm({
           ) : null}
 
           {stepIndex === 3 ? (
-          <FormSection id="edit-shared" title="Shared spaces">
-              <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <FormSection
+            id="edit-shared"
+            title="Shared spaces"
+            description="Name, location, and amenities for each shared area on the public listing."
+          >
+              <div className="mb-4 grid gap-2 sm:grid-cols-3">
                 {SHARED_SPACE_TEMPLATES.map((template) => (
                   <button
                     key={template.label}
                     type="button"
                     data-attr={`listing-add-shared-${template.kind}`}
-                    onClick={() => addSharedSpaceFromTemplate(template)}
+                    onClick={(e) => {
+                      if (ignoreMultiClick(e)) return;
+                      addSharedSpaceFromTemplate(template);
+                    }}
+                    onDoubleClick={(e) => e.preventDefault()}
                     disabled={sub.sharedSpaces.length >= 24}
-                    className="rounded-xl border border-border bg-card px-3 py-3 text-center transition hover:border-primary/35 hover:bg-primary/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="touch-manipulation select-none rounded-xl border border-border bg-card px-3 py-3 text-center transition hover:border-primary/35 hover:bg-primary/[0.04] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span className="block text-xl leading-none" aria-hidden>
                       {SHARED_SPACE_KIND_ICONS[template.kind] ?? SHARED_SPACE_KIND_ICONS.other}
                     </span>
                     <span className="mt-1.5 block text-sm font-semibold text-foreground">{template.label}</span>
+                    <span className="mt-0.5 block text-xs text-muted">
+                      {template.amenities.slice(0, 2).join(" · ")}
+                    </span>
                   </button>
                 ))}
               </div>
 
-              {sub.sharedSpaces.length === 0 ? null : (
-                <div
-                  className={`space-y-3 ${wizardSectionErrorClass(Boolean(stepFieldErrors.sharedSpaces))}`}
-                  data-wizard-field="sharedSpaces"
-                >
-                  {stepFieldErrors.sharedSpaces ? (
-                    <p className="text-xs font-medium text-red-600">{stepFieldErrors.sharedSpaces}</p>
-                  ) : null}
-                  {sub.sharedSpaces.map((sp, i) => {
+              <div
+                className={`space-y-3 ${wizardSectionErrorClass(Boolean(stepFieldErrors.sharedSpaces))}`}
+                data-wizard-field="sharedSpaces"
+              >
+                {stepFieldErrors.sharedSpaces ? (
+                  <p className="text-xs font-medium text-red-600">{stepFieldErrors.sharedSpaces}</p>
+                ) : null}
+                {sub.sharedSpaces.map((sp, i) => {
                     const spaceNameKey = listingSharedSpaceNameKey(sp.id);
                     const spaceNameErr = stepFieldErrors[spaceNameKey];
                     const spaceKind = normalizeSharedSpaceKind(sp.spaceKind, sp.name);
@@ -5078,6 +5124,7 @@ export function ManagerAddListingForm({
                         <div className="sm:col-span-2">
                           <FieldLabel>Amenities</FieldLabel>
                           <PresetCheckboxGroup
+                            key={`space-amenities-${sp.id}`}
                             presets={kindPresets}
                             value={sp.amenitiesText ?? ""}
                             onChange={(v) => setSharedSpace(i, { amenitiesText: v })}
@@ -5194,18 +5241,16 @@ export function ManagerAddListingForm({
                     </ListingWizardCollapsibleCard>
                   );
                   })}
-                </div>
-              )}
-
-              <ListingWizardListAddRow
-                label="Add shared space"
-                ariaLabel="Add a shared space"
-                icon={LayoutGrid}
-                onClick={addSharedSpace}
-                disabled={sub.sharedSpaces.length >= 24}
-                dataAttr="listing-add-shared-blank"
-                inline={sub.sharedSpaces.length > 0}
-              />
+                <ListingWizardListAddRow
+                  label="Add shared space"
+                  ariaLabel="Add a shared space"
+                  icon={LayoutGrid}
+                  onClick={addSharedSpace}
+                  disabled={sub.sharedSpaces.length >= 24}
+                  dataAttr="listing-add-shared-blank"
+                  inline={sub.sharedSpaces.length > 0}
+                />
+              </div>
           </FormSection>
           ) : null}
 
