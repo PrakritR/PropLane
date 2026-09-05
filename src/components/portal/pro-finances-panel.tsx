@@ -33,16 +33,15 @@ import {
 } from "@/components/portal/pro-owner-distributions-panel";
 import { ManagerSecurityDepositsPanel } from "@/components/portal/pro-security-deposits-panel";
 import {
-  PortalListAddRow,
   PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
 } from "@/components/portal/portal-list-add-row";
 import {
   ReportExportButtons,
   type ReportFilterState,
 } from "@/components/portal/reports/report-filter-bar";
-import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import {
   PORTAL_DATA_TABLE,
   PORTAL_DATA_TABLE_WRAP,
@@ -112,6 +111,10 @@ function filterFinanceReport(
     if (rowFilters.vendor) rows = rows.filter((row) => String(row.vendor ?? "") === rowFilters.vendor);
   }
 
+  if (tabId === "income" || tabId === "expenses") {
+    return { ...report, rows, totals: undefined };
+  }
+
   if (!report.totals) return { ...report, rows };
 
   const filteredTotalCents = rows.reduce((sum, row) => sum + parseMoneyAmount(row.amount), 0);
@@ -160,101 +163,23 @@ function compareRows(a: ReportRow, b: ReportRow, key: string, dir: "asc" | "desc
 }
 
 /**
- * Transaction entries in the house list shape.
- *
- * Income and Expenses are records — a payment, a bill — so they read like every
- * other list in the product rather than as a spreadsheet. The accounting
- * REPORTS (trial balance, balance sheet, general ledger) deliberately stay on
- * FinancesDataTable below: there the columns are the data, and flattening them
- * into three text lines would destroy the report.
- *
- * Lines are derived from each column's `format` rather than from key names,
- * because Income and Expenses do not share a column vocabulary.
+ * Transaction entries in a sortable sheet (Income / Expenses). Accounting
+ * REPORTS (trial balance, GL, etc.) use the same table with totals intact.
  */
-function FinancesRecordList({
-  report,
-  sortKey,
-  sortDir,
-  onTaxStatusChange,
-}: {
-  report: ReportResult;
-  sortKey: string;
-  sortDir: "asc" | "desc";
-  onTaxStatusChange?: (expenseId: string, deductible: boolean) => void;
-}) {
-  const visibleCols = useMemo(
-    () => report.columns.filter((c) => !HIDDEN_FINANCE_COLS.has(c.key)),
-    [report.columns],
-  );
-  const sortedRows = useMemo(
-    () => [...report.rows].sort((a, b) => compareRows(a, b, sortKey, sortDir)),
-    [report.rows, sortKey, sortDir],
-  );
-
-  const dateCols = visibleCols.filter((c) => c.format === "date");
-  const moneyCols = visibleCols.filter((c) => c.format === "money");
-  const textCols = visibleCols.filter(
-    (c) => c.format !== "date" && c.format !== "money" && c.key !== "taxStatus",
-  );
-  const titleCol = textCols[0];
-
-  const join = (parts: string[]) => parts.filter((p) => p && p !== "—").join(" · ");
-
-  return (
-    <>
-      {sortedRows.map((row, idx) => {
-        const title = titleCol ? formatCellValue(titleCol, row[titleCol.key]) : "Entry";
-        const line2 = join([
-          ...dateCols.map((c) => formatCellValue(c, row[c.key])),
-          ...textCols.slice(1, 2).map((c) => formatCellValue(c, row[c.key])),
-        ]);
-        const line3 = join([
-          ...moneyCols.map((c) => formatCellValue(c, row[c.key])),
-          ...textCols.slice(2).map((c) => formatCellValue(c, row[c.key])),
-        ]);
-        return (
-          <PortalPropertyRecordRow
-            key={`${row.id ?? idx}-${idx}`}
-            title={title}
-            address={line2}
-            summary={line3 || undefined}
-            badge={
-              onTaxStatusChange && row.id ? (
-                <ExpenseTaxStatusToggle
-                  compact
-                  deductible={row.taxDeductible !== false}
-                  onChange={(next) => onTaxStatusChange(String(row.id), next)}
-                />
-              ) : undefined
-            }
-            dataAttr="finance-list-row"
-          />
-        );
-      })}
-      {report.totals ? (
-        <div className="flex items-center justify-between gap-3 border-b border-border/50 px-3 py-3 max-md:px-2.5">
-          <p className="text-sm font-semibold text-foreground">Total</p>
-          <p className="text-sm font-semibold tabular-nums text-foreground">
-            {join(moneyCols.map((c) => formatCellValue(c, report.totals![c.key])))}
-          </p>
-        </div>
-      ) : null}
-    </>
-  );
-}
-
 function FinancesDataTable({
   report,
   sortKey,
   sortDir,
   onHeaderSort,
   onTaxStatusChange,
+  showTotals = true,
 }: {
   report: ReportResult;
   sortKey: string;
   sortDir: "asc" | "desc";
   onHeaderSort: (key: string) => void;
   onTaxStatusChange?: (expenseId: string, deductible: boolean) => void;
+  showTotals?: boolean;
 }) {
   const visibleCols = useMemo(
     () => report.columns.filter((c) => !HIDDEN_FINANCE_COLS.has(c.key)),
@@ -304,7 +229,7 @@ function FinancesDataTable({
             </div>
           </div>
         ))}
-        {report.totals ? (
+        {showTotals && report.totals ? (
           <div className={`${PORTAL_MOBILE_CARD_CLASS} bg-accent/10`}>
             <div className="grid grid-cols-2 gap-x-3 gap-y-2">
               {visibleCols.map((col) => (
@@ -363,7 +288,7 @@ function FinancesDataTable({
               </tr>
             ))}
           </tbody>
-          {report.totals ? (
+          {showTotals && report.totals ? (
             <tfoot>
               <tr className="border-t-2 border-border bg-accent/10 font-semibold text-sm">
                 {visibleCols.map((col) => (
@@ -980,15 +905,20 @@ export function ManagerFinancesPanel({
     ) : null;
 
   const financesExportButtons =
-    report && report.rows.length > 0 ? (
+    !isTransactionTab && report && report.rows.length > 0 ? (
       <ReportExportButtons
         reportId={reportId}
         query={query}
         formats={tabId === "general-ledger" ? ["csv", "pdf", "quickbooks"] : ["csv"]}
       />
-    ) : tabId === "general-ledger" ? (
+    ) : !isTransactionTab && tabId === "general-ledger" ? (
       <ReportExportButtons reportId={reportId} query={query} formats={["quickbooks"]} />
     ) : null;
+
+  const financesCsvExportHref =
+    isTransactionTab && report && report.rows.length > 0
+      ? `/api/reports/${reportId}/export?${query}&format=csv`
+      : null;
 
   const financesBankStatementButton =
     tabId === "bank-reconciliation" ? (
@@ -1005,14 +935,15 @@ export function ManagerFinancesPanel({
     ) : null;
 
   const financesListAddRow =
-    tabId === "income" || tabId === "expenses" ? (
-      <PortalListAddRow
-        label="Add"
-        icon={PORTAL_LIST_ADD_ICONS.payment}
-        onClick={tabId === "income" ? openAddIncome : openAddExpense}
-        dataAttr={tabId === "income" ? "finances-list-add-income" : "finances-list-add-expense"}
-      />
-    ) : null;
+    tabId === "income" || tabId === "expenses"
+      ? {
+          label: "Add",
+          ariaLabel: tabId === "income" ? "Add income" : "Add expense",
+          icon: PORTAL_LIST_ADD_ICONS.payment,
+          onClick: tabId === "income" ? openAddIncome : openAddExpense,
+          dataAttr: tabId === "income" ? "finances-list-add-income" : "finances-list-add-expense",
+        }
+      : undefined;
 
   const financesCommandActions =
     financesFilterControl ||
@@ -1076,26 +1007,37 @@ export function ManagerFinancesPanel({
             <div className="flex items-center justify-center px-6 py-16 text-sm text-muted">Loading entries…</div>
           </div>
         ) : filteredReport ? (
+          isTransactionTab ? (
+            <PortalRecordListSurface
+              isEmpty={filteredReport.rows.length === 0}
+              empty={
+                report && report.rows.length > 0 ? (
+                  <PortalDataTableEmpty message="No finance entries match your search or filters." icon="finance" />
+                ) : (
+                  <PortalDataTableEmpty message="No finance entries yet." icon="finance" />
+                )
+              }
+              add={financesListAddRow}
+              dataAttr="finances-transaction-list"
+            >
+              {filteredReport.rows.length > 0 ? (
+                <FinancesDataTable
+                  report={filteredReport}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onHeaderSort={onHeaderSort}
+                  showTotals={false}
+                  onTaxStatusChange={
+                    tabId === "expenses" ? (id, d) => void updateExpenseTaxStatus(id, d) : undefined
+                  }
+                />
+              ) : null}
+            </PortalRecordListSurface>
+          ) : (
           <div className="space-y-3">
             {filteredReport.rows.length === 0 ? (
-              report && report.rows.length > 0 ? (
-                <PortalDataTableEmpty message="No finance entries match your search or filters." icon="finance" />
-              ) : financesListAddRow ? null : (
-                <PortalDataTableEmpty message="No finance entries yet." icon="finance" />
-              )
+              <PortalDataTableEmpty message="No finance entries match your search or filters." icon="finance" />
             ) : (
-              isTransactionTab ? (
-                <PortalRecordListSurface>
-                  <FinancesRecordList
-                    report={filteredReport}
-                    sortKey={sortKey}
-                    sortDir={sortDir}
-                    onTaxStatusChange={
-                      tabId === "expenses" ? (id, d) => void updateExpenseTaxStatus(id, d) : undefined
-                    }
-                  />
-                </PortalRecordListSurface>
-              ) : (
                 <FinancesDataTable
                   report={filteredReport}
                   sortKey={sortKey}
@@ -1103,20 +1045,12 @@ export function ManagerFinancesPanel({
                   onHeaderSort={onHeaderSort}
                   onTaxStatusChange={tabId === "expenses" ? (id, d) => void updateExpenseTaxStatus(id, d) : undefined}
                 />
-              )
             )}
-            {financesListAddRow ? (
-              <div className={`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} ${filteredReport && filteredReport.rows.length > 0 ? "pt-5 sm:pt-6" : ""}`}>
-                {financesListAddRow}
-              </div>
-            ) : null}
           </div>
+          )
         ) : (
           <div className="space-y-3">
             <PortalDataTableEmpty message="No finance entries yet." icon="finance" />
-            {financesListAddRow ? (
-              <div className={`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} pt-5 sm:pt-6`}>{financesListAddRow}</div>
-            ) : null}
           </div>
         )}
       </div>
@@ -1277,6 +1211,21 @@ export function ManagerFinancesPanel({
           </label>
         </div>
       </Modal>
+
+      {financesCsvExportHref ? (
+        <ResidentPortalListBottomBar
+          showDefaultBar
+          selectionCount={0}
+          selectionBarVariant="payments"
+          defaultActions={
+            <Button asChild variant="outline" className={PORTAL_BULK_BAR_BTN}>
+              <a href={financesCsvExportHref} data-attr="finances-export-csv">
+                Export CSV
+              </a>
+            </Button>
+          }
+        />
+      ) : null}
     </ManagerPortalPageShell>
   );
 }
