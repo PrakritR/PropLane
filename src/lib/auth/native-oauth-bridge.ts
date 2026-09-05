@@ -106,8 +106,8 @@ export function nativeOAuthBridgeResponse(callbackUrl: URL, opts?: { isIos?: boo
         // what ASWebAuthenticationSession intercepts to dismiss the sheet — a synthesized
         // anchor click with no user gesture is unreliable inside it.
         if (isIos) {
-          try { window.location.replace(schemeTarget); } catch (e0) {}
-          return;
+          try { window.location.replace(schemeTarget); return; } catch (e0) {}
+          try { window.location.href = schemeTarget; return; } catch (e1) {}
         }
         try {
           var link = document.getElementById("open-app");
