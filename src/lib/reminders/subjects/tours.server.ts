@@ -16,7 +16,7 @@ import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { isActivePlannedEvent, type PlannedEvent } from "@/lib/demo-admin-scheduling";
 import { materializeReminders } from "@/lib/reminders/queue.server";
 import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
-import { loadManagerReminderRecipients } from "@/lib/reminders/manager-recipients.server";
+import { loadManagerReminderRecipients, loadTeamReminderRecipientsByManager, teamReminderRecipients } from "@/lib/reminders/manager-recipients.server";
 
 const PLANNED_EVENTS_RECORD = "axis_admin_planned_events_v1";
 const HORIZON_DAYS = 31;
@@ -75,6 +75,13 @@ export async function sweepTourReminders(db: SupabaseClient, now: Date = new Dat
     loadReminderSettingsForManagers(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),
   ]);
+  const teamRecipientsByManager = await loadTeamReminderRecipientsByManager(
+    db,
+    managerIds.map((managerUserId) => ({
+      managerUserId,
+      teamUserIds: settingsByManager.get(managerUserId)?.rules.tour.teamUserIds ?? [],
+    })),
+  );
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
 
   let queued = 0;
@@ -83,6 +90,9 @@ export async function sweepTourReminders(db: SupabaseClient, now: Date = new Dat
     const settings = settingsByManager.get(managerUserId);
     if (!settings?.rules.tour.enabled) continue;
     const managerRecipient = managerRecipients.get(managerUserId);
+    const teamRecipients = settings.rules.tour.audience.team
+      ? teamReminderRecipients(teamRecipientsByManager.get(managerUserId) ?? [])
+      : [];
     queued += await materializeReminders(
       db,
       {
@@ -94,6 +104,7 @@ export async function sweepTourReminders(db: SupabaseClient, now: Date = new Dat
           ...(managerRecipient
             ? [{ email: managerRecipient.email, role: "manager" as const, name: managerRecipient.name, userId: managerUserId }]
             : []),
+          ...teamRecipients,
           {
             email: tour.attendeeEmail!.trim().toLowerCase(),
             role: "counterparty",

@@ -22,13 +22,16 @@
  * "Bookings" rule could never fire. A Settings row that can never do anything
  * is worse than no row at all.
  */
-import { normalizeTimings } from "@/lib/reminders/timings";
+import { normalizeTimings, parseTimingKey, timingSendAt } from "@/lib/reminders/timings";
 
 export const REMINDER_SUBJECT_KINDS = [
   "tour",
   "task",
   "service_order",
   "work_order",
+  "application",
+  "lease",
+  "outgoing_payment",
 ] as const;
 
 export type ReminderSubjectKind = (typeof REMINDER_SUBJECT_KINDS)[number];
@@ -45,6 +48,7 @@ export type ReminderSubjectKind = (typeof REMINDER_SUBJECT_KINDS)[number];
 export type ReminderAudience = {
   manager: boolean;
   counterparty: boolean;
+  team: boolean;
 };
 
 export type ReminderRule = {
@@ -59,6 +63,10 @@ export type ReminderRule = {
    */
   timings?: string[];
   audience: ReminderAudience;
+  /** Co-manager user ids to notify when `audience.team` is on. Empty = all team members. */
+  teamUserIds: string[];
+  /** Optional custom copy; dispatcher falls back to `renderReminder` when absent. */
+  template?: { subject: string; body: string };
   /**
    * Delivery channels.
    *
@@ -196,6 +204,24 @@ export const REMINDER_SUBJECT_META: Record<ReminderSubjectKind, ReminderSubjectM
     anchorLabel: "the maintenance visit",
     counterpartyLabel: "resident and vendor",
   },
+  application: {
+    kind: "application",
+    label: "Applications",
+    anchorLabel: "the application was started",
+    counterpartyLabel: "applicant",
+  },
+  lease: {
+    kind: "lease",
+    label: "Leases",
+    anchorLabel: "the lease was sent for signature",
+    counterpartyLabel: "resident",
+  },
+  outgoing_payment: {
+    kind: "outgoing_payment",
+    label: "Outgoing payments",
+    anchorLabel: "the payment due date",
+    counterpartyLabel: "payee",
+  },
 };
 
 /**
@@ -210,7 +236,8 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
   tour: {
     enabled: true,
     leadMinutes: [1 * DAY, 30 * MINUTE],
-    audience: { manager: true, counterparty: true },
+    audience: { manager: true, counterparty: true, team: false },
+    teamUserIds: [],
     inbox: true,
     email: true,
     sms: false,
@@ -218,7 +245,8 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
   task: {
     enabled: true,
     leadMinutes: [1 * DAY],
-    audience: { manager: true, counterparty: true },
+    audience: { manager: true, counterparty: true, team: false },
+    teamUserIds: [],
     inbox: true,
     email: true,
     sms: false,
@@ -226,7 +254,8 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
   service_order: {
     enabled: true,
     leadMinutes: [1 * DAY, 1 * HOUR],
-    audience: { manager: true, counterparty: true },
+    audience: { manager: true, counterparty: true, team: false },
+    teamUserIds: [],
     inbox: true,
     email: true,
     sms: false,
@@ -234,7 +263,38 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
   work_order: {
     enabled: true,
     leadMinutes: [1 * DAY, 30 * MINUTE],
-    audience: { manager: true, counterparty: true },
+    audience: { manager: true, counterparty: true, team: false },
+    teamUserIds: [],
+    inbox: true,
+    email: true,
+    sms: false,
+  },
+  application: {
+    enabled: true,
+    leadMinutes: [3 * DAY, 1 * DAY],
+    timings: ["after:1440", "after:4320"],
+    audience: { manager: true, counterparty: true, team: false },
+    teamUserIds: [],
+    inbox: true,
+    email: true,
+    sms: false,
+  },
+  lease: {
+    enabled: true,
+    leadMinutes: [3 * DAY, 1 * DAY],
+    timings: ["after:1440", "after:4320"],
+    audience: { manager: true, counterparty: true, team: false },
+    teamUserIds: [],
+    inbox: true,
+    email: true,
+    sms: false,
+  },
+  outgoing_payment: {
+    enabled: true,
+    leadMinutes: [3 * DAY, 1 * DAY],
+    timings: ["before:4320", "before:1440"],
+    audience: { manager: true, counterparty: false, team: true },
+    teamUserIds: [],
     inbox: true,
     email: true,
     sms: false,
@@ -263,26 +323,54 @@ function normalizeHour(raw: unknown, fallback: number): number {
   return rounded;
 }
 
-function normalizeRule(raw: unknown, fallback: ReminderRule): ReminderRule {
+function normalizeTeamUserIds(raw: unknown, fallback: readonly string[]): string[] {
+  if (!Array.isArray(raw)) return [...fallback];
+  const ids = raw
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return [...new Set(ids)];
+}
+
+function normalizeTemplate(
+  raw: unknown,
+  fallback: ReminderRule["template"],
+): ReminderRule["template"] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fallback;
+  const row = raw as Record<string, unknown>;
+  const subject = typeof row.subject === "string" ? row.subject.trim() : "";
+  const body = typeof row.body === "string" ? row.body.trim() : "";
+  if (!subject && !body) return fallback;
+  return { subject, body };
+}
+
+export function normalizeRule(raw: unknown, fallback: ReminderRule): ReminderRule {
   const row = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const audienceRaw =
     row.audience && typeof row.audience === "object" && !Array.isArray(row.audience)
       ? (row.audience as Record<string, unknown>)
       : {};
-  return {
+  const timings = Array.isArray(row.timings)
+    ? normalizeTimings(row.timings, fallback.timings ?? [])
+    : fallback.timings;
+  const template = normalizeTemplate(row.template, fallback.template);
+
+  const normalized: ReminderRule = {
     enabled: normalizeBoolean(row.enabled, fallback.enabled),
     leadMinutes: normalizeLeadMinutesList(row.leadMinutes, fallback.leadMinutes),
     audience: {
       manager: normalizeBoolean(audienceRaw.manager, fallback.audience.manager),
       counterparty: normalizeBoolean(audienceRaw.counterparty, fallback.audience.counterparty),
+      team: normalizeBoolean(audienceRaw.team, fallback.audience.team),
     },
-    timings: Array.isArray(row.timings)
-      ? normalizeTimings(row.timings, [])
-      : fallback.timings,
+    teamUserIds: normalizeTeamUserIds(row.teamUserIds, fallback.teamUserIds),
     inbox: normalizeBoolean(row.inbox, fallback.inbox),
     email: normalizeBoolean(row.email, fallback.email),
     sms: normalizeBoolean(row.sms, fallback.sms),
   };
+  if (timings) normalized.timings = timings;
+  if (template) normalized.template = template;
+  return normalized;
 }
 
 export function normalizeQuietHours(raw: unknown): QuietHours {
@@ -359,7 +447,25 @@ export function reminderSendTimes(
   const anchorMs = new Date(anchorIso).getTime();
   if (!Number.isFinite(anchorMs)) return [];
 
+  const anchor = new Date(anchorMs);
   const out: { leadMinutes: number; sendAt: Date }[] = [];
+
+  const timingKeys = rule.timings?.length ? rule.timings : null;
+  if (timingKeys) {
+    for (const key of timingKeys) {
+      const timing = parseTimingKey(key);
+      if (!timing) continue;
+      const raw = timingSendAt(timing, anchor);
+      const sendAt = applyQuietHours(raw, quietHours);
+      if (timing.direction === "before" && sendAt.getTime() >= anchorMs) continue;
+      if (timing.direction === "after" && sendAt.getTime() <= anchorMs) continue;
+      if (sendAt.getTime() <= now.getTime()) continue;
+      const leadMinutes = timing.direction === "before" ? timing.minutes : -timing.minutes;
+      out.push({ leadMinutes, sendAt });
+    }
+    return out.sort((a, b) => a.sendAt.getTime() - b.sendAt.getTime());
+  }
+
   for (const leadMinutes of rule.leadMinutes) {
     const raw = new Date(anchorMs - leadMinutes * 60_000);
     const sendAt = applyQuietHours(raw, quietHours);

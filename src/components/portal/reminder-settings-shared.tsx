@@ -14,6 +14,12 @@ import {
   PortalMessageSubjectField,
 } from "@/components/portal/portal-message-compose-fields";
 import { normalizeTourReminderMinutesBeforeList } from "@/lib/payment-automation-settings";
+import {
+  normalizeTimings,
+  summarizeTimings,
+  timingOptions,
+  type TimingDirection,
+} from "@/lib/reminders/timings";
 
 export const REMINDER_FIELD_LABEL_CLASS = "text-xs font-semibold text-muted";
 
@@ -341,5 +347,39 @@ export function TourReminderTimingSelect({
         }
       />
     </div>
+  );
+}
+
+export function ReminderTimingMultiSelect({
+  timings,
+  directions,
+  label = "Reminders",
+  disabled,
+  onChangeTimings,
+  dataAttr = "reminder-timing",
+}: {
+  timings: string[];
+  directions: readonly TimingDirection[];
+  label?: string;
+  disabled?: boolean;
+  onChangeTimings: (timings: string[]) => void;
+  dataAttr?: string;
+}) {
+  const normalized = useMemo(() => normalizeTimings(timings, []), [timings]);
+  const options = useMemo(() => timingOptions(directions), [directions]);
+  const selectionTriggerLabel = normalized.length ? summarizeTimings(normalized) : undefined;
+
+  return (
+    <CheckboxMultiSelect
+      label={label}
+      labelClassName={REMINDER_FIELD_LABEL_CLASS}
+      options={options}
+      selected={normalized}
+      selectionTriggerLabel={selectionTriggerLabel}
+      onChange={(next) => onChangeTimings(normalizeTimings(next, normalized))}
+      disabled={disabled}
+      emptyLabel="Choose reminders…"
+      dataAttr={dataAttr}
+    />
   );
 }

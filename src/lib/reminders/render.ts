@@ -13,6 +13,8 @@
  * who scheduled them.
  */
 import { formatLeadLabel, type ReminderSubjectKind } from "@/lib/reminders/rules";
+import { fillReminderTemplate } from "@/lib/reminders/subject-settings-meta";
+import { formatMinutes } from "@/lib/reminders/timings";
 
 export type ReminderPayload = {
   /** What the thing is called: a task title, a tour's property, a service name. */
@@ -28,6 +30,16 @@ export type ReminderPayload = {
   url?: string | null;
   recipientName?: string | null;
   notes?: string | null;
+  customSubject?: string | null;
+  customBody?: string | null;
+  amountLabel?: string | null;
+  dueDateLabel?: string | null;
+  duePhrase?: string | null;
+  applicantName?: string | null;
+  residentName?: string | null;
+  paymentTitle?: string | null;
+  leaseUrl?: string | null;
+  resumeUrl?: string | null;
 };
 
 export type RenderedReminder = { subject: string; body: string };
@@ -47,8 +59,11 @@ export function humanPropertyLabel(raw: string | null | undefined): string | nul
   return looksLikeId ? null : value;
 }
 
-/** "in 30 minutes", "in 1 day" — the lead time as a person would say it. */
+/** "in 30 minutes", "in 1 day", "1 day ago" — the lead time as a person would say it. */
 export function leadPhrase(leadMinutes: number): string {
+  if (leadMinutes < 0) {
+    return `${formatMinutes(Math.abs(leadMinutes))} ago`;
+  }
   return formatLeadLabel(leadMinutes).replace(/ before$/, "").replace(/^/, "in ");
 }
 
@@ -57,6 +72,9 @@ const SUBJECT_NOUN: Record<ReminderSubjectKind, string> = {
   task: "task",
   service_order: "service visit",
   work_order: "maintenance visit",
+  application: "application",
+  lease: "lease",
+  outgoing_payment: "payment",
 };
 
 function greeting(name?: string | null): string {
@@ -78,16 +96,62 @@ function lines(parts: (string | null | undefined)[]): string {
  * appointment, so it reads "due in 1 day", never "starts in 1 day".
  */
 function isDeadline(kind: ReminderSubjectKind): boolean {
-  return kind === "task";
+  return kind === "task" || kind === "outgoing_payment";
+}
+
+function templateContextFromPayload(
+  kind: ReminderSubjectKind,
+  leadMinutes: number,
+  payload: ReminderPayload,
+): Record<string, string> {
+  const title = (payload.title ?? "").trim();
+  const property = humanPropertyLabel(payload.propertyLabel) ?? (payload.propertyLabel ?? "").trim();
+  const counterparty = (payload.counterpartyName ?? "").trim();
+  const manager = (payload.managerName ?? "").trim() || "Your property manager";
+  const when = (payload.whenLabel ?? "").trim();
+  const url = (payload.url ?? "").trim();
+  const recipient = (payload.recipientName ?? "").trim();
+  const phrase = payload.duePhrase?.trim() || leadPhrase(leadMinutes);
+
+  return {
+    recipientName: recipient || counterparty || "there",
+    title,
+    paymentTitle: (payload.paymentTitle ?? title).trim(),
+    propertyTitle: property,
+    counterpartyName: counterparty,
+    applicantName: (payload.applicantName ?? counterparty).trim(),
+    residentName: (payload.residentName ?? counterparty).trim(),
+    managerName: manager,
+    whenLabel: when,
+    duePhrase: phrase,
+    dueDateLabel: (payload.dueDateLabel ?? when).trim(),
+    amountLabel: (payload.amountLabel ?? "").trim(),
+    url,
+    leaseUrl: (payload.leaseUrl ?? url).trim(),
+    resumeUrl: (payload.resumeUrl ?? url).trim(),
+    notes: (payload.notes ?? "").trim(),
+    kind,
+  };
 }
 
 export function renderReminder(input: {
   kind: ReminderSubjectKind;
   leadMinutes: number;
-  recipientRole: "manager" | "counterparty";
+  recipientRole: "manager" | "counterparty" | "team";
   payload: ReminderPayload;
 }): RenderedReminder {
-  const { kind, leadMinutes, recipientRole, payload } = input;
+  const { kind, leadMinutes, payload } = input;
+  const customSubject = (payload.customSubject ?? "").trim();
+  const customBody = (payload.customBody ?? "").trim();
+  if (customSubject || customBody) {
+    const context = templateContextFromPayload(kind, leadMinutes, payload);
+    return fillReminderTemplate(
+      { subject: customSubject || "Reminder", body: customBody || "" },
+      context,
+    );
+  }
+
+  const recipientRole = input.recipientRole === "team" ? "manager" : input.recipientRole;
   const noun = SUBJECT_NOUN[kind];
   const phrase = leadPhrase(leadMinutes);
   const title = (payload.title ?? "").trim();

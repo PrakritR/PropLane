@@ -14,6 +14,7 @@ import {
   MAX_LEADS_PER_RULE,
   MAX_LEAD_MINUTES,
   MIN_LEAD_MINUTES,
+  REMINDER_SUBJECT_KINDS,
   applyQuietHours,
   clampLeadMinutes,
   formatLeadLabel,
@@ -80,7 +81,33 @@ describe("settings normalize from whatever is stored", () => {
     expect(settings.rules.task.leadMinutes).toEqual([120]);
     // Audience and channels fall back rather than vanishing.
     expect(settings.rules.task.email).toBe(true);
+    expect(settings.rules.task.audience.team).toBe(false);
     expect(settings.rules.tour).toEqual(DEFAULT_REMINDER_RULES.tour);
+  });
+
+  it("includes defaults for the unified application, lease, and outgoing payment kinds", () => {
+    const settings = normalizeReminderSettings(undefined);
+    for (const kind of ["application", "lease", "outgoing_payment"] as const) {
+      expect(settings.rules[kind]).toEqual(DEFAULT_REMINDER_RULES[kind]);
+    }
+    expect(REMINDER_SUBJECT_KINDS).toContain("application");
+    expect(REMINDER_SUBJECT_KINDS).toContain("lease");
+    expect(REMINDER_SUBJECT_KINDS).toContain("outgoing_payment");
+  });
+
+  it("normalizes team audience, teamUserIds, and template fields", () => {
+    const settings = normalizeReminderSettings({
+      rules: {
+        lease: {
+          audience: { manager: true, counterparty: false, team: true },
+          teamUserIds: [" mgr-1 ", "mgr-1", "mgr-2"],
+          template: { subject: " Sign ", body: " Body " },
+        },
+      },
+    });
+    expect(settings.rules.lease.audience.team).toBe(true);
+    expect(settings.rules.lease.teamUserIds).toEqual(["mgr-1", "mgr-2"]);
+    expect(settings.rules.lease.template).toEqual({ subject: "Sign", body: "Body" });
   });
 
   it("treats a zero-length quiet window as off, not as an enabled no-op", () => {
@@ -193,6 +220,28 @@ describe("reminderSendTimes", () => {
       new Date(2026, 7, 30, 9, 0, 0, 0),
     );
     expect(out).toEqual([]);
+  });
+
+  it("uses directional timings when present, including after anchors", () => {
+    const submitted = new Date(2026, 7, 30, 9, 0, 0, 0).toISOString();
+    const now = new Date(2026, 7, 30, 9, 30, 0, 0);
+    const out = reminderSendTimes(
+      rule({
+        timings: ["after:60", "after:1440"],
+        leadMinutes: [30],
+      }),
+      submitted,
+      quietOff,
+      now,
+    );
+    expect(out.map((entry) => entry.leadMinutes)).toEqual([-60, -1440]);
+    expect(out[0]!.sendAt.toISOString()).toBe(new Date(2026, 7, 30, 10, 0, 0, 0).toISOString());
+    expect(out[1]!.sendAt.toISOString()).toBe(new Date(2026, 7, 31, 9, 0, 0, 0).toISOString());
+  });
+
+  it("falls back to leadMinutes when timings are absent", () => {
+    const out = reminderSendTimes(rule({ leadMinutes: [30], timings: undefined }), anchor, quietOff, now);
+    expect(out.map((entry) => entry.leadMinutes)).toEqual([30]);
   });
 });
 

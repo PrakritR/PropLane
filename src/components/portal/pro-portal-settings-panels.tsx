@@ -48,6 +48,10 @@ import {
   type PaymentAutomationSettingsHandle,
 } from "@/components/portal/payment-schedule-ui";
 import { TaskAutomationSettingsFields } from "@/components/portal/task-automation-settings-fields";
+import {
+  ManagerReminderRuleSettingsPanel,
+  type ManagerReminderRuleSettingsHandle,
+} from "@/components/portal/manager-reminder-rule-settings";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
   DEFAULT_LIFECYCLE_AUTOMATION,
@@ -169,6 +173,8 @@ export function ApplicationsSettingsPanel({
   waiverCode = "",
   onWaiverCodeChange,
   hidePropertyField = false,
+  teamMembers = [],
+  reminderFormRef,
 }: {
   automation: ApplicationAutomationPreferences;
   loading: boolean;
@@ -181,9 +187,11 @@ export function ApplicationsSettingsPanel({
   onWaiverCodeChange?: (code: string) => void;
   /** When opened from one property's Application tab, the house is already known. */
   hidePropertyField?: boolean;
+  teamMembers?: WorkAssignmentTeamMember[];
+  reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {hidePropertyField ? null : (
         <ManagerSettingsPropertyField
           propertyOptions={propertyOptions}
@@ -240,6 +248,16 @@ export function ApplicationsSettingsPanel({
           Auto-approve is on for this property. New submissions are approved without a manual review step.
         </p>
       ) : null}
+      <div className="border-t border-border pt-4">
+        <ManagerReminderRuleSettingsPanel
+          kind="application"
+          audienceMode="both"
+          sectionTitle="Application reminders"
+          teamMembers={teamMembers}
+          formRef={reminderFormRef}
+          disabled={loading || saving}
+        />
+      </div>
     </div>
   );
 }
@@ -248,10 +266,12 @@ export function TaskSettingsPanel({
   teamMembers,
   onFooterReady,
   onSaved,
+  reminderFormRef,
 }: {
   teamMembers: WorkAssignmentTeamMember[];
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
   onSaved?: () => void;
+  reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
@@ -330,13 +350,26 @@ export function TaskSettingsPanel({
   if (loading) return <p className="text-sm text-muted">Loading…</p>;
 
   return (
-    <TaskAutomationSettingsFields
-      automation={automation}
-      teamMembers={teamMembers}
-      loading={loading}
-      saving={saving}
-      onChange={setAutomation}
-    />
+    <div className="space-y-6">
+      <ManagerReminderRuleSettingsPanel
+        kind="task"
+        audienceMode="manager"
+        sectionTitle="Task reminders"
+        teamMembers={teamMembers}
+        formRef={reminderFormRef}
+        disabled={saving}
+      />
+      <div className="border-t border-border pt-4">
+        <p className="mb-3 text-[13.5px] font-semibold text-foreground">Lifecycle automation</p>
+        <TaskAutomationSettingsFields
+          automation={automation}
+          teamMembers={teamMembers}
+          loading={loading}
+          saving={saving}
+          onChange={setAutomation}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -349,6 +382,8 @@ export function LeaseSettingsPanel({
   onPropertyIdChange,
   onAutomationChange,
   hidePropertyField = false,
+  teamMembers = [],
+  reminderFormRef,
 }: {
   automation: ApplicationAutomationPreferences;
   loading: boolean;
@@ -358,9 +393,11 @@ export function LeaseSettingsPanel({
   onPropertyIdChange: (propertyId: string) => void;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
   hidePropertyField?: boolean;
+  teamMembers?: WorkAssignmentTeamMember[];
+  reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
 }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {hidePropertyField ? null : (
         <ManagerSettingsPropertyField
           propertyOptions={propertyOptions}
@@ -403,6 +440,51 @@ export function LeaseSettingsPanel({
           </span>
         </label>
       ))}
+      <div className="border-t border-border pt-4">
+        <ManagerReminderRuleSettingsPanel
+          kind="lease"
+          audienceMode="both"
+          sectionTitle="Lease reminders"
+          teamMembers={teamMembers}
+          formRef={reminderFormRef}
+          disabled={loading || saving}
+        />
+      </div>
+    </div>
+  );
+}
+
+export function ServicesSettingsPanel({
+  teamMembers,
+  onFooterReady,
+  workOrderReminderFormRef,
+  serviceOrderReminderFormRef,
+}: {
+  teamMembers: WorkAssignmentTeamMember[];
+  onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
+  workOrderReminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
+  serviceOrderReminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
+}) {
+  useReportSettingsPanelFooter(onFooterReady, null);
+
+  return (
+    <div className="space-y-8">
+      <ManagerReminderRuleSettingsPanel
+        kind="work_order"
+        audienceMode="both"
+        sectionTitle="Maintenance visit reminders"
+        teamMembers={teamMembers}
+        formRef={workOrderReminderFormRef}
+      />
+      <div className="border-t border-border pt-6">
+        <ManagerReminderRuleSettingsPanel
+          kind="service_order"
+          audienceMode="both"
+          sectionTitle="Add-on service reminders"
+          teamMembers={teamMembers}
+          formRef={serviceOrderReminderFormRef}
+        />
+      </div>
     </div>
   );
 }
@@ -420,10 +502,14 @@ export function TourSettingsPanel({
   onSaved,
   onFooterReady,
   formRef,
+  teamMembers = [],
+  managerReminderFormRef,
 }: {
   onSaved?: () => void;
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
   formRef?: React.Ref<TourSettingsHandle>;
+  teamMembers?: WorkAssignmentTeamMember[];
+  managerReminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
@@ -601,6 +687,7 @@ export function TourSettingsPanel({
         </label>
 
         <div className="space-y-3 border-t border-border pt-4">
+          <p className="text-[13.5px] font-semibold text-foreground">Guest tour reminders</p>
           <TourReminderTimingSelect
             minutesBeforeList={normalizeTourReminderMinutesBeforeList(
               automation.tourReminderMinutesBeforeList,
@@ -637,6 +724,16 @@ export function TourSettingsPanel({
             body={templatePreview.body}
             onUpdate={() => setMessageModalOpen(true)}
             dataAttr="tour-reminder-update-message"
+          />
+        </div>
+
+        <div className="border-t border-border pt-4">
+          <ManagerReminderRuleSettingsPanel
+            kind="tour"
+            audienceMode="manager"
+            sectionTitle="Your tour reminders"
+            teamMembers={teamMembers}
+            formRef={managerReminderFormRef}
           />
         </div>
       </div>
@@ -679,9 +776,42 @@ export function PaymentsSettingsPanel({
   onSaved,
   onFooterReady,
   formRef,
+  mode = "incoming",
+  teamMembers = [],
+  outgoingReminderFormRef,
 }: {
   onSaved?: () => void;
   onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
+  formRef?: React.Ref<PaymentAutomationSettingsHandle>;
+  /** Incoming = resident rent reminders; outgoing = manager payee reminders. */
+  mode?: "incoming" | "outgoing";
+  teamMembers?: WorkAssignmentTeamMember[];
+  outgoingReminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
+}) {
+  useReportSettingsPanelFooter(onFooterReady, null);
+
+  if (mode === "outgoing") {
+    return (
+      <ManagerReminderRuleSettingsPanel
+        kind="outgoing_payment"
+        audienceMode="manager"
+        sectionTitle="Outgoing payment reminders"
+        teamMembers={teamMembers}
+        formRef={outgoingReminderFormRef}
+      />
+    );
+  }
+
+  return (
+    <IncomingPaymentsSettingsPanel onSaved={onSaved} formRef={formRef} />
+  );
+}
+
+function IncomingPaymentsSettingsPanel({
+  onSaved,
+  formRef,
+}: {
+  onSaved?: () => void;
   formRef?: React.Ref<PaymentAutomationSettingsHandle>;
 }) {
   const { showToast } = useAppUi();
@@ -712,9 +842,6 @@ export function PaymentsSettingsPanel({
       cancelled = true;
     };
   }, [demo, showToast]);
-
-  // Autosaves, so it publishes no Save button of its own.
-  useReportSettingsPanelFooter(onFooterReady, null);
 
   if (loading || !settings) return <p className="text-sm text-muted">Loading…</p>;
 

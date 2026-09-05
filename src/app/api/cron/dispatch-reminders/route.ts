@@ -13,6 +13,9 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { dispatchDueReminders } from "@/lib/reminders/dispatch.server";
 import { sweepTaskReminders } from "@/lib/reminders/subjects/tasks.server";
+import { sweepApplicationReminders } from "@/lib/reminders/subjects/applications.server";
+import { sweepLeaseReminders } from "@/lib/reminders/subjects/leases.server";
+import { sweepOutgoingPaymentReminders } from "@/lib/reminders/subjects/outgoing-payments.server";
 import {
   sweepServiceOrderReminders,
   sweepWorkOrderReminders,
@@ -67,6 +70,9 @@ export async function GET(req: Request) {
       ["task", sweepTaskReminders],
       ["work_order", sweepWorkOrderReminders],
       ["service_order", sweepServiceOrderReminders],
+      ["application", sweepApplicationReminders],
+      ["lease", sweepLeaseReminders],
+      ["outgoing_payment", sweepOutgoingPaymentReminders],
     ] as const) {
       try {
         swept += await sweep(db);

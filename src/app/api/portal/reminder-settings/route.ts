@@ -8,6 +8,12 @@
  */
 import { NextResponse } from "next/server";
 import { loadReminderSettings, saveReminderSettings } from "@/lib/reminders/settings.server";
+import {
+  DEFAULT_REMINDER_RULES,
+  REMINDER_SUBJECT_KINDS,
+  normalizeRule,
+  type ReminderSubjectKind,
+} from "@/lib/reminders/rules";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -47,9 +53,33 @@ export async function PATCH(req: Request) {
   try {
     const ctx = await requireManager();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    const body = (await req.json().catch(() => ({}))) as { settings?: unknown };
-    // Merge onto what is stored so a partial patch cannot blank sibling rules.
+    const body = (await req.json().catch(() => ({}))) as {
+      settings?: unknown;
+      kind?: string;
+      rule?: unknown;
+    };
+
     const current = await loadReminderSettings(ctx.db, ctx.userId);
+
+    if (body.kind && body.rule && typeof body.kind === "string") {
+      const kind = body.kind as ReminderSubjectKind;
+      if (!REMINDER_SUBJECT_KINDS.includes(kind)) {
+        return NextResponse.json({ error: "Unknown reminder subject." }, { status: 400 });
+      }
+      const settings = await saveReminderSettings(ctx.db, ctx.userId, {
+        ...current,
+        rules: {
+          ...current.rules,
+          [kind]: normalizeRule(
+            { ...current.rules[kind], ...(body.rule as Record<string, unknown>) },
+            DEFAULT_REMINDER_RULES[kind],
+          ),
+        },
+      });
+      return NextResponse.json({ settings });
+    }
+
+    // Merge onto what is stored so a partial patch cannot blank sibling rules.
     const incoming =
       body.settings && typeof body.settings === "object" && !Array.isArray(body.settings)
         ? (body.settings as Record<string, unknown>)
