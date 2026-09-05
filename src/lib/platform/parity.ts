@@ -29,6 +29,16 @@ export const IN_APP_PATH_EXACT = ["/", "/partner", "/pricing", "/contact", "/tos
 /**
  * Push notification tap targets used in server code — keep in sync when adding
  * new notification flows. platform-parity.test.ts validates each entry.
+ *
+ * Every Communication entry here is a LEGACY folder-tab path that now lands via
+ * a `renderPortalSection` redirect — one extra hop, correct destination. Manager
+ * / resident / vendor route on a list segment
+ * (`/{portal}/communication/{active|unread|archived}`); admin still has real
+ * `inbox/*` tabs, so its `email/unopened` entry redirects one hop within admin.
+ * Retargeting them is a cross-cutting rename — dashboards, notification
+ * builders, `claw-resident-links.ts`, and the e2e specs all mint the same URLs —
+ * so change them together or not at all. See AGENTS.md → "Communication is one
+ * unified, conversation-based inbox".
  */
 export const REGISTERED_PUSH_DEEP_LINKS = [
   "/resident/payments",

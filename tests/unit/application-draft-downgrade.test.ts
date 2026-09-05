@@ -35,6 +35,30 @@ function readColumn(row: Row, col: string): unknown {
   return json?.[key];
 }
 
+/**
+ * One clause of a PostgREST `.or()` filter — `col.op.value`, optionally negated
+ * as `col.not.op.value`. SQL three-valued logic matters here: `not ilike`
+ * against a NULL column yields NULL, i.e. the row does NOT match, which is why
+ * the draft update pairs `stage.is.null` with `stage.not.ilike.submitted`.
+ */
+function parseOrClause(raw: string): (row: Row) => boolean {
+  const [col, ...rest] = raw.split(".");
+  const negated = rest[0] === "not";
+  if (negated) rest.shift();
+  const op = rest.shift();
+  const value = rest.join(".");
+  return (row) => {
+    const actual = readColumn(row, col);
+    if (op === "is") return value === "null" ? actual == null : String(actual) === value;
+    if (actual == null) return false; // NULL compares as unknown, never as a match
+    const hit =
+      op === "ilike"
+        ? String(actual).toLowerCase() === value.toLowerCase()
+        : String(actual) === value;
+    return negated ? !hit : hit;
+  };
+}
+
 function makeFakeDb() {
   function builder(table: string) {
     const rows = table === "profiles" ? (state.profile ? [state.profile] : []) : state.records;
@@ -81,6 +105,11 @@ function makeFakeDb() {
       },
       in(col: string, vals: unknown[]) {
         filters.push((row) => vals.includes(readColumn(row, col)));
+        return api;
+      },
+      or(expr: string) {
+        const clauses = expr.split(",").map(parseOrClause);
+        filters.push((row) => clauses.some((fn) => fn(row)));
         return api;
       },
       limit() {

@@ -78,6 +78,9 @@ function makeDb() {
         },
         ilike: () => builder,
         is: () => builder,
+        // The draft update's downgrade guard; `then()` below models the same
+        // live-draft predicate, so the clause itself is a no-op here.
+        or: () => builder,
         in(column: string, values: string[]) {
           if (column === "id") state.ids = values;
           return builder;

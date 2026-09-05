@@ -8,6 +8,13 @@ vi.mock("@/lib/agent-notify.server", () => ({
   notifyManagerFromAgent: vi.fn().mockResolvedValue(undefined),
 }));
 
+// The manager notification moved off notifyManagerFromAgent onto the
+// property-scoped co-manager fan-out; the test kept asserting the old call, so
+// it expected a function this module no longer imports.
+vi.mock("@/lib/co-manager-notification-recipients.server", () => ({
+  notifyPropertyScopedManagersFromAgent: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("@/lib/resident-outbound-sms.server", () => ({
   canSendResidentOutboundSms: vi.fn(() => true),
   sendResidentOutboundSms: vi.fn().mockResolvedValue({ sent: true, channel: "managed" }),
@@ -43,6 +50,7 @@ vi.mock("@/lib/notification-preferences", async (importOriginal) => {
 
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
+import { notifyPropertyScopedManagersFromAgent } from "@/lib/co-manager-notification-recipients.server";
 import { traceSystemNotification } from "@/lib/observability/langfuse";
 import { sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
 import { createHouseholdChargeCheckout } from "@/lib/stripe-household-charge-checkout.server";
@@ -177,12 +185,17 @@ describe("deliverPaymentReminder", () => {
       slotLabel: "3_days_before",
     });
 
-    expect(notifyManagerFromAgent).toHaveBeenCalledWith(expect.anything(), {
-      landlordId: "mgr-1",
+    expect(notifyPropertyScopedManagersFromAgent).toHaveBeenCalledWith(expect.anything(), {
+      ownerManagerUserId: "mgr-1",
+      // Scoped to the charge's property and the payments module, so a
+      // co-manager without that grant is not notified about it.
+      propertyId: "prop-1",
+      module: "payments",
       subject: "Payment reminder sent",
       text: "Rent due in 3 days was sent to resident@example.com.",
       category: "payment_reminders",
       url: "/portal/payments",
+      idempotencyKey: "payment_reminder_managed_test",
     });
   });
 

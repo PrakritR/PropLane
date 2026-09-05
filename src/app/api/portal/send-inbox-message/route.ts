@@ -58,6 +58,7 @@ import { fileWorkflowFromInboundMessage } from "@/lib/inbox/inbound-message-work
 // attachment was labelled "inbox-attachments".
 import { attachmentMetaFromUrls as inboxAttachmentsFromUrls } from "@/lib/inbox-attachments";
 import { normalizeInboxAttachmentUrls } from "@/lib/inbox-attachments.server";
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
 export const runtime = "nodejs";
 
@@ -215,8 +216,12 @@ export async function POST(req: Request) {
       Array.isArray(body.attachmentUrls) ? body.attachmentUrls : [],
       user.id,
     );
+    // The stored/rendered form stays origin-relative; the copy that goes out over
+    // email and SMS must be an absolute link on the canonical domain, or the
+    // recipient just sees a bare path they cannot open.
+    const emailOrigin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
     const attachmentNote = attachmentUrls.length
-      ? "\n\nAttachments:\n" + attachmentUrls.join("\n")
+      ? "\n\nAttachments:\n" + attachmentUrls.map((url) => `${emailOrigin}${url}`).join("\n")
       : "";
     const text = (rawText + attachmentNote).trim() || (attachmentUrls.length ? "(attachment)" : "");
     const fromName = String(body.fromName ?? "PropLane Portal").trim();

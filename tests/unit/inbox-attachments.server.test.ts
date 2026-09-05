@@ -14,6 +14,22 @@ type Tables = Record<string, Row[]>;
 function makeDb(tables: Tables) {
   const rowsFor = (table: string) => tables[table] ?? [];
 
+  // Mirrors postgres `jsonb @> jsonb`: every key/element on the right must be
+  // contained somewhere on the left, recursively.
+  function jsonbContains(left: unknown, right: unknown): boolean {
+    if (Array.isArray(right)) {
+      if (!Array.isArray(left)) return false;
+      return right.every((r) => left.some((l) => jsonbContains(l, r)));
+    }
+    if (right && typeof right === "object") {
+      if (!left || typeof left !== "object" || Array.isArray(left)) return false;
+      return Object.entries(right as Record<string, unknown>).every(([key, value]) =>
+        jsonbContains((left as Record<string, unknown>)[key], value),
+      );
+    }
+    return left === right;
+  }
+
   function builder(table: string) {
     const filters: Array<(row: Row) => boolean> = [];
     const api: Record<string, unknown> = {
@@ -24,6 +40,10 @@ function makeDb(tables: Tables) {
       },
       ilike: (col: string, val: string) => {
         filters.push((row) => String(row[col] ?? "").toLowerCase() === String(val).toLowerCase());
+        return api;
+      },
+      contains: (col: string, val: unknown) => {
+        filters.push((row) => jsonbContains(row[col], val));
         return api;
       },
       limit: () => api,
@@ -129,7 +149,10 @@ describe("userCanAccessInboxAttachment", () => {
         {
           owner_user_id: recipient,
           participant_email: null,
-          row_data: { body: `See photo ${serveUrl}` },
+          row_data: {
+            body: "See photo",
+            messages: [{ body: "See photo", attachments: [{ url: serveUrl, name: "abc123.jpg" }] }],
+          },
         },
       ],
     });
@@ -137,6 +160,26 @@ describe("userCanAccessInboxAttachment", () => {
       userCanAccessInboxAttachment(db, {
         userId: recipient,
         userEmail: "resident@example.com",
+        path,
+        isAdmin: false,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it("allows a participant whose thread carries the attachment on the root turn", async () => {
+    const db = makeDb({
+      portal_inbox_thread_records: [
+        {
+          owner_user_id: "someone-else",
+          participant_email: "resident@example.com",
+          row_data: { body: "See photo", attachments: [{ url: serveUrl }] },
+        },
+      ],
+    });
+    await expect(
+      userCanAccessInboxAttachment(db, {
+        userId: recipient,
+        userEmail: "Resident@Example.com",
         path,
         isAdmin: false,
       }),
@@ -157,6 +200,29 @@ describe("userCanAccessInboxAttachment", () => {
       userCanAccessInboxAttachment(db, {
         userId: "manager-9",
         userEmail: "mgr@example.com",
+        path,
+        isAdmin: false,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("denies an attacker who merely quotes the serve URL in their own message body", async () => {
+    const db = makeDb({
+      portal_inbox_thread_records: [
+        {
+          owner_user_id: "attacker-7",
+          participant_email: null,
+          row_data: {
+            body: `Attachments:\n${serveUrl}`,
+            messages: [{ body: `look: ${serveUrl}` }],
+          },
+        },
+      ],
+    });
+    await expect(
+      userCanAccessInboxAttachment(db, {
+        userId: "attacker-7",
+        userEmail: "attacker@example.com",
         path,
         isAdmin: false,
       }),
