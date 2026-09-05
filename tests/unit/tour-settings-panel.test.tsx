@@ -54,7 +54,10 @@ describe("TourSettingsPanel", () => {
 
     expect(screen.getByText("Loading…")).toBeTruthy();
     expect(await screen.findByText("Notice required")).toBeTruthy();
-    expect(screen.queryByText("Loading…")).toBeNull();
+    // The embedded reminder settings load independently, so the parent being
+    // done does not mean every "Loading…" has gone. Waiting for that is the
+    // assertion this test actually means; checking it synchronously raced.
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
   });
 
   it("clears loading and toasts when automation settings are unauthorized", async () => {
@@ -68,6 +71,9 @@ describe("TourSettingsPanel", () => {
         if (url.includes("/api/portal/automation-settings")) {
           return Response.json({ error: "Unauthorized." }, { status: 401 });
         }
+        if (url.includes("/api/portal/reminder-settings")) {
+          return Response.json({ settings: {} });
+        }
         throw new Error(`Unexpected fetch: ${url}`);
       }),
     );
@@ -75,7 +81,7 @@ describe("TourSettingsPanel", () => {
     render(<TourSettingsPanel />);
 
     await waitFor(() => expect(showToast).toHaveBeenCalledWith("Unauthorized."));
-    expect(screen.queryByText("Loading…")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
     expect(screen.getByText("Notice required")).toBeTruthy();
   });
 });
