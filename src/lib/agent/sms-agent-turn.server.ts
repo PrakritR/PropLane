@@ -24,7 +24,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { runAgentTurn } from "@/lib/agent/loop";
-import type { ActionPreview } from "@/lib/tools/registry";
+import type { ActionPreview, ToolRegistry } from "@/lib/tools/registry";
 import {
   createPendingActionForUser,
   type AgentPortal,
