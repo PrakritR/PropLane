@@ -39,6 +39,14 @@ export function resolveVoiceTurnWebhookUrl(phase: "consent" | "agent" = "agent")
   return `${base}/api/twilio/voice/turn?phase=${phase}`;
 }
 
+/** Twilio call-status callback (fires on completed/failed/no-answer). */
+export function resolveVoiceStatusWebhookUrl(): string {
+  const explicit = process.env.TWILIO_VOICE_STATUS_WEBHOOK_URL?.trim();
+  if (explicit) return explicit;
+  const base = (resolveEmailLinkBaseUrl() || PRODUCTION_APP_ORIGIN).replace(/\/$/, "");
+  return `${base}/api/twilio/voice/status`;
+}
+
 export function resolveVoiceRecordingWebhookUrl(): string {
   const explicit = process.env.TWILIO_VOICE_RECORDING_WEBHOOK_URL?.trim();
   if (explicit) return explicit;

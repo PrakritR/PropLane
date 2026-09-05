@@ -13,6 +13,7 @@ export type NotificationCategory =
   | "payments"
   | "maintenance"
   | "applications"
+  | "voice_calls"
   | "account";
 
 export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
@@ -21,6 +22,7 @@ export const NOTIFICATION_CATEGORIES: NotificationCategory[] = [
   "payments",
   "maintenance",
   "applications",
+  "voice_calls",
   "account",
 ];
 
@@ -49,6 +51,10 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   payments: { inbox: true, email: true, sms: true },
   maintenance: { inbox: true, email: true, sms: true },
   applications: { inbox: true, email: true, sms: true },
+  // A phone call is the one channel a manager cannot scroll back through, so
+  // the summary defaults to reaching them everywhere — including SMS on their
+  // real mobile, which is usually where they already are when a call lands.
+  voice_calls: { inbox: true, email: true, sms: true },
   account: { inbox: true, email: true, sms: true },
 };
 

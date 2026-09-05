@@ -6,6 +6,7 @@ export type ManagerNotificationCategory =
   | "payment_reminders"
   | "applications"
   | "leasing"
+  | "voice_calls"
   | "attention_digest";
 
 export type ManagerAttentionDigestCadence = "off" | "daily" | "weekly";
@@ -39,6 +40,11 @@ export const MANAGER_NOTIFICATION_CATEGORIES = [
     description: "Tour requests and new listing inquiries.",
   },
   {
+    id: "voice_calls",
+    label: "Call summaries",
+    description: "Transcript and summary after someone calls your work number.",
+  },
+  {
     id: "attention_digest",
     label: "Needs-attention digest",
     description: "Scheduled summary of unpaid charges, service work, applications, and unsigned leases.",
@@ -58,6 +64,7 @@ export const DEFAULT_MANAGER_NOTIFICATION_CATEGORIES: ManagerNotificationCategor
   payment_reminders: true,
   applications: true,
   leasing: true,
+  voice_calls: true,
   attention_digest: true,
 };
 
@@ -100,6 +107,8 @@ export function managerNotificationCategoryForEvent(
       return "applications";
     case "attention_digest":
       return "attention_digest";
+    case "voice_calls":
+      return "voice_calls";
     case "leases":
     case "leasing":
       return "leasing";

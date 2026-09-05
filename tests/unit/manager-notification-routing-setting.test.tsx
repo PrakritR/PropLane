@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MANAGER_NOTIFICATION_CATEGORIES } from "@/lib/manager-notification-preferences";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerNotificationRoutingSetting } from "@/components/portal/pro-notification-routing-setting";
 import { DEFAULT_MANAGER_AUTOMATION_SETTINGS } from "@/lib/payment-automation-settings";
@@ -58,7 +59,7 @@ describe("ManagerNotificationRoutingSetting", () => {
     expect(await screen.findByText("Phone connection ready")).toBeTruthy();
     expect(screen.getByRole("radio", { name: /^PropLane Assistant/ })).toHaveProperty("checked", true);
     expect(screen.getByRole("radio", { name: /No updates/ })).toBeTruthy();
-    expect(screen.getAllByRole("checkbox")).toHaveLength(6);
+    expect(screen.getAllByRole("checkbox")).toHaveLength(MANAGER_NOTIFICATION_CATEGORIES.length);
     expect(screen.getByRole("radio", { name: /^Off/ })).toHaveProperty("checked", true);
   });
 
