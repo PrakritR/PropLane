@@ -1070,9 +1070,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
               stCustomFeesTotal,
           )
         : "—";
-    const receivedBeforeCheckIn = ctx.leaseBilling?.totalBeforeCheckIn != null && dailyCost != null && stayNights != null
-      ? Math.max(0, shortTermStayTotalAmount(dailyCost, stayNights) + (depositAmount ?? 0) + stayMoveInNum + stayOtherNum + stayUtilitiesNum + stCustomFeesTotal - ctx.leaseBilling.totalBeforeCheckIn)
-      : 0;
+    const receivedBeforeCheckIn = ctx.leaseBilling?.receivedBeforeMoveIn ?? 0;
     const receivedStayLine = receivedBeforeCheckIn > 0
       ? `<p><strong>Already received:</strong> ${fmtUsd(receivedBeforeCheckIn)}. Recorded payments are excluded from the balance due before check-in.</p>` : "";
     const requirements = escapeHtml(
@@ -1375,6 +1373,8 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
       firstPeriodRentDue: billing?.firstPeriodRentDue,
       firstPeriodUtilitiesDue: billing?.firstPeriodUtilitiesDue,
       securityDepositDue: billing?.securityDepositDue,
+      securityDepositReceived: billing?.securityDepositReceived,
+      moveInFeeReceived: billing?.moveInFeeReceived,
       holdingDeposit: billing?.holdingDeposit,
       holdingDepositHtml,
       moveInFee,

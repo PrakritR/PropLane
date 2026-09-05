@@ -158,6 +158,60 @@ describe("buildLeaseBillingSnapshot", () => {
     expect(billing.dueAtSigning).toBe(450);
   });
 
+  it("treats a cancelled or refunded charge as settled without calling it a received payment", () => {
+    for (const status of ["cancelled", "refunded"] as const) {
+      const propertyId = `prop-${status}-deposit`;
+      const email = `${status}-deposit@example.com`;
+      removeResidentHouseholdPaymentData(email);
+      seedListing(propertyId, normalizeManagerListingSubmissionV1({
+        ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150",
+        rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
+      }));
+      const row = applicantRow(propertyId, email);
+      recordApprovedApplicationCharges(row, MANAGER_ID, true);
+      const deposit = readHouseholdCharges().find((c) => c.applicationId === row.id && c.kind === "security_deposit")!;
+      applyHouseholdChargePatches([{ ...deposit, status }]);
+      const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
+      expect(billing.securityDeposit).toBe(400);
+      expect(billing.securityDepositDue).toBe(0);
+      expect(billing.securityDepositReceived).toBe(0);
+      expect(billing.dueAtSigning).toBe(150);
+      const html = buildLeaseHtml({
+        application: row.application!,
+        submission: normalizeManagerListingSubmissionV1({ ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150" }),
+        leaseBilling: billing,
+        generatedAtIso: "2026-09-01T00:00:00.000Z",
+      }, SEATTLE_LEASE_CONFIG);
+      expect(html).not.toContain("Already received");
+      expect(html).toContain("Security deposit: <strong>$400.00</strong> — no payment due");
+    }
+  });
+
+  it("reports only cleared dollars as received, never a clearing or part-paid balance", () => {
+    const propertyId = "prop-received-clearing";
+    const email = "received-clearing@example.com";
+    removeResidentHouseholdPaymentData(email);
+    seedListing(propertyId, normalizeManagerListingSubmissionV1({
+      ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150",
+      rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
+    }));
+    const row = applicantRow(propertyId, email);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    const charges = readHouseholdCharges().filter((c) => c.applicationId === row.id);
+    const deposit = charges.find((c) => c.kind === "security_deposit")!;
+    const moveIn = charges.find((c) => c.kind === "move_in_fee")!;
+    applyHouseholdChargePatches([
+      { ...deposit, status: "processing" },
+      { ...moveIn, status: "partially_paid", balanceLabel: "$50.00", paidAmountCents: 10_000 },
+    ]);
+    const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
+    expect(billing.securityDepositReceived).toBe(0);
+    expect(billing.moveInFeeReceived).toBe(100);
+    expect(billing.securityDepositDue).toBe(400);
+    expect(billing.moveInFeeDue).toBe(50);
+    expect(billing.dueAtSigning).toBe(450);
+  });
+
   it("keeps an ad-hoc manager charge out of the signing itemization and total", () => {
     const propertyId = "prop-adhoc-fine";
     const email = "adhoc-fine@example.com";

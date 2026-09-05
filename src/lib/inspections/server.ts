@@ -1,7 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
-import type { DemoApplicantRow } from "@/data/demo-portal";
 import { managerOwnedPropertyIdSet } from "@/lib/auth/manager-application-access";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import { writeAuditLog, updateAuditResult } from "@/lib/tools/audit";
@@ -118,26 +117,22 @@ type ResidencyView = {
 };
 
 function residencyFromRecord(record: Record<string, unknown>): ResidencyView {
-  const row = (record.row_data as DemoApplicantRow | undefined) ?? undefined;
-  const text = (alias: string, fallback: unknown): string => {
-    const value = record[alias] ?? fallback;
+  const text = (alias: string): string => {
+    const value = record[alias];
     return value == null ? "" : String(value);
   };
   return {
     id: String(record.id),
-    approved: text("app_bucket", row?.bucket) === "approved" && !text("app_withdrawn_at", row?.withdrawnAt),
-    name: text("app_name", row?.name) || "Resident",
-    propertyLabel: text("app_property", row?.property) || "Property",
-    roomLabel: text("app_room_choice", row?.assignedRoomChoice)
-      || text("app_manual_room", row?.manualResidentDetails?.roomNumber) || "",
+    approved: text("app_bucket") === "approved" && !text("app_withdrawn_at"),
+    name: text("app_name") || "Resident",
+    propertyLabel: text("app_property") || "Property",
+    roomLabel: text("app_room_choice") || text("app_manual_room") || "",
     identity: {
-      manager_user_id: text("manager_user_id", null),
-      property_id: text("assigned_property_id", null)
-        || text("app_assigned_property_id", row?.assignedPropertyId)
-        || text("property_id", null)
-        || text("app_property_id", row?.propertyId),
-      resident_email: text("resident_email", null),
-      resident_user_id: text("app_resident_user_id", row?.residentUserId) || null,
+      manager_user_id: text("manager_user_id"),
+      property_id: text("assigned_property_id") || text("app_assigned_property_id")
+        || text("property_id") || text("app_property_id"),
+      resident_email: text("resident_email"),
+      resident_user_id: text("app_resident_user_id") || null,
     },
   };
 }

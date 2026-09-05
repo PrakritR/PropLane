@@ -1701,8 +1701,35 @@ unpaid, total deposit collection is $400; once paid, it is $300. Never describe
 an unpaid holding charge as received. Scope these reads by manager, property,
 resident identity AND application id so a previous tenancy cannot supply a
 credit. Paid deposit/move-in charges are excluded from signing collection while
-their full obligations remain in the document. One-time custom charges and
-manager-entered other costs contribute their outstanding balances to signing.
+their full obligations remain in the document. One-time custom charges and the
+application-level `managerOtherCostAmount` (with its approval-generated
+`other_cost` charge) contribute their outstanding balances to signing. A Payments
+-> Add payment row does NOT: `chargesForPlacement` drops every
+`isManagerAddedOneOffCharge` row (the `hc_mgr_` id `createManagerCharge` writes),
+so a fine or a replacement key never reaches the signing itemization or its total.
+
+Charge status decides only the OUTSTANDING balance, never the contractual
+obligation, and the two are separate snapshot fields throughout. `paid`,
+`cancelled` and `refunded` are settled — nothing owed — exactly as
+`householdChargeManagerBucket` reads them; a waived or returned charge contributes
+zero and must never be dropped from the snapshot, because a missing row falls back
+to the full contractual amount and re-quotes an obligation the manager voided.
+Everything else keeps its balance, including `processing` (a clearing ACH),
+`partially_paid` and `failed` — the payment ATTEMPT failed, the charge did not go
+away. "Already received" is its own figure (`securityDepositReceived` /
+`moveInFeeReceived` / `receivedBeforeMoveIn`), summed from dollars that actually
+CLEARED rather than inferred by subtracting the balance from the obligation. A
+clearing, waived or refunded charge is therefore never described to a resident as
+a payment received; a settled line with no cleared dollars reads "no payment due"
+rather than "paid".
+
+The signing total is a FIRST-PERIOD figure and is resolved AFTER proration in
+`build-lease-html.ts`. Resolving it earlier quoted a full month of rent and
+utilities beside the prorated lines the same document prints, so the itemization
+and the total disagreed (a Sep 22 start read $1,575.00 instead of $857.50). A
+daily-basis term prices its first period from the actual billable days, exactly as
+the ledger does. An authoritative `leaseBilling.dueAtSigning` still wins, and the
+full contractual schedules are unchanged.
 
 The compact room document now includes a manager-entered one-time fee in both
 its summary and its signing breakdown; the reference's short-duration fee is not

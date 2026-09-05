@@ -20,6 +20,8 @@ export type CompactRoomLeaseInput = {
   utilitiesDisplay: string;
   secDep: string;
   securityDepositDue?: number;
+  securityDepositReceived?: number;
+  moveInFeeReceived?: number;
   holdingDeposit?: { amount: number; amountDue: number };
   holdingDepositHtml?: string;
   moveInFee: string;
@@ -139,6 +141,12 @@ function utilitiesIncludedBullets(
   return "";
 }
 
+function settledSuffix(nothingDue: boolean, received: number | undefined): string {
+  if (!nothingDue) return "";
+  if (received == null) return " — paid";
+  return received > 0 ? " — paid" : " — no payment due";
+}
+
 function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
   const {
     fmtUsd,
@@ -249,7 +257,7 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
 
   const secDepNum = parseAmount(secDep);
   if (secDepNum != null && secDepNum > 0) {
-    pushSchedule(`Security deposit: <strong>${secDep}</strong>${input.securityDepositDue === 0 && !(input.holdingDeposit?.amountDue) ? " — paid" : ""}`);
+    pushSchedule(`Security deposit: <strong>${secDep}</strong>${settledSuffix(input.securityDepositDue === 0 && !(input.holdingDeposit?.amountDue), input.securityDepositReceived)}`);
     if (!useIncludesFilter || includes.has("security_deposit")) {
       const due = input.securityDepositDue ?? secDepNum;
       if (due > 0) pushSigning(`<strong>${fmtUsd(due)}</strong> security deposit${input.holdingDeposit ? " balance" : ""}`);
@@ -260,7 +268,7 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
   }
   const moveInNum = parseAmount(moveInFee);
   if (moveInNum != null && moveInNum > 0) {
-    pushSchedule(`Move-in fee (non-refundable): <strong>${moveInFee}</strong>${input.moveInFeeDue === 0 ? " — paid" : ""}`);
+    pushSchedule(`Move-in fee (non-refundable): <strong>${moveInFee}</strong>${settledSuffix(input.moveInFeeDue === 0, input.moveInFeeReceived)}`);
     if (!useIncludesFilter || includes.has("move_in_fee")) {
       const due = input.moveInFeeDue ?? moveInNum;
       if (due > 0) pushSigning(`<strong>${fmtUsd(due)}</strong> move-in fee (non-refundable)`);
@@ -296,9 +304,8 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
     paySigningNum > 0
       ? `<p style="margin:0.75rem 0 0">Total payment due at signing: <strong>${paySigning}</strong></p>`
       : "";
-  const received = input.securityDepositDue != null && input.moveInFeeDue != null
-    ? Math.max(0, (secDepNum ?? 0) - input.securityDepositDue - (input.holdingDeposit?.amountDue ?? 0)) +
-      Math.max(0, (moveInNum ?? 0) - input.moveInFeeDue)
+  const received = input.securityDepositReceived != null || input.moveInFeeReceived != null
+    ? (input.securityDepositReceived ?? 0) + (input.moveInFeeReceived ?? 0)
     : 0;
   const receivedLine = received > 0
     ? `<p>Already received toward the security deposit and move-in fee: <strong>${fmtUsd(received)}</strong>. These payments are excluded from the amount still due at signing.</p>`

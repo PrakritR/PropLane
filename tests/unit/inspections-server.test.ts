@@ -37,7 +37,7 @@ const db = { storage: { from: () => storage }, from(table: string) {
 } };
 const manager = (userId = "owner"): InspectionActor => ({ role: "manager", context: { userId, landlordId: userId, db } as unknown as AgentContext });
 const resident = (userId = "resident", email = "resident@example.test"): InspectionActor => ({ role: "resident", context: { userId, landlordId: userId, email, phase: "approved", db } as unknown as ResidentAgentContext });
-beforeEach(() => { vi.clearAllMocks(); writes = 0; reports = [reportFixture()]; applications = [{ id: "AXIS-TEST", manager_user_id: "owner", property_id: "home", resident_email: "resident@example.test", row_data: { bucket: "approved", name: "Resident", residentUserId: "resident", propertyId: "home", assignedRoomChoice: "Room 1" } }]; });
+beforeEach(() => { vi.clearAllMocks(); writes = 0; reports = [reportFixture()]; applications = [{ id: "AXIS-TEST", manager_user_id: "owner", property_id: "home", resident_email: "resident@example.test", app_bucket: "approved", app_name: "Resident", app_resident_user_id: "resident", app_property_id: "home", app_room_choice: "Room 1" }]; });
 
 describe("inspection ownership and write isolation", () => {
   it("hides another landlord's report and another resident's evidence", async () => {
