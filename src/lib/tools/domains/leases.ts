@@ -150,7 +150,8 @@ export const amendLeaseTool = defineWriteTool({
     if (input.newLeaseEnd === currentEnd) {
       throw new Error("The new move-out date is the same as the current lease end date.");
     }
-    const availability = await checkMoveOutAvailabilityForLease(ctx.db, row, record, input.newLeaseEnd);
+    // Manager tool — same entitlement as the manager route above.
+    const availability = await checkMoveOutAvailabilityForLease(ctx.db, row, record, input.newLeaseEnd, undefined, "manager");
     if (!availability.ok) {
       const nextAvailable = availability.nextAvailableDate
         ? ` Next available date: ${availability.nextAvailableDate}.`

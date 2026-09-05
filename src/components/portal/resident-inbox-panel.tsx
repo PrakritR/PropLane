@@ -1794,6 +1794,7 @@ export const ResidentInboxPanel = forwardRef<
                   : activeThread.subject || (activeIsSent ? undefined : activeThread.email)
               }
               messages={activeBubbles}
+              alignAssistantStart={activeIsAssistantThread}
               afterMessages={residentScheduledCards}
               threadKey={activeThread.id}
               onBack={() => setExpandedId(null)}
@@ -1912,6 +1913,7 @@ export const ResidentInboxPanel = forwardRef<
                   : activeThread.subject || (activeIsSent ? undefined : activeThread.email)
               }
                 messages={activeBubbles}
+                alignAssistantStart={activeIsAssistantThread}
                 afterMessages={residentScheduledCards}
                 threadKey={activeThread.id}
                 onBack={() => setExpandedId(null)}

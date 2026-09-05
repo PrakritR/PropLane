@@ -1732,6 +1732,8 @@ function RentalApplicationWizardInner({
       }
 
       let emailSent = false;
+      let smsSent = false;
+      let smsAccepted = false;
       let mailtoHref: string | undefined;
       // Seed the finish CTA from the server-authoritative handoff minted during the
       // application upsert. This holds even if the follow-up email route fails, so
@@ -1757,8 +1759,15 @@ function RentalApplicationWizardInner({
               setupToken: isGuestSubmit ? sync.setupToken : undefined,
             }),
           });
-          const payload = (await res.json().catch(() => ({}))) as { mailtoHref?: string; setupHref?: string };
+          const payload = (await res.json().catch(() => ({}))) as {
+            mailtoHref?: string;
+            setupHref?: string;
+            smsSent?: boolean;
+            smsAccepted?: boolean;
+          };
           emailSent = res.ok;
+          smsSent = payload.smsSent === true;
+          smsAccepted = payload.smsAccepted === true;
           if (typeof payload.mailtoHref === "string" && payload.mailtoHref.startsWith("mailto:")) {
             mailtoHref = payload.mailtoHref;
           }
@@ -1775,6 +1784,8 @@ function RentalApplicationWizardInner({
         property_id: pid || undefined,
         synced_to_server: sync.ok,
         email_sent: emailSent,
+        sms_sent: smsSent,
+        sms_accepted: smsAccepted,
         group_role: submittedForm.applyingAsGroup === "yes" ? submittedForm.groupRole ?? undefined : undefined,
       });
       clearRentalWizardDraft();

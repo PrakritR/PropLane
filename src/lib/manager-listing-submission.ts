@@ -18,6 +18,7 @@ import {
 } from "@/lib/rental-application/lease-terms";
 import { roomIsDailyPriced } from "@/lib/room-pricing";
 import { RENTAL_APPLICATION_SECTION_IDS } from "@/lib/rental-application/application-sections";
+import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import type { UtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
 import { normalizeUtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
@@ -141,6 +142,17 @@ export type ManagerRoomSubmission = {
   rentBasis?: "monthly" | "daily";
   /** Headline daily rent rate (USD dollars) used when rentBasis is "daily". */
   dailyRentPrice?: number;
+  /**
+   * How many independent residents may occupy this room AT ONCE — the room's beds.
+   * Absent, or any value that is not a whole number in 1..20, reads as 1, so every
+   * room that existed before per-bed rentals behaves exactly as it always has.
+   *
+   * Capacity > 1 means the manager rents this room by the bed: each resident holds
+   * their own application, lease and charges, and each pays the room's OWN rate in
+   * full. It is NOT a bundle — a bundle divides one total across a household, which
+   * is the opposite of this. See {@link normalizeRoomOccupancyCapacity}.
+   */
+  occupancyCapacity?: number;
 };
 
 /** Sidebar “Quick facts” rows on the public listing; when empty, facts are auto-derived from the submission. */
@@ -1188,6 +1200,11 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
         const priceN = typeof price === "number" ? price : typeof price === "string" ? parseFloat(price) : NaN;
         return v === "daily" && Number.isFinite(priceN) && priceN > 0 ? "daily" : "monthly";
       })(),
+      // Fails closed to 1: an unreadable capacity can only ever under-sell a room,
+      // never invent beds the manager did not configure.
+      occupancyCapacity: normalizeRoomOccupancyCapacity(
+        (legacyRoom as ManagerRoomSubmission & { occupancyCapacity?: unknown }).occupancyCapacity,
+      ),
       manualUnavailableRanges: (() => {
         const raw = (legacyRoom as ManagerRoomSubmission & { manualUnavailableRanges?: unknown }).manualUnavailableRanges;
         if (!Array.isArray(raw)) return [];

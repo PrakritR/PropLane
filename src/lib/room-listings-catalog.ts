@@ -7,7 +7,7 @@ import {
   parseUSZip,
   propertyMatchesZipRadius,
 } from "@/lib/listings-search";
-import { isRoomChoiceAvailable, LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
+import { isRoomChoiceAvailable, LISTING_ROOM_CHOICE_SEP, roomBedAvailability } from "@/lib/rental-application/data";
 import {
   roomHeadlineAmount,
   roomHeadlinePriceLabel,
@@ -139,13 +139,22 @@ export function formatRoomListingSubtitle(opts: {
   return lead;
 }
 
-function availabilityLabel(room: ListingRoomRow): string {
+function availabilityLabel(room: ListingRoomRow, roomChoiceValue: string): string {
   const raw = room.availability.trim();
   const a = raw.toLowerCase();
   if (/\bunavailable\b|not available|no longer available/i.test(a)) return raw;
   if (/available\s+after/i.test(raw)) return raw;
   if (/\bwaitlist\b|available soon\b/i.test(a)) return raw;
-  if (a.includes("available")) return "1 available";
+  if (a.includes("available")) {
+    // A single-occupancy room keeps the exact wording it has always had; only a
+    // room the manager configured for several residents needs a bed count, and
+    // "1 available" would be an outright lie on one that still has two free.
+    const { capacity, remaining } = roomBedAvailability(roomChoiceValue);
+    if (capacity > 1) {
+      return remaining > 0 ? `${remaining} of ${capacity} beds available` : "Fully booked";
+    }
+    return "1 available";
+  }
   return raw;
 }
 
@@ -416,7 +425,7 @@ export function filterRoomListings(
             : room.pricePeriod === "day"
               ? parseMonthlyRent(room.price.replace("/day", ""))
               : rentNumeric,
-        availabilityLabel: availabilityLabel(room),
+        availabilityLabel: availabilityLabel(room, `${p.id}${LISTING_ROOM_CHOICE_SEP}${room.id}`),
         bathroomHint: bathroomHintFromRoom(room),
         zip: p.zip,
         headlineAddress: headlineAddressFromProperty(p),

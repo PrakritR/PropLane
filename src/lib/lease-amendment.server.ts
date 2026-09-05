@@ -1,6 +1,11 @@
 import { formatPacificDate } from "@/lib/pacific-time";
 import { buildAiGeneratedLeaseHtml, leaseContextFromApplication } from "@/lib/generated-lease";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import {
+  evaluateRoomOccupancy,
+  normalizeRoomOccupancyCapacity,
+  type RoomOccupancyPlacement,
+} from "@/lib/rental-application/room-occupancy";
 import type { LeasePipelineRow, SignedLeaseSnapshot } from "@/lib/lease-pipeline-storage";
 import { renewalRentalTypeForTerm } from "@/lib/lease-renewal-terms";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
@@ -106,12 +111,27 @@ function formatAvailabilityLabel(isoDate: string): string {
   return `Available from ${formatPacificDate(dt, { year: "numeric", month: "long", day: "numeric" })}`;
 }
 
+/**
+ * Who is asking. A manager owns the property and may be told which resident holds
+ * the room and until when; a resident may not learn anything about a roommate.
+ * Defaults to "resident" so a new caller discloses the LESS, not the more.
+ */
+export type MoveOutAvailabilityAudience = "manager" | "resident";
+
+/** "YYYY-MM-DD" to local midnight, matching how room occupancy dates are compared. */
+function ymdToLocalDate(value: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
 export async function checkMoveOutAvailabilityForLease(
   db: SupabaseClient,
   leaseRow: LeasePipelineRow,
   leaseRecord: { property_id?: string | null },
   newLeaseEnd: string,
   excludeResidentEmail?: string,
+  audience: MoveOutAvailabilityAudience = "resident",
 ): Promise<
   | { ok: true; direction: "extend" | "decrease" | "same" }
   | { ok: false; direction: "extend" | "decrease" | "same"; reason: string; nextAvailableDate?: string | null }
@@ -149,6 +169,7 @@ export async function checkMoveOutAvailabilityForLease(
     .eq("id", propertyId)
     .maybeSingle();
 
+  let roomCapacity = 1;
   if (propRecord) {
     const pd = asObject(propRecord.property_data);
     if (pd?.listingSubmission) {
@@ -157,6 +178,9 @@ export async function checkMoveOutAvailabilityForLease(
         const norm = normalizeManagerListingSubmissionV1(rawSub);
         const room = norm.rooms.find((r) => r.id === roomId);
         if (room) {
+          roomCapacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
+          // A manager-set block closes the room outright, whatever its capacity,
+          // and is the manager's OWN data — safe to describe to either audience.
           const blocked = (room.manualUnavailableRanges ?? []).find((range: ManagerRoomUnavailableRange) =>
             rangesOverlap(extensionStart, newLeaseEnd, range.start, range.end),
           );
@@ -181,6 +205,10 @@ export async function checkMoveOutAvailabilityForLease(
     .neq("resident_email", email)
     .order("updated_at", { ascending: false });
 
+  // Peers are reduced to anonymous date intervals immediately. Their names, rent
+  // and lease documents are in row_data and must not travel any further than this
+  // loop — under per-bed rentals a roommate reaches this code path routinely.
+  const peers: { placement: RoomOccupancyPlacement; start: string; end: string | null }[] = [];
   for (const rec of otherLeases ?? []) {
     const row = asObject(rec.row_data) as unknown as LeasePipelineRow | null;
     if (!row || !hasBothLeaseSignatures(row) || row.status === "Voided") continue;
@@ -191,17 +219,53 @@ export async function checkMoveOutAvailabilityForLease(
     const otherStart = asString(row.application?.leaseStart);
     const otherEnd = asString(row.application?.leaseEnd);
     if (!otherStart) continue;
-    if (rangesOverlap(extensionStart, newLeaseEnd, otherStart, otherEnd || "9999-12-31")) {
+    const startDate = ymdToLocalDate(otherStart);
+    if (!startDate) continue;
+    peers.push({
+      placement: { id: String(rec.id ?? otherStart), start: startDate, end: otherEnd ? ymdToLocalDate(otherEnd) : null },
+      start: otherStart,
+      end: otherEnd || null,
+    });
+  }
+
+  const windowStart = ymdToLocalDate(extensionStart);
+  const windowEnd = ymdToLocalDate(newLeaseEnd);
+  if (!windowStart || !windowEnd) return { ok: true, direction };
+
+  // A roommate no longer blocks an extension while a bed is genuinely free: the
+  // room refuses only once its peers alone reach capacity.
+  const occupancy = evaluateRoomOccupancy({
+    capacity: roomCapacity,
+    placements: peers.map((peer) => peer.placement),
+    windowStart,
+    windowEnd,
+  });
+  if (occupancy.hasRoom) return { ok: true, direction };
+
+  if (audience === "manager") {
+    const blocker = peers
+      .filter((peer) => rangesOverlap(extensionStart, newLeaseEnd, peer.start, peer.end || "9999-12-31"))
+      .sort((a, b) => a.start.localeCompare(b.start))[0];
+    if (blocker) {
       return {
         ok: false,
         direction,
-        reason: `This room is already booked by another resident starting ${otherStart}.`,
-        nextAvailableDate: otherEnd || null,
+        reason: `This room is already booked by another resident starting ${blocker.start}.`,
+        nextAvailableDate: blocker.end,
       };
     }
   }
 
-  return { ok: true, direction };
+  // Resident-facing refusal. Deliberately says nothing about who holds the room or
+  // until when: the caller controls newLeaseEnd, so any peer date returned here can
+  // be binary-searched out of the endpoint. A bare yes/no still reveals aggregate
+  // availability, which is unavoidable for a booking check.
+  return {
+    ok: false,
+    direction,
+    reason: "No bed is available in this room for the requested dates.",
+    nextAvailableDate: null,
+  };
 }
 
 async function syncApplicationLeaseDates(

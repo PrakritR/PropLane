@@ -4,16 +4,24 @@ import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { readOwnActiveManagerVendorRows, isVendorCategorySettingsRow } from "@/lib/manager-vendors-storage";
 import { readProRelationships } from "@/lib/pro-relationships";
 
+function trimmedText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 /** Merge contact lists by email — first occurrence wins. */
 export function mergeInboxScopedContacts(...lists: InboxScopedContact[][]): InboxScopedContact[] {
   const out: InboxScopedContact[] = [];
   const seen = new Set<string>();
   for (const list of lists) {
     for (const contact of list) {
-      const key = contact.email.trim().toLowerCase();
+      const key = trimmedText(contact?.email).toLowerCase();
       if (!key || seen.has(key)) continue;
       seen.add(key);
-      out.push(contact);
+      out.push({
+        ...contact,
+        name: trimmedText(contact.name) || key,
+        email: key,
+      });
     }
   }
   return out;
@@ -34,26 +42,28 @@ export function buildManagerInboxLiveContacts(userId: string | null | undefined)
 
   for (const row of readManagerApplicationRows()) {
     const bucket = String(row.bucket ?? "").trim();
-    if ((bucket !== "approved" && bucket !== "pending") || !row.email?.trim()) continue;
+    const email = trimmedText(row.email).toLowerCase();
+    if ((bucket !== "approved" && bucket !== "pending") || !email) continue;
     // Skip in-progress drafts that are not real applications yet.
     if (bucket === "pending" && String(row.stage ?? "").trim().toLowerCase() === "in progress") continue;
-    const email = row.email.trim().toLowerCase();
     if (seen.has(email)) continue;
     seen.add(email);
-    const propertyLabel = row.property?.trim() || undefined;
-    const propertyId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || undefined;
+    const propertyLabel = trimmedText(row.property) || undefined;
+    const propertyId = trimmedText(row.assignedPropertyId) || trimmedText(row.propertyId) || undefined;
     // A resident whose move-out date has passed is PAST, not current (PRP-150).
     // Read from the manual detail first and the application second, the same
     // order `resolveLeaseDatesForBilling` uses, so the picker and the ledger
     // agree about when a tenancy ended.
-    const moveOut = (row.manualResidentDetails?.moveOutDate ?? row.application?.leaseEnd ?? "").trim();
+    const moveOut =
+      trimmedText(row.manualResidentDetails?.moveOutDate) ||
+      trimmedText(row.application?.leaseEnd);
     const movedOut = Boolean(moveOut) && moveOut < todayIsoDate();
     const tenancyStatus =
       bucket === "approved" ? (movedOut ? "past" : "resident") : "applicant";
     out.push({
-      id: `res-${row.id}`,
-      name: row.name || row.email.trim(),
-      email: row.email.trim(),
+      id: `res-${trimmedText(row.id)}`,
+      name: trimmedText(row.name) || email,
+      email,
       role: "resident",
       propertyLabel,
       propertyId,
@@ -63,25 +73,25 @@ export function buildManagerInboxLiveContacts(userId: string | null | undefined)
 
   if (userId) {
     for (const rel of readProRelationships(userId)) {
-      const email = rel.linkedAxisId.trim();
+      const email = trimmedText(rel.linkedAxisId);
       if (!email || seen.has(email.toLowerCase())) continue;
       seen.add(email.toLowerCase());
       out.push({
         id: `rel-${rel.id}`,
-        name: rel.linkedDisplayName || rel.linkedAxisId,
-        email: rel.linkedAxisId,
+        name: trimmedText(rel.linkedDisplayName) || email,
+        email,
         role: "manager",
       });
     }
 
     for (const vendor of readOwnActiveManagerVendorRows(userId)) {
       if (isVendorCategorySettingsRow(vendor)) continue;
-      const email = vendor.email?.trim();
+      const email = trimmedText(vendor.email);
       if (!email || seen.has(email.toLowerCase())) continue;
       seen.add(email.toLowerCase());
       out.push({
         id: `ven-${vendor.id}`,
-        name: vendor.name?.trim() || email,
+        name: trimmedText(vendor.name) || email,
         email,
         role: "vendor",
       });
@@ -104,9 +114,9 @@ export function propertyOptionsFromContacts(contacts: InboxScopedContact[]): { i
   const byId = new Map<string, string>();
   for (const contact of contacts) {
     if (contact.role !== "resident") continue;
-    const id = contact.propertyId?.trim();
+    const id = trimmedText(contact.propertyId);
     if (!id) continue;
-    const label = contact.propertyLabel?.trim() || id;
+    const label = trimmedText(contact.propertyLabel) || id;
     if (!byId.has(id)) byId.set(id, label);
   }
   return [...byId.entries()]

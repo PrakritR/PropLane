@@ -23,4 +23,12 @@ describe("mergeInboxScopedContacts", () => {
     expect(merged[0]?.name).toBe("Jamie A");
     expect(merged[1]?.email).toBe("alex@example.com");
   });
+
+  it("drops malformed persisted contacts instead of calling trim on non-strings", () => {
+    const malformed = contact({ id: "bad" });
+    Object.assign(malformed, { email: { legacy: "not-a-string" } });
+
+    expect(() => mergeInboxScopedContacts([malformed])).not.toThrow();
+    expect(mergeInboxScopedContacts([malformed])).toEqual([]);
+  });
 });

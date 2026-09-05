@@ -34,6 +34,12 @@ npm run ship:production   # staging → production (live + TestFlight)
 Run `npm run ship:preflight` before the production promote. The ladder, databases,
 and CI map live in `AGENTS.md` § Branching & deployment.
 
+For step 1, the Trail of Bits plugins (`trailofbits` marketplace, user scope) add
+`/diff-review` (adversarial security review of the branch diff) and `/audit`
+(insecure-defaults: parallel hunt for fail-open defaults, one refuting verifier per
+file). They are additive options alongside the existing reviews, never a replacement -
+`AGENTS.md` § Multi-agent collaboration still wins.
+
 ## Production = web + mobile
 
 Pushing `production` deploys the site on Vercel **and** runs

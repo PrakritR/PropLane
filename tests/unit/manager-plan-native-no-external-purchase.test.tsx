@@ -165,7 +165,7 @@ describe("PortalTierPaywall native branch — links only in-app", () => {
 
     // The web "upgrade" CTA must be inside a `.native-hide` container so it is
     // display:none on native — it must NOT live in the always-visible/native area.
-    const upgradeCta = screen.getByText(/view plans & upgrade/i).closest("a");
+    const upgradeCta = screen.getByText(/upgrade to pro or business/i).closest("a");
     expect(upgradeCta).toBeTruthy();
     expect(upgradeCta!.closest(".native-hide")).toBeTruthy();
   });

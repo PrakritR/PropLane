@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { computeLeaseEndDate, shouldAutoComputeLeaseEnd } from "@/lib/rental-application/lease-dates";
 import { CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
@@ -336,7 +335,6 @@ export function LeaseAmendMoveOutModal({
   const [selectedDate, setSelectedDate] = useState("");
   const [availability, setAvailability] = useState<AvailabilityResult>({ status: "idle" });
   const [submitting, setSubmitting] = useState(false);
-  const [assistantInstance, setAssistantInstance] = useState(0);
   const [activeRenewTerm, setActiveRenewTerm] = useState<string | null>(null);
   const [renewLeaseStart, setRenewLeaseStart] = useState("");
   const [renewCustomEnd, setRenewCustomEnd] = useState("");
@@ -385,11 +383,6 @@ export function LeaseAmendMoveOutModal({
         setRenewRent("");
       });
     }
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    setAssistantInstance((instance) => instance + 1);
   }, [open]);
 
   useEffect(() => {
@@ -581,7 +574,8 @@ export function LeaseAmendMoveOutModal({
       open={open}
       title={title}
       onClose={onClose}
-      assistantStrip={false}
+      assistantContext={title}
+      assistantStorageScopeKey={title}
       footer={
         <div className="flex flex-col gap-0">
           {showRenewFooter || showAmendFooter ? (
@@ -615,12 +609,6 @@ export function LeaseAmendMoveOutModal({
               </Button>
             </ModalFooter>
           ) : null}
-          <ModalAssistantStrip
-            contextHint={title}
-            storageScopeKey={title}
-            conversationInstance={assistantInstance}
-            className={showRenewFooter || showAmendFooter ? "mt-3 border-t border-border pt-0" : undefined}
-          />
         </div>
       }
     >
@@ -851,7 +839,6 @@ export function LeaseRenewModal({
   const [leaseStart, setLeaseStart] = useState(defaultStart);
   const [customEnd, setCustomEnd] = useState("");
   const [rent, setRent] = useState(() => currentRentLabel.replace(/[^\d.]/g, ""));
-  const [assistantInstance, setAssistantInstance] = useState(0);
 
   useEffect(() => {
     if (!open) {
@@ -863,11 +850,6 @@ export function LeaseRenewModal({
       });
     }
   }, [open, resolvedInitialTerm, defaultStart, currentRentLabel]);
-
-  useEffect(() => {
-    if (!open) return;
-    setAssistantInstance((instance) => instance + 1);
-  }, [open]);
 
   const { submitting, canConfirm, handleConfirm } = useLeaseRenewalSubmit({
     leaseTerm,
@@ -890,7 +872,8 @@ export function LeaseRenewModal({
       title="Renew lease"
       onClose={onClose}
       panelClassName="max-w-md"
-      assistantStrip={false}
+      assistantContext="Renew lease"
+      assistantStorageScopeKey="Renew lease"
       footer={
         <div className="flex flex-col gap-0">
           <ModalFooter className="w-full pb-0">
@@ -905,12 +888,6 @@ export function LeaseRenewModal({
               {submitting ? "Creating…" : "Create renewal"}
             </Button>
           </ModalFooter>
-          <ModalAssistantStrip
-            contextHint="Renew lease"
-            storageScopeKey="Renew lease"
-            conversationInstance={assistantInstance}
-            className="mt-3 border-t border-border pt-0"
-          />
         </div>
       }
     >

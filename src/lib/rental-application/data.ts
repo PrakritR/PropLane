@@ -51,6 +51,12 @@ export function listingRollsOverToMonthToMonth(propertyId: string): boolean {
 }
 
 /** Separates listing property id from submission room id in `roomChoice*` values. */
+import {
+  evaluateRoomOccupancy,
+  normalizeRoomOccupancyCapacity,
+  type RoomOccupancyPlacement,
+} from "@/lib/rental-application/room-occupancy";
+
 export const LISTING_ROOM_CHOICE_SEP = "::";
 
 export type ParsedRoomChoice = { propertyId: string; listingRoomId?: string };
@@ -101,20 +107,6 @@ function formatAvailabilityDate(date: Date): string {
     day: "numeric",
     year: "numeric",
   });
-}
-
-function intervalsOverlap(
-  startA: Date | null,
-  endA: Date | null,
-  startB: Date | null,
-  endB: Date | null,
-): boolean {
-  if (!startA || !startB) return true;
-  const aStart = startA.getTime();
-  const aEnd = endA ? endA.getTime() : Number.POSITIVE_INFINITY;
-  const bStart = startB.getTime();
-  const bEnd = endB ? endB.getTime() : Number.POSITIVE_INFINITY;
-  return aStart <= bEnd && bStart <= aEnd;
 }
 
 type ApprovedRoomOccupancy = {
@@ -184,33 +176,71 @@ function approvedOccupancyForRoom(roomChoiceValue: string, excludeApplicationId?
     .filter((value): value is NonNullable<typeof value> => value !== null);
 }
 
+/**
+ * How many residents this room may hold at once. Resolved from the listing the
+ * room choice names; anything unresolvable reads as 1, which is the pre-per-bed
+ * behaviour and can only ever under-sell.
+ */
+function roomCapacityForChoice(roomChoiceValue: string): number {
+  const parsed = parseRoomChoiceValue(roomChoiceValue);
+  if (!parsed.listingRoomId) return DEFAULT_SINGLE_OCCUPANCY;
+  const prop = getPropertyById(parsed.propertyId);
+  if (prop?.listingSubmission?.v !== 1) return DEFAULT_SINGLE_OCCUPANCY;
+  const sub = normalizeManagerListingSubmissionV1(prop.listingSubmission);
+  const room = sub.rooms.find((r) => r.id === parsed.listingRoomId);
+  return normalizeRoomOccupancyCapacity(room?.occupancyCapacity);
+}
+
+const DEFAULT_SINGLE_OCCUPANCY = 1;
+
+function occupancyToPlacements(occupancies: ApprovedRoomOccupancy[]): RoomOccupancyPlacement[] {
+  return occupancies.map((occ) => ({ id: occ.rowId, start: occ.leaseStart, end: occ.leaseEnd }));
+}
+
+/** Earliest day any of these placements begins, used as an unbounded sweep origin. */
+function earliestStart(placements: RoomOccupancyPlacement[]): Date {
+  let earliest: Date | null = null;
+  for (const placement of placements) {
+    if (!earliest || placement.start.getTime() < earliest.getTime()) earliest = placement.start;
+  }
+  return earliest ?? startOfToday();
+}
+
 export function getRoomUnavailabilityWindows(
   roomChoiceValue: string,
   options: Pick<RoomAvailabilityOptions, "excludeApplicationId"> = {},
 ): RoomUnavailabilityWindow[] {
-  const residentWindows = approvedOccupancyForRoom(roomChoiceValue, options.excludeApplicationId)
-    .map((occ) => {
-      const hasRange = Boolean(occ.leaseStart || occ.leaseEnd);
-      if (!hasRange) return null;
-      const label = occ.leaseStart && occ.leaseEnd
-        ? `Occupied ${formatAvailabilityDate(occ.leaseStart)} to ${formatAvailabilityDate(occ.leaseEnd)}`
-        : occ.leaseStart
-          ? `Occupied from ${formatAvailabilityDate(occ.leaseStart)}`
-          : `Occupied until ${formatAvailabilityDate(occ.leaseEnd as Date)}`;
-      return {
-        id: `resident-${occ.rowId}`,
-        start: occ.leaseStart,
-        end: occ.leaseEnd,
-        label,
-        source: "resident" as const,
-      };
-    })
-    .filter((w) => w !== null);
+  const capacity = roomCapacityForChoice(roomChoiceValue);
+  const placements = occupancyToPlacements(
+    approvedOccupancyForRoom(roomChoiceValue, options.excludeApplicationId),
+  );
+  if (placements.length === 0) return [];
 
-  return [...residentWindows].sort((a, b) => {
-    const at = a.start?.getTime() ?? Number.NEGATIVE_INFINITY;
-    const bt = b.start?.getTime() ?? Number.NEGATIVE_INFINITY;
-    return at - bt;
+  // A window is unavailable only where the room reaches CAPACITY, not merely where
+  // someone is present. At capacity 1 that is the same set of dates the product
+  // has always shown; above 1 a partly-filled room stays selectable.
+  const { fullyBookedIntervals } = evaluateRoomOccupancy({
+    capacity,
+    placements,
+    windowStart: earliestStart(placements),
+    windowEnd: null,
+  });
+
+  return fullyBookedIntervals.map((interval, index) => {
+    const label = interval.end
+      ? capacity > 1
+        ? `Fully booked ${formatAvailabilityDate(interval.start)} to ${formatAvailabilityDate(interval.end)}`
+        : `Occupied ${formatAvailabilityDate(interval.start)} to ${formatAvailabilityDate(interval.end)}`
+      : capacity > 1
+        ? `Fully booked from ${formatAvailabilityDate(interval.start)}`
+        : `Occupied from ${formatAvailabilityDate(interval.start)}`;
+    return {
+      id: `resident-full-${index}`,
+      start: interval.start,
+      end: interval.end,
+      label,
+      source: "resident" as const,
+    };
   });
 }
 
@@ -223,11 +253,15 @@ export function isRoomChoiceAvailable(
   // When no end date is given (e.g. search with only move-in), treat as a point-in-time
   // check so we don't falsely conflict with occupancy windows outside the search date.
   const targetEnd = parseFlexibleLocalDate(options.leaseEnd) ?? targetStart;
-  const occupancies = approvedOccupancyForRoom(roomChoiceValue, options.excludeApplicationId);
-  if (occupancies.some((occ) => intervalsOverlap(targetStart, targetEnd, occ.leaseStart, occ.leaseEnd))) {
-    return false;
-  }
-  return true;
+  const placements = occupancyToPlacements(
+    approvedOccupancyForRoom(roomChoiceValue, options.excludeApplicationId),
+  );
+  return evaluateRoomOccupancy({
+    capacity: roomCapacityForChoice(roomChoiceValue),
+    placements,
+    windowStart: targetStart,
+    windowEnd: targetEnd,
+  }).hasRoom;
 }
 
 function pendingConflictForRoom(
@@ -240,23 +274,61 @@ function pendingConflictForRoom(
   const normalizedTarget = roomChoiceValue.trim();
   const targetStart = parseFlexibleLocalDate(leaseStart) ?? startOfToday();
   const targetEnd = parseFlexibleLocalDate(leaseEnd) ?? targetStart;
-  return readManagerApplicationRows()
-    .filter((row) => row.bucket === "pending" && row.id !== excludeApplicationId)
-    .some((row) => {
-      const effective = effectiveApplicationForRow(row);
-      const assignedChoice = row.assignedRoomChoice?.trim() || effective?.roomChoice1?.trim() || "";
-      if (!assignedChoice) return false;
-      const parsedAssigned = parseRoomChoiceValue(assignedChoice);
-      const sameRoom =
-        assignedChoice === normalizedTarget ||
-        (parsedAssigned.propertyId === parsedTarget.propertyId &&
-          String(parsedAssigned.listingRoomId ?? "") === String(parsedTarget.listingRoomId ?? ""));
-      if (!sameRoom) return false;
-      const appStart = parseFlexibleLocalDate(effective?.leaseStart);
-      const appEnd = parseFlexibleLocalDate(effective?.leaseEnd);
-      if (!appStart) return false;
-      return intervalsOverlap(targetStart, targetEnd, appStart, appEnd ?? appStart);
-    });
+
+  const pendingPlacements: RoomOccupancyPlacement[] = [];
+  for (const row of readManagerApplicationRows()) {
+    if (row.bucket !== "pending" || row.id === excludeApplicationId) continue;
+    const effective = effectiveApplicationForRow(row);
+    const assignedChoice = row.assignedRoomChoice?.trim() || effective?.roomChoice1?.trim() || "";
+    if (!assignedChoice) continue;
+    const parsedAssigned = parseRoomChoiceValue(assignedChoice);
+    const sameRoom =
+      assignedChoice === normalizedTarget ||
+      (parsedAssigned.propertyId === parsedTarget.propertyId &&
+        String(parsedAssigned.listingRoomId ?? "") === String(parsedTarget.listingRoomId ?? ""));
+    if (!sameRoom) continue;
+    const appStart = parseFlexibleLocalDate(effective?.leaseStart);
+    if (!appStart) continue;
+    pendingPlacements.push({ id: row.id, start: appStart, end: parseFlexibleLocalDate(effective?.leaseEnd) ?? appStart });
+  }
+  if (pendingPlacements.length === 0) return false;
+
+  // Pending applications reserve NOTHING — this is only the advisory "someone else
+  // is asking for this room too" warning. It fires when the approved placements plus
+  // the pending ones would exceed capacity, so a two-bed room with one pending
+  // applicant no longer warns about a bed that is genuinely still free.
+  const placements = [
+    ...occupancyToPlacements(approvedOccupancyForRoom(roomChoiceValue, excludeApplicationId)),
+    ...pendingPlacements,
+  ];
+  return !evaluateRoomOccupancy({
+    capacity: roomCapacityForChoice(roomChoiceValue),
+    placements,
+    windowStart: targetStart,
+    windowEnd: targetEnd,
+  }).hasRoom;
+}
+
+/**
+ * How many of this room's beds are free over the requested window. Used by the
+ * public catalog so a shared room can say "1 of 2 beds available" instead of the
+ * flat "1 available" that was correct only while every room held one person.
+ */
+export function roomBedAvailability(
+  roomChoiceValue: string,
+  options: RoomAvailabilityOptions = {},
+): { capacity: number; remaining: number } {
+  const targetStart = parseFlexibleLocalDate(options.leaseStart) ?? startOfToday();
+  const targetEnd = parseFlexibleLocalDate(options.leaseEnd) ?? targetStart;
+  const { capacity, remaining } = evaluateRoomOccupancy({
+    capacity: roomCapacityForChoice(roomChoiceValue),
+    placements: occupancyToPlacements(
+      approvedOccupancyForRoom(roomChoiceValue, options.excludeApplicationId),
+    ),
+    windowStart: targetStart,
+    windowEnd: targetEnd,
+  });
+  return { capacity, remaining };
 }
 
 export function isRoomApprovedConflict(
@@ -266,8 +338,12 @@ export function isRoomApprovedConflict(
 ): boolean {
   const targetStart = parseFlexibleLocalDate(leaseStart) ?? startOfToday();
   const targetEnd = parseFlexibleLocalDate(leaseEnd) ?? targetStart;
-  const occupancies = approvedOccupancyForRoom(roomChoiceValue);
-  return occupancies.some((occ) => intervalsOverlap(targetStart, targetEnd, occ.leaseStart, occ.leaseEnd));
+  return !evaluateRoomOccupancy({
+    capacity: roomCapacityForChoice(roomChoiceValue),
+    placements: occupancyToPlacements(approvedOccupancyForRoom(roomChoiceValue)),
+    windowStart: targetStart,
+    windowEnd: targetEnd,
+  }).hasRoom;
 }
 
 export function isRoomPendingConflict(

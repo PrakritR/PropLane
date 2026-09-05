@@ -161,6 +161,39 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
   const [lastTools, setLastTools] = useState<ToolTraceEntry[]>([]);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const [loading, setLoading] = useState(false);
+  const requestInFlight = useRef(false);
+  const conversationGeneration = useRef(0);
+  const disposed = useRef(false);
+  const taskPendingIds = useRef(new Set<string>());
+
+  const denyDisposedTaskAction = useCallback(async (actionId: string) => {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ denyActionId: actionId }),
+        keepalive: true,
+      });
+      if (!response.ok) console.warn("Could not discard the closed assistant's pending action.");
+    } catch {
+      console.warn("Could not discard the closed assistant's pending action.");
+    } finally {
+      notifyAgentPendingActionsChanged();
+    }
+  }, [endpoint]);
+
+  useEffect(() => {
+    disposed.current = false;
+    const pendingIds = taskPendingIds.current;
+    return () => {
+      disposed.current = true;
+      conversationGeneration.current += 1;
+      if (!multiThread) {
+        for (const actionId of pendingIds) void denyDisposedTaskAction(actionId);
+        pendingIds.clear();
+      }
+    };
+  }, [denyDisposedTaskAction, multiThread]);
   const [error, setError] = useState<string | null>(null);
   // An archive read can finish after the user begins a new thread. Never let
   // that late response replace the interaction they just started.
@@ -260,10 +293,66 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
     [],
   );
 
+  const resolvePendingAction = useCallback(
+    async (decision: "confirm" | "deny") => {
+      if (!pendingAction || loading || requestInFlight.current) return;
+      requestInFlight.current = true;
+      const generation = conversationGeneration.current;
+      const confirmedKind = pendingAction.preview.kind;
+      const listingIdForRefresh = pendingAction.preview.fields.find((field) => field.label === "Listing id")?.value?.trim();
+      setError(null);
+      setLoading(true);
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(decision === "confirm" ? { confirmActionId: pendingAction.id } : { denyActionId: pendingAction.id }),
+        });
+        const data = (await res.json()) as { reply?: string; toolTrace?: ToolTraceEntry[]; error?: string };
+        if (disposed.current || generation !== conversationGeneration.current) return;
+        if (!res.ok || data.error) {
+          setError(data.error ?? "Could not complete that action.");
+          if (!isRetryableConfirmStatus(res.status)) {
+            taskPendingIds.current.delete(pendingAction.id);
+            setPendingAction(null);
+          }
+        } else {
+          taskPendingIds.current.delete(pendingAction.id);
+          setMessages((current) => [...current, { role: "assistant", content: data.reply ?? "Done." }]);
+          setLastTools(data.toolTrace ?? []);
+          setPendingAction(null);
+          if (decision === "confirm" && confirmedKind === "apply_listing_photos" && listingIdForRefresh) {
+            notifyListingAssistantUpdated({ propertyId: listingIdForRefresh, tool: "apply_listing_photos" });
+          }
+        }
+      } catch {
+        if (!disposed.current && generation === conversationGeneration.current) setError("Network error.");
+      } finally {
+        if (!disposed.current && generation === conversationGeneration.current) {
+          requestInFlight.current = false;
+          setLoading(false);
+        }
+        notifyAgentPendingActionsChanged();
+      }
+    },
+    [endpoint, loading, pendingAction],
+  );
+
   const send = useCallback(
-    async (prompt?: string) => {
+    async (prompt?: string, requestContext?: { contextHint?: string | null }) => {
       const text = userMessageContentFromInput(prompt ?? input, attachments);
-      if (!text || loading) return;
+      if (!text || loading || requestInFlight.current) return;
+      // Only the author's standalone command can approve the visible message.
+      // Context, attachments, edits and model output never enter this decision.
+      if (attachments.length === 0 && pendingAction &&
+          ["send_message", "reply_to_thread", "send_message_to_manager"].includes(pendingAction.preview.kind) &&
+          /^(?:send|send it|send the message|send the reply)[.!]?$/i.test(text.trim())) {
+        setInput("");
+        await resolvePendingAction("confirm");
+        return;
+      }
+      requestInFlight.current = true;
+      const generation = conversationGeneration.current;
       hasInteractedWithConversation.current = true;
       setError(null);
       let hadPending = false;
@@ -288,10 +377,12 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
             messages: next,
             ...(activeThreadId ? { sessionId: activeThreadId } : {}),
             archive: multiThread,
+            ...(requestContext?.contextHint?.trim() ? { contextHint: requestContext.contextHint.trim() } : {}),
             ...attachmentPayload,
           }),
         });
         const data = await readAssistantTransport(res, (text) => {
+          if (disposed.current || generation !== conversationGeneration.current) return;
           setMessages((current) => {
             if (!streamingAssistant) {
               streamingAssistant = true;
@@ -305,6 +396,10 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
             );
           });
         });
+        if (disposed.current || generation !== conversationGeneration.current) {
+          if (!multiThread && data.pendingAction) await denyDisposedTaskAction(data.pendingAction.id);
+          return;
+        }
         if (!res.ok || data.error) {
           setError(data.error ?? "Something went wrong.");
           setAttachments(sentAttachments);
@@ -327,57 +422,36 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
           }
           setLastTools(data.toolTrace ?? []);
           setPendingAction(data.pendingAction ?? null);
+          if (!multiThread && data.pendingAction) taskPendingIds.current.add(data.pendingAction.id);
           if (multiThread && data.archiveSaved === false) {
             setError("This reply could not be saved to Past conversations. Please send it again.");
           }
           if (data.pendingAction || hadPending) notifyAgentPendingActionsChanged();
         }
       } catch {
-        setError("Network error.");
-        setAttachments(sentAttachments);
+        if (!disposed.current && generation === conversationGeneration.current) {
+          setError("Network error.");
+          setAttachments(sentAttachments);
+        }
       } finally {
-        setLoading(false);
+        if (!disposed.current && generation === conversationGeneration.current) {
+          requestInFlight.current = false;
+          setLoading(false);
+        }
       }
     },
-    [activeThreadId, attachments, endpoint, input, loading, messages, multiThread],
+    [activeThreadId, attachments, denyDisposedTaskAction, endpoint, input, loading, messages, multiThread, pendingAction, resolvePendingAction],
   );
 
-  const resolvePendingAction = useCallback(
-    async (decision: "confirm" | "deny") => {
-      if (!pendingAction || loading) return;
-      const confirmedKind = pendingAction.preview.kind;
-      const listingIdForRefresh = pendingAction.preview.fields.find((field) => field.label === "Listing id")?.value?.trim();
-      setError(null);
-      setLoading(true);
-      try {
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(decision === "confirm" ? { confirmActionId: pendingAction.id } : { denyActionId: pendingAction.id }),
-        });
-        const data = (await res.json()) as { reply?: string; toolTrace?: ToolTraceEntry[]; error?: string };
-        if (!res.ok || data.error) {
-          setError(data.error ?? "Could not complete that action.");
-          if (!isRetryableConfirmStatus(res.status)) setPendingAction(null);
-        } else {
-          setMessages((current) => [...current, { role: "assistant", content: data.reply ?? "Done." }]);
-          setLastTools(data.toolTrace ?? []);
-          setPendingAction(null);
-          if (decision === "confirm" && confirmedKind === "apply_listing_photos" && listingIdForRefresh) {
-            notifyListingAssistantUpdated({ propertyId: listingIdForRefresh, tool: "apply_listing_photos" });
-          }
-        }
-      } catch {
-        setError("Network error.");
-      } finally {
-        setLoading(false);
-        notifyAgentPendingActionsChanged();
-      }
-    },
-    [endpoint, loading, pendingAction],
-  );
 
   const reset = useCallback(() => {
+    conversationGeneration.current += 1;
+    requestInFlight.current = false;
+    setLoading(false);
+    if (!multiThread) {
+      for (const actionId of taskPendingIds.current) void denyDisposedTaskAction(actionId);
+      taskPendingIds.current.clear();
+    }
     hasInteractedWithConversation.current = true;
     attachments.forEach(revokeAttachmentPreview);
     setActiveThreadId("");
@@ -391,7 +465,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
     setHistoryOpen(false);
     setHistorySearch("");
     if (historySearchTimer.current) clearTimeout(historySearchTimer.current);
-  }, [attachments, endpoint, multiThread, storageScope]);
+  }, [attachments, denyDisposedTaskAction, endpoint, multiThread, storageScope]);
 
   const startNewChat = useCallback(async () => {
     // A brand-new chat is a local reset only. The server thread is created

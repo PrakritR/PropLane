@@ -66,6 +66,18 @@ function stubPanelFetches(status: ManagerMessagingNumberStatus | null) {
 }
 
 describe("CommunicationSettingsPanel work number", () => {
+  it.each([123, {}, [], true])("ignores a malformed API phone value (%j) without a trim error", async (phoneNumber) => {
+    stubPanelFetches({
+      ...readyNumber,
+      number: { ...readyNumber.number!, phoneNumber: phoneNumber as unknown as string },
+    });
+    render(<CommunicationSettingsPanel />);
+
+    expect(await screen.findByText("Auto-send AI drafts")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Copy work number/ })).toBeNull();
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
   it("shows the assigned work number even when SMS is not a default channel", async () => {
     stubPanelFetches(readyNumber);
     render(<CommunicationSettingsPanel />);
