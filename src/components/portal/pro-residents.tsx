@@ -3429,6 +3429,18 @@ export function ManagerResidents({
           onDone={() => {
             void syncLeasePipelineFromServer(userId, { force: true }).then(() => setLeaseTick((n) => n + 1));
           }}
+          onSendToResident={
+            selected &&
+            (residentLeaseRows.find((row) => row.id === editResidentLeaseId)?.generatedHtml ||
+              residentLeaseRows.find((row) => row.id === editResidentLeaseId)?.managerUploadedPdf?.dataUrl)
+              ? () =>
+                  openLeaseSendPreview(
+                    selected,
+                    residentLeaseRows.find((row) => row.id === editResidentLeaseId)!,
+                  )
+              : undefined
+          }
+          sendToResidentBusy={leaseSendBusy}
         />
       ) : null}
       {importReviewLease?.uploadedLeaseParse ? (
