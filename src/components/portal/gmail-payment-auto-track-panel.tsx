@@ -6,6 +6,7 @@ import {
   gmailFilterFromClause,
   gmailFilterSubjectHint,
 } from "@/lib/gmail-payments/gmail-query";
+import { GMAIL_PAYMENTS_ENABLED } from "@/lib/gmail-payments/enabled";
 
 export type GmailPaymentTrackStatus = {
   connected: boolean;
@@ -220,6 +221,13 @@ export function GmailPaymentAutoTrackPanel({
     demo,
     showToast,
   });
+
+  // PRP-130: the connect routes refuse while Gmail payments are off, so offering
+  // the button here would send the manager to a dead end. This card used to live
+  // in the payment-setup modal behind the same flag; it lost the guard when it
+  // moved out. Everything below stays intact — flipping the one constant back
+  // restores the whole flow.
+  if (!GMAIL_PAYMENTS_ENABLED) return null;
 
   const roleHint =
     role === "manager"

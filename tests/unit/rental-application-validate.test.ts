@@ -70,7 +70,11 @@ describe("rental-application validate", () => {
     expect(errors.hasCosigner).toBeDefined();
   });
 
-  it("requires check payment confirmation for Zelle application fees on step 11", () => {
+  it("no longer offers Zelle for the application fee — it resolves to platform ACH", () => {
+    // bc91cc80 made checkout Stripe-only. resolveApplicationFeePayChannel has no
+    // zelle branch left, so a listing still carrying zelle config falls through to
+    // ACH and the manual "Check payment" confirmation is unreachable. Asserting the
+    // absence keeps Zelle from quietly returning to the application-fee flow.
     const sub = {
       ...createDefaultListingSubmission(),
       applicationFee: "$50",
@@ -87,7 +91,7 @@ describe("rental-application validate", () => {
     const errors = validateRentalWizardStep(11, state, {
       property: { id: "prop-zelle", listingSubmission: sub },
     });
-    expect(errors.applicationFeeZelleSentConfirmed).toContain("Check payment");
+    expect(errors.applicationFeeZelleSentConfirmed).toBeUndefined();
   });
 
   it("rejects a future date of birth on its own terms, not as an age error", () => {
