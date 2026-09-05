@@ -1,6 +1,6 @@
 import "server-only";
 
-import { asStringArray, readPropertyPermissionsFromRow } from "@/app/api/pro/account-links/route";
+import { asStringArray, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import {
   hasCoManagerPermissionLevelForProperty,
   permissionsForProperty,

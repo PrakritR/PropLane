@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { asStringArray, readPropertyPermissionsFromRow, serializeInvite, type InviteRow } from "@/app/api/pro/account-links/route";
+import { asStringArray, readPropertyPermissionsFromRow, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
 import { looksLikeAccountLinksMissingTable } from "@/lib/account-links";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
 import {

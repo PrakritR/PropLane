@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
-import { asStringArray } from "@/app/api/pro/account-links/route";
+import { asStringArray } from "@/lib/account-link-invite-row";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
