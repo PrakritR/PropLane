@@ -810,7 +810,8 @@ export function ManagerPayments({
         open={paymentSettingsOpen}
         onClose={() => setPaymentSettingsOpen(false)}
         initialTab="payments"
-        scopedTitle="Payments"
+        scopedTitle={direction === "outgoing" ? "Outgoing payments" : "Payments"}
+        paymentsMode={direction === "outgoing" ? "outgoing" : "incoming"}
       />
       <ManagerAddPaymentModal
         open={addOpen}

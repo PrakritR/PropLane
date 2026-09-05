@@ -19,6 +19,14 @@ import { normalizeManagerTasks, type ManagerTask } from "@/lib/manager-tasks";
 import { materializeReminders } from "@/lib/reminders/queue.server";
 import type { ReminderSettings } from "@/lib/reminders/rules";
 import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
+import {
+  loadManagerReminderRecipients,
+  loadTeamReminderRecipients,
+  teamReminderRecipients,
+  type TeamReminderRecipient,
+} from "@/lib/reminders/manager-recipients.server";
+import type { ManagerReminderRecipient } from "@/lib/reminders/manager-recipients.server";
+import type { ReminderRecipient } from "@/lib/reminders/queue.server";
 import { managerNotificationCategoryForTask } from "@/lib/manager-notification-preferences";
 
 /** How far ahead to look. Comfortably past the longest lead time a rule allows. */
@@ -68,6 +76,8 @@ async function sweepManagerTasks(
   managerUserId: string,
   tasks: readonly ManagerTask[],
   settings: ReminderSettings,
+  managerRecipient: ManagerReminderRecipient | undefined,
+  teamMembers: readonly TeamReminderRecipient[],
   now: Date,
 ): Promise<number> {
   const rule = settings.rules.task;
@@ -79,11 +89,30 @@ async function sweepManagerTasks(
   for (const task of remindableTasks(tasks, now)) {
     const anchorIso = taskAnchorIso(task);
     if (!anchorIso || !task.assignee) continue;
-    // Only resolve the address for tasks that survived the filter — this is the
-    // one query per task in the sweep, so it stays behind every cheap check.
-    const to = await assigneeEmail(db, task.assignee);
-    if (!to) continue;
+    const assigneeAddress = await assigneeEmail(db, task.assignee);
     const isManagerAssignee = task.assignee.type === "team";
+    const recipients: ReminderRecipient[] = [];
+
+    if (rule.audience.manager && managerRecipient) {
+      recipients.push({
+        email: managerRecipient.email,
+        role: "manager",
+        name: managerRecipient.name,
+        userId: managerUserId,
+      });
+    }
+    if (rule.audience.team) {
+      recipients.push(...teamReminderRecipients(teamMembers));
+    }
+    if (rule.audience.counterparty && assigneeAddress) {
+      recipients.push({
+        email: assigneeAddress,
+        role: isManagerAssignee ? "manager" : "counterparty",
+        userId: isManagerAssignee ? task.assignee.id : null,
+        name: task.assignee.name,
+      });
+    }
+    if (recipients.length === 0) continue;
 
     queued += await materializeReminders(
       db,
@@ -92,14 +121,7 @@ async function sweepManagerTasks(
         kind: "task",
         subjectId: task.id,
         anchorIso,
-        recipients: [
-          {
-            email: to,
-            role: isManagerAssignee ? "manager" : "counterparty",
-            userId: isManagerAssignee ? task.assignee.id : null,
-            name: task.assignee.name,
-          },
-        ],
+        recipients,
         payload: {
           title: task.title,
           whenLabel: taskWhenLabel(anchorIso),
@@ -141,6 +163,10 @@ export async function sweepTaskReminders(db: SupabaseClient, now: Date = new Dat
     db,
     rows.map((row) => row.manager_user_id),
   );
+  const managerRecipients = await loadManagerReminderRecipients(
+    db,
+    rows.map((row) => row.manager_user_id),
+  );
 
   let queued = 0;
   for (const row of rows) {
@@ -148,7 +174,18 @@ export async function sweepTaskReminders(db: SupabaseClient, now: Date = new Dat
     if (tasks.length === 0) continue;
     const settings = settingsByManager.get(row.manager_user_id);
     if (!settings) continue;
-    queued += await sweepManagerTasks(db, row.manager_user_id, tasks, settings, now);
+    const teamMembers = settings.rules.task.audience.team
+      ? await loadTeamReminderRecipients(db, row.manager_user_id, settings.rules.task.teamUserIds)
+      : [];
+    queued += await sweepManagerTasks(
+      db,
+      row.manager_user_id,
+      tasks,
+      settings,
+      managerRecipients.get(row.manager_user_id),
+      teamMembers,
+      now,
+    );
   }
   return queued;
 }

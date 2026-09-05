@@ -52,6 +52,9 @@ const CATEGORY_BY_KIND: Record<ReminderSubjectKind, NotificationCategory> = {
   task: "messages",
   service_order: "maintenance",
   work_order: "maintenance",
+  application: "leases",
+  lease: "leases",
+  outgoing_payment: "payments",
 };
 
 /**
@@ -134,10 +137,10 @@ export async function dispatchReminderRow(
     payload: row.payload as ReminderPayload,
   });
 
-  // Manager reminders are a PropLane Assistant surface, not a manager sending
+  // Manager and team reminders are a PropLane Assistant surface, not a manager sending
   // a message to themselves. Route them through the shared manager notifier so
   // Preferences decides Assistant, work-number SMS, both, or no updates.
-  if (row.recipientRole === "manager") {
+  if (row.recipientRole === "manager" || row.recipientRole === "team") {
     try {
       const category = managerNotificationCategoryForEvent(
         String(row.payload.notificationCategory ?? CATEGORY_BY_KIND[row.kind]),

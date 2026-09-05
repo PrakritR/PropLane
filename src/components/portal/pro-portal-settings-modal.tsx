@@ -15,10 +15,12 @@ import {
   normalizeApplicationAutomation,
   PaymentsSettingsPanel,
   ResidentSettingsPanel,
+  ServicesSettingsPanel,
   SettingsPanelModalSaveButton,
   TaskSettingsPanel,
   type ManagerSettingsPanelFooter,
 } from "@/components/portal/pro-portal-settings-panels";
+import type { ManagerReminderRuleSettingsHandle } from "@/components/portal/manager-reminder-rule-settings";
 import type { ApplicationAutomationPreferences } from "@/lib/application-automation-preferences";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -34,6 +36,7 @@ export type ManagerPortalSettingsTab =
   | "tasks"
   | "resident"
   | "payments"
+  | "services"
   | "communication"
   | "automation";
 
@@ -48,6 +51,7 @@ const TABS: { id: ManagerPortalSettingsTab; label: string }[] = [
   { id: "tasks", label: "Tasks" },
   { id: "resident", label: "Residents" },
   { id: "payments", label: "Payments" },
+  { id: "services", label: "Services" },
   { id: "communication", label: "Communication" },
   { id: "automation", label: "Automation" },
 ];
@@ -61,10 +65,13 @@ export function ProPortalSettingsModal({
   onCalendarSettingsSaved,
   propertyOptions = [],
   initialPropertyId,
+  paymentsMode = "incoming",
 }: {
   open: boolean;
   onClose: () => void;
   initialTab?: ManagerPortalSettingsTab;
+  /** Incoming payments = resident rent reminders; outgoing = manager payee reminders. */
+  paymentsMode?: "incoming" | "outgoing";
   /**
    * Show ONLY `initialTab`'s settings, titled for that section.
    *
@@ -191,10 +198,24 @@ export function ProPortalSettingsModal({
    */
   const paymentsFormRef = useRef<PaymentAutomationSettingsHandle | null>(null);
   const toursFormRef = useRef<TourSettingsHandle | null>(null);
+  const applicationsReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+  const leaseReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+  const tourManagerReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+  const taskReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+  const outgoingPaymentReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+  const workOrderReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+  const serviceOrderReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
   const closeAndSave = useCallback(() => {
     onClose();
     void paymentsFormRef.current?.saveIfDirty();
     void toursFormRef.current?.saveIfDirty();
+    void applicationsReminderFormRef.current?.saveIfDirty();
+    void leaseReminderFormRef.current?.saveIfDirty();
+    void tourManagerReminderFormRef.current?.saveIfDirty();
+    void taskReminderFormRef.current?.saveIfDirty();
+    void outgoingPaymentReminderFormRef.current?.saveIfDirty();
+    void workOrderReminderFormRef.current?.saveIfDirty();
+    void serviceOrderReminderFormRef.current?.saveIfDirty();
   }, [onClose]);
 
   const changeAutomation = useCallback(
@@ -258,6 +279,8 @@ export function ProPortalSettingsModal({
           waiverCode={waiverCode}
           onWaiverCodeChange={setWaiverCode}
           hidePropertyField={lockPropertyField}
+          teamMembers={teamMembers}
+          reminderFormRef={applicationsReminderFormRef}
         />
       ) : null}
 
@@ -267,6 +290,8 @@ export function ProPortalSettingsModal({
           onFooterReady={setPanelFooter}
           onSaved={onCalendarSettingsSaved}
           formRef={toursFormRef}
+          teamMembers={teamMembers}
+          managerReminderFormRef={tourManagerReminderFormRef}
         />
       ) : null}
 
@@ -280,16 +305,39 @@ export function ProPortalSettingsModal({
           onPropertyIdChange={setPropertyId}
           onAutomationChange={changeAutomation}
           hidePropertyField={lockPropertyField}
+          teamMembers={teamMembers}
+          reminderFormRef={leaseReminderFormRef}
         />
       ) : null}
 
       {open && tab === "tasks" ? (
-        <TaskSettingsPanel teamMembers={teamMembers} onFooterReady={setPanelFooter} />
+        <TaskSettingsPanel
+          teamMembers={teamMembers}
+          onFooterReady={setPanelFooter}
+          reminderFormRef={taskReminderFormRef}
+        />
       ) : null}
 
       {tab === "resident" ? <ResidentSettingsPanel /> : null}
 
-      {open && tab === "payments" ? <PaymentsSettingsPanel onFooterReady={setPanelFooter} formRef={paymentsFormRef} /> : null}
+      {open && tab === "payments" ? (
+        <PaymentsSettingsPanel
+          onFooterReady={setPanelFooter}
+          formRef={paymentsFormRef}
+          mode={paymentsMode}
+          teamMembers={teamMembers}
+          outgoingReminderFormRef={outgoingPaymentReminderFormRef}
+        />
+      ) : null}
+
+      {open && tab === "services" ? (
+        <ServicesSettingsPanel
+          teamMembers={teamMembers}
+          onFooterReady={setPanelFooter}
+          workOrderReminderFormRef={workOrderReminderFormRef}
+          serviceOrderReminderFormRef={serviceOrderReminderFormRef}
+        />
+      ) : null}
 
       {open && tab === "communication" ? (
         <CommunicationSettingsPanel onFooterReady={setPanelFooter} />

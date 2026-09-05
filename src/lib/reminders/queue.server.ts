@@ -17,7 +17,7 @@ import {
 
 export type ReminderRecipient = {
   email: string;
-  role: "manager" | "counterparty";
+  role: "manager" | "counterparty" | "team";
   userId?: string | null;
   /** Shown in the greeting. Falls back to a neutral phrase when unknown. */
   name?: string | null;
@@ -30,7 +30,7 @@ export type ReminderQueueRow = {
   subjectId: string;
   leadMinutes: number;
   recipientEmail: string;
-  recipientRole: "manager" | "counterparty";
+  recipientRole: "manager" | "counterparty" | "team";
   sendAt: string;
   attempts: number;
   payload: Record<string, unknown>;
@@ -55,7 +55,7 @@ function rowFromDb(row: Record<string, unknown>): ReminderQueueRow {
     subjectId: String(row.subject_id),
     leadMinutes: Number(row.lead_minutes),
     recipientEmail: String(row.recipient_email),
-    recipientRole: String(row.recipient_role) as "manager" | "counterparty",
+    recipientRole: String(row.recipient_role) as "manager" | "counterparty" | "team",
     sendAt: String(row.send_at),
     attempts: Number(row.attempts ?? 0),
     payload:
@@ -89,7 +89,15 @@ export async function materializeReminders(
 
   const recipients = input.recipients.filter((recipient) => {
     if (!recipient.email.trim()) return false;
-    return recipient.role === "manager" ? rule.audience.manager : rule.audience.counterparty;
+    if (recipient.role === "manager") return rule.audience.manager;
+    if (recipient.role === "counterparty") return rule.audience.counterparty;
+    if (recipient.role === "team") {
+      if (!rule.audience.team) return false;
+      const userId = recipient.userId?.trim();
+      if (!userId || rule.teamUserIds.length === 0) return true;
+      return rule.teamUserIds.includes(userId);
+    }
+    return false;
   });
   if (recipients.length === 0) return 0;
 
@@ -115,6 +123,10 @@ export async function materializeReminders(
         recipientUserId: recipient.userId ?? null,
         anchorIso: input.anchorIso,
         leadMinutes,
+        ...(rule.template?.subject?.trim()
+          ? { customSubject: rule.template.subject.trim() }
+          : {}),
+        ...(rule.template?.body?.trim() ? { customBody: rule.template.body.trim() } : {}),
       },
     })),
   );
