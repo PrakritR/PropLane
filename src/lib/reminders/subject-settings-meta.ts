@@ -162,6 +162,43 @@ const LEASE_MANAGER_META: ReminderSubjectSettingsMeta = {
   recipientPreview: "Your team",
 };
 
+const PAYMENT_MANAGER_META: ReminderSubjectSettingsMeta = {
+  directions: ["after"],
+  timingLabel: "Remind after due",
+  notifyYouLabel: "You",
+  notifyTeamLabel: "Team",
+  notifyCounterpartyLabel: "Resident",
+  defaultTemplate: {
+    subject: "Unpaid rent {duePhrase}: {chargeTitle}",
+    body: [
+      "Hi {recipientName},",
+      "",
+      "{residentName} still owes {chargeTitle} for {propertyTitle} {duePhrase}.",
+      "",
+      "Amount due: {amountLabel}",
+      "Due: {dueDateLabel}",
+      "",
+      "Open Payments in PropLane:",
+      "{url}",
+      "",
+      "— PropLane",
+    ].join("\n"),
+  },
+  placeholders:
+    "Placeholders: {recipientName}, {residentName}, {chargeTitle}, {propertyTitle}, {amountLabel}, {dueDateLabel}, {duePhrase}, {url}",
+  previewContext: {
+    recipientName: "Your team",
+    residentName: "Alex Resident",
+    chargeTitle: "April rent",
+    propertyTitle: "5257 Brooklyn Avenue Northeast",
+    amountLabel: "$1,200.00",
+    dueDateLabel: "Apr 15, 2026",
+    duePhrase: "1 day past due",
+    url: "https://prop-lane.space/portal/payments",
+  },
+  recipientPreview: "Your team",
+};
+
 const TOUR_META: ReminderSubjectSettingsMeta = {
   directions: ["before"],
   timingLabel: "Remind before start",
@@ -346,6 +383,7 @@ export const REMINDER_SUBJECT_SETTINGS_META: Partial<
   application_post_tour: APPLICATION_POST_TOUR_META,
   lease: LEASE_META,
   lease_manager: LEASE_MANAGER_META,
+  payment_manager: PAYMENT_MANAGER_META,
   outgoing_payment: OUTGOING_PAYMENT_META,
 };
 

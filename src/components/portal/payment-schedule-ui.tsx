@@ -787,6 +787,7 @@ function PaymentAutomationSettingsForm({
   variant = "payments",
   layout = "card",
   autoSaveOnClose = false,
+  embeddedInBundle = false,
   formRef,
 }: {
   initialSettings: ManagerAutomationSettings;
@@ -796,6 +797,7 @@ function PaymentAutomationSettingsForm({
   variant?: ScheduleSettingsVariant;
   layout?: "card" | "modal";
   autoSaveOnClose?: boolean;
+  embeddedInBundle?: boolean;
   formRef?: React.Ref<PaymentAutomationSettingsHandle>;
 }) {
   const { showToast } = useAppUi();
@@ -945,7 +947,7 @@ function PaymentAutomationSettingsForm({
   */
   const paymentsReminderSection =
     compact && variant === "payments" ? (
-      <div className="space-y-3 border-t border-border pt-4">
+      <div className={embeddedInBundle ? "space-y-3" : "space-y-3 border-t border-border pt-4"}>
         <UnifiedReminderScheduleSelect draft={draft} busy={busy} onChange={applySchedulePatch} />
         <ReminderSendViaField
           showProplaneChannel
@@ -1145,6 +1147,7 @@ export function PaymentAutomationSettingsPanel({
   variant = "payments",
   layout = "card",
   autoSaveOnClose = false,
+  embeddedInBundle = false,
   formRef,
 }: {
   settings: ManagerAutomationSettings;
@@ -1153,6 +1156,7 @@ export function PaymentAutomationSettingsPanel({
   variant?: ScheduleSettingsVariant;
   layout?: "card" | "modal";
   autoSaveOnClose?: boolean;
+  embeddedInBundle?: boolean;
   formRef?: React.Ref<PaymentAutomationSettingsHandle>;
 }) {
   return (
@@ -1164,6 +1168,7 @@ export function PaymentAutomationSettingsPanel({
       variant={variant}
       layout={layout}
       autoSaveOnClose={autoSaveOnClose}
+      embeddedInBundle={embeddedInBundle}
       formRef={formRef}
     />
   );

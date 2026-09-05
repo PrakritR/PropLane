@@ -57,6 +57,7 @@ const CATEGORY_BY_KIND: Record<ReminderSubjectKind, NotificationCategory> = {
   application_post_tour: "leases",
   lease: "leases",
   lease_manager: "leases",
+  payment_manager: "payments",
   outgoing_payment: "payments",
 };
 

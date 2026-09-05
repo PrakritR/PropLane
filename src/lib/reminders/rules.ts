@@ -34,6 +34,7 @@ export const REMINDER_SUBJECT_KINDS = [
   "application_post_tour",
   "lease",
   "lease_manager",
+  "payment_manager",
   "outgoing_payment",
 ] as const;
 
@@ -237,6 +238,12 @@ export const REMINDER_SUBJECT_META: Record<ReminderSubjectKind, ReminderSubjectM
     anchorLabel: "the lease needs attention",
     counterpartyLabel: "resident",
   },
+  payment_manager: {
+    kind: "payment_manager",
+    label: "Payment alerts",
+    anchorLabel: "the rent due date",
+    counterpartyLabel: "resident",
+  },
   outgoing_payment: {
     kind: "outgoing_payment",
     label: "Outgoing payments",
@@ -332,6 +339,16 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     sms: false,
   },
   lease_manager: {
+    enabled: true,
+    leadMinutes: [3 * DAY, 1 * DAY],
+    timings: ["after:1440", "after:4320"],
+    audience: { manager: true, counterparty: false, team: false },
+    teamUserIds: [],
+    inbox: true,
+    email: true,
+    sms: false,
+  },
+  payment_manager: {
     enabled: true,
     leadMinutes: [3 * DAY, 1 * DAY],
     timings: ["after:1440", "after:4320"],

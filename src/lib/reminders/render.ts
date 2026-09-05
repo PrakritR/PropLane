@@ -38,6 +38,7 @@ export type ReminderPayload = {
   applicantName?: string | null;
   residentName?: string | null;
   paymentTitle?: string | null;
+  chargeTitle?: string | null;
   leaseUrl?: string | null;
   resumeUrl?: string | null;
   applyUrl?: string | null;
@@ -78,6 +79,7 @@ const SUBJECT_NOUN: Record<ReminderSubjectKind, string> = {
   application_post_tour: "tour follow-up",
   lease: "lease",
   lease_manager: "lease",
+  payment_manager: "payment",
   outgoing_payment: "payment",
 };
 
@@ -121,6 +123,7 @@ function templateContextFromPayload(
     recipientName: recipient || counterparty || "there",
     title,
     paymentTitle: (payload.paymentTitle ?? title).trim(),
+    chargeTitle: (payload.chargeTitle ?? payload.paymentTitle ?? title).trim(),
     propertyTitle: property,
     counterpartyName: counterparty,
     applicantName: (payload.applicantName ?? counterparty).trim(),

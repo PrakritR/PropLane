@@ -26,6 +26,7 @@ export const REMINDER_SUBJECT_CO_MANAGER_MODULE: Record<ReminderSubjectKind, CoM
   application_post_tour: "applications",
   lease: "leases",
   lease_manager: "leases",
+  payment_manager: "payments",
   outgoing_payment: "financials",
 };
 

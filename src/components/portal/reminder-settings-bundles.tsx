@@ -1,10 +1,21 @@
 "use client";
 
-import { useCallback, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import {
   ManagerReminderRuleSettingsPanel,
   type ManagerReminderRuleSettingsHandle,
 } from "@/components/portal/manager-reminder-rule-settings";
+import {
+  PaymentAutomationSettingsPanel,
+  type PaymentAutomationSettingsHandle,
+} from "@/components/portal/payment-schedule-ui";
+import { useAppUi } from "@/components/providers/app-ui-provider";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+import {
+  DEFAULT_MANAGER_AUTOMATION_SETTINGS,
+  normalizeManagerAutomationSettings,
+  type ManagerAutomationSettings,
+} from "@/lib/payment-automation-settings";
 import type { ReminderSubjectKind } from "@/lib/reminders/rules";
 import type { ReminderAudienceMode } from "@/lib/reminders/subject-settings-meta";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
@@ -196,6 +207,176 @@ const SERVICE_REMINDER_TYPES = [
     description: "Before a resident add-on service visit.",
   },
 ];
+
+const OUTGOING_PAYMENT_REMINDER_TYPES = [
+  {
+    value: "outgoing" as const,
+    label: "Outgoing payment reminder",
+    description: "Nudge you before bills you owe are due — never sent to payees.",
+  },
+];
+
+export function OutgoingPaymentRemindersSettingsBundle({
+  teamMembers,
+  disabled,
+  formRef,
+}: {
+  teamMembers: WorkAssignmentTeamMember[];
+  disabled?: boolean;
+  formRef?: Ref<ManagerReminderRuleSettingsHandle>;
+}) {
+  const [type, setType] = useState<"outgoing">("outgoing");
+  const outgoingRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+  const bundle = useBundledReminderSave([outgoingRef]);
+
+  useImperativeHandle(formRef, () => bundle, [bundle]);
+
+  return (
+    <div className="space-y-4">
+      <p className="text-[13.5px] font-semibold text-foreground">Outgoing payment reminders</p>
+      <ReminderTypePicker
+        value={type}
+        options={OUTGOING_PAYMENT_REMINDER_TYPES}
+        onChange={setType}
+        disabled={disabled}
+        dataAttr="outgoing-payment-reminder-type"
+      />
+      <HiddenReminderRulePanel
+        hidden={type !== "outgoing"}
+        kind="outgoing_payment"
+        audienceMode="manager"
+        teamMembers={teamMembers}
+        formRef={outgoingRef}
+        disabled={disabled}
+      />
+    </div>
+  );
+}
+
+const INCOMING_PAYMENT_REMINDER_TYPES = [
+  {
+    value: "resident" as const,
+    label: "Resident notification for payment",
+    description: "Remind residents before rent is due, on the due date, and when overdue.",
+  },
+  {
+    value: "manager" as const,
+    label: "Manager notification for payment",
+    description: "Alert you when rent is still unpaid after the due date.",
+  },
+];
+
+function ResidentPaymentReminderSettingsPanel({
+  onSaved,
+  formRef,
+  hidden,
+}: {
+  onSaved?: () => void;
+  formRef?: Ref<PaymentAutomationSettingsHandle>;
+  hidden: boolean;
+}) {
+  const { showToast } = useAppUi();
+  const demo = isDemoModeActive();
+  const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState<ManagerAutomationSettings | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        if (demo) {
+          if (!cancelled) setSettings(DEFAULT_MANAGER_AUTOMATION_SETTINGS);
+          return;
+        }
+        const res = await fetch("/api/portal/automation-settings", { credentials: "include", cache: "no-store" });
+        if (!res.ok) throw new Error("Could not load payment settings.");
+        const body = (await res.json()) as { settings: ManagerAutomationSettings };
+        if (!cancelled) setSettings(normalizeManagerAutomationSettings(body.settings));
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not load payment settings.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [demo, showToast]);
+
+  return (
+    <div className={hidden ? "hidden" : undefined} aria-hidden={hidden}>
+      {loading || !settings ? (
+        <p className="text-sm text-muted">Loading…</p>
+      ) : (
+        <PaymentAutomationSettingsPanel
+          settings={settings}
+          variant="payments"
+          layout="modal"
+          autoSaveOnClose
+          embeddedInBundle
+          formRef={formRef}
+          onSaved={(next) => {
+            setSettings(next);
+            onSaved?.();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+export function IncomingPaymentRemindersSettingsBundle({
+  teamMembers,
+  disabled,
+  onSaved,
+  formRef,
+}: {
+  teamMembers: WorkAssignmentTeamMember[];
+  disabled?: boolean;
+  onSaved?: () => void;
+  formRef?: Ref<PaymentAutomationSettingsHandle>;
+}) {
+  const [type, setType] = useState<"resident" | "manager">("resident");
+  const residentRef = useRef<PaymentAutomationSettingsHandle | null>(null);
+  const managerRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+
+  const saveIfDirty = useCallback(async (): Promise<boolean> => {
+    const residentOk = await residentRef.current?.saveIfDirty();
+    if (residentOk === false) return false;
+    const managerOk = await managerRef.current?.saveIfDirty();
+    if (managerOk === false) return false;
+    return true;
+  }, []);
+
+  useImperativeHandle(formRef, () => ({ saveIfDirty }), [saveIfDirty]);
+
+  return (
+    <div className="space-y-4">
+      <p className="text-[13.5px] font-semibold text-foreground">Payment reminders</p>
+      <ReminderTypePicker
+        value={type}
+        options={INCOMING_PAYMENT_REMINDER_TYPES}
+        onChange={setType}
+        disabled={disabled}
+        dataAttr="incoming-payment-reminder-type"
+      />
+      <ResidentPaymentReminderSettingsPanel
+        hidden={type !== "resident"}
+        formRef={residentRef}
+        onSaved={onSaved}
+      />
+      <HiddenReminderRulePanel
+        hidden={type !== "manager"}
+        kind="payment_manager"
+        audienceMode="manager"
+        teamMembers={teamMembers}
+        formRef={managerRef}
+        disabled={disabled}
+      />
+    </div>
+  );
+}
 
 export function ServiceRemindersSettingsBundle({
   teamMembers,
