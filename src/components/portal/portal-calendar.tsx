@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { BookingsCalendarFooterBar } from "@/components/portal/bookings-calendar-footer-bar";
 import {
   ManagerPortalPageShell,
   PORTAL_COMMAND_ACTION_BTN,
@@ -37,16 +36,6 @@ import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } f
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
-import { ManagerPortfolioBookingsCalendar } from "@/components/portal/pro-portfolio-bookings-calendar";
-import {
-  leaseBookingEntriesForProperties,
-  openEndedBookingHorizonKey,
-  type PropertyBookingEntry,
-} from "@/lib/channel-calendar/property-bookings";
-import { useLeasePipelineRows } from "@/hooks/use-lease-pipeline-rows";
-import { getPropertyById, isEntireHomeProperty } from "@/lib/rental-application/data";
-import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
-import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { GoogleCalendarConnectDialog } from "@/components/portal/google-calendar-connect-dialog";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
 import {
@@ -83,8 +72,6 @@ export function PortalCalendar({
   initialUserId,
   initialEmail,
   calendarView: calendarViewProp,
-  /** Dedicated sidebar Bookings page — no Schedule/Bookings tab strip. */
-  bookingsPage = false,
   schedulingHub = false,
   toursHubTab: toursHubTabProp,
 }: {
@@ -93,7 +80,6 @@ export function PortalCalendar({
   initialEmail?: string | null;
   /** Routed view tab (manager portfolio calendar only). */
   calendarView?: CalendarViewTabId;
-  bookingsPage?: boolean;
   /** Combined tours + service orders hub (`/portal/tours`). */
   schedulingHub?: boolean;
   /** Routed segment inside the tours hub. */
@@ -114,11 +100,7 @@ export function PortalCalendar({
   const [shareAvailability, setShareAvailability] = useState(false);
   const [googleCalendarTick, setGoogleCalendarTick] = useState(0);
   const calendarView =
-    portal === "manager" && !schedulingHub
-      ? bookingsPage
-        ? "bookings"
-        : parseCalendarViewTab(calendarViewProp)
-      : "availability";
+    portal === "manager" && !schedulingHub ? parseCalendarViewTab(calendarViewProp) : "availability";
   const toursHubTab: ToursHubTabId = toursHubTabProp ?? "tours";
   const [workOrderTick, setWorkOrderTick] = useState(0);
   const [calendarAnchorDate, setCalendarAnchorDate] = useState(() => new Date());
@@ -375,16 +357,12 @@ export function PortalCalendar({
     );
   }, [portal, userId, scopedCalendarPropertyIds, workOrderTick]);
 
-  const [bookingsRefreshSignal, setBookingsRefreshSignal] = useState(0);
-  const [linkAirbnbModalOpen, setLinkAirbnbModalOpen] = useState(false);
-
   const calendarTabCounts = useMemo(() => {
     if (portal !== "manager" || !userId) {
       return { tours: 0, bookings: 0, services: serviceCalendarMeetings.length };
     }
     void calendarRefreshSignal;
     void workOrderTick;
-    void bookingsRefreshSignal;
     const tourFilter = calendarScheduledTourFilter ?? {
       viewerUserId: userId,
       propertyId: null,
@@ -404,7 +382,6 @@ export function PortalCalendar({
     storageKey,
     calendarRefreshSignal,
     workOrderTick,
-    bookingsRefreshSignal,
     calendarAnchorDate,
     serviceCalendarMeetings,
     scopedCalendarPropertyIds,
@@ -433,62 +410,9 @@ export function PortalCalendar({
     [calendarTabCounts, schedulingHub],
   );
 
-  const bookingsView = !schedulingHub && calendarView === "bookings";
   const availabilityView = schedulingHub ? toursHubTab === "tours" : calendarView === "availability";
   const showServiceVisits = schedulingHub && toursHubTab === "services";
   const servicesOnlyView = showServiceVisits;
-
-  /**
-   * PropLane's own stays for the portfolio-wide Bookings view.
-   *
-   * Without them this grid is Airbnb-only, so a room let through PropLane draws
-   * as free — and the day detail's "No PropLane stays and nothing from synced
-   * Airbnb calendars" would assert an absence that was never checked.
-   */
-  const leasePipelineRows = useLeasePipelineRows(userId ?? null, {
-    enabled: portal === "manager" && bookingsView && Boolean(userId),
-  });
-
-  // Listing catalog reads, so this is keyed on the listing tick alone — a lease
-  // write does not change a room's name.
-  const bookingsRoomLabels = useMemo(() => {
-    const labels = new Map<string, string>();
-    if (portal !== "manager" || !bookingsView) return labels;
-    void propertyTick;
-    for (const propertyId of scopedCalendarPropertyIds) {
-      const submission = getPropertyById(propertyId)?.listingSubmission;
-      if (submission?.v !== 1) continue;
-      normalizeManagerListingSubmissionV1(submission).rooms.forEach((room, index) => {
-        labels.set(`${propertyId}:${room.id}`, room.name?.trim() || `Room ${index + 1}`);
-      });
-    }
-    return labels;
-  }, [portal, bookingsView, propertyTick, scopedCalendarPropertyIds]);
-
-  const bookingsLeaseEntries = useMemo<PropertyBookingEntry[]>(() => {
-    if (portal !== "manager" || !bookingsView || !userId) return [];
-    const scoped = new Set(scopedCalendarPropertyIds);
-    return leaseBookingEntriesForProperties(leasePipelineRows, {
-      properties: managerProperties
-        .filter((property) => scoped.has(property.id))
-        .map((property) => ({
-          id: property.id,
-          label: property.name,
-          entireHomeListing: isEntireHomeProperty(property.id),
-        })),
-      roomLabelForId: (propertyId, roomId) =>
-        bookingsRoomLabels.get(`${propertyId}:${roomId}`) ?? "Room",
-      openEndedHorizonKey: openEndedBookingHorizonKey(),
-    });
-  }, [
-    portal,
-    bookingsView,
-    userId,
-    leasePipelineRows,
-    managerProperties,
-    scopedCalendarPropertyIds,
-    bookingsRoomLabels,
-  ]);
 
   // The Calendar section is the operations overview: it answers "is anyone going into this
   // property, or is anything scheduled to be done there". That means BOTH scheduled tours and
@@ -508,14 +432,12 @@ export function PortalCalendar({
     showScheduledWorkOnCalendar,
   ]);
 
-  const calendarPanelsReadOnly = servicesOnlyView || bookingsView;
+  const calendarPanelsReadOnly = servicesOnlyView;
   const calendarStorageKey =
     availabilityView && activeCalendarPropertyFilters.length === 1 ? storageKey : null;
   const calendarUnavailableMessage = servicesOnlyView
     ? "No scheduled service visits yet. Vendor visits and your own assigned work appear here once a visit time is set."
-    : bookingsView
-      ? "No houses in your portfolio yet."
-      : "Add a property before setting tour availability.";
+    : "Add a property before setting tour availability.";
 
 
   const calendarFilterSheet =
@@ -540,7 +462,7 @@ export function PortalCalendar({
     ) : null;
 
   const calendarGoogleCalendarButton =
-    portal === "manager" && !bookingsView ? (
+    portal === "manager" ? (
       <GoogleCalendarConnectDialog
         className={PORTAL_COMMAND_ACTION_BTN}
         onConnectionChange={() => setGoogleCalendarTick((n) => n + 1)}
@@ -585,7 +507,7 @@ export function PortalCalendar({
     ) : null;
 
   const pageTitle =
-    portal === "manager" ? (schedulingHub ? "Tours" : bookingsPage ? "Bookings" : "Calendar") : "Schedule meeting";
+    portal === "manager" ? (schedulingHub ? "Tours" : "Calendar") : "Schedule meeting";
 
   if (portal === "manager" && !authReady) {
     return (
@@ -637,29 +559,8 @@ export function PortalCalendar({
           />
         ) : null}
         {portal === "manager" ? (
-          <div
-            className={
-              bookingsView
-                ? "flex min-h-0 flex-1 flex-col gap-2 overflow-hidden pb-20"
-                : "portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col bg-accent/30 pb-20"
-            }
-          >
-            {bookingsView ? (
-              <>
-                <ManagerPortfolioBookingsCalendar
-                  propertyIds={scopedCalendarPropertyIds}
-                  showToast={showToast}
-                  refreshSignal={bookingsRefreshSignal}
-                  extraEntries={bookingsLeaseEntries}
-                  variant={bookingsPage ? "standalone" : "embedded"}
-                />
-                <BookingsCalendarFooterBar
-                  onLinkAirbnb={() => setLinkAirbnbModalOpen(true)}
-                  linkAirbnbDataAttr="portfolio-bookings-link-airbnb"
-                  linkAirbnbDisabled={managerPropertyFilterOptions.length === 0}
-                />
-              </>
-            ) : servicesOnlyView ? (
+          <div className="portal-calendar-page-body mt-1 flex min-h-[min(72vh,52rem)] flex-1 flex-col bg-accent/30 pb-20">
+            {servicesOnlyView ? (
               <div className="flex min-h-0 flex-1 flex-col">
                 {propertiesLoading && managerProperties.length === 0 ? (
                   <p className="text-sm text-muted">Loading houses from the backend…</p>
@@ -819,19 +720,6 @@ export function PortalCalendar({
           kind="tour"
           properties={shareableProperties}
           preselectedPropertyId={soleCalendarPropertyId || undefined}
-        />
-      ) : null}
-      {portal === "manager" ? (
-        <ChannelCalendarLinkModal
-          open={linkAirbnbModalOpen}
-          onClose={() => setLinkAirbnbModalOpen(false)}
-          propertyIds={scopedCalendarPropertyIds}
-          propertyOptions={managerPropertyFilterOptions}
-          initialPropertyId={
-            activeCalendarPropertyFilters.length === 1 ? activeCalendarPropertyFilters[0] : undefined
-          }
-          showToast={showToast}
-          onChanged={() => setBookingsRefreshSignal((n) => n + 1)}
         />
       ) : null}
     </>

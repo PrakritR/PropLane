@@ -14,6 +14,8 @@ import {
   parseCalendarViewTab,
   parsePropertyCalendarSubTab,
   parseToursHubTab,
+  parseManagerBookingBucket,
+  managerBookingListHref,
 } from "@/lib/portal-detail-routes";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
@@ -41,22 +43,42 @@ describe("portfolio calendar and bookings nav", () => {
     }
   });
 
-  it("calendar page has no Schedule/Bookings tab strip; bookings is a dedicated page", () => {
+  it("calendar page is schedule-only; bookings is a dedicated sidebar section", () => {
     const src = read("src/components/portal/portal-calendar.tsx");
-    expect(src).toContain('const bookingsView = !schedulingHub && calendarView === "bookings"');
-    expect(src).toContain("bookingsPage");
+    expect(src).not.toContain("bookingsPage");
+    expect(src).not.toContain('calendarView === "bookings"');
     expect(src).not.toContain('label: "Schedule"');
     expect(src).not.toContain('label: "Bookings"');
     const nav = read("src/lib/portals/nav-groups.ts");
     expect(nav).toContain('"bookings"');
     const render = read("src/lib/render-portal-section.tsx");
     expect(render).toContain('section === "bookings"');
+    const routes = read("src/lib/portal-detail-routes.ts");
+    expect(routes).toContain("MANAGER_BOOKING_BUCKETS");
   });
 
   it("calendar index route renders the schedule view instead of self-redirecting", () => {
     const page = read("src/app/portal/calendar/page.tsx");
     expect(page).toContain('renderProPortalSection("calendar")');
     expect(page).not.toContain('redirect("/portal/calendar")');
+  });
+});
+
+describe("portfolio bookings buckets", () => {
+  it("offers upcoming, in-house, past, and calendar segments", () => {
+    const routes = read("src/lib/portal-detail-routes.ts");
+    expect(routes).toContain('["upcoming", "inhouse", "past", "calendar"]');
+  });
+
+  it("unknown segment lands on upcoming", () => {
+    expect(parseManagerBookingBucket("bogus")).toBe("upcoming");
+    expect(managerBookingListHref("/portal", "past")).toBe("/portal/bookings/past");
+  });
+
+  it("portfolio bookings page has no pinned footer bar", () => {
+    const bookings = read("src/components/portal/pro-bookings.tsx");
+    expect(bookings).not.toContain("BookingsCalendarFooterBar");
+    expect(bookings).toContain("portfolio-bookings-link-airbnb");
   });
 });
 
