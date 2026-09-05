@@ -2,6 +2,7 @@ import { cache } from "react";
 import { getAdminPreviewFromCookies, isAdminUser } from "@/lib/auth/admin-preview";
 import type { PreviewPortal } from "@/lib/auth/preview-types";
 import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal-access";
+import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
 import type { ServerProfile } from "@/lib/auth/server-profile";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -61,6 +62,10 @@ export const getEffectiveUserIdForPortal = cache(async (portal: PreviewPortal): 
     }
     /** Admin acting as themselves in a portal they also hold (no preview cookies). */
     if (hasRole(ctx, portal)) {
+      return ctx.user.id;
+    }
+    /** Primary admin may co-manage via accepted links even before manager role backfill lands. */
+    if (portal === "manager" && isPrimaryAdminEmail(ctx.user?.email)) {
       return ctx.user.id;
     }
     return null;

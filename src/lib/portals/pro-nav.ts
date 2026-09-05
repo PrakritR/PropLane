@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getAdminPreviewFromCookies } from "@/lib/auth/admin-preview";
 import { getEffectiveUserIdForPortal } from "@/lib/auth/effective-session";
 import { getPortalAccessContext, hasAdminRole, hasRole } from "@/lib/auth/portal-access";
+import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
 import { isManagerFreePlan, managerTierDisplayLabel, paidWorkspacePortalTitle } from "@/lib/manager-access";
 import {
   getManagerPortalNavSubscriptionTier,
@@ -20,12 +21,16 @@ export const getProPortalRenderContext = cache(async () => {
   const preview = await getAdminPreviewFromCookies();
   if (hasAdminRole(ctx) && preview?.portal === "manager") {
     /* admin preview as manager — allowed */
-  } else if (hasAdminRole(ctx) && !hasRole(ctx, "manager")) {
+  } else if (hasAdminRole(ctx) && !hasRole(ctx, "manager") && !isPrimaryAdminEmail(ctx.user?.email)) {
     redirect("/admin/dashboard");
-  } else if (!hasRole(ctx, "manager")) {
+  } else if (!hasRole(ctx, "manager") && !isPrimaryAdminEmail(ctx.user?.email)) {
     redirect("/auth/sign-in");
   } else if (ctx.roles.length > 1 && ctx.effectiveRole === null) {
-    redirect(`/auth/choose-portal?next=${encodeURIComponent("/portal/dashboard")}`);
+    const primaryAdminManager =
+      isPrimaryAdminEmail(ctx.user?.email) && hasRole(ctx, "manager");
+    if (!primaryAdminManager) {
+      redirect(`/auth/choose-portal?next=${encodeURIComponent("/portal/dashboard")}`);
+    }
   } else if (ctx.effectiveRole !== null && ctx.effectiveRole !== "manager") {
     redirect(portalDashboardPath(ctx.effectiveRole));
   }

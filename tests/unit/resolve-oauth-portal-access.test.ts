@@ -22,6 +22,10 @@ vi.mock("@/lib/auth/primary-admin", () => ({
   isPrimaryAdminEmail: vi.fn(() => false),
 }));
 
+vi.mock("@/lib/auth/profile-role-row", () => ({
+  ensureProfileRoleRow: vi.fn(async () => undefined),
+}));
+
 function mockSupabase(applicationRows: { id: string; resident_email: string; row_data: object }[] = []) {
   return {
     from: (table: string) => {
@@ -221,5 +225,68 @@ describe("resolveOAuthPortalRedirect", () => {
     expect(path).toContain("/auth/create-account");
     expect(path).toContain("message=resident_signup_failed");
     expect(path).toContain("error=This+email+already+has+a+different+login.");
+  });
+
+  it("routes primary admin with manager intent to the manager portal (not admin)", async () => {
+    const { isPrimaryAdminEmail } = await import("@/lib/auth/primary-admin");
+    const { ensureProfileRoleRow } = await import("@/lib/auth/profile-role-row");
+    vi.mocked(isPrimaryAdminEmail).mockReturnValue(true);
+
+    const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
+    const user = { id: "founder", email: "prakritramachandran@gmail.com" } as User;
+    const supabase = {
+      from: (table: string) => {
+        if (table === "profile_roles") {
+          return { select: () => ({ eq: () => Promise.resolve({ data: [{ role: "admin" }], error: null }) }) };
+        }
+        if (table === "profiles") {
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: () => Promise.resolve({ data: { role: "admin" }, error: null }),
+              }),
+            }),
+          };
+        }
+        if (table === "manager_purchases") {
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: () => Promise.resolve({ data: null, error: null }),
+                is: () => ({
+                  order: () => ({
+                    limit: () => Promise.resolve({ data: [], error: null }),
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === "manager_application_records") {
+          return {
+            select: () => ({
+              eq: () => Promise.resolve({ data: [], error: null }),
+            }),
+          };
+        }
+        if (table === "manager_automation_settings") {
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: () => Promise.resolve({ data: null, error: null }),
+              }),
+            }),
+          };
+        }
+        throw new Error(`unexpected table ${table}`);
+      },
+    };
+
+    const path = await resolveOAuthPortalRedirect(supabase as never, user, "/auth/continue", {
+      intent: "manager",
+    });
+
+    expect(ensureProfileRoleRow).toHaveBeenCalledWith(supabase, "founder", "manager");
+    expect(path === "/portal/dashboard" || path === "/auth/connect-google-services").toBe(true);
   });
 });

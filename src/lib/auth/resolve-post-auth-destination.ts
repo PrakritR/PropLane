@@ -54,7 +54,13 @@ export async function resolveClientPostAuthDestination(
   ]);
   const roles = normalizePortalRoles(roleRows, profile?.role);
   if (roles.length === 1) return portalDashboardPath(roles[0]!);
-  if (roles.length > 1) return "/auth/choose-portal";
+  if (roles.length > 1) {
+    if (isPrimaryAdminEmail(email) && roles.includes("manager")) {
+      if (safeNext.startsWith("/portal") || safeNext.startsWith("/pro")) return safeNext;
+      return portalDashboardPath("manager");
+    }
+    return "/auth/choose-portal";
+  }
   if (isPrimaryAdminEmail(email)) return portalDashboardPath("admin");
   return GET_STARTED_PATH;
 }
