@@ -6,7 +6,7 @@ import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PORTAL_INLINE_UNLOCK_NOTICE_CLASS } from "@/components/portal/portal-metrics";
-import type { ResidentMoveInResolved } from "@/lib/resident-move-in-resolve";
+import type { ResidentMoveInResolved, ResidentMoveInHousemate } from "@/lib/resident-move-in-resolve";
 import {
   RESIDENT_MOVE_IN_TAB_LABELS,
   RESIDENT_MOVE_IN_TAB_SHORT_LABELS,
@@ -43,6 +43,30 @@ function PlacementTabContent({ resolved }: { resolved: ResidentMoveInResolved })
   );
 }
 
+function HousemateRow({ mate }: { mate: ResidentMoveInHousemate }) {
+  return (
+    <li className="flex flex-wrap items-start justify-between gap-2 py-3 first:pt-0 last:pb-0">
+      <div>
+        <p className="text-sm font-semibold text-foreground">{mate.name}</p>
+        <p className="mt-0.5 text-xs text-muted">{mate.roomLabel}</p>
+      </div>
+      <div className="text-right text-sm text-muted">
+        {mate.phone ? (
+          <a
+            href={`tel:+1${mate.phone.replace(/\D/g, "").replace(/^1/, "")}`}
+            className="font-medium text-foreground hover:text-primary"
+          >
+            {mate.phone}
+          </a>
+        ) : (
+          <span>No phone on file</span>
+        )}
+        <p className="mt-0.5 text-xs">{mate.email}</p>
+      </div>
+    </li>
+  );
+}
+
 function HousematesTabContent({ resolved }: { resolved: ResidentMoveInResolved }) {
   if (resolved.housemates.length === 0) {
     return (
@@ -55,35 +79,44 @@ function HousematesTabContent({ resolved }: { resolved: ResidentMoveInResolved }
     );
   }
 
+  // Sharing a room is a materially different relationship from sharing the house,
+  // so it is called out rather than buried in one flat list. This is a NARROWING
+  // of contact data the resident could already see — it grants nothing new, and
+  // deliberately shows no roommate's rent, lease or documents.
+  const roommates = resolved.housemates.filter((mate) => mate.isRoommate);
+  const others = resolved.housemates.filter((mate) => !mate.isRoommate);
+
   return (
     <div className={PORTAL_LIST_PAGE_BODY}>
-      <p className="mb-4 text-sm text-muted">Other residents in your household.</p>
-      <ul className="divide-y divide-border/50">
-        {resolved.housemates.map((mate) => (
-          <li
-            key={mate.email}
-            className="flex flex-wrap items-start justify-between gap-2 py-3 first:pt-0 last:pb-0"
-          >
-            <div>
-              <p className="text-sm font-semibold text-foreground">{mate.name}</p>
-              <p className="mt-0.5 text-xs text-muted">{mate.roomLabel}</p>
-            </div>
-            <div className="text-right text-sm text-muted">
-              {mate.phone ? (
-                <a
-                  href={`tel:+1${mate.phone.replace(/\D/g, "").replace(/^1/, "")}`}
-                  className="font-medium text-foreground hover:text-primary"
-                >
-                  {mate.phone}
-                </a>
-              ) : (
-                <span>No phone on file</span>
-              )}
-              <p className="mt-0.5 text-xs">{mate.email}</p>
-            </div>
-          </li>
-        ))}
-      </ul>
+      {roommates.length > 0 ? (
+        <section className="mb-6" data-attr="move-in-roommates">
+          <h3 className="text-sm font-semibold text-foreground">Roommates — your room</h3>
+          <p className="mb-3 mt-0.5 text-sm text-muted">
+            {roommates.length === 1
+              ? "Sharing your room."
+              : `Sharing your room (${roommates.length}).`}
+          </p>
+          <ul className="divide-y divide-border/50">
+            {roommates.map((mate) => (
+              <HousemateRow key={mate.email} mate={mate} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {others.length > 0 ? (
+        <section data-attr="move-in-housemates">
+          {roommates.length > 0 ? (
+            <h3 className="text-sm font-semibold text-foreground">Other housemates</h3>
+          ) : null}
+          <p className="mb-3 mt-0.5 text-sm text-muted">Other residents in your household.</p>
+          <ul className="divide-y divide-border/50">
+            {others.map((mate) => (
+              <HousemateRow key={mate.email} mate={mate} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }

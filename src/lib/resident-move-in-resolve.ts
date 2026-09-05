@@ -11,7 +11,39 @@ export type ResidentMoveInHousemate = {
   email: string;
   roomLabel: string;
   phone: string | null;
+  /**
+   * Shares the viewer's ROOM, not merely the property. Resolved from the
+   * structured room id, never the display label: two houses can both call a room
+   * "Room 1", and a label match would introduce strangers to each other.
+   */
+  isRoommate: boolean;
 };
+
+/** One resident's placement, reduced to what deciding "same room?" needs. */
+export type RoommatePlacement = {
+  /** Structured room id from a "propertyId::roomId" choice; empty for legacy manual rows. */
+  roomId: string;
+  /** Display label, used ONLY as a legacy fallback when neither side has an id. */
+  roomLabel: string;
+};
+
+/**
+ * Whether a peer shares the viewer's ROOM. Structured ids decide it whenever
+ * either side has one: two properties can each have a "Room 1", and matching on
+ * the label would introduce strangers to each other as roommates.
+ *
+ * The name fallback exists only for manually added residents, who carry no room
+ * id at all. "Room TBD" is the loader's placeholder for an unknown room, so two
+ * unknowns are NOT a match — that would make every unplaced resident everyone's
+ * roommate.
+ */
+export function isRoommatePlacement(self: RoommatePlacement, peer: RoommatePlacement): boolean {
+  if (self.roomId || peer.roomId) return Boolean(self.roomId) && self.roomId === peer.roomId;
+  const a = self.roomLabel.trim().toLowerCase();
+  const b = peer.roomLabel.trim().toLowerCase();
+  if (!a || a === "room tbd") return false;
+  return a === b;
+}
 
 export type ResidentMoveInResolved = {
   propertyLabel: string;
