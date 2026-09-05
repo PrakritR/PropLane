@@ -44,12 +44,16 @@ function clearSensitiveApplicationCache() {
   if (changed) emit();
 }
 
-onPortalSessionViewerChange((viewerId) => {
-  if (isDemoModeActive()) return;
-  clearQueuedApplicationIdentity();
-  activeApplicationsScopeUserId = viewerId ?? undefined;
-  clearSensitiveApplicationCache();
-});
+// This module also supplies pure helpers to server routes and Server Components.
+// React client references cannot be invoked while evaluating their server graph.
+if (typeof window !== "undefined") {
+  onPortalSessionViewerChange((viewerId) => {
+    if (isDemoModeActive()) return;
+    clearQueuedApplicationIdentity();
+    activeApplicationsScopeUserId = viewerId ?? undefined;
+    clearSensitiveApplicationCache();
+  });
+}
 
 export function normalizeApplicationAxisId(id: unknown): string {
   const raw = typeof id === "string" ? id.trim() : "";

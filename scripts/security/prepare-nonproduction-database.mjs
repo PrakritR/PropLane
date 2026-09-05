@@ -118,10 +118,68 @@ export async function prepareLimiterDatabase({ ref, apply, config, connect = con
   }
 }
 
+const NORMALIZATION_VERSION = "20260906050000";
+const NORMALIZATION_NAME = "application_record_normalization";
+const NORMALIZATION_SQL = readFileSync(new URL(`../../supabase/migrations/${NORMALIZATION_VERSION}_${NORMALIZATION_NAME}.sql`, import.meta.url), "utf8");
+const NORMALIZATION_FUNCTION = "public.normalize_application_record_id(text,jsonb,jsonb)";
+
+async function inspectNormalizationState(db) {
+  const { rows: [objects] } = await db.query(`select
+    to_regprocedure('public.normalize_application_record_id(text,jsonb,jsonb)') is not null as function_present,
+    to_regclass('supabase_migrations.schema_migrations') is not null as history_table_present,
+    to_regclass('public.manager_application_records') is not null
+      and to_regclass('public.application_document_storage_aliases') is not null
+      and to_regclass('public.cosigner_submission_records') is not null
+      and to_regclass('public.screening_orders') is not null
+      and to_regclass('public.application_fee_waiver_redemptions') is not null as dependencies_present`);
+  const history = objects.history_table_present
+    ? (await db.query("select name, statements from supabase_migrations.schema_migrations where version=$1", [NORMALIZATION_VERSION])).rows[0]
+    : null;
+  const historyStatus = !objects.history_table_present ? "history_table_missing" : !history ? "absent"
+    : history.name === NORMALIZATION_NAME && Array.isArray(history.statements) && history.statements.length === 1 &&
+      history.statements[0] === NORMALIZATION_SQL ? "matches" : "drift";
+  return { ...objects, historyStatus,
+    canApply: objects.dependencies_present && (historyStatus === "matches" || (historyStatus === "absent" && !objects.function_present)) };
+}
+
+/** Only installs the new fixed RPC; prior applied migrations are never rewritten. */
+export async function prepareApplicationNormalizationDatabase({ ref, apply, config, connect = connectNonproductionDatabase, log = console.log }) {
+  if (!NONPRODUCTION_PROJECTS.includes(ref)) throw new Error("Development or staging project required.");
+  const db = await connect(config);
+  try {
+    await beginTransaction(db, "postgres", !apply);
+    const before = await inspectNormalizationState(db);
+    if (apply) {
+      if (!before.canApply) throw new Error("Normalization migration history or dependencies require review.");
+      await db.query(NORMALIZATION_SQL);
+      if (before.historyStatus === "absent") await db.query(
+        "insert into supabase_migrations.schema_migrations(version, name, statements) values ($1, $2, $3)",
+        [NORMALIZATION_VERSION, NORMALIZATION_NAME, [NORMALIZATION_SQL]],
+      );
+    }
+    const after = apply ? await inspectNormalizationState(db) : before;
+    const permissions = after.function_present ? (await db.query(`select
+      has_function_privilege('anon', $1, 'EXECUTE') as anon_execute,
+      has_function_privilege('authenticated', $1, 'EXECUTE') as user_execute,
+      has_function_privilege('service_role', $1, 'EXECUTE') as server_execute`, [NORMALIZATION_FUNCTION])).rows[0] : null;
+    const permissionsMeetBoundary = permissions?.anon_execute === false && permissions?.user_execute === false && permissions?.server_execute === true;
+    if (apply && (after.historyStatus !== "matches" || !permissionsMeetBoundary)) throw new Error("Normalization RPC boundary verification failed.");
+    await db.query(apply ? "commit" : "rollback");
+    log(JSON.stringify({ project: ref, mode: apply ? "apply" : "dry-run", clientTlsVerified: true,
+      before, after, permissions, permissionsMeetBoundary }));
+  } finally {
+    await db.query("rollback").catch(() => undefined);
+    await db.end();
+  }
+}
+
 async function main() {
-  const [ref, flag, ...extra] = process.argv.slice(2);
-  if (extra.length || (flag && flag !== "--apply")) throw new Error("Use <dev-or-staging-ref> [--apply].");
-  await prepareLimiterDatabase({ ref, apply: flag === "--apply", config: nonproductionDatabaseConfig(ref) });
+  const [ref, ...flags] = process.argv.slice(2);
+  if (new Set(flags).size !== flags.length || flags.some((flag) => flag !== "--apply" && flag !== "--application-normalization")) {
+    throw new Error("Use <dev-or-staging-ref> [--application-normalization] [--apply].");
+  }
+  const prepare = flags.includes("--application-normalization") ? prepareApplicationNormalizationDatabase : prepareLimiterDatabase;
+  await prepare({ ref, apply: flags.includes("--apply"), config: nonproductionDatabaseConfig(ref) });
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

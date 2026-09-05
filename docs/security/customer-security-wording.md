@@ -6,11 +6,17 @@
 
 Evidence: HTTPS/HSTS observed on the public site; [Supabase's security statement](https://supabase.com/security). Provider encryption at rest does not make a stolen logical database export unreadable.
 
+## Marc email — answer to question 2 only
+
+> Your information is encrypted as it travels between your device and PropLane using HTTPS. Our database hosting provider, Supabase, also encrypts stored customer data using AES-256. We’re adding another layer of encryption for selected sensitive applicant information and application documents, using keys stored separately from the database. These enhancements are currently being tested, and we’ll confirm when they have completed testing and are live.
+
+This version describes the current production state and the work in progress. Supabase's encryption statement was rechecked on September 5. Do not change the last two sentences to completed protection until the production release and migration evidence is complete. This answers only the stored-data security question; it makes no acquisition, shutdown or export commitments.
+
 ## Draft for release after the checks below pass
 
 Use only the bullets whose release evidence is complete. This is a prepared draft, **not a statement that the local patch is live**.
 
-Engineering update: separate keys, prerequisite schemas, reduced browser database privileges and database SSL enforcement are configured in development/staging. Calendar, canonical applicant/co-signer identity and application-document encryption code is implemented. Hosted field-backfill dry runs and a synthetic document encryption/alias probe passed; the full unit suite passed 7,512 tests. Existing customer data has not been backfilled and the application changes are not deployed. Production build and dedicated staging QA remain outstanding, so these results do **not** expand today's production customer claims.
+Engineering update: separate keys, prerequisite schemas, reduced browser database privileges and database SSL enforcement are configured in development/staging. Calendar, canonical applicant/co-signer identity and application-document encryption code is implemented. Hosted field-backfill dry runs and a synthetic document encryption/alias probe passed; the full unit suite passed 7,569 tests. Existing customer data has not been backfilled and the application changes are not deployed. The final production-mode build passed; deployed staging QA and production rollout remain outstanding, so these results do **not** expand today's production customer claims.
 
 > - **Encrypted connections and storage:** PropLane uses HTTPS to protect information in transit, and our database provider encrypts stored data at rest.
 > - **Restricted access:** Access to customer records is authenticated and limited by account, role and property permissions. Private documents are delivered through authorized access paths and time-limited links.

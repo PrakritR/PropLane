@@ -1,3 +1,4 @@
+import { persistRenamedApplicationRecord, type ApplicationRecordSnapshot } from "@/lib/security/application-record-normalization.server";
 import { openApplicantRow, prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
 import { NextResponse } from "next/server";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -113,15 +114,20 @@ async function persistDraftRow(
   if (error) throw new Error(`Could not persist the application draft: ${error.message}`);
 }
 
-async function persistNormalizedRow(db: ReturnType<typeof createSupabaseServiceRoleClient>, oldId: string, row: DemoApplicantRow) {
-  // This function runs only after the caller's manager/resident/setup-token gate.
-  // Read the canonical identity so an omitted field cannot erase it and client
-  // supplied encryption metadata can never choose its own key/owner binding.
-  const existingResult = await db.from("manager_application_records")
-    .select("id, manager_user_id, row_data").in("id", idVariants(oldId || row.id)).limit(1);
-  if (existingResult.error) throw new Error("Could not preserve protected application identity.");
-  const existing = existingResult.data?.[0];
+async function persistNormalizedRow(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>, oldId: string, row: DemoApplicantRow,
+  authorizedExisting: (Omit<Partial<ApplicationRecordSnapshot>, "id"> & { id?: string | null }) | null,
+) {
+  // Carry the exact snapshot whose actor/property/token access was checked.
+  // Re-reading it here could adopt a concurrent transfer without reauthorizing.
+  if (authorizedExisting && (typeof authorizedExisting.id !== "string" || !authorizedExisting.id || !authorizedExisting.row_data)) {
+    throw new Error("Application normalization source is unavailable.");
+  }
+  const existing = authorizedExisting ? { ...authorizedExisting, id: authorizedExisting.id as string, row_data: authorizedExisting.row_data } : null;
+  if (oldId !== row.id && !existing) throw new Error("Application normalization source is unavailable.");
   row = prepareApplicantIdentityWrite(row, existing?.row_data, String(existing?.id ?? row.id));
+  const renaming = Boolean(existing && existing.id !== row.id);
+  if (renaming) row = { ...row, managerUserId: existing!.manager_user_id ?? null };
   const values = {
     id: row.id,
     manager_user_id: row.managerUserId || null,
@@ -132,7 +138,11 @@ async function persistNormalizedRow(db: ReturnType<typeof createSupabaseServiceR
     updated_at: new Date().toISOString(),
   };
   const incomingDraft = { ...row, withdrawnAt: undefined };
-  if (isDraftApplicationRow(incomingDraft)) {
+  if (renaming) {
+    // The source snapshot check is the draft downgrade guard for this atomic
+    // ID transition; an intervening submit/withdrawal/transfer rejects it.
+    await persistRenamedApplicationRecord(db, existing!, values);
+  } else if (isDraftApplicationRow(incomingDraft)) {
     await persistDraftRow(db, idVariants(row.id), values);
   } else {
     // Submit and every forward move stay authoritative and write unconditionally.
@@ -140,12 +150,6 @@ async function persistNormalizedRow(db: ReturnType<typeof createSupabaseServiceR
       .from("manager_application_records")
       .upsert(values, { onConflict: "id" });
     if (upsertError) throw new Error(`Could not persist the application: ${upsertError.message}`);
-  }
-  // Persist the normalized row before deleting an obsolete alias. Reversing
-  // this order can erase the only durable copy if the upsert fails.
-  if (oldId !== row.id) {
-    const { error: deleteError } = await db.from("manager_application_records").delete().eq("id", oldId);
-    if (deleteError) throw new Error(`Could not remove the obsolete application id: ${deleteError.message}`);
   }
   if (row.bucket === "approved") {
     try {
@@ -200,7 +204,7 @@ type StoredApplicationRecord = {
   assigned_property_id?: string | null;
 };
 
-const STORED_APPLICATION_SELECT = "id, row_data, manager_user_id, property_id, assigned_property_id";
+const STORED_APPLICATION_SELECT = "id, row_data, manager_user_id, resident_email, property_id, assigned_property_id";
 
 async function loadStoredApplicationRecord(
   db: ReturnType<typeof createSupabaseServiceRoleClient>,
@@ -440,7 +444,7 @@ async function fetchApplicationsForManagerUser(
   // doesn't" gap. Property ownership (not the frozen attribution stamp) is the
   // source of truth for who should see the row.
   const propertyScopedIds = new Set<string>([...ownedPropertyIds, ...appIds, ...resIds]);
-  const select = "id, row_data, updated_at, manager_user_id, property_id, assigned_property_id";
+  const select = "id, row_data, updated_at, manager_user_id, resident_email, property_id, assigned_property_id";
 
   const { data: ownedRows, error: ownedError } = await db
     .from("manager_application_records")
@@ -547,7 +551,7 @@ async function assertCanDeleteApplicationRecords(
   return "Unauthorized.";
 }
 
-export async function GET(req?: Request) {
+export async function GET(req: Request) {
   try {
     const user = await sessionUser();
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -563,7 +567,7 @@ export async function GET(req?: Request) {
     // includes their own applicant row.
     let selfScope = false;
     try {
-      selfScope = Boolean(req?.url) && new URL(req!.url).searchParams.get("scope") === "self";
+      selfScope = new URL(req.url).searchParams.get("scope") === "self";
     } catch {
       selfScope = false;
     }
@@ -577,7 +581,7 @@ export async function GET(req?: Request) {
     if (selfScope || (!admin && role === "resident")) {
       const result = await db
         .from("manager_application_records")
-        .select("id, row_data, resident_email, updated_at")
+        .select("id, row_data, resident_email, manager_user_id, property_id, assigned_property_id, updated_at")
         .eq("resident_email", email)
         .order("updated_at", { ascending: false })
         .limit(500);
@@ -593,7 +597,7 @@ export async function GET(req?: Request) {
     } else if (admin) {
       const result = await db
         .from("manager_application_records")
-        .select("id, row_data, updated_at")
+        .select("id, row_data, resident_email, manager_user_id, property_id, assigned_property_id, updated_at")
         .order("updated_at", { ascending: false })
         .limit(500);
       data = result.data;
@@ -606,27 +610,36 @@ export async function GET(req?: Request) {
 
     const byId = new Map<string, DemoApplicantRow>();
     const recordEmailByRowId = new Map<string, string>();
-    const rowsNeedingNormalization: Array<{ recordId: string; row: DemoApplicantRow }> = [];
-    for (const record of data ?? []) {
-      if (!record.row_data) continue;
+    const normalizedRows = await Promise.all((data ?? []).map(async (record) => {
+      if (!record.row_data) return null;
       const recordEmail =
         typeof (record as { resident_email?: string | null }).resident_email === "string"
           ? (record as { resident_email?: string | null }).resident_email!.trim().toLowerCase()
           : "";
       const storedRow = record.row_data as DemoApplicantRow;
-      if ((selfScope || role === "resident") && !residentOwnsApplicationRow(storedRow, { email, userId: user.id }, { recordEmail })) continue;
+      if ((selfScope || role === "resident") && !residentOwnsApplicationRow(storedRow, { email, userId: user.id }, { recordEmail })) return null;
       // Resolve aliases in the lookup, but authenticate against the exact stored PK.
       let row = normalizeRow(openApplicantRow(storedRow, record.id));
       if ((selfScope || role === "resident") && recordEmail) {
         row = { ...row, email: recordEmail };
       }
+      if (record.id !== row.id || (record.row_data as DemoApplicantRow).id !== row.id) {
+        try {
+          row = await persistNormalizedRow(db, record.id, row, record);
+        } catch {
+          // A migration not installed yet, ID collision or concurrent edit must
+          // keep links on the original live PK, never return an unpersisted ID.
+          row = { ...row, id: record.id };
+        }
+      }
+      return { row, recordEmail };
+    }));
+    for (const result of normalizedRows) {
+      if (!result) continue;
+      const { row, recordEmail } = result;
       if (recordEmail) recordEmailByRowId.set(row.id, recordEmail);
       byId.set(row.id, { ...byId.get(row.id), ...row });
-      if (record.id !== row.id || (record.row_data as DemoApplicantRow).id !== row.id) {
-        rowsNeedingNormalization.push({ recordId: record.id, row });
-      }
     }
-    await Promise.allSettled(rowsNeedingNormalization.map(({ recordId, row }) => persistNormalizedRow(db, recordId, row)));
 
     const rows = [...byId.values()];
 
@@ -708,7 +721,7 @@ export async function POST(req: Request) {
           (stored?.row_data ?? null) as DemoApplicantRow | null,
         );
         const previousRow = (stored?.row_data ?? null) as DemoApplicantRow | null;
-        await persistNormalizedRow(db, anchored.id, anchored);
+        await persistNormalizedRow(db, stored?.id ?? anchored.id, anchored, stored ?? null);
         await revokeMaterializedApplicationConsentAfterWrite(db, stored, anchored);
         void syncApplicationLifecycleTasks(db, previousRow, anchored).catch(
           bestEffortFailed("application lifecycle task sync", { application: anchored.id }),
@@ -792,7 +805,7 @@ export async function POST(req: Request) {
       const ids = idVariants(id);
       const { data: records, error: loadError } = await db
         .from("manager_application_records")
-        .select("id, row_data, resident_email")
+        .select(STORED_APPLICATION_SELECT)
         .in("id", ids);
       if (loadError) return NextResponse.json({ error: loadError.message }, { status: 500 });
       if (!records || records.length === 0) {
@@ -842,13 +855,14 @@ export async function POST(req: Request) {
     }
 
     if (!body.row?.id) return NextResponse.json({ error: "row required" }, { status: 400 });
+    const requestedRowId = String(body.row.id);
     let row = normalizeRow(body.row);
     let residentSelfWrite = false;
     if (!user) {
-      const ids = idVariants(row.id);
+      const ids = idVariants(requestedRowId);
       const { data: records, error: loadError } = await db
         .from("manager_application_records")
-        .select("id, row_data, manager_user_id")
+        .select(STORED_APPLICATION_SELECT)
         .in("id", ids)
         .limit(1);
       if (loadError) return NextResponse.json({ error: loadError.message }, { status: 500 });
@@ -888,7 +902,7 @@ export async function POST(req: Request) {
         }
       }
       const previousRow = existing ?? null;
-      await persistNormalizedRow(db, row.id, row);
+      await persistNormalizedRow(db, existingRecord?.id ?? row.id, row, existingRecord ?? null);
       await revokeMaterializedApplicationConsentAfterWrite(db, existingRecord ?? null, row);
       if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
         void notifyManagerApplicationSubmitted(db, row).catch(
@@ -922,10 +936,11 @@ export async function POST(req: Request) {
     // email, so this path can never touch a DIFFERENT applicant's row or reopen
     // a decided one; those still require manager edit access below.
     let selfApplicationWrite = false;
+    let authorizedWriteRecord: StoredApplicationRecord | null = null;
     if (role !== "resident") {
       const rowEmail = (row.email ?? "").trim().toLowerCase();
       if (Boolean(email) && rowEmail === email && row.bucket === "pending") {
-        const selfStored = await loadStoredApplicationRecord(db, row.id);
+        const selfStored = await loadStoredApplicationRecord(db, requestedRowId);
         if (selfStored.error) {
           return NextResponse.json({ error: "Could not load the existing application." }, { status: 500 });
         }
@@ -940,10 +955,10 @@ export async function POST(req: Request) {
       if (!email || rowEmail !== email) {
         return NextResponse.json({ error: "You can only update your own application." }, { status: 403 });
       }
-      const ids = idVariants(row.id);
+      const ids = idVariants(requestedRowId);
       const { data: records, error: loadError } = await db
         .from("manager_application_records")
-        .select("id, row_data, resident_email")
+        .select(STORED_APPLICATION_SELECT)
         .in("id", ids)
         .limit(1);
       if (loadError) return NextResponse.json({ error: loadError.message }, { status: 500 });
@@ -957,6 +972,7 @@ export async function POST(req: Request) {
       if (row.bucket !== "pending") {
         return NextResponse.json({ error: "Residents cannot change application status." }, { status: 403 });
       }
+      authorizedWriteRecord = (records?.[0] as StoredApplicationRecord | undefined) ?? null;
       row = {
         ...row,
         bucket: "pending",
@@ -1018,7 +1034,7 @@ export async function POST(req: Request) {
     } else {
       const writeGate = await assertManagerOrAdminWriteAccess(db, user);
       if (writeGate) return writeGate;
-      const storedLoad = await loadStoredApplicationRecord(db, row.id);
+      const storedLoad = await loadStoredApplicationRecord(db, requestedRowId);
       if (storedLoad.error) {
         return NextResponse.json({ error: "Could not load the existing application." }, { status: 500 });
       }
@@ -1032,6 +1048,7 @@ export async function POST(req: Request) {
         }
         row.managerUserId = gate.owner ?? user.id;
       }
+      authorizedWriteRecord = storedLoad.record;
       const guarded = anchorServerOwnedWithdrawal(row, storedLoad.record);
       if (guarded.blockedApproval) {
         return NextResponse.json(
@@ -1044,7 +1061,7 @@ export async function POST(req: Request) {
         (storedLoad.record?.row_data ?? null) as DemoApplicantRow | null,
       );
     }
-    const priorLoad = await loadStoredApplicationRecord(db, row.id);
+    const priorLoad = await loadStoredApplicationRecord(db, requestedRowId);
     if (priorLoad.error) {
       // The previous consent snapshot decides whether an append-only revoke is
       // required. Persisting smsConsent=false without that evidence could leave
@@ -1055,7 +1072,7 @@ export async function POST(req: Request) {
       );
     }
     const previousRow = (priorLoad.record?.row_data ?? null) as DemoApplicantRow | null;
-    row = await persistNormalizedRow(db, row.id, row);
+    row = await persistNormalizedRow(db, authorizedWriteRecord?.id ?? row.id, row, authorizedWriteRecord);
     await revokeMaterializedApplicationConsentAfterWrite(db, priorLoad.record, row);
     if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
       void notifyManagerApplicationSubmitted(db, row).catch(
