@@ -83,14 +83,18 @@ export async function POST(req: Request) {
   // attacker-chosen, so a flood rotating its From would otherwise never trip a
   // limit — and checking the aggregate first also bounds how many per-sender
   // buckets a single window can mint.
-  if (!rateLimit(GLOBAL_RATE_LIMIT_KEY, 300, 60_000).ok) {
+  const globalLimit = await rateLimit(GLOBAL_RATE_LIMIT_KEY, 300, 60_000);
+  if (globalLimit.unavailable) return new Response("Rate limit store unavailable", { status: 503 });
+  if (!globalLimit.ok) {
     console.warn("inbound-email rate-limited (instance)", parsed.fromEmail, parsed.emailId);
     return ok({ rateLimited: "instance" });
   }
   // Per-SENDER valve — every request arrives from Resend's own IPs, so an
   // IP-keyed bucket would be a global ceiling one noisy sender could exhaust for
   // everyone.
-  if (!rateLimit(`email-inbound:${parsed.fromEmail}`, 120, 60_000).ok) {
+  const senderLimit = await rateLimit(`email-inbound:${parsed.fromEmail}`, 120, 60_000);
+  if (senderLimit.unavailable) return new Response("Rate limit store unavailable", { status: 503 });
+  if (!senderLimit.ok) {
     console.warn("inbound-email rate-limited", parsed.fromEmail, parsed.emailId);
     return ok({ rateLimited: true });
   }

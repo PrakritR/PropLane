@@ -1,3 +1,4 @@
+import { sealApplicantRow } from "@/lib/security/applicant-identity";
 /**
  * Writes the idle `/demo` portfolio (`buildDemoIdleSnapshot`) into the canonical
  * sandbox accounts' real DB rows — the data the `/demo` read mirror serves.
@@ -147,11 +148,11 @@ export async function seedCanonicalDemoPortfolio(
       resident_email: app.email?.includes("@") ? app.email.toLowerCase() : null,
       property_id: app.propertyId ?? app.assignedPropertyId ?? null,
       assigned_property_id: app.assignedPropertyId ?? app.propertyId ?? null,
-      row_data: {
+      row_data: sealApplicantRow({
         ...app,
         managerUserId: ctx.managerUserId,
         axisId: app.id,
-      },
+      }, app.id, ctx.managerUserId),
       updated_at: new Date().toISOString(),
     }));
     if (rows.length === 0) return;

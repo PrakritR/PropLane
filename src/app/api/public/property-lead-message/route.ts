@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   try {
     // Public, unauthenticated endpoint that emails a manager — rate-limit per IP
     // to prevent spam / inbox flooding via the full-table property lookup.
-    if (!rateLimit(`property-lead:${clientIpFrom(req)}`, 5, 60_000).ok) {
+    if (!(await rateLimit(`property-lead:${clientIpFrom(req)}`, 5, 60_000)).ok) {
       return NextResponse.json({ error: "Too many messages. Please wait a minute and try again." }, { status: 429 });
     }
 

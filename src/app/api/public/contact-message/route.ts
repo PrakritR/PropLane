@@ -12,7 +12,7 @@ function textField(value: unknown): string {
 
 export async function POST(req: Request) {
   try {
-    if (!rateLimit(`contact-message:${clientIpFrom(req)}`, 8, 60_000).ok) {
+    if (!(await rateLimit(`contact-message:${clientIpFrom(req)}`, 8, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
     }
 

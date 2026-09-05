@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 function oauthError(error: string, status = 400) { return NextResponse.json({ error }, { status, headers: { "Cache-Control": "no-store" } }); }
 
 export async function POST(req: Request) {
-  if (!rateLimit(`mcp-oauth-token:${clientIpFrom(req)}`, 30, 60_000).ok) return oauthError("slow_down", 429);
+  if (!(await rateLimit(`mcp-oauth-token:${clientIpFrom(req)}`, 30, 60_000)).ok) return oauthError("slow_down", 429);
   const form = await req.formData().catch(() => null);
   if (!form) return oauthError("invalid_request");
   const grantType = String(form.get("grant_type") ?? "");

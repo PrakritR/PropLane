@@ -26,11 +26,11 @@ export async function GET(req: Request) {
   if (!propertyId) return NextResponse.json({ error: "propertyId required" }, { status: 400 });
 
   if (
-    !rateLimit(
+    !(await rateLimit(
       `property-tour-availability:${clientIpFrom(req)}`,
       TOUR_AVAILABILITY_RATE_LIMIT,
       TOUR_AVAILABILITY_RATE_LIMIT_WINDOW_MS,
-    ).ok
+    )).ok
   ) {
     return NextResponse.json(
       { error: "Too many requests. Please slow down." },

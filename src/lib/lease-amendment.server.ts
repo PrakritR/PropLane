@@ -1,3 +1,4 @@
+import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { buildAiGeneratedLeaseHtml, leaseContextFromApplication } from "@/lib/generated-lease";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -209,10 +210,11 @@ async function syncApplicationLeaseDates(
   axisId: string | null | undefined,
   newLeaseEnd: string,
   iso: string,
+  managerUserId: string,
 ): Promise<void> {
   const id = axisId?.trim();
-  if (!id) return;
-  const { data: appRecord } = await db.from("manager_application_records").select("id, row_data").eq("id", id).maybeSingle();
+  if (!id || !managerUserId) return;
+  const { data: appRecord } = await db.from("manager_application_records").select("id, manager_user_id, row_data").eq("id", id).eq("manager_user_id", managerUserId).maybeSingle();
   if (!appRecord?.row_data || typeof appRecord.row_data !== "object") return;
   const rowData = appRecord.row_data as Record<string, unknown>;
   const application = asObject(rowData.application) ?? {};
@@ -220,14 +222,15 @@ async function syncApplicationLeaseDates(
   await db
     .from("manager_application_records")
     .update({
-      row_data: {
+      row_data: sealApplicantRow({
         ...rowData,
         application: { ...application, leaseEnd: newLeaseEnd },
         manualResidentDetails: { ...manual, moveOutDate: newLeaseEnd },
-      },
+      }, id, managerUserId),
       updated_at: iso,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("manager_user_id", managerUserId);
 }
 
 export async function regenerateLeaseHtmlForApplication(
@@ -337,7 +340,7 @@ export async function amendLeaseMoveOutDate(
   });
   if (upsertError) return { ok: false, error: upsertError.message };
 
-  await syncApplicationLeaseDates(db, leaseRow.axisId, newLeaseEnd, iso);
+  await syncApplicationLeaseDates(db, leaseRow.axisId, newLeaseEnd, iso, String(leaseRecord.manager_user_id ?? leaseRow.managerUserId ?? ""));
 
   try {
     const propertyId = leaseRecord.property_id ?? leaseRow.propertyId ?? "";

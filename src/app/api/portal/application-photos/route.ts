@@ -21,6 +21,14 @@ import {
 import type { ApplicationPhotoAttachment, ApplicationPhotoSlot } from "@/lib/rental-application/types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
+import {
+  applicationDocumentOriginalPath,
+  createApplicationDocumentUploadEncryption,
+  decryptApplicationDocumentBytes,
+} from "@/lib/security/application-document-crypto.server";
+import { APPLICATION_DOCUMENT_ENCRYPTED_SUFFIX } from "@/lib/security/application-document-format";
+import { resolveApplicationDocumentStoragePath } from "@/lib/security/application-document-aliases.server";
 
 export const runtime = "nodejs";
 
@@ -148,35 +156,10 @@ function sanitizeFileName(name: unknown, fallback: string): string {
   return fallback;
 }
 
-// Per-IP sliding window on the sign endpoint. In-memory and therefore
-// per-instance — defense-in-depth only; the real bounds are the setup-token
-// gate and the per-application object quota.
-const SIGN_RATE_WINDOW_MS = 60_000;
-const SIGN_RATE_MAX = 20;
-const signRequestsByIp = new Map<string, number[]>();
-
-function isSignRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const cutoff = now - SIGN_RATE_WINDOW_MS;
-  const recent = (signRequestsByIp.get(ip) ?? []).filter((t) => t > cutoff);
-  if (recent.length >= SIGN_RATE_MAX) {
-    signRequestsByIp.set(ip, recent);
-    return true;
-  }
-  recent.push(now);
-  if (signRequestsByIp.size > 10_000) signRequestsByIp.clear();
-  signRequestsByIp.set(ip, recent);
-  return false;
-}
-
-function clientIp(req: Request): string {
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-}
-
 // ---------------------------------------------------------------------------
-// POST — mint a signed upload URL for a photo. The bytes never pass through
-// this function: the client uploads directly to Storage with the returned
-// token, keeping large phone captures clear of the serverless body limit.
+// POST — mint a signed upload URL plus a per-object encryption key. The client
+// encrypts before uploading directly to private Storage, keeping large phone
+// captures clear of the serverless body limit. The master key stays server-only.
 // ---------------------------------------------------------------------------
 export async function POST(req: Request) {
   try {
@@ -188,9 +171,14 @@ export async function POST(req: Request) {
       mimeType?: string;
       sizeBytes?: number;
       setupToken?: string;
+      encryptionVersion?: number;
     };
     if (body.action !== "sign") {
       return NextResponse.json({ error: "Unsupported action." }, { status: 400 });
+    }
+    // Older open tabs must refresh rather than upload plaintext to a new .penc path.
+    if (body.encryptionVersion !== 1) {
+      return NextResponse.json({ error: "Refresh this page before uploading a document." }, { status: 409 });
     }
     const applicationId = body.applicationId?.trim() ?? "";
     if (!applicationId) return NextResponse.json({ error: "applicationId required." }, { status: 400 });
@@ -200,7 +188,9 @@ export async function POST(req: Request) {
     const validated = validateApplicationPhotoUpload(slot, body.mimeType, body.sizeBytes);
     if (!validated.ok) return NextResponse.json({ error: validated.error }, { status: 400 });
 
-    if (isSignRateLimited(clientIp(req))) {
+    const limit = await rateLimit(`application-photo-sign:${clientIpFrom(req)}`, 20, 60_000);
+    if (limit.unavailable) return NextResponse.json({ error: "Uploads are temporarily unavailable." }, { status: 503 });
+    if (!limit.ok) {
       return NextResponse.json({ error: "Too many uploads. Try again in a minute." }, { status: 429 });
     }
 
@@ -228,7 +218,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const storagePath = buildApplicationPhotoPath(applicationId, slot, validated.ext);
+    const storagePath = `${buildApplicationPhotoPath(row!.recordId, slot, validated.ext)}${APPLICATION_DOCUMENT_ENCRYPTED_SUFFIX}`;
+    const encryption = createApplicationDocumentUploadEncryption(storagePath, body.sizeBytes!);
     const { data, error } = await db.storage.from(APPLICATION_DOCUMENTS_BUCKET).createSignedUploadUrl(storagePath);
     if (error || !data?.token) {
       return NextResponse.json({ error: "Upload failed. Please try again." }, { status: 502 });
@@ -237,9 +228,10 @@ export async function POST(req: Request) {
       path: storagePath,
       token: data.token,
       fileName: sanitizeFileName(body.fileName, `${slot}.${validated.ext}`),
-    });
-  } catch (e) {
-    console.error("application-photos sign failed", e);
+      encryption,
+    }, { headers: { "Cache-Control": "private, no-store" } });
+  } catch {
+    console.error("[security] application_document_upload_preparation_failed");
     return NextResponse.json({ error: "Upload failed. Please try again." }, { status: 500 });
   }
 }
@@ -285,13 +277,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Not found." }, { status: 404 });
     }
 
-    const { data, error } = await db.storage.from(APPLICATION_DOCUMENTS_BUCKET).download(storagePath);
+    const resolvedPath = await resolveApplicationDocumentStoragePath(db, row.recordId, storagePath);
+    const { data, error } = await db.storage.from(APPLICATION_DOCUMENTS_BUCKET).download(resolvedPath);
     if (error || !data) return NextResponse.json({ error: "Not found." }, { status: 404 });
-    const bytes = Buffer.from(await data.arrayBuffer());
+    const bytes = decryptApplicationDocumentBytes(Buffer.from(await data.arrayBuffer()), resolvedPath);
     const preview = url.searchParams.get("preview") === "1";
     let served: { body: Buffer; contentType: string };
     try {
-      served = await applicationPhotoServeBytes(bytes, storagePath, { preview });
+      served = await applicationPhotoServeBytes(bytes, applicationDocumentOriginalPath(resolvedPath), { preview });
     } catch (e) {
       if (e instanceof ApplicationPhotoPreviewUnavailable) {
         return NextResponse.json({ error: "Preview unavailable." }, { status: 404 });
@@ -357,7 +350,9 @@ export async function DELETE(req: Request) {
       return writeDenied();
     }
 
-    const { error } = await db.storage.from(APPLICATION_DOCUMENTS_BUCKET).remove([storagePath]);
+    const resolvedPath = await resolveApplicationDocumentStoragePath(db, row!.recordId, storagePath);
+    // An old browser can remove a migrated attachment by its original reference.
+    const { error } = await db.storage.from(APPLICATION_DOCUMENTS_BUCKET).remove([...new Set([storagePath, resolvedPath])]);
     if (error) return NextResponse.json({ error: "Could not remove the file." }, { status: 502 });
     return NextResponse.json({ ok: true });
   } catch (e) {

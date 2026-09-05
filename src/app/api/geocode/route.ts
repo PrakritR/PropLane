@@ -57,7 +57,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "A valid address query is required." }, { status: 400 });
   }
 
-  if (!rateLimit(`geocode:${clientIpFrom(req)}`, 30, 60_000).ok) {
+  if (!(await rateLimit(`geocode:${clientIpFrom(req)}`, 30, 60_000)).ok) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

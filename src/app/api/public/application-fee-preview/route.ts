@@ -48,7 +48,7 @@ async function sessionApplicant(): Promise<{ email: string; userId: string } | n
  */
 export async function POST(req: Request) {
   try {
-    if (!rateLimit(`application-fee-preview:${clientIpFrom(req)}`, 60, 60_000).ok) {
+    if (!(await rateLimit(`application-fee-preview:${clientIpFrom(req)}`, 60, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     }
 

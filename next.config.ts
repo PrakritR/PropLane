@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import { networkInterfaces } from "os";
+import { browserSecurityHeaders } from "./src/lib/security/browser-headers";
 
 function localLanHosts(): string[] {
   const hosts = new Set<string>();
@@ -43,6 +44,14 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: capacitorDevOrigins(),
   skipTrailingSlashRedirect: true,
   experimental: {
+    // Opt-in local validation on constrained machines; deployment defaults stay
+    // unchanged. Next's documented Webpack memory optimization avoids swap/disk
+    // exhaustion while checking the security branch with `next build --webpack`.
+    ...(process.env.PROPLANE_LOW_MEMORY_BUILD === "1" ? {
+      cpus: 1,
+      webpackMemoryOptimizations: true,
+      webpackBuildWorker: true,
+    } : {}),
     // Persist Turbopack compiler output between dev restarts — faster cold starts.
     turbopackFileSystemCacheForDev: true,
     optimizePackageImports: ["lucide-react", "@radix-ui/react-icons"],
@@ -74,6 +83,10 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      {
+        source: "/:path*",
+        headers: browserSecurityHeaders,
+      },
       {
         source: "/.well-known/apple-app-site-association",
         headers: [{ key: "Content-Type", value: "application/json" }],

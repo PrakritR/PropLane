@@ -179,8 +179,8 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ ok: false, error: "Not authenticated." }, { status: 401 });
 
     if (
-      !rateLimit(`send-inbox:user:${user.id}`, 30, 60_000).ok ||
-      !rateLimit(`send-inbox:ip:${clientIpFrom(req)}`, 60, 60_000).ok
+      !(await rateLimit(`send-inbox:user:${user.id}`, 30, 60_000)).ok ||
+      !(await rateLimit(`send-inbox:ip:${clientIpFrom(req)}`, 60, 60_000)).ok
     ) {
       return NextResponse.json({ ok: false, error: "Too many messages. Please slow down." }, { status: 429 });
     }

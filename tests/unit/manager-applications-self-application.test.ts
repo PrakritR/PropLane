@@ -1,3 +1,5 @@
+import { openApplicantRow, sealApplicantRow } from "@/lib/security/applicant-identity";
+import { randomBytes } from "node:crypto";
 /**
  * Route-level coverage for the SELF-APPLICATION write path:
  * `POST /api/manager-applications` as a signed-in NON-resident (a manager who
@@ -16,7 +18,7 @@
  * Also covers `GET ?scope=self` — the email-scoped read the public apply flow
  * uses to resume a signed-in user's own draft regardless of their primary role.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
 const getUser = vi.fn();
@@ -153,6 +155,8 @@ async function upsert(row: DemoApplicantRow) {
 }
 
 beforeEach(() => {
+  vi.stubEnv("DATA_ENCRYPTION_ACTIVE_KEY_ID", "test");
+  vi.stubEnv("DATA_ENCRYPTION_KEYS_JSON", JSON.stringify({ test: randomBytes(32).toString("base64") }));
   vi.clearAllMocks();
   PROFILE = { role: "manager", email: CALLER_EMAIL };
   getUser.mockResolvedValue({
@@ -311,5 +315,36 @@ describe("GET /api/manager-applications resident email gate", () => {
 
     expect(res.status).toBe(200);
     expect(body.rows).toEqual([]);
+  });
+});
+
+afterEach(() => vi.unstubAllEnvs());
+
+
+describe("protected applicant route boundaries", () => {
+  it("persists encrypted identity and returns decoded self row with no crypto metadata", async () => {
+    const source = inProgressRow({ managerUserId: LISTING_OWNER });
+    source.application = { ...source.application, ssn: "123-45-6789", dateOfBirth: "1980-01-02", driversLicense: "LICENSE-TEST" } as DemoApplicantRow["application"];
+    STORED_ROWS = [{ id: source.id, manager_user_id: LISTING_OWNER, resident_email: CALLER_EMAIL, row_data: sealApplicantRow(source, source.id, LISTING_OWNER) }];
+    const partial = inProgressRow({ detail: "changed" });
+    const res = await upsert(partial);
+    expect(res.status).toBe(200);
+    expect(UPDATES).toHaveLength(1);
+    expect(UPDATES[0].row_data.application).not.toHaveProperty("ssn");
+    expect(openApplicantRow(UPDATES[0].row_data, source.id).application?.ssn).toBe("123-45-6789");
+    const responseRow = res.body.row as DemoApplicantRow;
+    expect(responseRow.application?.dateOfBirth).toBe("1980-01-02");
+    expect(responseRow).not.toHaveProperty("_applicantIdentity");
+  });
+  it("rejects a resident claiming another applicant's stored id before opening identity", async () => {
+    PROFILE = { role: "resident", email: CALLER_EMAIL };
+    const victim = inProgressRow({ email: OTHER_APPLICANT_EMAIL, managerUserId: LISTING_OWNER });
+    victim.application = { ...victim.application, ssn: "123-45-6789" } as DemoApplicantRow["application"];
+    STORED_ROWS = [{ id: victim.id, manager_user_id: LISTING_OWNER, resident_email: OTHER_APPLICANT_EMAIL, row_data: sealApplicantRow(victim, victim.id, LISTING_OWNER) }];
+    vi.stubEnv("DATA_ENCRYPTION_KEYS_JSON", "");
+    const res = await upsert(inProgressRow());
+    expect(res.status).toBe(403);
+    expect(UPDATES).toHaveLength(0);
+    expect(UPSERTS).toHaveLength(0);
   });
 });

@@ -16,4 +16,13 @@ describe("reports/tin-crypto", () => {
     expect(() => encryptTin("12-3456789")).toThrow(/FINANCIALS_TIN_ENCRYPTION_KEY/);
     process.env.FINANCIALS_TIN_ENCRYPTION_KEY = previous;
   });
+
+  it("rejects shortened authentication tags and noncanonical payloads", () => {
+    const value = encryptTin("12-3456789");
+    const payload = Buffer.from(value, "base64");
+    expect(() => decryptTin(payload.subarray(0, 20).toString("base64"))).toThrow();
+    expect(() => decryptTin(value + "!")).toThrow();
+    payload[payload.length - 1] ^= 1;
+    expect(() => decryptTin(payload.toString("base64"))).toThrow();
+  });
 });

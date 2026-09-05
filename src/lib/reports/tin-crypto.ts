@@ -10,7 +10,7 @@ function encryptionKey(): Buffer {
 
 export function encryptTin(plain: string): string {
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv);
+  const cipher = createCipheriv("aes-256-gcm", encryptionKey(), iv, { authTagLength: 16 });
   const encrypted = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   return Buffer.concat([iv, tag, encrypted]).toString("base64");
@@ -18,10 +18,13 @@ export function encryptTin(plain: string): string {
 
 export function decryptTin(ciphertext: string): string {
   const buf = Buffer.from(ciphertext, "base64");
+  if (buf.length < 28 || buf.toString("base64") !== ciphertext) {
+    throw new Error("Invalid encrypted tax identifier.");
+  }
   const iv = buf.subarray(0, 12);
   const tag = buf.subarray(12, 28);
   const data = buf.subarray(28);
-  const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), iv);
+  const decipher = createDecipheriv("aes-256-gcm", encryptionKey(), iv, { authTagLength: 16 });
   decipher.setAuthTag(tag);
   return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
 }

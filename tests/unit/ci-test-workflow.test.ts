@@ -98,7 +98,7 @@ describe("Test workflow resource budget", () => {
     for (const name of ["e2e", "e2e-full"]) {
       const body = jobBody(name);
       expect(body, `${name} must upload its Playwright output`).toContain(
-        "uses: actions/upload-artifact@v4",
+        "uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2",
       );
       expect(body).toContain("path: test-results/");
       // A step that only runs on success uploads nothing for the failure it

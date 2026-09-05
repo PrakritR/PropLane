@@ -233,7 +233,7 @@ export async function POST(req: Request) {
     }
     // Uploaded objects carry no property association, so nothing else bounds how
     // many a manager can push into a bucket on a free-plan storage budget.
-    if (!rateLimit(`lease-template-upload:${auth.userId}`, 20, 60_000).ok) {
+    if (!(await rateLimit(`lease-template-upload:${auth.userId}`, 20, 60_000)).ok) {
       return NextResponse.json({ error: "Too many uploads. Try again in a minute." }, { status: 429 });
     }
 

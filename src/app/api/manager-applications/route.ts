@@ -1,3 +1,4 @@
+import { openApplicantRow, prepareApplicantIdentityWrite, sealApplicantRow } from "@/lib/security/applicant-identity";
 import { NextResponse } from "next/server";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { prepareGuestApplicationUpsert } from "@/lib/auth/guest-application-upsert";
@@ -113,13 +114,21 @@ async function persistDraftRow(
 }
 
 async function persistNormalizedRow(db: ReturnType<typeof createSupabaseServiceRoleClient>, oldId: string, row: DemoApplicantRow) {
+  // This function runs only after the caller's manager/resident/setup-token gate.
+  // Read the canonical identity so an omitted field cannot erase it and client
+  // supplied encryption metadata can never choose its own key/owner binding.
+  const existingResult = await db.from("manager_application_records")
+    .select("id, manager_user_id, row_data").in("id", idVariants(oldId || row.id)).limit(1);
+  if (existingResult.error) throw new Error("Could not preserve protected application identity.");
+  const existing = existingResult.data?.[0];
+  row = prepareApplicantIdentityWrite(row, existing?.row_data, String(existing?.id ?? row.id));
   const values = {
     id: row.id,
     manager_user_id: row.managerUserId || null,
     resident_email: row.email?.trim().toLowerCase() || null,
     property_id: row.propertyId || row.application?.propertyId || null,
     assigned_property_id: row.assignedPropertyId || null,
-    row_data: row,
+    row_data: sealApplicantRow(row, row.id, existing?.manager_user_id || row.managerUserId),
     updated_at: new Date().toISOString(),
   };
   const incomingDraft = { ...row, withdrawnAt: undefined };
@@ -154,6 +163,7 @@ async function persistNormalizedRow(db: ReturnType<typeof createSupabaseServiceR
       });
     }
   }
+  return row;
 }
 
 async function resolvePortalRole(
@@ -603,7 +613,10 @@ export async function GET(req?: Request) {
         typeof (record as { resident_email?: string | null }).resident_email === "string"
           ? (record as { resident_email?: string | null }).resident_email!.trim().toLowerCase()
           : "";
-      let row = normalizeRow(record.row_data as DemoApplicantRow);
+      const storedRow = record.row_data as DemoApplicantRow;
+      if ((selfScope || role === "resident") && !residentOwnsApplicationRow(storedRow, { email, userId: user.id }, { recordEmail })) continue;
+      // Resolve aliases in the lookup, but authenticate against the exact stored PK.
+      let row = normalizeRow(openApplicantRow(storedRow, record.id));
       if ((selfScope || role === "resident") && recordEmail) {
         row = { ...row, email: recordEmail };
       }
@@ -642,7 +655,7 @@ export async function GET(req?: Request) {
       }
     }
 
-    return NextResponse.json({ rows: scopedRows });
+    return NextResponse.json({ rows: scopedRows }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load applications.";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -820,7 +833,7 @@ export async function POST(req: Request) {
         const nextRowData: DemoApplicantRow = { ...stored, withdrawnAt };
         const { error: updateError } = await db
           .from("manager_application_records")
-          .update({ row_data: nextRowData, updated_at: withdrawnAt })
+          .update({ row_data: sealApplicantRow(nextRowData, record.id, stored.managerUserId), updated_at: withdrawnAt })
           .eq("id", record.id);
         if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
         withdrawn += 1;
@@ -859,7 +872,8 @@ export async function POST(req: Request) {
           { status: guest.status },
         );
       }
-      row = anchorServerOwnedSmsConsent(guest.row, existing ?? null);
+      row = prepareApplicantIdentityWrite(anchorServerOwnedSmsConsent(guest.row, existing ?? null), existing, String(existingRecord?.id ?? row.id));
+      row = prepareApplicantIdentityWrite(row, existing, String(records?.[0]?.id ?? row.id));
       if (!existing || isDraftShapedApplicationRow(existing)) {
         const validation = await validateResidentApplicationRowForPersistence(db, row);
         if (!validation.ok) {
@@ -929,11 +943,14 @@ export async function POST(req: Request) {
       const ids = idVariants(row.id);
       const { data: records, error: loadError } = await db
         .from("manager_application_records")
-        .select("id, row_data")
+        .select("id, row_data, resident_email")
         .in("id", ids)
         .limit(1);
       if (loadError) return NextResponse.json({ error: loadError.message }, { status: 500 });
       const existing = records?.[0]?.row_data as DemoApplicantRow | undefined;
+      if (existing && String(records?.[0]?.resident_email ?? existing.email ?? "").trim().toLowerCase() !== email) {
+        return NextResponse.json({ error: "You can only update your own application." }, { status: 403 });
+      }
       if (existing && existing.bucket !== "pending") {
         return NextResponse.json({ error: "This application can no longer be edited." }, { status: 403 });
       }
@@ -965,6 +982,7 @@ export async function POST(req: Request) {
               }
             : row.application,
       };
+      row = prepareApplicantIdentityWrite(row, existing, String(records?.[0]?.id ?? row.id));
       if (!existing || isDraftShapedApplicationRow(existing)) {
         const validation = await validateResidentApplicationRowForPersistence(db, row);
         if (!validation.ok) {
@@ -1037,7 +1055,7 @@ export async function POST(req: Request) {
       );
     }
     const previousRow = (priorLoad.record?.row_data ?? null) as DemoApplicantRow | null;
-    await persistNormalizedRow(db, row.id, row);
+    row = await persistNormalizedRow(db, row.id, row);
     await revokeMaterializedApplicationConsentAfterWrite(db, priorLoad.record, row);
     if (shouldNotifyManagerOfApplicationSubmit(previousRow, row)) {
       void notifyManagerApplicationSubmitted(db, row).catch(
@@ -1084,7 +1102,7 @@ export async function POST(req: Request) {
       });
     }
 
-    return NextResponse.json(residentSelfWrite ? { ok: true, row } : { ok: true });
+    return NextResponse.json(residentSelfWrite ? { ok: true, row: prepareApplicantIdentityWrite(row, null, row.id) } : { ok: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to save application.";
     return NextResponse.json({ error: message }, { status: 500 });

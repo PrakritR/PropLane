@@ -89,8 +89,8 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
     if (
-      !rateLimit(`inbox-attach:user:${user.id}`, 20, 60_000).ok ||
-      !rateLimit(`inbox-attach:ip:${clientIpFrom(req)}`, 40, 60_000).ok
+      !(await rateLimit(`inbox-attach:user:${user.id}`, 20, 60_000)).ok ||
+      !(await rateLimit(`inbox-attach:ip:${clientIpFrom(req)}`, 40, 60_000)).ok
     ) {
       return NextResponse.json({ error: "Too many uploads. Please slow down." }, { status: 429 });
     }

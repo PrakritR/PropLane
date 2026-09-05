@@ -141,6 +141,9 @@ export async function loadSharedApplicationPayload(
   const record = await resolveApplicationRecordRow(db, recordId, access.recordOwnerUserId);
   if (!record) return null;
 
+  // Public shares render an allowlisted summary that deliberately excludes all
+  // identity fields. Keep the envelope opaque; decrypting here would widen key
+  // use without restoring any permitted output. The stored row is never returned.
   const row = record.row_data as DemoApplicantRow;
 
   const groupMembers = await loadApplicationGroupMembersForDocument(db, row, {

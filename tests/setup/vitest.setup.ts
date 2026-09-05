@@ -2,6 +2,10 @@ import "@testing-library/jest-dom/vitest";
 import { vi } from "vitest";
 
 process.env.FINANCIALS_TIN_ENCRYPTION_KEY ??= "test-only-tin-key-do-not-use-in-prod";
+// Synthetic key ring for route fixtures; production code has no default key.
+// Missing-key tests explicitly unset these values to exercise fail-closed paths.
+process.env.DATA_ENCRYPTION_ACTIVE_KEY_ID ??= "unit-test";
+process.env.DATA_ENCRYPTION_KEYS_JSON ??= JSON.stringify({ "unit-test": Buffer.alloc(32, 7).toString("base64") });
 
 vi.mock("server-only", () => ({}));
 

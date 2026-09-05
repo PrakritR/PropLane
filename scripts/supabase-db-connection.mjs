@@ -11,7 +11,13 @@ export function readSupabaseDatabasePassword() {
 
 export function postgresConnectionStringFromEnv() {
   const direct = process.env.DATABASE_URL?.trim() || process.env.POSTGRES_URL?.trim();
-  if (direct) return direct;
+  if (direct) {
+    const parsed = new URL(direct);
+    if ([...parsed.searchParams.keys()].some((key) => key.toLowerCase().startsWith("ssl"))) {
+      throw new Error("Remove SSL query parameters from the database URL; configure SUPABASE_DB_SSL_CA instead.");
+    }
+    return direct;
+  }
 
   const password = readSupabaseDatabasePassword();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
@@ -29,5 +35,9 @@ export function postgresConnectionStringFromEnv() {
 }
 
 export function postgresSslFromEnv() {
-  return process.env.SUPABASE_DB_SSL === "false" ? false : { rejectUnauthorized: false };
+  if (process.env.SUPABASE_DB_SSL === "false") {
+    throw new Error("Unencrypted database connections are disabled.");
+  }
+  const ca = process.env.SUPABASE_DB_SSL_CA?.trim().replace(/\\n/g, "\n");
+  return { rejectUnauthorized: true, ...(ca ? { ca } : {}) };
 }

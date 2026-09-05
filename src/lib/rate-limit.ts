@@ -1,17 +1,49 @@
 import "server-only";
+import { createHmac } from "node:crypto";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type Bucket = { count: number; resetAt: number };
+export type RateLimitResult = { ok: boolean; unavailable?: true };
 
 const buckets = new Map<string, Bucket>();
 
 /**
- * Lightweight in-memory fixed-window rate limiter. Per-instance only (resets on
- * deploy / cold start), no external dependencies. Suitable for blunting
- * enumeration and abuse on individual routes; not a substitute for a durable
- * distributed limiter under heavy multi-instance load.
+ * Atomic shared limit on every deployed/production runtime. Only local dev and
+ * tests use memory. A database/configuration failure denies the request; it must
+ * never fall back to a per-instance bucket on a deployed server.
+ * Apply the rate_limit_buckets migration BEFORE deploying this change.
  */
-export function rateLimit(key: string, limit: number, windowMs: number): { ok: boolean } {
+export async function rateLimit(key: string, limit: number, windowMs: number): Promise<RateLimitResult> {
+  if (!key || !Number.isSafeInteger(limit) || limit < 1 || limit > 100_000 ||
+      !Number.isSafeInteger(windowMs) || windowMs < 1 || windowMs > 86_400_000) {
+    throw new Error("Invalid rate limit configuration.");
+  }
+  if (process.env.NODE_ENV !== "test" &&
+      (process.env.NODE_ENV === "production" || process.env.VERCEL === "1" ||
+       process.env.VERCEL_ENV === "production" || process.env.VERCEL_ENV === "preview")) {
+    try {
+      const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
+      if (!secret) throw new Error("Rate limit credentials unavailable.");
+      // Do not store raw IPs/emails/phone numbers in the limiter's table. Include
+      // policy parameters so two independently configured policies never collide.
+      const bucketKey = createHmac("sha256", secret)
+        .update(JSON.stringify(["rate-limit-v1", key, limit, windowMs])).digest("hex");
+      const { data, error } = await createSupabaseServiceRoleClient()
+        .rpc("consume_rate_limit", { p_bucket_key: bucketKey, p_limit: limit, p_window_ms: windowMs })
+        .abortSignal(AbortSignal.timeout(3000));
+      if (error || typeof data !== "boolean") throw new Error("Rate limit store unavailable.");
+      return { ok: data };
+    } catch {
+      // No raw bucket, request identity, provider error, or credential in logs.
+      console.error("[security] shared_rate_limit_unavailable");
+      return { ok: false, unavailable: true };
+    }
+  }
   const now = Date.now();
+  if (buckets.size >= 10_000) {
+    for (const [id, bucket] of buckets) if (bucket.resetAt <= now) buckets.delete(id);
+    if (buckets.size >= 10_000 && !buckets.has(key)) return { ok: false };
+  }
   const existing = buckets.get(key);
 
   if (!existing || now >= existing.resetAt) {

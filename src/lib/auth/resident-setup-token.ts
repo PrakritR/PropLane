@@ -1,3 +1,4 @@
+import { openApplicantRow, sealApplicantRow } from "@/lib/security/applicant-identity";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
@@ -150,8 +151,9 @@ export async function findApplicationForResidentSetup(
     return { ok: false, status: 400, error: "This application is missing an email address." };
   }
 
+  match = openApplicantRow(match, matchedRecord.id);
   const managerFromDb = String(matchedRecord.manager_user_id ?? "").trim();
-  if (managerFromDb && !match.managerUserId) {
+  if (managerFromDb) {
     match = { ...match, managerUserId: managerFromDb };
   }
 
@@ -188,7 +190,7 @@ export async function relinkResidentSetupApplicationEmail(
       resident_email: email,
       property_id: relinked.propertyId || relinked.application?.propertyId || null,
       assigned_property_id: relinked.assignedPropertyId || null,
-      row_data: relinked,
+      row_data: sealApplicantRow(relinked, relinked.id, relinked.managerUserId),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "id" },
@@ -209,7 +211,7 @@ export async function consumeResidentSetupTokenOnApplication(
       resident_email: consumed.email?.trim().toLowerCase() || null,
       property_id: consumed.propertyId || consumed.application?.propertyId || null,
       assigned_property_id: consumed.assignedPropertyId || null,
-      row_data: consumed,
+      row_data: sealApplicantRow(consumed, consumed.id, consumed.managerUserId),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "id" },
@@ -248,7 +250,7 @@ export async function ensureResidentSetupTokenForApplication(
   const record = data?.[0];
   if (!record?.row_data) return { ok: false, error: "Application not found." };
 
-  const raw = record.row_data as DemoApplicantRow;
+  const raw = openApplicantRow(record.row_data, record.id);
   const row: DemoApplicantRow = {
     ...raw,
     id: normalizeApplicationAxisId(typeof raw.id === "string" ? raw.id : record.id),
@@ -270,7 +272,7 @@ export async function ensureResidentSetupTokenForApplication(
       resident_email: email,
       property_id: withToken.propertyId || record.property_id || null,
       assigned_property_id: withToken.assignedPropertyId || record.assigned_property_id || null,
-      row_data: withToken,
+      row_data: sealApplicantRow(withToken, withToken.id, withToken.managerUserId || record.manager_user_id),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "id" },

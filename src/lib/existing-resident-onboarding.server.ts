@@ -1,3 +1,4 @@
+import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { manualResidentSignedLeasePdf } from "@/lib/existing-resident-onboarding";
@@ -167,7 +168,7 @@ export async function runExistingResidentOnboarding(
     await db
       .from("manager_application_records")
       .update({
-        row_data: nextRow,
+        row_data: sealApplicantRow(nextRow, row.id, actor.userId),
         resident_email: email,
         updated_at: iso,
       })

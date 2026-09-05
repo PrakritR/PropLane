@@ -159,7 +159,9 @@ export async function POST(req: Request) {
 
   // Per-phone rate limit. Over-limit still gets a 200 — a non-2xx makes Twilio
   // retry, which would amplify a flood instead of shedding it.
-  if (!rateLimit(`twilio-sms:${from}`, 10, 60_000).ok) {
+  const limit = await rateLimit(`twilio-sms:${from}`, 10, 60_000);
+  if (limit.unavailable) return new Response("Rate limit store unavailable", { status: 503 });
+  if (!limit.ok) {
     console.warn("twilio sms rate-limited", maskedPhone(from));
     return twiml();
   }

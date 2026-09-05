@@ -1,3 +1,4 @@
+import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
@@ -417,11 +418,11 @@ export const recordMoveOutTool = defineWriteTool({
     const { error } = await ctx.db
       .from("manager_application_records")
       .update({
-        row_data: {
+        row_data: sealApplicantRow({
           ...rowData,
           application: { ...application, leaseEnd: input.moveOutDate },
           manualResidentDetails: { ...manual, moveOutDate: input.moveOutDate },
-        },
+        }, rec.id, ctx.landlordId),
         updated_at: new Date().toISOString(),
       })
       .eq("id", rec.id)

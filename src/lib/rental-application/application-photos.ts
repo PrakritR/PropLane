@@ -8,11 +8,12 @@ import type { ApplicationPhotoSlot } from "@/lib/rental-application/types";
  * `application-photos.server.ts`.
  */
 
-// 15 MB — must match the `application-documents` bucket file_size_limit.
+// 15 MB of original document bytes. The private bucket adds 4 KB for the
+// authenticated encryption envelope; that overhead does not expand this limit.
 export const MAX_APPLICATION_PHOTO_BYTES = 15_728_640;
 
-// Client-safe: the browser uploads directly to this bucket via signed upload
-// URLs minted by `/api/portal/application-photos`, so both sides need the name.
+// Client-safe: the browser encrypts first, then uploads directly via a signed
+// token minted by `/api/portal/application-photos`, so both sides need the name.
 export const APPLICATION_DOCUMENTS_BUCKET = "application-documents";
 
 /** Accepted MIME types → canonical file extension. */
@@ -60,8 +61,8 @@ export type ApplicationPhotoUploadValidation = { ok: true; mime: string; ext: st
  * Validate the declared MIME type + size for a slot. Shared by the client (after
  * downscale, before requesting a signed upload URL) and the server's sign
  * endpoint, so a client that skips its own check cannot mint a URL for a
- * disallowed or oversized object. The bucket's own file_size_limit is the final
- * backstop on the actual uploaded bytes.
+ * disallowed or oversized object. The original size is authenticated inside the
+ * wrapped data key; the bucket also caps the encrypted object plus overhead.
  */
 export function validateApplicationPhotoUpload(
   slot: ApplicationPhotoSlot,

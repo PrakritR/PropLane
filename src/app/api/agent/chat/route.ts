@@ -59,7 +59,7 @@ export async function POST(req: Request) {
   const ctx = await resolveAgentContext();
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-  if (!rateLimit(`agent-chat:${ctx.userId}`, 20, 60_000).ok) {
+  if (!(await rateLimit(`agent-chat:${ctx.userId}`, 20, 60_000)).ok) {
     return NextResponse.json(
       { error: "You're sending messages a little fast — please wait a moment and try again." },
       { status: 429 },

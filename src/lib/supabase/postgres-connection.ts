@@ -13,7 +13,15 @@ export function readSupabaseDatabasePassword(): string {
 /** Build a pooler connection string from Supabase project env vars. */
 export function postgresConnectionStringFromEnv(): string | null {
   const direct = process.env.DATABASE_URL?.trim() || process.env.POSTGRES_URL?.trim();
-  if (direct) return direct;
+  if (direct) {
+    // node-postgres connection-string SSL options overwrite the explicit `ssl`
+    // object, so an old ?sslmode=require must not disable CA verification.
+    const parsed = new URL(direct);
+    if ([...parsed.searchParams.keys()].some((key) => key.toLowerCase().startsWith("ssl"))) {
+      throw new Error("Remove SSL query parameters from the database URL; configure SUPABASE_DB_SSL_CA instead.");
+    }
+    return direct;
+  }
 
   const password = readSupabaseDatabasePassword();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
@@ -30,6 +38,10 @@ export function postgresConnectionStringFromEnv(): string | null {
   return `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${database}`;
 }
 
-export function postgresSslFromEnv(): false | { rejectUnauthorized: false } {
-  return process.env.SUPABASE_DB_SSL === "false" ? false : { rejectUnauthorized: false };
+export function postgresSslFromEnv(): { rejectUnauthorized: true; ca?: string } {
+  if (process.env.SUPABASE_DB_SSL === "false") {
+    throw new Error("Unencrypted database connections are disabled.");
+  }
+  const ca = process.env.SUPABASE_DB_SSL_CA?.trim().replace(/\\n/g, "\n");
+  return { rejectUnauthorized: true, ...(ca ? { ca } : {}) };
 }
