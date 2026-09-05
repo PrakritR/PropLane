@@ -52,6 +52,11 @@ describe("PRP-138 bathrooms", () => {
     expect(form).toContain('b.shower && "Shower"');
     expect(form).not.toContain("meta={<ListingWizardRowMeta value={bathTypeLabel} />}");
   });
+
+  it("appends new bathrooms to the end instead of inserting after the first row", () => {
+    expect(form).toContain("bathrooms: [...s.bathrooms, next]");
+    expect(form).not.toContain("bathrooms: [s.bathrooms[0]!, next, ...s.bathrooms.slice(1)]");
+  });
 });
 
 describe("PRP-139 shared spaces", () => {
@@ -81,6 +86,13 @@ describe("PRP-139 shared spaces", () => {
     expect(form).toContain('label="Add shared space"');
     expect(form).not.toContain("Or pick one above to prefill its amenities");
     expect(form).not.toContain("Add the common areas you want on");
+  });
+
+  it("matches the bathrooms step layout (grid, description, list wrapper)", () => {
+    expect(form).toContain('description="Name, location, and amenities for each shared area on the public listing."');
+    expect(form).toContain('className="mb-4 grid gap-2 sm:grid-cols-3"');
+    expect(form).toContain('data-wizard-field="sharedSpaces"');
+    expect(form).not.toContain("sub.sharedSpaces.length === 0 ? null");
   });
 
   it("uses the same ADD row for rooms and bathrooms", () => {

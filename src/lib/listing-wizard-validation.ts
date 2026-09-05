@@ -66,6 +66,7 @@ export function validateListingWizardStep(
   const entireHomeRent = opts.entireHomeRent ?? 0;
 
   if (stepIndex === 0) {
+    if (!sub.buildingName.trim()) errs.buildingName = "Property name is required.";
     if (!sub.address.trim()) errs.address = "Street address is required.";
     if (!sub.city.trim()) errs.city = "City is required.";
     const stateCheck = validateStateAbbrev(sub.state);

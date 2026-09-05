@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
+import { listAdminPortalManagerUserIds } from "@/lib/auth/admin-portal-manager-ids.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -31,6 +32,9 @@ export async function GET() {
     const db = createSupabaseServiceRoleClient();
 
     async function idsForPortalRole(role: "manager" | "resident"): Promise<string[]> {
+      if (role === "manager") {
+        return listAdminPortalManagerUserIds(db);
+      }
       const { data: pr } = await db.from("profile_roles").select("user_id").eq("role", role);
       const fromRoles = [...new Set((pr ?? []).map((r) => r.user_id))];
       const { data: legacy } = await db.from("profiles").select("id").eq("role", role);

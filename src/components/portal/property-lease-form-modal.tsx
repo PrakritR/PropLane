@@ -93,7 +93,7 @@ export function PropertyLeaseFormModal({
   demoMode?: boolean;
   canDelete?: boolean;
   onClose: () => void;
-  onSave: (nextTemplates: PropertyLeaseTemplate[]) => boolean;
+  onSave: (nextTemplates: PropertyLeaseTemplate[]) => boolean | Promise<boolean>;
   onDelete?: () => void;
   /** Reload listing submission after assistant confirms a lease edit. */
   onAssistantRefresh?: () => void;
@@ -114,6 +114,7 @@ export function PropertyLeaseFormModal({
   const [templateUploading, setTemplateUploading] = useState(false);
   const [parsingLease, setParsingLease] = useState(false);
   const [saveReviewOpen, setSaveReviewOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const source = leaseSourceFromDraft(draft);
   const typeMeta = useMemo(
@@ -255,7 +256,7 @@ export function PropertyLeaseFormModal({
     onClose();
   };
 
-  const commitSave = () => {
+  const commitSave = async () => {
     const validationError = validateLeaseDraft(draft, documentMode);
     if (validationError) {
       setError(validationError);
@@ -277,38 +278,43 @@ export function PropertyLeaseFormModal({
       leaseTemplateHtmlOverride: resolveHtmlOverrideToSave(),
     };
 
-    if (mode === "add") {
-      const created = {
-        ...createPropertyLeaseTemplate({
-          kind,
-          label: trimmedLabel,
-          source: leaseSourceFromDraft(leaseFields),
-          customLeaseTerms: leaseFields.customLeaseTerms,
-          leaseTemplateDocUrl: leaseFields.leaseTemplateDocUrl,
-          leaseTemplateDocName: leaseFields.leaseTemplateDocName,
-        }),
-        leaseTemplateHtmlOverride: leaseFields.leaseTemplateHtmlOverride,
-      };
-      const next = [...(templates ?? []), created];
-      if (!onSave(next)) return;
-      showToast("Lease added.");
+    setSaving(true);
+    try {
+      if (mode === "add") {
+        const created = {
+          ...createPropertyLeaseTemplate({
+            kind,
+            label: trimmedLabel,
+            source: leaseSourceFromDraft(leaseFields),
+            customLeaseTerms: leaseFields.customLeaseTerms,
+            leaseTemplateDocUrl: leaseFields.leaseTemplateDocUrl,
+            leaseTemplateDocName: leaseFields.leaseTemplateDocName,
+          }),
+          leaseTemplateHtmlOverride: leaseFields.leaseTemplateHtmlOverride,
+        };
+        const next = [...(templates ?? []), created];
+        if (!(await Promise.resolve(onSave(next)))) return;
+        showToast("Lease added.");
+        dismiss();
+        return;
+      }
+
+      if (!template || !templates) {
+        showToast("Could not save lease.");
+        return;
+      }
+
+      const next = updatePropertyLeaseTemplate(templates, template.id, {
+        label: trimmedLabel,
+        kind,
+        ...leaseFields,
+      });
+      if (!(await Promise.resolve(onSave(next)))) return;
+      showToast("Lease saved.");
       dismiss();
-      return;
+    } finally {
+      setSaving(false);
     }
-
-    if (!template || !templates) {
-      showToast("Could not save lease.");
-      return;
-    }
-
-    const next = updatePropertyLeaseTemplate(templates, template.id, {
-      label: trimmedLabel,
-      kind,
-      ...leaseFields,
-    });
-    if (!onSave(next)) return;
-    showToast("Lease saved.");
-    dismiss();
   };
 
   const save = () => {
@@ -316,7 +322,7 @@ export function PropertyLeaseFormModal({
       setSaveReviewOpen(true);
       return;
     }
-    commitSave();
+    void commitSave();
   };
 
   const handleDelete = () => {
@@ -384,11 +390,11 @@ export function PropertyLeaseFormModal({
             type="button"
             variant="primary"
             className="ml-auto rounded-full"
-            disabled={templateUploading || parsingLease}
+            disabled={templateUploading || parsingLease || saving}
             onClick={save}
             data-attr={mode === "add" ? "property-lease-add-save" : "property-lease-edit-save"}
           >
-            {templateUploading ? "Uploading…" : parsingLease ? "Parsing lease…" : "Save"}
+            {templateUploading ? "Uploading…" : parsingLease ? "Parsing lease…" : saving ? "Saving…" : "Save"}
           </Button>
         </ModalFooter>
       }
@@ -472,7 +478,7 @@ export function PropertyLeaseFormModal({
                     className="font-semibold underline"
                     onClick={() => {
                       setSaveReviewOpen(false);
-                      commitSave();
+                      void commitSave();
                     }}
                   >
                     save anyway

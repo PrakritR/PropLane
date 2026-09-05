@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { userHoldsAdminRole } from "@/lib/auth/admin-role";
 import { backfillOrphanGoogleOAuthManagers } from "@/lib/auth/provision-free-manager-oauth";
-import { deleteManagerAccount } from "@/lib/auth/delete-portal-account";
+import { deleteAdminPortalAccount } from "@/lib/auth/delete-portal-account";
+import {
+  ADMIN_PROFILE_ID_CHUNK,
+  listAdminPortalManagerUserIds,
+  loadProfilesByIdChunks,
+} from "@/lib/auth/admin-portal-manager-ids.server";
 import { normalizeManagerSkuTier, pickBestManagerPurchaseRow } from "@/lib/manager-access";
 import { setManagerPurchaseTier } from "@/lib/manager-access-server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -32,54 +37,76 @@ export async function GET() {
     // a single row — which is why the Accounts page sat on "Loading…". A
     // backfill is a maintenance sweep, not part of a read path; trigger it
     // explicitly via POST { action: "backfill-oauth-managers" }.
-    const { data: roleRows } = await supabase.from("profile_roles").select("user_id").eq("role", "manager");
-    const idsFromRoles = [...new Set((roleRows ?? []).map((r) => r.user_id))];
-    const { data: legacyRows } = await supabase.from("profiles").select("id").eq("role", "manager");
-    const legacyIds = (legacyRows ?? []).map((p) => p.id);
-    const allIds = [...new Set([...idsFromRoles, ...legacyIds])];
+    const allIds = await listAdminPortalManagerUserIds(supabase);
 
     if (allIds.length === 0) {
       return NextResponse.json({ managers: [] });
     }
 
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("id, email, full_name, manager_id, application_approved, created_at")
-      .in("id", allIds)
-      .order("created_at", { ascending: false });
+    const data = await loadProfilesByIdChunks<
+      {
+        id: string;
+        email: string | null;
+        full_name: string | null;
+        manager_id: string | null;
+        application_approved: boolean | null;
+        created_at: string | null;
+      }
+    >(
+      supabase,
+      allIds,
+      "id, email, full_name, manager_id, application_approved, created_at",
+    );
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    data.sort((a, b) => {
+      const aTime = Date.parse(String(a.created_at ?? "")) || 0;
+      const bTime = Date.parse(String(b.created_at ?? "")) || 0;
+      return bTime - aTime;
+    });
 
     // Also get tier info from manager_purchases
     const emails = (data ?? []).map((p) => p.email).filter(Boolean);
-    const [{ data: purchasesByEmail }, { data: purchasesByUserId }] = await Promise.all([
-      emails.length > 0
-        ? supabase
-            .from("manager_purchases")
-            .select("id, email, user_id, tier, billing, paid_at, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id")
-            .in("email", emails)
-        : Promise.resolve({
-            data: [] as {
-              id: string;
-              email: string;
-              user_id: string | null;
-              tier: string | null;
-              billing: string | null;
-              paid_at: string | null;
-              stripe_customer_id: string | null;
-              stripe_subscription_id: string | null;
-              stripe_checkout_session_id: string | null;
-            }[],
-          }),
-      supabase
+    const purchaseSelect =
+      "id, email, user_id, tier, billing, paid_at, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id";
+    type PurchaseRow = {
+      id: string;
+      email: string;
+      user_id: string | null;
+      tier: string | null;
+      billing: string | null;
+      paid_at: string | null;
+      stripe_customer_id: string | null;
+      stripe_subscription_id: string | null;
+      stripe_checkout_session_id: string | null;
+    };
+    const purchasesByEmail: PurchaseRow[] = [];
+    if (emails.length > 0) {
+      for (let index = 0; index < emails.length; index += ADMIN_PROFILE_ID_CHUNK) {
+        const chunk = emails.slice(index, index + ADMIN_PROFILE_ID_CHUNK);
+        const { data: rows, error: purchaseError } = await supabase
+          .from("manager_purchases")
+          .select(purchaseSelect)
+          .in("email", chunk);
+        if (purchaseError) {
+          return NextResponse.json({ error: purchaseError.message }, { status: 500 });
+        }
+        purchasesByEmail.push(...(rows ?? []));
+      }
+    }
+    const purchasesByUserId: PurchaseRow[] = [];
+    for (let index = 0; index < allIds.length; index += ADMIN_PROFILE_ID_CHUNK) {
+      const chunk = allIds.slice(index, index + ADMIN_PROFILE_ID_CHUNK);
+      const { data: rows, error: purchaseError } = await supabase
         .from("manager_purchases")
-        .select("id, email, user_id, tier, billing, paid_at, stripe_customer_id, stripe_subscription_id, stripe_checkout_session_id")
-        .in("user_id", allIds),
-    ]);
+        .select(purchaseSelect)
+        .in("user_id", chunk);
+      if (purchaseError) {
+        return NextResponse.json({ error: purchaseError.message }, { status: 500 });
+      }
+      purchasesByUserId.push(...(rows ?? []));
+    }
 
-    const purchasesByProfileId = new Map<string, typeof purchasesByUserId>();
+    const purchasesByProfileId = new Map<string, PurchaseRow[]>();
     for (const profile of data ?? []) {
       const email = String(profile.email ?? "").toLowerCase();
       const rows = [
@@ -200,7 +227,7 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: "You cannot delete your own account while signed in." }, { status: 400 });
     }
 
-    const result = await deleteManagerAccount(supabase, id);
+    const result = await deleteAdminPortalAccount(supabase, id);
     return NextResponse.json({ ok: true, mode: result.mode });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";

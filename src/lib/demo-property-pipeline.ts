@@ -884,6 +884,9 @@ export function updatePendingManagerProperty(
   map[managerUserId] = list;
   writePendingMap(map);
   mirrorPropertyRecord({ id: pendingId, managerUserId, status: "pending", rowData: list[idx] });
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(serverSyncOriginatedEvent(PROPERTY_PIPELINE_EVENT));
+  }
   return true;
 }
 
@@ -968,8 +971,9 @@ export async function updateExtraListingFromSubmissionOnServer(
 ): Promise<boolean> {
   if (!managerUserId.trim()) return false;
   const map = readExtrasMap();
-  const list = map[managerUserId];
-  if (!list) return false;
+  const ownerKey = Object.keys(map).find((uid) => (map[uid] ?? []).some((p) => p.id === listingId));
+  if (!ownerKey) return false;
+  const list = map[ownerKey]!;
   const idx = list.findIndex((p) => p.id === listingId);
   if (idx === -1) return false;
   const legacy = deriveLegacyFields(input);
@@ -981,8 +985,7 @@ export async function updateExtraListingFromSubmissionOnServer(
     submittedByUserId: managerUserId,
   };
   const next = buildMockPropertyFromDraft(pendingLike, listingId);
-  const owner = next.managerUserId ?? managerUserId;
-  // Listings publish immediately — edits stay live on the rent catalog.
+  const owner = list[idx]!.managerUserId ?? next.managerUserId ?? ownerKey;
   const propertyData: MockProperty = { ...next, managerUserId: owner, adminPublishLive: true };
   const rowData = { ...legacy, adminRefId: listingId, listingId, managerUserId };
   const ok = await upsertPropertyRecordToServer({
@@ -993,11 +996,12 @@ export async function updateExtraListingFromSubmissionOnServer(
     rowData,
   });
   if (!ok) return false;
-  const nextList = [...list];
-  if (idx === -1) nextList.push(propertyData);
-  else nextList[idx] = propertyData;
-  map[managerUserId] = nextList;
+  list[idx] = propertyData;
+  map[ownerKey] = list;
   writeExtrasMap(map);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(serverSyncOriginatedEvent(PROPERTY_PIPELINE_EVENT));
+  }
   await syncPropertyPipelineFromServer({ force: true });
   return true;
 }

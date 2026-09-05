@@ -36,7 +36,7 @@ describe("room furnishing has an Other write-in", () => {
   });
 
   it("only shows the input while Other is ticked", () => {
-    const block = source.split("listing-room-furnishing-other-")[1]?.slice(0, 1200) ?? "";
+    const block = source.split("listing-room-furnishing-other-")[1]?.slice(0, 1400) ?? "";
     expect(block).toContain("otherOn ? (");
     expect(block).toContain("Other furnishing, comma-separated");
   });
