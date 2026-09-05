@@ -2899,6 +2899,31 @@ export function residentRequestEdits(email: string, message: string): boolean {
   return true;
 }
 
+export async function residentReportLeaseIssue(
+  leaseId: string,
+  message: string,
+): Promise<LeasePipelineActionResult> {
+  if (!canUseStorage() || isDemoModeActive()) {
+    return { ok: false, error: "Report issue is unavailable in demo mode." };
+  }
+  const trimmed = message.trim();
+  if (!trimmed) return { ok: false, error: "Describe what needs to change." };
+  try {
+    const res = await fetch("/api/resident/report-lease-issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ leaseId, message: trimmed }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    if (!res.ok) return { ok: false, error: body.error ?? "Could not send your report." };
+    await syncLeasePipelineFromServer(undefined, { force: true });
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Could not send your report." };
+  }
+}
+
 export function residentSendLeaseToManager(email: string): boolean {
   const key = email.trim().toLowerCase();
   const rows = [...(readRaw() ?? readLeasePipeline())];
