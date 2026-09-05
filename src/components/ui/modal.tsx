@@ -112,6 +112,8 @@ export type ModalShellProps = {
   dataAttr?: string;
   /** When true, outside click / Escape / programmatic dismiss are ignored (nested child modal open). */
   dismissBlocked?: boolean;
+  /** A full-viewport shared workspace treats its empty canvas as backdrop. */
+  dismissOnCanvasPointerDown?: boolean;
 };
 
 /** Radix Dialog (desktop) + Vaul drawer (mobile) shell for custom modal layouts. */
@@ -136,6 +138,7 @@ export function ModalShell({
   ariaBusy,
   dataAttr,
   dismissBlocked = false,
+  dismissOnCanvasPointerDown = false,
 }: ModalShellProps) {
   const isClient = useIsClient();
   const autoPresentation = useModalPresentation();
@@ -173,6 +176,11 @@ export function ModalShell({
     "aria-describedby": ariaDescribedBy,
     "aria-busy": ariaBusy,
     "data-attr": dataAttr,
+    onPointerDown: dismissOnCanvasPointerDown
+      ? (event: import("react").PointerEvent<HTMLDivElement>) => {
+          if (event.target === event.currentTarget && event.button === 0 && !dismissBlocked) onClose();
+        }
+      : undefined,
   };
 
   if (resolvedPresentation === "drawer") {
@@ -274,6 +282,7 @@ function ModalPanelInner({
   assistantDefaultExpanded = false,
   assistantEditHint,
   scrollableContent = true,
+  headerAction,
   TitlePrimitive,
   DescriptionPrimitive,
   ClosePrimitive,
@@ -293,6 +302,7 @@ function ModalPanelInner({
   assistantDefaultExpanded?: boolean;
   assistantEditHint?: string;
   scrollableContent?: boolean;
+  headerAction?: ReactNode;
   TitlePrimitive: ComponentType<ModalTitlePrimitiveProps>;
   DescriptionPrimitive: ComponentType<ModalDescriptionPrimitiveProps>;
   ClosePrimitive: ComponentType<ModalClosePrimitiveProps>;
@@ -334,6 +344,7 @@ function ModalPanelInner({
               {title}
             </h3>
           </TitlePrimitive>
+          {headerAction}
           <ClosePrimitive asChild>
             <button type="button" onClick={onClose} aria-label="Close" className={MODAL_HEADER_CLOSE_CLASS}>
               <X className="h-5 w-5" aria-hidden />
@@ -475,14 +486,17 @@ export function Modal({
 
   const [assistantConversationInstance, setAssistantConversationInstance] = useState(1);
   const [assistantExpanded, setAssistantExpanded] = useState(assistantDefaultExpanded);
+  const [editorDismissed, setEditorDismissed] = useState(false);
+  const [assistantTriggerTarget, setAssistantTriggerTarget] = useState<HTMLSpanElement | null>(null);
   const wasOpenRef = useRef(false);
   useLayoutEffect(() => {
     if (open && !wasOpenRef.current) {
       setAssistantConversationInstance((n) => n + 1);
       setAssistantExpanded(assistantDefaultExpanded);
+      setEditorDismissed(false);
     }
     wasOpenRef.current = open;
-  }, [open]);
+  }, [open, assistantDefaultExpanded]);
 
   /** Footer actions sit below the assistant — children own internal scroll. */
   const stackedPortalLayout = footer != null;
@@ -511,6 +525,74 @@ export function Modal({
   };
 
   if (!open) return null;
+
+  if (showAssistantStrip) {
+    const closeEditor = () => {
+      if (dismissBlocked) return;
+      if (!assistantExpanded) { onClose(); return; }
+      // Remove the draft's mounted controls and rotate its scoped conversation:
+      // a preview for the discarded editor must never remain actionable.
+      setEditorDismissed(true);
+      setAssistantConversationInstance((n) => n + 1);
+    };
+    const closeOrToggleAssistant = (expanded: boolean) => {
+      setAssistantExpanded(expanded);
+      if (!expanded && editorDismissed) onClose();
+    };
+    // Both panels live inside ONE Radix focus/dismiss boundary. Pointer events
+    // pass through the empty canvas to the backdrop, but not through either panel.
+    return (
+      <ModalShell
+        open={open}
+        onClose={onClose}
+        presentation="dialog"
+        dismissBlocked={dismissBlocked}
+        stackClassName={stackClassName}
+        dismissOnCanvasPointerDown
+        panelClassName="pointer-events-none fixed inset-0 flex min-h-0 min-w-0 outline-none"
+        ariaLabel={editorDismissed ? "PropLane Assistant" : undefined}
+        ariaDescribedBy={!editorDismissed && description ? "modal-description" : undefined}
+        dataAttr={dataAttr}
+      >
+        <div
+          data-modal-assistant-workspace=""
+          className={cn(
+            "pointer-events-none flex min-h-0 min-w-0 flex-1 items-center justify-center p-4",
+            assistantExpanded && "lg:pr-[25rem]",
+            assistantExpanded && "max-lg:invisible",
+          )}
+          inert={assistantExpanded && presentation === "drawer" ? true : undefined}
+        >
+          {!editorDismissed ? (
+            <div className={cn(MODAL_PANEL_CLASS, "pointer-events-auto min-h-0 @container max-lg:max-h-[calc(100dvh-2rem)]", resolvedPanelClassName, fullPage && "h-full max-w-none")}>
+              <ModalPanelInner
+                {...panelInnerProps}
+                onClose={closeEditor}
+                showAssistantStrip={false}
+                assistantExpanded={false}
+                headerAction={<span ref={setAssistantTriggerTarget} className="shrink-0" />}
+                TitlePrimitive={Dialog.Title}
+                DescriptionPrimitive={Dialog.Description}
+                // The editor X is independent; Dialog.Close would dismiss both.
+                ClosePrimitive={({ children }) => <>{children}</>}
+              />
+            </div>
+          ) : <Dialog.Title className="sr-only">PropLane Assistant</Dialog.Title>}
+        </div>
+        <ModalAssistantStrip
+          contextHint={editorDismissed ? null : assistantHint}
+          editHint={editorDismissed ? null : assistantEditHint}
+          storageScopeKey={editorDismissed ? "Detached assistant" : assistantStorageScopeKey?.trim() || assistantHint}
+          conversationInstance={assistantConversationInstance}
+          onExpandedChange={closeOrToggleAssistant}
+          defaultExpanded={editorDismissed || assistantDefaultExpanded}
+          triggerTarget={assistantTriggerTarget}
+          hideTrigger={editorDismissed}
+          detached={editorDismissed}
+        />
+      </ModalShell>
+    );
+  }
 
   const useFullViewport = fullPage || fullScreenMobile;
 

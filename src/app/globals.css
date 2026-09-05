@@ -3442,3 +3442,17 @@ html[data-native] [data-listing-subnav] {
   border-radius: 0;
   background: transparent;
 }
+
+/* Custom listing/lease editors share the same viewport assistant rail. The
+   shared Modal workspace reserves its own editor column inside one focus scope. */
+@media (min-width: 1024px) {
+  [role="dialog"][data-modal-assistant-open]:not(:has(> [data-modal-assistant-workspace])) {
+    min-width: min(64rem, calc(100vw - 2rem));
+    padding-right: 25rem;
+  }
+}
+@media (max-width: 1023px) {
+  [role="dialog"][data-modal-assistant-open] > :not([data-attr="modal-assistant-rail"]) {
+    visibility: hidden;
+  }
+}

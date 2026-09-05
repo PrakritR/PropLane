@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronsRight } from "lucide-react";
+import { ChevronsRight, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { AssistantChatComposer } from "@/components/portal/assistant-chat-composer";
@@ -18,14 +18,13 @@ import {
   AssistantSuggestionChips,
   AxisAssistantSparkleIcon,
 } from "@/components/portal/assistant-shared";
-import { userMessageContentFromInput } from "@/lib/assistant-chat-attachments.client";
 import { useOptionalAssistantConversation } from "@/lib/axis-assistant/assistant-conversation-context";
 import { cn } from "@/lib/utils";
 
 export type AssistantDockPanelProps = {
   managerName?: string | null;
   endpoint?: string;
-  /** Optional scope prefix sent with each user message (e.g. modal title). */
+  /** Internal task context sent separately from visible user messages (e.g. modal title). */
   contextHint?: string | null;
   className?: string;
   /** Tighter layout for modal footers. */
@@ -109,20 +108,7 @@ export function AssistantDockPanel({
   }, [compact, hydrateArchive]);
 
   async function sendWithContext(prompt?: string) {
-    if (!hint) {
-      await send(prompt);
-      return;
-    }
-    const rawBody = prompt?.trim() || userMessageContentFromInput(input, attachments);
-    if (!rawBody) return;
-    const body = rawBody.replace(/^\[Context:[^\]]+\]\s*/gim, "").trim() || rawBody;
-    const scoped = `[Context: ${hint}]\n\n${body}`;
-    if (prompt?.trim()) {
-      await send(scoped);
-    } else {
-      setInput("");
-      await send(scoped);
-    }
+    await send(prompt, { contextHint: hint });
   }
 
   return (
@@ -146,12 +132,11 @@ export function AssistantDockPanel({
             <button
               type="button"
               onClick={onCollapse}
-              className="inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-muted transition hover:bg-foreground/5 hover:text-foreground"
-              data-attr="lease-edit-assistant-collapse"
-              aria-expanded
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25"
+              data-attr="modal-assistant-close"
+              aria-label="Close assistant"
             >
-              Hide
-              <ChevronsRight className="h-3.5 w-3.5 rotate-90" aria-hidden />
+              <X className="h-4 w-4" aria-hidden />
             </button>
           ) : null}
         </div>
@@ -352,7 +337,7 @@ export function AssistantDockPanel({
           inputRef={inputRef}
           inputId={inputId}
           inputAriaLabel={inputId ? "Ask the PropLane Assistant about your portfolio" : undefined}
-          placeholder={compact ? "Ask PropPlane to help — attach images or PDFs with the paperclip" : "Ask about your portfolio… Attach images or PDFs with the paperclip."}
+          placeholder={compact ? "Ask PropLane to help — attach images or PDFs with the paperclip" : "Ask about your portfolio… Attach images or PDFs with the paperclip."}
           onSend={() => void sendWithContext()}
         />
       </form>
