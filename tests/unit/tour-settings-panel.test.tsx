@@ -40,6 +40,12 @@ describe("TourSettingsPanel", () => {
         if (url.includes("/api/portal/automation-settings")) {
           return Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS });
         }
+        // The panel now embeds the manager reminder-rule settings, which load
+        // from their own endpoint. Unstubbed, that child stayed in "Loading…"
+        // after the parent had finished, so the panel never looked loaded.
+        if (url.includes("/api/portal/reminder-settings")) {
+          return Response.json({ settings: {} });
+        }
         throw new Error(`Unexpected fetch: ${url}`);
       }),
     );
