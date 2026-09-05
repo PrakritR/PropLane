@@ -1471,6 +1471,7 @@ export function ManagerAddListingForm({
     managerSkuTier,
     paymentWaiverGranted,
   );
+  const showProcessingFeeWaiveCode = serviceFeePayerUi === "proplane";
 
   useEffect(() => {
     if (isDemoModeActive()) return;
@@ -4349,37 +4350,32 @@ export function ManagerAddListingForm({
                   <GridField>
                     <FieldLabel>Processing fee paid by</FieldLabel>
                     <div className="flex w-full flex-col gap-2">
-                      <div
-                        className={
-                          proplaneAbsorbNeedsWaiverCode
-                            ? "flex flex-col gap-2 sm:flex-row sm:items-center"
-                            : "w-full"
-                        }
+                      <Select
+                        value={serviceFeePayerUi}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const next: ServiceFeePayer =
+                            raw === "proplane" || raw === "manager" || raw === "resident" ? raw : "resident";
+                          if (next === "manager" && !canSelectManagerAbsorbFee) return;
+                          setSub((s) => ({
+                            ...s,
+                            serviceFeePayer: next,
+                            serviceFeeWaiverCode: next === "proplane" ? s.serviceFeeWaiverCode : undefined,
+                          }));
+                        }}
                       >
-                        <Select
-                          className={proplaneAbsorbNeedsWaiverCode ? "min-w-0 sm:flex-1" : undefined}
-                          value={serviceFeePayerUi}
-                          onChange={(e) => {
-                            const raw = e.target.value;
-                            const next: ServiceFeePayer =
-                              raw === "proplane" || raw === "manager" || raw === "resident" ? raw : "resident";
-                            if (next === "manager" && !canSelectManagerAbsorbFee) return;
-                            setSub((s) => ({
-                              ...s,
-                              serviceFeePayer: next,
-                              serviceFeeWaiverCode: next === "proplane" ? s.serviceFeeWaiverCode : undefined,
-                            }));
-                          }}
-                        >
-                          <option value="resident">Resident pays</option>
-                          <option value="manager" disabled={!canSelectManagerAbsorbFee}>
-                            Manager pays{canSelectManagerAbsorbFee ? "" : " (needs paid plan)"}
-                          </option>
-                          <option value="proplane">PropLane absorbs</option>
-                        </Select>
-                        {proplaneAbsorbNeedsWaiverCode ? (
+                        <option value="resident">Resident pays</option>
+                        <option value="manager" disabled={!canSelectManagerAbsorbFee}>
+                          Manager pays{canSelectManagerAbsorbFee ? "" : " (needs paid plan)"}
+                        </option>
+                        <option value="proplane">PropLane absorbs</option>
+                      </Select>
+                      {showProcessingFeeWaiveCode ? (
+                        <div className="space-y-2 border-t border-border pt-3">
+                          <FieldLabel optional={!proplaneAbsorbNeedsWaiverCode}>
+                            Processing fee waive code
+                          </FieldLabel>
                           <Input
-                            className="min-w-0 sm:flex-1"
                             value={sub.serviceFeeWaiverCode ?? ""}
                             onChange={(e) =>
                               setSub((s) => ({
@@ -4389,19 +4385,26 @@ export function ManagerAddListingForm({
                               }))
                             }
                             placeholder="FREE100"
-                            aria-label="PropLane absorb waiver code"
+                            aria-label="Processing fee waive code"
                             autoComplete="off"
+                            data-attr="listing-service-fee-waiver-code"
+                            className="w-full font-mono uppercase"
                             aria-invalid={Boolean(stepFieldErrors.serviceFeeWaiverCode)}
                             aria-describedby={
                               stepFieldErrors.serviceFeeWaiverCode ? "listing-service-fee-waiver-error" : undefined
                             }
                           />
-                        ) : null}
-                      </div>
-                      {stepFieldErrors.serviceFeeWaiverCode ? (
-                        <p id="listing-service-fee-waiver-error" className="text-xs text-destructive">
-                          {stepFieldErrors.serviceFeeWaiverCode}
-                        </p>
+                          {proplaneAbsorbNeedsWaiverCode ? (
+                            <p className="text-xs text-muted">
+                              Required — enter FREE100 so PropLane can absorb processing fees on this listing.
+                            </p>
+                          ) : null}
+                          {stepFieldErrors.serviceFeeWaiverCode ? (
+                            <p id="listing-service-fee-waiver-error" className="text-xs text-destructive">
+                              {stepFieldErrors.serviceFeeWaiverCode}
+                            </p>
+                          ) : null}
+                        </div>
                       ) : null}
                     </div>
                   </GridField>
