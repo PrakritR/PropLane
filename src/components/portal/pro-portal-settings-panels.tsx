@@ -47,11 +47,17 @@ import {
   PaymentAutomationSettingsPanel,
   type PaymentAutomationSettingsHandle,
 } from "@/components/portal/payment-schedule-ui";
-import { TaskAutomationSettingsFields } from "@/components/portal/task-automation-settings-fields";
 import {
   ManagerReminderRuleSettingsPanel,
   type ManagerReminderRuleSettingsHandle,
 } from "@/components/portal/manager-reminder-rule-settings";
+import {
+  ApplicationRemindersSettingsBundle,
+  LeaseRemindersSettingsBundle,
+  ServiceRemindersSettingsBundle,
+} from "@/components/portal/reminder-settings-bundles";
+import { ReminderTypePicker } from "@/components/portal/reminder-type-picker";
+import { TaskAutomationSettingsFields } from "@/components/portal/task-automation-settings-fields";
 import type { WorkAssignmentTeamMember } from "@/hooks/use-work-assignment-directory";
 import {
   DEFAULT_LIFECYCLE_AUTOMATION,
@@ -248,16 +254,11 @@ export function ApplicationsSettingsPanel({
           Auto-approve is on for this property. New submissions are approved without a manual review step.
         </p>
       ) : null}
-      <div className="border-t border-border pt-4">
-        <ManagerReminderRuleSettingsPanel
-          kind="application"
-          audienceMode="both"
-          sectionTitle="Application reminders"
-          teamMembers={teamMembers}
-          formRef={reminderFormRef}
-          disabled={loading || saving}
-        />
-      </div>
+      <ApplicationRemindersSettingsBundle
+        teamMembers={teamMembers}
+        formRef={reminderFormRef}
+        disabled={loading || saving}
+      />
     </div>
   );
 }
@@ -440,16 +441,11 @@ export function LeaseSettingsPanel({
           </span>
         </label>
       ))}
-      <div className="border-t border-border pt-4">
-        <ManagerReminderRuleSettingsPanel
-          kind="lease"
-          audienceMode="both"
-          sectionTitle="Lease reminders"
-          teamMembers={teamMembers}
-          formRef={reminderFormRef}
-          disabled={loading || saving}
-        />
-      </div>
+      <LeaseRemindersSettingsBundle
+        teamMembers={teamMembers}
+        formRef={reminderFormRef}
+        disabled={loading || saving}
+      />
     </div>
   );
 }
@@ -468,24 +464,11 @@ export function ServicesSettingsPanel({
   useReportSettingsPanelFooter(onFooterReady, null);
 
   return (
-    <div className="space-y-8">
-      <ManagerReminderRuleSettingsPanel
-        kind="work_order"
-        audienceMode="both"
-        sectionTitle="Maintenance visit reminders"
-        teamMembers={teamMembers}
-        formRef={workOrderReminderFormRef}
-      />
-      <div className="border-t border-border pt-6">
-        <ManagerReminderRuleSettingsPanel
-          kind="service_order"
-          audienceMode="both"
-          sectionTitle="Add-on service reminders"
-          teamMembers={teamMembers}
-          formRef={serviceOrderReminderFormRef}
-        />
-      </div>
-    </div>
+    <ServiceRemindersSettingsBundle
+      teamMembers={teamMembers}
+      workOrderFormRef={workOrderReminderFormRef}
+      serviceOrderFormRef={serviceOrderReminderFormRef}
+    />
   );
 }
 
@@ -522,6 +505,7 @@ export function TourSettingsPanel({
     tourAutomationSnapshot(DEFAULT_MANAGER_AUTOMATION_SETTINGS),
   );
   const [messageModalOpen, setMessageModalOpen] = useState(false);
+  const [tourReminderType, setTourReminderType] = useState<"guest" | "manager">("guest");
 
   useEffect(() => {
     let cancelled = false;
@@ -686,55 +670,73 @@ export function TourSettingsPanel({
           <span className="min-w-0 text-[13px] font-medium text-foreground">Auto confirm tours</span>
         </label>
 
-        <div className="space-y-3 border-t border-border pt-4">
-          <p className="text-[13.5px] font-semibold text-foreground">Guest tour reminders</p>
-          <TourReminderTimingSelect
-            minutesBeforeList={normalizeTourReminderMinutesBeforeList(
-              automation.tourReminderMinutesBeforeList,
-              automation.tourReminderMinutesBefore,
-            )}
-            onChangeMinutesList={(minutesBeforeList) =>
-              setAutomation((prev) => ({
-                ...prev,
-                tourReminderMinutesBeforeList: minutesBeforeList,
-                tourReminderMinutesBefore: minutesBeforeList.length
-                  ? Math.min(...minutesBeforeList)
-                  : prev.tourReminderMinutesBefore,
-              }))
-            }
+        <div className="space-y-4 border-t border-border pt-4">
+          <p className="text-[13.5px] font-semibold text-foreground">Tour reminders</p>
+          <ReminderTypePicker
+            value={tourReminderType}
+            options={[
+              {
+                value: "guest",
+                label: "Guest tour reminders",
+                description: "Sent to prospects before their scheduled tour.",
+              },
+              {
+                value: "manager",
+                label: "Your tour reminders",
+                description: "Nudges you before tours on your calendar.",
+              },
+            ]}
+            onChange={setTourReminderType}
+            dataAttr="tour-reminder-type"
           />
-          <ReminderSendViaField
-            showProplaneChannel
-            viaInbox={automation.tourReminderDeliverViaInbox !== false}
-            viaEmail={automation.tourReminderDeliverViaEmail !== false}
-            viaSms={automation.tourReminderDeliverViaSms === true}
-            smsLabel="SMS (when guest opted in)"
-            onChange={({ viaEmail, viaSms, viaInbox }) =>
-              setAutomation((prev) => ({
-                ...prev,
-                tourReminderDeliverViaInbox: viaInbox !== false,
-                tourReminderDeliverViaEmail: viaEmail,
-                tourReminderDeliverViaSms: viaSms,
-              }))
-            }
-            dataAttr="tour-reminder-send-via"
-          />
-          <ReminderMessagePreviewCard
-            subject={templatePreview.subject}
-            body={templatePreview.body}
-            onUpdate={() => setMessageModalOpen(true)}
-            dataAttr="tour-reminder-update-message"
-          />
-        </div>
-
-        <div className="border-t border-border pt-4">
-          <ManagerReminderRuleSettingsPanel
-            kind="tour"
-            audienceMode="manager"
-            sectionTitle="Your tour reminders"
-            teamMembers={teamMembers}
-            formRef={managerReminderFormRef}
-          />
+          {tourReminderType === "guest" ? (
+            <div className="space-y-3">
+              <TourReminderTimingSelect
+                minutesBeforeList={normalizeTourReminderMinutesBeforeList(
+                  automation.tourReminderMinutesBeforeList,
+                  automation.tourReminderMinutesBefore,
+                )}
+                onChangeMinutesList={(minutesBeforeList) =>
+                  setAutomation((prev) => ({
+                    ...prev,
+                    tourReminderMinutesBeforeList: minutesBeforeList,
+                    tourReminderMinutesBefore: minutesBeforeList.length
+                      ? Math.min(...minutesBeforeList)
+                      : prev.tourReminderMinutesBefore,
+                  }))
+                }
+              />
+              <ReminderSendViaField
+                showProplaneChannel
+                viaInbox={automation.tourReminderDeliverViaInbox !== false}
+                viaEmail={automation.tourReminderDeliverViaEmail !== false}
+                viaSms={automation.tourReminderDeliverViaSms === true}
+                smsLabel="SMS (when guest opted in)"
+                onChange={({ viaEmail, viaSms, viaInbox }) =>
+                  setAutomation((prev) => ({
+                    ...prev,
+                    tourReminderDeliverViaInbox: viaInbox !== false,
+                    tourReminderDeliverViaEmail: viaEmail,
+                    tourReminderDeliverViaSms: viaSms,
+                  }))
+                }
+                dataAttr="tour-reminder-send-via"
+              />
+              <ReminderMessagePreviewCard
+                subject={templatePreview.subject}
+                body={templatePreview.body}
+                onUpdate={() => setMessageModalOpen(true)}
+                dataAttr="tour-reminder-update-message"
+              />
+            </div>
+          ) : (
+            <ManagerReminderRuleSettingsPanel
+              kind="tour"
+              audienceMode="manager"
+              teamMembers={teamMembers}
+              formRef={managerReminderFormRef}
+            />
+          )}
         </div>
       </div>
 
@@ -792,13 +794,19 @@ export function PaymentsSettingsPanel({
 
   if (mode === "outgoing") {
     return (
-      <ManagerReminderRuleSettingsPanel
-        kind="outgoing_payment"
-        audienceMode="manager"
-        sectionTitle="Outgoing payment reminders"
-        teamMembers={teamMembers}
-        formRef={outgoingReminderFormRef}
-      />
+      <div className="space-y-3">
+        <p className="text-xs text-muted">
+          Outgoing payments are bills you need to pay. These reminders go to you (and optional team
+          members), not to payees.
+        </p>
+        <ManagerReminderRuleSettingsPanel
+          kind="outgoing_payment"
+          audienceMode="manager"
+          sectionTitle="Outgoing payment reminders"
+          teamMembers={teamMembers}
+          formRef={outgoingReminderFormRef}
+        />
+      </div>
     );
   }
 

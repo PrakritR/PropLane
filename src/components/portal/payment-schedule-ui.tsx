@@ -658,61 +658,6 @@ function sortReminderScheduleTokens(tokens: ReminderScheduleToken[]): ReminderSc
   return ordered;
 }
 
-function ReminderScheduleChipRow({
-  tokens,
-  busy,
-  onChange,
-}: {
-  tokens: ReminderScheduleToken[];
-  busy: boolean;
-  onChange: (next: ReminderScheduleToken[]) => void;
-}) {
-  const sorted = sortReminderScheduleTokens(tokens);
-  if (!sorted.length) return null;
-  return (
-    <ul className="flex flex-wrap gap-1.5" aria-label="Selected reminders">
-      {sorted.map((token) => (
-        <li key={token}>
-          <button
-            type="button"
-            disabled={busy}
-            className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-2.5 py-1 text-xs font-medium text-foreground transition hover:bg-primary/15 disabled:opacity-50"
-            onClick={() => onChange(tokens.filter((t) => t !== token))}
-            aria-label={`Remove ${labelForReminderScheduleToken(token)}`}
-          >
-            <span className="truncate">{labelForReminderScheduleToken(token)}</span>
-            <span className="text-muted" aria-hidden>
-              ×
-            </span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function ReminderPresetDropdown({
-  activePreset,
-  busy,
-  onSelect,
-}: {
-  activePreset: ReminderPresetId;
-  busy: boolean;
-  onSelect: (presetId: ReminderPresetId) => void;
-}) {
-  return (
-    <FieldSingleSelect
-      label="Start from template"
-      labelClassName={PORTAL_FIELD_LABEL_CLASS}
-      options={[...REMINDER_PRESET_OPTIONS]}
-      value={activePreset}
-      disabled={busy}
-      dataAttr="payment-reminder-schedule-preset"
-      onChange={(next) => onSelect(next as ReminderPresetId)}
-    />
-  );
-}
-
 function UnifiedReminderScheduleSelect({
   draft,
   busy,
@@ -735,7 +680,11 @@ function UnifiedReminderScheduleSelect({
   }, [draft.preDueReminderDays]);
 
   const selected = reminderScheduleTokensFromSettings(draft);
-  const hasSelection = selected.length > 0;
+  const selectionTriggerLabel = useMemo(() => {
+    const sorted = sortReminderScheduleTokens(selected);
+    if (!sorted.length) return undefined;
+    return sorted.map((token) => labelForReminderScheduleToken(token)).join(", ");
+  }, [selected]);
 
   const commitSchedule = (tokens: ReminderScheduleToken[]) => {
     onChange(settingsPatchFromReminderScheduleTokens(tokens));
@@ -753,37 +702,25 @@ function UnifiedReminderScheduleSelect({
   };
 
   return (
-    <div className="space-y-2">
-      {hasSelection ? (
-        <>
-          <p className={PORTAL_FIELD_LABEL_CLASS}>Reminders</p>
-          <ReminderScheduleChipRow
-            tokens={selected}
-            busy={busy}
-            onChange={(next) => commitSchedule(next)}
-          />
-        </>
-      ) : null}
-      <CheckboxMultiSelect
-        label="Reminders"
-        labelClassName={PORTAL_FIELD_LABEL_CLASS}
-        hideLabel={hasSelection}
-        selectionTriggerLabel={hasSelection ? "Add or remove…" : undefined}
-        groups={[
-          { label: "Before due", options: beforeDueOptions },
-          {
-            label: "Due & after",
-            options: [
-              { value: "due_date", label: "Due date" },
-              { value: "every_day_late", label: "Every day late" },
-            ],
-          },
-        ]}
-        selected={selected}
-        onChange={(next) => commitSchedule(next as ReminderScheduleToken[])}
-        disabled={busy}
-        emptyLabel="Choose reminders…"
-        dataAttr="payment-reminder-schedule"
+    <CheckboxMultiSelect
+      label="Reminders"
+      labelClassName={PORTAL_FIELD_LABEL_CLASS}
+      groups={[
+        { label: "Before due", options: beforeDueOptions },
+        {
+          label: "Due & after",
+          options: [
+            { value: "due_date", label: "Due date" },
+            { value: "every_day_late", label: "Every day late" },
+          ],
+        },
+      ]}
+      selected={selected}
+      selectionTriggerLabel={selectionTriggerLabel}
+      onChange={(next) => commitSchedule(next as ReminderScheduleToken[])}
+      disabled={busy}
+      emptyLabel="Choose reminders…"
+      dataAttr="payment-reminder-schedule"
       menuFooter={
         <div className="px-3 py-2">
           <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-muted">Custom day</p>
@@ -818,11 +755,30 @@ function UnifiedReminderScheduleSelect({
         </div>
       }
     />
-    </div>
   );
 }
 
-export type PaymentReminderSaveScope = "future_only" | "future_and_existing";
+function ReminderPresetDropdown({
+  activePreset,
+  busy,
+  onSelect,
+}: {
+  activePreset: ReminderPresetId;
+  busy: boolean;
+  onSelect: (presetId: ReminderPresetId) => void;
+}) {
+  return (
+    <FieldSingleSelect
+      label="Start from template"
+      labelClassName={PORTAL_FIELD_LABEL_CLASS}
+      options={[...REMINDER_PRESET_OPTIONS]}
+      value={activePreset}
+      disabled={busy}
+      dataAttr="payment-reminder-schedule-preset"
+      onChange={(next) => onSelect(next as ReminderPresetId)}
+    />
+  );
+}
 
 function PaymentAutomationSettingsForm({
   initialSettings,

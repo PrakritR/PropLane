@@ -13,7 +13,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { dispatchDueReminders } from "@/lib/reminders/dispatch.server";
 import { sweepTaskReminders } from "@/lib/reminders/subjects/tasks.server";
-import { sweepApplicationReminders } from "@/lib/reminders/subjects/applications.server";
+import { sweepApplicationReminders, sweepApplicationPostTourReminders } from "@/lib/reminders/subjects/applications.server";
 import { sweepLeaseReminders } from "@/lib/reminders/subjects/leases.server";
 import { sweepOutgoingPaymentReminders } from "@/lib/reminders/subjects/outgoing-payments.server";
 import {
@@ -71,6 +71,7 @@ export async function GET(req: Request) {
       ["work_order", sweepWorkOrderReminders],
       ["service_order", sweepServiceOrderReminders],
       ["application", sweepApplicationReminders],
+      ["application_post_tour", sweepApplicationPostTourReminders],
       ["lease", sweepLeaseReminders],
       ["outgoing_payment", sweepOutgoingPaymentReminders],
     ] as const) {

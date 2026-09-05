@@ -108,48 +108,206 @@ export async function sweepApplicationReminders(db: SupabaseClient, now: Date = 
   let queued = 0;
   for (const entry of candidates) {
     const settings = settingsByManager.get(entry.managerUserId);
-    if (!settings?.rules.application.enabled) continue;
+    const resumeUrl = inProgressApplicationResumeUrl(origin, entry.row);
     const managerRecipient = managerRecipients.get(entry.managerUserId);
     const teamRecipients = teamReminderRecipients(
-      await loadTeamReminderRecipients(db, entry.managerUserId, settings.rules.application.teamUserIds ?? [], {
+      await loadTeamReminderRecipients(db, entry.managerUserId, settings?.rules.application_manager.teamUserIds ?? [], {
         module: REMINDER_SUBJECT_CO_MANAGER_MODULE.application,
         propertyId: entry.row.propertyId ?? null,
       }),
     );
-    const resumeUrl = inProgressApplicationResumeUrl(origin, entry.row);
+    const payload = {
+      title: entry.row.property?.trim() || "Rental application",
+      propertyLabel: entry.row.property ?? null,
+      counterpartyName: entry.row.name ?? null,
+      applicantName: entry.row.name ?? null,
+      resumeUrl,
+      url: resumeUrl,
+      notificationCategory: "leases",
+    };
 
+    if (settings?.rules.application.enabled) {
+      queued += await materializeReminders(
+        db,
+        {
+          managerUserId: entry.managerUserId,
+          kind: "application",
+          subjectId: entry.record.id,
+          anchorIso: entry.anchorIso,
+          recipients: [
+            {
+              email: entry.applicantEmail,
+              role: "counterparty",
+              name: entry.row.name ?? null,
+            },
+          ],
+          payload,
+        },
+        settings,
+        now,
+      );
+    }
+
+    if (settings?.rules.application_manager.enabled) {
+      queued += await materializeReminders(
+        db,
+        {
+          managerUserId: entry.managerUserId,
+          kind: "application_manager",
+          subjectId: entry.record.id,
+          anchorIso: entry.anchorIso,
+          recipients: [
+            ...(managerRecipient
+              ? [
+                  {
+                    email: managerRecipient.email,
+                    role: "manager" as const,
+                    name: managerRecipient.name,
+                    userId: entry.managerUserId,
+                  },
+                ]
+              : []),
+            ...teamRecipients,
+          ],
+          payload: {
+            ...payload,
+            url: `${origin}/portal/applications`,
+          },
+        },
+        settings,
+        now,
+      );
+    }
+  }
+  return queued;
+}
+
+function whenLabelFromIso(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    timeZone: "America/Los_Angeles",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function hasApplicationForProspect(
+  applications: readonly ApplicationRecord[],
+  email: string,
+  propertyId?: string | null,
+): boolean {
+  const normalized = email.toLowerCase();
+  return applications.some((record) => {
+    const row = hydrateApplicationRow(record);
+    const rowEmail = (row.email?.trim() || record.resident_email?.trim() || "").toLowerCase();
+    if (rowEmail !== normalized) return false;
+    if (propertyId?.trim() && row.propertyId?.trim() && row.propertyId.trim() !== propertyId.trim()) {
+      return false;
+    }
+    if (String(row.bucket ?? "") === "withdrawn") return false;
+    return true;
+  });
+}
+
+const PLANNED_EVENTS_RECORD = "axis_admin_planned_events_v1";
+const POST_TOUR_MAX_AGE_DAYS = 60;
+
+function tourEndedAnchorIso(
+  event: { end?: string; start?: string },
+  now: Date,
+): string | null {
+  const endIso = event.end?.trim() || event.start?.trim() || "";
+  const endMs = Date.parse(endIso);
+  if (!Number.isFinite(endMs) || endMs > now.getTime()) return null;
+  if (now.getTime() - endMs > POST_TOUR_MAX_AGE_DAYS * 24 * 60 * 60 * 1000) return null;
+  return new Date(endMs).toISOString();
+}
+
+/** Completed tours with no application yet → post-tour apply-link reminders. */
+export async function sweepApplicationPostTourReminders(
+  db: SupabaseClient,
+  now: Date = new Date(),
+): Promise<number> {
+  const { data: scheduleData, error: scheduleError } = await db
+    .from("portal_schedule_records")
+    .select("row_data")
+    .eq("id", PLANNED_EVENTS_RECORD)
+    .maybeSingle();
+  if (scheduleError) throw scheduleError;
+
+  const payload = (scheduleData?.row_data as { payload?: unknown } | null)?.payload;
+  const events = Array.isArray(payload) ? payload : [];
+  const endedTours = events.filter((event) => {
+    if (!event || typeof event !== "object") return false;
+    const row = event as Record<string, unknown>;
+    if (row.kind !== "tour") return false;
+    if (String(row.canceledAt ?? "").trim()) return false;
+    if (!String(row.managerUserId ?? "").trim()) return false;
+    const email = String(row.attendeeEmail ?? "").trim().toLowerCase();
+    if (!email.includes("@")) return false;
+    return tourEndedAnchorIso({ end: String(row.end ?? ""), start: String(row.start ?? "") }, now) !== null;
+  });
+  if (endedTours.length === 0) return 0;
+
+  const { data: appData, error: appError } = await db
+    .from("manager_application_records")
+    .select("id, manager_user_id, resident_email, row_data, created_at, updated_at")
+    .order("updated_at", { ascending: false })
+    .limit(MAX_ROWS);
+  if (appError) throw appError;
+  const applications = (appData ?? []).filter(
+    (row): row is ApplicationRecord =>
+      typeof (row as { id?: unknown }).id === "string" &&
+      Boolean((row as { row_data?: unknown }).row_data),
+  );
+
+  const managerIds = endedTours.map((event) => String((event as Record<string, unknown>).managerUserId));
+  const settingsByManager = await loadReminderSettingsForManagers(db, managerIds);
+  const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
+  const { buildTourApplyUrl } = await import("@/lib/tour-notifications");
+
+  let queued = 0;
+  for (const event of endedTours) {
+    const row = event as Record<string, unknown>;
+    const managerUserId = String(row.managerUserId ?? "").trim();
+    const settings = settingsByManager.get(managerUserId);
+    if (!settings?.rules.application_post_tour.enabled) continue;
+    const anchorIso = tourEndedAnchorIso(
+      { end: String(row.end ?? ""), start: String(row.start ?? "") },
+      now,
+    );
+    if (!anchorIso) continue;
+    const email = String(row.attendeeEmail ?? "").trim().toLowerCase();
+    const propertyId = String(row.propertyId ?? "").trim() || null;
+    if (hasApplicationForProspect(applications, email, propertyId)) continue;
+
+    const applyUrl = buildTourApplyUrl(origin, propertyId, String(row.roomLabel ?? "") || null);
+    const tourStart = String(row.start ?? "");
     queued += await materializeReminders(
       db,
       {
-        managerUserId: entry.managerUserId,
-        kind: "application",
-        subjectId: entry.record.id,
-        anchorIso: entry.anchorIso,
+        managerUserId,
+        kind: "application_post_tour",
+        subjectId: String(row.id ?? ""),
+        anchorIso,
         recipients: [
-          ...(managerRecipient
-            ? [
-                {
-                  email: managerRecipient.email,
-                  role: "manager" as const,
-                  name: managerRecipient.name,
-                  userId: entry.managerUserId,
-                },
-              ]
-            : []),
-          ...teamRecipients,
           {
-            email: entry.applicantEmail,
+            email,
             role: "counterparty",
-            name: entry.row.name ?? null,
+            name: String(row.attendeeName ?? "").trim() || null,
           },
         ],
         payload: {
-          title: entry.row.property?.trim() || "Rental application",
-          propertyLabel: entry.row.property ?? null,
-          counterpartyName: entry.row.name ?? null,
-          applicantName: entry.row.name ?? null,
-          resumeUrl,
-          url: resumeUrl,
+          title: String(row.propertyTitle ?? "").trim() || "Property tour",
+          propertyLabel: String(row.propertyTitle ?? "").trim() || null,
+          counterpartyName: String(row.attendeeName ?? "").trim() || null,
+          applicantName: String(row.attendeeName ?? "").trim() || null,
+          applyUrl,
+          url: applyUrl,
+          whenLabel: tourStart ? whenLabelFromIso(tourStart) : null,
+          tourTime: tourStart ? whenLabelFromIso(tourStart) : null,
           notificationCategory: "leases",
         },
       },

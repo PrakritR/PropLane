@@ -85,14 +85,42 @@ describe("settings normalize from whatever is stored", () => {
     expect(settings.rules.tour).toEqual(DEFAULT_REMINDER_RULES.tour);
   });
 
-  it("includes defaults for the unified application, lease, and outgoing payment kinds", () => {
+  it("includes defaults for application, lease, and outgoing payment reminder kinds", () => {
     const settings = normalizeReminderSettings(undefined);
-    for (const kind of ["application", "lease", "outgoing_payment"] as const) {
+    for (const kind of [
+      "application",
+      "application_manager",
+      "application_post_tour",
+      "lease",
+      "lease_manager",
+      "outgoing_payment",
+    ] as const) {
       expect(settings.rules[kind]).toEqual(DEFAULT_REMINDER_RULES[kind]);
     }
-    expect(REMINDER_SUBJECT_KINDS).toContain("application");
-    expect(REMINDER_SUBJECT_KINDS).toContain("lease");
-    expect(REMINDER_SUBJECT_KINDS).toContain("outgoing_payment");
+    expect(REMINDER_SUBJECT_KINDS).toContain("application_post_tour");
+    expect(REMINDER_SUBJECT_KINDS).toContain("lease_manager");
+  });
+
+  it("splits legacy combined application and lease rules on read", () => {
+    const settings = normalizeReminderSettings({
+      rules: {
+        application: {
+          enabled: true,
+          timings: ["after:1440"],
+          audience: { manager: true, counterparty: true, team: false },
+        },
+        lease: {
+          enabled: true,
+          timings: ["after:2880"],
+          audience: { manager: true, counterparty: true, team: false },
+        },
+      },
+    });
+    expect(settings.rules.application.audience).toEqual({ manager: false, counterparty: true, team: false });
+    expect(settings.rules.application_manager.enabled).toBe(true);
+    expect(settings.rules.application_manager.audience.manager).toBe(true);
+    expect(settings.rules.lease.audience).toEqual({ manager: false, counterparty: true, team: false });
+    expect(settings.rules.lease_manager.enabled).toBe(true);
   });
 
   it("normalizes team audience, teamUserIds, and template fields", () => {

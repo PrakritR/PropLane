@@ -44,7 +44,10 @@ const SUBJECT_DIRECTIONS: Record<ReminderSubjectKind, TimingDirection[]> = {
   service_order: ["before"],
   work_order: ["before"],
   application: ["after"],
+  application_manager: ["after"],
+  application_post_tour: ["after"],
   lease: ["after"],
+  lease_manager: ["after"],
   outgoing_payment: ["before"],
 };
 

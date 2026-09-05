@@ -112,36 +112,50 @@ export async function sweepLeaseReminders(db: SupabaseClient, now: Date = new Da
   let queued = 0;
   for (const entry of candidates) {
     const settings = settingsByManager.get(entry.managerUserId);
-    if (!settings?.rules.lease.enabled) continue;
+    if (!settings) continue;
     const managerRecipient = managerRecipients.get(entry.managerUserId);
     const teamRecipients = teamReminderRecipients(
-      await loadTeamReminderRecipients(db, entry.managerUserId, settings.rules.lease.teamUserIds ?? [], {
-        module: REMINDER_SUBJECT_CO_MANAGER_MODULE.lease,
-        propertyId: entry.lease.propertyId ?? null,
-      }),
+      await loadTeamReminderRecipients(
+        db,
+        entry.managerUserId,
+        settings.rules.lease_manager.teamUserIds ?? [],
+        {
+          module: REMINDER_SUBJECT_CO_MANAGER_MODULE.lease,
+          propertyId: entry.lease.propertyId ?? null,
+        },
+      ),
     );
     const leaseUrl = `${origin}/resident/lease`;
+    const managerPortalUrl = `${origin}/portal/leases`;
     const propertyLabel = entry.lease.unit?.trim() || null;
+    const payload = {
+      title: propertyLabel ? `Lease for ${propertyLabel}` : "Lease signature",
+      propertyLabel,
+      counterpartyName: entry.lease.residentName ?? null,
+      residentName: entry.lease.residentName ?? null,
+      leaseUrl,
+      url: leaseUrl,
+      notificationCategory: "leases",
+    };
 
-    const queueForAnchor = async (anchorIso: string | null, recipients: ReminderRecipient[]) => {
+    const queueForAnchor = async (
+      kind: "lease" | "lease_manager",
+      anchorIso: string | null,
+      recipients: ReminderRecipient[],
+      url: string,
+    ) => {
       if (!anchorIso || recipients.length === 0) return 0;
+      const rule = settings.rules[kind];
+      if (!rule.enabled) return 0;
       return materializeReminders(
         db,
         {
           managerUserId: entry.managerUserId,
-          kind: "lease",
+          kind,
           subjectId: entry.record.id,
           anchorIso,
           recipients,
-          payload: {
-            title: propertyLabel ? `Lease for ${propertyLabel}` : "Lease signature",
-            propertyLabel,
-            counterpartyName: entry.lease.residentName ?? null,
-            residentName: entry.lease.residentName ?? null,
-            leaseUrl,
-            url: leaseUrl,
-            notificationCategory: "leases",
-          },
+          payload: { ...payload, url },
         },
         settings,
         now,
@@ -162,17 +176,18 @@ export async function sweepLeaseReminders(db: SupabaseClient, now: Date = new Da
       ...teamRecipients,
     ];
 
-    if (entry.managerAnchor && leaseNeedsManagerReminder(entry.lease)) {
-      queued += await queueForAnchor(entry.managerAnchor, managerSide);
-    }
     if (entry.residentAnchor && leaseNeedsResidentReminder(entry.lease) && entry.residentEmail.includes("@")) {
-      queued += await queueForAnchor(entry.residentAnchor, [
+      queued += await queueForAnchor("lease", entry.residentAnchor, [
         {
           email: entry.residentEmail,
           role: "counterparty",
           name: entry.lease.residentName ?? null,
         },
-      ]);
+      ], leaseUrl);
+      queued += await queueForAnchor("lease_manager", entry.residentAnchor, managerSide, managerPortalUrl);
+    }
+    if (entry.managerAnchor && leaseNeedsManagerReminder(entry.lease)) {
+      queued += await queueForAnchor("lease_manager", entry.managerAnchor, managerSide, managerPortalUrl);
     }
   }
   return queued;

@@ -30,7 +30,10 @@ export const REMINDER_SUBJECT_KINDS = [
   "service_order",
   "work_order",
   "application",
+  "application_manager",
+  "application_post_tour",
   "lease",
+  "lease_manager",
   "outgoing_payment",
 ] as const;
 
@@ -210,10 +213,28 @@ export const REMINDER_SUBJECT_META: Record<ReminderSubjectKind, ReminderSubjectM
     anchorLabel: "the application was started",
     counterpartyLabel: "applicant",
   },
+  application_manager: {
+    kind: "application_manager",
+    label: "Application alerts",
+    anchorLabel: "the application was started",
+    counterpartyLabel: "applicant",
+  },
+  application_post_tour: {
+    kind: "application_post_tour",
+    label: "Post-tour follow-ups",
+    anchorLabel: "the tour ended",
+    counterpartyLabel: "prospect",
+  },
   lease: {
     kind: "lease",
     label: "Leases",
     anchorLabel: "the lease was sent for signature",
+    counterpartyLabel: "resident",
+  },
+  lease_manager: {
+    kind: "lease_manager",
+    label: "Lease alerts",
+    anchorLabel: "the lease needs attention",
     counterpartyLabel: "resident",
   },
   outgoing_payment: {
@@ -236,7 +257,8 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
   tour: {
     enabled: true,
     leadMinutes: [1 * DAY, 30 * MINUTE],
-    audience: { manager: true, counterparty: true, team: false },
+    // Guest copies ride the legacy tour-reminder path; this rule is manager-only.
+    audience: { manager: true, counterparty: false, team: false },
     teamUserIds: [],
     inbox: true,
     email: true,
@@ -273,7 +295,27 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     leadMinutes: [3 * DAY, 1 * DAY],
     timings: ["after:1440", "after:4320"],
-    audience: { manager: true, counterparty: true, team: false },
+    audience: { manager: false, counterparty: true, team: false },
+    teamUserIds: [],
+    inbox: true,
+    email: true,
+    sms: false,
+  },
+  application_manager: {
+    enabled: true,
+    leadMinutes: [7 * DAY, 3 * DAY],
+    timings: ["after:4320", "after:10080"],
+    audience: { manager: true, counterparty: false, team: false },
+    teamUserIds: [],
+    inbox: true,
+    email: true,
+    sms: false,
+  },
+  application_post_tour: {
+    enabled: true,
+    leadMinutes: [3 * DAY, 1 * DAY],
+    timings: ["after:1440", "after:4320"],
+    audience: { manager: false, counterparty: true, team: false },
     teamUserIds: [],
     inbox: true,
     email: true,
@@ -283,7 +325,17 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     leadMinutes: [3 * DAY, 1 * DAY],
     timings: ["after:1440", "after:4320"],
-    audience: { manager: true, counterparty: true, team: false },
+    audience: { manager: false, counterparty: true, team: false },
+    teamUserIds: [],
+    inbox: true,
+    email: true,
+    sms: false,
+  },
+  lease_manager: {
+    enabled: true,
+    leadMinutes: [3 * DAY, 1 * DAY],
+    timings: ["after:1440", "after:4320"],
+    audience: { manager: true, counterparty: false, team: false },
     teamUserIds: [],
     inbox: true,
     email: true,
@@ -400,7 +452,65 @@ export function normalizeReminderSettings(raw: unknown): ReminderSettings {
   for (const kind of REMINDER_SUBJECT_KINDS) {
     rules[kind] = normalizeRule(rulesRaw[kind], DEFAULT_REMINDER_RULES[kind]);
   }
-  return { rules, quietHours: normalizeQuietHours(row.quietHours) };
+  return { rules: migrateLegacyReminderRules(rules), quietHours: normalizeQuietHours(row.quietHours) };
+}
+
+/**
+ * Split the old combined application rule (manager + applicant on one toggle) into
+ * separate applicant, manager-alert, and post-tour rules on read.
+ */
+function migrateLegacyReminderRules(rules: ReminderRules): ReminderRules {
+  const application = rules.application;
+  if (application.audience.manager && application.audience.counterparty) {
+    rules.application_manager = normalizeRule(
+      {
+        enabled: application.enabled,
+        leadMinutes: application.leadMinutes,
+        timings: application.timings,
+        audience: { manager: true, counterparty: false, team: application.audience.team },
+        teamUserIds: application.teamUserIds,
+        template: application.template,
+        inbox: application.inbox,
+        email: application.email,
+        sms: application.sms,
+      },
+      DEFAULT_REMINDER_RULES.application_manager,
+    );
+    rules.application = normalizeRule(
+      {
+        ...application,
+        audience: { manager: false, counterparty: true, team: false },
+      },
+      DEFAULT_REMINDER_RULES.application,
+    );
+  }
+
+  const lease = rules.lease;
+  if (lease.audience.manager && lease.audience.counterparty) {
+    rules.lease_manager = normalizeRule(
+      {
+        enabled: lease.enabled,
+        leadMinutes: lease.leadMinutes,
+        timings: lease.timings,
+        audience: { manager: true, counterparty: false, team: lease.audience.team },
+        teamUserIds: lease.teamUserIds,
+        template: lease.template,
+        inbox: lease.inbox,
+        email: lease.email,
+        sms: lease.sms,
+      },
+      DEFAULT_REMINDER_RULES.lease_manager,
+    );
+    rules.lease = normalizeRule(
+      {
+        ...lease,
+        audience: { manager: false, counterparty: true, team: false },
+      },
+      DEFAULT_REMINDER_RULES.lease,
+    );
+  }
+
+  return rules;
 }
 
 /** Is `hour` inside the quiet window? Handles a window that wraps midnight. */

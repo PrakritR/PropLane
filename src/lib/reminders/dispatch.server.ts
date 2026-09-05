@@ -53,7 +53,10 @@ const CATEGORY_BY_KIND: Record<ReminderSubjectKind, NotificationCategory> = {
   service_order: "maintenance",
   work_order: "maintenance",
   application: "leases",
+  application_manager: "leases",
+  application_post_tour: "leases",
   lease: "leases",
+  lease_manager: "leases",
   outgoing_payment: "payments",
 };
 

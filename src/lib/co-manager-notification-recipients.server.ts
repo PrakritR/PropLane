@@ -22,7 +22,10 @@ export const REMINDER_SUBJECT_CO_MANAGER_MODULE: Record<ReminderSubjectKind, CoM
   service_order: "services",
   work_order: "services",
   application: "applications",
+  application_manager: "applications",
+  application_post_tour: "applications",
   lease: "leases",
+  lease_manager: "leases",
   outgoing_payment: "financials",
 };
 
