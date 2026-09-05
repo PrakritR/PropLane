@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 const FILES = {
   properties: "src/components/portal/admin-properties-client.tsx",
   feedback: "src/components/portal/admin-bug-feedback-client.tsx",
+  accounts: "src/components/portal/admin-axis-users-client.tsx",
 } as const;
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
@@ -117,5 +118,54 @@ describe("admin Meetings", () => {
     expect(src).toContain('tab === "pending" ? (');
     expect(src).toContain('data-attr="admin-meeting-confirm"');
     expect(src).toContain('data-attr="admin-meeting-decline"');
+  });
+});
+
+/**
+ * The header card is the other half of the house shape, and admin had four
+ * different ones: labelled pill groups over Accounts, a bare pill strip on
+ * Properties and Feedback, and Meetings' Availability button floating alone
+ * above the card. All four are now the same counted-tab command header the
+ * manager Properties and Tours tabs use.
+ */
+describe.each([
+  ["properties", "src/components/portal/admin-properties-client.tsx"],
+  ["feedback", "src/components/portal/admin-bug-feedback-client.tsx"],
+  ["accounts", "src/components/portal/admin-axis-users-client.tsx"],
+  ["meetings", "src/components/portal/admin-events-client.tsx"],
+])("admin %s header", (_name, path) => {
+  const src = read(path);
+
+  it("uses the shared command header, not its own pill strip", () => {
+    expect(src).toContain("PortalListControlStack");
+    expect(src).toContain('variant="command"');
+    expect(src).not.toContain("ManagerPortalStatusPills");
+  });
+
+  it("keeps the open tab in the URL so it can be linked", () => {
+    // A tab that only lives in component state cannot be shared, and comes
+    // back as whatever the default is every time the page is opened.
+    expect(src).toContain("useSearchParams");
+    expect(src).toMatch(/href: `\/admin\//);
+  });
+});
+
+describe("admin Accounts", () => {
+  const src = read(FILES.accounts);
+
+  it("renders ONE list, not a table plus a parallel mobile card stack", () => {
+    // Two renderings of the same rows from the same data is two places for the
+    // list to drift; the desktop table and the mobile cards had already grown
+    // different content.
+    expect(src).not.toContain("PORTAL_MOBILE_CARD_CLASS");
+    expect(src).not.toContain("<table");
+    expect(src).toContain("PortalPersonRecordRow");
+  });
+
+  it("keeps account changes inside the editor the row opens", () => {
+    // Enable / disable and plan changes are not one stray tick away in a dock.
+    const dock = src.slice(src.indexOf("const bulkActions ="), src.indexOf("return (\n    <ManagerPortalPageShell"));
+    expect(dock).toContain('data-attr="admin-account-open"');
+    expect(dock).not.toContain("Disable");
   });
 });

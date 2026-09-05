@@ -5,11 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
-import {
-  ManagerPortalFilterRow,
-  ManagerPortalPageShell,
-  ManagerPortalStatusPills,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
@@ -47,27 +44,39 @@ const EMPTY_COPY: Partial<Record<AdminPropertyBucketIndex, string>> = {
   3: "No unlisted properties.",
 };
 
+const EMPTY_SELECTION: ReadonlySet<string> = new Set();
+
 export function AdminPropertiesClient() {
   const { showToast } = useAppUi();
   const searchParams = useSearchParams();
-  const [activeKpi, setActiveKpi] = useState<AdminPropertyBucketIndex>(2);
+  // The open tab IS the URL, rather than state mirroring it through an effect.
+  const activeKpi = bucketFromTabParam(searchParams.get("tab")) ?? 2;
   const [tick, setTick] = useState(0);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  // Selection carries the tab it was made on, so switching tabs invalidates it
+  // with no effect and no reset race. The bulk bar acts on rows from the tab
+  // that was open; leaving it parked over a list the staff member can no longer
+  // see is how the wrong property gets unlisted.
+  const [selection, setSelection] = useState<{ bucket: AdminPropertyBucketIndex; ids: Set<string> }>(
+    () => ({ bucket: 2, ids: new Set() }),
+  );
+  const selectedIds = selection.bucket === activeKpi ? selection.ids : EMPTY_SELECTION;
 
-  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
-  const toggleSelected = useCallback((key: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, []);
-
-  useEffect(() => {
-    const fromUrl = bucketFromTabParam(searchParams.get("tab"));
-    if (fromUrl != null) setActiveKpi(fromUrl);
-  }, [searchParams]);
+  const clearSelection = useCallback(
+    () => setSelection({ bucket: activeKpi, ids: new Set() }),
+    [activeKpi],
+  );
+  const toggleSelected = useCallback(
+    (key: string) => {
+      setSelection((prev) => {
+        const base = prev.bucket === activeKpi ? prev.ids : EMPTY_SELECTION;
+        const next = new Set(base);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return { bucket: activeKpi, ids: next };
+      });
+    },
+    [activeKpi],
+  );
 
   useEffect(() => {
     void syncPropertyPipelineFromServer().then(() => {
@@ -90,8 +99,18 @@ export function AdminPropertiesClient() {
     void tick;
     return readAdminPropertyRows(activeKpi);
   }, [tick, activeKpi]);
+  // Real query-param destinations, not local-state pills: the manager
+  // Properties tabs this copies are linkable, and a staff member sharing
+  // "the unlisted ones" should be able to send the URL.
   const kpiTabs = useMemo(
-    () => KPI_TABS.map(({ bucket, label }) => ({ id: String(bucket), label, count: kpiValues[bucket] })),
+    () =>
+      KPI_TABS.map(({ bucket, label }) => ({
+        id: String(bucket),
+        label,
+        href: `/admin/properties?tab=${TAB_PARAM_BY_BUCKET[bucket]}`,
+        count: kpiValues[bucket] ?? 0,
+        dataAttr: `admin-properties-tab-${TAB_PARAM_BY_BUCKET[bucket]}`,
+      })),
     [kpiValues],
   );
 
@@ -166,19 +185,23 @@ export function AdminPropertiesClient() {
     <ManagerPortalPageShell
       title="Properties"
       subtitle="Listed properties appear on Rent with PropLane. Unlist to take a property off the public catalog."
-      filterRow={
-        <ManagerPortalFilterRow>
-          <ManagerPortalStatusPills
-            tabs={kpiTabs}
-            activeId={String(activeKpi)}
-            onChange={(id) => {
-              setActiveKpi(Number(id) as AdminPropertyBucketIndex);
-              clearSelection();
-            }}
-          />
-        </ManagerPortalFilterRow>
-      }
+      hideTitleOnMobileNav
+      navigationProvidesTitle
+      titleInlineFilter={null}
+      compactFilterRow
     >
+      {/*
+        The same command header the manager Properties tab uses — counted tabs
+        in a card — rather than a second pill style that only admin had.
+      */}
+      <PortalListControlStack
+        className="mb-2"
+        variant="command"
+        stickyDestinations={false}
+        destinations={kpiTabs}
+        activeDestinationId={String(activeKpi)}
+        destinationAriaLabel="Property catalog status"
+      />
       {/*
         The shared list surface, not a bespoke table. Admin does not create
         listings, so there is no dashed ADD row here — the add path belongs to

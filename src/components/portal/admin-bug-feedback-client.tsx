@@ -1,14 +1,16 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import {
   ManagerPortalFilterRow,
   ManagerPortalPageShell,
-  ManagerPortalStatusPills,
   PortalToolbarSortSelect,
 } from "@/components/portal/portal-metrics";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalServiceRecordRow } from "@/components/portal/portal-record-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
@@ -48,6 +50,11 @@ const STATUS_OPTIONS: { value: BugFeedbackStatus; label: string }[] = [
 ];
 
 type StatusFilter = BugFeedbackStatus;
+
+/** `?status=` is user-supplied — only a real feedback status is honoured. */
+function feedbackStatusFromParam(raw: string | null): StatusFilter {
+  return raw === "in_progress" || raw === "completed" ? raw : "open";
+}
 type SortFilter = "newest" | "oldest";
 type PortalFilter = "managers" | "residents" | "vendors" | "admin";
 
@@ -71,7 +78,9 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
   const { showToast } = useAppUi();
   const [rows, setRows] = useState<PortalBugFeedbackRow[]>(() => readBugFeedbackRows());
   const [portalFilter, setPortalFilter] = useState<PortalFilter[]>([]);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("open");
+  // The open status is the URL, like every other portal list tab.
+  const searchParams = useSearchParams();
+  const statusFilter = feedbackStatusFromParam(searchParams.get("status"));
   const [sortFilter, setSortFilter] = useState<SortFilter>("newest");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -238,18 +247,6 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
 
   const filterRow = (
     <ManagerPortalFilterRow>
-      <div className="min-w-0">
-        <ManagerPortalStatusPills
-          tabs={statusTabs}
-          activeId={statusFilter}
-          compact
-          onChange={(id) => {
-            setStatusFilter(id as StatusFilter);
-            setExpandedId(null);
-            setSelectedIds(new Set());
-          }}
-        />
-      </div>
       <CheckboxMultiSelect
         variant="pill"
         label="Filter feedback by portal"
@@ -416,7 +413,30 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
   }
 
   return (
-    <ManagerPortalPageShell title="Feedback" filterRow={filterRow}>
+    <ManagerPortalPageShell
+      title="Feedback"
+      hideTitleOnMobileNav
+      navigationProvidesTitle
+      titleInlineFilter={null}
+      compactFilterRow
+    >
+      {/*
+        Counted status tabs in the same header card every other list tab uses,
+        with the portal and sort filters beside them — not a separate pill strip
+        above the list.
+      */}
+      <PortalListControlStack
+        className="mb-2"
+        variant="command"
+        stickyDestinations={false}
+        destinations={statusTabs.map((t) => ({
+          ...t,
+          href: `/admin/bugs-feedback?status=${t.id}`,
+        }))}
+        activeDestinationId={statusFilter}
+        destinationAriaLabel="Feedback status"
+        filterRow={filterRow}
+      />
       {content}
     </ManagerPortalPageShell>
   );

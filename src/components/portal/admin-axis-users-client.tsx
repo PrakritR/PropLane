@@ -1,30 +1,20 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { AxisHeaderMarkTile } from "@/components/brand/axis-logo";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
-  MANAGER_TABLE_TH,
-  ManagerPortalFilterRow,
   ManagerPortalPageShell,
-  ManagerPortalStatusPills,
   PORTAL_TOOLBAR_GROUP,
-  PORTAL_TOOLBAR_LABEL,
   PORTAL_TOOLBAR_PILL_BUTTON,
   PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE,
 } from "@/components/portal/portal-metrics";
-import { PORTAL_DATA_TABLE, PORTAL_DATA_TABLE_SCROLL,
-  PORTAL_DATA_TABLE_WRAP,
-  PORTAL_DETAIL_BTN,
-  PORTAL_MOBILE_CARD_CLASS,
-  PORTAL_TABLE_DETAIL_CELL,
-  PORTAL_TABLE_DETAIL_ROW,
-  PORTAL_TABLE_HEAD_ROW,
-  PORTAL_TABLE_TD,
-  PORTAL_TABLE_TR_EXPANDABLE,
-  PortalTableInlineExpand,
-  createPortalRowExpandClick,} from "@/components/portal/portal-data-table";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -49,8 +39,6 @@ type SimpleRow = {
   joinedAt: string | null;
 };
 
-type AccountKind = "manager" | "resident" | "vendor";
-
 type UnifiedRow =
   | ({ kind: "manager" } & ManagerRow)
   | ({ kind: "resident" } & SimpleRow)
@@ -59,6 +47,13 @@ type UnifiedRow =
 type CategoryFilter = "management" | "resident" | "vendor";
 type StatusTab = "active" | "disabled";
 type TierFilter = "all" | "free" | "pro" | "business";
+
+const EMPTY_SELECTION: ReadonlySet<string> = new Set();
+
+/** `?category=` is user-supplied — only the three real categories are honoured. */
+function categoryFromParam(raw: string | null): CategoryFilter {
+  return raw === "resident" || raw === "vendor" ? raw : "management";
+}
 type ManagerPlan = "free" | "pro" | "business";
 
 const MANAGER_PLAN_OPTIONS: { value: ManagerPlan; label: string }[] = [
@@ -72,18 +67,6 @@ function normalizeManagerPlan(tier: string): ManagerPlan {
   if (t === "pro" || t === "business") return t;
   return "free";
 }
-
-function UsersEmptyIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-      <circle cx="9" cy="7" r="4" />
-      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-    </svg>
-  );
-}
-
 function StatusPill({ active }: { active: boolean }) {
   if (active) {
     return (
@@ -100,29 +83,20 @@ function StatusPill({ active }: { active: boolean }) {
     </span>
   );
 }
-
-function RolePill({ kind }: { kind: AccountKind }) {
-  const styles: Record<AccountKind, string> = {
-    manager: "portal-badge-info border",
-    resident: "portal-badge-info border",
-    vendor: "portal-badge-info border",
+function TierBadge({ tier }: { tier: string }) {
+  const colors: Record<string, string> = {
+    pro: "portal-badge-info border",
+    business: "portal-badge-info border",
+    free: "border-border bg-accent/30 text-muted",
   };
-  const labels: Record<AccountKind, string> = {
-    manager: "Management",
-    resident: "Resident",
-    vendor: "Vendor",
-  };
+  const cls = colors[tier.toLowerCase()] ?? colors.free;
   return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${styles[kind]}`}>
-      {labels[kind]}
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${cls}`}>
+      {tier}
     </span>
   );
 }
 
-/**
- * Staff's fee-payer choices. "inherit" is the absence of an override, not a fourth payer — it
- * hands the manager back to their own setting and their plan's rule.
- */
 type FeeOverrideValue = "inherit" | "resident" | "manager" | "proplane";
 
 const FEE_OVERRIDE_LABELS: Record<Exclude<FeeOverrideValue, "inherit">, string> = {
@@ -143,20 +117,6 @@ const FEE_PAYER_LABELS: Record<string, string> = {
   manager: "the manager",
   proplane: "PropLane",
 };
-
-function TierBadge({ tier }: { tier: string }) {
-  const colors: Record<string, string> = {
-    pro: "portal-badge-info border",
-    business: "portal-badge-info border",
-    free: "border-border bg-accent/30 text-muted",
-  };
-  const cls = colors[tier.toLowerCase()] ?? colors.free;
-  return (
-    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${cls}`}>
-      {tier}
-    </span>
-  );
-}
 
 function ManagerDetailContent({
   row,
@@ -406,24 +366,6 @@ function ManagerDetailContent({
   );
 }
 
-function ManagerDetailRow({
-  row,
-  onRefresh,
-  showToast,
-}: {
-  row: { kind: "manager" } & ManagerRow;
-  onRefresh: () => void;
-  showToast: (m: string) => void;
-}) {
-  return (
-    <tr className={PORTAL_TABLE_DETAIL_ROW}>
-      <td colSpan={3} className={PORTAL_TABLE_DETAIL_CELL}>
-        <ManagerDetailContent row={row} onRefresh={onRefresh} showToast={showToast} />
-      </td>
-    </tr>
-  );
-}
-
 function SimpleAccountDetailContent({
   row,
   apiPath,
@@ -545,60 +487,6 @@ function SimpleAccountDetailContent({
   );
 }
 
-function SimpleAccountDetailRow({
-  row,
-  apiPath,
-  accountLabel,
-  onRefresh,
-  showToast,
-}: {
-  row: { kind: "resident" | "vendor" } & SimpleRow;
-  apiPath: "/api/admin/residents" | "/api/admin/vendors";
-  accountLabel: string;
-  onRefresh: () => void;
-  showToast: (m: string) => void;
-}) {
-  return (
-    <tr className={PORTAL_TABLE_DETAIL_ROW}>
-      <td colSpan={3} className={PORTAL_TABLE_DETAIL_CELL}>
-        <SimpleAccountDetailContent
-          row={row}
-          apiPath={apiPath}
-          accountLabel={accountLabel}
-          onRefresh={onRefresh}
-          showToast={showToast}
-        />
-      </td>
-    </tr>
-  );
-}
-
-function ExpandedRow({
-  row,
-  onRefresh,
-  showToast,
-}: {
-  row: UnifiedRow;
-  onRefresh: () => void;
-  showToast: (m: string) => void;
-}) {
-  if (row.kind === "manager") {
-    return <ManagerDetailRow row={row} onRefresh={onRefresh} showToast={showToast} />;
-  }
-  if (row.kind === "vendor") {
-    return (
-      <SimpleAccountDetailRow
-        row={row}
-        apiPath="/api/admin/vendors"
-        accountLabel="Vendor"
-        onRefresh={onRefresh}
-        showToast={showToast}
-      />
-    );
-  }
-  return <SimpleAccountDetailRow row={row} apiPath="/api/admin/residents" accountLabel="Resident" onRefresh={onRefresh} showToast={showToast} />;
-}
-
 function ExpandedContent({
   row,
   onRefresh,
@@ -642,8 +530,27 @@ export function AdminAxisUsersClient() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const [statusTab, setStatusTab] = useState<StatusTab>("active");
-  const [category, setCategory] = useState<CategoryFilter>("management");
+  // Category is the top-level tab, so it lives in the URL like every other
+  // portal list tab — a staff member can link someone straight to Vendors.
+  const searchParams = useSearchParams();
+  const category = categoryFromParam(searchParams.get("category"));
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
+  const [selection, setSelection] = useState<{ category: CategoryFilter; ids: Set<string> }>(
+    () => ({ category: "management", ids: new Set() }),
+  );
+  const selectedIds = selection.category === category ? selection.ids : EMPTY_SELECTION;
+  const toggleSelected = useCallback(
+    (key: string) => {
+      setSelection((prev) => {
+        const base = prev.category === category ? prev.ids : EMPTY_SELECTION;
+        const next = new Set(base);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return { category, ids: next };
+      });
+    },
+    [category],
+  );
 
   const load = useCallback(async () => {
     if (isDemoModeActive()) {
@@ -744,11 +651,15 @@ export function AdminAxisUsersClient() {
     { id: "disabled", label: "Disabled", count: disabledCount },
   ];
 
-  const ROLE_TABS: { id: CategoryFilter; label: string; count: number }[] = [
+  const ROLE_TABS = [
     { id: "management", label: "Management", count: categoryCounts.management },
     { id: "vendor", label: "Vendors", count: categoryCounts.vendor },
     { id: "resident", label: "Residents", count: categoryCounts.resident },
-  ];
+  ].map((tab) => ({
+    ...tab,
+    href: `/admin/axis-users?category=${tab.id}`,
+    dataAttr: `admin-accounts-tab-${tab.id}`,
+  }));
 
   const TIER_OPTIONS: { id: TierFilter; label: string }[] = [
     { id: "all", label: "All tiers" },
@@ -757,41 +668,67 @@ export function AdminAxisUsersClient() {
     { id: "business", label: "Business" },
   ];
 
+  const selectedRows = visible.filter((row) => selectedIds.has(`${row.kind}-${row.id}`));
+
+  /**
+   * Opening an account's editor is what staff do here, so the dock carries the
+   * one action that makes sense on a selection: open it. Enable / disable and
+   * the rest stay inside that editor, beside what they change — the house rule
+   * for anything a stray tick should not reach.
+   */
+  const bulkActions =
+    selectedRows.length === 1 ? (
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_BULK_BAR_BTN}
+        data-attr="admin-account-open"
+        onClick={() => setExpandedKey(`${selectedRows[0]!.kind}-${selectedRows[0]!.id}`)}
+      >
+        Open account
+      </Button>
+    ) : null;
+
   return (
     <ManagerPortalPageShell
       title="PropLane users"
-      filterRow={
-        <ManagerPortalFilterRow>
-          <div>
-            <p className={PORTAL_TOOLBAR_LABEL}>Category</p>
-            <div className="mt-1.5">
-              <ManagerPortalStatusPills
-                tabs={ROLE_TABS}
-                activeId={category}
-                onChange={(id) => {
-                  setCategory(id as CategoryFilter);
-                  setExpandedKey(null);
-                }}
-              />
+      hideTitleOnMobileNav
+      navigationProvidesTitle
+      titleInlineFilter={null}
+      compactFilterRow
+    >
+      {/*
+        One command header — counted category tabs in a card, with the status
+        and plan filters beside them — instead of three separately labelled
+        pill groups stacked above the list. Same shape as every other portal.
+      */}
+      <PortalListControlStack
+        className="mb-2"
+        variant="command"
+        stickyDestinations={false}
+        destinations={ROLE_TABS}
+        activeDestinationId={category}
+        destinationAriaLabel="Account category"
+        actions={
+          <>
+            <div className={PORTAL_TOOLBAR_GROUP}>
+              {STATUS_TABS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => {
+                    setStatusTab(opt.id);
+                    setExpandedKey(null);
+                  }}
+                  data-attr={`admin-accounts-status-${opt.id}`}
+                  className={`${PORTAL_TOOLBAR_PILL_BUTTON} ${statusTab === opt.id ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : ""}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
-          </div>
-          <div>
-            <p className={PORTAL_TOOLBAR_LABEL}>Status</p>
-            <div className="mt-1.5">
-              <ManagerPortalStatusPills
-                tabs={STATUS_TABS}
-                activeId={statusTab}
-                onChange={(id) => {
-                  setStatusTab(id as StatusTab);
-                  setExpandedKey(null);
-                }}
-              />
-            </div>
-          </div>
-          {showTierFilter ? (
-            <div>
-              <p className={PORTAL_TOOLBAR_LABEL}>Manager plan</p>
-              <div className={`mt-1.5 ${PORTAL_TOOLBAR_GROUP}`}>
+            {showTierFilter ? (
+              <div className={PORTAL_TOOLBAR_GROUP}>
                 {TIER_OPTIONS.map((opt) => (
                   <button
                     key={opt.id}
@@ -800,153 +737,82 @@ export function AdminAxisUsersClient() {
                       setTierFilter(opt.id);
                       setExpandedKey(null);
                     }}
+                    data-attr={`admin-accounts-tier-${opt.id}`}
                     className={`${PORTAL_TOOLBAR_PILL_BUTTON} ${tierFilter === opt.id ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : ""}`}
                   >
                     {opt.label}
                   </button>
                 ))}
               </div>
-            </div>
-          ) : null}
-        </ManagerPortalFilterRow>
-      }
-    >
+            ) : null}
+          </>
+        }
+      />
+
       {loading ? (
-        <div className={PORTAL_DATA_TABLE_WRAP}>
-          <div className="flex items-center justify-center py-16">
-            <p className="text-sm text-muted">Loading…</p>
-          </div>
-        </div>
+        <PortalDataTableEmpty icon="data" message="Loading…" />
       ) : loadError ? (
-        <div className={PORTAL_DATA_TABLE_WRAP}>
-          <div className="px-5 py-10 text-center">
-            <p className="text-sm font-medium text-rose-600">{loadError}</p>
-            <button type="button" onClick={() => void load()} className="mt-3 text-xs font-semibold text-primary hover:underline">
-              Try again
-            </button>
-          </div>
-        </div>
-      ) : visible.length === 0 ? (
-        <div className={PORTAL_DATA_TABLE_WRAP}>
-          <div className="flex flex-col items-center justify-center bg-accent/30/30 px-4 py-16 text-center sm:py-20">
-            <AxisHeaderMarkTile>
-              <UsersEmptyIcon className="h-[26px] w-[26px]" />
-            </AxisHeaderMarkTile>
-            <p className="mt-4 text-sm font-medium text-muted">
-              {unified.length === 0 ? "No accounts yet" : "No accounts match these filters"}
-            </p>
-          </div>
+        <div className="rounded-2xl border px-4 py-3 text-sm portal-banner-danger">
+          Could not load accounts: {loadError}
+          <button type="button" onClick={() => void load()} className="ml-2 font-semibold underline underline-offset-2">
+            Try again
+          </button>
         </div>
       ) : (
-        <>
-          <div className="space-y-2 lg:hidden">
-            {visible.map((row) => {
-              const rowKey = `${row.kind}-${row.id}`;
-              const isOpen = expandedKey === rowKey;
-              return (
-                <div key={rowKey} className={PORTAL_MOBILE_CARD_CLASS}>
-                  <button
-                    type="button"
-                    className="w-full text-left"
-                    onClick={() => setExpandedKey(isOpen ? null : rowKey)}
-                  >
-                    <div className="flex items-start justify-between gap-2.5">
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-semibold text-foreground">{row.fullName || row.email}</p>
-                        <p className="mt-0.5 truncate text-xs text-muted">
-                          {row.kind === "manager" ? "Management" : row.kind === "vendor" ? "Vendor" : "Resident"}
-                          {row.kind === "manager" ? ` · ${row.tier}` : ""}
-                        </p>
-                        {row.managerId ? (
-                          <p className="mt-0.5 truncate font-mono text-[11px] text-muted/90">{row.managerId}</p>
-                        ) : null}
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        <StatusPill active={row.active} />
-                      </div>
+        /*
+          One flat list at every breakpoint. There used to be two — a desktop
+          table and a separate mobile card stack rendering the same rows from
+          the same data — which is two places for the same list to drift.
+        */
+        <PortalRecordListSurface
+          isEmpty={visible.length === 0}
+          empty={
+            <PortalDataTableEmpty
+              icon="data"
+              message={unified.length === 0 ? "No accounts yet" : "No accounts match these filters"}
+            />
+          }
+          bulkCount={selectedRows.length}
+          bulkActions={bulkActions}
+          dataAttr="admin-accounts-list"
+        >
+          {visible.map((row) => {
+            const rowKey = `${row.kind}-${row.id}`;
+            const isOpen = expandedKey === rowKey;
+            return (
+              <div key={rowKey}>
+                <PortalPersonRecordRow
+                  name={row.fullName || row.email}
+                  subtitle={row.email}
+                  meta={row.managerId || undefined}
+                  selected={isOpen}
+                  checked={selectedIds.has(rowKey)}
+                  onSelectedChange={() => toggleSelected(rowKey)}
+                  onOpen={() => setExpandedKey(isOpen ? null : rowKey)}
+                  dataAttr="admin-account-row"
+                  trailing={
+                    <div className="flex shrink-0 items-center gap-2">
+                      {row.kind === "manager" ? <TierBadge tier={row.tier} /> : null}
+                      <StatusPill active={row.active} />
                     </div>
-                  </button>
-                  <div className="mt-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={PORTAL_DETAIL_BTN}
-                      onClick={() => setExpandedKey(isOpen ? null : rowKey)}
-                    >
-                      {isOpen ? "Less" : "Details"}
-                    </Button>
+                  }
+                />
+                {isOpen ? (
+                  <div className="border-b border-border/50 bg-accent/10 px-4 py-4">
+                    <ExpandedContent
+                      row={row}
+                      onRefresh={() => {
+                        setExpandedKey(null);
+                        void load();
+                      }}
+                      showToast={showToast}
+                    />
                   </div>
-                  {isOpen ? (
-                    <div className="mt-3 border-t border-border pt-3">
-                      <ExpandedContent
-                        row={row}
-                        onRefresh={() => {
-                          setExpandedKey(null);
-                          void load();
-                        }}
-                        showToast={showToast}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-          <div className={`${PORTAL_DATA_TABLE_WRAP} hidden lg:block`}>
-            <div className={PORTAL_DATA_TABLE_SCROLL}>
-              <table className={PORTAL_DATA_TABLE}>
-                <thead>
-                  <tr className={PORTAL_TABLE_HEAD_ROW}>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Account</th>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Plan</th>
-                    <th className={`${MANAGER_TABLE_TH} text-left`}>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visible.map((row) => {
-                    const rowKey = `${row.kind}-${row.id}`;
-                    const isOpen = expandedKey === rowKey;
-                    return (
-                      <Fragment key={rowKey}>
-                        <tr
-                          className={PORTAL_TABLE_TR_EXPANDABLE}
-                          onClick={createPortalRowExpandClick(() => setExpandedKey(isOpen ? null : rowKey))}
-                          aria-expanded={isOpen}
-                        >
-                          <td className={PORTAL_TABLE_TD}>
-                            <PortalTableInlineExpand expanded={isOpen} className="font-semibold text-foreground">
-                              {row.fullName || row.email}
-                            </PortalTableInlineExpand>
-                            <p className="mt-0.5 text-sm text-muted">{row.email}</p>
-                            {row.managerId ? (
-                              <p className="mt-0.5 font-mono text-xs text-muted">{row.managerId}</p>
-                            ) : null}
-                          </td>
-                          <td className={PORTAL_TABLE_TD}>
-                            {row.kind === "manager" ? <TierBadge tier={row.tier} /> : <span className="text-sm text-muted">—</span>}
-                          </td>
-                          <td className={PORTAL_TABLE_TD}>
-                            <StatusPill active={row.active} />
-                          </td>
-                        </tr>
-                        {isOpen ? (
-                          <ExpandedRow
-                            row={row}
-                            onRefresh={() => {
-                              setExpandedKey(null);
-                              void load();
-                            }}
-                            showToast={showToast}
-                          />
-                        ) : null}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
+                ) : null}
+              </div>
+            );
+          })}
+        </PortalRecordListSurface>
       )}
     </ManagerPortalPageShell>
   );

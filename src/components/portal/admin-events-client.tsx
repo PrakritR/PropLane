@@ -1,15 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import {
-  ManagerPortalFilterRow,
   ManagerPortalPageShell,
-  ManagerPortalStatusPills,
   PORTAL_HEADER_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { PortalCalendarPanels } from "@/components/portal/portal-calendar-panels";
@@ -29,6 +29,11 @@ import {
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 
 type MeetingsTab = "pending" | "upcoming" | "past";
+
+/** `?tab=` is user-supplied — only the three real views are honoured. */
+function meetingsTabFromParam(raw: string | null): MeetingsTab {
+  return raw === "upcoming" || raw === "past" ? raw : "pending";
+}
 
 function formatWindow(startIso: string, endIso: string): string {
   try {
@@ -58,7 +63,9 @@ function formatWindow(startIso: string, endIso: string): string {
 export function AdminEventsClient() {
   const { userId, email } = useManagerUserId();
   const { showToast } = useAppUi();
-  const [tab, setTab] = useState<MeetingsTab>("pending");
+  // The open tab is the URL, like every other portal list tab.
+  const searchParams = useSearchParams();
+  const tab = meetingsTabFromParam(searchParams.get("tab"));
   const [showAvailability, setShowAvailability] = useState(false);
   const [tick, setTick] = useState(0);
   // Read once per refresh rather than during render: "is this in the past" must
@@ -116,11 +123,12 @@ export function AdminEventsClient() {
   }, [tick, now]);
 
   const tabs = useMemo(
-    () => [
-      { id: "pending", label: "Pending", count: pending.length, dataAttr: "admin-meetings-tab-pending" },
-      { id: "upcoming", label: "Upcoming", count: upcoming.length, dataAttr: "admin-meetings-tab-upcoming" },
-      { id: "past", label: "Past", count: past.length, dataAttr: "admin-meetings-tab-past" },
-    ],
+    () =>
+      [
+        { id: "pending", label: "Pending", count: pending.length, dataAttr: "admin-meetings-tab-pending" },
+        { id: "upcoming", label: "Upcoming", count: upcoming.length, dataAttr: "admin-meetings-tab-upcoming" },
+        { id: "past", label: "Past", count: past.length, dataAttr: "admin-meetings-tab-past" },
+      ].map((t) => ({ ...t, href: `/admin/events?tab=${t.id}` })),
     [pending.length, upcoming.length, past.length],
   );
 
@@ -246,34 +254,37 @@ export function AdminEventsClient() {
   return (
     <ManagerPortalPageShell
       title="Meetings"
-      titleAside={
-        <Button
-          type="button"
-          variant="outline"
-          className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
-          aria-pressed={showAvailability}
-          data-attr="admin-meetings-availability-toggle"
-          onClick={() => setShowAvailability((v) => !v)}
-        >
-          {showAvailability ? "← Requests" : "Availability"}
-        </Button>
-      }
-      filterRow={
-        showAvailability ? undefined : (
-          <ManagerPortalFilterRow>
-            <ManagerPortalStatusPills
-              tabs={tabs}
-              activeId={tab}
-              onChange={(id) => {
-                setTab(id as MeetingsTab);
-                setSelectedIds(new Set());
-                setExpandedId(null);
-              }}
-            />
-          </ManagerPortalFilterRow>
-        )
-      }
+      hideTitleOnMobileNav
+      navigationProvidesTitle
+      titleInlineFilter={null}
+      compactFilterRow
     >
+      {/*
+        Counted tabs and the Availability switch in ONE header card, the way
+        manager Tours carries its tabs and Share tour. Availability used to
+        float alone above the card, reading as page chrome rather than as the
+        other view of this section.
+      */}
+      <PortalListControlStack
+        className="mb-2"
+        variant="command"
+        stickyDestinations={false}
+        destinations={showAvailability ? undefined : tabs}
+        activeDestinationId={tab}
+        destinationAriaLabel="Meeting request status"
+        actions={
+          <Button
+            type="button"
+            variant="outline"
+            className={`shrink-0 ${PORTAL_HEADER_ACTION_BTN}`}
+            aria-pressed={showAvailability}
+            data-attr="admin-meetings-availability-toggle"
+            onClick={() => setShowAvailability((v) => !v)}
+          >
+            {showAvailability ? "← Requests" : "Availability"}
+          </Button>
+        }
+      />
       {showAvailability ? (
         <PortalCalendarPanels
           storageKey={userId ? adminAvailabilityStorageKey(userId) : ADMIN_AVAILABILITY_STORAGE_KEY}
