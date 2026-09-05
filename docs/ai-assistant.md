@@ -286,7 +286,11 @@ W, `create_owner_distribution` W, `approve_owner_distribution` W,
 (`list_promotions` R, `create_promotion` W, `update_promotion` W,
 `delete_promotion` W destructive), team (`list_co_managers` R), documents
 (`list_documents` R), services (`list_service_requests` R,
-`decide_service_request` W).
+`decide_service_request` W), inspections (`list_inspections` R,
+`get_inspection` R, `create_inspection` W, `save_inspection_observations` W,
+`change_inspection_status` W destructive — completion is irreversible, so manager
+SMS withholds it automatically; see
+[`docs/agents/inspections.md`](agents/inspections.md)).
 
 ### Resident (`src/lib/tools/resident-index.ts`)
 
@@ -294,7 +298,11 @@ Reads: `get_my_balance`, `list_my_charges`, `get_my_lease`,
 `get_my_application_status`, `list_my_service_requests`,
 `list_my_work_orders`, `get_move_in_info`, `list_my_inbox_threads`,
 `get_my_payment_methods`, `get_my_scheduled_messages`,
-`list_my_shared_documents`, `list_open_tour_slots`. Writes:
+`list_my_shared_documents`, `list_open_tour_slots`, `list_inspections`,
+`get_inspection`. Writes:
+`create_inspection`, `save_inspection_observations`,
+`change_inspection_status` (the same shared inspection service the manager uses,
+scoped to this resident's own residency),
 `create_service_request`, `add_service_request_note`,
 `report_maintenance_issue`, `send_message_to_manager`, `report_manual_payment`,
 `request_lease_extension`, `schedule_message`, `cancel_scheduled_message`,
@@ -340,8 +348,6 @@ The audited gap list — resident maintenance depth, the resident work-order
 lifecycle, the remaining tour tools, and the ceilings that are deliberate — is
 [`docs/agents/agent-capability-backlog.md`](agents/agent-capability-backlog.md).
 Check it before adding a tool, and prune the row you close.
-
-Inspection capabilities (`list_inspections`, `get_inspection`, `create_inspection`, `save_inspection_observations`, `change_inspection_status`) use the shared manager/resident service and existing confirm gate. See [inspection architecture](agents/inspections.md). Status changes are excluded from manager SMS because completion is irreversible.
 
 ## How to add a new tool (checklist)
 

@@ -20,11 +20,13 @@ export type CompactRoomLeaseInput = {
   utilitiesDisplay: string;
   secDep: string;
   securityDepositDue?: number;
-  holdingDeposit?: { amount: number; amountDue: number };
+  securityDepositReceived?: number;
+  moveInFeeReceived?: number;
+  holdingDeposit?: { amount: number; amountDue: number; received?: number };
   holdingDepositHtml?: string;
   moveInFee: string;
   moveInFeeDue?: number;
-  otherSigningCost?: { label: string; amount: number; amountDue?: number };
+  otherSigningCost?: { label: string; amount: number; amountDue?: number; received?: number };
   paySigning: string;
   paySigningNum: number;
   firstPartialMonthPayment: number;
@@ -49,7 +51,7 @@ export type CompactRoomLeaseInput = {
   lastMonthDaysLabel?: string;
   /** The ledger's own due date for the last-month charges, e.g. "By Nov 24, 2027". */
   lastMonthDueDateLabel?: string;
-  billableOneTimeCustomFees: ReadonlyArray<{ label?: string; amount?: string; amountDue?: number }>;
+  billableOneTimeCustomFees: ReadonlyArray<{ label?: string; amount?: string; amountDue?: number; received?: number }>;
   billableMonthlyCustomFees: ReadonlyArray<{ label?: string; amount?: string }>;
   /** Preset one-time fees (application, holding deposit, etc.) not due at signing. */
   supplementalOneTimeLeaseFees?: ReadonlyArray<{ label?: string; amount?: string }>;
@@ -137,6 +139,17 @@ function utilitiesIncludedBullets(
     }
   }
   return "";
+}
+
+/** Cleared receipts must cover the WHOLE stated obligation before a line may read "paid". */
+export function clearedInFull(received: number | undefined, obligation: number | undefined): boolean {
+  if (received == null || obligation == null) return false;
+  return received + 0.005 >= obligation;
+}
+
+function settledSuffix(nothingDue: boolean, received: number | undefined, obligation: number | undefined): string {
+  if (!nothingDue) return "";
+  return clearedInFull(received, obligation) ? " — paid" : " — no payment due";
 }
 
 function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
@@ -249,7 +262,7 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
 
   const secDepNum = parseAmount(secDep);
   if (secDepNum != null && secDepNum > 0) {
-    pushSchedule(`Security deposit: <strong>${secDep}</strong>${input.securityDepositDue === 0 && !(input.holdingDeposit?.amountDue) ? " — paid" : ""}`);
+    pushSchedule(`Security deposit: <strong>${secDep}</strong>${settledSuffix(input.securityDepositDue === 0 && !(input.holdingDeposit?.amountDue), input.securityDepositReceived, secDepNum)}`);
     if (!useIncludesFilter || includes.has("security_deposit")) {
       const due = input.securityDepositDue ?? secDepNum;
       if (due > 0) pushSigning(`<strong>${fmtUsd(due)}</strong> security deposit${input.holdingDeposit ? " balance" : ""}`);
@@ -260,7 +273,7 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
   }
   const moveInNum = parseAmount(moveInFee);
   if (moveInNum != null && moveInNum > 0) {
-    pushSchedule(`Move-in fee (non-refundable): <strong>${moveInFee}</strong>${input.moveInFeeDue === 0 ? " — paid" : ""}`);
+    pushSchedule(`Move-in fee (non-refundable): <strong>${moveInFee}</strong>${settledSuffix(input.moveInFeeDue === 0, input.moveInFeeReceived, moveInNum)}`);
     if (!useIncludesFilter || includes.has("move_in_fee")) {
       const due = input.moveInFeeDue ?? moveInNum;
       if (due > 0) pushSigning(`<strong>${fmtUsd(due)}</strong> move-in fee (non-refundable)`);
@@ -271,13 +284,13 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
     if (amount != null && amount > 0) {
       const label = escapeHtml(fee.label?.trim() || "custom fee");
       const due = fee.amountDue ?? amount;
-      pushSchedule(`${label}: <strong>${fmtUsd(amount)}</strong>${due === 0 ? " — paid" : ""}`);
+      pushSchedule(`${label}: <strong>${fmtUsd(amount)}</strong>${settledSuffix(due === 0, fee.received, amount)}`);
       if (due > 0) pushSigning(`<strong>${fmtUsd(due)}</strong> ${label}`);
     }
   }
   if (input.otherSigningCost && input.otherSigningCost.amount > 0) {
-    const { label, amount, amountDue = amount } = input.otherSigningCost;
-    pushSchedule(`${escapeHtml(label)} (one-time): <strong>${fmtUsd(amount)}</strong>${amountDue === 0 ? " — paid" : ""}`);
+    const { label, amount, amountDue = amount, received } = input.otherSigningCost;
+    pushSchedule(`${escapeHtml(label)} (one-time): <strong>${fmtUsd(amount)}</strong>${settledSuffix(amountDue === 0, received, amount)}`);
     if (amountDue > 0) pushSigning(`<strong>${fmtUsd(amountDue)}</strong> ${escapeHtml(label)} (one-time)`);
   }
 
@@ -296,9 +309,8 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
     paySigningNum > 0
       ? `<p style="margin:0.75rem 0 0">Total payment due at signing: <strong>${paySigning}</strong></p>`
       : "";
-  const received = input.securityDepositDue != null && input.moveInFeeDue != null
-    ? Math.max(0, (secDepNum ?? 0) - input.securityDepositDue - (input.holdingDeposit?.amountDue ?? 0)) +
-      Math.max(0, (moveInNum ?? 0) - input.moveInFeeDue)
+  const received = input.securityDepositReceived != null || input.moveInFeeReceived != null
+    ? (input.securityDepositReceived ?? 0) + (input.moveInFeeReceived ?? 0)
     : 0;
   const receivedLine = received > 0
     ? `<p>Already received toward the security deposit and move-in fee: <strong>${fmtUsd(received)}</strong>. These payments are excluded from the amount still due at signing.</p>`

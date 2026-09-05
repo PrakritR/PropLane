@@ -1,7 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import sharp from "sharp";
-import type { DemoApplicantRow } from "@/data/demo-portal";
 import { managerOwnedPropertyIdSet } from "@/lib/auth/manager-application-access";
 import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 import { writeAuditLog, updateAuditResult } from "@/lib/tools/audit";
@@ -21,7 +20,26 @@ export const INSPECTION_BUCKET = "inspection-evidence";
 const summaryColumns = "id,application_id,manager_user_id,property_id,resident_name,property_label,room_label,kind,status,inspection_date,baseline_id,revision,created_at,updated_at";
 type Scope = { owners: Set<string>; properties: Set<string> };
 
-async function scopeFor(actor: InspectionActor, level: "read" | "edit" = "read"): Promise<Scope> {
+// One request resolves read and edit scope at most once each: every entry point below asks
+// for scope, and each resolution costs two portfolio queries. The cache is keyed on the
+// per-request context object, so it cannot outlive the request or leak across actors.
+const scopeCache = new WeakMap<object, Map<string, Promise<Scope>>>();
+
+function scopeFor(actor: InspectionActor, level: "read" | "edit" = "read"): Promise<Scope> {
+  const key = actor.context as unknown as object;
+  const byLevel = scopeCache.get(key) ?? new Map<string, Promise<Scope>>();
+  scopeCache.set(key, byLevel);
+  const cached = byLevel.get(level);
+  if (cached) return cached;
+  const pending = resolveScope(actor, level).catch((error) => {
+    byLevel.delete(level);
+    throw error;
+  });
+  byLevel.set(level, pending);
+  return pending;
+}
+
+async function resolveScope(actor: InspectionActor, level: "read" | "edit"): Promise<Scope> {
   if (actor.role === "resident") {
     if (actor.context.phase !== "approved") throw new InspectionError("Inspections become available after your lease is ready.", 403);
     return { owners: new Set(), properties: new Set() };
@@ -80,20 +98,55 @@ async function scopedRows(actor: InspectionActor, table: string, scope: Scope, c
   return [...rows.values()];
 }
 
+// An application row's `row_data` is the whole rental application. The inspections list needs
+// eight of its fields, so it selects those rather than paging entire applications on every load.
+const residencyColumns = "id,manager_user_id,property_id,assigned_property_id,resident_email,"
+  + "app_bucket:row_data->>bucket,app_withdrawn_at:row_data->>withdrawnAt,"
+  + "app_name:row_data->>name,app_property:row_data->>property,"
+  + "app_property_id:row_data->>propertyId,app_assigned_property_id:row_data->>assignedPropertyId,"
+  + "app_resident_user_id:row_data->>residentUserId,app_room_choice:row_data->>assignedRoomChoice,"
+  + "app_manual_room:row_data->manualResidentDetails->>roomNumber";
+
+type ResidencyView = {
+  id: string;
+  approved: boolean;
+  name: string;
+  propertyLabel: string;
+  roomLabel: string;
+  identity: { manager_user_id: string; property_id: string; resident_email: string; resident_user_id: string | null };
+};
+
+function residencyFromRecord(record: Record<string, unknown>): ResidencyView {
+  const text = (alias: string): string => {
+    const value = record[alias];
+    return value == null ? "" : String(value);
+  };
+  return {
+    id: String(record.id),
+    approved: text("app_bucket") === "approved" && !text("app_withdrawn_at"),
+    name: text("app_name") || "Resident",
+    propertyLabel: text("app_property") || "Property",
+    roomLabel: text("app_room_choice") || text("app_manual_room") || "",
+    identity: {
+      manager_user_id: text("manager_user_id"),
+      property_id: text("assigned_property_id") || text("app_assigned_property_id")
+        || text("property_id") || text("app_property_id"),
+      resident_email: text("resident_email"),
+      resident_user_id: text("app_resident_user_id") || null,
+    },
+  };
+}
+
 export async function listInspectionResidencies(actor: InspectionActor): Promise<InspectionResidency[]> {
-  const scope = await scopeFor(actor);
-  const editScope = await scopeFor(actor, "edit");
-  const records = await scopedRows(actor, "manager_application_records", scope);
+  const [scope, editScope] = await Promise.all([scopeFor(actor), scopeFor(actor, "edit")]);
+  const records = await scopedRows(actor, "manager_application_records", scope, residencyColumns);
   return records.flatMap(record => {
-    const row = record.row_data as DemoApplicantRow;
-    if (row?.bucket !== "approved" || row.withdrawnAt) return [];
-    const pid = String(record.assigned_property_id || row.assignedPropertyId || record.property_id || row.propertyId || "");
-    const identity = { manager_user_id: String(record.manager_user_id ?? ""), property_id: pid,
-      resident_email: String(record.resident_email ?? ""), resident_user_id: row.residentUserId };
-    if (!pid || !identity.resident_email || !authorized(actor, scope, identity)) return [];
-    return [{ id: String(record.id), name: row.name || "Resident", property: row.property || "Property",
-      room: row.assignedRoomChoice || row.manualResidentDetails?.roomNumber || "",
-      canCreate: authorized(actor, editScope, identity) }];
+    const residency = residencyFromRecord(record);
+    const identity = residency.identity;
+    if (!residency.approved) return [];
+    if (!identity.property_id || !identity.resident_email || !authorized(actor, scope, identity)) return [];
+    return [{ id: residency.id, name: residency.name, property: residency.propertyLabel,
+      room: residency.roomLabel, canCreate: authorized(actor, editScope, identity) }];
   });
 }
 
@@ -113,16 +166,12 @@ export async function listInspections(actor: InspectionActor, applicationId?: st
 export async function prepareInspection(actor: InspectionActor, raw: unknown) {
   const input = createInspectionSchema.parse(raw);
   const scope = await scopeFor(actor, "edit");
-  const data = (await scopedRows(actor, "manager_application_records", scope, "*", input.applicationId))[0];
+  const data = (await scopedRows(actor, "manager_application_records", scope, residencyColumns, input.applicationId))[0];
   if (!data) throw new InspectionError("Residency not found.", 404);
-  const row = data.row_data as DemoApplicantRow;
-  const identity = {
-    property_id: String(data.assigned_property_id || row.assignedPropertyId || data.property_id || row.propertyId || ""),
-    manager_user_id: String(data.manager_user_id ?? ""), resident_email: String(data.resident_email ?? "").trim().toLowerCase(),
-    resident_user_id: row.residentUserId || null,
-  };
+  const residency = residencyFromRecord(data);
+  const identity = { ...residency.identity, resident_email: residency.identity.resident_email.trim().toLowerCase() };
   if (!authorized(actor, scope, identity)) throw new InspectionError("Residency not found.", 404);
-  if (row.bucket !== "approved" || row.withdrawnAt || !identity.property_id || !identity.resident_email) throw new InspectionError("Choose an approved resident with a property placement.");
+  if (!residency.approved || !identity.property_id || !identity.resident_email) throw new InspectionError("Choose an approved resident with a property placement.");
   // The actual property's owner, rather than a caller-supplied or stale owner stamp.
   const { data: property, error: propertyError } = await actor.context.db.from("manager_property_records").select("manager_user_id").eq("id", identity.property_id).maybeSingle();
   if (propertyError || !property?.manager_user_id) throw new InspectionError("The resident's property could not be found.");
@@ -133,23 +182,23 @@ export async function prepareInspection(actor: InspectionActor, raw: unknown) {
     baseline = await getInspection(actor, input.baselineId);
     if (input.kind !== "move-out" || baseline.kind !== "move-in" || baseline.status !== "completed" ||
       baseline.application_id !== input.applicationId || baseline.property_id !== identity.property_id ||
-      baseline.room_label !== (row.assignedRoomChoice || row.manualResidentDetails?.roomNumber || "") ||
+      baseline.room_label !== residency.roomLabel ||
       baseline.manager_user_id !== identity.manager_user_id || baseline.inspection_date > input.inspectionDate) {
       throw new InspectionError("Choose a completed move-in report from this residency dated before the move-out.");
     }
   }
-  return { input, identity, row, baseline };
+  return { input, identity, residency, baseline };
 }
 
 export async function createInspection(actor: InspectionActor, raw: unknown): Promise<InspectionRecord> {
-  const { input, identity, row, baseline } = await prepareInspection(actor, raw);
+  const { input, identity, residency, baseline } = await prepareInspection(actor, raw);
   const auditKey = await auditInspectionWrite(actor, "create", { application_id: input.applicationId, kind: input.kind });
   const now = new Date().toISOString();
   const document = createInspectionDocument();
   document.history.push({ action: "create", role: actor.role, userId: actor.context.userId, at: now });
   const { data: created, error: insertError } = await actor.context.db.from(TABLE).insert({
-    ...identity, application_id: input.applicationId, resident_name: row.name || "Resident",
-    property_label: row.property || "Property", room_label: row.assignedRoomChoice || row.manualResidentDetails?.roomNumber || "",
+    ...identity, application_id: input.applicationId, resident_name: residency.name,
+    property_label: residency.propertyLabel, room_label: residency.roomLabel,
     kind: input.kind, inspection_date: input.inspectionDate, baseline_id: baseline?.id ?? null, document,
   }).select("*").single();
   await updateAuditResult(actor.context, auditKey, { status: insertError ? "failed" : "success", inspection_id: created?.id ?? null });

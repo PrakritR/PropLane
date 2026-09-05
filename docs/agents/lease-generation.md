@@ -1230,6 +1230,15 @@ they were already correct. Coverage: `stay-pricing-repro.test.ts` cases 12 and 1
 the same lease before and after a holding-deposit payment and asserts the documents are
 byte-identical while the ledger's `security_deposit` charge drops to the net.
 
+**Scope of that rule after 2026-09-05.** It still governs the deposit OBLIGATION on every
+document, and the short-term branch (case 12) is unchanged because it carries no holding
+charge at all. It does NOT mean a standard lease is blind to what has been collected: the
+long form now prints the application's own scoped `holding_deposit` charge, its state, and
+the separate security-deposit balance, and the signing collection excludes dollars that
+already cleared. Those figures are READ from the scoped charges rather than recomputed, which
+is what keeps them from re-creating the ordering mismatch above — see "Reference lease review:
+applicable fees and holding credit" below for the full rule.
+
 ### Executed short-term clauses added in this change (user-approved)
 
 These are new contract terms a guest signs, not a pricing change, and they were approved
@@ -1608,7 +1617,7 @@ fee, and charge snapshot inputs used by the new unit coverage.
 | Lease Summary | Already present for branded Seattle leases with billing data. P9 adds Landlord and reads its figures from the billing snapshot. Its current shape — grouped sections, per-month partial-month lines, the final partial month — is owned by "Partial months: BOTH boundaries" above. |
 | Parties, premises, lease term, rent, deposits, returned payments, utilities, occupancy, shared spaces, rules, pets, maintenance, entry, assignment, insurance, default, early termination, payment order, notices, lead paint, governing law, attorney fees, application, schedule, signature, Addenda A-E | Already present, with stable tested order. |
 | Delivery of possession | Added. It states delayed-possession rent abatement and defers remedies to applicable law. The reference's fourteen-day termination interval is deliberately not copied. |
-| Early termination economics | Rendered when a break-lease fee or lease-up percentage resolves — from the listing, else from the jurisdiction default (see below). It itemizes the fee, the lease-up percentage, continuing liability until replacement possession or end of term, any re-rent shortfall, and actual re-renting costs. |
+| Early termination economics | Rendered when a break-lease fee or lease-up percentage resolves from the listing (there is no jurisdiction fallback — see below). It itemizes the fee, the lease-up percentage, continuing liability until replacement possession or end of term, any re-rent shortfall, and actual re-renting costs. |
 | Holdover | The fixed-term Lease Term section now states unconditionally that the lease terminates at the end of the term and does not convert to month-to-month, with a 12:00 PM vacate time. A per-day holdover charge is appended only when a daily rate resolves. A month-to-month lease instead prints `monthToMonthTerminationNotice`. |
 | Deposit labor and reissue fees | The deduction categories were present. Labor and reissue amounts now render only from optional listing fields. |
 | Move-in condition | Existing Addendum A supplies the area-by-area report. P9 removes the unrelated five-day default and makes a signed report supersede the baseline acknowledgement. |
@@ -1646,7 +1655,9 @@ values render. Missing, blank, or zero fees are omitted. Existing saved values
 are preserved because a migration cannot determine which managers chose them.
 
 `lateFeeAmount` and `lateFeeEnabled` already existed. The long form uses the listing's
-configured late fee when supplied and omits the late-fee paragraph when it is disabled.
+configured late fee when supplied and omits the late-fee paragraph when it is disabled or
+unset — the jurisdiction `defaultLateFeeUsd` fallback (Seattle `$75`) is gone with the other
+commercial defaults.
 The existing `monthToMonthSurcharge` is not rendered because the billing snapshot and
 household-charge ledger do not charge it.
 
@@ -1701,8 +1712,62 @@ unpaid, total deposit collection is $400; once paid, it is $300. Never describe
 an unpaid holding charge as received. Scope these reads by manager, property,
 resident identity AND application id so a previous tenancy cannot supply a
 credit. Paid deposit/move-in charges are excluded from signing collection while
-their full obligations remain in the document. One-time custom charges and
-manager-entered other costs contribute their outstanding balances to signing.
+their full obligations remain in the document. One-time custom charges and the
+application-level `managerOtherCostAmount` (with its approval-generated
+`other_cost` charge) contribute their outstanding balances to signing. A Payments
+-> Add payment row does NOT: `chargesForPlacement` drops every
+`isManagerAddedOneOffCharge` row (the `hc_mgr_` id `createManagerCharge` writes),
+so a fine or a replacement key never reaches the signing itemization or its total.
+
+Charge status decides only the OUTSTANDING balance, never the contractual
+obligation, and the two are separate snapshot fields throughout. `paid`,
+`cancelled` and `refunded` are settled — nothing owed — exactly as
+`householdChargeManagerBucket` reads them; a waived or returned charge contributes
+zero and must never be dropped from the snapshot, because a missing row falls back
+to the full contractual amount and re-quotes an obligation the manager voided.
+Everything else keeps its balance, including `processing` (a clearing ACH),
+`partially_paid` and `failed` — the payment ATTEMPT failed, the charge did not go
+away. "Already received" is its own figure (`securityDepositReceived` /
+`moveInFeeReceived` / `receivedBeforeMoveIn`), summed from dollars that actually
+CLEARED rather than inferred by subtracting the balance from the obligation. A
+clearing, waived or refunded charge is therefore never described to a resident as
+a payment received. Every settled line in every document — deposit, move-in fee,
+holding deposit, one-time custom fee, other signing cost — reads "paid" only when
+cleared receipts cover the WHOLE stated obligation (`clearedInFull`); a zero
+balance with partial, absent or unknown receipt evidence reads "no payment due".
+Zero due is never by itself proof of payment, so a `received` figure that is
+undefined can only produce "no payment due". A voided holding charge is also not
+an active holding record: `buildLeaseBillingSnapshot` selects a non-cancelled,
+non-refunded `holding_deposit` row, so a waived holding neither raises the
+holding-deposit disclosure nor credits the security-deposit fallback. What the
+deposit still owes then comes from the security ROW: its own recorded balance
+whenever one exists, and the full contractual deposit only when no security charge
+exists at all.
+
+**The snapshot is a READ of the scoped charges, never a writer or a corrector.**
+It never invents a charge and never rewrites a recorded balance to what it thinks
+the balance ought to be. That matters for one sequence: a $100 holding is paid, so
+`recordApprovedApplicationCharges` writes the security charge NET of the credit
+($300 — `holdingDepositCreditCentsForApplication` counts `pending`/`paid`), and the
+holding is later voided by status alone. The surviving $300 row is what the lease
+quotes, because that row is the ledger's own record of what is owed. Re-deriving
+$400 in document generation would have the lease disagree with the Payments page
+and with the resident's own balance. Reconciling a genuinely refunded holding is
+the ledger's job, not the document's: the supported waive path
+(`removeApplicantHoldingFee`) DELETES the row and calls
+`reconcileApprovedChargesForHoldingFee`, which regenerates the security charge at
+full. A status-only void has no equivalent reconcile; if one is ever wanted it
+belongs in `household-charges.ts`. Coverage: the voided-holding cases in
+`lease-billing-snapshot.test.ts` pin all three security-row shapes (surviving net
+row, cancelled row, absent row).
+
+The signing total is a FIRST-PERIOD figure and is resolved AFTER proration in
+`build-lease-html.ts`. Resolving it earlier quoted a full month of rent and
+utilities beside the prorated lines the same document prints, so the itemization
+and the total disagreed (a Sep 22 start read $1,575.00 instead of $857.50). A
+daily-basis term prices its first period from the actual billable days, exactly as
+the ledger does. An authoritative `leaseBilling.dueAtSigning` still wins, and the
+full contractual schedules are unchanged.
 
 The compact room document now includes a manager-entered one-time fee in both
 its summary and its signing breakdown; the reference's short-duration fee is not

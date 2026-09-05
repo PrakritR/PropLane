@@ -2,6 +2,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
   type HouseholdCharge,
   type HouseholdChargeKind,
+  isManagerAddedOneOffCharge,
   readChargesForManager,
 } from "@/lib/household-charges";
 import { collectLinkedPropertyIdsForModule } from "@/lib/manager-portfolio-access";
@@ -34,18 +35,26 @@ export type LeaseBillingSnapshot = {
   securityDeposit: number;
   /** Full contractual deposit stays separate from the remaining collection. */
   securityDepositDue?: number;
-  holdingDeposit?: { amount: number; amountDue: number };
+  holdingDeposit?: { amount: number; amountDue: number; received: number };
   moveInFee: number;
   moveInFeeDue?: number;
   otherCostLabel: string;
   otherCostAmount: number;
   otherCostDue?: number;
+  otherCostReceived?: number;
   oneTimeCustomFeeBalances?: Record<string, number>;
+  oneTimeCustomFeeReceived?: Record<string, number>;
   proratedRent?: number;
   proratedUtilities?: number;
   proratedLastMonthRent?: number;
   proratedLastMonthUtilities?: number;
   applicationFee?: number;
+  /** Dollars CLEARED toward the deposit (holding portion included). Never waived or clearing. */
+  securityDepositReceived?: number;
+  /** Dollars CLEARED toward the move-in fee. Never a waived or clearing charge. */
+  moveInFeeReceived?: number;
+  /** Dollars CLEARED toward everything owed before move-in / check-in. */
+  receivedBeforeMoveIn?: number;
   dueAtSigning: number;
 };
 
@@ -69,6 +78,61 @@ function chargeAmount(c: HouseholdCharge): number {
   return parseMoneyLabel(c.balanceLabel || c.amountLabel || "0");
 }
 
+// Settled means nothing is owed, exactly as `householdChargeManagerBucket` reads it: a
+// cancelled charge was waived and a refunded one was returned. Both contribute zero to the
+// remaining collection, and neither may be dropped from the snapshot — a missing row falls
+// back to the FULL contractual amount and re-quotes an obligation the manager voided.
+const SETTLED_CHARGE_STATUSES = new Set<HouseholdCharge["status"]>(["paid", "cancelled", "refunded"]);
+
+function chargeIsSettled(c: HouseholdCharge): boolean {
+  return SETTLED_CHARGE_STATUSES.has(c.status);
+}
+
+// Voided money: waived or returned, so it never becomes a disclosure, a credit, or a receipt.
+function chargeIsVoided(c: HouseholdCharge): boolean {
+  return c.status === "cancelled" || c.status === "refunded";
+}
+
+// Money that has not CLEARED is still owed. A clearing ACH ("processing"), a part payment
+// and a failed attempt all leave a real balance on the row, so anything not settled keeps
+// its balance — including a status this file has never heard of.
+function chargeOutstandingAmount(c: HouseholdCharge): number {
+  return chargeIsSettled(c) ? 0 : chargeAmount(c);
+}
+
+// Dollars that actually CLEARED. A clearing ACH has not arrived, and a cancelled or
+// refunded charge is money the manager never kept — none of the three may be reported to a
+// resident as a payment received.
+function chargeReceivedAmount(c: HouseholdCharge): number {
+  if (c.status === "paid") return Math.max(0, parseMoneyLabel(c.amountLabel || "0"));
+  if (c.status !== "partially_paid") return 0;
+  const amount = parseMoneyLabel(c.amountLabel || "0");
+  const balance = parseMoneyLabel(c.balanceLabel || "0");
+  return Math.max(0, amount - balance);
+}
+
+const SECURITY_DEPOSIT_KINDS = new Set<HouseholdChargeKind>(["security_deposit", "holding_deposit"]);
+const MOVE_IN_FEE_KINDS = new Set<HouseholdChargeKind>(["move_in_fee"]);
+
+const BEFORE_MOVE_IN_KINDS = new Set<HouseholdChargeKind>([
+  ...SECURITY_DEPOSIT_KINDS,
+  ...MOVE_IN_FEE_KINDS,
+  "stay_total",
+  "first_month_rent",
+  "prorated_rent",
+  "utilities",
+  "prorated_utilities",
+  "other_cost",
+]);
+
+function sumReceived(charges: HouseholdCharge[], kinds: Set<HouseholdChargeKind>): number {
+  const total = charges.reduce(
+    (sum, c) => (kinds.has(c.kind) && !c.rentMonth ? sum + chargeReceivedAmount(c) : sum),
+    0,
+  );
+  return Math.round(total * 100) / 100;
+}
+
 function chargesForPlacement(
   residentEmail: string,
   propertyId: string,
@@ -81,7 +145,9 @@ function chargesForPlacement(
   const linked = collectLinkedPropertyIdsForModule(managerUserId, "payments");
   return readChargesForManager(managerUserId, { linkedPropertyIds: linked }).filter(
     (c) =>
-      (c.status === "pending" || c.status === "paid") &&
+      // A fine, a replacement key or any other ad-hoc manager charge is not a lease term,
+      // so it never enters the signing itemization or its total.
+      !isManagerAddedOneOffCharge(c) &&
       (!applicationId || c.applicationId === applicationId) &&
       c.residentEmail.trim().toLowerCase() === email &&
       c.propertyId?.trim() === prop,
@@ -164,7 +230,7 @@ export function buildLeaseBillingSnapshot(
 ): LeaseBillingSnapshot {
   const placement = resolvePlacementValuesForRow(applicant);
   const placementCharges = chargesForPlacement(applicant.email ?? "", placement.propertyId, managerUserId, applicant.id);
-  const charges = placementCharges.filter((c) => c.status === "pending");
+  const charges = placementCharges.filter((c) => !chargeIsSettled(c));
   const listing = placement.propertyId ? getPropertyById(placement.propertyId) : undefined;
   const sub = listing?.listingSubmission?.v === 1
     ? normalizeManagerListingSubmissionV1(listing.listingSubmission) : undefined;
@@ -197,17 +263,20 @@ export function buildLeaseBillingSnapshot(
       : applicant.manualResidentDetails?.moveInFee ?? (isShortTerm
         ? parseMoneyLabel(selectedRoom?.shortTermMoveInFee?.trim() || sub?.shortTermMoveInFee || "0")
         : placement.moveInFee));
-  const holdingCharge = !isShortTerm ? placementCharges.find((c) => c.kind === "holding_deposit") : undefined;
+  const holdingCharge = !isShortTerm
+    ? placementCharges.find((c) => c.kind === "holding_deposit" && !chargeIsVoided(c))
+    : undefined;
   const holdingDeposit = holdingCharge
     ? {
         amount: parseMoneyLabel(holdingCharge.amountLabel),
-        amountDue: holdingCharge.status === "paid" ? 0 : chargeAmount(holdingCharge),
+        amountDue: chargeOutstandingAmount(holdingCharge),
+        received: chargeReceivedAmount(holdingCharge),
       }
     : undefined;
   const remainingForKind = (kind: HouseholdChargeKind, fallback: number) => {
     const rows = placementCharges.filter((c) => c.kind === kind);
     return rows.length
-      ? rows.reduce((sum, c) => sum + (c.status === "paid" ? 0 : chargeAmount(c)), 0)
+      ? rows.reduce((sum, c) => sum + chargeOutstandingAmount(c), 0)
       : fallback;
   };
   const securityDepositDue = remainingForKind(
@@ -217,13 +286,19 @@ export function buildLeaseBillingSnapshot(
   const moveInFeeDue = remainingForKind("move_in_fee", moveInFee);
   const otherCostCharges = placementCharges.filter((c) => c.kind === "other_cost" && !c.customFeeId);
   const otherCostDue = otherCostCharges.length
-    ? otherCostCharges.reduce((sum, c) => sum + (c.status === "paid" ? 0 : chargeAmount(c)), 0)
+    ? otherCostCharges.reduce((sum, c) => sum + chargeOutstandingAmount(c), 0)
     : placement.otherCostAmount;
+  const otherCostReceived = otherCostCharges.length
+    ? Math.round(otherCostCharges.reduce((sum, c) => sum + chargeReceivedAmount(c), 0) * 100) / 100
+    : 0;
   const oneTimeCustomFeeBalances: Record<string, number> = {};
+  const oneTimeCustomFeeReceived: Record<string, number> = {};
   for (const c of placementCharges) {
     if (c.kind !== "other_cost" || !c.customFeeId || c.rentMonth) continue;
     oneTimeCustomFeeBalances[c.customFeeId] = (oneTimeCustomFeeBalances[c.customFeeId] ?? 0) +
-      (c.status === "paid" ? 0 : chargeAmount(c));
+      chargeOutstandingAmount(c);
+    oneTimeCustomFeeReceived[c.customFeeId] = (oneTimeCustomFeeReceived[c.customFeeId] ?? 0) +
+      chargeReceivedAmount(c);
   }
   const customOneTimeFeesDue = (sub?.customFees ?? []).reduce((sum, fee) => {
     const presetId = (fee as { presetId?: string }).presetId;
@@ -236,6 +311,9 @@ export function buildLeaseBillingSnapshot(
   // deposit. Paid holding dollars are never collected a second time at signing.
   const depositCollectionDue = securityDepositDue + (holdingDeposit?.amountDue ?? 0);
   const applicationFee = sumByKind(charges, "application_fee");
+  const securityDepositReceived = sumReceived(placementCharges, SECURITY_DEPOSIT_KINDS);
+  const moveInFeeReceived = sumReceived(placementCharges, MOVE_IN_FEE_KINDS);
+  const receivedBeforeMoveIn = sumReceived(placementCharges, BEFORE_MOVE_IN_KINDS);
 
   const leaseStart = applicant.application?.leaseStart?.trim() ?? "";
   const leaseEnd = applicant.application?.leaseEnd?.trim() ?? "";
@@ -274,7 +352,7 @@ export function buildLeaseBillingSnapshot(
     // Approval-time charges have no rentMonth; recurring future months must not
     // enter the signing balance merely because they share the utilities kind.
     const rows = placementCharges.filter((c) => kinds.includes(c.kind) && !c.rentMonth);
-    return rows.length ? rows.reduce((sum, c) => sum + (c.status === "paid" ? 0 : chargeAmount(c)), 0) : fallback;
+    return rows.length ? rows.reduce((sum, c) => sum + chargeOutstandingAmount(c), 0) : fallback;
   };
   const firstPeriodRentDue = isShortTerm ? stayRentDue ?? 0 : remainingFirstPeriod(
     FIRST_PERIOD_RENT_KINDS, dailyFirstPeriodRent ?? resolvedProratedRent ?? monthlyRent,
@@ -335,12 +413,17 @@ export function buildLeaseBillingSnapshot(
     otherCostLabel: placement.otherCostLabel,
     otherCostAmount: placement.otherCostAmount,
     otherCostDue,
+    otherCostReceived,
     oneTimeCustomFeeBalances,
+    oneTimeCustomFeeReceived,
     proratedRent: resolvedProratedRent,
     proratedUtilities: resolvedProratedUtilities,
     proratedLastMonthRent: chargeProratedLastMonthRent,
     proratedLastMonthUtilities: chargeProratedLastMonthUtilities,
     applicationFee,
+    securityDepositReceived,
+    moveInFeeReceived,
+    receivedBeforeMoveIn,
     dueAtSigning,
   };
 }

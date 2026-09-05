@@ -35,9 +35,10 @@ import {
   disclosureVerbatimHtmlForSection,
   evaluateDisclosureRules,
 } from "@/lib/lease-templates/disclosure-rules";
-import { buildCompactRoomLeaseBody } from "@/lib/lease-templates/build-compact-room-lease-html";
+import { buildCompactRoomLeaseBody, clearedInFull } from "@/lib/lease-templates/build-compact-room-lease-html";
 import {
   computeProratedFirstMonthTotals,
+  leaseFirstPeriodProration,
   computeProratedLastMonthTotals,
   prorationMonthLabel,
   type ProratedLastMonthRateBasis,
@@ -695,27 +696,6 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     .join("\n");
 
   const leaseBilling = ctx.leaseBilling;
-  const signingAmounts = {
-    securityDeposit: leaseBilling?.securityDeposit ?? stay.deposit ?? 0,
-    moveInFee: leaseBilling?.moveInFee ?? parseAmount(moveInFee) ?? 0,
-    monthlyRent: leaseBilling?.monthlyRent ?? rentNum ?? 0,
-    monthlyUtilities: leaseBilling?.monthlyUtilities ?? utilitiesNum ?? 0,
-    proratedRent: leaseBilling?.proratedRent,
-    proratedUtilities: leaseBilling?.proratedUtilities,
-    customOneTimeFees: customFeesTotalNum,
-    otherSigningCost: showOtherSigningCost ? (otherCostNum ?? 0) : 0,
-  };
-  const computedSigning = sub
-    ? computeLeasePaymentAtSigning(sub, signingAmounts)
-    : signingAmounts.securityDeposit + signingAmounts.moveInFee;
-  const paySigningNum =
-    leaseBilling?.dueAtSigning != null ? leaseBilling.dueAtSigning : computedSigning;
-  const paySigning = escapeHtml(
-    !propertyTemplatePreview || listingFeePreview ? fmtUsd(paySigningNum) : "—",
-  );
-  const paySigningIncludesNote = sub
-    ? escapeHtml(paymentAtSigningIncludedLabels(sub))
-    : "";
 
   // The catalog receives only facts available to lease generation. Fields that the product
   // does not collect stay undefined so the evaluator can report them as unknown rather than
@@ -899,6 +879,44 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const showProratedFirstMonth = firstPartialMonthPayment > 0;
   const firstMonthLabel = stripPreviewIdentity ? "" : prorationMonthLabel(a.leaseStart);
 
+  // A signing total is a FIRST-PERIOD figure. Resolving it before proration quoted a full
+  // month of rent and utilities beside the prorated lines the same document prints, so the
+  // itemization and the total disagreed. A daily-basis term prices its first period from the
+  // actual billable days, exactly as the ledger does.
+  const signingFirstPeriod = leaseFirstPeriodProration(a.leaseStart ?? "", a.leaseEnd ?? "", true);
+  const dailyFirstPeriodRent =
+    !stripPreviewIdentity && dailyBasisRate != null && signingFirstPeriod.billableDays > 0
+      ? Math.round(dailyBasisRate * signingFirstPeriod.billableDays * 100) / 100
+      : undefined;
+  const signingProratedRent =
+    leaseBilling?.proratedRent
+    ?? dailyFirstPeriodRent
+    ?? (showProratedFirstMonth && proratedRentAmount > 0 ? proratedRentAmount : undefined);
+  const signingProratedUtilities =
+    leaseBilling?.proratedUtilities
+    ?? (showProratedFirstMonth ? proratedUtilitiesAmount : undefined);
+  const signingAmounts = {
+    securityDeposit: leaseBilling?.securityDeposit ?? stay.deposit ?? 0,
+    moveInFee: leaseBilling?.moveInFee ?? parseAmount(moveInFee) ?? 0,
+    monthlyRent: leaseBilling?.monthlyRent ?? rentNum ?? 0,
+    monthlyUtilities: leaseBilling?.monthlyUtilities ?? utilitiesNum ?? 0,
+    proratedRent: signingProratedRent,
+    proratedUtilities: signingProratedUtilities,
+    customOneTimeFees: customFeesTotalNum,
+    otherSigningCost: showOtherSigningCost ? (otherCostNum ?? 0) : 0,
+  };
+  const computedSigning = sub
+    ? computeLeasePaymentAtSigning(sub, signingAmounts)
+    : signingAmounts.securityDeposit + signingAmounts.moveInFee;
+  const paySigningNum =
+    leaseBilling?.dueAtSigning != null ? leaseBilling.dueAtSigning : computedSigning;
+  const paySigning = escapeHtml(
+    !propertyTemplatePreview || listingFeePreview ? fmtUsd(paySigningNum) : "—",
+  );
+  const paySigningIncludesNote = sub
+    ? escapeHtml(paymentAtSigningIncludedLabels(sub))
+    : "";
+
   /**
    * A fixed term that CONTINUES month-to-month instead of ending. Opt-in per
    * listing (`rolloverToMonthToMonth`), because the default clause promises the
@@ -1052,9 +1070,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
               stCustomFeesTotal,
           )
         : "—";
-    const receivedBeforeCheckIn = ctx.leaseBilling?.totalBeforeCheckIn != null && dailyCost != null && stayNights != null
-      ? Math.max(0, shortTermStayTotalAmount(dailyCost, stayNights) + (depositAmount ?? 0) + stayMoveInNum + stayOtherNum + stayUtilitiesNum + stCustomFeesTotal - ctx.leaseBilling.totalBeforeCheckIn)
-      : 0;
+    const receivedBeforeCheckIn = ctx.leaseBilling?.receivedBeforeMoveIn ?? 0;
     const receivedStayLine = receivedBeforeCheckIn > 0
       ? `<p><strong>Already received:</strong> ${fmtUsd(receivedBeforeCheckIn)}. Recorded payments are excluded from the balance due before check-in.</p>` : "";
     const requirements = escapeHtml(
@@ -1213,8 +1229,15 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
   }
 
   const billing = ctx.leaseBilling;
+  const holdingDepositState = billing?.holdingDeposit
+    ? billing.holdingDeposit.amountDue > 0
+      ? `${fmtUsd(billing.holdingDeposit.amountDue)} outstanding`
+      : clearedInFull(billing.holdingDeposit.received, billing.holdingDeposit.amount)
+        ? "paid"
+        : "no payment due"
+    : "";
   const holdingDepositHtml = billing?.holdingDeposit && billing.holdingDeposit.amount > 0
-    ? `<p><strong>Holding deposit:</strong> ${fmtUsd(billing.holdingDeposit.amount)} (${billing.holdingDeposit.amountDue > 0 ? `${fmtUsd(billing.holdingDeposit.amountDue)} outstanding` : "paid"}). This is part of the security deposit, not an additional fee. The separate security-deposit balance is <strong>${fmtUsd(billing.securityDepositDue ?? Math.max(0, billing.securityDeposit - billing.holdingDeposit.amount))}</strong>.${billing.holdingDeposit.amountDue > 0 ? " The outstanding holding deposit remains payable separately; it has not been recorded as paid." : ""}</p>`
+    ? `<p><strong>Holding deposit:</strong> ${fmtUsd(billing.holdingDeposit.amount)} (${holdingDepositState}). This is part of the security deposit, not an additional fee. The separate security-deposit balance is <strong>${fmtUsd(billing.securityDepositDue ?? Math.max(0, billing.securityDeposit - billing.holdingDeposit.amount))}</strong>.${billing.holdingDeposit.amountDue > 0 ? " The outstanding holding deposit remains payable separately; it has not been recorded as paid." : ""}</p>`
     : "";
   const summaryMonthlyRent = billing
     ? fmtUsd(billing.monthlyRent)
@@ -1357,11 +1380,13 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
       firstPeriodRentDue: billing?.firstPeriodRentDue,
       firstPeriodUtilitiesDue: billing?.firstPeriodUtilitiesDue,
       securityDepositDue: billing?.securityDepositDue,
+      securityDepositReceived: billing?.securityDepositReceived,
+      moveInFeeReceived: billing?.moveInFeeReceived,
       holdingDeposit: billing?.holdingDeposit,
       holdingDepositHtml,
       moveInFee,
       moveInFeeDue: billing?.moveInFeeDue,
-      otherSigningCost: showOtherSigningCost ? { label: rawOtherCostLabel, amount: otherCostNum!, amountDue: billing?.otherCostDue } : undefined,
+      otherSigningCost: showOtherSigningCost ? { label: rawOtherCostLabel, amount: otherCostNum!, amountDue: billing?.otherCostDue, received: billing?.otherCostReceived } : undefined,
       paySigning,
       paySigningNum,
       firstPartialMonthPayment,
@@ -1377,6 +1402,7 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
       billableOneTimeCustomFees: billableOneTimeCustomFees.map((fee) => ({
         ...fee,
         amountDue: billing?.oneTimeCustomFeeBalances?.[fee.id],
+        received: billing?.oneTimeCustomFeeReceived?.[fee.id],
       })),
       billableMonthlyCustomFees,
       supplementalOneTimeLeaseFees,
