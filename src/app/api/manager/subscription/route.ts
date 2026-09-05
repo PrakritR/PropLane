@@ -3,6 +3,7 @@ import {
   formatManagerMonthlyLabel,
   isBusinessSkuTier,
   isProSkuTier,
+  isWaiverGrantedManagerPurchase,
   maxAccountLinksForTier,
   maxPropertiesForManagerTier,
   monthlyUsdForManagerTier,
@@ -85,7 +86,7 @@ export async function GET() {
       /* Stripe not configured or transient error — serve last known DB state */
     }
 
-    const { tier, billing, stripeSubscriptionId, appleOriginalTransactionId, readFailed } =
+    const { tier, billing, stripeSubscriptionId, appleOriginalTransactionId, promoCode, readFailed } =
       await getManagerPurchaseSku(user.id);
     let stripeManaged = false;
     try {
@@ -128,6 +129,7 @@ export async function GET() {
     return NextResponse.json({
       ...base,
       isFree,
+      paymentWaiverGranted: isWaiverGrantedManagerPurchase(promoCode),
       stripeManaged,
       appleManaged,
       cancelAtPeriodEnd,

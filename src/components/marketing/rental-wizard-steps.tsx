@@ -2216,24 +2216,16 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const managerUserIdForPay = resolvedManagerUserId.trim() || prop?.managerUserId?.trim() || "";
     const enabledChannels = [
       channels.ach ? ("ach" as const) : null,
-      channels.zelle ? ("zelle" as const) : null,
-      channels.venmo ? ("venmo" as const) : null,
       channels.other ? ("other" as const) : null,
-    ].filter((channel): channel is "ach" | "zelle" | "venmo" | "other" => Boolean(channel));
+    ].filter((channel): channel is "ach" | "other" => Boolean(channel));
     const feeStillDue = applicationFeeGate.needsFee && !applicationFeeGate.paid;
     const showChannelPick = feeStillDue && enabledChannels.length > 1;
-    const showZelleInstructions = feeStillDue && payChannel === "zelle" && sub?.zelleContact?.trim();
-    const showVenmoInstructions = feeStillDue && payChannel === "venmo" && sub?.venmoContact?.trim();
     const showOtherInstructions = feeStillDue && payChannel === "other" && otherInstructionsText;
     const singleChannelLabel =
       enabledChannels.length === 1
         ? enabledChannels[0] === "ach"
           ? "Card or Apple Pay"
-          : enabledChannels[0] === "zelle"
-            ? "Zelle"
-            : enabledChannels[0] === "venmo"
-              ? "Venmo"
-              : "Other"
+          : "Other"
         : null;
     return (
       <div className="space-y-6">
@@ -2333,40 +2325,6 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                 </span>
               </label>
             ) : null}
-            {channels.zelle ? (
-              <label className="flex cursor-pointer gap-3 rounded-xl border border-border bg-accent/30 p-3">
-                <input
-                  type="radio"
-                  name="application-fee-channel"
-                  className="mt-1 h-4 w-4 shrink-0 border-border text-primary"
-                  checked={form.applicationFeePayChannel === "zelle"}
-                  onChange={() => patch({ applicationFeePayChannel: "zelle", applicationFeeZelleSentConfirmed: false })}
-                />
-                <span>
-                  <span className="text-sm font-semibold text-foreground">Zelle</span>
-                  <span className="mt-0.5 block text-xs leading-relaxed text-muted">
-                    Submit now and manager sees the fee as pending.
-                  </span>
-                </span>
-              </label>
-            ) : null}
-            {channels.venmo ? (
-              <label className="flex cursor-pointer gap-3 rounded-xl border border-border bg-accent/30 p-3">
-                <input
-                  type="radio"
-                  name="application-fee-channel"
-                  className="mt-1 h-4 w-4 shrink-0 border-border text-primary"
-                  checked={form.applicationFeePayChannel === "venmo"}
-                  onChange={() => patch({ applicationFeePayChannel: "venmo", applicationFeeZelleSentConfirmed: false })}
-                />
-                <span>
-                  <span className="text-sm font-semibold text-foreground">Venmo</span>
-                  <span className="mt-0.5 block text-xs leading-relaxed text-muted">
-                    Submit now and manager sees the fee as pending.
-                  </span>
-                </span>
-              </label>
-            ) : null}
             {channels.other ? (
               <label className="flex cursor-pointer gap-3 rounded-xl border border-border bg-accent/30 p-3">
                 <input
@@ -2419,30 +2377,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             </div>
           )
         ) : null}
-        {feeStillDue && !isAchApplicationFeeChannel(payChannel) ? (
+        {feeStillDue && payChannel === "other" ? (
           <div className="space-y-3 rounded-2xl border border-border bg-card p-4 sm:p-5" data-attr="application-fee-manual-pay">
-            {showZelleInstructions ? (
-              <div className="rounded-xl border px-4 py-3 text-sm portal-banner-success">
-                <p className="font-semibold">Send by Zelle</p>
-                <p className="mt-2 rounded-lg border border-emerald-300/80 bg-card px-3 py-2 font-mono text-base font-bold tracking-tight">
-                  {sub!.zelleContact!.trim()}
-                </p>
-                <p className="mt-2 leading-relaxed">
-                  Send the amount due above, then tap <span className="font-semibold">Check payment</span> below.
-                </p>
-              </div>
-            ) : null}
-            {showVenmoInstructions ? (
-              <div className="rounded-xl border px-4 py-3 text-sm portal-banner-info">
-                <p className="font-semibold">Send by Venmo</p>
-                <p className="mt-2 rounded-lg border border-sky-300/80 bg-card px-3 py-2 font-mono text-base font-bold tracking-tight">
-                  {sub!.venmoContact!.trim()}
-                </p>
-                <p className="mt-2 leading-relaxed">
-                  Send the amount due above, then tap <span className="font-semibold">Check payment</span> below.
-                </p>
-              </div>
-            ) : null}
             {showOtherInstructions ? (
               <div className="rounded-xl border px-4 py-3 text-sm portal-banner-pending">
                 <p className="font-semibold">Payment instructions</p>

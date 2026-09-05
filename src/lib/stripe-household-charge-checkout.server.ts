@@ -187,15 +187,9 @@ export async function createHouseholdChargeCheckout(
     if (!resolved.ok) return resolved;
     const { loaded, managerUserId } = resolved;
 
-    const { tier: managerTierRaw } = await getManagerPurchaseSku(managerUserId);
+    const { tier: managerTierRaw, promoCode } = await getManagerPurchaseSku(managerUserId);
     const managerTier = normalizeManagerSkuTier(managerTierRaw) ?? "free";
-    // Who pays the service fee is resolved live from the manager's current plan
-    // + Pro setting, so a plan change or a toggle flip takes effect on the very
-    // next charge with no per-charge state.
     const managerSettings = await loadManagerManualPaymentSettings(db, managerUserId);
-    // One checkout session bills one total, so the batch must agree on who pays the fee. A batch
-    // spanning two properties with different settings is refused rather than resolved to one of
-    // them: either choice silently changes what this resident is charged.
     const propertyChoices = [...new Set(loaded.map((row) => row.propertyFeePayer ?? "inherit"))];
     if (propertyChoices.length > 1) {
       return {
@@ -211,6 +205,7 @@ export async function createHouseholdChargeCheckout(
       adminOverride: managerSettings.adminServiceFeeOverride,
       propertyChoice: loaded[0]?.propertyFeePayer ?? null,
       managerChoice: managerSettings.serviceFeePayer,
+      waiverGranted: Boolean(promoCode?.trim()),
     });
     const stripe = getStripe();
     const connect = await resolveAndValidateManagerConnectForPayments(stripe, db, managerUserId);

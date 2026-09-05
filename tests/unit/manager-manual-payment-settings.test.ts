@@ -6,18 +6,18 @@ import {
 } from "@/lib/manager-manual-payment-settings";
 
 describe("manager manual payment settings", () => {
-  it("defaults to Stripe ACH on, Zelle/Venmo off, with receipt linking on", () => {
+  it("defaults to Stripe on with Zelle/Venmo retired", () => {
     expect(normalizeManagerManualPaymentSettings(null)).toEqual({
       ...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS,
       receiptAutoMarkEnabled: true,
     });
   });
 
-  it("requires a contact when a method is enabled, but keeps the contact when disabled", () => {
+  it("always forces Zelle/Venmo off regardless of stored values", () => {
     expect(
       normalizeManagerManualPaymentSettings({
         zellePaymentsEnabled: true,
-        zelleContact: "  ",
+        zelleContact: "pay@example.com",
         venmoPaymentsEnabled: true,
         venmoContact: "@payme",
       }),
@@ -25,23 +25,6 @@ describe("manager manual payment settings", () => {
       axisPaymentsEnabled: true,
       zellePaymentsEnabled: false,
       zelleContact: "",
-      venmoPaymentsEnabled: true,
-      venmoContact: "@payme",
-      receiptAutoMarkEnabled: true,
-      serviceFeePayer: "resident",
-    });
-
-    expect(
-      normalizeManagerManualPaymentSettings({
-        zellePaymentsEnabled: false,
-        zelleContact: "keep@example.com",
-        venmoPaymentsEnabled: false,
-        venmoContact: "",
-      }),
-    ).toEqual({
-      axisPaymentsEnabled: true,
-      zellePaymentsEnabled: false,
-      zelleContact: "keep@example.com",
       venmoPaymentsEnabled: false,
       venmoContact: "",
       receiptAutoMarkEnabled: true,
@@ -60,8 +43,8 @@ describe("manager manual payment settings", () => {
       }),
     ).toEqual({
       axisPaymentsEnabled: false,
-      zellePaymentsEnabled: true,
-      zelleContact: "name@email.com",
+      zellePaymentsEnabled: false,
+      zelleContact: "",
       venmoPaymentsEnabled: false,
       venmoContact: "",
       receiptAutoMarkEnabled: true,

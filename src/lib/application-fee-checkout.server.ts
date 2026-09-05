@@ -182,13 +182,14 @@ export async function resolveApplicationFeeItemization(
   applicationFeeCents: number,
   channel: "card" | "manual" = "card",
 ): Promise<ApplicationFeeItemization> {
-  const { tier: managerTierRaw } = await getManagerPurchaseSku(managerUserId);
+  const { tier: managerTierRaw, promoCode } = await getManagerPurchaseSku(managerUserId);
   const managerTier = normalizeManagerSkuTier(managerTierRaw) ?? "free";
   const managerSettings = await loadManagerManualPaymentSettings(db, managerUserId);
   const feePayer = resolveServiceFeePayerFor({
     tier: managerTier,
     adminOverride: managerSettings.adminServiceFeeOverride,
     managerChoice: managerSettings.serviceFeePayer,
+    waiverGranted: Boolean(promoCode?.trim()),
   });
   const fee =
     channel === "manual" || applicationFeeCents <= 0

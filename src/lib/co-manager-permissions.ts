@@ -7,6 +7,7 @@ export const CO_MANAGER_PERMISSION_OPTIONS = [
   { id: "residents", label: "Residents" },
   { id: "leases", label: "Leases" },
   { id: "payments", label: "Payments" },
+  { id: "bankAccount", label: "Bank account" },
   { id: "documents", label: "Documents" },
   { id: "financials", label: "Finances" },
   { id: "services", label: "Services" },

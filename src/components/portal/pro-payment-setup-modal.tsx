@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -13,14 +12,12 @@ import {
   type ManagerManualPaymentSettingsView,
 } from "@/lib/manager-manual-payment-settings";
 import { normalizeManagerSkuTier, type ManagerSkuTier } from "@/lib/manager-access";
-import type { ServiceFeePayer } from "@/lib/payment-policy";
-import { useGmailPaymentTrack } from "@/components/portal/gmail-payment-auto-track-panel";
-import { GMAIL_PAYMENTS_ENABLED } from "@/lib/gmail-payments/enabled";
 import {
-  formatGmailPaymentsConnectError,
-  isGmailPaymentsOAuthBlocked,
-} from "@/lib/gmail-payments/connect-errors";
-import { gmailFilterFromClause, gmailFilterSubjectHint } from "@/lib/gmail-payments/gmail-query";
+  managerCanSelectManagerAbsorbServiceFee,
+  managerCanSelectProplaneServiceFee,
+  type ServiceFeePayer,
+} from "@/lib/payment-policy";
+import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
 import { stripeSetupStateFromStatus, type StripeSetupState } from "@/lib/stripe-setup-state";
 
 const DEMO_INBOX = "payments+demo-token@prop-lane.space";
@@ -34,8 +31,6 @@ const SERVICE_FEE_PAYER_OPTIONS: {
   { id: "manager", title: "I'll cover it", detail: "Deducted from your payout" },
   { id: "proplane", title: "PropLane covers it", detail: "No fee to you or residents" },
 ];
-
-type PaymentChannel = "zelle" | "venmo";
 
 function draftFromSettings(settings: ManagerManualPaymentSettingsView | null): ManagerManualPaymentSettingsView {
   return settings ?? { ...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS, paymentInboxAddress: DEMO_INBOX };
@@ -114,277 +109,15 @@ function HubRow({
   );
 }
 
-function ChannelPaymentSetupModal({
-  channel,
-  open,
-  onClose,
-  draft,
-  setDraft,
-  saving,
-  onSaveContact,
-  paymentInboxAddress,
-  autoMarkEnabled,
-  onAutoMarkChange,
-  gmailStatus,
-  gmailBusy,
-  onLinkGmail,
-  showToast,
-  gmailConnectErrorReason,
-}: {
-  channel: PaymentChannel;
-  open: boolean;
-  onClose: () => void;
-  draft: ManagerManualPaymentSettingsView;
-  setDraft: Dispatch<SetStateAction<ManagerManualPaymentSettingsView>>;
-  saving: boolean;
-  onSaveContact: () => void;
-  paymentInboxAddress?: string;
-  autoMarkEnabled: boolean;
-  onAutoMarkChange: (enabled: boolean) => void | Promise<void>;
-  gmailStatus: ReturnType<typeof useGmailPaymentTrack>["gmailStatus"];
-  gmailBusy: boolean;
-  onLinkGmail: () => void;
-  showToast: (message: string) => void;
-  gmailConnectErrorReason?: string | null;
-}) {
-  const label = channel === "zelle" ? "Zelle" : "Venmo";
-  const gmailConnectError = gmailConnectErrorReason
-    ? formatGmailPaymentsConnectError(gmailConnectErrorReason)
-    : null;
-  const placeholder = channel === "zelle" ? "phone number (or email)" : "@username or phone";
-  const filterFrom = gmailFilterFromClause(channel);
-  const filterSubject = gmailFilterSubjectHint(channel);
-  const contact = channel === "zelle" ? draft.zelleContact : draft.venmoContact;
-  const contactConnected =
-    channel === "zelle"
-      ? draft.zellePaymentsEnabled && draft.zelleContact.trim().length > 0
-      : draft.venmoPaymentsEnabled && draft.venmoContact.trim().length > 0;
-  const hasForwardingStep = Boolean(paymentInboxAddress?.trim());
-  const autoMarkStep = hasForwardingStep ? 5 : 4;
-  const stepCountWord = hasForwardingStep ? "Five" : "Four";
-
-  return (
-    <Modal open={open} title={`Link ${label}`} onClose={onClose} dense assistantContext={`Link ${label}`}>
-      <div className="space-y-4">
-        <p className="text-sm text-muted">
-          {stepCountWord} quick steps so residents can pay you with {label} and we auto-match receipts.
-        </p>
-
-        <div className="space-y-2 rounded-xl border border-border bg-card px-4 py-3">
-          <p className="text-sm font-semibold text-foreground">Step 1 — Save your {label} contact</p>
-          <p className="text-xs text-muted">
-            {channel === "zelle" ? "Use the phone number enrolled in Zelle (or an email)." : "Residents will see this on their payment screen."}
-          </p>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              value={contact}
-              onChange={(e) =>
-                setDraft((prev) =>
-                  channel === "zelle" ? { ...prev, zelleContact: e.target.value } : { ...prev, venmoContact: e.target.value },
-                )
-              }
-              placeholder={placeholder}
-              className="flex-1"
-              data-attr={`manager-payment-${channel}-save-input`}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              className="shrink-0 rounded-full"
-              disabled={saving || !contact.trim()}
-              data-attr={`manager-payment-${channel}-save`}
-              onClick={onSaveContact}
-            >
-              {saving ? "Saving…" : contactConnected ? "Update" : "Save"}
-            </Button>
-          </div>
-        </div>
-
-        <div className="space-y-2 rounded-xl border border-border bg-card px-4 py-3">
-          <p className="text-sm font-semibold text-foreground">Step 2 — Turn on {label} email notifications</p>
-          <p className="text-xs text-muted">
-            {channel === "zelle" ? (
-              <>
-                In your bank&apos;s Zelle settings, enable email alerts for money received. In the Zelle app, open
-                Settings → Notifications and turn on payment emails.
-              </>
-            ) : (
-              <>
-                In the Venmo app, open Settings → Notifications and enable emails for payments you receive.
-              </>
-            )}
-          </p>
-        </div>
-
-        {/* Gmail receipt matching is off (PRP-130): `gmail.readonly` is a
-            RESTRICTED Google scope, and Zelle/Venmo are being recorded by hand
-            for now. The whole step is hidden rather than shown-and-disabled,
-            because a step you cannot complete is worse than one that is not
-            there. Forwarding (Step 4) still works and needs no Google approval. */}
-        <div
-          className={`space-y-2 rounded-xl border border-border bg-card px-4 py-3 ${
-            GMAIL_PAYMENTS_ENABLED ? "" : "hidden"
-          }`}
-        >
-          <p className="text-sm font-semibold text-foreground">Step 3 — Link the Gmail inbox for {label} (optional)</p>
-          <p className="text-xs text-muted">
-            Use the Gmail account that receives your {label} payment alerts — it can be different from the inbox you use
-            for other payment methods. We read those emails and match the <span className="font-mono">PL-</span> code and
-            amount. If a resident forgets the code, we still match on the amount plus their name and property; anything
-            we can&apos;t confidently match is never auto-marked — the charge stays pending for you to mark paid manually.
-            Linked inboxes are checked automatically when residents tap Check payment and on a daily schedule. If Google
-            blocks Link Gmail, skip to Step 4 — forwarding works without Google approval.
-          </p>
-          {gmailConnectError ? (
-            <p
-              className={`rounded-lg border px-3 py-2 text-xs leading-relaxed ${
-                isGmailPaymentsOAuthBlocked(gmailConnectErrorReason ?? null)
-                  ? "border-amber-300/80 bg-amber-50 text-amber-950 [html[data-theme=dark]_&]:border-amber-500/40 [html[data-theme=dark]_&]:bg-amber-950/40 [html[data-theme=dark]_&]:text-amber-100"
-                  : "border-red-300/80 bg-red-50 text-red-900 [html[data-theme=dark]_&]:border-red-500/40 [html[data-theme=dark]_&]:bg-red-950/40 [html[data-theme=dark]_&]:text-red-100"
-              }`}
-            >
-              {gmailConnectError}
-            </p>
-          ) : null}
-          <div className="flex flex-wrap items-center gap-2">
-            {gmailStatus?.connected ? (
-              <span className="text-sm font-medium text-[var(--status-confirmed-fg)]">
-                {gmailStatus.email ?? "Connected"}
-              </span>
-            ) : (
-              <button
-                type="button"
-                onClick={onLinkGmail}
-                disabled={gmailBusy || gmailStatus?.configured === false}
-                data-attr={`manager-payment-${channel}-gmail-link`}
-                className="text-sm font-medium text-primary hover:underline disabled:opacity-50"
-              >
-                {gmailBusy ? "Opening…" : `Link Gmail for ${label}`}
-              </button>
-            )}
-          </div>
-          {gmailStatus?.configured === false ? (
-            <p className="text-xs text-muted">Google sign-in is not configured on this server.</p>
-          ) : null}
-        </div>
-
-        {hasForwardingStep ? (
-          <div className="space-y-3 rounded-xl border border-border bg-card px-4 py-4">
-            <div>
-              <p className="text-sm font-semibold text-foreground">
-                Step 4 — Forward {label} receipts {gmailStatus?.connected ? "(optional)" : "(recommended)"}
-              </p>
-              <p className="mt-1 text-sm leading-relaxed text-muted">
-                {gmailStatus?.connected
-                  ? "Optional backup: also forward receipts from this inbox so they are matched the moment they arrive."
-                  : `Set up a Gmail filter in the inbox that receives your ${label} alerts. This works even when Google blocks Link Gmail.`}
-              </p>
-            </div>
-            <ol className="space-y-3 text-sm leading-relaxed text-foreground">
-              <li className="flex gap-3">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-foreground">
-                  1
-                </span>
-                <span className="pt-0.5">
-                  In Gmail, open <span className="font-medium">Settings</span> →{" "}
-                  <span className="font-medium">Filters and Blocked Addresses</span> →{" "}
-                  <span className="font-medium">Create a new filter</span>.
-                </span>
-              </li>
-              <li className="flex gap-3">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-foreground">
-                  2
-                </span>
-                <div className="min-w-0 flex-1 space-y-2 pt-0.5">
-                  <p>
-                    Set <span className="font-medium">From</span> to:
-                  </p>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <code className="block w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm font-semibold text-foreground">
-                      {filterFrom}
-                    </code>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="shrink-0 rounded-full px-4 text-[13px]"
-                      onClick={() =>
-                        navigator.clipboard?.writeText(filterFrom).then(() => showToast("Copied."))
-                      }
-                    >
-                      Copy
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted">
-                    Optional: add Subject contains <span className="font-mono">{filterSubject}</span> if this inbox gets
-                    other mail from those senders.
-                  </p>
-                </div>
-              </li>
-              <li className="flex gap-3">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-foreground">
-                  3
-                </span>
-                <div className="min-w-0 flex-1 space-y-2 pt-0.5">
-                  <p>
-                    Choose <span className="font-medium">Forward it to</span> and use this address:
-                  </p>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <code className="block w-full break-all rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm font-semibold text-foreground">
-                      {paymentInboxAddress}
-                    </code>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="shrink-0 rounded-full px-4 text-[13px]"
-                      data-attr={`manager-payment-${channel}-inbox-copy`}
-                      onClick={() => {
-                        const address = paymentInboxAddress?.trim();
-                        if (!address) return;
-                        void navigator.clipboard?.writeText(address).then(() => showToast("Copied."));
-                      }}
-                    >
-                      Copy
-                    </Button>
-                  </div>
-                </div>
-              </li>
-            </ol>
-          </div>
-        ) : null}
-
-        <div className="space-y-2 rounded-xl border border-border bg-card px-4 py-3">
-          <p className="text-sm font-semibold text-foreground">Step {autoMarkStep} — Auto-mark charges paid</p>
-          <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              checked={autoMarkEnabled}
-              onChange={(e) => void onAutoMarkChange(e.target.checked)}
-              data-attr={`manager-payment-${channel}-auto-mark`}
-            />
-            <span className="text-xs leading-relaxed text-muted">
-              When a {label} receipt matches a charge, mark it paid automatically.
-            </span>
-          </label>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 export function ManagerPaymentSetupModal({
   open,
   onClose,
-  initialChannel = null,
-  gmailConnectErrorReason = null,
   propertyOptions,
   presetPropertyIds,
 }: {
   open: boolean;
   onClose: () => void;
   portalBase: string;
-  initialChannel?: PaymentChannel | null;
-  gmailConnectErrorReason?: string | null;
   propertyOptions: { id: string; label: string }[];
   /** When set, skip the property picker and scope saves to these ids (e.g. resident detail). */
   presetPropertyIds?: string[];
@@ -396,15 +129,13 @@ export function ManagerPaymentSetupModal({
   const [stripeBusy, setStripeBusy] = useState(false);
   const [stripeState, setStripeState] = useState<StripeSetupState>("unlinked");
   const [stripeIssue, setStripeIssue] = useState<string | null>(null);
-  const [savingChannel, setSavingChannel] = useState<PaymentChannel | null>(null);
-  const [activeChannel, setActiveChannel] = useState<PaymentChannel | null>(null);
   const [skuTier, setSkuTier] = useState<ManagerSkuTier | null>(null);
+  const [paymentWaiverGranted, setPaymentWaiverGranted] = useState(false);
+  const [canEditBankAccount, setCanEditBankAccount] = useState(true);
+  const [isCoManagerForPayout, setIsCoManagerForPayout] = useState(false);
   const [savingFeePayer, setSavingFeePayer] = useState(false);
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(() => new Set());
   const [propertySelectionComplete, setPropertySelectionComplete] = useState(false);
-
-  const zelleGmail = useGmailPaymentTrack({ role: "manager", channel: "zelle", demo, showToast });
-  const venmoGmail = useGmailPaymentTrack({ role: "manager", channel: "venmo", demo, showToast });
 
   const loadStripeStatus = useCallback(async () => {
     if (demo) {
@@ -424,7 +155,11 @@ export function ManagerPaymentSetupModal({
         stripeError?: string | null;
         demo?: boolean;
         message?: string;
+        canEditBankAccount?: boolean;
+        isCoManagerForPayout?: boolean;
       };
+      setCanEditBankAccount(body.canEditBankAccount !== false);
+      setIsCoManagerForPayout(body.isCoManagerForPayout === true);
       if (!res.ok) {
         setStripeState("unknown");
         setStripeIssue("Couldn't check your Stripe status. Try again.");
@@ -469,15 +204,20 @@ export function ManagerPaymentSetupModal({
 
   const loadTier = useCallback(async () => {
     if (demo) {
-      // Show the Pro chooser in the demo so it is discoverable during a walkthrough.
       setSkuTier("pro");
+      setPaymentWaiverGranted(false);
       return;
     }
     try {
-      const res = await fetch("/api/manager/subscription", { credentials: "include" });
+      const [res, waiver] = await Promise.all([
+        fetch("/api/manager/subscription", { credentials: "include" }),
+        loadManagerPaymentWaiverGrantedClient(),
+      ]);
+      setPaymentWaiverGranted(waiver);
       if (!res.ok) return;
-      const data = (await res.json()) as { tier?: string | null };
+      const data = (await res.json()) as { tier?: string | null; paymentWaiverGranted?: boolean };
       setSkuTier(normalizeManagerSkuTier(data.tier ?? null));
+      if (data.paymentWaiverGranted === true) setPaymentWaiverGranted(true);
     } catch {
       /* leave null — the fee-payer chooser simply stays hidden */
     }
@@ -485,7 +225,6 @@ export function ManagerPaymentSetupModal({
 
   useEffect(() => {
     if (!open) {
-      setActiveChannel(null);
       setPropertySelectionComplete(false);
       setSelectedPropertyIds(new Set());
       return;
@@ -493,8 +232,7 @@ export function ManagerPaymentSetupModal({
     void loadStripeStatus();
     void loadSettings();
     void loadTier();
-    if (initialChannel) setActiveChannel(initialChannel);
-  }, [open, initialChannel, loadStripeStatus, loadSettings, loadTier]);
+  }, [open, loadStripeStatus, loadSettings, loadTier]);
 
   useEffect(() => {
     if (!open) return;
@@ -504,8 +242,6 @@ export function ManagerPaymentSetupModal({
       return;
     }
     if (!propertySelectionComplete && selectedPropertyIds.size === 0 && propertyOptions.length > 0) {
-      // Existing single-destination managers begin with every owned property
-      // selected, preserving their live destination until they choose otherwise.
       setSelectedPropertyIds(new Set(propertyOptions.map((property) => property.id)));
     }
   }, [open, presetPropertyIds, propertyOptions, propertySelectionComplete, selectedPropertyIds.size]);
@@ -517,17 +253,12 @@ export function ManagerPaymentSetupModal({
     return () => window.removeEventListener("focus", onFocus);
   }, [open, loadStripeStatus]);
 
-  async function persistSettings(
-    patch: Partial<ManagerManualPaymentSettingsView>,
-    channel: PaymentChannel | null = null,
-    options?: { silent?: boolean },
-  ) {
+  async function persistSettings(patch: Partial<ManagerManualPaymentSettingsView>) {
     if (demo) {
       setDraft((prev) => draftFromSettings({ ...prev, ...patch }));
       showToast("Saved (demo).");
       return;
     }
-    if (channel) setSavingChannel(channel);
     try {
       const res = await fetch("/api/portal/manager-manual-payment-settings", {
         method: "PATCH",
@@ -536,7 +267,6 @@ export function ManagerPaymentSetupModal({
         body: JSON.stringify({
           ...draft,
           ...patch,
-          ...(channel ? { propertyIds: [...selectedPropertyIds] } : {}),
           receiptAutoMarkEnabled: patch.receiptAutoMarkEnabled ?? draft.receiptAutoMarkEnabled !== false,
         }),
       });
@@ -557,27 +287,23 @@ export function ManagerPaymentSetupModal({
         typeof data.chargesUpdated === "number" && data.chargesUpdated > 0
           ? ` Updated ${data.chargesUpdated} open charge${data.chargesUpdated === 1 ? "" : "s"}.`
           : "";
-      if (!options?.silent) {
-        showToast(`Payment setup saved.${chargeNote}`);
-      }
+      showToast(`Payment setup saved.${chargeNote}`);
     } catch {
       showToast("Could not save payment setup.");
-    } finally {
-      setSavingChannel(null);
     }
   }
 
   async function linkStripe() {
+    if (!canEditBankAccount) {
+      showToast("Only the property owner (or a co-manager with Bank account access) can change payout bank details.");
+      return;
+    }
     setStripeBusy(true);
     try {
       await openStripeConnectOnboarding({ showToast });
     } finally {
       setStripeBusy(false);
     }
-  }
-
-  async function toggleAutoMark(enabled: boolean) {
-    await persistSettings({ receiptAutoMarkEnabled: enabled });
   }
 
   async function changeFeePayer(choice: ServiceFeePayer) {
@@ -589,35 +315,6 @@ export function ManagerPaymentSetupModal({
       setSavingFeePayer(false);
     }
   }
-
-  // A Business account used to be silently REWRITTEN to "proplane" on modal open,
-  // which also overwrote a manager who had deliberately chosen "resident". The
-  // paid-plan default now lives in `resolveServiceFeePayerFor` (AXI-149), so
-  // nothing has to be written to get it — and an explicit choice survives.
-
-  const zelleContactConnected = draft.zellePaymentsEnabled && draft.zelleContact.trim().length > 0;
-  const venmoContactConnected = draft.venmoPaymentsEnabled && draft.venmoContact.trim().length > 0;
-  const autoMarkOn = draft.receiptAutoMarkEnabled !== false;
-  const hasForwardingInbox = Boolean(draft.paymentInboxAddress?.trim());
-  const manualTrackingReady = (contactConnected: boolean, channelGmailConnected: boolean) =>
-    contactConnected && autoMarkOn && (channelGmailConnected || hasForwardingInbox);
-  const zelleTrackingReady = manualTrackingReady(
-    zelleContactConnected,
-    Boolean(zelleGmail.gmailStatus?.connected),
-  );
-  const venmoTrackingReady = manualTrackingReady(
-    venmoContactConnected,
-    Boolean(venmoGmail.gmailStatus?.connected),
-  );
-
-  const channelModalProps = {
-    draft,
-    setDraft,
-    paymentInboxAddress: draft.paymentInboxAddress,
-    autoMarkEnabled: autoMarkOn,
-    onAutoMarkChange: toggleAutoMark,
-    showToast,
-  };
 
   const allPropertiesSelected = propertyOptions.length > 0 && selectedPropertyIds.size === propertyOptions.length;
   const toggleAllProperties = (checked: boolean) => {
@@ -637,7 +334,7 @@ export function ManagerPaymentSetupModal({
       <Modal
         open={open && !propertySelectionComplete && !presetPropertyIds?.length}
         title="Choose properties for payment setup"
-        description="The Zelle destination you save next is shown only to residents and applicants for these properties."
+        description="Stripe payout settings apply to residents and applicants for these properties."
         onClose={onClose}
         dense
         assistantContext="Payment setup"
@@ -672,18 +369,23 @@ export function ManagerPaymentSetupModal({
           <div className="max-h-[min(40vh,16rem)] space-y-1 overflow-y-auto rounded-xl border border-border p-2">
             {propertyOptions.length === 0 ? (
               <p className="px-2 py-3 text-sm text-muted">No properties in portfolio yet.</p>
-            ) : propertyOptions.map((property) => (
-              <label key={property.id} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 hover:bg-accent/30">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 shrink-0 rounded border-border text-primary"
-                  checked={selectedPropertyIds.has(property.id)}
-                  data-attr={`manager-payment-property-${property.id}`}
-                  onChange={(event) => toggleProperty(property.id, event.target.checked)}
-                />
-                <span className="min-w-0 text-sm text-foreground">{property.label}</span>
-              </label>
-            ))}
+            ) : (
+              propertyOptions.map((property) => (
+                <label
+                  key={property.id}
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 hover:bg-accent/30"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 shrink-0 rounded border-border text-primary"
+                    checked={selectedPropertyIds.has(property.id)}
+                    data-attr={`manager-payment-property-${property.id}`}
+                    onChange={(event) => toggleProperty(property.id, event.target.checked)}
+                  />
+                  <span className="min-w-0 text-sm text-foreground">{property.label}</span>
+                </label>
+              ))
+            )}
           </div>
         </div>
       </Modal>
@@ -692,7 +394,7 @@ export function ManagerPaymentSetupModal({
         <div className="space-y-3">
           {loading ? <p className="text-sm text-muted">Loading…</p> : null}
           <HubRow
-            label="Stripe (ACH)"
+            label="Stripe (ACH & card)"
             connected={stripeState === "ready"}
             pending={stripeState === "incomplete"}
             pendingLabel="Finish setup"
@@ -703,6 +405,13 @@ export function ManagerPaymentSetupModal({
             allowDataAttr="manager-payment-stripe-allowed"
             onAllowedChange={(allowed) => void persistSettings({ axisPaymentsEnabled: allowed })}
           />
+          {isCoManagerForPayout ? (
+            <p className="text-xs text-muted">
+              {canEditBankAccount
+                ? "You are updating the property owner&apos;s payout bank account."
+                : "Payout bank details belong to the property owner. Grant Bank account write access in Co-managers to change them."}
+            </p>
+          ) : null}
           {stripeState === "incomplete" ? (
             <p className="text-xs text-[var(--status-pending-fg)]">
               Your Stripe account isn&apos;t ready to receive money yet. Finish onboarding (identity + bank details) so
@@ -712,19 +421,22 @@ export function ManagerPaymentSetupModal({
           {stripeState === "unknown" && stripeIssue ? (
             <p className="text-xs text-[var(--status-pending-fg)]">{stripeIssue}</p>
           ) : null}
-          {skuTier === "pro" || skuTier === "business" ? (
+          {skuTier === "pro" || skuTier === "business" || (skuTier === "free" && paymentWaiverGranted) ? (
             <div className="space-y-2 rounded-xl border border-border bg-card px-4 py-3.5">
               <p className="text-sm font-semibold text-foreground">Online payment service fee</p>
               <p className="text-xs text-muted">
-                PropLane covers the payment processing fee on resident online payments (card, bank, Link) while you
-                are on a paid plan. Change it below if you would rather your residents cover it. Your rent still
-                deposits into your own Stripe account either way.
+                Choose who pays Stripe&apos;s processing fee on resident online payments (card, bank, Link). Rent still
+                deposits into the property owner&apos;s bank account either way.
               </p>
               <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-3">
-                {SERVICE_FEE_PAYER_OPTIONS.map((option) => {
-                  // Must match the resolver's unset default or the modal shows a
-                  // different answer than the one that actually bills.
-                  const selected = (draft.serviceFeePayer ?? "proplane") === option.id;
+                {SERVICE_FEE_PAYER_OPTIONS.filter((option) => {
+                  const tier = skuTier ?? "free";
+                  if (option.id === "proplane") return managerCanSelectProplaneServiceFee(tier, paymentWaiverGranted);
+                  if (option.id === "manager") return managerCanSelectManagerAbsorbServiceFee(tier);
+                  return true;
+                }).map((option) => {
+                  const selected =
+                    (draft.serviceFeePayer ?? (skuTier === "free" ? "resident" : "proplane")) === option.id;
                   return (
                     <button
                       key={option.id}
@@ -738,7 +450,9 @@ export function ManagerPaymentSetupModal({
                           : "border-border bg-background hover:border-primary/30"
                       }`}
                     >
-                      <span className="text-sm font-semibold text-foreground">{option.title}</span>
+                      <span className="text-sm font-semibold text-foreground">
+                        {option.id === "proplane" && skuTier === "free" ? "PropLane covers it (FREE100)" : option.title}
+                      </span>
                       <span className="mt-0.5 text-xs text-muted">{option.detail}</span>
                     </button>
                   );
@@ -747,80 +461,16 @@ export function ManagerPaymentSetupModal({
             </div>
           ) : skuTier === "free" ? (
             <p className="text-xs text-muted">
-              On the Free plan, residents cover the payment processing fee on online payments. On Pro and Business,
-              PropLane covers it.
+              On the Free plan, residents cover the payment processing fee unless your account has the FREE100 waiver
+              code or you upgrade to Pro or Business.
             </p>
           ) : null}
-          <HubRow
-            label="Zelle"
-            connected={zelleTrackingReady}
-            onLink={() => setActiveChannel("zelle")}
-            dataAttr="manager-payment-zelle-link"
-            linkLabel="Link Zelle"
-            allowed={zelleContactConnected}
-            allowDataAttr="manager-payment-zelle-allowed"
-            onAllowedChange={(allowed) => {
-              if (allowed) {
-                if (!draft.zelleContact.trim()) {
-                  setActiveChannel("zelle");
-                  return;
-                }
-                void persistSettings({ zellePaymentsEnabled: true, zelleContact: draft.zelleContact.trim() }, "zelle");
-                return;
-              }
-              void persistSettings({ zellePaymentsEnabled: false }, "zelle");
-            }}
-          />
-          <HubRow
-            label="Venmo"
-            connected={venmoTrackingReady}
-            onLink={() => setActiveChannel("venmo")}
-            dataAttr="manager-payment-venmo-link"
-            linkLabel="Link Venmo"
-            allowed={venmoContactConnected}
-            allowDataAttr="manager-payment-venmo-allowed"
-            onAllowedChange={(allowed) => {
-              if (allowed) {
-                if (!draft.venmoContact.trim()) {
-                  setActiveChannel("venmo");
-                  return;
-                }
-                void persistSettings({ venmoPaymentsEnabled: true, venmoContact: draft.venmoContact.trim() }, "venmo");
-                return;
-              }
-              void persistSettings({ venmoPaymentsEnabled: false }, "venmo");
-            }}
-          />
+          <p className="text-xs text-muted">
+            Residents pay rent and fees through PropLane secure checkout — bank transfer (ACH) or card. Zelle and Venmo
+            are no longer supported.
+          </p>
         </div>
       </Modal>
-
-      {activeChannel ? (
-        <ChannelPaymentSetupModal
-          channel={activeChannel}
-          open
-          onClose={() => setActiveChannel(null)}
-          saving={savingChannel === activeChannel}
-          onSaveContact={() =>
-            void persistSettings(
-              activeChannel === "zelle"
-                ? {
-                    zelleContact: draft.zelleContact.trim(),
-                    zellePaymentsEnabled: draft.zelleContact.trim().length > 0,
-                  }
-                : {
-                    venmoContact: draft.venmoContact.trim(),
-                    venmoPaymentsEnabled: draft.venmoContact.trim().length > 0,
-                  },
-              activeChannel,
-            )
-          }
-          {...channelModalProps}
-          gmailStatus={activeChannel === "zelle" ? zelleGmail.gmailStatus : venmoGmail.gmailStatus}
-          gmailBusy={activeChannel === "zelle" ? zelleGmail.gmailBusy : venmoGmail.gmailBusy}
-          onLinkGmail={activeChannel === "zelle" ? zelleGmail.linkGmail : venmoGmail.linkGmail}
-          gmailConnectErrorReason={gmailConnectErrorReason}
-        />
-      ) : null}
     </>
   );
 }

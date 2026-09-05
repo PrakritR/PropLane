@@ -56,63 +56,59 @@ describe("resident payment surface policy", () => {
   });
 });
 
-describe("manual household charge payments", () => {
-  it("detects stripe vs manual pay methods", () => {
+describe("household charge payments (Stripe only)", () => {
+  it("detects stripe pay methods", () => {
     expect(isStripeResidentPayMethod("ach")).toBe(true);
     expect(isStripeResidentPayMethod("zelle")).toBe(false);
   });
 
-  it("allows zelle/venmo only when charge snapshots exist", () => {
-    const zelleCharge = mkCharge({ zelleContactSnapshot: "pay@example.com" });
-    const venmoCharge = mkCharge({ venmoContactSnapshot: "@landlord" });
-    expect(canPayHouseholdChargeWithManualChannel(zelleCharge, "zelle")).toBe(true);
-    expect(canPayHouseholdChargeWithManualChannel(zelleCharge, "venmo")).toBe(false);
-    expect(canPayHouseholdChargeWithManualChannel(venmoCharge, "venmo")).toBe(true);
-  });
-
-  it("derives available manual channels from unpaid charges", () => {
+  it("never offers manual zelle/venmo channels", () => {
     const charges = [
       mkCharge({ id: "a", zelleContactSnapshot: "z@x.com" }),
       mkCharge({ id: "b", venmoContactSnapshot: "@v" }),
-      mkCharge({ id: "c", status: "paid", zelleContactSnapshot: "z@x.com" }),
     ];
-    expect(availableManualChannelsForCharges(charges)).toEqual(["zelle", "venmo"]);
+    expect(availableManualChannelsForCharges(charges)).toEqual([]);
+    expect(residentManualChannelsForCharges(charges)).toEqual([]);
   });
 
-  it("filters charges by selected pay method", () => {
+  it("filters charges for Stripe ACH checkout only", () => {
     const charges = [
-      mkCharge({ id: "ach", axisPaymentsEnabledSnapshot: true }),
+      mkCharge({ id: "ach", axisPaymentsEnabledSnapshot: true, managerStripeConnectReadySnapshot: true }),
       mkCharge({ id: "zelle", axisPaymentsEnabledSnapshot: false, zelleContactSnapshot: "z@x.com" }),
     ];
     expect(filterChargesForPayMethod(charges, "ach").map((c) => c.id)).toEqual(["ach"]);
-    expect(filterChargesForPayMethod(charges, "zelle").map((c) => c.id)).toEqual(["zelle"]);
-    expect(isPayableHouseholdCharge(charges[1]!)).toBe(true);
+    expect(isPayableHouseholdCharge(charges[1]!)).toBe(false);
   });
 
-  it("hides manual channels when platform checkout is available", () => {
+  it("detects when platform checkout is available", () => {
     const charges = [
       mkCharge({
         id: "platform",
         axisPaymentsEnabledSnapshot: true,
         managerStripeConnectReadySnapshot: true,
-        zelleContactSnapshot: "z@x.com",
       }),
     ];
     expect(chargesSupportPlatformCheckout(charges)).toBe(true);
     expect(residentManualChannelsForCharges(charges)).toEqual([]);
   });
 
-  it("offers manual channels only when platform checkout is unavailable", () => {
+  it("does not fall back to manual channels when Stripe is unavailable", () => {
     const charges = [
       mkCharge({
-        id: "manual",
+        id: "blocked",
         axisPaymentsEnabledSnapshot: true,
         managerStripeConnectReadySnapshot: false,
         zelleContactSnapshot: "z@x.com",
       }),
     ];
     expect(chargesSupportPlatformCheckout(charges)).toBe(false);
-    expect(residentManualChannelsForCharges(charges)).toEqual(["zelle"]);
+    expect(residentManualChannelsForCharges(charges)).toEqual([]);
+    expect(isPayableHouseholdCharge(charges[0]!)).toBe(false);
+  });
+
+  it("keeps legacy manual-channel helper for historical snapshots", () => {
+    const zelleCharge = mkCharge({ zelleContactSnapshot: "pay@example.com" });
+    expect(canPayHouseholdChargeWithManualChannel(zelleCharge, "zelle")).toBe(true);
   });
 });
 

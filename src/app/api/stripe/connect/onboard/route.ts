@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { resolveAppOrigin } from "@/lib/app-url";
+import { assertCoManagerBankAccountAccess } from "@/lib/auth/co-manager-bank-account-access";
+import { resolveStripePayoutContext } from "@/lib/auth/manager-stripe-payout-access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe, stripeConnectRedirectOriginError } from "@/lib/stripe";
 import { ensureManagerConnectAccountId } from "@/lib/stripe-connect-account";
 import {
@@ -25,6 +28,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
+    const service = createSupabaseServiceRoleClient();
+    const payout = await resolveStripePayoutContext(service, user.id);
+    if (!payout.payoutOwnerUserId) {
+      return NextResponse.json({ error: "Could not resolve payout account." }, { status: 500 });
+    }
+    const access = await assertCoManagerBankAccountAccess(
+      service,
+      user.id,
+      payout.payoutOwnerUserId,
+      "edit",
+    );
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: access.status });
+    }
+
+    const payoutOwnerId = payout.payoutOwnerUserId;
+    const { data: ownerProfile } = await service
+      .from("profiles")
+      .select("email")
+      .eq("id", payoutOwnerId)
+      .maybeSingle();
+
     const basePath = "/portal";
     const origin = resolveAppOrigin(req);
     const redirectError = stripeConnectRedirectOriginError(origin);
@@ -41,8 +66,8 @@ export async function POST(req: Request) {
     try {
       const stripe = getStripe();
       const accountId = await ensureManagerConnectAccountId(stripe, supabase, {
-        userId: user.id,
-        email: user.email ?? undefined,
+        userId: payoutOwnerId,
+        email: ownerProfile?.email ?? user.email ?? undefined,
       });
 
       const acct = await ensureConnectAccountTransfersRequested(stripe, accountId);

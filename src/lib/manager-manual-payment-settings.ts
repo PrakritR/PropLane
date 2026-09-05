@@ -67,18 +67,14 @@ export function normalizeManagerManualPaymentSettings(raw: unknown): ManagerManu
   const row = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
   const zelleContact = sanitizePaymentContactInput(String(row.zelleContact ?? "")).trim();
   const venmoContact = sanitizePaymentContactInput(String(row.venmoContact ?? "")).trim();
-  // Allowed only when a contact is present — keep the contact when the method is
-  // toggled off so re-enabling does not force the manager to re-link.
-  const zellePaymentsEnabled = row.zellePaymentsEnabled === true && zelleContact.length > 0;
-  const venmoPaymentsEnabled = row.venmoPaymentsEnabled === true && venmoContact.length > 0;
   const paymentInboxTokenRaw = String(row.paymentInboxToken ?? "").trim();
   const paymentInboxToken = /^[a-zA-Z0-9_-]{8,24}$/.test(paymentInboxTokenRaw) ? paymentInboxTokenRaw : undefined;
   return {
     axisPaymentsEnabled: row.axisPaymentsEnabled !== false,
-    zellePaymentsEnabled,
-    zelleContact,
-    venmoPaymentsEnabled,
-    venmoContact,
+    zellePaymentsEnabled: false,
+    zelleContact: "",
+    venmoPaymentsEnabled: false,
+    venmoContact: "",
     ...(paymentInboxToken ? { paymentInboxToken } : {}),
     receiptAutoMarkEnabled: row.receiptAutoMarkEnabled === false ? false : true,
     serviceFeePayer: normalizeServiceFeeChoice(row.serviceFeePayer),

@@ -10,16 +10,16 @@ function asObject(value: unknown): Record<string, unknown> {
 
 function patchSubmission(
   submission: ManagerListingSubmissionV1,
-  settings: ManagerManualPaymentSettings,
+  _settings: ManagerManualPaymentSettings,
 ): ManagerListingSubmissionV1 {
   return {
     ...submission,
-    zellePaymentsEnabled: settings.zellePaymentsEnabled,
-    zelleContact: settings.zelleContact,
-    venmoPaymentsEnabled: settings.venmoPaymentsEnabled,
-    venmoContact: settings.venmoContact,
-    applicationFeeZelleEnabled: settings.zellePaymentsEnabled,
-    applicationFeeVenmoEnabled: settings.venmoPaymentsEnabled,
+    zellePaymentsEnabled: false,
+    zelleContact: "",
+    venmoPaymentsEnabled: false,
+    venmoContact: "",
+    applicationFeeZelleEnabled: false,
+    applicationFeeVenmoEnabled: false,
   };
 }
 
@@ -80,10 +80,8 @@ export async function applyManagerManualPaymentsToListings(
     if (!charge?.id) continue;
     const next: HouseholdCharge = {
       ...charge,
-      zelleContactSnapshot:
-        settings.zellePaymentsEnabled && settings.zelleContact.trim() ? settings.zelleContact.trim() : undefined,
-      venmoContactSnapshot:
-        settings.venmoPaymentsEnabled && settings.venmoContact.trim() ? settings.venmoContact.trim() : undefined,
+      zelleContactSnapshot: undefined,
+      venmoContactSnapshot: undefined,
     };
     const { error: updateError } = await db
       .from("portal_household_charge_records")

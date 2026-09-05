@@ -45,11 +45,7 @@ export function canPayHouseholdChargeWithManualChannel(
 
 export function isPayableHouseholdCharge(charge: HouseholdCharge): boolean {
   if (charge.status !== "pending") return false;
-  return (
-    canPayHouseholdChargeWithAxisAch(charge) ||
-    canPayHouseholdChargeWithManualChannel(charge, "zelle") ||
-    canPayHouseholdChargeWithManualChannel(charge, "venmo")
-  );
+  return canPayHouseholdChargeWithAxisAch(charge);
 }
 
 export function filterChargesForPayMethod(
@@ -62,29 +58,21 @@ export function filterChargesForPayMethod(
   return charges.filter((c) => canPayHouseholdChargeWithAxisAch(c));
 }
 
-export function availableManualChannelsForCharges(
-  charges: HouseholdCharge[],
+export function residentManualChannelsForCharges(
+  _charges: HouseholdCharge[],
 ): ResidentManualPaymentChannel[] {
-  const out: ResidentManualPaymentChannel[] = [];
-  if (charges.some((c) => canPayHouseholdChargeWithManualChannel(c, "zelle"))) out.push("zelle");
-  if (charges.some((c) => canPayHouseholdChargeWithManualChannel(c, "venmo"))) out.push("venmo");
-  return out;
+  return [];
+}
+
+export function availableManualChannelsForCharges(
+  _charges: HouseholdCharge[],
+): ResidentManualPaymentChannel[] {
+  return [];
 }
 
 /** True when at least one pending charge can start PropLane / Stripe checkout. */
 export function chargesSupportPlatformCheckout(charges: HouseholdCharge[]): boolean {
   return charges.some((c) => c.status === "pending" && canPayHouseholdChargeWithAxisAch(c));
-}
-
-/**
- * Zelle/Venmo are a fallback when the manager has not finished card/ACH setup.
- * When platform checkout is available, residents pay through PropLane only (PRP-275).
- */
-export function residentManualChannelsForCharges(
-  charges: HouseholdCharge[],
-): ResidentManualPaymentChannel[] {
-  if (chargesSupportPlatformCheckout(charges)) return [];
-  return availableManualChannelsForCharges(charges);
 }
 
 export function manualContactForCharges(

@@ -69,7 +69,16 @@ describe("the plan floor", () => {
 });
 
 describe("what a manager cannot do to themselves", () => {
-  it("ignores a proplane value on Free, where it is not on offer", () => {
+  it("honours proplane on Free when the account has a payment-waiver grant", () => {
+    expect(resolveServiceFeePayerFor({ tier: "free", propertyChoice: "proplane", waiverGranted: true })).toBe(
+      "proplane",
+    );
+    expect(resolveServiceFeePayerFor({ tier: "free", managerChoice: "proplane", waiverGranted: true })).toBe(
+      "proplane",
+    );
+  });
+
+  it("ignores a proplane value on Free without a waiver grant", () => {
     // Honouring it there would let a free manager stop paying fees by writing one
     // word into their own record, with PropLane picking up the bill.
     expect(resolveServiceFeePayerFor({ tier: "free", propertyChoice: "proplane" })).toBe("resident");

@@ -1448,8 +1448,8 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
     }));
   }
 
-  const zelleEnabled = Boolean(sub.zellePaymentsEnabled && sub.zelleContact?.trim());
-  const venmoEnabled = Boolean(sub.venmoPaymentsEnabled && sub.venmoContact?.trim());
+  const zelleEnabled = false;
+  const venmoEnabled = false;
   const otherChannelActive = Boolean(
     sub.applicationFeeOtherEnabled &&
       typeof sub.applicationFeeOtherInstructions === "string" &&
@@ -1685,8 +1685,7 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
     axisPaymentsEnabled: sub.axisPaymentsEnabled !== false,
     acceptedPaymentMethods: Array.isArray(sub.acceptedPaymentMethods)
       ? sub.acceptedPaymentMethods.filter(
-          (m): m is "zelle" | "venmo" | "ach" | "card" =>
-            m === "zelle" || m === "venmo" || m === "ach" || m === "card",
+          (m): m is "ach" | "card" => m === "ach" || m === "card",
         )
       : undefined,
     housePhotoDataUrls,
