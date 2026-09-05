@@ -24,7 +24,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { runAgentTurn } from "@/lib/agent/loop";
-import type { ToolRegistry } from "@/lib/tools/registry";
+import type { ActionPreview } from "@/lib/tools/registry";
 import {
   createPendingActionForUser,
   type AgentPortal,
@@ -93,6 +93,8 @@ export type SmsAgentSurface = {
   /** Write tools this surface may run inline, without a texted confirmation. */
   allowWriteTools?: readonly string[];
   maxReplyChars?: number;
+  /** Analytics + persistence channel label. */
+  messageChannel?: "sms" | "voice";
 };
 
 /** Merge consecutive same-role rows; drop a leading assistant turn for API alternation. */
@@ -300,6 +302,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     traceActor: TraceActor;
     /** Langfuse metadata for confirm/deny decisions; the session id is merged in. */
     traceMetadata: Record<string, unknown>;
+    renderActionPreview?: (preview: ActionPreview) => string;
   },
 ): Promise<SmsAgentTurn | null> {
   if (!process.env.ANTHROPIC_API_KEY?.trim() && !args.precomputedReply?.trim()) return null;
@@ -308,6 +311,8 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
 
   const { ctx, surface, registry } = args;
   const maxReplyChars = surface.maxReplyChars ?? DEFAULT_MAX_REPLY_CHARS;
+  const messageChannel = surface.messageChannel ?? "sms";
+  const renderPreview = args.renderActionPreview ?? renderPreviewForSms;
 
   const session = await findOrCreateSmsAgentSession(db, {
     kind: surface.sessionKind,
@@ -336,7 +341,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     landlord_id: session.landlord_id,
     role: "user",
     content: text,
-    channel: "sms",
+    channel: messageChannel,
     source_message_sid: inboundMessageSid,
   }).select("id").maybeSingle();
   let inboundMessageId = insertedInbound?.id ? String(insertedInbound.id) : null;
@@ -352,7 +357,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     console.error(`${surface.sessionKind} inbound message persistence failed`, session.id, inboundInsertError.message);
     return null;
   }
-  track(surface.analytics.messageIn, ctx.userId, { channel: "sms" });
+  track(surface.analytics.messageIn, ctx.userId, { channel: messageChannel });
 
   const confirmation = await handleConfirmationReply(db, {
     ctx,
@@ -368,7 +373,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   const precomputedReply = args.precomputedReply?.trim().slice(0, maxReplyChars);
   if (precomputedReply) {
     const assistantMessageId = await recordAssistantReply(db, session, precomputedReply, [], null);
-    track(surface.analytics.messageOut, ctx.userId, { channel: "sms", tools: 0 });
+    track(surface.analytics.messageOut, ctx.userId, { channel: messageChannel, tools: 0 });
     return { reply: precomputedReply, sessionId: session.id, inboundMessageId, assistantMessageId };
   }
 
@@ -453,13 +458,13 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
         sessionId: session.id,
       };
     }
-    const reply = [result.reply.trim(), renderPreviewForSms(result.pendingAction.preview)]
+    const reply = [result.reply.trim(), renderPreview(result.pendingAction.preview)]
       .filter(Boolean)
       .join("\n\n")
       .slice(0, maxReplyChars);
     const assistantMessageId = await recordAssistantReply(db, session, reply, result.toolTrace, traceId);
     track(surface.analytics.actionProposed, ctx.userId, {
-      channel: "sms",
+      channel: messageChannel,
       tool: result.pendingAction.toolName,
     });
     return {
@@ -477,7 +482,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   if (!reply) return null;
   const assistantMessageId = await recordAssistantReply(db, session, reply, result.toolTrace, traceId);
   track(surface.analytics.messageOut, ctx.userId, {
-    channel: "sms",
+    channel: messageChannel,
     tools: result.toolTrace.length,
   });
   return { reply, sessionId: session.id, inboundMessageId, assistantMessageId, traceId };

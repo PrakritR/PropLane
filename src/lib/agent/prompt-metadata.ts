@@ -23,6 +23,7 @@ export const PROMPT_IDS = {
   leasingSmsAgent: "leasing-sms-agent",
   residentSmsAgent: "resident-sms-agent",
   managerSmsAgent: "manager-sms-agent",
+  managerVoiceAgent: "manager-voice-agent",
   residentInboxAgent: "resident-inbox-agent",
   inboxDraftReply: "inbox-draft-reply",
   housingSearchExtract: "housing-search-extract",

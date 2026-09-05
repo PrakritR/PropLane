@@ -46,6 +46,7 @@ import {
   type ManagerSmsResidentConversation,
   type ManagerSmsSortId,
 } from "@/lib/manager-sms-messages";
+import { isVoiceCallNoteSid } from "@/lib/voice/voice-call-notes";
 import {
   threadPassesCommunicationFilters,
   type CommunicationThreadFilters,
@@ -1154,6 +1155,9 @@ function Bubble({
           } ${pending ? "opacity-80" : ""}`}
           data-sms-bubble-align={outbound ? "end" : "start"}
         >
+        {isVoiceCallNoteSid(message.messageSid) ? (
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Call</p>
+        ) : null}
         <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message.body || " "}</p>
         </div>
         {pending ? (
