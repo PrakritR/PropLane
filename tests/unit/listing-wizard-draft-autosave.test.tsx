@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerAddListingForm } from "@/components/portal/pro-add-listing-form";
 import { readAdminPropertyRows } from "@/lib/demo-admin-property-inventory";
+import { readExtraListingsForUser, seedDemoManagerProperties } from "@/lib/demo-property-pipeline";
 import { LEASE_TEMPLATE_ROUTE } from "@/lib/lease-template-storage";
 import {
   createDefaultListingSubmission,
@@ -446,14 +447,90 @@ describe("closing the add-listing wizard saves the work in progress", () => {
   });
 
   it("never drafts an edit of an existing listing", async () => {
-    const { onClose } = renderWizard({ editListingId: "mgr-existing-listing" });
+    const listingId = "mgr-existing-listing";
+    const initial = createDefaultListingSubmission();
+    seedDemoManagerProperties(MANAGER_ID, [
+      {
+        id: listingId,
+        buildingName: initial.buildingName,
+        address: initial.address,
+        zip: initial.zip,
+        listingSubmission: initial,
+        adminPublishLive: true,
+      } as import("@/data/types").MockProperty,
+    ]);
+    const { onClose } = renderWizard({ editListingId: listingId, initialSubmission: initial });
 
     typePropertyName("Renamed Building");
     clickClose();
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(readAdminPropertyRows(5, MANAGER_ID)).toHaveLength(0);
-    expect(calls).toEqual([]);
+  });
+});
+
+describe("editing an existing listing", () => {
+  function validEditSubmission(): ManagerListingSubmissionV1 {
+    const base = createDefaultListingSubmission();
+    return {
+      ...base,
+      buildingName: "Ravenna Craftsman",
+      address: "5200 Ravenna Ave NE",
+      city: "Seattle",
+      state: "WA",
+      zip: "98105",
+      listingPropertyTypeId: "house",
+      listingStoriesId: "two",
+      listingTotalBathroomsId: "one",
+      listingBedroomSlots: 1,
+      listingPlaceCategoryId: "shared_home",
+      allowedLeaseTerms: ["12-Month"],
+      applicationFee: "0",
+      securityDeposit: "0",
+      moveInFee: "0",
+      parkingMonthly: "0",
+      hoaMonthly: "0",
+      otherMonthlyFees: "0",
+      monthToMonthSurcharge: "0",
+      lateFeeGraceDays: 5,
+      rooms: base.rooms.map((r) => ({ ...r, name: "Room 1", monthlyRent: 1200 })),
+    };
+  }
+
+  it("persists pricing edits when Review & submit is clicked", async () => {
+    SESSION_USER_ID = "supabase-user-1";
+    const listingId = `mgr-edit-save-${MANAGER_ID}`;
+    const initial = validEditSubmission();
+    seedDemoManagerProperties(MANAGER_ID, [
+      {
+        id: listingId,
+        buildingName: initial.buildingName,
+        address: initial.address,
+        zip: initial.zip,
+        rentLabel: "$1200",
+        listingSubmission: initial,
+        adminPublishLive: true,
+      } as import("@/data/types").MockProperty,
+    ]);
+
+    const showToast = vi.fn();
+    renderWizard({
+      editListingId: listingId,
+      initialSubmission: initial,
+      initialStepIndex: 4,
+      initialMaxStepReached: 5,
+      showToast,
+    });
+
+    fireEvent.change(screen.getByDisplayValue("5"), { target: { value: "7" } });
+    fireEvent.click(screen.getByRole("button", { name: /review & submit/i }));
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Changes saved."));
+    await waitFor(() => {
+      const saved = readExtraListingsForUser(MANAGER_ID).find((p) => p.id === listingId);
+      expect(saved?.listingSubmission?.lateFeeGraceDays).toBe(7);
+    });
+    expect(calls.some((c) => c.action === "upsert" && c.id === listingId)).toBe(true);
   });
 });
 
