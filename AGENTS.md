@@ -488,6 +488,14 @@ that prefer it, so editing only the SVG leaves the old mark visible.
 Commit and push to `main` (fast-forward only, never force). Open a PR only on
 explicit request.
 
+**No agent's branch name belongs in this file.** Which lane or keeper branch is
+yours comes from YOUR OWN local instructions or configuration — this file is
+read by every agent working the repo, so a specific name written here routes
+someone else's work into your branch. If you find one hard-coded here as an
+instruction, treat it as a bug rather than following it. If a push is not a
+fast-forward, STOP: the branch diverged, and rebasing or forcing past it is how
+someone's work disappears.
+
 The one hard stop is `production`: pushing it deploys the live site AND ships an
 iOS TestFlight build, so it is promoted deliberately via
 `scripts/promote-main-to-production.sh` after the ship gate below — never as part
@@ -503,7 +511,9 @@ The Vercel project (`axis-2`, connected to `PrakritR/AXIS-2`) builds **only**
 `scripts/vercel-should-build.sh`); every other branch is skipped.
 
 Two rungs — `main` → `production` (see [`docs/ship-gate.md`](docs/ship-gate.md)
-for the gated promotion between them):
+for the gated promotion between them). `prakrit` is an integration branch lanes
+merge through, not a rung of the deploy ladder — Vercel builds only the two
+below:
 
 - **`main` — dev / integration / staging.** Day-to-day work lands here and gets a
   Vercel Preview deployment; verify there (and on localhost) before promoting.
