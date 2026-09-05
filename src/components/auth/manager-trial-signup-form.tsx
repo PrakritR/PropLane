@@ -16,17 +16,17 @@ import type { PlanTierId } from "@/data/manager-plan-tiers";
 import {
   buildPricingOffer,
   continuePartnerPricingWithOffer,
-  fetchPartnerPricingSession,
   handleGoogleSignedInReturn,
   type ContinuePartnerPricingResult,
 } from "@/lib/auth/partner-pricing-google-flow";
 import { readManagerPricingOffer } from "@/lib/auth/manager-pricing-oauth-storage";
 import { waitForAuthUser } from "@/lib/auth/wait-for-auth-user";
+import { waitForOAuthUser } from "@/lib/auth/wait-for-oauth-user";
+import { FetchTimeoutError } from "@/lib/auth/fetch-with-timeout";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { MANAGER_SUBSCRIPTION_TRIAL_DAYS } from "@/lib/stripe/subscription-checkout-session";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import { navigateAfterRoleSignup } from "@/lib/auth/navigate-after-role-signup";
-import { managerPortalEntryPath } from "@/lib/auth/manager-google-services-onboarding";
+import { goToManagerAccountSetup } from "@/lib/auth/manager-google-services-onboarding";
 import { portalDashboardPath } from "@/components/auth/portal-switcher";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 import { withAuthTimeout } from "@/lib/auth/with-timeout";
@@ -66,16 +66,15 @@ export function ManagerTrialSignupForm({
 }) {
   const router = useRouter();
   const { showToast } = useAppUi();
-  const oauthReturn = googleReturn || accountReadyReturn;
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState(initialEmail);
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [finishingOAuth, setFinishingOAuth] = useState(oauthReturn);
+  const [redirectingToSetup, setRedirectingToSetup] = useState(accountReadyReturn);
+  const [finishingOAuth, setFinishingOAuth] = useState(googleReturn && !accountReadyReturn);
   const [errorText, setErrorText] = useState<string | null>(null);
   const [signedInUser, setSignedInUser] = useState<SignedInUser | null>(null);
-  const [accountReady, setAccountReady] = useState(false);
   const { roles: portalRoles, loading: rolesLoading } = useSignedInPortalRoles();
   const alreadyManager = Boolean(signedInUser) && portalRoles.includes("manager");
 
@@ -83,22 +82,31 @@ export function ManagerTrialSignupForm({
 
   const readSignedInUser = useCallback(async (awaitOAuthSession: boolean): Promise<SignedInUser | null> => {
     const supabase = createSupabaseBrowserClient();
-    const user = awaitOAuthSession
-      ? await waitForAuthUser(supabase)
-      : (await supabase.auth.getSession()).data.session?.user ?? null;
-    return user ? { id: user.id, email: user.email ?? null } : null;
+    if (awaitOAuthSession) {
+      const user = await waitForOAuthUser(supabase, { maxWaitMs: 8_000 });
+      return user ? { id: user.id, email: user.email ?? null } : null;
+    }
+    try {
+      const {
+        data: { session },
+      } = await withAuthTimeout(supabase.auth.getSession());
+      const user = session?.user ?? null;
+      return user ? { id: user.id, email: user.email ?? null } : null;
+    } catch {
+      return null;
+    }
   }, []);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const user = await readSignedInUser(oauthReturn);
+      const user = await readSignedInUser(googleReturn);
       if (!cancelled) setSignedInUser(user);
     })();
     return () => {
       cancelled = true;
     };
-  }, [oauthReturn, readSignedInUser]);
+  }, [googleReturn, readSignedInUser]);
 
   useEffect(() => {
     if (!signedInUser?.email || initialEmail || alreadyManager) return;
@@ -108,7 +116,8 @@ export function ManagerTrialSignupForm({
   const applyPricingResult = useCallback(
     (result: ContinuePartnerPricingResult) => {
       if (result.status === "portal") {
-        setAccountReady(true);
+        setRedirectingToSetup(true);
+        goToManagerAccountSetup();
         return;
       }
       if (result.status === "error") {
@@ -119,25 +128,28 @@ export function ManagerTrialSignupForm({
   );
 
   useEffect(() => {
-    if (!accountReadyReturn || googleReturn) return;
+    if (!accountReadyReturn) return;
+    setRedirectingToSetup(true);
+    goToManagerAccountSetup();
+  }, [accountReadyReturn]);
+
+  useEffect(() => {
+    if (!accountReadyReturn) return;
     let cancelled = false;
     void (async () => {
-      try {
-        const session = await fetchPartnerPricingSession();
-        if (cancelled) return;
-        if (session.authenticated && !session.needsPricing) setAccountReady(true);
-        dropOAuthReturnParams(tier, billing);
-      } finally {
-        if (!cancelled) setFinishingOAuth(false);
-      }
+      dropOAuthReturnParams(tier, billing);
+      const user = await readSignedInUser(false);
+      if (cancelled) return;
+      if (user) setSignedInUser(user);
+      else setErrorText("Could not confirm your account. Please sign in.");
     })();
     return () => {
       cancelled = true;
     };
-  }, [accountReadyReturn, googleReturn, tier, billing]);
+  }, [accountReadyReturn, readSignedInUser, tier, billing]);
 
   useEffect(() => {
-    if (!googleReturn) return;
+    if (!googleReturn || accountReadyReturn) return;
     let cancelled = false;
     void (async () => {
       setFinishingOAuth(true);
@@ -147,21 +159,45 @@ export function ManagerTrialSignupForm({
           stored ??
           buildPricingOffer({ tier, billing, returnSurface: "mobile-plan", trialSignup: true });
 
+        const user = await readSignedInUser(true);
+        if (cancelled) return;
+        if (!user) {
+          setErrorText("Your session isn't ready yet — try again.");
+          dropOAuthReturnParams(tier, billing);
+          return;
+        }
+        setSignedInUser(user);
+
+        if (offer.trialSignup) {
+          const continued = await continuePartnerPricingWithOffer(offer);
+          if (cancelled) return;
+          applyPricingResult(continued);
+          dropOAuthReturnParams(offer.tier, offer.billing);
+          return;
+        }
+
         const result = await handleGoogleSignedInReturn(offer);
         if (cancelled) return;
         if (result.status !== "provisioned") {
           if (result.status === "error") {
             setErrorText(result.message);
           }
+          dropOAuthReturnParams(tier, billing);
           return;
         }
         const continued = await continuePartnerPricingWithOffer(offer);
         if (cancelled) return;
         applyPricingResult(continued);
         dropOAuthReturnParams(offer.tier, offer.billing);
-        const refreshed = await readSignedInUser(true);
-        if (cancelled) return;
-        setSignedInUser(refreshed);
+      } catch (error) {
+        if (!cancelled) {
+          setErrorText(
+            error instanceof FetchTimeoutError
+              ? error.message
+              : "Could not finish sign-in. Please try again.",
+          );
+          dropOAuthReturnParams(tier, billing);
+        }
       } finally {
         if (!cancelled) setFinishingOAuth(false);
       }
@@ -170,7 +206,7 @@ export function ManagerTrialSignupForm({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot continuation on mount
-  }, [googleReturn]);
+  }, [accountReadyReturn, googleReturn]);
 
   const submit = async () => {
     if (!fullName.trim()) {
@@ -237,8 +273,8 @@ export function ManagerTrialSignupForm({
         return;
       }
       if (signInData?.user) posthog.identify(signInData.user.id);
-      const fallback = body.redirectTo?.startsWith("/") ? body.redirectTo : managerPortalEntryPath();
-      await navigateAfterRoleSignup(fallback);
+      setRedirectingToSetup(true);
+      goToManagerAccountSetup();
     } catch {
       setErrorText("Network error.");
     } finally {
@@ -252,27 +288,10 @@ export function ManagerTrialSignupForm({
         {trialSignupSubtitle(tier)}
       </p>
 
-      {finishingOAuth ? (
-        <AuthLoadingCard label="Finishing sign-in…" />
-      ) : accountReady ? (
-        <div className="space-y-3">
-          <Button
-            type="button"
-            data-attr="manager-trial-signup-go-to-portal"
-            className="btn-cobalt w-full rounded-full py-2.5 text-[15px] font-semibold"
-            onClick={() => navigateAfterRoleSignup(managerPortalEntryPath())}
-          >
-            Go to your portal
-          </Button>
-          <button
-            type="button"
-            data-attr="manager-trial-signup-create-another"
-            className="w-full text-center text-[12px] font-semibold text-primary hover:opacity-90"
-            onClick={() => setAccountReady(false)}
-          >
-            Create a different property account
-          </button>
-        </div>
+      {finishingOAuth || redirectingToSetup ? (
+        <AuthLoadingCard
+          label={redirectingToSetup ? "Opening account setup…" : "Finishing sign-in…"}
+        />
       ) : rolesLoading ? (
         <AuthLoadingCard label="Loading…" />
       ) : (
@@ -355,13 +374,6 @@ export function ManagerTrialSignupForm({
                 data-attr="manager-trial-signup-go-to-existing-portal"
               >
                 Go to your portal
-              </Link>
-            </p>
-          ) : signedInUser ? (
-            <p className="text-center text-[13px] text-muted">
-              Signed in as <span className="font-semibold text-foreground">{signedInUser.email}</span>.{" "}
-              <Link href="/auth/continue" className="font-semibold text-primary hover:opacity-90">
-                Continue to your portal
               </Link>
             </p>
           ) : null}

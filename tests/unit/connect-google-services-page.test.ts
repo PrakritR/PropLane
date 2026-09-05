@@ -64,4 +64,18 @@ describe("connect Google services", () => {
     expect(page).toContain('data-attr="onboarding-calendar-unavailable"');
     expect(page).toContain("disabled={!status.calendarConfigured}");
   });
+
+  it("only shows for first-time account setup and keeps setup inline", () => {
+    expect(page).toContain("!body.pending");
+    expect(page).not.toContain("router.push");
+    expect(page).not.toContain("Open Settings");
+    expect(page).toContain("ManagerOnboardingPhoneSetup");
+    expect(page).toContain("ManagerOnboardingWorkNumberSetup");
+    expect(page).toContain("ManagerOnboardingAssistantEmailSetup");
+  });
+
+  it("right-aligns Continue to portal", () => {
+    expect(page).toContain('className="mt-6 flex justify-end"');
+    expect(page).toContain("Continue to portal");
+  });
 });

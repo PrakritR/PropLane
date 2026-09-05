@@ -1,7 +1,11 @@
+import { FetchTimeoutError, fetchWithTimeout } from "@/lib/auth/fetch-with-timeout";
 import { clearManagerPricingOffer, persistManagerPricingOffer, readManagerPricingOffer, type ManagerPricingOffer } from "@/lib/auth/manager-pricing-oauth-storage";
 import { waitForAuthUser } from "@/lib/auth/wait-for-auth-user";
+import { waitForOAuthUser } from "@/lib/auth/wait-for-oauth-user";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import type { PlanTierId } from "@/data/manager-plan-tiers";
+
+const NETWORK_ERROR = "Network error while creating your account.";
 
 export type PartnerPricingSession = {
   authenticated: boolean;
@@ -20,13 +24,14 @@ export type ContinuePartnerPricingResult =
 
 export async function fetchPartnerPricingSession(): Promise<PartnerPricingSession> {
   try {
-    const res = await fetch("/api/auth/manager-onboarding-status", {
+    const res = await fetchWithTimeout("/api/auth/manager-onboarding-status", {
       credentials: "include",
       cache: "no-store",
     });
     if (!res.ok) return { authenticated: false, needsPricing: false };
     return (await res.json()) as PartnerPricingSession;
-  } catch {
+  } catch (error) {
+    if (error instanceof FetchTimeoutError) throw error;
     return { authenticated: false, needsPricing: false };
   }
 }
@@ -39,7 +44,7 @@ export async function ensurePartnerPricingFreeAccount(): Promise<{ ok: true } | 
       return { ok: false, error: "Your session isn't ready yet — try again in a moment." };
     }
 
-    const res = await fetch("/api/auth/provision-pending-manager", {
+    const res = await fetchWithTimeout("/api/auth/provision-pending-manager", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -57,8 +62,11 @@ export async function ensurePartnerPricingFreeAccount(): Promise<{ ok: true } | 
       return { ok: false, error: message };
     }
     return { ok: true };
-  } catch {
-    return { ok: false, error: "Network error while creating your account." };
+  } catch (error) {
+    if (error instanceof FetchTimeoutError) {
+      return { ok: false, error: error.message };
+    }
+    return { ok: false, error: NETWORK_ERROR };
   }
 }
 
@@ -79,12 +87,20 @@ export async function continuePartnerPricingWithOffer(
   persistManagerPricingOffer(offer);
 
   const supabase = createSupabaseBrowserClient();
-  const user = await waitForAuthUser(supabase);
+  const user = await waitForOAuthUser(supabase, { maxWaitMs: 8_000 });
   if (!user) {
     return { status: "error", message: "Your session isn't ready yet — try again in a moment." };
   }
 
-  const session = await fetchPartnerPricingSession();
+  let session: PartnerPricingSession;
+  try {
+    session = await fetchPartnerPricingSession();
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof FetchTimeoutError ? error.message : NETWORK_ERROR,
+    };
+  }
   const isPaidUpgrade = offer.tier !== "free" && session.authenticated && !session.needsPricing && !offer.trialSignup;
 
   if (session.authenticated && !session.needsPricing && offer.tier === "free") {
@@ -110,12 +126,20 @@ export async function continuePartnerPricingWithOffer(
     }
   }
 
-  const res = await fetch("/api/manager/pricing-oauth-continue", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify(offerToRequestBody(offer, extras)),
-  });
+  let res: Response;
+  try {
+    res = await fetchWithTimeout("/api/manager/pricing-oauth-continue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(offerToRequestBody(offer, extras)),
+    });
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof FetchTimeoutError ? error.message : NETWORK_ERROR,
+    };
+  }
 
   const body = (await res.json()) as {
     action?: string;

@@ -10,6 +10,10 @@ vi.mock("@/lib/auth/wait-for-auth-user", () => ({
   waitForAuthUser: (...args: unknown[]) => waitForAuthUser(...args),
 }));
 
+vi.mock("@/lib/auth/wait-for-oauth-user", () => ({
+  waitForOAuthUser: (...args: unknown[]) => waitForAuthUser(...args),
+}));
+
 vi.mock("@/lib/supabase/browser", () => ({
   createSupabaseBrowserClient: vi.fn(() => ({})),
 }));

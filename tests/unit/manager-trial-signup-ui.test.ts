@@ -21,8 +21,21 @@ describe("manager trial signup UI (pricing / create-account)", () => {
     expect(source).not.toMatch(/rounded-2xl border border-border bg-card\/50/);
   });
 
+  it("does not show a signed-in banner under the create form", () => {
+    expect(source).not.toContain("Signed in as");
+    expect(source).not.toContain("Continue to your portal");
+  });
+
   it("offers a plain footer link back to the existing portal", () => {
     expect(source).toContain("Already managing a property?");
     expect(source).toContain("manager-trial-signup-go-to-existing-portal");
+  });
+
+  it("does not spin on Finishing sign-in when the server already provisioned the trial", () => {
+    expect(source).toContain("goToManagerAccountSetup");
+    expect(source).toContain("redirectingToSetup");
+    expect(source).toContain("googleReturn && !accountReadyReturn");
+    expect(source).not.toContain("manager-trial-signup-go-to-portal");
+    expect(source).not.toContain("manager-trial-signup-create-another");
   });
 });

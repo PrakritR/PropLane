@@ -1,9 +1,11 @@
 "use client";
 
+import type { ReactNode } from "react";
+import Link from "next/link";
 import { useMemo } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthCard } from "@/components/auth/auth-card";
-import { AuthAccountFooterLink, AuthPageHeader, AuthRoleStack } from "@/components/auth/auth-mobile-primitives";
+import { AuthPageHeader, AuthRoleStack } from "@/components/auth/auth-mobile-primitives";
 import { PortalAuthForm } from "@/components/auth/portal-auth-form";
 import { ManagerTrialSignupForm } from "@/components/auth/manager-trial-signup-form";
 import { useAuthWelcomeChrome } from "@/components/auth/use-auth-welcome-chrome";
@@ -21,6 +23,40 @@ function parseBilling(raw: string | null): "monthly" | "annual" {
 
 function isCreateRoleParam(role: string): role is "manager" | "resident" | "vendor" {
   return role === "manager" || role === "resident" || role === "vendor";
+}
+
+function CreateAccountSignInFooter() {
+  return (
+    <div className="native-auth-hub-footer relative z-10 mt-5 space-y-3 text-center text-[12px]">
+      <p className="text-muted">
+        Already have an account?{" "}
+        <Link
+          href="/auth/sign-in"
+          className="font-semibold text-primary hover:opacity-90"
+          data-attr="auth-hub-sign-in"
+        >
+          Sign in
+        </Link>
+      </p>
+    </div>
+  );
+}
+
+function CreateAccountHubShell({
+  children,
+  mode = "create-compact",
+}: {
+  children: ReactNode;
+  mode?: "create-compact" | "create-tall";
+}) {
+  return (
+    <div className="native-auth-hub-stack mx-auto w-full max-w-[460px] self-center" data-auth-mode={mode}>
+      <AuthCard variant="blend">
+        <div className="native-auth-hub">{children}</div>
+      </AuthCard>
+      <CreateAccountSignInFooter />
+    </div>
+  );
 }
 
 /**
@@ -54,7 +90,7 @@ export function CreateAccountRoleGateway() {
 
   if (role === "manager") {
     return (
-      <AuthCard>
+      <CreateAccountHubShell>
         <ManagerTrialSignupForm
           tier={parseManagerTier(tierParam || null)}
           billing={parseBilling(billingParam)}
@@ -62,7 +98,7 @@ export function CreateAccountRoleGateway() {
           googleReturn={googleSignedIn}
           accountReadyReturn={accountReady}
         />
-      </AuthCard>
+      </CreateAccountHubShell>
     );
   }
 
@@ -80,15 +116,12 @@ export function CreateAccountRoleGateway() {
   };
 
   return (
-    <AuthCard>
+    <CreateAccountHubShell>
       <AuthPageHeader
         title="Create your account"
         subtitle="Choose how you will use PropLane — you can add another role later."
       />
-      <AuthRoleStack options={pickerOptions} onSelect={selectRole} />
-      <AuthAccountFooterLink href="/auth/sign-in">
-        Already have an account? Sign in
-      </AuthAccountFooterLink>
-    </AuthCard>
+      <AuthRoleStack options={pickerOptions} onSelect={selectRole} variant="blend" />
+    </CreateAccountHubShell>
   );
 }

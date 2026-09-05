@@ -8,6 +8,7 @@ import {
 } from "@/lib/auth/manager-onboarding";
 import { primaryRoleWhenAddingManager } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
+import { markGoogleServicesOnboardingPending } from "@/lib/auth/manager-google-services-onboarding.server";
 export type EnsureFreeManagerResult =
   | { status: "portal_ready"; managerId: string; provisioned: boolean }
   | { status: "skipped"; reason: string };
@@ -166,6 +167,10 @@ export async function ensureFreeManagerPortalAccess(
     scheduleManagerMessagingReady(user.id);
   } catch {
     /* non-critical */
+  }
+
+  if (provisioned) {
+    await markGoogleServicesOnboardingPending(supabase, user.id).catch(() => undefined);
   }
 
   return { status: "portal_ready", managerId, provisioned };

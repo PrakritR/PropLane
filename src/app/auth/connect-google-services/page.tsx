@@ -3,17 +3,18 @@
 import type { ReactNode } from "react";
 import { AuthCard } from "@/components/auth/auth-card";
 import { AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
+import {
+  ManagerOnboardingAssistantEmailSetup,
+  ManagerOnboardingPhoneSetup,
+  ManagerOnboardingWorkNumberSetup,
+} from "@/components/auth/manager-onboarding-inline-setup";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH } from "@/lib/auth/manager-google-services-onboarding";
 import { formatGoogleCalendarConnectError } from "@/lib/google-calendar/connect-errors";
 import { portalDashboardPath } from "@/lib/auth/portal-roles";
 import { assistantEmailUpsellMessage } from "@/lib/manager-assistant-email/assistant-email-eligibility-copy";
-import {
-  MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF,
-  type ManagerAssistantEmailStatus,
-} from "@/lib/manager-assistant-email/manager-assistant-email-status";
-import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
+import type { ManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
 import {
   shouldOfferWorkNumberSetup,
   workNumberOnboardingPhone,
@@ -22,10 +23,9 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
 
-const MESSAGING_SETTINGS_PATH = MANAGER_MESSAGING_SETTINGS_HREF;
-
 type GoogleServicesStatus = {
   dismissed: boolean;
+  pending: boolean;
   calendarConnected: boolean;
   calendarConfigured: boolean;
   gmailConnected: boolean;
@@ -65,12 +65,14 @@ function SetupOptionCard({
   statusLabel,
   statusTone = "confirmed",
   action,
+  children,
 }: {
   title: string;
   description: string;
   statusLabel?: string | null;
   statusTone?: "confirmed" | "muted";
   action?: ReactNode;
+  children?: ReactNode;
 }) {
   return (
     <div className="rounded-xl border border-border bg-card p-4">
@@ -90,6 +92,7 @@ function SetupOptionCard({
         </div>
         {action}
       </div>
+      {children}
     </div>
   );
 }
@@ -140,7 +143,11 @@ function ConnectGoogleServicesContent() {
   useEffect(() => {
     void (async () => {
       const body = await loadStatus();
-      if (body?.dismissed) {
+      if (!body) {
+        setLoading(false);
+        return;
+      }
+      if (body.dismissed || !body.pending) {
         router.replace(portalDashboardPath("manager"));
         return;
       }
@@ -209,18 +216,7 @@ function ConnectGoogleServicesContent() {
     assistantEmail && !assistantEmail.canRequest
       ? assistantEmailUpsellMessage(assistantEmail.planTier, assistantEmail.entitlement)
       : null;
-
-  const settingsButton = (label: string, dataAttr: string, href = MESSAGING_SETTINGS_PATH) => (
-    <Button
-      type="button"
-      variant="primary"
-      className="min-h-0 h-8 rounded-full px-4 text-xs"
-      data-attr={dataAttr}
-      onClick={() => router.push(href)}
-    >
-      {label}
-    </Button>
-  );
+  const offerWorkNumber = shouldOfferWorkNumberSetup(workNumber);
 
   return (
     <AuthCard wide variant="blend">
@@ -244,12 +240,20 @@ function ConnectGoogleServicesContent() {
                   : "Not added yet"
             }
             statusTone={phoneVerified ? "confirmed" : "muted"}
-            action={
-              !phoneVerified
-                ? settingsButton("Verify phone", "onboarding-verify-personal-phone")
-                : null
-            }
-          />
+          >
+            {!phoneVerified ? (
+              <ManagerOnboardingPhoneSetup
+                initialPhone={phoneSettings?.phone ?? ""}
+                phoneVerified={phoneVerified}
+                onUpdated={(next) =>
+                  setPhoneSettings({
+                    phone: next.phone,
+                    phoneVerifiedAt: next.phoneVerifiedAt,
+                  })
+                }
+              />
+            ) : null}
+          </SetupOptionCard>
 
           <SetupOptionCard
             title="PropLane work number"
@@ -257,19 +261,16 @@ function ConnectGoogleServicesContent() {
             statusLabel={
               provisionedNumber
                 ? `Active · ${provisionedNumber}`
-                : shouldOfferWorkNumberSetup(workNumber)
+                : offerWorkNumber
                   ? "Not set up yet"
                   : "Available in Settings when SMS is enabled on your plan"
             }
             statusTone={provisionedNumber ? "confirmed" : "muted"}
-            action={
-              !provisionedNumber && shouldOfferWorkNumberSetup(workNumber)
-                ? settingsButton("Set up work number", "onboarding-set-up-work-number")
-                : !provisionedNumber
-                  ? settingsButton("Open Settings", "onboarding-work-number-settings")
-                  : null
-            }
-          />
+          >
+            {!provisionedNumber && offerWorkNumber && workNumber ? (
+              <ManagerOnboardingWorkNumberSetup status={workNumber} onUpdated={setWorkNumber} />
+            ) : null}
+          </SetupOptionCard>
 
           <SetupOptionCard
             title="PropLane assistant email"
@@ -277,25 +278,14 @@ function ConnectGoogleServicesContent() {
             statusLabel={
               assistantReady
                 ? `Ready · ${assistantAddress}`
-                : assistantUpsell ?? (assistantEmail?.canRequest ? "Not requested yet" : "Check eligibility in Settings")
+                : assistantUpsell ?? (assistantEmail?.canRequest ? "Not requested yet" : null)
             }
             statusTone={assistantReady ? "confirmed" : "muted"}
-            action={
-              !assistantReady && assistantEmail?.canRequest
-                ? settingsButton(
-                    "Set up assistant email",
-                    "onboarding-set-up-assistant-email",
-                    MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF,
-                  )
-                : !assistantReady
-                  ? settingsButton(
-                      "Open Settings",
-                      "onboarding-assistant-email-settings",
-                      MANAGER_ASSISTANT_EMAIL_SETTINGS_HREF,
-                    )
-                  : null
-            }
-          />
+          >
+            {!assistantReady && assistantEmail ? (
+              <ManagerOnboardingAssistantEmailSetup status={assistantEmail} onUpdated={setAssistantEmail} />
+            ) : null}
+          </SetupOptionCard>
 
           <SetupOptionCard
             title="Google Calendar"
@@ -329,7 +319,7 @@ function ConnectGoogleServicesContent() {
           </p>
         ) : null}
 
-        <div className="mt-6 flex justify-start">
+        <div className="mt-6 flex justify-end">
           <Button
             type="button"
             variant="primary"
@@ -338,7 +328,7 @@ function ConnectGoogleServicesContent() {
             disabled={skipping}
             onClick={() => void continueToPortal()}
           >
-            {skipping ? "One moment…" : "Continue"}
+            {skipping ? "One moment…" : "Continue to portal"}
           </Button>
         </div>
       </div>

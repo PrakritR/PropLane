@@ -4,6 +4,7 @@ import {
   isManagerOnboardingComplete,
   provisionPendingManagerAccount,
 } from "@/lib/auth/manager-onboarding";
+import { markGoogleServicesOnboardingPending } from "@/lib/auth/manager-google-services-onboarding.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 type Tier = "free" | "pro" | "business";
@@ -58,5 +59,6 @@ export async function completeFreeManagerTierForUser(
   }
 
   await finalizePendingManagerFreeTier(supabase, opts);
+  await markGoogleServicesOnboardingPending(supabase, opts.userId).catch(() => undefined);
   return { managerId: prepared.managerId, alreadyLinked: true };
 }

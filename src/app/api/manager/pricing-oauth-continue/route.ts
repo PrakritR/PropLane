@@ -10,7 +10,7 @@ import { getStripe } from "@/lib/stripe";
 import { paymentWaiverCodeMatches } from "@/lib/server-env";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { MANAGER_GOOGLE_SERVICES_PATH } from "@/lib/auth/manager-google-services";
+import { MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH } from "@/lib/auth/manager-google-services-onboarding";
 
 export const runtime = "nodejs";
 
@@ -94,7 +94,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         action: "portal",
         managerId: finalizedId,
-        redirectTo: MANAGER_GOOGLE_SERVICES_PATH,
+        redirectTo: MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH,
       });
     }
 
@@ -111,7 +111,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         action: "portal",
         managerId: finalizedId,
-        redirectTo: MANAGER_GOOGLE_SERVICES_PATH,
+        redirectTo: MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH,
       });
     }
 
@@ -140,7 +140,7 @@ export async function POST(req: Request) {
       return NextResponse.json({
         action: "portal",
         managerId: finalizedId,
-        redirectTo: prepared.kind === "complete" ? "/portal/dashboard" : MANAGER_GOOGLE_SERVICES_PATH,
+        redirectTo: prepared.kind === "complete" ? "/portal/dashboard" : MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH,
       });
     }
 

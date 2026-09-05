@@ -1,12 +1,44 @@
 import { handleOAuthCallback } from "@/lib/auth/oauth-callback-handler";
 import { maybeNativeOAuthBridgeResponse } from "@/lib/auth/native-oauth-bridge";
 import { ensureFreeManagerPortalAccess } from "@/lib/auth/manager-portal-provision";
+import { resolveManagerPurchaseForPricing } from "@/lib/auth/manager-pricing-selection";
+import { completeManagerSignupTrial, isManagerSignupTrialTier } from "@/lib/auth/manager-signup-trial";
 import { MANAGER_PRICING_ENTRY_PATH } from "@/lib/auth/manager-pricing-entry-path";
 import {
   clearPricingOfferCookie,
   readPricingOfferFromRequest,
 } from "@/lib/auth/manager-pricing-oauth-storage";
 import type { NextRequest } from "next/server";
+import type { User } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+function oauthFullName(user: User): string | null {
+  const meta = user.user_metadata;
+  const fullName = typeof meta?.full_name === "string" ? meta.full_name.trim() : "";
+  if (fullName) return fullName;
+  const name = typeof meta?.name === "string" ? meta.name.trim() : "";
+  return name || null;
+}
+
+async function finalizeTrialSignupOnCallback(
+  db: SupabaseClient,
+  user: User,
+  tier: "free" | "pro" | "business",
+): Promise<boolean> {
+  const email = user.email?.trim().toLowerCase() ?? "";
+  if (!email || !isManagerSignupTrialTier(tier)) return false;
+
+  const purchase = await resolveManagerPurchaseForPricing(db, user.id, email);
+  if (purchase.kind === "complete") return true;
+
+  await completeManagerSignupTrial(db, {
+    userId: user.id,
+    email,
+    fullName: oauthFullName(user),
+    tier,
+  });
+  return true;
+}
 
 function createAccountPath(params: Record<string, string>): string {
   return `/auth/create-account?${new URLSearchParams({ mode: "create", role: "manager", ...params })}`;
@@ -28,6 +60,16 @@ export async function GET(request: NextRequest) {
       const tier = offer?.tier ?? "free";
       const billing = offer?.billing ?? "monthly";
       if (offer?.trialSignup) {
+        if (isManagerSignupTrialTier(tier)) {
+          try {
+            const ready = await finalizeTrialSignupOnCallback(service, user, tier);
+            if (ready) {
+              return createAccountPath({ account_ready: "1", tier, billing });
+            }
+          } catch (error) {
+            console.warn("Trial manager provision on partner-pricing callback failed:", error);
+          }
+        }
         return createAccountPath({ google_signed_in: "1", tier, billing });
       }
       if (tier === "free") {
