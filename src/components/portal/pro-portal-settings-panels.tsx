@@ -882,7 +882,9 @@ export function CommunicationSettingsPanel({
           setSmsSetup(
             status
               ? {
-                  phone: status.number?.phoneNumber?.trim() || null,
+                  phone: typeof status.number?.phoneNumber === "string"
+                    ? status.number.phoneNumber.trim() || null
+                    : null,
                   canSend: status.canSend,
                 }
               : null,

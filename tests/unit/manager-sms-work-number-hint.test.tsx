@@ -24,6 +24,25 @@ afterEach(() => {
 });
 
 describe("ManagerSmsWorkNumberHint", () => {
+  it.each([123, {}, [], true, null, undefined])("handles a malformed phone (%j) with SMS enabled or disabled", (phone) => {
+    const { rerender } = render(
+      <ManagerSmsWorkNumberHint show phone={phone as unknown as string} canSend />,
+    );
+    expect(screen.getByRole("alert").textContent).toContain("SMS needs an active work number.");
+    rerender(<ManagerSmsWorkNumberHint show phone={phone as unknown as string} canSend={false} />);
+    expect(screen.getByRole("alert").textContent).toContain("SMS needs an active work number.");
+  });
+
+  it("does not copy an invalid phone value", () => {
+    const writeText = vi.fn();
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    render(<ManagerWorkNumberCopyControl phone={{} as unknown as string} />);
+    const button = screen.getByRole("button", { name: "Copy work number —" });
+    expect(button.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(button);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
   it("does not link to the settings page it is already rendered on", () => {
     pathname.mockReturnValue("/portal/profile");
     render(<ManagerSmsWorkNumberHint show phone="+18559168031" canSend={false} />);
