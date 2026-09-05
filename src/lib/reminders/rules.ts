@@ -17,10 +17,18 @@
  */
 
 /**
- * Bookings are deliberately absent: they are a calendar VIEW over the same
- * planned events tours come from, not a record type of their own, so a
- * "Bookings" rule could never fire. A Settings row that can never do anything
- * is worse than no row at all.
+ * `booking` was deliberately ABSENT until PRP-333, on the reasoning that
+ * bookings were a calendar VIEW over the planned events tours come from and so
+ * a rule could never fire. That premise no longer holds: a booking is now a
+ * real dated stay — an imported channel range on
+ * `external_calendar_connections`, or a signed PropLane lease's move-in — and
+ * `subjects/bookings.server.ts` sweeps both, so the rule has something to
+ * anchor on.
+ *
+ * It stays MANAGER-side only. A channel iCal feed carries no guest contact (the
+ * summary is "Airbnb (Not available)"), so a guest-facing booking reminder
+ * would be the very thing the original note warned about: a Settings control
+ * that can never send. Adding one is a change to the import, not to this file.
  */
 import { normalizeTimings, parseTimingKey, timingSendAt } from "@/lib/reminders/timings";
 
@@ -36,6 +44,7 @@ export const REMINDER_SUBJECT_KINDS = [
   "lease_manager",
   "payment_manager",
   "outgoing_payment",
+  "booking",
 ] as const;
 
 export type ReminderSubjectKind = (typeof REMINDER_SUBJECT_KINDS)[number];
@@ -250,6 +259,12 @@ export const REMINDER_SUBJECT_META: Record<ReminderSubjectKind, ReminderSubjectM
     anchorLabel: "the payment due date",
     counterpartyLabel: "payee",
   },
+  booking: {
+    kind: "booking",
+    label: "Bookings",
+    anchorLabel: "the guest checks in",
+    counterpartyLabel: "guest",
+  },
 };
 
 /**
@@ -366,6 +381,20 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     // payee, amount, due date and property — the accounts-payable data the read
     // API hands to no co-manager at all — so a broad audience has to be a
     // deliberate choice, never something a manager inherits by not looking.
+    audience: { manager: true, counterparty: false, team: false },
+    teamUserIds: [],
+    inbox: true,
+    email: true,
+    sms: false,
+  },
+  booking: {
+    enabled: true,
+    // A stay is prepared for over days — keys, cleaning, a room turn — not
+    // minutes, so the lead times sit further out than a tour's.
+    leadMinutes: [3 * DAY, 1 * DAY],
+    timings: ["before:4320", "before:1440"],
+    // Manager-side only: an imported channel booking carries no guest contact,
+    // so `counterparty` has nobody to reach. See the note at the top of this file.
     audience: { manager: true, counterparty: false, team: false },
     teamUserIds: [],
     inbox: true,

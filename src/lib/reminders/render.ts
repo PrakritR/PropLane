@@ -81,6 +81,7 @@ const SUBJECT_NOUN: Record<ReminderSubjectKind, string> = {
   lease_manager: "lease",
   payment_manager: "payment",
   outgoing_payment: "payment",
+  booking: "booking",
 };
 
 function greeting(name?: string | null): string {

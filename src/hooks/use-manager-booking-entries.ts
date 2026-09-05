@@ -29,7 +29,8 @@ export function useManagerBookingEntries({
   showToast: (message: string) => void;
 }) {
   const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [refreshing, setRefreshing] = useState(true);
 
   const leaseRows = useLeasePipelineRows(userId, { enabled: Boolean(userId) });
 
@@ -63,27 +64,51 @@ export function useManagerBookingEntries({
     });
   }, [userId, leaseRows, propertyOptions, propertyIds, bookingsRoomLabels]);
 
+  /**
+   * The fetch is keyed on WHICH houses are in scope, not on the array carrying
+   * them.
+   *
+   * `propertyIds` is rebuilt from `buildManagerPropertyFilterOptions` every time
+   * `propertyTick` bumps, and that bumps on every portfolio refresh event
+   * (`MANAGER_PORTFOLIO_REFRESH_EVENTS` — the property pipeline, pro
+   * relationships, `storage`, applications). A new array with identical
+   * contents used to give `reloadAirbnb` a new identity, refire the effect, and
+   * blank the whole list back to skeleton rows for a round trip that could only
+   * ever return the same bookings.
+   */
+  const propertyIdsKey = useMemo(() => [...propertyIds].sort().join("\u0000"), [propertyIds]);
+
   const reloadAirbnb = useCallback(async () => {
-    if (propertyIds.length === 0) {
+    const ids = propertyIdsKey ? propertyIdsKey.split("\u0000") : [];
+    if (ids.length === 0) {
       setAirbnbEntries([]);
-      setLoading(false);
+      setLoaded(true);
+      setRefreshing(false);
       return;
     }
-    setLoading(true);
+    setRefreshing(true);
     try {
-      const rows = await fetchManagerChannelBookings(propertyIds);
+      const rows = await fetchManagerChannelBookings(ids);
       setAirbnbEntries(airbnbBookingEntries(rows));
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Could not load bookings.");
       setAirbnbEntries([]);
     } finally {
-      setLoading(false);
+      setLoaded(true);
+      setRefreshing(false);
     }
-  }, [propertyIds, showToast]);
+  }, [propertyIdsKey, showToast]);
 
   useEffect(() => {
     void reloadAirbnb();
   }, [reloadAirbnb, refreshSignal]);
+
+  /**
+   * Only the FIRST load draws skeletons. A later refresh keeps the stays that
+   * are already on screen — replacing a list the manager is reading with grey
+   * placeholders reads as the page reloading under them.
+   */
+  const loading = !loaded && refreshing;
 
   const entries = useMemo(
     () => [...airbnbEntries, ...leaseEntries],

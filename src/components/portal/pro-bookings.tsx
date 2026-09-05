@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
+import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { ManagerBookingsListView } from "@/components/portal/manager-bookings-list-view";
 import {
   ManagerPortalPageShell,
@@ -30,6 +31,7 @@ import { filterBookingEntriesByRoom } from "@/lib/channel-calendar/property-book
 import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import {
   MANAGER_BOOKING_BUCKETS,
@@ -53,22 +55,7 @@ function isListBucket(bucket: ManagerBookingBucketId): bucket is ManagerBookingL
   return bucket !== "calendar";
 }
 
-export function ManagerBookingsWorkspace({
-  bucket,
-  basePath,
-  onBucketChange,
-  propertyIds,
-  propertyOptions,
-  showPropertyFilter = true,
-  showRoomFilter = false,
-  roomOptions = [],
-  roomFilterId = "",
-  onRoomFilterIdChange,
-  emptyMessage,
-  propertyTick,
-  refreshSignal,
-  onRefreshSignal,
-}: {
+type BookingsWorkspaceProps = {
   bucket: ManagerBookingBucketId;
   /** When set, tab destinations use routed hrefs; otherwise `onBucketChange` handles tabs. */
   basePath?: string;
@@ -84,7 +71,31 @@ export function ManagerBookingsWorkspace({
   propertyTick: number;
   refreshSignal: number;
   onRefreshSignal?: () => void;
-}) {
+};
+
+/**
+ * The Bookings chrome and body, built as separate nodes.
+ *
+ * They are returned rather than rendered together because the page shell pins
+ * its chrome by inspecting its OWN children — a component that renders both
+ * halves internally hides them from that split.
+ */
+function useBookingsWorkspace({
+  bucket,
+  basePath,
+  onBucketChange,
+  propertyIds,
+  propertyOptions,
+  showPropertyFilter = true,
+  showRoomFilter = false,
+  roomOptions = [],
+  roomFilterId = "",
+  onRoomFilterIdChange,
+  emptyMessage,
+  propertyTick,
+  refreshSignal,
+  onRefreshSignal,
+}: BookingsWorkspaceProps) {
   const { showToast } = useAppUi();
   const navigate = usePortalNavigate();
   const { userId, ready: authReady } = useManagerUserId();
@@ -287,91 +298,96 @@ export function ManagerBookingsWorkspace({
     />
   ) : undefined;
 
-  return (
-    <>
-      <PortalListControlStack
-        className="mb-2 max-lg:mb-1.5"
-        variant="command"
-        destinationRow={destinationRow}
-        destinations={
-          basePath
-            ? tabs.map((tab) => ({
-                id: tab.id,
-                label: tab.label,
-                href: managerBookingListHref(basePath, tab.id),
-                count: tab.count,
-                dataAttr: `bookings-bucket-${tab.id}`,
-              }))
-            : undefined
-        }
-        activeDestinationId={bucket}
-        destinationAriaLabel="Booking views"
-        actions={
-          <>
-            {propertyFilterSheet}
-            {roomFilterSheet}
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_COMMAND_ACTION_BTN}
-              data-attr="bookings-settings-open"
-              disabled={linkDisabled}
-              onClick={() => setSettingsModalOpen(true)}
-            >
-              Settings
-            </Button>
-            <Button
-              type="button"
-              className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-              style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-              disabled={linkDisabled}
-              data-attr="portfolio-bookings-link-airbnb"
-              onClick={() => setLinkModalOpen(true)}
-            >
-              Link Airbnb
-            </Button>
-          </>
-        }
-        activeFilterChips={activeFilterChips}
+  const controlStack = (
+    <PortalListControlStack
+      className="mb-2 max-lg:mb-1.5"
+      variant="command"
+      destinationRow={destinationRow}
+      destinations={
+        basePath
+          ? tabs.map((tab) => ({
+              id: tab.id,
+              label: tab.label,
+              href: managerBookingListHref(basePath, tab.id),
+              count: tab.count,
+              dataAttr: `bookings-bucket-${tab.id}`,
+            }))
+          : undefined
+      }
+      activeDestinationId={bucket}
+      destinationAriaLabel="Booking views"
+      actions={
+        <>
+          {propertyFilterSheet}
+          {roomFilterSheet}
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_COMMAND_ACTION_BTN}
+            data-attr="bookings-settings-open"
+            disabled={linkDisabled}
+            onClick={() => setSettingsModalOpen(true)}
+          >
+            Settings
+          </Button>
+          <Button
+            type="button"
+            className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
+            style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
+            disabled={linkDisabled}
+            data-attr="portfolio-bookings-link-airbnb"
+            onClick={() => setLinkModalOpen(true)}
+          >
+            Link Airbnb
+          </Button>
+        </>
+      }
+      activeFilterChips={activeFilterChips}
+    />
+  );
+
+  const content =
+    bucket === "calendar" ? (
+      <ManagerPortfolioBookingsCalendar
+        propertyIds={scopedPropertyIds}
+        showToast={showToast}
+        refreshSignal={refreshSignal}
+        roomFilterId={roomFilterId}
+        emptyMessage={emptyMessage}
+        variant="standalone"
+        calendarOnly
       />
-
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-        {bucket === "calendar" ? (
-          <ManagerPortfolioBookingsCalendar
-            propertyIds={scopedPropertyIds}
-            showToast={showToast}
-            refreshSignal={refreshSignal}
-            roomFilterId={roomFilterId}
-            emptyMessage={emptyMessage}
-            variant="standalone"
-            calendarOnly
-          />
-        ) : (
-          <ManagerBookingsListView
-            entries={listEntries}
-            loading={!authReady || loading}
-            bucket={listBucket}
-            selectedKeys={selectedIds}
-            onToggleSelected={(key, selected) => {
-              setSelectedIds((prev) => {
-                const next = new Set(prev);
-                if (selected) next.add(key);
-                else next.delete(key);
-                return next;
-              });
-            }}
-            onOpenDay={openCalendarForDay}
-            bulkActions={listBulkActions}
-          />
-        )}
-      </div>
-
-      <ChannelCalendarLinkModal
-        open={linkModalOpen || settingsModalOpen}
-        onClose={() => {
-          setLinkModalOpen(false);
-          setSettingsModalOpen(false);
+    ) : (
+      <ManagerBookingsListView
+        entries={listEntries}
+        loading={!authReady || loading}
+        bucket={listBucket}
+        selectedKeys={selectedIds}
+        onToggleSelected={(key, selected) => {
+          setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (selected) next.add(key);
+            else next.delete(key);
+            return next;
+          });
         }}
+        onOpenDay={openCalendarForDay}
+        bulkActions={listBulkActions}
+      />
+    );
+
+  /*
+   * Settings and Link Airbnb are two different dialogs.
+   *
+   * Settings used to open the Link Airbnb modal as well, so the section had two
+   * buttons that led to the same place and nowhere to put a booking preference.
+   * Settings is now the section's own scoped settings — booking reminders.
+   */
+  const modals = (
+    <>
+      <ChannelCalendarLinkModal
+        open={linkModalOpen}
+        onClose={() => setLinkModalOpen(false)}
         propertyIds={propertyIds}
         propertyOptions={propertyOptions}
         initialPropertyId={
@@ -380,6 +396,31 @@ export function ManagerBookingsWorkspace({
         showToast={showToast}
         onChanged={() => onRefreshSignal?.()}
       />
+      <ProPortalSettingsModal
+        open={settingsModalOpen}
+        onClose={() => setSettingsModalOpen(false)}
+        initialTab="bookings"
+        scoped
+        propertyOptions={propertyOptions}
+        initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
+      />
+    </>
+  );
+
+  return { controlStack, content, modals };
+}
+
+/**
+ * Embedded Bookings (one house's Bookings tab) — chrome and body as siblings in
+ * the panel's own flex column.
+ */
+export function ManagerBookingsWorkspace(props: BookingsWorkspaceProps) {
+  const { controlStack, content, modals } = useBookingsWorkspace(props);
+  return (
+    <>
+      {controlStack}
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">{content}</div>
+      {modals}
     </>
   );
 }
@@ -419,17 +460,31 @@ export function ManagerBookings({
 
   const propertyIds = useMemo(() => propertyOptions.map((option) => option.id), [propertyOptions]);
 
+  const { controlStack, content, modals } = useBookingsWorkspace({
+    bucket,
+    basePath,
+    propertyIds,
+    propertyOptions,
+    propertyTick,
+    refreshSignal,
+    onRefreshSignal: () => setRefreshSignal((n) => n + 1),
+  });
+
+  /*
+   * Tabs and the action row are DIRECT children of the shell, with the list in
+   * its own PortalPageScrollBody beside them.
+   *
+   * `partitionPortalPageChildren` splits pinned chrome from the scrolling body
+   * by inspecting the shell's own children, and React cannot see through a
+   * component boundary — so handing the shell a single <ManagerBookingsWorkspace/>
+   * put the whole page, tabs and Link Airbnb included, inside the scroller and
+   * they scrolled away with the rows.
+   */
   return (
     <ManagerPortalPageShell title="Bookings" hideTitleOnMobileNav titleInlineFilter={null} compactFilterRow>
-      <ManagerBookingsWorkspace
-        bucket={bucket}
-        basePath={basePath}
-        propertyIds={propertyIds}
-        propertyOptions={propertyOptions}
-        propertyTick={propertyTick}
-        refreshSignal={refreshSignal}
-        onRefreshSignal={() => setRefreshSignal((n) => n + 1)}
-      />
+      {controlStack}
+      {modals}
+      <PortalPageScrollBody>{content}</PortalPageScrollBody>
     </ManagerPortalPageShell>
   );
 }
