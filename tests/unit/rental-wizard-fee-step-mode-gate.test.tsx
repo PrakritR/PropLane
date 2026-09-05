@@ -145,14 +145,19 @@ describe("fee step — inline payment mode gate", () => {
     expect(screen.queryByText("Paid")).toBeTruthy();
   });
 
-  it("still shows the manual-channel instructions and Check payment while the fee is unpaid", () => {
+  it("shows NO manual-channel instructions even while the fee is unpaid", () => {
+    // bc91cc80 made checkout Stripe-only. The manual Zelle/Venmo path is gone, so
+    // an applicant is never told to send money outside the platform — not even on
+    // a listing whose stored config still carries a zelle contact. The unpaid case
+    // is the one that matters: it is where the old flow put the instructions.
     renderFeeStep(
       "public",
       {},
       { payChannel: "zelle", subOverrides: { zellePaymentsEnabled: true, zelleContact: "pay@zelle.example" } },
     );
-    expect(screen.queryByText(/Send by Zelle/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Check payment" })).toBeTruthy();
+    expect(screen.queryByText(/Send by Zelle/)).toBeNull();
+    expect(screen.queryByText("pay@zelle.example")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Check payment" })).toBeNull();
   });
 
   it("shows no payment UI (not even the resolving placeholder) when paid, even mid-resolve", () => {

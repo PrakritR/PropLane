@@ -1,4 +1,7 @@
 import { isValidZipInput } from "@/lib/listing-form-inputs";
+// buildListingStepFieldOrder reads this; without the import it throws a
+// ReferenceError the moment the wizard tries to scroll to its first invalid field.
+import { LISTING_STEP_FIELD_ORDER } from "@/lib/wizard-field-errors";
 import { validateStateAbbrev } from "@/app/(public)/rent/apply/apply-validation";
 import {
   deriveListingLtFeeToggles,

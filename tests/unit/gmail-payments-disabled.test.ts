@@ -11,7 +11,7 @@
  * Everything behind the flag is left INTACT — the sync, the parsers, the stored
  * connections — so this is one constant to reverse, not a feature to rebuild.
  */
-import { readFileSync } from "node:fs";
+import { globSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { GMAIL_PAYMENTS_ENABLED } from "@/lib/gmail-payments/enabled";
 
@@ -43,13 +43,27 @@ describe("Gmail payment receipts are off", () => {
     expect(read("src/app/auth/manager/connect-google/page.tsx")).toContain(
       "{GMAIL_PAYMENTS_ENABLED ? (",
     );
-    expect(read("src/components/portal/pro-payment-setup-modal.tsx")).toContain(
-      'GMAIL_PAYMENTS_ENABLED ? "" : "hidden"',
-    );
     // The signup step's Gmail card was already removed outright.
     expect(read("src/app/auth/connect-google-services/page.tsx")).not.toContain(
       "gmail-payments/connect",
     );
+  });
+
+  it("EVERY component that can navigate to a connect route is behind the flag", () => {
+    // Named-file assertions do not survive a refactor: this card used to sit in
+    // the payment-setup modal behind the flag, moved out during the pro-* rename,
+    // and silently lost its guard while the old assertion still pointed at the
+    // modal it had left. Sweeping the tree finds it wherever it lives next.
+    const uiFiles = globSync("src/{app,components}/**/*.{ts,tsx}").filter(
+      (file) => !file.includes("/api/"),
+    );
+    // Match the actual connect ROUTE, not any path that merely starts with it —
+    // "@/lib/gmail-payments/connect-errors" is an error formatter, not a doorway.
+    const connectRoute = /\/api\/(portal|vendor)\/gmail-payments\/connect/;
+    const offenders = uiFiles.filter(
+      (file) => connectRoute.test(read(file)) && !read(file).includes("GMAIL_PAYMENTS_ENABLED"),
+    );
+    expect(offenders, "these send a user to a connect route that refuses them").toEqual([]);
   });
 
   it("the nightly sync stops rather than failing every stored connection one by one", () => {
