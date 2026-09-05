@@ -2,6 +2,29 @@ import { readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ManagerTask } from "@/lib/manager-tasks";
+// The email no longer POSTs Resend directly — it goes through
+// deliverPortalInboxMessage, the same path every other portal notification
+// uses, so a fetch stub captures nothing and every case read as "not sent".
+// Capture at that boundary instead; this file is about the LINK the assignee
+// is handed, not the transport underneath it.
+vi.mock("@/lib/portal-inbox-delivery", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/portal-inbox-delivery")>();
+  return {
+    ...actual,
+    deliverPortalInboxMessage: vi.fn(
+      async (_db: unknown, args: { toEmails?: string[]; subject: string; text: string }) => {
+        delivered.push({
+          from: "",
+          to: args.toEmails ?? [],
+          subject: args.subject,
+          text: args.text,
+        });
+        return { ok: true as const, skipped: false };
+      },
+    ),
+  };
+});
+
 import { sendTaskAssigneeEmail } from "@/lib/manager-default-tasks.server";
 
 /**
@@ -24,6 +47,7 @@ const ENV_KEYS = [
 const previousEnv: Partial<Record<(typeof ENV_KEYS)[number], string | undefined>> = {};
 
 let sent: SentEmail[] = [];
+const delivered: SentEmail[] = [];
 
 const task = (overrides: Partial<ManagerTask> = {}): ManagerTask => ({
   id: "task-1",
@@ -57,6 +81,7 @@ beforeEach(() => {
   delete process.env.NEXT_PUBLIC_CANONICAL_APP_URL;
   delete process.env.NEXT_PUBLIC_APP_URL;
   sent = [];
+  delivered.length = 0;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (_url: string, init: { body: string }) => {
@@ -85,14 +110,14 @@ describe("sendTaskAssigneeEmail", () => {
     });
 
     expect(result.sent).toBe(true);
-    expect(sent).toHaveLength(1);
-    const email = sent[0]!;
+    expect(delivered).toHaveLength(1);
+    const email = delivered[0]!;
     expect(email.to).toEqual(["alex@example.com"]);
     expect(email.subject).toBe("Task due: Collect August rent · Unit 2B");
     // The regression: the link is built from resolveEmailLinkBaseUrl(), so it
     // must be a clickable absolute URL, never a bare "/portal/..." path.
     expect(email.text).toContain(
-      "Open your task list: https://prop-lane.space/portal/task-list/overdue",
+      "Open your task list: https://prop-lane.space/portal/tasks/overdue",
     );
     expect(email.text).toContain("Property: 1420 Pine St");
   });
@@ -106,10 +131,10 @@ describe("sendTaskAssigneeEmail", () => {
       kind: "created",
     });
 
-    const email = sent[0]!;
+    const email = delivered[0]!;
     expect(email.subject).toBe("New task assigned: Walk the vacant unit");
     expect(email.text).toContain(
-      "Open your task list: https://prop-lane.space/portal/task-list/in-progress",
+      "Open your task list: https://prop-lane.space/portal/tasks",
     );
   });
 
@@ -122,8 +147,8 @@ describe("sendTaskAssigneeEmail", () => {
       assignee: { type: "team", id: "mgr-user-1", name: "Alex" },
       kind: "due",
     });
-    expect(sent[0]!.text).toContain(
-      "https://www.prop-lane.space/portal/task-list/overdue",
+    expect(delivered[0]!.text).toContain(
+      "https://www.prop-lane.space/portal/tasks/overdue",
     );
   });
 
@@ -196,7 +221,7 @@ describe("the task-list link an assignee is emailed resolves", () => {
     expect(routeResolves("/auth/login")).toBe(false);
   });
 
-  it.each(["/portal/task-list/overdue", "/portal/task-list/in-progress"])("%s", (path) => {
+  it.each(["/portal/tasks/overdue", "/portal/tasks"])("%s", (path) => {
     expect(routeResolves(path)).toBe(true);
   });
 });
