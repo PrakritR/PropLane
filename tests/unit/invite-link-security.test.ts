@@ -106,3 +106,48 @@ describe("opening a link never changes an account on its own", () => {
     expect(PAGE).toContain("/portal/teams/managers/");
   });
 });
+
+/**
+ * The mint UI is where the "scope first, then the link" order is actually
+ * enforced for a person, so it is worth guarding as more than markup.
+ */
+describe("minting a link", () => {
+  const MODAL = read("src/components/portal/manager-invite-link-modal.tsx");
+  const PANEL = read("src/components/portal/pro-account-links-panel.tsx");
+
+  it("seeds a newly ticked property with read-only, never an empty grant", () => {
+    // Empty used to read as FULL access (PRP-199), so the gesture that adds a
+    // property must not be the widest possible grant.
+    expect(MODAL).toContain('buildAllModulesGrant("read")');
+    expect(MODAL).not.toMatch(/out\[id\] = prev\[id\] \?\? \{\}/);
+  });
+
+  it("offers both limits, and shows the token exactly once", () => {
+    expect(MODAL).toContain("INVITE_LINK_EXPIRY_OPTIONS");
+    expect(MODAL).toContain("INVITE_LINK_USE_OPTIONS");
+    expect(MODAL).toContain("only time it is shown");
+  });
+
+  it("can turn a link off after sharing it", () => {
+    expect(MODAL).toContain('data-attr="invite-link-revoke"');
+    expect(MODAL).toContain('method: "DELETE"');
+  });
+
+  it("is reachable from the team panel", () => {
+    expect(PANEL).toContain("ManagerInviteLinkModal");
+    expect(PANEL).toContain('data-attr="co-manager-invite-link-open"');
+  });
+});
+
+describe("the permissions editor offers no inert choice", () => {
+  const PANEL = read("src/components/portal/pro-account-links-panel.tsx");
+
+  it("replaces the Read toggle with a statement once Write is on", () => {
+    // Write implies read, so a lit-and-disabled Read toggle beside it reads as
+    // a broken switch rather than as the implication it is.
+    expect(PANEL).toContain('data-attr={`co-manager-${id}-read-implied`}');
+    expect(PANEL).toContain("Read included");
+    expect(PANEL).not.toContain("disabled={disabled || Boolean(levels.edit)}");
+  });
+});
+

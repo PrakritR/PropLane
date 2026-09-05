@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
+import { ManagerInviteLinkModal } from "@/components/portal/manager-invite-link-modal";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { DataList } from "@/components/ui/data-list";
 import { Modal } from "@/components/ui/modal";
@@ -13,6 +14,7 @@ import { ApplicationFilterSortFields } from "@/components/portal/application-fil
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
   ManagerPortalPageShell,
+  PORTAL_HEADER_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import {
   PortalDataTableEmpty,
@@ -383,14 +385,26 @@ function CoManagerPermissionsEditor({
             >
               <span className="text-sm font-medium text-foreground">{label}</span>
               <div className="flex flex-wrap items-center gap-1.5">
-                {/* grantToLevels derives read as read||edit||delete, so with Write
-                    on, turning Read off reads straight back as on. Rather than
-                    let it silently no-op, show it as the implication it is. */}
+                {/*
+                  Write implies read (`grantToLevels` derives read as
+                  read||edit||delete), so with Write on there is no Read choice
+                  left to make. This used to render the Read toggle anyway, lit
+                  and disabled — two controls where one was inert, which reads
+                  as a broken switch rather than an implication. Now the choice
+                  disappears and says what is true instead.
+                */}
+                {levels.edit ? (
+                  <span
+                    className="rounded-full border border-border bg-accent/30 px-2.5 py-1 text-xs font-medium text-muted"
+                    data-attr={`co-manager-${id}-read-implied`}
+                  >
+                    Read included
+                  </span>
+                ) : (
                 <PermissionLevelToggle
                   label="Read"
                   active={Boolean(levels.read)}
-                  disabled={disabled || Boolean(levels.edit)}
-                  title={levels.edit ? "Write access includes read." : undefined}
+                  disabled={disabled}
                   dataAttr={`co-manager-${id}-read`}
                   onToggle={() =>
                     setLevels(
@@ -410,6 +424,7 @@ function CoManagerPermissionsEditor({
                     )
                   }
                 />
+                )}
                 <PermissionLevelToggle
                   label="Write"
                   active={Boolean(levels.edit)}
@@ -865,6 +880,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
 
   const [axisInput, setAxisInput] = useState("");
   const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [inviteLinkModalOpen, setInviteLinkModalOpen] = useState(false);
   const [linkInvitePreview, setLinkInvitePreview] = useState<LinkInvitePreview | null>(null);
   const [linkInviteBusy, setLinkInviteBusy] = useState(false);
   const [teamRemovePreview, setTeamRemovePreview] = useState<TeamRemovePreviewItem[] | null>(null);
@@ -2228,11 +2244,22 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   );
 
   /*
-    No toolbar button. The list's own dashed ADD row already links an account,
-    and it carries the same disabled state and the same reason for it — this was
-    the same action a second time on one screen.
+    The dashed ADD row already covers "link an account by PropLane ID", so the
+    toolbar deliberately carries the OTHER door rather than the same one twice:
+    minting a shareable link, for when you do not have their ID.
   */
-  const teamLinkButton = null;
+  const teamLinkButton = (
+    <Button
+      type="button"
+      variant="outline"
+      className={PORTAL_HEADER_ACTION_BTN}
+      disabled={linkAccountBlocked}
+      data-attr="co-manager-invite-link-open"
+      onClick={() => setInviteLinkModalOpen(true)}
+    >
+      Invite link
+    </Button>
+  );
 
   const renderInviteDetail = (inv: AccountLinkInviteDto, entry: TeamListEntry) => {
     const draft = getInviteDraft(inv);
@@ -2331,6 +2358,15 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
 
   const teamModals = (
     <>
+        <ManagerInviteLinkModal
+          open={inviteLinkModalOpen}
+          onClose={() => setInviteLinkModalOpen(false)}
+          propertyOptions={linkInvitePropertySelectOptions}
+          renderPermissionsEditor={(value, onChange) => (
+            <CoManagerPermissionsEditor value={value} onChange={onChange} variant="readWrite" />
+          )}
+        />
+
         <Modal
           open={linkModalOpen}
           title={draftAxisId ? "Assign properties & permissions" : "Link account"}
