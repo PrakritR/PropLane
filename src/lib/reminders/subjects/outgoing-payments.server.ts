@@ -10,6 +10,7 @@ import { MANAGER_BILL_SELECT, mapManagerBillRow } from "@/lib/manager-bills";
 import {
   loadManagerReminderRecipients,
   loadTeamReminderRecipientsByManager,
+  teamRecipientsScopedToSubject,
   teamReminderRecipients,
 } from "@/lib/reminders/manager-recipients.server";
 import { materializeReminders } from "@/lib/reminders/queue.server";
@@ -82,7 +83,13 @@ export async function sweepOutgoingPaymentReminders(db: SupabaseClient, now: Dat
     if (!settings?.rules.outgoing_payment.enabled) continue;
     const managerRecipient = managerRecipients.get(entry.managerUserId);
     const teamRecipients = settings.rules.outgoing_payment.audience.team
-      ? teamReminderRecipients(teamRecipientsByManager.get(entry.managerUserId) ?? [])
+      ? teamReminderRecipients(
+          teamRecipientsScopedToSubject(
+            teamRecipientsByManager.get(entry.managerUserId) ?? [],
+            entry.bill.propertyId,
+            "financials",
+          ),
+        )
       : [];
 
     queued += await materializeReminders(

@@ -293,7 +293,11 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
     enabled: true,
     leadMinutes: [3 * DAY, 1 * DAY],
     timings: ["before:4320", "before:1440"],
-    audience: { manager: true, counterparty: false, team: true },
+    // team defaults OFF, as every other subject does. A bill reminder carries
+    // payee, amount, due date and property — the accounts-payable data the read
+    // API hands to no co-manager at all — so a broad audience has to be a
+    // deliberate choice, never something a manager inherits by not looking.
+    audience: { manager: true, counterparty: false, team: false },
     teamUserIds: [],
     inbox: true,
     email: true,
