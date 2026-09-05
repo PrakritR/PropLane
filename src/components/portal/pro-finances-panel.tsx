@@ -192,7 +192,7 @@ function FinancesDataTable({
   );
 
   if (report.rows.length === 0) {
-    return <PortalDataTableEmpty message="No finance entries yet." icon="finance" />;
+    return null;
   }
 
   const renderCellValue = (col: ReportColumn, row: ReportRow) =>
@@ -1013,9 +1013,7 @@ export function ManagerFinancesPanel({
               empty={
                 report && report.rows.length > 0 ? (
                   <PortalDataTableEmpty message="No finance entries match your search or filters." icon="finance" />
-                ) : (
-                  <PortalDataTableEmpty message="No finance entries yet." icon="finance" />
-                )
+                ) : null
               }
               add={financesListAddRow}
               dataAttr="finances-transaction-list"
@@ -1048,11 +1046,9 @@ export function ManagerFinancesPanel({
             )}
           </div>
           )
-        ) : (
-          <div className="space-y-3">
-            <PortalDataTableEmpty message="No finance entries yet." icon="finance" />
-          </div>
-        )}
+        ) : isTransactionTab ? (
+          <PortalRecordListSurface isEmpty add={financesListAddRow} dataAttr="finances-transaction-list" />
+        ) : null}
       </div>
       )}
 
