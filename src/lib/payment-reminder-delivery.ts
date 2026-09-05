@@ -97,6 +97,7 @@ export async function deliverPaymentReminder(input: {
   const preview = text.slice(0, 100).replace(/\n/g, " ");
   const managerEmail = from.match(/<([^>]+)>/)?.[1] ?? from;
 
+  let inboxWritten = false;
   try {
     if (inboxAllowed) {
       await deliverPortalMessageThreadSide(db, {
@@ -114,6 +115,7 @@ export async function deliverPaymentReminder(input: {
         unread: true,
         outbound: false,
       });
+      inboxWritten = true;
     }
   } catch {
     /* non-critical */
@@ -290,7 +292,18 @@ export async function deliverPaymentReminder(input: {
     /* non-critical — no-ops when FCM is not configured */
   }
 
-  const inboxDelivered = inboxAllowed && Boolean(residentUserId);
+  // The inbox write sits in a swallowing try/catch, so "allowed" is not
+  // "delivered" — reporting the former marked a throw as a successful send.
+  const inboxDelivered = inboxWritten && Boolean(residentUserId);
+
+  // Nothing was even ATTEMPTED: the manager turned every channel off, or the
+  // resident's own preferences leave none open. Retrying cannot change that, so
+  // keep the dedup rows. Deleting them here made the cron re-process this same
+  // charge on every run, forever, delivering nothing each time.
+  const anyChannelEnabled = emailAllowed || smsAllowed || (inboxAllowed && Boolean(residentUserId));
+  if (!anyChannelEnabled) {
+    return { sent: false, error: "no_channel_enabled" };
+  }
 
   // An account-less resident (no profile row) can't see the portal inbox — if
   // the email failed and no SMS went out, nothing actually reached them. Drop
