@@ -2,7 +2,23 @@ import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
+const integrateScript = readFileSync(
+  "scripts/integrate-source-to-main-and-staging.sh",
+  "utf8",
+);
+
 describe("promote scripts", () => {
+  it("ships integrate via npm and chains main → staging", () => {
+    const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
+      scripts?: Record<string, string>;
+    };
+    expect(pkg.scripts?.["ship:integrate"]).toBe(
+      "bash scripts/integrate-source-to-main-and-staging.sh",
+    );
+    expect(integrateScript).toMatch(/promote-main-to-staging\.sh/);
+    expect(integrateScript).toMatch(/--source/);
+  });
+
   it("refuses the retired main → production shortcut", () => {
     try {
       execFileSync("bash", ["scripts/promote-main-to-production.sh"], { stdio: "pipe" });
