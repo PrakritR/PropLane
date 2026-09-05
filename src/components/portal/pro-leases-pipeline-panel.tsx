@@ -31,7 +31,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
-import { LeasePipelineReviewPanel } from "@/components/portal/lease-pipeline-review-panel";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/pro-pipeline-lease-edit-modal";
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { LeaseAmendMoveOutModal } from "@/components/portal/lease-amend-move-out-modal";
@@ -286,12 +285,6 @@ export function ManagerLeasesPipelinePanel({
   );
 
   const singleSelectedLeaseRow = selectedLeaseRows.length === 1 ? selectedLeaseRows[0]! : null;
-  // Called ONCE and narrowed once. Calling it per-prop meant TypeScript saw
-  // three unrelated results, so the discriminated union never narrowed and
-  // `.error` did not exist on the ok branch — the build was already failing.
-  const leaseGenerationSupport = singleSelectedLeaseRow
-    ? leaseGenerationSupportedForRow(singleSelectedLeaseRow)
-    : ({ ok: false, error: "" } as const);
 
   const showBulkSendButton =
     tab === "manager" &&
@@ -1217,16 +1210,6 @@ export function ManagerLeasesPipelinePanel({
           onToggleSelected={toggleSelected}
           onOpenLease={openLeaseDetail}
         />
-        {tab === "manager" && singleSelectedLeaseRow ? (
-          <LeasePipelineReviewPanel
-            row={singleSelectedLeaseRow}
-            managerUserId={managerUserId}
-            onSaved={() => void syncLeasePipelineFromServer(managerUserId, { force: true })}
-            onGenerateLease={() => runGenerateLease(singleSelectedLeaseRow)}
-            generateLeaseDisabled={!leaseGenerationSupport.ok}
-            generateLeaseTitle={leaseGenerationSupport.ok ? undefined : leaseGenerationSupport.error}
-          />
-        ) : null}
       </PortalRecordListSurface>
     </>
   );

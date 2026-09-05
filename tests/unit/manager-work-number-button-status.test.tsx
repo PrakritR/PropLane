@@ -7,8 +7,17 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
   useAppUi: () => ({ showToast: vi.fn() }),
 }));
 
+vi.mock("@/hooks/use-manager-user-id", () => ({
+  useManagerUserId: () => ({
+    userId: "mgr-test",
+    email: "mgr@test.proplane.local",
+    ready: true,
+  }),
+}));
+
 import { ManagerWorkNumberButton } from "@/components/portal/pro-work-number-button";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
+import { resetManagerMessagingNumberStatusClientCache } from "@/lib/sms/manager-messaging-number-client";
 
 const status: ManagerMessagingNumberStatus = {
   mode: "paused",
@@ -27,9 +36,19 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  resetManagerMessagingNumberStatusClientCache();
 });
 
 describe("ManagerWorkNumberButton", () => {
+  it("shows a loading placeholder before messaging status resolves", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Promise(() => {})));
+    render(<ManagerWorkNumberButton />);
+
+    const button = screen.getByRole("button", { name: "Set up messaging" });
+    expect(button).toHaveAttribute("aria-busy", "true");
+    expect(button).toBeDisabled();
+  });
+
   it("reads the side-effect-free status route and deep-links setup when no number exists", async () => {
     const fetchMock = vi.fn(async () => Response.json(status));
     vi.stubGlobal("fetch", fetchMock);

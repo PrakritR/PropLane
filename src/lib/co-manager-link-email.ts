@@ -5,8 +5,17 @@
 
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 
+const MANAGER_TEAM_PATH = "/portal/teams/managers";
+
 function portalRelationshipsUrl(): string {
-  return `${resolveEmailLinkBaseUrl()}/portal/teams/managers`;
+  return `${resolveEmailLinkBaseUrl()}${MANAGER_TEAM_PATH}`;
+}
+
+/** Deep link the invitee opens to review and accept a pending co-manager invite. */
+export function coManagerInviteAcceptUrl(inviteId: string): string {
+  const id = inviteId.trim();
+  if (!id) return portalRelationshipsUrl();
+  return `${resolveEmailLinkBaseUrl()}${MANAGER_TEAM_PATH}/${encodeURIComponent(id)}`;
 }
 
 export function coManagerInviteSubject(inviterName: string): string {
@@ -17,16 +26,20 @@ export function coManagerInviteSubject(inviterName: string): string {
 export function buildCoManagerInviteBody(params: {
   inviterName: string;
   propertyLabels: string[];
+  inviteId?: string;
 }): string {
   const inviterName = params.inviterName.trim() || "A property manager";
   const properties =
     params.propertyLabels.length > 0 ? params.propertyLabels.join(", ") : "assigned properties";
+  const acceptUrl = params.inviteId?.trim()
+    ? coManagerInviteAcceptUrl(params.inviteId)
+    : portalRelationshipsUrl();
   return [
     `${inviterName} invited you to co-manage properties on PropLane.`,
     "",
     `Properties: ${properties}`,
     "",
-    `Open your portal to review and approve the link: ${portalRelationshipsUrl()}`,
+    `Accept the invite: ${acceptUrl}`,
     "",
     "— PropLane",
   ].join("\n");

@@ -7,6 +7,7 @@ import {
   type AccountLinksPayload,
 } from "@/lib/account-links";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
+import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type CoManagerPermissions, type PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
 import { maxAccountLinksForTier } from "@/lib/manager-access";
@@ -95,28 +96,6 @@ export function serializeInvite(
     respondedAt: row.responded_at,
     expiresAt: row.expires_at ?? null,
   };
-}
-
-async function userIsPropertyPortalManager(supabase: SupabaseClient, userId: string): Promise<boolean> {
-  const asManager = await userHasPortalRole(supabase, userId, "manager");
-  if (asManager) return true;
-  return userHasPortalRole(supabase, userId, "owner");
-}
-
-async function userHasPortalRole(
-  supabase: SupabaseClient,
-  userId: string,
-  role: "owner" | "manager",
-): Promise<boolean> {
-  const { data: pr } = await supabase
-    .from("profile_roles")
-    .select("role")
-    .eq("user_id", userId)
-    .eq("role", role)
-    .maybeSingle();
-  if (pr?.role === role) return true;
-  const { data: p } = await supabase.from("profiles").select("role").eq("id", userId).maybeSingle();
-  return String((p as { role?: string } | null)?.role ?? "").toLowerCase() === role;
 }
 
 async function countParticipantLinks(
@@ -363,8 +342,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No account found with this PropLane ID." }, { status: 404 });
     }
 
-    const ir = String((inviteeProfile as { role?: string }).role ?? "").toLowerCase();
-    const inviteeOk = ir === "manager" || ir === "owner";
+    const inviteeOk = await userIsPropertyPortalManager(svc, inviteeProfile.id);
     if (!inviteeOk) {
       return NextResponse.json(
         {
@@ -575,6 +553,7 @@ export async function POST(req: Request) {
               (inviterProfile as { email?: string | null }).email ||
               "A manager",
             propertyLabels: labels.length > 0 ? labels : assignedPropertyIds,
+            inviteId: row.id,
           });
         } catch (error) {
           // Not blocking the invite, but not silent either: the UI already says
