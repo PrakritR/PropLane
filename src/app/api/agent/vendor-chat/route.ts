@@ -1,3 +1,4 @@
+import { assistantContextHintFromRequest, withAssistantTaskContext } from "@/lib/agent/assistant-turn-context";
 import { NextResponse } from "next/server";
 import { resolveVendorAgentContext } from "@/lib/tools/vendor-context";
 import { vendorAgentRegistry } from "@/lib/tools/vendor-index";
@@ -6,12 +7,11 @@ import type { ActionPreview } from "@/lib/tools/registry";
 import { VENDOR_PORTAL_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { sanitizeChatMessages, lastUserText, applyChatAttachments } from "@/lib/agent/chat-handler";
 import { createPendingAction } from "@/lib/tools/pending-actions";
-import { handlePendingActionDecision } from "@/lib/agent/pending-action-decision";
+import { agentChatRateLimitResponse, handlePendingActionDecision } from "@/lib/agent/pending-action-decision";
 import { ensureAgentSession, appendAgentMessages } from "@/lib/agent/sessions";
 import { handleAgentChatHistoryDeleteRequest, handleAgentChatHistoryRequest } from "@/lib/agent/chat-history-route";
 import { MODAL_CHAT_SESSION_KIND, PORTAL_CHAT_SESSION_KIND } from "@/lib/agent/chat-history";
 import { loadAgentCustomInstructions, withAgentCustomInstructions } from "@/lib/agent/user-preferences";
-import { rateLimit } from "@/lib/rate-limit";
 import { track } from "@/lib/analytics/posthog";
 import { traceAgentTurn } from "@/lib/observability/langfuse";
 import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
@@ -49,19 +49,18 @@ export async function POST(req: Request) {
   const ctx = await resolveVendorAgentContext();
   if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-  if (!(await rateLimit(`vendor-chat:${ctx.userId}`, 20, 300_000)).ok) {
-    return NextResponse.json(
-      { error: "You're sending messages a little fast — please wait a moment and try again." },
-      { status: 429 },
-    );
-  }
-
   let body: Record<string, unknown> = {};
   try {
-    body = (await req.json()) as Record<string, unknown>;
+    const parsed: unknown = await req.json();
+    body = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
   } catch {
     body = {};
   }
+
+  const limited = await agentChatRateLimitResponse(body, ctx.userId, "vendor");
+  if (limited) return limited;
 
   // Confirm / deny of an earlier proposal: the body carries ONLY the action id.
   // The stored input is re-validated and the handler re-resolves state itself.
@@ -79,6 +78,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "A user message is required." }, { status: 400 });
   }
 
+  const contextHint = assistantContextHintFromRequest(body.contextHint, messages);
+  const visibleUserText = lastUserText(messages);
   const attached = applyChatAttachments(messages, body);
   if (!attached.ok) return NextResponse.json({ error: attached.error }, { status: 400 });
   messages = attached.messages;
@@ -86,7 +87,7 @@ export async function POST(req: Request) {
   const sessionKind = body.archive === false ? MODAL_CHAT_SESSION_KIND : PORTAL_CHAT_SESSION_KIND;
   const sessionId = await ensureAgentSession(ctx, "vendor", {
     sessionId: typeof body.sessionId === "string" ? body.sessionId : undefined,
-    title: lastUserText(messages),
+    title: visibleUserText,
     kind: sessionKind,
   });
   if (sessionKind === PORTAL_CHAT_SESSION_KIND && !sessionId) {
@@ -98,7 +99,7 @@ export async function POST(req: Request) {
   const customInstructions = await loadAgentCustomInstructions(ctx.db, ctx.userId);
 
   try {
-    const system = withAgentCustomInstructions(VENDOR_PORTAL_SYSTEM_PROMPT, customInstructions);
+    const system = withAssistantTaskContext(withAgentCustomInstructions(VENDOR_PORTAL_SYSTEM_PROMPT, customInstructions), contextHint);
     const promptMeta = resolvePromptMeta(PROMPT_IDS.vendorAssistant, system);
     const traceActor = {
       userId: ctx.userId,
@@ -110,7 +111,7 @@ export async function POST(req: Request) {
     const routing: AgentRouteSelection = hasVision
       ? visionPinnedModel()
       : selectAgentRoute({
-          messages,
+          messages: contextHint ? [...messages.slice(0, -1), { role: "user", content: `[Context: ${contextHint}]\n\n${lastUserText(messages)}` }] : messages,
           actorKey: ctx.userId,
           availableTools: [...vendorAgentRegistry.keys()],
         });
@@ -169,7 +170,7 @@ export async function POST(req: Request) {
     }
 
     const archiveSaved = await appendAgentMessages(ctx, "vendor", sessionId, [
-      { role: "user", content: lastUserText(messages) },
+      { role: "user", content: visibleUserText },
       {
         role: "assistant",
         content: reply,

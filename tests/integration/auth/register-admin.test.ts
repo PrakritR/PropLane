@@ -15,6 +15,7 @@ vi.mock("@/lib/auth/profile-role-row", () => ({
 
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { POST as registerAdmin } from "@/app/api/auth/register-admin/route";
+import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 
 describe("POST /api/auth/register-admin", () => {
   beforeEach(() => {
@@ -79,7 +80,7 @@ describe("POST /api/auth/register-admin", () => {
     const req = jsonRequest("http://localhost/api/auth/register-admin", {
       method: "POST",
       body: {
-        email: "founders@axis-seattle-housing.com",
+        email: PRIMARY_ADMIN_EMAIL,
         password: "password123",
         adminKey: "prakrit-admin-register",
         fullName: "Test Admin",

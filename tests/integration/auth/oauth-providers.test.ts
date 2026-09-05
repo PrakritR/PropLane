@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseJsonResponse } from "../../helpers/api-request";
+import { NextRequest } from "next/server";
 
 import { GET as oauthProviders } from "@/app/api/auth/oauth-providers/route";
 
@@ -21,7 +22,7 @@ describe("GET /api/auth/oauth-providers", () => {
 
   it("returns null status when Supabase URL is unset", async () => {
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const res = await oauthProviders();
+    const res = await oauthProviders(new NextRequest("https://axis.example/api/auth/oauth-providers"));
     const { status, data } = await parseJsonResponse<{
       googleEnabled: boolean | null;
       hint: string | null;
@@ -49,12 +50,13 @@ describe("GET /api/auth/oauth-providers", () => {
       ),
     );
 
-    const res = await oauthProviders();
+    const res = await oauthProviders(new NextRequest("https://axis.example/api/auth/oauth-providers"));
     const { status, data } = await parseJsonResponse<{
       googleEnabled: boolean;
       supabaseUrl: string;
       googleRedirectUri: string;
       nativeCallbackUrls: string[];
+      httpsCallbackUrls: string[];
       nativeRedirectHint: string;
       hint: string | null;
       googleRedirectHint: string | null;
@@ -83,7 +85,7 @@ describe("GET /api/auth/oauth-providers", () => {
       vi.fn().mockResolvedValue(new Response("error", { status: 500 })),
     );
 
-    const res = await oauthProviders();
+    const res = await oauthProviders(new NextRequest("https://axis.example/api/auth/oauth-providers"));
     const { status, data } = await parseJsonResponse<{
       googleEnabled: boolean | null;
       hint: string | null;

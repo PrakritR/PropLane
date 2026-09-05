@@ -39,6 +39,7 @@ import * as inboxRecipientScope from "@/lib/inbox-recipient-scope";
 
 const MANAGER_SCOPE = "axis_portal_inbox_manager_v1";
 const RESIDENT_SCOPE = "axis_portal_inbox_resident_v1";
+const VENDOR_SCOPE = "axis_portal_inbox_vendor_v1";
 
 function makeDbMock(options: { senderRole?: string; recipientEmail?: string; recipientId?: string } = {}) {
   const upsert = vi.fn().mockResolvedValue({ error: null });
@@ -249,13 +250,14 @@ describe("POST /api/portal/send-inbox-message", () => {
       body: {
         subject: "Vendor note",
         text: "Hello manager",
+        senderPortal: "vendor",
         toEmails: "mgr@example.com",
         deliverToPortalInbox: true,
         deliverViaEmail: false,
       },
     });
     const res = await sendInboxMessage(req);
-    expect(res.status).toBeLessThan(500);
+    expect(res.status, await res.clone().text()).toBe(200);
     expect(upsert).toHaveBeenCalledTimes(2);
     const recipientCall = upsert.mock.calls.find(
       (call) => (call[0] as { scope?: string }).scope === MANAGER_SCOPE,
@@ -265,6 +267,11 @@ describe("POST /api/portal/send-inbox-message", () => {
       scope: MANAGER_SCOPE,
       owner_user_id: "mgr_1",
       row_data: expect.objectContaining({ folder: "inbox" }),
+    });
+    expect(upsert.mock.calls[0]?.[0]).toMatchObject({
+      scope: VENDOR_SCOPE,
+      owner_user_id: "ven_1",
+      row_data: expect.objectContaining({ folder: "sent" }),
     });
   });
 

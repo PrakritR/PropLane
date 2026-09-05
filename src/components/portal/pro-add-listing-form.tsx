@@ -1101,7 +1101,7 @@ async function uploadVideoFile(file: File): Promise<string> {
 
 /**
  * Desktop widths open the PropLane Assistant beside the form by default, so the
- * manager sees it "to the left" without hunting for the collapsed strip; phones
+ * manager sees it beside the editor without hunting for the collapsed strip; phones
  * and tablets start collapsed so the fields keep the full width (a two-column
  * split is worse than the original on a narrow screen). SSR-guarded — the wizard
  * only mounts on the client, but a `useState` initializer still runs during any
@@ -1411,10 +1411,7 @@ export function ManagerAddListingForm({
    */
   const [draftSaveError, setDraftSaveError] = useState<string | null>(null);
   const [demoAutofillSubmitPending, setDemoAutofillSubmitPending] = useState(false);
-  /** Mirrors the assistant strip's own open/closed state so the wizard body can
-   * lay out beside it (wide screens) instead of always stacking above it. Opens
-   * to the left by default on desktop; collapsed on narrow screens. */
-  const [assistantExpanded, setAssistantExpanded] = useState(prefersAssistantOpenBeside);
+  const [assistantTriggerTarget, setAssistantTriggerTarget] = useState<HTMLSpanElement | null>(null);
   const resumedStepIndex = clampWizardStep(initialStepIndex);
   const resumedMaxStepReached = Math.max(clampWizardStep(initialMaxStepReached), resumedStepIndex);
   const [stepIndex, setStepIndex] = useState(resumedStepIndex);
@@ -3554,20 +3551,27 @@ export function ManagerAddListingForm({
     <ModalShell
       open
       onClose={requestWizardClose}
-      presentation={presentation}
+      presentation="dialog"
       portalContainer={portalContainer}
-      showDrawerHandle={isDrawer}
       lockScroll
-      panelClassName={cn(
-        "@container flex w-full flex-col overflow-hidden",
+      dismissBlocked={busy || closingDraft}
+      dismissOnCanvasPointerDown
+      panelClassName="pointer-events-none fixed inset-0 flex min-h-0 min-w-0 outline-none"
+    >
+      <div
+        data-modal-assistant-workspace=""
+        data-full-screen={isDrawer ? "true" : "false"}
+        className={cn("pointer-events-none flex min-h-0 min-w-0 flex-1 items-center justify-center", isDrawer ? "p-0" : "p-4")}
+      >
+      <div data-listing-editor="" className={cn(
+        "pointer-events-auto @container flex min-h-0 min-w-0 w-full flex-col overflow-hidden",
         isDrawer
           ? cn(
               MODAL_FULL_PAGE_PANEL_CLASS,
-              "border-border bg-[#111827] [html[data-theme=light]_&]:bg-white",
+              "!relative !inset-auto !h-full !max-h-full border-border bg-[#111827] [html[data-theme=light]_&]:bg-white",
             )
           : "modal-panel relative z-10 flex max-h-[calc(100svh-1rem)] w-full max-w-6xl flex-col overflow-hidden rounded-3xl border border-white/15 bg-[#111827] shadow-2xl sm:max-h-[calc(100svh-1.5rem)] lg:max-h-[calc(100svh-2rem)] [html[data-theme=light]_&]:border-border [html[data-theme=light]_&]:bg-white",
-      )}
-    >
+      )}>
       {/* A plain container, not a <form>: the PropLane Assistant embedded in the
           body has its own <form> for the chat composer, and a form-in-form is
           invalid HTML that throws a hydration error whenever the assistant is
@@ -3577,11 +3581,12 @@ export function ManagerAddListingForm({
         {/* ── Header ── */}
         <div className="modal-panel shrink-0 border-b border-border px-5 pt-5 pb-6 sm:px-6">
           <div className="flex w-full min-w-0 items-center justify-between gap-3">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="truncate text-lg font-bold tracking-tight text-foreground sm:text-xl">
                 {wizardTitlePrefix} · {LISTING_FORM_STEPS[stepIndex]?.label}
               </p>
             </div>
+            <span ref={setAssistantTriggerTarget} className="shrink-0" />
             <button
               type="button"
               onClick={closeWizard}
@@ -3650,15 +3655,7 @@ export function ManagerAddListingForm({
           </p>
         </div>
 
-        {/* `@container` lives on the panel <div> above (a container cannot query
-            its own size for its own layout), so this row/column switch can react
-            to how much space the panel actually has. */}
-        <div
-          className={cn(
-            "flex min-h-0 flex-1",
-            assistantExpanded ? "flex-col @2xl:flex-row" : "flex-col",
-          )}
-        >
+        <div className="flex min-h-0 flex-1 flex-col">
         <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 pb-6 sm:px-6">
           {/* Content FILLS the modal width (padding on the scroll container provides the
               margins). A max-width column here centered wide children and clipped them on
@@ -5272,13 +5269,8 @@ export function ManagerAddListingForm({
           <ModalAssistantStrip
             contextHint={listingAssistantContext}
             storageScopeKey={wizardTitlePrefix}
-            onExpandedChange={setAssistantExpanded}
-            side="left"
+            triggerTarget={assistantTriggerTarget}
             defaultExpanded={prefersAssistantOpenBeside()}
-            // Content is first in the DOM so the collapsed strip (and the whole
-            // narrow-screen stack) sits below the fields; when expanded on a wide
-            // panel, `order-first` floats the chat to the left of the form.
-            className={cn("z-10 px-5 sm:px-6", assistantExpanded && "@2xl:order-first")}
           />
         </div>
 
@@ -5351,6 +5343,8 @@ export function ManagerAddListingForm({
           </div>
           </div>
         </div>
+      </div>
+      </div>
       </div>
     </ModalShell>
   );
