@@ -825,6 +825,65 @@ lease is signed).
   match that list.
 
 ## `profiles.role` is legacy and singular — authorize off `profile_roles`
+`profiles.role` records only the role an account was **created as**. An account
+that later gains a second role keeps the old value forever, so a resident who is
+also a manager reads back as `"manager"`. `profile_roles` is the multi-role
+source of truth, and `hasRole` / `getPortalAccessContext`
+(`src/lib/auth/portal-access.ts`) is how every portal *guard* already reads it.
+
+Any code that decides what a user may see must use that same source. Passing
+`profile.role` into a per-portal resolver produces the worst failure shape there
+is: the guard admits the user, then the resolver treats them as a stranger. That
+shipped — `loadResidentPortalAccessState` bailed to `emptyAccessState` for
+manager+resident accounts, which resolves to nav stage `pre_approval` and locked
+Lease / House details / Services / Payments / Documents behind padlocks while
+`/resident/lease` redirected to the apply wizard, no matter how approved the
+application was. Coverage: `tests/unit/resident-portal-access.test.ts`.
+
+The multi-role account is not an edge case — it is how the team dogfoods, so it
+is the FIRST account to test any portal-gating change against. A single-role
+resident will pass while the same code is broken for everyone who also manages.
+
+**API routes get this from one helper, not a hand-rolled read.**
+`src/lib/auth/resident-role-access.ts` is the only entry point:
+
+- `authorizeResidentRole(db, { userId, legacyRole })` — "is this caller a
+  resident?" for a resident-ONLY route. Accepts a legacy `profiles.role` of
+  `"resident"` so an un-backfilled resident is not locked out, otherwise reads
+  `profile_roles`, and fails closed on a read error.
+- `resolveResidentScopedActorRole(db, …)` — the effective role for a route that
+  serves BOTH portals (`/api/portal-work-orders`,
+  `/api/portal-service-requests`, `/api/portal-lease-pipeline`), where the role
+  picks a branch in *both* directions. Fixing only the `!== "resident"` side
+  drops out of the manager branch WITHOUT applying the resident filter, which
+  returns other people's rows — strictly worse than the bug. Resolve once, use
+  that one value everywhere. The tiebreak for a multi-role account is the active
+  portal (`getPortalAccessContext().effectiveRole`), so the manager portal keeps
+  its portfolio-wide read — but that context degrades SILENTLY (a failed
+  `profile_roles` read falls back to `profiles.role`, reporting
+  `effectiveRole: "manager"` with no error), so a context that contradicts the
+  service-role read resolves to `"resident"`, the narrower scope, never back to
+  the legacy value.
+
+Both helpers are ONE-DIRECTIONAL by design: a legacy `profiles.role` of
+`"resident"` is accepted immediately, with no `profile_roles` read and no
+active-portal tiebreak, so the single-role resident's hot path stays query-free.
+The mirror cohort is therefore uncorrected — an account created as a resident
+that later gains the manager role (`profiles.role='resident'`,
+`profile_roles=['resident','manager']`) resolves to `"resident"` on the
+dual-audience routes even in the manager portal, so they return only its own
+resident rows and a lease create writes its own email rather than its tenant's.
+Pre-existing, empty in production today, and invisible to the drift guard below
+because the gap is inside the predicate rather than in a route. Tracked as
+`axis-legacy-resident-role-mirror-cohort`.
+
+`tests/unit/resident-role-authorization-surface.test.ts` scans `src/app/api` and
+fails a new route that branches on `"resident"` without consulting
+`profile_roles`. Its deferred-route allowlist is a shrinking record of known
+violations (task `axis-dual-portal-role-resolution`), never a place to add a new
+one.
+
+## Inbox panels: the standalone page shell is a /demo-only path
 
 `profiles.role` records only the role an account was **created as**. An account
 that later gains a second role keeps the old value forever, so a resident who is
@@ -974,6 +1033,7 @@ below always apply; the files carry the full rationale, schemas, and gotchas.
 | Resident payments (resident-paid processing, ACH clearing) | `docs/agents/resident-payments.md` | The resident pays the processing/service fee on every method (card/Link and ACH) so the manager's payout equals the subtotal; `processing` charges are ignored by late fees/reminders/re-pay. |
 | Lease generation & execution evidence | `docs/agents/lease-generation.md` | Every signature records the SHA-256 of the document THAT party was shown: per-signature, at signature time, over the base document, and never the copy carrying the certificate page. A row that claims execution (`leaseClaimsExecution`: `fullySignedAt` or any signature) can never have its document body replaced — `preserveSignedLeaseDocuments` guards `write()` — and a write that supplies the body and the execution claim TOGETHER is untrusted unless its bytes match the manager-filed PDF. Provenance fields (`documentSha256` / `templateVersion` / `executedJurisdiction`) absent means unknown; never backfill a guess. A consent tick (the e-signature affirmation, the uploaded-lease review attestation) must reset when a CONTENT-derived identity of what it consents to changes — the modals mount without a `key`, so nothing resets on its own, and the evidence layer records a substitution rather than catching it. |
 | Uploaded (third-party) leases | `docs/agents/lease-generation.md` | The upload stays the executed artifact; `uploadedLeaseParse` is an additive DERIVED reading beside it, never in `generatedHtml`. Extraction emits a term only when the document states it exactly once — otherwise BLANK and flagged, never a guess; it authors no clause and no citation; sections PARTITION the source so nothing is dropped. `uploadedLeaseReviewIsConfirmed` is the ONE read of "has a human confirmed this" (never compare `review.status` at a call site), and `sendLeaseToResident` **and** the agent's `send_lease_for_signature` both refuse via one shared `leaseSendGateBlocker` — unapproved application, then a named parties/terms mismatch, then the generic review message. A row with NO parse is NOT exempt: normalize gives an unread upload an `unreadUploadedLeaseParse`, because "nobody read it" is the least reviewed state, not an exemption. A confirmation binds to BOTH the document (`confirmedDocumentSha256`) and the record it was compared against (`confirmedRecordFingerprint`), so editing the rent after accepting a mismatch re-gates the send. Gate and CTA are scoped differently on purpose — the gate covers everything the send paths accept (including a row already out for signature), the CTA only where confirming can succeed — and a surface reads the predicate for the claim IT makes. Both digest bindings are internal-consistency checks, NOT tamper-proofing — `row_data` is writable by the row's own resident, so the gate is defeatable until that trust model is fixed in the lease-pipeline route lane. |
+| Lease generation & execution evidence | `docs/agents/lease-generation.md` | Every signature records the SHA-256 of the document THAT party was shown: per-signature, at signature time, over the base document, and never the copy carrying the certificate page. A row that claims execution (`leaseClaimsExecution`: `fullySignedAt` or any signature) can never have its document body replaced — `preserveSignedLeaseDocuments` guards `write()` — and a write that supplies the body and the execution claim TOGETHER is untrusted unless its bytes match the manager-filed PDF. Provenance fields (`documentSha256` / `templateVersion` / `executedJurisdiction`) absent means unknown; never backfill a guess. |
 | Documents module | `docs/agents/documents-module.md` | `manager-documents` bucket is PRIVATE — bytes only via server-minted signed URLs after an ownership check. |
 | Lease templates + the anonymous listing payload | `docs/agents/lease-generation.md` | The public listing payload is an explicit ALLOWLIST (`publicListingProjection`) — a submission field reaches a prospect ONLY by being named there, and BOTH anonymous readers (`getPublicListings()` and `/api/public/property-lead`) must run through it. Lease templates live in the PRIVATE `lease-templates` bucket behind a stable `/api/portal/lease-template?path=…` URL that re-authorizes every request; never a public storage URL, never a persisted base64 `data:` URL. |
 | Demo / sandbox accounts | `docs/agents/demo-sandbox.md` | `/demo` must never write real rows — every authed fetch from demo surfaces is `isDemoModeActive()`-gated. The static snapshot ships EMPTY; a demo portfolio comes from the canonical `@test.proplane.local` accounts via the mirror, never a fictional fixture in code. Never run `wipe:test:all`, `ALLOW_DEV_WIPE`, or a portal purge unless the captain explicitly asked - those are never automatic. Captain dogfood `akhil-manager@prop-lane.space` / `akhil-resident@prop-lane.space` are part of `test:seed` and must stay on the keep-list. |
