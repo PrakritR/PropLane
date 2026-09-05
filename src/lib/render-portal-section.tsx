@@ -42,6 +42,7 @@ import {
   loadManagerAllServicesPanel,
   loadManagerTaskList,
   loadManagerTours,
+  loadManagerBookings,
   loadManagerApplications,
   loadManagerBackgroundChecks,
   loadManagerDocumentsPanel,
@@ -400,12 +401,6 @@ export async function renderPortalSection(
   }
 
 
-  if ((kind === "manager" || kind === "pro") && section === "bookings") {
-    if (tabParts?.length) notFound();
-    const PortalCalendar = await loadPortalCalendar();
-    return <PortalCalendar portal="manager" calendarView="bookings" bookingsPage />;
-  }
-
   if ((kind === "manager" || kind === "pro") && section === "calendar") {
     const { parseCalendarViewTab } = await import("@/lib/portal-detail-routes");
     if (!tabParts?.length) {
@@ -414,7 +409,7 @@ export async function renderPortalSection(
     }
     const viewRaw = tabParts[0]!;
     if (viewRaw === "bookings") {
-      redirect(`${def.basePath}/bookings`);
+      redirect(`${def.basePath}/bookings/upcoming`);
     }
     if (viewRaw === "availability") {
       redirect(`${def.basePath}/calendar`);
@@ -1038,6 +1033,28 @@ export async function renderPortalSection(
         <ManagerPromotion basePath={def.basePath} />,
         kind,
         "promotion",
+        managerOwnerSubscriptionTier,
+      );
+    }
+
+    if (section === "bookings") {
+      const { MANAGER_BOOKING_BUCKETS, parseManagerBookingBucket } = await import(
+        "@/lib/portal-detail-routes"
+      );
+      if (!tabParts?.length) {
+        redirect(`${def.basePath}/bookings/upcoming`);
+      }
+      const segmentRaw = tabParts[0]!;
+      if (!MANAGER_BOOKING_BUCKETS.includes(segmentRaw as (typeof MANAGER_BOOKING_BUCKETS)[number])) {
+        notFound();
+      }
+      if (tabParts.length > 1) notFound();
+      const bucket = parseManagerBookingBucket(segmentRaw);
+      const ManagerBookings = await loadManagerBookings();
+      return subscriptionGated(
+        <ManagerBookings bucket={bucket} basePath={def.basePath} />,
+        kind,
+        "bookings",
         managerOwnerSubscriptionTier,
       );
     }
