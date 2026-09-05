@@ -39,7 +39,13 @@ export { FIELD_SELECT_MENU_VISIBLE_ITEMS };
 
 const matchesQuery = fieldSelectMenuMatches;
 
-export type CheckboxMultiSelectOption = { value: string; label: string; disabled?: boolean };
+export type CheckboxMultiSelectOption = {
+  value: string;
+  label: string;
+  disabled?: boolean;
+  /** Shown under the label — why a disabled option cannot be picked yet. */
+  hint?: string;
+};
 export type CheckboxMultiSelectGroup = { label: string; options: CheckboxMultiSelectOption[] };
 
 function summarizeSelection(
@@ -189,7 +195,10 @@ export function CheckboxMultiSelect({
           tabIndex={-1}
           aria-hidden
         />
-        <span className="leading-snug text-foreground">{opt.label}</span>
+        <span className="leading-snug text-foreground">
+          {opt.label}
+          {opt.hint ? <span className="mt-0.5 block text-xs text-muted">{opt.hint}</span> : null}
+        </span>
       </label>
     );
   };
