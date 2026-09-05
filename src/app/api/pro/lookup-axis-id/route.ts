@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { proplaneIdLookupVariants } from "@/lib/manager-id";
 
 export const runtime = "nodejs";
 
 /**
- * Resolve another workspace by Axis ID (`profiles.manager_id`). Owner and manager workspaces validate separately per Account links tab.
+ * Resolve another workspace by PropLane ID (`profiles.manager_id`). Owner and
+ * manager workspaces validate separately per Account links tab.
  * Requires an authenticated caller and returns minimal fields (no email).
  */
 export async function GET(req: Request) {
@@ -26,14 +28,18 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const axisId = searchParams.get("axisId")?.trim() ?? "";
     if (!axisId) {
-      return NextResponse.json({ error: "axisId is required." }, { status: 400 });
+      return NextResponse.json({ error: "PropLane ID is required." }, { status: 400 });
     }
+
+    const lookupIds = proplaneIdLookupVariants(axisId);
+    const queryIds = lookupIds.length > 0 ? lookupIds : [axisId];
 
     const supabase = createSupabaseServiceRoleClient();
     const { data: profile, error } = await supabase
       .from("profiles")
       .select("id, full_name, manager_id, role")
-      .eq("manager_id", axisId)
+      .in("manager_id", queryIds)
+      .limit(1)
       .maybeSingle();
 
     if (error) {
@@ -54,7 +60,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       ok: true,
       userId: profile.id,
-      axisId,
+      axisId: String(profile.manager_id ?? axisId),
       displayName: profile.full_name?.trim() || axisId,
       role,
     });

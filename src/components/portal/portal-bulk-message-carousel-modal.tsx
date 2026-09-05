@@ -14,10 +14,10 @@ import {
   PortalMessageSendViaDropdown,
   PortalMessageSubjectField,
   portalMessageChannelsFromSelection,
+  portalMessageChannelsSelectionValid,
   portalMessageRecipientDisplay,
   portalMessageSendViaFooterNote,
   PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE,
-  PORTAL_MESSAGE_SEND_VIA_OPTIONS,
   portalMessageFieldLabel,
 } from "@/components/portal/portal-message-compose-fields";
 import type { NotificationDeliveryChannels } from "@/components/portal/portal-notification-preview-modal";
@@ -142,16 +142,6 @@ export function PortalBulkMessageCarouselModal({
   const emailAvailable = activeItem?.emailAvailable ?? Boolean(activeItem?.recipient?.includes("@"));
   const smsAvailable = activeItem?.smsAvailable ?? Boolean(activeItem?.recipientPhone?.trim());
 
-  const sendViaOptions = useMemo(
-    () =>
-      PORTAL_MESSAGE_SEND_VIA_OPTIONS.filter((option) => {
-        if (option.value === "email") return emailAvailable;
-        if (option.value === "sms") return smsAvailable;
-        return true;
-      }),
-    [emailAvailable, smsAvailable],
-  );
-
   useEffect(() => {
     if (!open) return;
     queueMicrotask(() => {
@@ -209,7 +199,7 @@ export function PortalBulkMessageCarouselModal({
   const channelsOk =
     !showChannelPicker ||
     skipMessage ||
-    sendVia.some((value) => sendViaOptions.some((option) => option.value === value));
+    portalMessageChannelsSelectionValid(sendVia, emailAvailable, smsAvailable);
 
   const messageReady =
     skipMessage ||

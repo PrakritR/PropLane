@@ -24,6 +24,8 @@ export async function deliverPortalInboxMessage(input: {
   deliverViaEmail?: boolean;
   /** When true, also try SMS for recipients with phones. */
   deliverViaSms?: boolean;
+  /** When false, skip writing to the PropLane inbox thread. Defaults to true. */
+  deliverToPortalInbox?: boolean;
 }): Promise<PortalMessageDeliveryResult> {
   const toEmails = (input.toEmails ?? []).map((e) => e.trim()).filter((e) => e.includes("@"));
   const toUserIds = (input.toUserIds ?? []).map((id) => id.trim()).filter(Boolean);
@@ -43,7 +45,7 @@ export async function deliverPortalInboxMessage(input: {
         subject: input.subject.trim(),
         senderPortal: "manager",
         text: input.text.trim(),
-        deliverToPortalInbox: true,
+        deliverToPortalInbox: input.deliverToPortalInbox !== false,
         deliverViaEmail: input.deliverViaEmail !== false,
         deliverViaSms: input.deliverViaSms === true,
         eventCategory: input.eventCategory,

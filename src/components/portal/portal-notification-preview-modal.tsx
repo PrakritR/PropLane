@@ -25,15 +25,16 @@ import {
   PortalMessageSendViaDropdown,
   PortalMessageSubjectField,
   portalMessageChannelsFromSelection,
+  portalMessageChannelsSelectionValid,
   portalMessageConfirmSendLabel,
   portalMessageRecipientDisplay,
   portalMessageSendViaFooterNote,
   PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE,
-  PORTAL_MESSAGE_SEND_VIA_OPTIONS,
   portalMessageFieldLabel,
 } from "@/components/portal/portal-message-compose-fields";
 
 export type NotificationDeliveryChannels = {
+  viaInbox?: boolean;
   viaEmail: boolean;
   viaSms: boolean;
 };
@@ -45,7 +46,11 @@ export type NotificationConfirmDraft = {
   assignee?: WorkAssignee | null;
 };
 
-export const NOTIFICATION_SEND_VIA_OPTIONS = PORTAL_MESSAGE_SEND_VIA_OPTIONS;
+export const NOTIFICATION_SEND_VIA_OPTIONS = [
+  { value: "proplane", label: "PropLane" },
+  { value: "email", label: "Email" },
+  { value: "sms", label: "SMS" },
+] as const;
 
 /**
  * Shared resident-message popup (payment reminders, service approve, etc.).
@@ -157,13 +162,7 @@ export function PortalNotificationPreviewModal({
 
   const showAssigneePicker = Boolean(assigneeKind && assigneeTeamMembers);
 
-  const sendViaOptions = useMemo(() => {
-    return NOTIFICATION_SEND_VIA_OPTIONS.filter((option) => {
-      if (option.value === "email") return emailAvailable;
-      if (option.value === "sms") return smsAvailable;
-      return true;
-    });
-  }, [emailAvailable, smsAvailable]);
+  const effectiveSmsAvailable = smsAvailable && smsSetup?.canSend !== false;
 
   useEffect(() => {
     if (!open) return;
@@ -239,7 +238,8 @@ export function PortalNotificationPreviewModal({
   const channelsOk =
     !showChannelPicker ||
     skipMessage ||
-    (!smsBlocked && sendVia.some((value) => sendViaOptions.some((option) => option.value === value)));
+    (!smsBlocked &&
+      portalMessageChannelsSelectionValid(sendVia, emailAvailable, effectiveSmsAvailable));
 
   const messageReady = skipMessage || (draftSubject.trim().length > 0 && draftBody.trim().length > 0);
 
@@ -326,7 +326,7 @@ export function PortalNotificationPreviewModal({
               selected={sendVia}
               onChange={setSendVia}
               emailAvailable={emailAvailable}
-              smsAvailable={smsAvailable && smsSetup?.canSend !== false}
+              smsAvailable={effectiveSmsAvailable}
               footerNote={sendViaFooterNote}
               dataAttr="portal-notification-send-via"
             />

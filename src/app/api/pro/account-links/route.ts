@@ -10,7 +10,8 @@ import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-s
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type CoManagerPermissions, type PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
 import { maxAccountLinksForTier } from "@/lib/manager-access";
-import { getManagerPurchaseSku } from "@/lib/manager-access-server";
+import { ensureProfileProplaneId, getManagerPurchaseSku } from "@/lib/manager-access-server";
+import { proplaneIdLookupVariants } from "@/lib/manager-id";
 import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -313,22 +314,27 @@ export async function POST(req: Request) {
       );
     }
 
-    const { data: inviterProfile, error: inviterErr } = await svc
-      .from("profiles")
-      .select("manager_id, full_name, email, role")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    if (inviterErr || !inviterProfile?.manager_id) {
-      return NextResponse.json({ error: inviterErr?.message ?? "Missing profile axis id." }, { status: 400 });
+    const inviterResolved = await ensureProfileProplaneId(svc, user.id);
+    if (!inviterResolved.ok) {
+      return NextResponse.json({ error: inviterResolved.error }, { status: 400 });
     }
 
-    const inviterAxisId = String(inviterProfile.manager_id);
+    const inviterAxisId = inviterResolved.proplaneId;
+    const inviterProfile = {
+      manager_id: inviterAxisId,
+      full_name: inviterResolved.fullName,
+      email: inviterResolved.email,
+      role: inviterResolved.role,
+    };
+
+    const inviteeLookupIds = proplaneIdLookupVariants(inviteeAxisId);
+    const inviteeQueryIds = inviteeLookupIds.length > 0 ? inviteeLookupIds : [inviteeAxisId];
 
     const { data: inviteeProfile, error: inviteeErr } = await svc
       .from("profiles")
       .select("id, manager_id, full_name, email, role")
-      .eq("manager_id", inviteeAxisId)
+      .in("manager_id", inviteeQueryIds)
+      .limit(1)
       .maybeSingle();
 
     if (inviteeErr) {

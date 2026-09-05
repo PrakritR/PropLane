@@ -111,6 +111,7 @@ import {
   coManagerLinkRemovedSubject,
 } from "@/lib/co-manager-link-email";
 import { fetchAndCacheLandlordLegalName } from "@/lib/manager-landlord-profile";
+import { formatProplaneIdForDisplay } from "@/lib/manager-id";
 
 type TeamRemovePreviewItem = BulkMessageCarouselItem & {
   entry: TeamListEntry;
@@ -2282,7 +2283,12 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
                   Linking with{" "}
                   <span className="font-semibold">{draftName}</span>
                 </p>
-                <p className="mt-0.5 font-mono text-xs text-muted">{draftAxisId}</p>
+                <p className="mt-0.5 font-mono text-xs text-muted">
+                  <span className="font-sans font-semibold uppercase tracking-wide text-[10px] text-muted">
+                    PropLane ID{" "}
+                  </span>
+                  {formatProplaneIdForDisplay(draftAxisId)}
+                </p>
               </div>
 
               {inviteeAtCap ? (
@@ -2460,8 +2466,9 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         intro="Review the co-manager invite message before sending it."
         showChannelPicker
         showSchedule
+        deliverViaKind="account"
         emailAvailable={Boolean(linkInvitePreview?.recipientUserId)}
-        smsAvailable={false}
+        smsAvailable
         defaultViaSms={false}
         confirmLabel={useRemote ? "Send invite" : "Save link & send message"}
         confirmLabelWithoutMessage={useRemote ? "Send invite only" : "Save link only"}

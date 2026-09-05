@@ -126,8 +126,9 @@ export async function deliverManagerDirectoryMessage(
 
   const subject = messageDraft?.subject?.trim() || preview.subject;
   const body = messageDraft?.body?.trim() || preview.body;
-  const viaEmail = channels?.viaEmail !== false;
-  const viaSms = channels?.viaSms === true;
+  const viaInbox = channels?.viaInbox !== false;
+  const viaEmail = channels == null ? true : channels.viaEmail === true;
+  const viaSms = channels == null ? false : channels.viaSms === true;
   const recipientUserId = opts?.toUserIds?.[0]?.trim() ?? "";
 
   if (messageDraft?.scheduleAt) {
@@ -141,6 +142,7 @@ export async function deliverManagerDirectoryMessage(
         sendAt: messageDraft.scheduleAt,
         deliverViaEmail: viaEmail,
         deliverViaSms: viaSms,
+        deliverViaInbox: viaInbox,
         recipientEmail: preview.email,
         recipientName: preview.name.trim(),
         recipientUserId: recipientUserId || undefined,
@@ -164,6 +166,7 @@ export async function deliverManagerDirectoryMessage(
     toUserIds: opts?.toUserIds,
     subject,
     text: body,
+    deliverToPortalInbox: viaInbox,
     deliverViaEmail: viaEmail,
     deliverViaSms: viaSms,
   });

@@ -18,6 +18,20 @@ import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
 
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
+vi.mock("@/lib/manager-access-server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/manager-access-server")>();
+  return {
+    ...actual,
+    ensureProfileProplaneId: vi.fn().mockResolvedValue({
+      ok: true,
+      proplaneId: "AXIS-INVITER",
+      fullName: null,
+      email: "inviter@test.com",
+      role: "manager",
+    }),
+    getManagerPurchaseSku: vi.fn().mockResolvedValue({ tier: "free", billing: "free" }),
+  };
+});
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
