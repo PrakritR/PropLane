@@ -159,6 +159,37 @@ describe("native purchase screen — Guideline 3.1.2 required elements", () => {
     expect(screen.getByRole("button", { name: /switch to free/i })).toBeTruthy();
   });
 
+  it("Switch to Free is a two-step confirm — the first tap never writes", async () => {
+    const fetchSpy = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetchSpy);
+    try {
+      renderPurchaseSurface({ currentTier: "pro", isFree: false, trialActive: true });
+      await screen.findByText("PropLane Pro");
+
+      // First tap only ARMS the confirm step — an accidental tap on a phone
+      // must not be able to end a trial and lock the Pro-only sections.
+      fireEvent.click(screen.getByRole("button", { name: /^switch to free$/i }));
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(screen.getByText(/this ends your free trial immediately/i)).toBeTruthy();
+
+      // Backing out disarms without writing.
+      fireEvent.click(screen.getByRole("button", { name: /keep my current plan/i }));
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      // Arm again and confirm — only now does the plan change post.
+      fireEvent.click(screen.getByRole("button", { name: /^switch to free$/i }));
+      fireEvent.click(screen.getByRole("button", { name: /confirm switch to free/i }));
+      await waitFor(() =>
+        expect(fetchSpy).toHaveBeenCalledWith(
+          "/api/stripe/subscription/update-tier",
+          expect.objectContaining({ method: "POST" }),
+        ),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("offers no plan change at all when the plan could not be read — restore stays", async () => {
     // A failed purchase-row read reports `planUnknown` with every paid signal
     // nulled, so an active Stripe/Apple subscription is invisible: both
