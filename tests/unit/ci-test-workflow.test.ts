@@ -42,7 +42,9 @@ describe("Test workflow resource budget", () => {
     expect(pkg.scripts["test:e2e:smoke"]).toContain("public-tours.spec.ts");
 
     const e2e = jobBody("e2e");
-    expect(e2e).toContain("if: github.event_name == 'push' && github.ref == 'refs/heads/main'");
+    expect(e2e).toContain(// The deploy ladder added a staging rung, so the bounded smoke now also
+    // guards pushes to staging. Still bounded — still not the full suite.
+    "if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')");
     expect(jobTimeoutMinutes("e2e")).toBeLessThanOrEqual(20);
     expect(e2e).toContain("- run: npm run test:e2e:smoke");
   });
