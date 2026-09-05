@@ -15,7 +15,7 @@ import {
 } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input, NativeSelect, Select } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal, ModalFooter, MODAL_HEADER_CLOSE_CLASS } from "@/components/ui/modal";
 import { X } from "lucide-react";
@@ -366,10 +366,10 @@ const CALENDAR_TIME_FIELD_SELECT_TRIGGER =
 const CALENDAR_COMPACT_TIME_FIELD_SELECT_TRIGGER =
   "h-6 min-h-6 min-w-0 rounded-md border border-border bg-auth-input-bg px-1 text-[8px] font-semibold leading-none text-foreground shadow-none hover:border-primary/25 focus:border-primary/40 focus:ring-2 focus:ring-primary/10 max-lg:[&_svg]:h-2.5 max-lg:[&_svg]:w-2.5 max-lg:[&_svg]:opacity-70 sm:h-8 sm:min-h-8 sm:rounded-lg sm:px-2.5 sm:text-xs lg:[&_svg]:h-3.5 lg:[&_svg]:w-3.5";
 const CALENDAR_COMPACT_TOOLBAR_TEXT = "text-[10px] font-semibold leading-none";
-const CALENDAR_COMPACT_NATIVE_TIME_SELECT =
-  "!min-h-7 !h-7 !max-h-7 !w-full !rounded-md !border-border !bg-auth-input-bg !px-1.5 !py-0 !pr-7 !text-[10px] !font-semibold !leading-none !shadow-none sm:!text-[10px]";
-const CALENDAR_COMPACT_NATIVE_TIME_SELECT_WRAP =
-  "min-w-0 flex-1 [&_svg]:right-1 [&_svg]:h-2.5 [&_svg]:w-2.5 [&_svg]:opacity-70";
+const CALENDAR_COMPACT_TIME_SELECT_WRAP =
+  // `flex-1` so the pair still fills a phone toolbar; the cap stops them from
+  // stretching to half the width each on a tablet-width panel.
+  "min-w-0 flex-1 max-w-[7.5rem] [&_svg]:right-1 [&_svg]:h-2.5 [&_svg]:w-2.5 [&_svg]:opacity-70";
 export const MEETING_CONFIRMED_COLOR =
   "border-sky-300 bg-sky-100 text-sky-950 [html[data-theme=dark]_&]:portal-calendar-meeting-confirmed";
 export const MEETING_PEER_COLOR =
@@ -833,6 +833,15 @@ export function PortalCalendarPanels({
    * time-range selects wrap, and a stale constant there puts the dates back
    * under the toolbar — the exact bug this fixes.
    */
+  /**
+   * `flowScroll` means "the toolbar and grid share the PAGE's one scroll
+   * container" — which is only ever true on a page. Its CSS
+   * (`.portal-calendar-flow-scroll`) is scoped under `.portal-list-page-scroll`,
+   * so inside a modal none of it applies and the grid must fall back to the
+   * ordinary bounded-body layout. Every flowScroll decision reads this one flag
+   * so the classes and the sticky-header offset can never disagree.
+   */
+  const pageFlowScroll = flowScroll && !embeddedInModal;
   const compactShellRef = useRef<HTMLDivElement | null>(null);
   const compactToolbarRef = useRef<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
@@ -849,7 +858,7 @@ export function PortalCalendarPanels({
       // the time gutter colliding with the dates.
       shell.style.setProperty(
         "--portal-calendar-header-top",
-        flowScroll ? `${Math.round(toolbar.offsetHeight)}px` : "0px",
+        pageFlowScroll ? `${Math.round(toolbar.offsetHeight)}px` : "0px",
       );
     };
     publish();
@@ -1679,37 +1688,31 @@ export function PortalCalendarPanels({
     [saveDefaultTourHours, visibleStartSlot],
   );
 
+  // Same PropLane dropdown the wide layout uses. These were native <select>s, so
+  // below `lg` the two time pickers opened the OS menu — a full-height unstyled
+  // list of every half hour — while the Property picker beside them opened the
+  // product's own searchable menu.
   const renderCompactMobileTimeWindow = () => (
     <div className="flex min-w-0 flex-1 items-center gap-1">
-      <div className={CALENDAR_COMPACT_NATIVE_TIME_SELECT_WRAP}>
-        <NativeSelect
-          aria-label="Start time"
-          className={CALENDAR_COMPACT_NATIVE_TIME_SELECT}
-          value={String(visibleStartSlot)}
-          onChange={(e) => onVisibleWindowStartChange(e.target.value)}
-        >
-          {startTimeOptions.map((option) => (
-            <option key={`mobile-start-${option.value}`} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </NativeSelect>
-      </div>
+      <FieldSingleSelect
+        hideLabel
+        label="Start time"
+        wrapperClassName={CALENDAR_COMPACT_TIME_SELECT_WRAP}
+        triggerClassName={CALENDAR_COMPACT_TIME_FIELD_SELECT_TRIGGER}
+        value={String(visibleStartSlot)}
+        onChange={onVisibleWindowStartChange}
+        options={startTimeOptions}
+      />
       <span className={cn("shrink-0 text-muted", CALENDAR_COMPACT_TOOLBAR_TEXT)}>–</span>
-      <div className={CALENDAR_COMPACT_NATIVE_TIME_SELECT_WRAP}>
-        <NativeSelect
-          aria-label="End time"
-          className={CALENDAR_COMPACT_NATIVE_TIME_SELECT}
-          value={String(visibleEndSlotExclusive)}
-          onChange={(e) => onVisibleWindowEndChange(e.target.value)}
-        >
-          {endTimeOptions.map((option) => (
-            <option key={`mobile-end-${option.value}`} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </NativeSelect>
-      </div>
+      <FieldSingleSelect
+        hideLabel
+        label="End time"
+        wrapperClassName={CALENDAR_COMPACT_TIME_SELECT_WRAP}
+        triggerClassName={CALENDAR_COMPACT_TIME_FIELD_SELECT_TRIGGER}
+        value={String(visibleEndSlotExclusive)}
+        onChange={onVisibleWindowEndChange}
+        options={endTimeOptions}
+      />
     </div>
   );
 
@@ -2494,7 +2497,12 @@ export function PortalCalendarPanels({
     const vendorMode = Boolean(vendorDayFlexibility);
     const compactShellClass = cn(
       "portal-calendar-compact flex min-w-0 max-w-full flex-col overflow-x-hidden",
-      flowScroll ? "portal-calendar-flow-scroll" : "min-h-0 flex-1",
+      // `portal-calendar-flow-scroll` only does anything under the page shell
+      // (`.portal-list-page-scroll`); inside a modal those rules never match, so
+      // taking it INSTEAD of the height chain left the grid unconstrained and
+      // simply clipped by the overflow-hidden parent — hours below the fold were
+      // unreachable rather than scrollable.
+      pageFlowScroll ? "portal-calendar-flow-scroll" : "min-h-0 flex-1",
       embeddedInModal && "overflow-hidden",
       !bareSurface && "overflow-hidden rounded-2xl border border-border bg-card shadow-sm",
     );
@@ -2509,7 +2517,9 @@ export function PortalCalendarPanels({
     );
     const compactBodyClass = cn(
       "portal-calendar-compact-body min-w-0 max-w-full overflow-x-hidden",
-      flowScroll ? "" : "min-h-0 flex-1",
+      // Same reason as the shell above: the body's own `overflow-y-auto` can only
+      // scroll once something bounds its height.
+      pageFlowScroll ? "" : "min-h-0 flex-1",
       embeddedInModal && "overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]",
       bareSurface
         ? flowScroll

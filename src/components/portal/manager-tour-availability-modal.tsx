@@ -150,7 +150,11 @@ export function ManagerTourAvailabilityModal({
             </Select>
           </div>
         ) : null}
-        <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+        {/* `flex flex-col` is load-bearing: the calendar shell inside sizes with
+            `flex-1`, which a block parent ignores. Without it the grid laid out at
+            its full content height and was clipped here, so the later hours were
+            unreachable instead of scrollable. */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <PortalCalendarPanels
             key={storageKey ?? "tour-availability-unavailable"}
             storageKey={storageKey}
