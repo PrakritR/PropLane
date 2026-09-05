@@ -229,6 +229,25 @@ export async function POST(req: Request) {
       managerNote: note || undefined,
     });
 
+    // Every precondition is resolved BEFORE the first send. A missing work number
+    // discovered after the email went out leaves the prospect with a copy the
+    // manager cannot see, and the natural retry mails them a second one.
+    let smsTarget: { to: string; fromNumber: string } | null = null;
+    if (viaSms && phone) {
+      const workNumber = await resolveManagerWorkNumber(svc, user.id);
+      if (!workNumber) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "No work number on this account yet. Open View number or finish SMS setup first.",
+            emailSent: false,
+          },
+          { status: 400 },
+        );
+      }
+      smsTarget = { to: phone, fromNumber: workNumber };
+    }
+
     let emailId: string | null = null;
     if (viaEmail) {
       const apiKey = process.env.RESEND_API_KEY?.trim();
@@ -260,23 +279,12 @@ export async function POST(req: Request) {
       });
     }
 
-    if (viaSms) {
-      const workNumber = await resolveManagerWorkNumber(svc, user.id);
-      if (!workNumber) {
-        return NextResponse.json(
-          {
-            ok: false,
-            error: "No work number on this account yet. Open View number or finish SMS setup first.",
-            emailSent: viaEmail && Boolean(emailId),
-          },
-          { status: 400 },
-        );
-      }
+    if (smsTarget) {
       const smsResult = await sendFromManagerWorkNumber({
         managerUserId: user.id,
-        to: phone,
+        to: smsTarget.to,
         text: smsText,
-        fromNumber: workNumber,
+        fromNumber: smsTarget.fromNumber,
         source: "work_number",
         counterpartyRole: "prospect",
       });

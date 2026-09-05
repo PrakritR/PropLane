@@ -20,6 +20,11 @@ export function PortalPageScrollBody({
   );
 }
 
+// `componentName` falls back to `Function.name`, which a production minifier
+// mangles — the marker below is what keeps child detection working in a real build.
+PortalPageChrome.displayName = "PortalPageChrome";
+PortalPageScrollBody.displayName = "PortalPageScrollBody";
+
 function componentName(type: unknown): string | null {
   if (typeof type === "function") {
     const fn = type as { displayName?: string; name?: string };

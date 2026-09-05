@@ -119,11 +119,62 @@ export function normalizeInboxAttachmentUrls(raw: unknown[], senderUserId: strin
   return out;
 }
 
-function rowDataReferencesAttachment(rowData: unknown, path: string): boolean {
-  const serveUrl = inboxAttachmentServeUrl(path);
-  const encodedPath = encodeURIComponent(path);
-  const hay = JSON.stringify(rowData ?? {});
-  return hay.includes(path) || hay.includes(serveUrl) || hay.includes(encodedPath);
+function attachmentListHasUrl(value: unknown, serveUrl: string): boolean {
+  if (!Array.isArray(value)) return false;
+  return value.some(
+    (item) =>
+      Boolean(item) &&
+      typeof item === "object" &&
+      String((item as { url?: unknown }).url ?? "").trim() === serveUrl,
+  );
+}
+
+/**
+ * Authorization matches the STRUCTURED attachment fields a send actually writes
+ * (`row_data.attachments[].url` and `row_data.messages[].attachments[].url`),
+ * never free text. A serve URL is not a secret — it is appended to outbound
+ * email/SMS bodies — so a substring scan over user-authored message bodies would
+ * let anyone who saw a path mint themselves access by quoting it back in a
+ * message they send.
+ */
+function rowDataReferencesAttachment(rowData: unknown, serveUrl: string): boolean {
+  if (!rowData || typeof rowData !== "object") return false;
+  const row = rowData as { attachments?: unknown; messages?: unknown };
+  if (attachmentListHasUrl(row.attachments, serveUrl)) return true;
+  if (!Array.isArray(row.messages)) return false;
+  return row.messages.some(
+    (message) =>
+      Boolean(message) &&
+      typeof message === "object" &&
+      attachmentListHasUrl((message as { attachments?: unknown }).attachments, serveUrl),
+  );
+}
+
+/**
+ * The two places a send writes an attachment reference. Each is a jsonb
+ * containment filter, so the database returns only threads that really carry
+ * this attachment instead of a truncated page of the requester's threads.
+ */
+function attachmentContainmentFilters(serveUrl: string): Record<string, unknown>[] {
+  return [{ attachments: [{ url: serveUrl }] }, { messages: [{ attachments: [{ url: serveUrl }] }] }];
+}
+
+async function scopeReferencesAttachment(
+  db: SupabaseClient,
+  column: "owner_user_id" | "participant_email",
+  value: string,
+  serveUrl: string,
+): Promise<boolean> {
+  for (const filter of attachmentContainmentFilters(serveUrl)) {
+    const { data } = await db
+      .from("portal_inbox_thread_records")
+      .select("row_data")
+      .eq(column, value)
+      .contains("row_data", filter)
+      .limit(1);
+    if ((data ?? []).some((row) => rowDataReferencesAttachment(row.row_data, serveUrl))) return true;
+  }
+  return false;
 }
 
 /** Owner, conversation participant (inbox thread row), or admin may read attachment bytes. */
@@ -136,19 +187,10 @@ export async function userCanAccessInboxAttachment(
   if (ownerId === userId) return true;
   if (isAdmin) return true;
 
-  const email = userEmail.trim().toLowerCase();
-  const { data: owned } = await db
-    .from("portal_inbox_thread_records")
-    .select("row_data")
-    .eq("owner_user_id", userId)
-    .limit(300);
-  if ((owned ?? []).some((row) => rowDataReferencesAttachment(row.row_data, path))) return true;
+  const serveUrl = inboxAttachmentServeUrl(path);
+  if (await scopeReferencesAttachment(db, "owner_user_id", userId, serveUrl)) return true;
 
+  const email = userEmail.trim().toLowerCase();
   if (!email) return false;
-  const { data: participant } = await db
-    .from("portal_inbox_thread_records")
-    .select("row_data")
-    .eq("participant_email", email)
-    .limit(300);
-  return (participant ?? []).some((row) => rowDataReferencesAttachment(row.row_data, path));
+  return scopeReferencesAttachment(db, "participant_email", email, serveUrl);
 }
