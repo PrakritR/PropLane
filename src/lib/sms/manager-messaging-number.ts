@@ -127,18 +127,18 @@ const MANAGER_MESSAGING_SENDER_POOL_DIAGNOSTIC =
   /^Twilio Messaging Service sender-pool attachment failed(?: \((?:code [\w-]+(?:, HTTP \d{3})?|HTTP \d{3})\))?\.(?: The purchased number (?:was released|release could not be confirmed; do not retry until PropLane reviews it)\.)?$/;
 
 export function managerMessagingSenderPoolDiagnostic(
-  error: string | null | undefined,
+  error: unknown,
 ): string | null {
-  const value = error?.trim() ?? "";
+  const value = typeof error === "string" ? error.trim() : "";
   return MANAGER_MESSAGING_SENDER_POOL_DIAGNOSTIC.test(value) ? value : null;
 }
 
 export const MANAGER_MESSAGING_SETTINGS_HREF = "/portal/profile?tab=messaging";
 
 export function formatManagerMessagingPhone(
-  phone: string | null | undefined,
+  phone: unknown,
 ): string {
-  if (!phone?.trim()) return "—";
+  if (typeof phone !== "string" || !phone.trim()) return "—";
   const digits = phone.replace(/\D/g, "");
   if (digits.length === 11 && digits.startsWith("1")) {
     return `+1 (${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;

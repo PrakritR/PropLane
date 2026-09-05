@@ -381,9 +381,9 @@ export function PortalSidebar({
     definition.kind === "vendor";
 
   // Locks apply to managers AND residents; `portalNavLockKind` only decides what
-  // a locked row DOES when clicked — `upsell` (manager free tier, still
-  // navigates to the PortalTierPaywall upgrade page) vs `inert` (every resident
-  // lock, nothing to buy). See src/lib/portals/nav-locks.ts for the reasoning.
+  // a locked row DOES when clicked — `upsell` (manager free tier), `notice`
+  // (resident feature controlled by the manager's plan), or `inert` (resident
+  // lifecycle stage not reached). See src/lib/portals/nav-locks.ts.
   // Every surface below — desktop list, collapsed rail, mobile strip, bottom
   // bar, More sheet — must honour the same split.
   const isSectionLocked = useCallback(
@@ -809,7 +809,8 @@ export function PortalSidebar({
       // visible reason text, so without a tooltip a SIGHTED user taps a dead
       // row and learns nothing — the lock reason ("Available after your
       // application is approved", "Available after your lease is signed") only
-      // ever reached assistive tech. Applies to every resident lock, not one string.
+      // ever reached assistive tech. Plan locks are navigable notices and do
+      // not enter this branch.
       return (
         <span
           key={`${s.section}-${s.sectionTabId ?? "default"}`}

@@ -10,6 +10,10 @@ export const BUSINESS_MAX_PROPERTIES = 20;
 
 export type ManagerSkuTier = "free" | "pro" | "business";
 
+function trimmedText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 /** Public pricing (monthly); keep in sync with `manager-plan-tiers` / partner pricing. */
 export const MANAGER_TIER_MONTHLY_USD: Record<ManagerSkuTier, number> = {
   free: 0,
@@ -121,7 +125,7 @@ export function resolveEffectiveManagerSkuTier(input: {
 }): ManagerSkuTier | null {
   const normalized = normalizeManagerSkuTier(input.tier);
   if (normalized) return normalized;
-  if (input.stripeSubscriptionId?.trim()) return null;
+  if (trimmedText(input.stripeSubscriptionId)) return null;
   if (input.appleManaged) return null;
   return "free";
 }
@@ -255,7 +259,7 @@ export type ManagerSubscriptionTier = "free" | "paid" | null;
  * access that is not backed by a Stripe subscription.
  */
 export function isWaiverGrantedManagerPurchase(promoCode: string | null | undefined): boolean {
-  return Boolean(promoCode?.trim());
+  return Boolean(trimmedText(promoCode));
 }
 
 /** Resolve subscription access from a purchase row (synced tier state). */
@@ -275,8 +279,8 @@ export function resolveManagerSubscriptionTierFromPurchase(input: {
   const normalized = normalizeManagerSkuTier(input.tier);
   if (normalized === "free") return "free";
 
-  const hasStripe = Boolean(input.stripeSubscriptionId?.trim());
-  const billing = input.billing?.toLowerCase().trim() ?? "";
+  const hasStripe = Boolean(trimmedText(input.stripeSubscriptionId));
+  const billing = trimmedText(input.billing).toLowerCase();
   const isAdminGrant =
     billing === "admin" || isAdminManagedManagerPurchase(input.stripeCheckoutSessionId);
   const isWaiverGrant = isWaiverGrantedManagerPurchase(input.promoCode);

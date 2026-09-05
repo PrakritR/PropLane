@@ -189,12 +189,11 @@ describe("resident portal redesign completeness", () => {
   });
 
   describe("390px mobile density sweep", () => {
-    it("unlock and tier gates use compact inline notices, not glass cards", () => {
+    it("stage gates stay compact while plan gates use the disabled preview", () => {
       const unlockSurfaces = [
         readPanel("resident-payments-panel.tsx"),
         readPanel("resident-services-panel.tsx"),
         readPanel("resident-move-in-view.tsx"),
-        readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8"),
       ];
       for (const src of unlockSurfaces) {
         expect(src).toContain("PORTAL_INLINE_UNLOCK_NOTICE_CLASS");
@@ -202,6 +201,12 @@ describe("resident portal redesign completeness", () => {
       }
       expect(readPanel("resident-payments-panel.tsx")).not.toContain("glass-card");
       expect(readPanel("resident-lease-panel.tsx")).not.toContain("glass-card");
+      const routeRenderer = readFileSync(
+        join(process.cwd(), "src/lib/render-portal-section.tsx"),
+        "utf8",
+      );
+      expect(routeRenderer).toContain("ResidentTierPaywall");
+      expect(readPanel("portal-tier-paywall.tsx")).toContain("data-tier-paywall-disabled-content");
     });
 
     it("house details uses routed sub-tabs with command layout", () => {

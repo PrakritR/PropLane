@@ -11,12 +11,10 @@ import { residentSectionLockedForStage, type ResidentPortalNavStage } from "@/li
  *   the ONLY entry point to that upgrade page anywhere in the product. Rendering
  *   it as a non-navigating `<span>` deletes the upgrade CTA — a revenue path —
  *   which is exactly what shipped in the resident redesign.
- * - `"inert"`  — locked and dead. Every RESIDENT lock:
- *     * a stage lock ("available after your lease is signed") has nothing to buy;
- *     * a resident free-tier lock is the MANAGER's plan, so
- *       `ResidentFreeTierFeatureNotice` can only say "ask your manager", which
- *       the row's own lock label already says.
- *   Both resident cases behave identically so a lock reads one way to a resident.
+ * - `"notice"` — locked, but navigates to a disabled preview explaining that
+ *   the resident's property manager must upgrade the workspace.
+ * - `"inert"`  — locked and dead because the resident has not reached the
+ *   required lifecycle stage yet (for example, before lease signing).
  *
  * Locks apply to managers AND residents — this only decides what a click does.
  *
@@ -24,7 +22,7 @@ import { residentSectionLockedForStage, type ResidentPortalNavStage } from "@/li
  * rail, mobile top strip, native bottom bar, and the native More sheet. A live
  * link into a section the server then redirects home reads as a broken tab.
  */
-export type PortalNavLockKind = "none" | "upsell" | "inert";
+export type PortalNavLockKind = "none" | "upsell" | "notice" | "inert";
 
 
 /**
@@ -57,7 +55,7 @@ export function portalNavLockKind(params: {
   if (kind === "resident") {
     if (residentNavStage && residentSectionLockedForStage(section, residentNavStage)) return "inert";
     if (subscriptionTier === "free" && residentSectionLockedForManagerTier(section, subscriptionTier)) {
-      return "inert";
+      return "notice";
     }
     return "none";
   }
@@ -75,5 +73,6 @@ export function portalNavSectionLocked(params: Parameters<typeof portalNavLockKi
 
 /** True when a locked row must still navigate (to the upgrade paywall page). */
 export function portalNavLockNavigable(params: Parameters<typeof portalNavLockKind>[0]): boolean {
-  return portalNavLockKind(params) === "upsell";
+  const kind = portalNavLockKind(params);
+  return kind === "upsell" || kind === "notice";
 }

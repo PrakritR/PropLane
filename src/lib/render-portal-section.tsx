@@ -35,8 +35,8 @@ import { VendorFinancesPanel } from "@/components/portal/vendor-finances-panel";
 import { VendorPaymentsPanel } from "@/components/portal/vendor-payments-panel";
 import { VendorDocumentsPanel } from "@/components/portal/vendor-documents-panel";
 import { VendorSettingsPanel } from "@/components/portal/vendor-settings-panel";
-import { ManagerPortalPageShell, PORTAL_INLINE_UNLOCK_NOTICE_CLASS } from "@/components/portal/portal-metrics";
-import { PortalTierPaywall } from "@/components/portal/portal-tier-paywall";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalTierPaywall, ResidentTierPaywall } from "@/components/portal/portal-tier-paywall";
 import { PortalWorkspaceClient } from "@/components/portal/portal-workspace-client";
 import {
   loadManagerAllServicesPanel,
@@ -216,25 +216,13 @@ function managerTierPaywall(
   return <PortalTierPaywall basePath={basePath} featureLabel={featureLabel} />;
 }
 
-function ResidentFreeTierFeatureNotice({ title }: { title: string }) {
-  return (
-    <ManagerPortalPageShell title={title} hideTitleOnMobileNav>
-      <p className={PORTAL_INLINE_UNLOCK_NOTICE_CLASS}>
-        <span className="font-semibold">Awaiting your property manager.</span> Access to {title.toLowerCase()} is not
-        available while the property team is on the Free plan. They can enable this feature by upgrading to Pro or
-        Business.
-      </p>
-    </ManagerPortalPageShell>
-  );
-}
-
 function residentManagerTierGate(
   section: string,
   managerTier: "free" | "paid" | null,
   featureLabel: string,
 ): ReactNode | null {
   if (residentSectionAllowedForManagerTier(section, managerTier)) return null;
-  return <ResidentFreeTierFeatureNotice title={featureLabel} />;
+  return <ResidentTierPaywall featureLabel={featureLabel} />;
 }
 
 export type PortalSearchParams = Record<string, string | string[] | undefined>;

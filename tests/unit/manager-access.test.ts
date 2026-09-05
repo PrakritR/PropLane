@@ -175,6 +175,27 @@ describe("manager-access", () => {
     ).toBeNull();
   });
 
+  it("treats malformed legacy billing fields as absent instead of calling trim on them", () => {
+    expect(() =>
+      resolveManagerSubscriptionTierFromPurchase({
+        tier: "pro",
+        billing: [] as unknown as string,
+        stripeSubscriptionId: { legacy: true } as unknown as string,
+        promoCode: { legacy: true } as unknown as string,
+        hasPurchaseRow: true,
+      }),
+    ).not.toThrow();
+    expect(
+      resolveManagerSubscriptionTierFromPurchase({
+        tier: "pro",
+        billing: [] as unknown as string,
+        stripeSubscriptionId: { legacy: true } as unknown as string,
+        promoCode: { legacy: true } as unknown as string,
+        hasPurchaseRow: true,
+      }),
+    ).toBe("free");
+  });
+
   it("formats monthly labels", () => {
     expect(formatManagerMonthlyLabel("free")).toBe("$0/mo");
     expect(formatManagerMonthlyLabel("pro")).toBe("$20/mo");

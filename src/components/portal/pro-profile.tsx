@@ -1,8 +1,8 @@
 import { PortalProfileClient } from "@/components/portal/portal-profile-client";
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
 
-function dash(s: string | null | undefined) {
-  const t = (s ?? "").trim();
+function dash(s: unknown) {
+  const t = typeof s === "string" ? s.trim() : "";
   return t.length ? t : "—";
 }
 
