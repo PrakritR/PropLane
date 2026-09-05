@@ -214,11 +214,11 @@ describe("chat quota and pending-action cancellation", () => {
     for (let index = 0; index < 20; index += 1) {
       expect((await agentChatRateLimitResponse({ messages: [{ role: "user", content: "Hi" }] }, actor.userId, portal))).toBeNull();
     }
-    expect((await agentChatRateLimitResponse({ messages: [] }, actor.userId, portal)?.status).toBe(429);
-    expect((await agentChatRateLimitResponse({ confirmActionId: "action" }, actor.userId, portal)?.status).toBe(429);
-    expect((await agentChatRateLimitResponse({ denyActionId: "action", confirmActionId: "action" }, actor.userId, portal)?.status).toBe(429);
-    expect((await agentChatRateLimitResponse({ denyActionId: "action", messages: [] }, actor.userId, portal)?.status).toBe(429);
-    expect((await agentChatRateLimitResponse({ denyActionId: " " }, actor.userId, portal)?.status).toBe(429);
+    expect((await agentChatRateLimitResponse({ messages: [] }, actor.userId, portal))?.status).toBe(429);
+    expect((await agentChatRateLimitResponse({ confirmActionId: "action" }, actor.userId, portal))?.status).toBe(429);
+    expect((await agentChatRateLimitResponse({ denyActionId: "action", confirmActionId: "action" }, actor.userId, portal))?.status).toBe(429);
+    expect((await agentChatRateLimitResponse({ denyActionId: "action", messages: [] }, actor.userId, portal))?.status).toBe(429);
+    expect((await agentChatRateLimitResponse({ denyActionId: " " }, actor.userId, portal))?.status).toBe(429);
 
     peekPendingActionPortal.mockResolvedValue({ state: "found", portal, toolName: "send_message" });
     denyPendingAction.mockResolvedValue({ toolName: "send_message", portal, proposalTraceId: null });
@@ -235,7 +235,7 @@ describe("chat quota and pending-action cancellation", () => {
     for (let index = 0; index < 60; index += 1) {
       expect((await agentChatRateLimitResponse({ denyActionId: "action" }, userId, "manager"))).toBeNull();
     }
-    expect((await agentChatRateLimitResponse({ denyActionId: "action" }, userId, "manager")?.status).toBe(429);
+    expect((await agentChatRateLimitResponse({ denyActionId: "action" }, userId, "manager"))?.status).toBe(429);
     expect((await agentChatRateLimitResponse({ confirmActionId: "action" }, userId, "manager"))).toBeNull();
   });
 });
