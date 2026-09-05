@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH } from "@/lib/auth/manager-google-services-onboarding";
+import { MANAGER_PORTAL_ENTRY_PATH } from "@/lib/auth/manager-google-services-onboarding";
 import { isGmailPaymentsOAuthConfigured } from "@/lib/gmail-payments/api.server";
 import { loadGmailPaymentsConnection, managerHasAnyGmailPaymentsConnection } from "@/lib/gmail-payments/settings";
 import {
@@ -130,11 +130,7 @@ export async function loadGoogleServicesOnboardingStatus(
 }
 
 export async function resolveManagerPortalEntryPath(db: SupabaseClient, userId: string): Promise<string> {
-  if (await isGoogleServicesOnboardingDismissed(db, userId)) {
-    return "/portal/dashboard";
-  }
-  if (!(await isGoogleServicesOnboardingPending(db, userId))) {
-    return "/portal/dashboard";
-  }
-  return MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH;
+  void db;
+  void userId;
+  return MANAGER_PORTAL_ENTRY_PATH;
 }

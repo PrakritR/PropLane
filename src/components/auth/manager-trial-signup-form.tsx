@@ -290,7 +290,7 @@ export function ManagerTrialSignupForm({
 
       {finishingOAuth || redirectingToSetup ? (
         <AuthLoadingCard
-          label={redirectingToSetup ? "Opening account setup…" : "Finishing sign-in…"}
+          label={redirectingToSetup ? "Opening your portal…" : "Finishing sign-in…"}
         />
       ) : rolesLoading ? (
         <AuthLoadingCard label="Loading…" />

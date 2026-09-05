@@ -60,7 +60,7 @@ import type { ReactNode } from "react";
 import { getEffectiveSessionForPortal, getEffectiveUserIdForPortal } from "@/lib/auth/effective-session";
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
 import { managerSectionAllowedForTier, residentSectionAllowedForManagerTier } from "@/lib/manager-access";
-import { getManagerSubscriptionTier, getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
+import { getManagerPortalNavSubscriptionTier, getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
 import { loadResidentLeaseSignedStatus, loadResidentPortalAccessState, residentPortalHomePath } from "@/lib/resident-portal-access";
 import { isResidentPathAllowedForAccess } from "@/lib/resident-portal-nav";
 import { findSection, getPortalDefinition } from "@/lib/portals";
@@ -454,7 +454,7 @@ export async function renderPortalSection(
       const uid = await getEffectiveUserIdForPortal("manager");
       if (!uid) redirect("/admin/dashboard");
       effectiveWorkspaceUserId = uid;
-      managerOwnerSubscriptionTier = await getManagerSubscriptionTier(uid);
+      managerOwnerSubscriptionTier = await getManagerPortalNavSubscriptionTier(uid);
     }
   }
   const managerPaywall =

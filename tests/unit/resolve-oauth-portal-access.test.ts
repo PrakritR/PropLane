@@ -157,7 +157,7 @@ describe("resolveOAuthPortalRedirect", () => {
     };
 
     const path = await resolveOAuthPortalRedirect(supabase as never, user, "/auth/continue");
-    expect(path).toBe("/auth/connect-google-services");
+    expect(path).toBe("/portal/dashboard");
   });
 
   it("routes a legacy manager without pending setup straight to the portal", async () => {
@@ -349,6 +349,6 @@ describe("resolveOAuthPortalRedirect", () => {
     });
 
     expect(ensureProfileRoleRow).toHaveBeenCalledWith(supabase, "founder", "manager");
-    expect(path === "/portal/dashboard" || path === "/auth/connect-google-services").toBe(true);
+    expect(path).toBe("/portal/dashboard");
   });
 });
