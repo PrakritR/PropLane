@@ -1,14 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
-import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import {
-  MANAGER_MESSAGING_SETTINGS_HREF,
-  type ManagerMessagingNumberStatus,
-} from "@/lib/sms/manager-messaging-number";
+import { useManagerMessagingNumberStatus } from "@/hooks/use-manager-messaging-number-status";
+import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
 
 /**
  * Communication-header entry point to work-number setup. Three states, keyed on
@@ -23,44 +19,24 @@ import {
  * prompt on a billing-read blip. Co-managers inherit paid nav tier from linked
  * workspace owners when their own plan is Free.
  */
-export function ManagerWorkNumberButton({ className }: { className?: string }) {
-  const { userId, ready: sessionReady } = useManagerUserId();
-  const [status, setStatus] = useState<ManagerMessagingNumberStatus | null>(
-    null,
+function ManagerWorkNumberSetupLabel() {
+  return (
+    <>
+      <span className="sm:hidden" aria-hidden="true">
+        Messaging
+      </span>
+      <span className="hidden sm:inline">Set up messaging</span>
+    </>
   );
-  const [resolved, setResolved] = useState(false);
-  const [statusError, setStatusError] = useState(false);
-  const [attempt, setAttempt] = useState(0);
+}
 
-  useEffect(() => {
-    if (!sessionReady || !userId) return;
-    let active = true;
-    setResolved(false);
-    setStatusError(false);
-    void fetch("/api/manager/messaging-number", {
-      credentials: "include",
-      cache: "no-store",
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Messaging status request failed.");
-        return res.json();
-      })
-      .then((body) => {
-        if (!active) return;
-        setStatus((body ?? null) as ManagerMessagingNumberStatus | null);
-        setResolved(true);
-      })
-      .catch(() => {
-        if (!active) return;
-        setStatusError(true);
-        setResolved(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [attempt, sessionReady, userId]);
+export function ManagerWorkNumberButton({ className }: { className?: string }) {
+  const { ready, resolved, statusError, status, retry } =
+    useManagerMessagingNumberStatus();
 
   const btnClass = `shrink-0 ${PORTAL_HEADER_ACTION_BTN} ${className ?? ""}`.trim();
+
+  if (!ready) return null;
 
   if (statusError) {
     return (
@@ -83,7 +59,7 @@ export function ManagerWorkNumberButton({ className }: { className?: string }) {
           data-attr="messaging-status-retry"
           aria-label="Retry messaging status"
           title="Messaging status unavailable. Tap to retry."
-          onClick={() => setAttempt((a) => a + 1)}
+          onClick={retry}
         >
           Retry
         </Button>
@@ -91,8 +67,22 @@ export function ManagerWorkNumberButton({ className }: { className?: string }) {
     );
   }
 
-  // Until resolved, render nothing rather than flash the wrong plan state.
-  if (!resolved || !status) return null;
+  // Reserve toolbar space immediately; swap to the correct plan state once loaded.
+  if (!resolved || !status) {
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        className={btnClass}
+        disabled
+        aria-busy="true"
+        aria-label="Set up messaging"
+        data-attr="messaging-setup-loading"
+      >
+        <ManagerWorkNumberSetupLabel />
+      </Button>
+    );
+  }
 
   // Once a number is assigned, the CTA has done its job and disappears.
   if (status.number?.phoneNumber) return null;
@@ -113,10 +103,7 @@ export function ManagerWorkNumberButton({ className }: { className?: string }) {
           data-attr="messaging-upsell-locked"
           aria-label="Subscribe to Pro to unlock SMS"
         >
-          <span className="sm:hidden" aria-hidden="true">
-            Messaging
-          </span>
-          <span className="hidden sm:inline">Set up messaging</span>
+          <ManagerWorkNumberSetupLabel />
         </Button>
       </span>
     );
@@ -130,10 +117,7 @@ export function ManagerWorkNumberButton({ className }: { className?: string }) {
       data-attr="messaging-open-settings"
     >
       <Link href={MANAGER_MESSAGING_SETTINGS_HREF} aria-label="Set up messaging">
-        <span className="sm:hidden" aria-hidden="true">
-          Messaging
-        </span>
-        <span className="hidden sm:inline">Set up messaging</span>
+        <ManagerWorkNumberSetupLabel />
       </Link>
     </Button>
   );
