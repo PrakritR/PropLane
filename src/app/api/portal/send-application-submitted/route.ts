@@ -18,6 +18,7 @@ import { residentAccountCreationUrl } from "@/lib/resident-welcome-email";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { bestEffortFailed } from "@/lib/observability/best-effort";
 
 export const runtime = "nodejs";
 
@@ -148,50 +149,22 @@ export async function POST(req: Request) {
     });
 
     const rowData = (match.row_data ?? {}) as {
-      application?: { phone?: string };
+      application?: { phone?: string; smsConsent?: boolean };
       name?: string;
     };
     const applicantPhone = String(rowData.application?.phone ?? "").trim() || null;
     const managerUserId = String(match.manager_user_id ?? "").trim() || null;
+    let smsSent = false;
+    let smsAccepted = false;
 
     // PropLane SMS (best-effort) — same moment as the confirmation email.
-    // Deduped per application: this route is unauthenticated (axisId + email
-    // pair), so without the guard anyone holding the pair could loop it to
-    // SMS-bomb the applicant at platform cost.
-    try {
-      const smsDedupId = `application_submitted_sms_${ensuredAxisId}`;
-      const { data: alreadySent } = await db
-        .from("portal_outbound_mail_records")
-        .select("id")
-        .eq("id", smsDedupId)
-        .maybeSingle();
-      if (!alreadySent) {
-        await db.from("portal_outbound_mail_records").upsert(
-          {
-            id: smsDedupId,
-            recipient_email: email,
-            subject: "Application submitted (SMS)",
-            channel: "sms",
-            row_data: {
-              id: smsDedupId,
-              to: applicantPhone,
-              subject: "Application submitted (SMS)",
-              sentAt: new Date().toISOString(),
-              axisId: ensuredAxisId,
-            },
-          },
-          { onConflict: "id" },
-        );
-        let fromNumber: string | null = null;
-        if (managerUserId) {
-          const { data: mgr } = await db
-            .from("profiles")
-            .select("sms_from_number")
-            .eq("id", managerUserId)
-            .maybeSingle();
-          fromNumber = String(mgr?.sms_from_number ?? "").trim() || null;
-        }
-        await notifyApplicantApplicationSms(db, {
+    // The managed sms_outbox owns idempotency. The previous implementation
+    // wrote a separate "sent" marker BEFORE calling the provider, which made a
+    // failed attempt permanent and hid the reason. Only applicants who checked
+    // the stored consent box are eligible for this confirmation.
+    if (applicantPhone && managerUserId && rowData.application?.smsConsent === true) {
+      try {
+        const sms = await notifyApplicantApplicationSms(db, {
           event: "submitted",
           applicantEmail: email,
           applicantPhone,
@@ -200,11 +173,22 @@ export async function POST(req: Request) {
           axisId: ensuredAxisId,
           signupUrl,
           managerUserId,
-          fromNumber,
+          dedupeKey: `application_submitted_confirmation_${ensuredAxisId}`,
         });
+        smsSent = sms.sent;
+        smsAccepted = sms.sent || sms.accepted === true;
+        if (!sms.sent && !sms.accepted) {
+          bestEffortFailed("applicant application-submitted SMS", {
+            application: ensuredAxisId,
+            manager: managerUserId,
+          })(new Error(sms.error || "delivery_not_accepted"));
+        }
+      } catch (error) {
+        bestEffortFailed("applicant application-submitted SMS", {
+          application: ensuredAxisId,
+          manager: managerUserId,
+        })(error);
       }
-    } catch {
-      /* non-critical */
     }
 
     // The setup token is a resident-account claim capability. It normally only
@@ -216,6 +200,8 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: true,
         skipped: true,
+        smsSent,
+        smsAccepted,
         mailtoHref,
         ...(includeSetupHandoff && setupHref ? { setupHref } : {}),
       });
@@ -227,6 +213,8 @@ export async function POST(req: Request) {
         {
           ok: false,
           error: "Email delivery is not configured.",
+          smsSent,
+          smsAccepted,
           mailtoHref,
           ...(includeSetupHandoff && setupHref ? { setupHref } : {}),
         },
@@ -246,6 +234,8 @@ export async function POST(req: Request) {
         {
           ok: false,
           error: payload.message ?? res.statusText,
+          smsSent,
+          smsAccepted,
           ...(includeSetupHandoff && setupHref ? { setupHref } : {}),
         },
         { status: 502 },
@@ -254,6 +244,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       id: payload.id ?? null,
+      smsSent,
+      smsAccepted,
       ...(includeSetupHandoff ? { setupHref } : {}),
     });
   } catch (error) {
