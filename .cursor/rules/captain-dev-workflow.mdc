@@ -53,12 +53,14 @@ UI work: follow `docs/agents/ui-change-checklist.md`
 
 ## ④ Review
 
-Test on **this pane's sandbox URL**. Update Linear. Do not merge to `prakrit` yourself.
+Test on **this pane's sandbox URL**. Update Linear. Do not merge to `main`,
+`staging`, or `production` yourself.
 
 ## ⑤ Promote (captain only)
 
 ```bash
-bin/fm-proplane-promote-to-prakrit.sh <keeper-branch>
+npm run ship:staging      # main → staging (QA)
+npm run ship:production   # staging → production (live + TestFlight)
 ```
 
 ## Production data (never)

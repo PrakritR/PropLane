@@ -484,7 +484,7 @@ that prefer it, so editing only the SVG leaves the old mark visible.
 
 # Landing rule
 
-**Work lands on `main`; `production` advances only when the captain asks.**
+**Work lands on `main`. QA happens on `staging`. Live ships from `production`.**
 Commit and push to `main` (fast-forward only, never force). Open a PR only on
 explicit request.
 
@@ -496,58 +496,86 @@ instruction, treat it as a bug rather than following it. If a push is not a
 fast-forward, STOP: the branch diverged, and rebasing or forcing past it is how
 someone's work disappears.
 
+Never skip `staging`. Never commit unique work to `staging` or `production`.
 The one hard stop is `production`: pushing it deploys the live site AND ships an
-iOS TestFlight build, so it is promoted deliberately via
-`scripts/promote-main-to-production.sh` after the ship gate below — never as part
-of ordinary work.
-
-If a push to `main` is not a fast-forward, STOP (the branch diverged) and
-reconcile rather than forcing past it.
+iOS TestFlight build, so it is promoted only after dedicated QA signs off on
+`staging`.
 
 # Branching & deployment (Vercel)
 
-The Vercel project (`axis-2`, connected to `PrakritR/AXIS-2`) builds **only**
-`main` and `production` (`vercel.json` → `git.deploymentEnabled`, plus
-`scripts/vercel-should-build.sh`); every other branch is skipped.
-
-Two rungs — `main` → `production` (see [`docs/ship-gate.md`](docs/ship-gate.md)
-for the gated promotion between them). `prakrit` is an integration branch lanes
-merge through, not a rung of the deploy ladder — Vercel builds only the two
-below:
-
-- **`main` — dev / integration / staging.** Day-to-day work lands here and gets a
-  Vercel Preview deployment; verify there (and on localhost) before promoting.
-- ~~`prakrit`~~ — **retired** when the Production Branch flipped to `production`
-  on Jul 25, 2026. Do not merge new work into it. `bin/fm-proplane-promote-*`
-  scripts and any doc still describing a `prakrit` rung are stale.
-- **`production` — the live site.** Deploys to the canonical `prop-lane.space` /
-  `www.prop-lane.space`, the legacy `axis-seattle-housing.com` /
-  `www.axis-seattle-housing.com` (still live, still recognized as production by
-  `isProductionAxisHost`), and `axis-2.vercel.app`. A push here **also** ships an
-  iOS TestFlight build — `.github/workflows/ios-testflight.yml` triggers on
-  `push: branches: [production]`, so **deleting this branch silently ends every
-  iOS build.** Outbound email/SMS and shareable links use the canonical origin
-  (`PRODUCTION_APP_ORIGIN` in `src/lib/app-url.ts`). Never commit straight to it.
-
-**Promote `main` → `production` to ship**, fast-forward only:
+The Vercel project (`axis-2`, connected to `PrakritR/AXIS-2` / `PrakritR/PropLane`)
+builds **only** `main`, `staging`, and `production`
+(`vercel.json` → `git.deploymentEnabled`, plus `scripts/vercel-should-build.sh`).
+Every other branch is skipped. Feature and agent branches are the messy layer
+(their names do not belong in this file). There is no long-lived `dev`
+integration branch.
 
 ```
-bash scripts/promote-main-to-production.sh
+feature / agent branch  →  main  →  staging  →  production
+     (no deploy)         preview    QA preview    live + TestFlight
+                         dev DB     staging DB    live production DB
+                         developers dedicated QA  no experiments
 ```
 
-The script refuses a non-fast-forward (`origin/production` must be an ancestor of
-`origin/main`) and is a no-op when the two already match, so `production` stays a
-strict fast-forward of `main` and rollbacks stay obvious. To roll back, point
-`production` at the previous known-good commit and push, or use Vercel's
-**Instant Rollback** in the dashboard. Full checklist:
-[`docs/ship-gate.md`](docs/ship-gate.md).
+| Branch | Role | Database | Vercel | Who tests |
+| --- | --- | --- | --- | --- |
+| feature / agent | messy work | local + shared **dev/test** (`emstjswhotsnyksqhqyf`) | no deploy | the author |
+| **`main`** | consolidation | shared **dev/test** | Preview | developers |
+| **`staging`** | QA candidate, ff of `main` | staging project `xwszcafaontidfgznlxd` (never the live production project) | Preview, git-branch-scoped env | dedicated QA |
+| **`production`** | live site | live production (`qahnczmilgptcedaqype`) | Production | nobody experiments here |
 
-Don't add a separate Vercel project for staging — `main` plus `production` already
-gives you prod + staging from one project.
+~~`prakrit`~~ is retired. Do not merge new work into it. `bin/fm-proplane-promote-*`
+scripts that name `prakrit` are stale.
 
-The Production Branch setting lives in **Vercel → Project `axis-2` → Settings →
-Git**. Read it there rather than trusting a value copied into a doc, and don't
-change it.
+**`production` is the live site.** It deploys to `prop-lane.space` /
+`www.prop-lane.space`, the legacy `axis-seattle-housing.com` /
+`www.axis-seattle-housing.com` (still live, still recognized as production by
+`isProductionAxisHost`), and `axis-2.vercel.app`. A push here **also** ships an
+iOS TestFlight build — `.github/workflows/ios-testflight.yml` triggers on
+`push: branches: [production]`, so **deleting this branch silently ends every
+iOS build.** Outbound email/SMS and shareable links use the canonical origin
+(`PRODUCTION_APP_ORIGIN` in `src/lib/app-url.ts`).
+
+**Promote only fast-forward, and only along the ladder:**
+
+```
+npm run ship:staging      # ff origin/main → origin/staging
+# dedicated QA tests the staging deploy
+npm run ship:production   # ff origin/staging → origin/production
+```
+
+Auditable equivalent: GitHub Action **Promote** (`workflow_dispatch`, target
+`staging` or `production`).
+
+`scripts/promote-main-to-production.sh` is retired and exits 1 on purpose. Live
+ships from `staging`, not `main`. Each script refuses a non-fast-forward
+(destination must be an ancestor of the source) and is a no-op when the two
+already match. Rollbacks stay obvious: point `production` at the previous
+known-good commit and push, or use Vercel's **Instant Rollback**. Full checklist:
+[`docs/ship-gate.md`](docs/ship-gate.md). Ops detail:
+[`docs/agents/deployment-workflow.md`](docs/agents/deployment-workflow.md).
+
+**Database rules for this ladder**
+
+- There are **three** Supabase projects. Local / tests / `main` use **dev/test**.
+  `staging` uses `xwszcafaontidfgznlxd`. That is the only extra database agents
+  may write besides dev/test. Never the live production project.
+- `production` is the only runtime allowed to use the live production project.
+- `assertNonProdDatabase()` refuses the live production project from local,
+  preview, **and the `staging` git branch** (even if `VERCEL_ENV=production` was
+  set by mistake).
+- Do not add a second Vercel *project* for staging. Same `axis-2` project; extra
+  branch. Staging Preview env vars are **git-branch scoped** to `staging` so they
+  cannot inherit a Preview record that still points at production.
+- The Production Branch setting stays **`production`**. Read it in
+  **Vercel → Project `axis-2` → Settings → Git**. Do not change it.
+
+**Captain-owned setup (cannot be done from the repo alone)**
+
+1. Optional hostname `staging.prop-lane.space`.
+2. GitHub Environments `preview` / `staging` / `production` protection rules
+   (needs repo admin).
+3. Branch protection on `main`, `staging`, and `production` (needs repo admin).
 
 ## Production push also ships iOS (TestFlight / Xcode)
 
@@ -603,20 +631,21 @@ Ship checklist: [`docs/ship-gate.md`](docs/ship-gate.md).
 
 # Mandatory ship / change gate (agents)
 
-Before marking feature work done, and **always** before promoting `main` →
+Before marking feature work done, and **always** before promoting `staging` →
 `production`, agents must complete this gate. Skipping is not allowed unless the
 user explicitly waives a named step. The gate itself — the four reviews, the
 feature-testing template, the e2e procedure, and the promote checklist — lives in
 **[`docs/ship-gate.md`](docs/ship-gate.md)**; run `npm run ship:preflight` first.
 
 One fact worth carrying here because it silently reads as coverage: **neither a
-green PR run NOR a green `main` run is full e2e coverage.** There are two browser
-jobs in `.github/workflows/test.yml` and neither runs on a pull request:
+green PR run NOR a green `main` / `staging` run is full e2e coverage.** There are
+two browser jobs in `.github/workflows/test.yml` and neither runs on a pull
+request:
 
-- **`e2e`** runs only on `push` to `main`, and it is a **9-case public smoke**
-  (`npm run test:e2e:smoke` — ladder, landing page, public tours) plus the
-  globalSetup credential preflight. Green here says the production build boots
-  and the public path works, nothing about the portals.
+- **`e2e`** runs on `push` to `main` and `staging`, and it is a **9-case public
+  smoke** (`npm run test:e2e:smoke` — ladder, landing page, public tours) plus
+  the globalSetup credential preflight. Green here says the production build
+  boots and the public path works, nothing about the portals.
 - **`e2e-full`** is the complete 158-case suite, and it runs only on the nightly
   `schedule` or a manual `workflow_dispatch`.
 

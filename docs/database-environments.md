@@ -1,15 +1,46 @@
 # Database environments
 
-Axis uses **two Supabase projects** and keeps their schemas identical with the
+Axis uses **three Supabase projects** and keeps their schemas identical with the
 Supabase CLI. Which project you touch is decided entirely by which env file is
 loaded — the app code never switches databases by itself.
 
-## The two projects
+## The three projects
 
 | Environment | Used by | Supabase project | Credentials come from |
 |---|---|---|---|
-| **Dev + Test** | local `npm run dev`, `vitest`, Playwright | `emstjswhotsnyksqhqyf` | `.env` (local dev) and `.env.test` (tests) |
-| **Production** | the deployed site (axis-2.vercel.app) | `qahnczmilgptcedaqype` | **Vercel env vars only** |
+| **Dev + Test** | local `npm run dev`, `vitest`, Playwright, Vercel `main` Preview | `emstjswhotsnyksqhqyf` | `.env` (local dev) and `.env.test` (tests); Vercel Preview (default) |
+| **Staging** | Vercel `staging` Preview (dedicated QA) | `xwszcafaontidfgznlxd` | Vercel Preview env vars **restricted to git branch `staging`**. Local copy: `.env.staging.local` (gitignored). Dashboard: https://supabase.com/dashboard/project/xwszcafaontidfgznlxd |
+| **Production** | the live site (`prop-lane.space`) | `qahnczmilgptcedaqype` | **Vercel Production env vars only** |
+
+`staging` is a third project in the PrakritR org, schema-matched from the repo
+migrations. It is **not** the live production database. `assertNonProdDatabase()`
+still refuses the live production project on the `staging` git branch.
+
+A full **data** copy from production (auth users, tenant rows, storage) is a
+separate captain-owned dump/restore. Schema is applied. Production listing
+restore migrations (Brooklyn / 4709A) were skipped on purpose. Do not write
+those live rows back to production from staging.
+
+The default Preview `NEXT_PUBLIC_SUPABASE_URL` record is shared with Production
+and currently still names the live project. Do not copy that default onto
+`staging`. Staging's branch-scoped URL/anon/service keys point at
+`xwszcafaontidfgznlxd`.
+
+### Staging custom domain (Namecheap → Vercel)
+
+After the captain buys the hostname:
+
+1. Tell the agent the exact domain (example: `proplane-staging.com`).
+2. `vercel domains add <domain> axis-2` and assign it to git branch `staging`.
+3. At Namecheap, either:
+   - Point nameservers to Vercel (`ns1.vercel-dns.com`, `ns2.vercel-dns.com`), or
+   - Keep Namecheap DNS and add a CNAME for `@` or `www` to `cname.vercel-dns.com`.
+4. Set staging Auth Site URL + redirect allowlist on project `xwszcafaontidfgznlxd`
+   to `https://<domain>`.
+5. Add Preview/`staging` `NEXT_PUBLIC_APP_URL` / `NEXT_PUBLIC_CANONICAL_APP_URL`
+   for that hostname.
+
+Until that domain exists, QA uses the Vercel Preview URL for the `staging` branch.
 
 Rules:
 
@@ -20,6 +51,8 @@ Rules:
 - **Production credentials never live in a local file.** They are set in the
   Vercel Production scope only. A local `.env` must point at the dev/test
   project.
+- **Staging credentials live only in `.env.staging.local` and the Vercel
+  `staging` git-branch scope.** Agents do not write the live production project.
 - **Wipes are never automatic.** CI, git hooks, and `npm test` / `test:unit`
   do not run `wipe:test:all`, `wipe:dev`, or the portal purges. Those scripts
   require an explicit env flag (`ALLOW_DEV_WIPE=1` or `CONFIRM_PURGE=yes`) and
@@ -57,8 +90,8 @@ set -a; . ./.env.test; set +a           # then build + start in that same shell
 ### Fail-closed guard
 
 `assertNonProdDatabase()` in `src/lib/server-env.ts` throws if a non-production
-runtime (local dev, tests, Vercel preview) has `NEXT_PUBLIC_SUPABASE_URL`
-pointing at the production project. It is wired into every server-side path that
+runtime (local dev, tests, Vercel preview, or the `staging` git branch) has
+`NEXT_PUBLIC_SUPABASE_URL` pointing at the production project. It is wired into every server-side path that
 opens a connection: the anon SSR client (`src/lib/supabase/server.ts`, reads),
 the service-role client (`src/lib/supabase/service.ts`, privileged writes), the
 password-verify helper (`src/lib/auth/verify-auth-password.ts`), and the OAuth

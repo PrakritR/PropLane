@@ -1,0 +1,49 @@
+# Auditable fast-forward promotes for the three-rung ladder.
+# Local equivalents: npm run ship:staging / npm run ship:production
+#
+#   staging    — origin/main → origin/staging  (QA preview)
+#   production — origin/staging → origin/production  (live + TestFlight)
+#
+# Never force-pushes. Refuses when the destination is not an ancestor.
+name: Promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Promote destination
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: write
+
+concurrency:
+  group: promote-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Promote main → staging
+        if: ${{ inputs.target == 'staging' }}
+        run: bash scripts/promote-main-to-staging.sh
+
+      - name: Promote staging → production
+        if: ${{ inputs.target == 'production' }}
+        run: bash scripts/promote-staging-to-production.sh

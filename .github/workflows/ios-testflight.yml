@@ -1,7 +1,7 @@
 name: iOS TestFlight
 
-# Ship a new TestFlight build on every push to production (the production
-# branch — main is the dev branch), and on demand. The macOS job self-skips
+# Ship a new TestFlight build on every push to production (the live branch —
+# staging is QA, main is developer preview), and on demand. The macOS job self-skips
 # until the App Store Connect API key secrets exist, so adding this file never
 # produces a red run.
 #

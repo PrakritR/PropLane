@@ -114,11 +114,18 @@ Commit and push **only** the pane's keeper branch.
 
 ## ⑤ Promote (captain gate)
 
+Land the keeper branch on `main` (captain). Then:
+
 ```bash
-bin/fm-proplane-promote-to-prakrit.sh <keeper-branch>
+npm run ship:staging      # ff main → staging; dedicated QA tests that URL
+npm run ship:production   # ff staging → production after QA sign-off
 ```
 
-Captain verifies **http://localhost:3000**.
+Or use the GitHub Action **Promote** (`workflow_dispatch`). Do not use
+`bin/fm-proplane-promote-to-prakrit.sh` — `prakrit` is retired.
+
+Captain verifies the `main` Preview (developers) and the `staging` URL (QA)
+before a live ship.
 
 ---
 

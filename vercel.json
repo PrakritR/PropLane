@@ -5,6 +5,7 @@
     "deploymentEnabled": {
       "**": false,
       "main": true,
+      "staging": true,
       "production": true
     }
   },
@@ -51,10 +52,6 @@
     {
       "path": "/api/cron/sms-outbox",
       "schedule": "0 16 * * *"
-    },
-    {
-      "path": "/api/cron/action-event-deliveries",
-      "schedule": "*/10 * * * *"
     },
     {
       "path": "/api/cron/manager-attention-digest",

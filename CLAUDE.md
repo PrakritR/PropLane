@@ -23,10 +23,16 @@ Before finishing features or promoting to production, follow
 
 1. **Reviews** - security-review + bugbot (+ cache/rendering/perf for UI/routes)
 2. **In-depth feature test** - full happy path + edge cases every time (not `/demo` alone)
-3. **Promote** - ff-only `main` → `production` push (`production` is the production branch; `main` is dev)
+3. **Promote** - ff-only `main` → `staging` (developers already verified `main`), then after QA sign-off ff-only `staging` → `production`. Never promote `main` straight to `production`.
 4. **Confirm** - Vercel production deploy **and** GitHub **iOS TestFlight** workflow
 
-Run `npm run ship:preflight` before promote.
+```
+npm run ship:staging      # main → staging (QA)
+npm run ship:production   # staging → production (live + TestFlight)
+```
+
+Run `npm run ship:preflight` before the production promote. The ladder, databases,
+and CI map live in `AGENTS.md` § Branching & deployment.
 
 ## Production = web + mobile
 

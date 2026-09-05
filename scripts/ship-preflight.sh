@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Preflight before promoting main → production (production is the live branch).
+# Preflight before promoting staging → production (production is the live branch).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -38,16 +38,22 @@ else
   note "missing docs/ship-gate.md"
 fi
 
-if [[ -f "vercel.json" ]] && grep -q '"main": true' vercel.json && grep -q '"production": true' vercel.json && grep -q '"\*\*": false' vercel.json; then
-  pass "vercel.json enables main (preview) and production (live) only"
+if [[ -f "vercel.json" ]] && grep -q '"main": true' vercel.json && grep -q '"staging": true' vercel.json && grep -q '"production": true' vercel.json && grep -q '"\*\*": false' vercel.json; then
+  pass "vercel.json enables main, staging, and production only"
 else
-  bad "vercel.json must set git.deploymentEnabled main=true, production=true, and **=false"
+  bad "vercel.json must set git.deploymentEnabled main=true, staging=true, production=true, and **=false"
 fi
 
-if [[ -f "scripts/vercel-should-build.sh" ]] && grep -q 'production' scripts/vercel-should-build.sh && grep -q 'main' scripts/vercel-should-build.sh; then
-  pass "vercel-should-build.sh allows main and production"
+if [[ -f "scripts/vercel-should-build.sh" ]] && grep -q 'production' scripts/vercel-should-build.sh && grep -q 'staging' scripts/vercel-should-build.sh && grep -q 'main' scripts/vercel-should-build.sh; then
+  pass "vercel-should-build.sh allows main, staging, and production"
 else
-  bad "scripts/vercel-should-build.sh must allow main and production refs"
+  bad "scripts/vercel-should-build.sh must allow main, staging, and production refs"
+fi
+
+if git ls-remote --exit-code origin refs/heads/staging >/dev/null 2>&1; then
+  pass "origin/staging branch exists"
+else
+  bad "missing origin/staging — run npm run ship:staging before promoting live"
 fi
 
 if git ls-remote --exit-code origin refs/heads/production >/dev/null 2>&1; then
@@ -113,7 +119,7 @@ echo "  [ ] security-review + bugbot on branch changes"
 echo "  [ ] cache/rendering/perf pass for UI/route changes"
 echo "  [ ] full feature walkthrough + edge cases (not /demo alone)"
 echo "  [ ] unit/integration tests green"
-echo "  [ ] ff-only merge main → production + git push origin production"
+echo "  [ ] ff-only merge main → staging, QA sign-off, then staging → production"
 echo "  [ ] after push: Vercel production + GitHub Action 'iOS TestFlight' green"
 echo "  [ ] ASC secrets ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_P8 configured in GitHub"
 echo
