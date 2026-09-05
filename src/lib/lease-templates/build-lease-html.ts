@@ -822,12 +822,15 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     : (sub?.petFriendly ?? room?.petFriendly ?? list?.petFriendly)
       ? "Pets may be permitted subject to prior written approval from Landlord and compliance with the property&apos;s pet rules. Any applicable pet charges must be separately specified in writing."
       : "No pets or animals of any kind are permitted on the Premises without prior written consent of Landlord.";
+  // Read the NORMALIZED listing, never the raw submission: normalization is what
+  // decides which channels the product still accepts, and a lease must not promise
+  // a channel the portal has retired just because an old listing row still carries it.
   const manualPaymentMethods = [
-    sub?.zellePaymentsEnabled && sub.zelleContact?.trim()
-      ? `Zelle to <strong>${escapeHtml(sub.zelleContact.trim())}</strong>`
+    subNorm?.zellePaymentsEnabled && subNorm.zelleContact?.trim()
+      ? `Zelle to <strong>${escapeHtml(subNorm.zelleContact.trim())}</strong>`
       : "",
-    sub?.venmoPaymentsEnabled && sub.venmoContact?.trim()
-      ? `Venmo to <strong>${escapeHtml(sub.venmoContact.trim())}</strong>`
+    subNorm?.venmoPaymentsEnabled && subNorm.venmoContact?.trim()
+      ? `Venmo to <strong>${escapeHtml(subNorm.venmoContact.trim())}</strong>`
       : "",
   ].filter(Boolean);
   const paymentMethod = propertyTemplatePreview
@@ -1515,8 +1518,8 @@ ${
       ? `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong> and ending <strong>${leaseEnd}</strong> (${leaseTerm}). ${leaseTermsBody}</p>
 <p>At the end of the lease term this Agreement <strong>continues as a month-to-month tenancy</strong> on the same terms, unless either party gives written notice to end it ${config.monthToMonthTerminationNotice ?? "within the period required by applicable law"}. All other terms of this Agreement remain in effect during the month-to-month period.${rolloverSurchargeClause}</p>`
       : `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong> and ending <strong>${leaseEnd}</strong> (${leaseTerm}). ${leaseTermsBody}</p>
-<p>This Agreement automatically terminates at the end of the lease term and does not convert to a month-to-month tenancy unless both parties agree in writing.</p>
-<p>Resident agrees to vacate the Premises no later than <strong>12:00 PM</strong> on the final day of the lease term.${
+<p>This Agreement <strong>does not automatically continue as a month-to-month tenancy</strong> after the end of the lease term. Ending, renewing or not renewing the tenancy is subject to applicable federal, state and local law, including any renewal-offer, just-cause and notice requirements that apply to the Premises, and nothing in this Section waives a right applicable law gives either party.</p>
+${config.renewalOfferParagraph ? `<p>${escapeHtml(config.renewalOfferParagraph)}</p>\n` : ""}<p>Unless the tenancy is renewed or continued as required by applicable law or by written agreement of the parties, Resident agrees to vacate the Premises by the end of the final day of the lease term.${
       hasConfiguredHoldover
         ? ` Any continued occupancy after termination shall be charged <strong>${fmtUsd(longTermHoldoverDailyRate)} per day</strong>.`
         : ""
@@ -1683,10 +1686,14 @@ ${
 }
 
 <h2>${nextSection()}. Payment Application Order</h2>
-<p>Any payments received shall be applied in the following order: (1) outstanding damage charges; (2) outstanding utility charges; (3) late fees and administrative fees; (4) past due rent (oldest first); (5) current rent.</p>
+<p>Any payment received from Resident shall be applied <strong>first to rent</strong>${
+      config.rentFirstPaymentApplicationStatuteRef
+        ? `, as required by ${escapeHtml(config.rentFirstPaymentApplicationStatuteRef)}`
+        : " to the extent required by applicable law"
+    }: (1) past due rent, oldest first; (2) current rent. Any remaining amount is then applied to (3) outstanding utility charges; (4) outstanding damage charges; (5) late fees and administrative fees. Where applicable law prescribes a different order of application, that law controls over this Section.</p>
 
 <h2>${nextSection()}. Notices</h2>
-<p>All notices shall be in writing. Delivery by email to the address on file or via PropLane portal messaging is acceptable and shall be deemed received upon sending during business hours. Legal notices may also be delivered in person or by first-class mail to the mailing addresses listed in Section 1. Either party may update their notice address in writing.</p>
+<p>All notices shall be in writing. For routine communication, delivery by email to the address on file or via PropLane portal messaging is acceptable and is deemed received upon sending during business hours. <strong>Notices required by law</strong> &mdash; including notices to terminate or not renew the tenancy, notices to pay or comply, and any other notice for which applicable law prescribes a method of service &mdash; must be served in the manner that law requires, and electronic delivery alone does not satisfy those requirements. Legal notices may also be delivered in person or by first-class mail to the mailing addresses listed in Section 1. Either party may update their notice address in writing.</p>
 ${noticesDisclosureHtml}
 
 ${statutoryDisclosureHtml ? `<h2>${nextSection()}. Statutory Disclosures</h2>\n${statutoryDisclosureHtml}` : ""}

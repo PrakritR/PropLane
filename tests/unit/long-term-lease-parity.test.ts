@@ -135,8 +135,12 @@ describe("long-term lease parity", () => {
     expect(first).toContain("RESIDENTIAL ROOM LEASE AGREEMENT");
     expect(first).toContain("$900.00");
     expect(first).toContain("$45.00 per day");
-    expect(first).toContain("12:00 PM");
-    expect(first).toContain("does not convert to a month-to-month tenancy unless both parties agree in writing");
+    expect(first).toContain("vacate the Premises by the end of the final day of the lease term");
+    expect(first).toContain("does not automatically continue as a month-to-month tenancy");
+    // No invented move-out hour: nothing in the listing states one.
+    expect(first).not.toContain("12:00 PM");
+    // Seattle's renewal-offer duty must survive into the compact document.
+    expect(first).toContain("between 60 and 90 days before the end of the lease term");
     expect(first).toContain("Residents do not have exclusive possession of shared areas");
     expect(first).toContain("break lease fee of <strong>$900.00</strong>");
     expect(first).toContain("RCW 59.18.310");

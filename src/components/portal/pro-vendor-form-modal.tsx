@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter, MODAL_FIELD_LABEL_CLASS, PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS, PORTAL_MODAL_FORM_GRID_CLASS } from "@/components/ui/modal";
-import { ManagerInviteLinkModal } from "@/components/portal/manager-invite-link-modal";
 import { PortalInviteChoiceStep } from "@/components/portal/portal-invite-choice-step";
 import {
   PortalNotificationPreviewModal,
@@ -233,7 +232,6 @@ export function ManagerVendorFormModal({
   const [invitePreview, setInvitePreview] = useState<VendorInvitePreview | null>(null);
   const [removePreview, setRemovePreview] = useState<ManagerVendorRemovalPreview | null>(null);
   const [createdVendorId, setCreatedVendorId] = useState<string | null>(null);
-  const [vendorInviteLinkOpen, setVendorInviteLinkOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -250,7 +248,6 @@ export function ManagerVendorFormModal({
     setInvitePreview(null);
     setRemovePreview(null);
     setCreatedVendorId(null);
-    setVendorInviteLinkOpen(false);
   }, [open, mode, vendor, initialTrade]);
 
   const patch = (next: Partial<ManagerVendorFormDraft>) => setDraft((prev) => ({ ...prev, ...next }));
@@ -450,7 +447,7 @@ export function ManagerVendorFormModal({
   return (
     <>
       <Modal
-        open={open && invitePreview === null && removePreview === null && !vendorInviteLinkOpen}
+        open={open && invitePreview === null && removePreview === null}
         title={title}
         assistantContext={mode === "add" ? "Invite vendor" : "Edit vendor"}
         assistantStorageScopeKey={mode === "add" ? "Invite vendor" : "Edit vendor"}
@@ -499,14 +496,9 @@ export function ManagerVendorFormModal({
         <div className="space-y-4">
           {mode === "add" ? (
             <PortalInviteChoiceStep
-              inviteDescription="Create a shareable link to invite a vendor to your directory. It's the fastest way to get them on PropLane."
-              inviteLinkDataAttr="vendor-invite-link-open"
               secondaryTitle="Invite by email"
               secondaryDescription="Enter the vendor's details to send a portal signup invite."
               secondaryIcon="person"
-              onCreateInviteLink={() => {
-                setVendorInviteLinkOpen(true);
-              }}
             >
               <ManagerVendorFormFields draft={draft} onPatch={patch} idPrefix="vendor-choice" />
             </PortalInviteChoiceStep>
@@ -534,13 +526,6 @@ export function ManagerVendorFormModal({
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
         </div>
       </Modal>
-
-      <ManagerInviteLinkModal
-        open={open && vendorInviteLinkOpen}
-        kind="vendor"
-        propertyOptions={[]}
-        onClose={() => setVendorInviteLinkOpen(false)}
-      />
 
       <PortalNotificationPreviewModal
         open={invitePreview !== null}

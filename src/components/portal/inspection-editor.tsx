@@ -11,7 +11,7 @@ import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible
 import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { useNativeCamera, type CapturedPhoto } from "@/lib/native/use-native-camera";
-import { inspectionDraftKey, retainInspectionDraft, peekInspectionDraft, takeInspectionDraft, type InspectionEditorDraft } from "@/lib/inspections/editor-drafts";
+import { inspectionDraftKey, discardInspectionDraft, retainInspectionDraft, peekInspectionDraft, takeInspectionDraft, type InspectionEditorDraft } from "@/lib/inspections/editor-drafts";
 import { downloadInspection, inspectionRequest } from "@/lib/inspections/client";
 import { inspectionRoomLabel, INSPECTION_CONDITIONS, type InspectionDetail, type InspectionItem, type InspectionObservation, type InspectionRole, type InspectionArea } from "@/lib/inspections/model";
 
@@ -48,8 +48,13 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
 }) {
   const draftKey = inspectionDraftKey(userId, role, initial.report.id);
   const [restored] = useState(() => peekInspectionDraft(draftKey));
+  // A report that is no longer an editable draft is frozen: the server copy is the
+  // authoritative record, so a recovered local draft is never merged into it. It is
+  // kept beside the report as clearly unsent material the person can read or discard.
+  const [resumable] = useState(() => Boolean(restored) && initial.canEdit && initial.report.status === "draft");
+  const [unsent, setUnsent] = useState(() => (restored && !resumable ? restored : null));
   const [detail, setDetail] = useState(() => {
-    if (!restored) return initial;
+    if (!restored || !resumable) return initial;
     const previous = new Map(observations(restored.detail, role).map(item => [item.itemId, item]));
     return { ...initial, report: { ...initial.report, revision: restored.detail.report.revision, document: { ...initial.report.document,
       areas: initial.report.document.areas.map(area => ({ ...area, items: area.items.map(item => {
@@ -58,15 +63,15 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
       }) })),
     } } };
   });
-  const [saved, setSaved] = useState(() => restored?.saved ?? JSON.stringify(observations(initial, role)));
-  const [error, setError] = useState(restored && restored.detail.report.revision !== initial.report.revision ? "Your draft was restored, but the saved report has changed. Review latest before continuing." : "");
+  const [saved, setSaved] = useState(() => (resumable && restored ? restored.saved : JSON.stringify(observations(initial, role))));
+  const [error, setError] = useState(resumable && restored && restored.detail.report.revision !== initial.report.revision ? "Your draft was restored, but the saved report has changed. Review latest before continuing." : "");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [activeAreaId, setActiveAreaId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [documentOpen, setDocumentOpen] = useState(false);
   const [choosePhoto, setChoosePhoto] = useState(false);
-  const [pendingPhoto, setPendingPhoto] = useState<{ itemId: string; photo: CapturedPhoto } | null>(restored?.pendingPhoto ?? null);
+  const [pendingPhoto, setPendingPhoto] = useState<{ itemId: string; photo: CapturedPhoto } | null>((resumable ? restored?.pendingPhoto : null) ?? null);
   const live = useRef(true);
   const draftRef = useRef<{ dirty: boolean; value: InspectionEditorDraft } | null>(null);
   const working = useRef(false);
@@ -82,7 +87,13 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const photoCount = report.document.areas.flatMap(a => a.items).reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
   const baselineItems = new Map(baseline?.document.areas.flatMap(a => a.items).map(i => [i.id, i]) ?? []);
 
-  useEffect(() => { draftRef.current = { dirty, value: { detail, saved, pendingPhoto } }; }, [dirty, detail, saved, pendingPhoto]);
+  // While frozen there is nothing to resume, so the retained entry stays the unsent
+  // material itself rather than the authoritative report the person is only reading.
+  useEffect(() => {
+    draftRef.current = editable
+      ? { dirty, value: { detail, saved, pendingPhoto } }
+      : unsent ? { dirty: true, value: unsent } : null;
+  }, [dirty, detail, saved, pendingPhoto, editable, unsent]);
   useEffect(() => {
     live.current = true; takeInspectionDraft(draftKey);
     return () => {
@@ -114,10 +125,12 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     finally { working.current = false; setBusy(false); }
   }, []);
   const save = useCallback(async () => {
-    if (!dirty) return detail;
+    // A frozen report never takes a write, so viewing or downloading one cannot
+    // turn into a PATCH the server is bound to refuse.
+    if (!dirty || !editable) return detail;
     const next = await inspectionRequest<InspectionDetail>(role, `/${report.id}`, { method: "PATCH", body: JSON.stringify({ revision: report.revision, observations: observations(detail, role) }) });
     accept(next); return next;
-  }, [dirty, detail, role, report.id, report.revision, accept]);
+  }, [dirty, editable, detail, role, report.id, report.revision, accept]);
   // Inputs remain disabled during a write so a returned snapshot cannot overwrite newer typing.
   // Changes wait for a short typing pause, and every upload/transition also flushes the draft.
   useEffect(() => {
@@ -216,6 +229,15 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     {report.document.areas.map(area => <section key={area.id} className="space-y-4 border-t border-border pt-5"><h3 className="font-serif text-lg font-bold">{area.label}</h3>{area.items.map(item => <div key={item.id} className="space-y-4">{area.items.length > 1 && <h4 className="text-sm font-semibold">{item.label}</h4>}{(["resident", "manager"] as const).map(side => hasObservation(item[side]) ? <ReadObservation key={side} label={side === "resident" ? "Resident" : "Manager"} value={item[side]} /> : null)}{!hasObservation(item.resident) && !hasObservation(item.manager) && <p className="text-sm text-muted">No photos or condition statement recorded.</p>}</div>)}</section>)}
     <p className="border-t border-border pt-5 text-sm text-muted">{report.document.residentAcknowledgment ? `Resident acknowledged on ${new Date(report.document.residentAcknowledgment.at).toLocaleDateString()}.` : "Resident acknowledgment pending."} {report.status === "completed" ? "Manager approved. This completed report is preserved." : "Manager approval pending."}</p>
   </article>;
+  const itemLabels = new Map(report.document.areas.flatMap(a => a.items).map(i => [i.id, i.label]));
+  const unsentNotes = unsent
+    ? observations(unsent.detail, role).filter(entry => entry.notes.trim() || entry.condition !== "unchecked")
+    : [];
+  const discardUnsent = () => {
+    if (unsent?.pendingPhoto) URL.revokeObjectURL(unsent.pendingPhoto.photo.previewUrl);
+    setUnsent(null);
+    discardInspectionDraft(draftKey);
+  };
   const areaCount = (area: InspectionArea) => area.items.reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
   const backLabel = documentOpen || activeArea ? "Back to room sections" : "Back to inspections";
   const status = report.status === "completed" ? "Completed" : report.status === "submitted" ? "Awaiting review" : "Draft";
@@ -230,6 +252,19 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
       {roomAreas.map(area => <div key={area.id} className={`flex min-h-24 items-center gap-4 border-b border-l-2 border-b-border px-3 py-5 ${selected.has(area.id) ? "border-l-primary bg-primary/5" : "border-l-transparent"}`} data-attr="inspection-section-row"><input type="checkbox" className="h-4 w-4 shrink-0 accent-primary" aria-label={`Select ${area.label}`} checked={selected.has(area.id)} onChange={e => setSelected(current => { const next = new Set(current); if (e.target.checked) next.add(area.id); else next.delete(area.id); return next; })} /><button className="min-w-0 flex-1 text-left" onClick={() => setActiveAreaId(area.id)} data-attr="inspection-area-open"><span className="flex items-center gap-2 text-base font-semibold">{area.label}<ChevronRight className="h-4 w-4 text-muted" /></span><span className="mt-1 block text-sm text-muted">{areaCount(area) ? `${areaCount(area)} photo${areaCount(area) === 1 ? "" : "s"} added` : "Photos and optional notes"}</span></button></div>)}
     </div>}
     {report.status === "submitted" && !report.document.residentAcknowledgment && <p className="px-2 text-sm text-muted">The resident needs to confirm review before the manager can approve.</p>}
+    {unsent && (unsentNotes.length > 0 || unsent.pendingPhoto) && <PortalCollapsibleSection title="Unsent notes and photos from this device" defaultExpanded={false}>
+      <p className="pb-3 text-sm text-muted">This report was {report.status === "completed" ? "completed" : "submitted"} before these were saved, so they are <strong>not part of the report</strong> above and were never sent. Copy anything you still need, then discard them.</p>
+      {unsentNotes.map(entry => <div key={entry.itemId} className="space-y-1 border-t border-border py-3">
+        <p className="text-sm font-semibold">{itemLabels.get(entry.itemId) ?? entry.itemId}</p>
+        {entry.condition !== "unchecked" && <p className="text-xs text-muted">{INSPECTION_CONDITIONS[entry.condition]}</p>}
+        {entry.notes.trim() && <p className="ph-no-capture ph-no-record whitespace-pre-wrap break-words text-sm">{entry.notes}</p>}
+      </div>)}
+      {unsent.pendingPhoto && <div className="flex items-center gap-4 border-t border-border py-3">
+        <Image src={unsent.pendingPhoto.photo.previewUrl} unoptimized width={96} height={72} alt="Photo that was never uploaded" className="ph-no-capture ph-no-record h-18 w-24 rounded-lg object-cover" />
+        <p className="text-sm text-muted">This photo never uploaded and cannot be added to a locked report.</p>
+      </div>}
+      <Button variant="ghost" className="mt-2" onClick={discardUnsent} data-attr="inspection-unsent-discard">Discard unsent notes</Button>
+    </PortalCollapsibleSection>}
     {baseline && report.document.roomScope && !baseline.document.roomScope && <PortalCollapsibleSection title="Original move-in room photos" defaultExpanded={false}>
       <p className="pb-3 text-sm text-muted">Room observations preserved from the original move-in report.</p>
       {baseline.document.areas.filter(area => area.id === "area-0").flatMap(area => area.items).map(item => <div key={item.id} className="space-y-3 border-t border-border py-4"><h3 className="text-sm font-semibold">{item.label}</h3><ReadObservation label="Move-in / resident" value={item.resident} /><ReadObservation label="Move-in / manager" value={item.manager} /></div>)}
@@ -238,8 +273,8 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     <PortalPageFooterActions pinned rowVariant="header">
       <Button variant="outline" aria-label={documentOpen ? "Download document" : "View document"} disabled={busy} onClick={() => documentOpen ? run(async () => { await save(); await downloadInspection(role, report.id); }) : setDocumentOpen(true)} data-attr="inspection-download"><FileText className="h-4 w-4" /><span className="hidden sm:inline">{documentOpen ? "Download document" : "View document"}</span></Button>
       {editable && !pendingPhoto && <Button variant="outline" disabled={busy} aria-label="Upload photos" onClick={startUpload} data-attr="inspection-photo-add"><Camera className="h-4 w-4" /><span className="sm:hidden">Photos</span><span className="hidden sm:inline">Upload photos</span></Button>}
-      {pendingPhoto && <><Button variant="outline" disabled={busy} onClick={() => run(() => sendPhoto(pendingPhoto.itemId, pendingPhoto.photo))} data-attr="inspection-photo-retry">Retry upload</Button><Button variant="ghost" disabled={busy} onClick={() => { URL.revokeObjectURL(pendingPhoto.photo.previewUrl); setPendingPhoto(null); }} data-attr="inspection-photo-discard">Remove</Button></>}
-      {error && dirty && !pendingPhoto && <Button variant="outline" disabled={busy} onClick={() => run(async () => { await save(); })} data-attr="inspection-save-retry">Retry save</Button>}
+      {pendingPhoto && <>{editable && <Button variant="outline" disabled={busy} onClick={() => run(() => sendPhoto(pendingPhoto.itemId, pendingPhoto.photo))} data-attr="inspection-photo-retry">Retry upload</Button>}<Button variant="ghost" disabled={busy} onClick={() => { URL.revokeObjectURL(pendingPhoto.photo.previewUrl); setPendingPhoto(null); }} data-attr="inspection-photo-discard">Remove</Button></>}
+      {error && dirty && editable && !pendingPhoto && <Button variant="outline" disabled={busy} onClick={() => run(async () => { await save(); })} data-attr="inspection-save-retry">Retry save</Button>}
       {error && <Button variant="ghost" disabled={busy} onClick={() => setConfirm("reload")} data-attr="inspection-conflict-review">Review latest</Button>}
       {canEdit && editable && !pendingPhoto && <Button className="ml-auto" disabled={busy} onClick={() => setConfirm("submit")} aria-label="Submit for review" data-attr="inspection-submit"><span className="sm:hidden">Submit</span><span className="hidden sm:inline">Submit for review</span></Button>}
       {canEdit && report.status === "submitted" && role === "resident" && !report.document.residentAcknowledgment && <Button className="ml-auto" disabled={busy} onClick={() => setConfirm("acknowledge")} data-attr="inspection-acknowledge">Confirm review</Button>}

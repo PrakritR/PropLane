@@ -596,8 +596,8 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
 <p>At the end of the lease term this Agreement <strong>continues as a month-to-month tenancy</strong> on the same terms, unless either party gives written notice to end it ${monthToMonthNotice}. All other terms of this Agreement remain in effect during the month-to-month period.${monthToMonthSurchargeClause}</p>
 ${earlyTerminationBlock(input)}`
       : `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong>, and ending <strong>${leaseEnd}</strong>.</p>
-<p>This Agreement automatically terminates at the end of the lease term and does not convert to a month-to-month tenancy unless both parties agree in writing.</p>
-<p>Resident agrees to vacate the Premises no later than <strong>12:00 PM</strong> on the final day of the lease term.${holdoverClause}</p>
+<p>This Agreement <strong>does not automatically continue as a month-to-month tenancy</strong> after the end of the lease term. Ending, renewing or not renewing the tenancy is subject to applicable federal, state and local law, including any renewal-offer, just-cause and notice requirements that apply to the Premises, and nothing in this Section waives a right applicable law gives either party.</p>
+${config.renewalOfferParagraph ? `<p>${escapeHtml(config.renewalOfferParagraph)}</p>\n` : ""}<p>Unless the tenancy is renewed or continued as required by applicable law or by written agreement of the parties, Resident agrees to vacate the Premises by the end of the final day of the lease term.${holdoverClause}</p>
 ${earlyTerminationBlock(input)}`;
 
   return `

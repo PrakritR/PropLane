@@ -1,8 +1,8 @@
 /**
  * "Add option to also make leases when end become month to month."
  *
- * A fixed-term lease says, in the document, that it "automatically terminates at
- * the end of the lease term and does not convert to a month-to-month tenancy".
+ * A fixed-term lease says, in the document, that it "does not automatically
+ * continue as a month-to-month tenancy" after the term ends.
  * Rolling over therefore cannot be a silent default — it changes what the
  * signed agreement promises, so it is opt-in per listing.
  */
@@ -60,7 +60,7 @@ function ctx(overrides: Partial<ManagerListingSubmissionV1> = {}): LeaseGenerati
   };
 }
 
-const TERMINATES = "does not convert to a month-to-month tenancy";
+const TERMINATES = "does not automatically continue as a month-to-month tenancy";
 const CONTINUES = "continues as a month-to-month tenancy";
 
 describe("lease rollover to month-to-month", () => {
@@ -84,7 +84,7 @@ describe("lease rollover to month-to-month", () => {
       ctx({ rolloverToMonthToMonth: true, longTermHoldoverDailyRate: "45" }),
       SEATTLE_LEASE_CONFIG,
     );
-    expect(html).not.toContain("agrees to vacate the Premises no later than");
+    expect(html).not.toContain("agrees to vacate the Premises by the end of the final day");
     expect(html).not.toContain("Any continued occupancy after termination");
   });
 

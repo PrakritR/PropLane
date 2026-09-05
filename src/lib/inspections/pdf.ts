@@ -55,17 +55,39 @@ export async function inspectionPdf(actor: InspectionActor, id: string): Promise
       y -= 146;
     }
   };
+  let matchedBaselineItem = false;
   for (const area of report.document.areas) {
     space(60); line(area.label, true);
     for (const item of area.items) {
-      space(60); line(item.label, true);
+      // A room section holds one item named after the section itself, so printing
+      // both headings repeats the same line back at the reader.
+      if (area.items.length > 1 || item.label !== area.label) { space(60); line(item.label, true); }
       const previous = baselineItems.get(item.id);
       if (previous) {
+        matchedBaselineItem = true;
         await observation("Move-in / manager", previous.manager);
         await observation("Move-in / resident", previous.resident);
       }
       await observation(`${report.kind} / manager`, item.manager);
       await observation(`${report.kind} / resident`, item.resident);
+      y -= 7;
+    }
+  }
+  // A room-scoped report references a legacy 15-area baseline whose item ids no
+  // longer line up, so nothing above matched. The move-in evidence still exists and
+  // the portal shows it — print the PRIVATE ROOM section of it here rather than
+  // exporting a move-out report with its baseline silently missing. Shared property
+  // areas stay out: this inspection covers the assigned room only.
+  const legacyBaselineRoom = baseline && !matchedBaselineItem
+    ? baseline.document.areas.filter(area => area.id === "area-0").flatMap(area => area.items)
+    : [];
+  if (legacyBaselineRoom.length > 0) {
+    space(60); line(`Move-in baseline (original report, ${baseline!.inspection_date}) - private room`, true);
+    line("Item names differ from this report's sections because the baseline used the earlier property-wide form.");
+    for (const item of legacyBaselineRoom) {
+      space(60); line(item.label, true);
+      await observation("Move-in / manager", item.manager);
+      await observation("Move-in / resident", item.resident);
       y -= 7;
     }
   }

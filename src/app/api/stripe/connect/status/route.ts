@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { resolveStripePayoutContext } from "@/lib/auth/manager-stripe-payout-access.server";
+import {
+  resolveStripePayoutContext,
+  stripePayoutContextError,
+} from "@/lib/auth/manager-stripe-payout-access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
@@ -31,6 +34,12 @@ export async function GET() {
     const service = createSupabaseServiceRoleClient();
     const payout = await resolveStripePayoutContext(service, user.id);
     const payoutOwnerUserId = payout.payoutOwnerUserId;
+    if (!payoutOwnerUserId) {
+      return NextResponse.json(
+        { error: stripePayoutContextError(payout.unresolvedReason) },
+        { status: payout.unresolvedReason === "ambiguous_owner" ? 409 : 500 },
+      );
+    }
 
     const { data: profile } = await service
       .from("profiles")
@@ -60,7 +69,10 @@ export async function GET() {
       const stripe = getStripe();
       const existing = await retrieveManagerConnectAccountOrNull(stripe, accountId);
       if (!existing) {
-        await clearManagerConnectAccountId(supabase, payoutOwnerUserId);
+        // Clearing rewrites the OWNER's profile, so it needs the same authority a
+        // bank change needs — a read-only co-manager reports the stale state and
+        // leaves the row alone.
+        if (payout.canEditBankAccount) await clearManagerConnectAccountId(service, payoutOwnerUserId);
         return NextResponse.json({
           connected: false,
           accountId: null,

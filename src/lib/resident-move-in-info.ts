@@ -70,13 +70,29 @@ async function loadHousematesForProperty(
 ): Promise<ResidentMoveInHousemate[]> {
   if (!propertyId || !managerUserId) return [];
 
-  let query = db.from("manager_application_records").select("resident_email, row_data");
-  if (managerUserId) query = query.eq("manager_user_id", managerUserId);
-  const { data: apps } = await query;
+  // Scoped to this property on BOTH id columns and paged: an unfiltered read stopped
+  // at Supabase's 1,000-row ceiling, so a manager with a large application history
+  // silently lost housemates. `assigned_property_id` is separate because a manually
+  // placed resident carries the placement there and not in `property_id`.
+  const rows = new Map<string, { resident_email: string | null; row_data: unknown }>();
+  for (const column of ["property_id", "assigned_property_id"] as const) {
+    for (let offset = 0; ; offset += 500) {
+      const { data, error } = await db
+        .from("manager_application_records")
+        .select("id, resident_email, row_data")
+        .eq("manager_user_id", managerUserId)
+        .eq(column, propertyId)
+        .order("id")
+        .range(offset, offset + 499);
+      if (error) return [];
+      for (const row of data ?? []) rows.set(String((row as { id: unknown }).id), row);
+      if ((data ?? []).length < 500) break;
+    }
+  }
 
   const peers: Array<{ email: string; name: string; roomLabel: string; roomId: string }> = [];
   const seen = new Set<string>();
-  for (const row of apps ?? []) {
+  for (const row of rows.values()) {
     const rowData = asObject(row.row_data) as unknown as DemoApplicantRow | null;
     if (!rowData || !isCurrentResidentApplicationRow(rowData) || rowData.withdrawnAt) continue;
     if (propertyIdFromAppRow(rowData) !== propertyId) continue;

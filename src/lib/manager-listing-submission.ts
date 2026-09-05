@@ -424,9 +424,9 @@ export type ManagerListingSubmissionV1 = {
    * term instead of terminating.
    *
    * This changes what the lease document promises, so it is opt-in and defaults
-   * to false: the standard clause says the agreement "automatically terminates
-   * at the end of the lease term and does not convert to a month-to-month
-   * tenancy", and a listing must positively choose the other behaviour before
+   * to false: the standard clause says the agreement "does not automatically
+   * continue as a month-to-month tenancy" after the term ends, and a listing
+   * must positively choose the other behaviour before
    * the document may say otherwise. Absent means the existing promise, never a
    * guess.
    */
@@ -1655,6 +1655,13 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
       (sub as { propertyApplicationTemplatesExplicit?: unknown }).propertyApplicationTemplatesExplicit === true
         ? true
         : undefined,
+    // Retired product-wide, and the normalized submission is what every reader
+    // (including the generated lease) is entitled to trust. The stored contacts
+    // survive so nothing is lost if the channels ever return; the flags do not,
+    // because `...sub` above would otherwise carry a legacy `true` straight into
+    // a lease clause promising a channel the portal no longer accepts.
+    zellePaymentsEnabled: zelleEnabled,
+    venmoPaymentsEnabled: venmoEnabled,
     applicationFeeStripeEnabled,
     applicationFeeZelleEnabled,
     applicationFeeVenmoEnabled,

@@ -113,6 +113,19 @@ export type LeaseJurisdictionTemplateConfig = {
   monthToMonthTerminationNotice?: string;
   depositReturnWindow?: string;
   minimumHeatTemperature?: string;
+  /**
+   * Citation for a statute that FIXES the order a payment is applied in. Where one
+   * exists it overrides anything the parties agree, so the clause has to name it
+   * rather than print a contractual order the law already displaces. Set only from
+   * a verified primary source for THAT jurisdiction.
+   */
+  rentFirstPaymentApplicationStatuteRef?: string;
+  /**
+   * Local renewal-offer duty at the end of a fixed term, where one exists. Absent
+   * means the document asserts no local duty — never a guess, and never a section
+   * number that was not read.
+   */
+  renewalOfferParagraph?: string;
 };
 
 /**
@@ -136,6 +149,9 @@ export const WASHINGTON_LEASE_CONFIG: LeaseJurisdictionTemplateConfig = {
   monthToMonthTerminationNotice: "at least 20 days before the end of any monthly rental period",
   depositReturnWindow: "Within 30 days after termination of the tenancy and vacancy of the Premises",
   minimumHeatTemperature: "68°F",
+  // RCW 59.18.283 requires a landlord to apply a tenant's payment to rent first.
+  // https://app.leg.wa.gov/RCW/default.aspx?cite=59.18.283
+  rentFirstPaymentApplicationStatuteRef: "RCW 59.18.283",
 };
 
 export const SEATTLE_LEASE_CONFIG: LeaseJurisdictionTemplateConfig = {
@@ -145,6 +161,12 @@ export const SEATTLE_LEASE_CONFIG: LeaseJurisdictionTemplateConfig = {
   headerSubtitle: "State of Washington · King County",
   municipalComplianceParagraph:
     "This Agreement shall be interpreted consistently with the Washington Residential Landlord-Tenant Act (RCW Chapter 59.18). If the Premises are located within the City of Seattle, applicable Seattle rental regulations (including notice, just-cause, relocation, or habitability rules) shall apply to the minimum extent required by law.",
+  // Seattle's official renting guidance: a landlord must make a reasonable renewal
+  // offer 60-90 days before a term ends unless there is lawful just cause not to.
+  // https://www.seattle.gov/rentinginseattle/renters/moving-in/types-of-rental-agreements
+  // https://www.seattle.gov/construction-and-inspections/codes/common-code-questions/rental-agreements
+  renewalOfferParagraph:
+    "If the Premises are within the City of Seattle, Landlord must offer Resident a reasonable opportunity to renew this Agreement between 60 and 90 days before the end of the lease term, unless Landlord has lawful just cause not to renew under applicable Seattle regulations. Nothing in this Section waives that requirement or any notice, just-cause, or relocation protection applicable law gives Resident.",
   governingLawParagraph:
     "This Agreement is governed by the laws of the <strong>State of Washington</strong> (RCW Title 59) and, where applicable, the ordinances of the City of Seattle. If any provision is found invalid, the remainder shall remain in full force. This document, together with any signed addenda, constitutes the entire agreement between the parties. No oral representations are binding. Amendments require written signatures of both parties.",
 };

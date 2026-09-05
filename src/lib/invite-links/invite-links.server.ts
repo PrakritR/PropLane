@@ -22,6 +22,15 @@ import {
 const TOKEN_BYTES = 32;
 
 /**
+ * `account_link_invites` is the only relationship a redeemed link can create,
+ * and its `tab_kind` CHECK admits `manager` alone. Any other kind therefore has
+ * nowhere to land, so both minting and redeeming refuse it rather than quietly
+ * producing co-manager access under a different label.
+ */
+export const UNSUPPORTED_INVITE_LINK_KIND_ERROR =
+  "Shareable links are only available for co-manager invites. Send a vendor invite by email instead.";
+
+/**
  * The token is a credential, so only its digest is stored.
  *
  * Plain SHA-256 rather than a password hash on purpose: this is 256 bits of
@@ -116,24 +125,30 @@ export async function mintInviteLink(
 
   const kind = normalizeInviteLinkKind(input.kind);
 
+  // Redeeming a link produces an `account_link_invites` row — a CO-MANAGER
+  // relationship, and the only relationship this table can express. There is no
+  // vendor redemption path, so a vendor link could only ever hand its opener
+  // manager access, minted around the paid gate below. Refuse at the source.
+  if (kind !== "manager") {
+    return { ok: false, status: 400, error: UNSUPPORTED_INVITE_LINK_KIND_ERROR };
+  }
+
   // Same paid gate the addressed invite uses. A link that cannot be redeemed is
   // worse than a refusal, because the manager only learns at the far end.
-  if (kind === "manager") {
-    const tier = await getEffectiveManagerSkuTier(ownerUserId);
-    if (!tier.ok) {
-      return { ok: false, status: 500, error: "We could not verify your plan. Try again in a moment." };
-    }
-    if (!managerPlanAllowsCoManagerInvites({ tier: tier.tier })) {
-      return {
-        ok: false,
-        status: 403,
-        error: "Co-manager invites are available on Pro and Business. Upgrade to add a co-manager.",
-      };
-    }
+  const tier = await getEffectiveManagerSkuTier(ownerUserId);
+  if (!tier.ok) {
+    return { ok: false, status: 500, error: "We could not verify your plan. Try again in a moment." };
+  }
+  if (!managerPlanAllowsCoManagerInvites({ tier: tier.tier })) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Co-manager invites are available on Pro and Business. Upgrade to add a co-manager.",
+    };
   }
 
   const propertyIds = [...new Set(input.assignedPropertyIds.map((id) => String(id).trim()).filter(Boolean))];
-  if (kind === "manager" && propertyIds.length === 0) {
+  if (propertyIds.length === 0) {
     return { ok: false, status: 400, error: "Choose at least one property this link grants access to." };
   }
 
@@ -295,6 +310,13 @@ export async function redeemInviteLink(
     return { ok: false, status: 400, error: "This is your own invite link." };
   }
 
+  // Refused BEFORE a use is spent: a link that can never be honoured must not
+  // burn the budget its owner set, and it must never fall through to the
+  // co-manager insert below.
+  if (normalizeInviteLinkKind(link.kind) !== "manager") {
+    return { ok: false, status: 400, error: UNSUPPORTED_INVITE_LINK_KIND_ERROR };
+  }
+
   const unusable = inviteLinkUnusableReason(
     {
       expiresAt: link.expires_at,
@@ -346,22 +368,20 @@ export async function redeemInviteLink(
     };
   }
 
-  if (normalizeInviteLinkKind(link.kind) === "manager") {
-    for (const [userId, who] of [
-      [String(link.owner_user_id), "The manager who shared this link"],
-      [redeemerUserId, "You"],
-    ] as const) {
-      const tier = await getEffectiveManagerSkuTier(userId);
-      if (!tier.ok) {
-        return { ok: false, status: 500, error: "We could not verify plan eligibility. Try again in a moment." };
-      }
-      if (!managerPlanAllowsCoManagerInvites({ tier: tier.tier })) {
-        return {
-          ok: false,
-          status: 403,
-          error: `${who} need${who === "You" ? "" : "s"} a Pro or Business plan for co-manager access.`,
-        };
-      }
+  for (const [userId, who] of [
+    [String(link.owner_user_id), "The manager who shared this link"],
+    [redeemerUserId, "You"],
+  ] as const) {
+    const tier = await getEffectiveManagerSkuTier(userId);
+    if (!tier.ok) {
+      return { ok: false, status: 500, error: "We could not verify plan eligibility. Try again in a moment." };
+    }
+    if (!managerPlanAllowsCoManagerInvites({ tier: tier.tier })) {
+      return {
+        ok: false,
+        status: 403,
+        error: `${who} need${who === "You" ? "" : "s"} a Pro or Business plan for co-manager access.`,
+      };
     }
   }
 
@@ -386,14 +406,26 @@ export async function redeemInviteLink(
       .eq("id", link.id);
   }
 
+  // A use that produced no invite is a use nobody can ever redeem, so every
+  // failure below hands it back rather than leaving a one-time link spent.
+  const releaseSpentUse = async () => {
+    await db
+      .from("manager_invite_links")
+      .update({ used_count: link.used_count ?? 0, updated_at: new Date().toISOString() })
+      .eq("id", link.id)
+      .eq("used_count", (link.used_count ?? 0) + 1);
+  };
+
   const { error: redemptionError } = await db
     .from("manager_invite_link_redemptions")
     .insert({ link_id: link.id, redeemed_by_user_id: redeemerUserId });
   // A duplicate here means a concurrent redeem by the same person — not a
   // failure, and the use we just spent is theirs either way.
   if (redemptionError && redemptionError.code !== "23505") {
+    await releaseSpentUse();
     return { ok: false, status: 500, error: "Could not record this invite. Try again." };
   }
+  const recordedRedemption = !existingRedemption && !redemptionError;
 
   if (existingInvite) {
     return { ok: true, inviteId: String(existingInvite.id), alreadyRedeemed: false };
@@ -413,6 +445,9 @@ export async function redeemInviteLink(
       invitee_axis_id: String(inviteeProfile?.axis_id ?? "").trim(),
       inviter_display_name: inviterProfile?.full_name ?? null,
       invitee_display_name: inviteeProfile?.full_name ?? null,
+      // `not null` with no default, and the CHECK admits only this value. Omitting
+      // it made every first redemption a 23502 that still spent a use.
+      tab_kind: "manager",
       status: "pending",
       assigned_property_ids: link.assigned_property_ids ?? [],
       property_co_manager_permissions: normalizePropertyCoManagerPermissions(
@@ -424,6 +459,14 @@ export async function redeemInviteLink(
     .maybeSingle();
 
   if (inviteError || !invite) {
+    if (recordedRedemption) {
+      await db
+        .from("manager_invite_link_redemptions")
+        .delete()
+        .eq("link_id", link.id)
+        .eq("redeemed_by_user_id", redeemerUserId);
+    }
+    await releaseSpentUse();
     return { ok: false, status: 500, error: inviteError?.message ?? "Could not create the invite." };
   }
   return { ok: true, inviteId: String(invite.id), alreadyRedeemed: false };

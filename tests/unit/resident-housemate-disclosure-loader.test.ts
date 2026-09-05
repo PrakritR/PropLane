@@ -8,7 +8,7 @@ let peerName = "Private Peer";
 let selfStage = "Approved";
 let peerStage = "Approved";
 let peerMoveOut: string | undefined;
-const application = (email: string, room: string, name: string) => ({ resident_email: email, manager_user_id: "manager", row_data: { id: email, email, name, bucket: "approved", propertyId: "home", assignedPropertyId: "home", stage: email.startsWith("self") ? selfStage : peerStage, manualResidentDetails: { roomNumber: room, moveOutDate: email.startsWith("self") ? undefined : peerMoveOut } } });
+const application = (email: string, room: string, name: string) => ({ id: email, resident_email: email, manager_user_id: "manager", property_id: "home", assigned_property_id: "home", row_data: { id: email, email, name, bucket: "approved", propertyId: "home", assignedPropertyId: "home", stage: email.startsWith("self") ? selfStage : peerStage, manualResidentDetails: { roomNumber: room, moveOutDate: email.startsWith("self") ? undefined : peerMoveOut } } });
 const db = { from: (table: string) => {
   const data: Record<string, unknown>[] = table === "manager_application_records" ? [application("self@example.test", "Room 1", "Self"), application("peer@example.test", "Room 2", peerName)]
     : table === "manager_property_records" ? [{ id: "home", property_data: { id: "home", title: "Test home", address: "Test address" }, row_data: {} }]
@@ -16,7 +16,7 @@ const db = { from: (table: string) => {
     : preferences ? [{ user_id: "peer-id", preferences }] : [];
   let values = data;
   const result = () => ({ data: values, error: table === "resident_housemate_sharing" && prefError ? { message: "unavailable" } : null });
-  const q = { select: () => q, order: () => q, eq: (key: string, value: string) => { values = values.filter(row => row[key] === value); return q; }, in: (key: string, allowed: string[]) => { values = values.filter(row => allowed.includes(String(row[key]))); return q; }, maybeSingle: async () => ({ ...result(), data: values[0] ?? null }), then: (resolve: (r: ReturnType<typeof result>) => unknown) => Promise.resolve(result()).then(resolve) }; return q;
+  const q = { select: () => q, order: () => q, range: () => q, eq: (key: string, value: string) => { values = values.filter(row => row[key] === value); return q; }, in: (key: string, allowed: string[]) => { values = values.filter(row => allowed.includes(String(row[key]))); return q; }, maybeSingle: async () => ({ ...result(), data: values[0] ?? null }), then: (resolve: (r: ReturnType<typeof result>) => unknown) => Promise.resolve(result()).then(resolve) }; return q;
 } };
 beforeEach(() => { preferences = null; prefError = false; peerName = "Private Peer"; selfStage = "Approved"; peerStage = "Approved"; peerMoveOut = undefined; });
 it("redacts peers before the server passes house details to the browser", async () => {

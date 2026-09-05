@@ -1671,6 +1671,43 @@ verification for a state statute — and neither is `leases/seattle/sample-lease
 is a rendered sample carrying the same unverified citations. The regression test proves an
 unset citation still renders the returned-payment clause without a Washington citation.
 
+### Mandatory-law terms the document may not contradict
+
+Two clauses used to assert commercial terms that mandatory law displaces, so both are
+now qualified rather than promised, in the compact room lease AND the full long form:
+
+- **End of a fixed term.** The document no longer says the agreement "automatically
+  terminates" and no longer names an invented noon move-out hour (no listing field
+  supplies one). It states that the tenancy does not automatically continue
+  month-to-month and that ending, renewing or not renewing is subject to applicable
+  renewal-offer, just-cause and notice law. `renewalOfferParagraph` carries a local
+  renewal duty where one was READ from a primary source; Seattle sets it (a reasonable
+  renewal offer 60-90 days before the term ends absent lawful just cause,
+  <https://www.seattle.gov/rentinginseattle/renters/moving-in/types-of-rental-agreements>
+  and
+  <https://www.seattle.gov/construction-and-inspections/codes/common-code-questions/rental-agreements>),
+  statewide Washington and California set nothing and therefore assert nothing.
+- **Payment application order.** RCW 59.18.283 requires a payment to be applied to RENT
+  first (<https://app.leg.wa.gov/RCW/default.aspx?cite=59.18.283>), and the clause used
+  to put damage, utilities and fees ahead of it. Rent is now first everywhere, the
+  statute is cited only where `rentFirstPaymentApplicationStatuteRef` is set from a
+  verified source, and the clause defers to any law prescribing a different order.
+- **Notices.** Routine communication may be emailed or sent through the portal; a notice
+  for which the law prescribes a method of service must be served that way, and
+  electronic delivery alone does not satisfy it.
+
+No fee, amount or ledger behaviour changed. Coverage:
+`tests/unit/lease-mandatory-law-terms.test.ts`.
+
+### Payment instructions read the NORMALIZED listing
+
+Zelle and Venmo are retired product-wide. `normalizeManagerListingSubmissionV1` now forces
+`zellePaymentsEnabled` / `venmoPaymentsEnabled` off in its OUTPUT (the stored contacts
+survive) — it spreads the raw submission, so without that a legacy listing row carried a
+stale `true` straight into a lease clause promising a channel the portal no longer
+accepts. `build-lease-html.ts` reads `subNorm`, never `ctx.listingSubmission`, for the
+payment-method sentence. Signed documents are untouched.
+
 ### Deliberately deferred clauses
 
 - The reference's fourteen-day delayed-possession termination, its 14-day move-in report

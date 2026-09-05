@@ -114,3 +114,37 @@ it("keeps the same photo across a conflict refresh and retries with the fresh re
   expect(body.get("revision")).toBe("2"); expect(body.get("file")).toBe(photo.file);
   expect(capture).toHaveBeenCalledTimes(1);
 });
+
+/**
+ * A recovered local draft must never be merged into a report the server has since
+ * frozen: the stored copy is the record both parties acknowledged, and overlaying
+ * unsent notes onto it made the preview and the download lie about what was filed.
+ */
+it("keeps a completed server report authoritative and holds recovered notes aside", async () => {
+  mount();
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Never sent" } });
+  cleanup(); // Browser/native back before the typing pause retains the draft.
+
+  const completed = structuredClone(detail);
+  completed.report.status = "completed";
+  completed.report.revision = 4;
+  detail = completed;
+  render(<InspectionEditor initial={detail} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+
+  // The authoritative document shows nothing that was never sent.
+  fireEvent.click(screen.getByRole("button", { name: "View document" }));
+  expect(screen.queryByText("Never sent")).toBeNull();
+  await pause();
+  expect(request).not.toHaveBeenCalled();
+
+  // Downloading the filed report must not attempt a write against a locked row.
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Download document" })); });
+  expect(request).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "Retry save" })).toBeNull();
+
+  // The unsent material stays recoverable, and separately labelled.
+  fireEvent.click(screen.getByRole("button", { name: /Unsent notes and photos/ }));
+  expect(screen.getByText("Never sent")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Discard unsent notes" }));
+  expect(screen.queryByText("Never sent")).toBeNull();
+});
