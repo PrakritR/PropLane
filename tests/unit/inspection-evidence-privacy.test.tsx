@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { reportFixture } from "../helpers/inspection-fixture";
 
@@ -25,6 +25,7 @@ it.each(["draft", "completed"] as const)("excludes %s evidence and notes from au
     }
   }
   const { container } = render(<InspectionEditor initial={{ report, baseline, canEdit: true }} role="manager" userId="manager" onBack={vi.fn()} onChanged={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /Bedroom \/ private room/ }));
   for (const link of container.querySelectorAll("a[href*='token=']")) {
     expect(link.closest(".ph-no-capture.ph-no-record")).not.toBeNull();
     expect(link.querySelector("img")?.closest(".ph-no-capture.ph-no-record")).not.toBeNull();
@@ -36,5 +37,5 @@ it.each(["draft", "completed"] as const)("excludes %s evidence and notes from au
   const ownNotes = status === "draft" ? screen.getByRole("textbox") : screen.getByText("Current manager private notes");
   expect(ownNotes.closest(".ph-no-capture.ph-no-record")).not.toBeNull();
   // Non-sensitive workflow actions remain observable.
-  expect(screen.getByRole("button", { name: "Back to inspections" }).closest(".ph-no-capture, .ph-no-record")).toBeNull();
+  expect(screen.getByRole("button", { name: "Back to room sections" }).closest(".ph-no-capture, .ph-no-record")).toBeNull();
 });
