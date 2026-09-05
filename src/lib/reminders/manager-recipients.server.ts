@@ -101,14 +101,18 @@ export async function loadTeamReminderRecipients(
       const id = String((row as { invitee_user_id?: unknown }).invitee_user_id ?? "").trim();
       if (!id) continue;
       inviteeIds.push(id);
+      const assignedPropertyIds = Array.isArray(
+        (row as { assigned_property_ids?: unknown }).assigned_property_ids,
+      )
+        ? ((row as { assigned_property_ids: unknown[] }).assigned_property_ids
+            .map((value) => String(value ?? "").trim())
+            .filter(Boolean) as string[])
+        : [];
       scopeByUserId.set(id, {
-        assignedPropertyIds: Array.isArray((row as { assigned_property_ids?: unknown }).assigned_property_ids)
-          ? ((row as { assigned_property_ids: unknown[] }).assigned_property_ids
-              .map((value) => String(value ?? "").trim())
-              .filter(Boolean) as string[])
-          : [],
+        assignedPropertyIds,
         permissions: normalizePropertyCoManagerPermissions(
           (row as { property_co_manager_permissions?: unknown }).property_co_manager_permissions,
+          assignedPropertyIds,
         ),
       });
     }

@@ -68,7 +68,12 @@ export function portalMessageSelectionFromDeliverVia(
   if (channels.viaEmail) selected.push("email");
   if (channels.viaSms && smsAvailable) selected.push("sms");
   if (selected.length > 0) return selected;
-  return ["proplane", ...(smsAvailable ? ["sms"] : ["email"])];
+  // Every channel is off in the saved settings. The old fallback re-ticked
+  // PropLane and preselected SMS, contradicting the manager's own choice and
+  // pre-arming a channel they had switched off. PropLane alone is the least
+  // surprising floor: the message still has somewhere to land, and nothing
+  // leaves the product without the manager ticking it.
+  return ["proplane"];
 }
 
 export const MANAGER_COMMUNICATION_SEND_VIA_SECTIONS = [

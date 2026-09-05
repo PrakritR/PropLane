@@ -29,16 +29,28 @@ const targets = paths.length ? paths : ["/", "/auth/sign-in"];
  * silently invisible, so a NEW color or a genuinely different failure still
  * fails loud.
  */
+// Each entry pins the exact PAIR that was measured and accepted. An entry
+// without a background would accept --pl-blue on ANY surface, including a
+// mid-grey at 2:1 that nobody reviewed — broader than the reasoning above, and
+// silently passing. minRatio is the floor the reviewed cases actually met, so a
+// genuinely worse instance of the same pair still fails.
 const ACCEPTED_EXCEPTIONS = [
-  { fgColor: "#2f6bff", reason: "--pl-blue small text, accepted 2026-09-04" },
-  { fgColor: "#ffffff", bgColor: "#2f6bff", reason: "white on --pl-blue (buttons), accepted 2026-09-04" },
+  { fgColor: "#2f6bff", bgColor: "#ffffff", minRatio: 4.4, reason: "--pl-blue small text on white, accepted 2026-09-04" },
+  { fgColor: "#2f6bff", bgColor: "#fafafa", minRatio: 4.4, reason: "--pl-blue small text on off-white, accepted 2026-09-04" },
+  { fgColor: "#ffffff", bgColor: "#2f6bff", minRatio: 3.5, reason: "white on --pl-blue (buttons), accepted 2026-09-04" },
 ];
 
 function acceptedException(node) {
   const data = node.any?.[0]?.data;
   const fg = typeof data?.fgColor === "string" ? data.fgColor.toLowerCase() : undefined;
   const bg = typeof data?.bgColor === "string" ? data.bgColor.toLowerCase() : undefined;
-  return ACCEPTED_EXCEPTIONS.find((e) => fg === e.fgColor && (!e.bgColor || bg === e.bgColor));
+  const ratio = typeof data?.contrastRatio === "number" ? data.contrastRatio : undefined;
+  return ACCEPTED_EXCEPTIONS.find(
+    (e) =>
+      fg === e.fgColor &&
+      bg === e.bgColor &&
+      (e.minRatio === undefined || (ratio !== undefined && ratio >= e.minRatio)),
+  );
 }
 
 const browser = await chromium.launch();

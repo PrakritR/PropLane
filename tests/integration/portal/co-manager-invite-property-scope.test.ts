@@ -148,7 +148,12 @@ describe("co-manager invite property scope", () => {
       );
       const { status, data } = await parseJsonResponse<{ error?: string }>(res);
       expect(status).toBe(403);
-      expect(data.error).toMatch(/only assign properties you manage/i);
+      // Pin the SUBSTANCE, not the sentence: the refusal must name the property
+      // it refused, which is what makes a multi-select recoverable (PRP-210).
+      // The old wording ("only assign properties you manage") was deliberately
+      // replaced, and asserting the copy verbatim failed while the guard itself
+      // was working perfectly.
+      expect(data.error).toContain(VICTIM);
     });
 
     it("rejects a mixed list that smuggles one unowned id alongside owned ones", async () => {
@@ -220,7 +225,12 @@ describe("co-manager invite property scope", () => {
       );
       const { status, data } = await parseJsonResponse<{ error?: string }>(res);
       expect(status).toBe(403);
-      expect(data.error).toMatch(/only assign properties you manage/i);
+      // Pin the SUBSTANCE, not the sentence: the refusal must name the property
+      // it refused, which is what makes a multi-select recoverable (PRP-210).
+      // The old wording ("only assign properties you manage") was deliberately
+      // replaced, and asserting the copy verbatim failed while the guard itself
+      // was working perfectly.
+      expect(data.error).toContain(VICTIM);
     });
 
     /**

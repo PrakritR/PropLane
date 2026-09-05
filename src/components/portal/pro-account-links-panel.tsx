@@ -323,17 +323,23 @@ function CoManagerPermissionsEditor({
 
   const setLevels = (id: CoManagerPermissionId, levels: GrantLevels) => {
     const next = { ...value };
-    // The readWrite editor shows no Delete control, but dropping the level
-    // outright meant an existing delete grant was revoked the moment ANY level
-    // on that module was toggled. Carry the stored value through untouched.
+    // The readWrite editor shows no Delete control. Dropping the level outright
+    // revoked an existing delete grant the moment ANY level was toggled, but
+    // carrying it through unconditionally made it UNREVOCABLE — every toggle
+    // rewrote a grant that still contained delete, and read is derived from it.
+    // Carry it only while the module is still granted; clearing read and write
+    // removes the module outright, delete included.
     const normalized: GrantLevels =
       variant === "readWrite"
-        ? {
-            read: levels.read,
-            edit: levels.edit,
-            delete: grantToLevels(value[id]).delete,
-            notification: levels.notification,
-          }
+        ? levels.read || levels.edit || levels.notification
+          ? {
+              read: levels.read,
+              edit: levels.edit,
+              delete:
+                levels.read || levels.edit ? grantToLevels(value[id]).delete : undefined,
+              notification: levels.notification,
+            }
+          : {}
         : levels;
     const grant = levelsToGrant(normalized);
     if (grant === undefined) delete next[id];
@@ -382,10 +388,8 @@ function CoManagerPermissionsEditor({
                 <PermissionLevelToggle
                   label="Read"
                   active={Boolean(levels.read)}
-                  disabled={disabled || Boolean(levels.edit) || Boolean(levels.delete)}
-                  title={
-                    levels.edit || levels.delete ? "Write access includes read." : undefined
-                  }
+                  disabled={disabled || Boolean(levels.edit)}
+                  title={levels.edit ? "Write access includes read." : undefined}
                   dataAttr={`co-manager-${id}-read`}
                   onToggle={() =>
                     setLevels(

@@ -1034,7 +1034,14 @@ export function ManagerFinancesPanel({
           ) : (
           <div className="space-y-3">
             {filteredReport.rows.length === 0 ? (
-              <PortalDataTableEmpty message="No finance entries match your search or filters." icon="finance" />
+              <PortalDataTableEmpty
+                message={
+                  (report?.rows.length ?? 0) > 0
+                    ? "No finance entries match your search or filters."
+                    : "No finance entries yet."
+                }
+                icon="finance"
+              />
             ) : (
                 <FinancesDataTable
                   report={filteredReport}
@@ -1048,7 +1055,11 @@ export function ManagerFinancesPanel({
           )
         ) : isTransactionTab ? (
           <PortalRecordListSurface isEmpty add={financesListAddRow} dataAttr="finances-transaction-list" />
-        ) : null}
+        ) : (
+          // A report tab (trial balance, GL, cash flow) whose report is null and
+          // is not loading used to render an empty body with no explanation.
+          <PortalDataTableEmpty message="No data for this report yet." icon="finance" />
+        )}
       </div>
       )}
 

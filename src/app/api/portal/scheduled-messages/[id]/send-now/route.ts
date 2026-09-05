@@ -117,7 +117,21 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
     });
 
     if (!result.sent) {
-      return NextResponse.json({ error: result.error ?? "Could not send reminder." }, { status: 400 });
+      // These are internal reason codes, not copy — a manager shown the literal
+      // "no_channel_enabled" learns nothing and cannot act on it.
+      const REASON_MESSAGES: Record<string, string> = {
+        no_channel_enabled:
+          "No delivery channel is switched on for payment reminders. Turn on PropLane, email or SMS in Settings.",
+        no_channel_delivered: "The reminder could not be delivered on any channel. Please try again.",
+        email_failed_no_other_channel:
+          "The email could not be sent, and no other channel is available for this resident.",
+        charge_paid: "That charge has already been paid.",
+      };
+      const reason = result.error ?? "";
+      return NextResponse.json(
+        { error: REASON_MESSAGES[reason] ?? "Could not send reminder." },
+        { status: 400 },
+      );
     }
     return NextResponse.json({ ok: true });
   } catch (e) {

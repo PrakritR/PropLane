@@ -517,11 +517,16 @@ export async function POST(req: Request) {
         }
       }
     }
+    // The sender's explicit choice SUPPRESSES in both modes. With an
+    // eventCategory set, each recipient's saved preference decides — which
+    // meant unticking Email in Send via was ignored and the mail went anyway.
+    // Turning a channel ON still defers to the recipient's preference rather
+    // than overriding it; only OFF is absolute.
     const emailWanted = (email: string): boolean =>
-      eventCategory ? channelByEmail.get(email)?.email === true : deliverViaEmail;
-    const anySmsWanted = eventCategory
-      ? recipients.some((r) => channelByEmail.get(r.email)?.sms === true)
-      : deliverViaSms;
+      deliverViaEmail && (eventCategory ? channelByEmail.get(email)?.email === true : true);
+    const anySmsWanted =
+      deliverViaSms &&
+      (eventCategory ? recipients.some((r) => channelByEmail.get(r.email)?.sms === true) : true);
 
     // All non-sandbox recipient emails — sandbox accounts skip Resend.
     // NOTE: endsWith("@axis.local") alone is wrong for "@test.proplane.local".
