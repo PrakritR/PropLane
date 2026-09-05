@@ -122,6 +122,34 @@ export function waiverGrantedFromPromoCode(promoCode: string | null | undefined)
   return isWaiverGrantedManagerPurchase(promoCode);
 }
 
+export function resolveAccountOrListingWaiverGranted(
+  accountPromoCode: string | null | undefined,
+  listingWaiverCode?: string | null,
+): boolean {
+  return waiverGrantedFromPromoCode(accountPromoCode) || listingPaymentWaiverCodeMatches(listingWaiverCode);
+}
+
+/** Per-listing waiver code accepted on the Pricing step (Free + PropLane absorb). */
+export const LISTING_PAYMENT_WAIVER_CODE = "FREE100";
+
+export function normalizeListingPaymentWaiverCode(code: string): string {
+  return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+export function listingPaymentWaiverCodeMatches(code: string | null | undefined): boolean {
+  const normalized = normalizeListingPaymentWaiverCode(code ?? "");
+  return normalized.length > 0 && normalized === LISTING_PAYMENT_WAIVER_CODE;
+}
+
+/** Free-tier PropLane absorb without an account-level waiver needs a per-listing code. */
+export function listingProplaneAbsorbNeedsWaiverCode(
+  tier: ManagerSkuTier,
+  serviceFeePayer: ServiceFeePayer | null | undefined,
+  accountWaiverGranted: boolean,
+): boolean {
+  return tier === "free" && !accountWaiverGranted && serviceFeePayer === "proplane";
+}
+
 /**
  * Who pays the processing fee on one payment.
  *

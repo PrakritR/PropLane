@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { validateListingWizardStep } from "@/lib/listing-wizard-validation";
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import {
+  listingPaymentWaiverCodeMatches,
+  listingProplaneAbsorbNeedsWaiverCode,
   listingServiceFeePayerUiValue,
   managerCanSelectManagerAbsorbServiceFee,
   managerCanSelectProplaneServiceFee,
@@ -21,5 +25,48 @@ describe("listing service fee payer UI helpers", () => {
     expect(listingServiceFeePayerUiValue(null, "pro", false)).toBe("proplane");
     expect(listingServiceFeePayerUiValue(null, "free", false)).toBe("resident");
     expect(listingServiceFeePayerUiValue(null, "free", true)).toBe("proplane");
+  });
+
+  it("requires a per-listing waiver code on Free when PropLane absorb is selected", () => {
+    expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", false)).toBe(true);
+    expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", true)).toBe(false);
+    expect(listingProplaneAbsorbNeedsWaiverCode("pro", "proplane", false)).toBe(false);
+  });
+
+  it("accepts only FREE100 as the listing waiver code", () => {
+    expect(listingPaymentWaiverCodeMatches("free100")).toBe(true);
+    expect(listingPaymentWaiverCodeMatches("FREE 100")).toBe(true);
+    expect(listingPaymentWaiverCodeMatches("wrong")).toBe(false);
+  });
+});
+
+describe("listing wizard pricing — service fee waiver", () => {
+  it("blocks PropLane absorb on Free without a valid waiver code", () => {
+    const sub = {
+      ...createDefaultListingSubmission(),
+      listingPlaceCategoryId: "individual_rooms",
+      allowedLeaseTerms: ["12_month"],
+      serviceFeePayer: "proplane" as const,
+    };
+    const errors = validateListingWizardStep(4, sub, {
+      managerSkuTier: "free",
+      accountPaymentWaiverGranted: false,
+    });
+    expect(errors.serviceFeeWaiverCode).toMatch(/FREE100/);
+  });
+
+  it("allows PropLane absorb on Free when the listing waiver code matches", () => {
+    const sub = {
+      ...createDefaultListingSubmission(),
+      listingPlaceCategoryId: "individual_rooms",
+      allowedLeaseTerms: ["12_month"],
+      serviceFeePayer: "proplane" as const,
+      serviceFeeWaiverCode: "FREE100",
+    };
+    const errors = validateListingWizardStep(4, sub, {
+      managerSkuTier: "free",
+      accountPaymentWaiverGranted: false,
+    });
+    expect(errors.serviceFeeWaiverCode).toBeUndefined();
   });
 });

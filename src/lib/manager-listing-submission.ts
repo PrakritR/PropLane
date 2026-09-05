@@ -486,6 +486,11 @@ export type ManagerListingSubmissionV1 = {
    * Still subject to the plan rule and to any staff override; see `resolveServiceFeePayerFor`.
    */
   serviceFeePayer?: "resident" | "manager" | "proplane" | null;
+  /**
+   * Per-listing payment-waiver code (e.g. FREE100) that unlocks PropLane-absorbed
+   * processing fees on the Free plan. Ignored unless `serviceFeePayer` is `proplane`.
+   */
+  serviceFeeWaiverCode?: string | null;
   /** Automatically assess a late fee after grace period on overdue rent/utilities. Default on. */
   lateFeeEnabled?: boolean;
   /** Days after due date before a late fee charge is created. Default 5. */
@@ -1674,6 +1679,11 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
       sub.serviceFeePayer === "resident" || sub.serviceFeePayer === "manager" || sub.serviceFeePayer === "proplane"
         ? sub.serviceFeePayer
         : null,
+    serviceFeeWaiverCode: (() => {
+      if (sub.serviceFeePayer !== "proplane") return undefined;
+      const raw = typeof sub.serviceFeeWaiverCode === "string" ? sub.serviceFeeWaiverCode.trim() : "";
+      return raw ? raw.toUpperCase().replace(/\s+/g, "") : undefined;
+    })(),
     lateFeeEnabled: sub.lateFeeEnabled !== false,
     lateFeeGraceDays: (() => {
       const n = Number(sub.lateFeeGraceDays ?? 5);
@@ -2270,6 +2280,7 @@ export function createDefaultListingSubmission(): ManagerListingSubmissionV1 {
     houseMoveInVideoDataUrl: null,
     rentDueDayMode: "first_of_month",
     serviceFeePayer: null,
+    serviceFeeWaiverCode: undefined,
     lateFeeEnabled: true,
     lateFeeGraceDays: 5,
     lateFeeAmount: "50",

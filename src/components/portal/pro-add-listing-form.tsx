@@ -67,9 +67,10 @@ import {
 } from "@/lib/manager-access";
 import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
 import {
+  listingProplaneAbsorbNeedsWaiverCode,
   listingServiceFeePayerUiValue,
   managerCanSelectManagerAbsorbServiceFee,
-  managerCanSelectProplaneServiceFee,
+  normalizeListingPaymentWaiverCode,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
 import {
@@ -1459,8 +1460,12 @@ export function ManagerAddListingForm({
   const [demoAutofillSubmitPending, setDemoAutofillSubmitPending] = useState(false);
   const [paymentWaiverGranted, setPaymentWaiverGranted] = useState(false);
   const managerSkuTier = normalizeManagerSkuTier(skuTier) ?? "free";
-  const canSelectProplaneFee = managerCanSelectProplaneServiceFee(managerSkuTier, paymentWaiverGranted);
   const canSelectManagerAbsorbFee = managerCanSelectManagerAbsorbServiceFee(managerSkuTier);
+  const proplaneAbsorbNeedsWaiverCode = listingProplaneAbsorbNeedsWaiverCode(
+    managerSkuTier,
+    sub.serviceFeePayer,
+    paymentWaiverGranted,
+  );
   const serviceFeePayerUi = listingServiceFeePayerUiValue(
     sub.serviceFeePayer,
     managerSkuTier,
@@ -1921,19 +1926,16 @@ export function ManagerAddListingForm({
   };
 
   const validateListingStep = (i: number): Record<string, string> =>
-    validateListingWizardStep(i, sub, { isEditMode, entireHomeRent, stFeeToggles, ltFeeToggles });
+    validateListingWizardStep(i, sub, {
+      isEditMode,
+      entireHomeRent,
+      stFeeToggles,
+      ltFeeToggles,
+      managerSkuTier,
+      accountPaymentWaiverGranted: paymentWaiverGranted,
+    });
 
-  const goNext = () => {
-    const errs = validateListingStep(stepIndex);
-    if (Object.keys(errs).length > 0) {
-      setStepFieldErrors(errs);
-      showToast("Please fix the highlighted fields before continuing.");
-      queueMicrotask(() =>
-        scrollToFirstWizardFieldError(buildListingStepFieldOrder(stepIndex, sub), errs, scrollRef.current),
-      );
-      return;
-    }
-    setStepFieldErrors({});
+  const advanceFromCurrentStep = () => {
     if (stepIndex === 0) {
       const slots = sub.listingBedroomSlots ?? sub.rooms.length;
       let nextSub = sub;
@@ -1995,6 +1997,26 @@ export function ManagerAddListingForm({
     const nextIdx = wizardSteps[pos + 1]!;
     setStepIndex(nextIdx);
     setMaxStepReached((m) => Math.max(m, nextIdx));
+  };
+
+  const goNext = () => {
+    const errs = validateListingStep(stepIndex);
+    if (Object.keys(errs).length > 0) {
+      setStepFieldErrors(errs);
+      showToast("Please fix the highlighted fields before continuing.");
+      queueMicrotask(() =>
+        scrollToFirstWizardFieldError(buildListingStepFieldOrder(stepIndex, sub), errs, scrollRef.current),
+      );
+      return;
+    }
+    setStepFieldErrors({});
+    if (!isEditMode && !isPreviewWizard) {
+      void persistDraftRef.current({ silent: true }).then((ok) => {
+        if (ok) advanceFromCurrentStep();
+      });
+      return;
+    }
+    advanceFromCurrentStep();
   };
 
   const goPrev = () => {
@@ -2930,7 +2952,14 @@ export function ManagerAddListingForm({
     // state `validateListingStFeeToggles` exists to prevent. That rate is not
     // cosmetic: `resolveStayPricing` reads it, and both the lease document and
     // the charge ledger read that.
-    const validateOpts = { isEditMode, entireHomeRent, stFeeToggles, ltFeeToggles };
+    const validateOpts = {
+      isEditMode,
+      entireHomeRent,
+      stFeeToggles,
+      ltFeeToggles,
+      managerSkuTier,
+      accountPaymentWaiverGranted: paymentWaiverGranted,
+    };
     const invalid = (() => {
       if (!isPreviewWizard) return firstInvalidListingStep(sub, validateOpts, 5);
       for (const i of wizardSteps) {
@@ -4351,25 +4380,45 @@ export function ManagerAddListingForm({
                         const raw = e.target.value;
                         const next: ServiceFeePayer =
                           raw === "proplane" || raw === "manager" || raw === "resident" ? raw : "resident";
-                        if (next === "proplane" && !canSelectProplaneFee) return;
                         if (next === "manager" && !canSelectManagerAbsorbFee) return;
-                        setSub((s) => ({ ...s, serviceFeePayer: next }));
+                        setSub((s) => ({
+                          ...s,
+                          serviceFeePayer: next,
+                          serviceFeeWaiverCode: next === "proplane" ? s.serviceFeeWaiverCode : undefined,
+                        }));
                       }}
                     >
                       <option value="resident">Resident pays</option>
                       <option value="manager" disabled={!canSelectManagerAbsorbFee}>
                         Manager pays{canSelectManagerAbsorbFee ? "" : " (needs paid plan)"}
                       </option>
-                      <option value="proplane" disabled={!canSelectProplaneFee}>
-                        PropLane absorbs
-                        {canSelectProplaneFee && managerSkuTier === "free" ? " (FREE100)" : ""}
-                        {!canSelectProplaneFee ? " (needs FREE100 or paid plan)" : ""}
-                      </option>
+                      <option value="proplane">PropLane absorbs</option>
                     </Select>
-                    <p className="mt-1 text-xs text-muted">
-                      Applies to this property only. Resident payments deposit to the property owner&apos;s bank
-                      account. PropLane absorb on Free requires the FREE100 waiver code on your account.
-                    </p>
+                    {proplaneAbsorbNeedsWaiverCode ? (
+                      <div className="mt-2">
+                        <FieldLabel>Waiver code</FieldLabel>
+                        <Input
+                          value={sub.serviceFeeWaiverCode ?? ""}
+                          onChange={(e) =>
+                            setSub((s) => ({
+                              ...s,
+                              serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value),
+                            }))
+                          }
+                          placeholder="FREE100"
+                          autoComplete="off"
+                          aria-invalid={Boolean(stepFieldErrors.serviceFeeWaiverCode)}
+                          aria-describedby={
+                            stepFieldErrors.serviceFeeWaiverCode ? "listing-service-fee-waiver-error" : undefined
+                          }
+                        />
+                        {stepFieldErrors.serviceFeeWaiverCode ? (
+                          <p id="listing-service-fee-waiver-error" className="mt-1 text-xs text-destructive">
+                            {stepFieldErrors.serviceFeeWaiverCode}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </GridField>
                   <GridField>
                     <FieldLabel>Late fee grace (days)</FieldLabel>

@@ -78,7 +78,13 @@ export async function POST(req: Request) {
 
     const ownerUserId = resolved.value.managerUserId;
     const channel = body.channel === "manual" ? "manual" : "card";
-    const itemization = await resolveApplicationFeeItemization(db, ownerUserId, resolved.value.applicationFeeCents, channel);
+    const itemization = await resolveApplicationFeeItemization(
+      db,
+      ownerUserId,
+      resolved.value.applicationFeeCents,
+      channel,
+      resolved.value.listing,
+    );
 
     const managerSettings = await loadManagerApplicationSettings(db, ownerUserId);
 

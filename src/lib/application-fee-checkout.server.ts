@@ -11,6 +11,7 @@ import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-s
 import { parseMoneyAmount } from "@/lib/parse-money";
 import {
   residentServiceFeeBreakdown,
+  resolveAccountOrListingWaiverGranted,
   resolveServiceFeePayerFor,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
@@ -181,6 +182,7 @@ export async function resolveApplicationFeeItemization(
   managerUserId: string,
   applicationFeeCents: number,
   channel: "card" | "manual" = "card",
+  listing?: ManagerListingSubmissionV1 | null,
 ): Promise<ApplicationFeeItemization> {
   const { tier: managerTierRaw, promoCode } = await getManagerPurchaseSku(managerUserId);
   const managerTier = normalizeManagerSkuTier(managerTierRaw) ?? "free";
@@ -188,8 +190,9 @@ export async function resolveApplicationFeeItemization(
   const feePayer = resolveServiceFeePayerFor({
     tier: managerTier,
     adminOverride: managerSettings.adminServiceFeeOverride,
+    propertyChoice: listing?.serviceFeePayer ?? null,
     managerChoice: managerSettings.serviceFeePayer,
-    waiverGranted: Boolean(promoCode?.trim()),
+    waiverGranted: resolveAccountOrListingWaiverGranted(promoCode, listing?.serviceFeeWaiverCode),
   });
   const fee =
     channel === "manual" || applicationFeeCents <= 0
@@ -253,7 +256,7 @@ export async function createApplicationFeeCheckout(
     };
   }
 
-  const itemization = await resolveApplicationFeeItemization(db, managerUserId, applicationFeeCents);
+  const itemization = await resolveApplicationFeeItemization(db, managerUserId, applicationFeeCents, "card", listing);
 
   const metadata: Record<string, string> = {
     purpose: APPLICATION_FEE_CHECKOUT_PURPOSE,

@@ -84,6 +84,7 @@ export const LISTING_STEP_FIELD_ORDER: Record<number, string[]> = {
     "zelleContact",
     "venmoContact",
     "residentPaymentMethods",
+    "serviceFeeWaiverCode",
   ],
 };
 

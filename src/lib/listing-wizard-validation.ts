@@ -9,7 +9,11 @@ import {
 } from "@/lib/listing-fee-term-toggles";
 import { validateListingBundleShortTermPricing } from "@/lib/listing-bundle-short-term";
 import { isEntireHomeListing, resolveAllowedLeaseTerms, type ManagerListingSubmissionV1, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
-import { LISTING_STEP_FIELD_ORDER } from "@/lib/wizard-field-errors";
+import type { ManagerSkuTier } from "@/lib/manager-access";
+import {
+  listingPaymentWaiverCodeMatches,
+  listingProplaneAbsorbNeedsWaiverCode,
+} from "@/lib/payment-policy";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
 export function listingRoomNameKey(roomId: string): string {
@@ -53,6 +57,9 @@ export type ListingWizardValidateOptions = {
   stFeeToggles?: ListingStFeeToggles;
   /** LT fee checkbox state from the unified Fees table (defaults derived from submission). */
   ltFeeToggles?: ListingLtFeeToggles;
+  managerSkuTier?: ManagerSkuTier;
+  /** Account-level FREE100 (or other) waiver from manager_purchases.promo_code. */
+  accountPaymentWaiverGranted?: boolean;
 };
 
 export function validateListingWizardStep(
@@ -131,8 +138,16 @@ export function validateListingWizardStep(
       Object.assign(errs, validateListingStFeeToggles(sub, opts.stFeeToggles, true));
     }
     Object.assign(errs, validateListingBundleShortTermPricing(sub));
-    // Resident payment methods (Stripe ACH / Zelle / Venmo) are configured once
-    // in Payment setup and synced onto listings — not validated on the Pricing step.
+
+    const tier = opts.managerSkuTier ?? "free";
+    const accountWaiver = opts.accountPaymentWaiverGranted === true;
+    if (
+      listingProplaneAbsorbNeedsWaiverCode(tier, sub.serviceFeePayer, accountWaiver) &&
+      !listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
+    ) {
+      errs.serviceFeeWaiverCode = "Enter a valid waiver code (FREE100).";
+    }
+    // Resident payment methods (Stripe ACH / card) are configured in Payment setup.
   }
 
   return errs;

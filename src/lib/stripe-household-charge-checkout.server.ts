@@ -7,6 +7,7 @@ import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
 import {
   axisPaymentsEnabledOnListing,
+  resolveAccountOrListingWaiverGranted,
   resolveServiceFeePayerFor,
   type ResidentAxisPaymentMethod,
 } from "@/lib/payment-policy";
@@ -59,6 +60,7 @@ export type LoadedHouseholdChargeForCheckout = {
    * total is billed.
    */
   propertyFeePayer?: "resident" | "manager" | "proplane" | null;
+  propertyFeeWaiverCode?: string | null;
 };
 
 /**
@@ -131,7 +133,13 @@ export async function loadHouseholdChargesForCheckout(
       };
     }
 
-    loaded.push({ id, charge, managerUserId, propertyFeePayer: listing?.serviceFeePayer ?? null });
+    loaded.push({
+      id,
+      charge,
+      managerUserId,
+      propertyFeePayer: listing?.serviceFeePayer ?? null,
+      propertyFeeWaiverCode: listing?.serviceFeeWaiverCode ?? null,
+    });
   }
 
   const managerIds = [...new Set(loaded.map((row) => row.managerUserId))];
@@ -205,7 +213,7 @@ export async function createHouseholdChargeCheckout(
       adminOverride: managerSettings.adminServiceFeeOverride,
       propertyChoice: loaded[0]?.propertyFeePayer ?? null,
       managerChoice: managerSettings.serviceFeePayer,
-      waiverGranted: Boolean(promoCode?.trim()),
+      waiverGranted: resolveAccountOrListingWaiverGranted(promoCode, loaded[0]?.propertyFeeWaiverCode),
     });
     const stripe = getStripe();
     const connect = await resolveAndValidateManagerConnectForPayments(stripe, db, managerUserId);
