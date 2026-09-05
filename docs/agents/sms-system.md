@@ -596,6 +596,27 @@ carrying an `eventCategory` still checks each recipient's saved SMS preference
 `sendFromManagerWorkNumber` and refuse the whole send when the manager has no
 work number yet — details in `AGENTS.md` → Sharing listings to a prospect.
 
+## Portal Communication sends can fan out to SMS (`/api/portal/send-inbox-message`)
+
+A portal message with the SMS channel on picks its transport from the SENDER's
+role, so a resident/vendor reply never has to be read in the browser to be seen:
+
+- **Manager sender** → unchanged: the recipient is texted from the manager's own
+  work number (`sms_from_number`).
+- **Resident sender with a verified phone** → routed into that manager's Claw
+  resident thread (`findThreadByResidentPhone`, else `openClawResidentThread`)
+  and forwarded with `forwardResidentMessageToManagers`, so the text lands in the
+  SAME conversation as the resident's other inbound SMS rather than a new one.
+- **Vendor sender (and a resident with no verified phone)** → `sendPropLaneSms`
+  to the manager's verified cell, prefixed `(Vendor <name>)` / `(Resident)`.
+
+Only recipients whose role is manager/pro/admin/owner are texted, and a send
+carrying an `eventCategory` still checks each recipient's saved SMS preference
+(legacy category-less sends text every eligible manager). Manager-initiated prospect shares
+(`/api/portal/send-lead-invite`) text from the work number via
+`sendFromManagerWorkNumber` and refuse the whole send when the manager has no
+work number yet — details in `AGENTS.md` → Sharing listings to a prospect.
+
 ## Consent + quiet hours are transport-level (never bypassed)
 
 When `SMS_RUNTIME_ENABLED=1` and `SMS_OUTBOX_SCHEDULER_READY=1`, every
