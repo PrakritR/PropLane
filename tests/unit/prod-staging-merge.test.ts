@@ -93,7 +93,10 @@ describe("assertCloneEndpoint", () => {
         kind: "staging",
         url: `https://${PROD_REF}.supabase.co`,
       }),
-    ).toThrow(/must not name the live production/);
+      // Pin the REFUSAL, not the sentence: the guard rejects any endpoint that
+      // is not the staging project, and names the ref it requires. Asserting
+      // the exact wording made a working prod-write guard look broken.
+    ).toThrow(/staging endpoint must name/i);
   });
 
   it("accepts the production project as the read source", () => {
