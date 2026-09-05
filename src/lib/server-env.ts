@@ -75,20 +75,29 @@ export function paymentWaiverCodeMatches(promo: string): boolean {
   return normalized === normalizePaymentWaiverCode(active);
 }
 
+/** True when this deploy was built from the `staging` git branch. */
+export function isStagingGitRef(): boolean {
+  return process.env.VERCEL_GIT_COMMIT_REF?.trim() === "staging";
+}
+
 /**
- * Fail-closed guard against a non-production runtime (local dev, tests, preview)
- * accidentally pointing at the production Supabase project. Without this, a
- * stale local `.env` silently reads and writes the live database.
+ * Fail-closed guard against a non-production runtime (local dev, tests, preview,
+ * staging) accidentally pointing at the live production Supabase project.
+ * Without this, a stale local `.env` silently reads and writes the live database.
+ *
+ * Staging is included even when `VERCEL_ENV=production` is set by mistake: QA
+ * uses a production-shaped clone, never the live production project.
  *
  * The production project ref is supplied out-of-band via the optional
  * AXIS_PROD_SUPABASE_REF env var (set it in the Vercel Production scope and in
  * local `.env` files). When unset, the guard is a no-op so the check never
  * blocks environments that have not opted in.
  *
- * Throws when a non-production runtime targets the production project.
+ * Throws when a non-production runtime (or the staging branch) targets the
+ * production project.
  */
 export function assertNonProdDatabase(): void {
-  if (isProductionRuntime()) return;
+  if (isProductionRuntime() && !isStagingGitRef()) return;
 
   const prodRef = process.env.AXIS_PROD_SUPABASE_REF?.trim();
   if (!prodRef) return;
@@ -100,7 +109,7 @@ export function assertNonProdDatabase(): void {
     throw new Error(
       `Refusing to start: NEXT_PUBLIC_SUPABASE_URL points at the production ` +
         `Supabase project (${prodRef}) from a non-production runtime. Local ` +
-        `dev and tests must use the dev/test project. See ` +
+        `dev, preview, and staging must not use the live production project. See ` +
         `docs/database-environments.md.`,
     );
   }

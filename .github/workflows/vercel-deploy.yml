@@ -1,6 +1,7 @@
-# Deploy to Vercel on every push to main (Preview) or production (live).
-# Backup when the Vercel Git webhook misses a push. If VERCEL_TOKEN is unset,
-# this workflow skips cleanly — native Vercel Git integration still deploys.
+# Deploy to Vercel on every push to main (dev Preview), staging (QA Preview),
+# or production (live). Backup when the Vercel Git webhook misses a push.
+# If VERCEL_TOKEN is unset, this workflow skips cleanly — native Vercel Git
+# integration still deploys.
 #
 # Optional GitHub secrets (Settings → Secrets → Actions):
 #   VERCEL_TOKEN          — https://vercel.com/account/tokens (enables this workflow)
@@ -10,7 +11,7 @@ name: Vercel Deploy
 
 on:
   push:
-    branches: [main, production]
+    branches: [main, staging, production]
   workflow_dispatch:
 
 concurrency:
@@ -35,6 +36,7 @@ jobs:
     needs: check-secrets
     if: ${{ needs.check-secrets.outputs.configured == 'true' }}
     runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'production' && 'production' || github.ref_name == 'staging' && 'staging' || 'preview' }}
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
@@ -55,9 +57,25 @@ jobs:
         run: |
           if [ "${{ github.ref_name }}" = "production" ]; then
             vercel pull --yes --environment=production --token="${{ secrets.VERCEL_TOKEN }}"
+          elif [ "${{ github.ref_name }}" = "staging" ]; then
+            vercel pull --yes --environment=preview --git-branch=staging --token="${{ secrets.VERCEL_TOKEN }}"
           else
             vercel pull --yes --environment=preview --token="${{ secrets.VERCEL_TOKEN }}"
           fi
+
+      - name: Require non-production pulls to use the dev/test database
+        if: ${{ github.ref_name != 'production' }}
+        run: |
+          ENV_FILE=".vercel/.env.preview.local"
+          if [ ! -f "$ENV_FILE" ]; then
+            echo "missing $ENV_FILE after vercel pull" >&2
+            exit 1
+          fi
+          set -a
+          # shellcheck disable=SC1090
+          . "$ENV_FILE"
+          set +a
+          node scripts/assert-nonprod-supabase-url.mjs
 
       - name: Build
         run: |
@@ -83,4 +101,4 @@ jobs:
       - name: Vercel Git deploy only
         run: |
           echo "::notice::VERCEL_TOKEN is not set — skipping CLI deploy job."
-          echo "main → Vercel Preview and production → prop-lane.space still deploy via the Vercel Git integration."
+          echo "main/staging → Vercel Preview and production → prop-lane.space still deploy via the Vercel Git integration."

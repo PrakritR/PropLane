@@ -10,11 +10,12 @@ production without following it (unless the user explicitly waives a named step)
 
 ## When pushing / promoting to production
 
-1. **`main` is dev/staging (Vercel Preview).** Only **`git push origin production`**
-   updates the live site (`prop-lane.space`). Pushes to agent branches are skipped.
-2. Promote only via fast-forward: integrate on `main` → verify preview →
-   `git merge --ff-only main` on `production` → `git push origin production`.
-   Use `bash scripts/promote-main-to-production.sh` when available.
+1. **`main` is developer Preview (dev/test DB).** **`staging` is QA Preview
+   (staging Supabase `xwszcafaontidfgznlxd`).** Only **`git push origin production`** updates
+   the live site (`prop-lane.space`). Pushes to agent branches are skipped.
+2. Promote only via fast-forward along the ladder: integrate on `main` →
+   developers verify Preview → `npm run ship:staging` → dedicated QA →
+   `npm run ship:production`. Never ff `main` straight onto `production`.
 3. That **production** push must update **web (Vercel)** and **iOS (TestFlight)**:
    - Workflow: `.github/workflows/ios-testflight.yml` (runs on `push` to `production`).
    - After push, watch the **iOS TestFlight** GitHub Action until success (or report

@@ -54,7 +54,7 @@ new worktrees.
 | `docs/agents/captain-dev-workflow.md` | Every task — ticket → plan → execute |
 | `docs/linear-ticket-system.md` | Filing, labels, project folders, **priority & backlog sort** |
 | `docs/ship-gate.md` | Before promote / non-trivial finish |
-| `docs/agents/deployment-workflow.md` | `main` vs `production` |
+| `docs/agents/deployment-workflow.md` | `main` → `staging` → `production` |
 
 ### UI (read before portal changes)
 

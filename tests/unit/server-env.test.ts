@@ -58,6 +58,7 @@ describe("assertNonProdDatabase", () => {
     process.env = { ...originalEnv, NODE_ENV: "test", VERCEL_ENV: undefined };
     delete process.env.AXIS_PROD_SUPABASE_REF;
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.VERCEL_GIT_COMMIT_REF;
   });
 
   afterEach(() => {
@@ -85,6 +86,22 @@ describe("assertNonProdDatabase", () => {
     process.env.VERCEL_ENV = "production";
     process.env.AXIS_PROD_SUPABASE_REF = PROD_REF;
     process.env.NEXT_PUBLIC_SUPABASE_URL = `https://${PROD_REF}.supabase.co`;
+    expect(() => assertNonProdDatabase()).not.toThrow();
+  });
+
+  it("refuses the live production project on the staging branch even if VERCEL_ENV is production", () => {
+    process.env.VERCEL_ENV = "production";
+    process.env.VERCEL_GIT_COMMIT_REF = "staging";
+    process.env.AXIS_PROD_SUPABASE_REF = PROD_REF;
+    process.env.NEXT_PUBLIC_SUPABASE_URL = `https://${PROD_REF}.supabase.co`;
+    expect(() => assertNonProdDatabase()).toThrow(/staging/i);
+  });
+
+  it("allows staging to use a non-production project", () => {
+    process.env.VERCEL_ENV = "preview";
+    process.env.VERCEL_GIT_COMMIT_REF = "staging";
+    process.env.AXIS_PROD_SUPABASE_REF = PROD_REF;
+    process.env.NEXT_PUBLIC_SUPABASE_URL = `https://${DEV_REF}.supabase.co`;
     expect(() => assertNonProdDatabase()).not.toThrow();
   });
 });

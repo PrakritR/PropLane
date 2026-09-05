@@ -5,6 +5,7 @@
     "deploymentEnabled": {
       "**": false,
       "main": true,
+      "staging": true,
       "production": true
     }
   },

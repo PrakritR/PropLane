@@ -2,12 +2,10 @@ name: Test
 
 on:
   push:
-    # `prakrit` is the integration branch every lane merges through, so it is the
-    # one branch where breakage actually accumulates — yet it had no test trigger,
-    # and `main` sat red for days before anyone noticed. The browser jobs stay
-    # gated below (`e2e` on `main`, `e2e-full` on schedule/dispatch), so this adds
-    # unit + integration + lint + build only.
-    branches: [main, prakrit]
+    # Hermetic jobs (unit/lint/build) plus integration run on every push to the
+    # two integration rungs. Browser smoke stays gated below (`e2e` on `main`
+    # and `staging`; `e2e-full` on schedule/dispatch).
+    branches: [main, staging]
   pull_request:
   workflow_dispatch:
   schedule:
@@ -66,7 +64,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
 
-  # Fast production-path smoke for main. `--no-deps` skips the three storage-state
+  # Fast production-path smoke for main and staging. `--no-deps` skips the three storage-state
   # setup tests, but Playwright globalSetup still proves that the admin, manager,
   # and resident credentials can authenticate before these public flows run.
   # The complete 158-case suite is intentionally a separate scheduled/manual job:
@@ -81,7 +79,7 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 18
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -107,7 +105,7 @@ jobs:
           E2E_RESIDENT_PASSWORD: ${{ secrets.E2E_RESIDENT_PASSWORD }}
           E2E_TESTS_ENABLED: "1"
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      # This is the only per-push browser signal on `main`, so its failures are
+      # This is the only per-push browser signal on `main` / `staging`, so its failures are
       # the ones most likely to be read. Traces/screenshots/videos are written on
       # the runner and discarded with it unless they are uploaded.
       - uses: actions/upload-artifact@v4
@@ -178,8 +176,9 @@ jobs:
   # exactly what `npm run check` used to cover (lint + unit + build), so the
   # merge gate is unchanged in scope and only stopped duplicating the work.
   # Two jobs are deliberately absent, and both stay visible in CI on their own:
-  #   - `e2e` is skipped on pull requests and runs only after a push to `main`,
-  #     so depending on it would make `check` permanently red on every PR.
+  #   - `e2e` is skipped on pull requests and runs only after a push to `main`
+  #     or `staging`, so depending on it would make `check` permanently red on
+  #     every PR.
   #   - `integration` talks to the live dev/test Supabase project, so a paused
   #     project, a rotated service-role key, or a fork PR (which GitHub gives no
   #     secrets) would block every merge on infrastructure rather than on code.

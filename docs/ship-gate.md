@@ -1,19 +1,21 @@
 # Ship gate — web + iOS + reviews + feature testing
 
-Use this checklist whenever promoting `main` → `production`, or when finishing a
-substantial feature. Agents must follow it (see `AGENTS.md` and
+Use this checklist whenever promoting `staging` → `production`, or when finishing
+a substantial feature. Agents must follow it (see `AGENTS.md` and
 `.cursor/rules/ship-and-review-gate.mdc`).
 
-> **The ladder is `main` → `production`.** `prakrit` was retired when the
-> Production Branch flipped on Jul 25, 2026; do not merge new work into it. Any
-> `bin/fm-proplane-promote-prakrit-*` script is kept only for historical
-> reference.
+> **The ladder is `main` → `staging` → `production`.** `prakrit` is retired; do
+> not merge new work into it. Any `bin/fm-proplane-promote-prakrit-*` script is
+> kept only for historical reference. `scripts/promote-main-to-production.sh`
+> is retired and exits 1 — live ships from `staging`.
 
 ## Why
 
 - **Web (live)** deploys from Vercel on every push to **`production`** only.
-- **`main`** builds **Preview** deployments (staging). Non-`main` / non-`production`
-  pushes are skipped via the Vercel Ignored Build Step plus `vercel.json`.
+- **`main`** builds the developer Preview (shared dev/test DB). **`staging`**
+  builds the QA Preview (staging Supabase `xwszcafaontidfgznlxd`). Non-`main` / non-`staging` /
+  non-`production` pushes are skipped via the Vercel Ignored Build Step plus
+  `vercel.json`.
 - **iOS** builds, uploads **and distributes** to the internal TestFlight tester
   group from GitHub Actions on push to **`production`**
   (`.github/workflows/ios-testflight.yml`), keeping the Capacitor shell aligned
@@ -267,13 +269,23 @@ Scripts restart dev servers and open the browser via `bin/fm-proplane-open-local
 
 If no-mistakes parks at a gate, drive `no-mistakes axi respond` then re-run with `--validate-only`.
 
-## Promote main → production (live)
+## Promote main → staging (QA)
 
 ```bash
 git checkout main
 git pull
-# verify main's Preview deploy (and localhost) first
-bash scripts/promote-main-to-production.sh
+# developers already verified the main Preview
+npm run ship:staging
+```
+
+Dedicated QA then tests the staging URL. Staging uses project
+`xwszcafaontidfgznlxd`, never the live production project.
+
+## Promote staging → production (live)
+
+```bash
+# after QA sign-off on staging
+npm run ship:production
 ```
 
 Or manually:
@@ -281,7 +293,7 @@ Or manually:
 ```bash
 git checkout production
 git pull
-git merge --ff-only main
+git merge --ff-only staging
 git push origin production
 git checkout main
 ```
