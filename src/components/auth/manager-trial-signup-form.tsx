@@ -87,9 +87,13 @@ export function ManagerTrialSignupForm({
       return user ? { id: user.id, email: user.email ?? null } : null;
     }
     try {
+      // Annotated for the same reason as SignInResult below: the browser
+      // client's return type does not survive withAuthTimeout's generic here,
+      // and the destructure then fails to type-check.
+      type SessionResult = Awaited<ReturnType<typeof supabase.auth.getSession>>;
       const {
         data: { session },
-      } = await withAuthTimeout(supabase.auth.getSession());
+      } = (await withAuthTimeout(supabase.auth.getSession())) as SessionResult;
       const user = session?.user ?? null;
       return user ? { id: user.id, email: user.email ?? null } : null;
     } catch {
