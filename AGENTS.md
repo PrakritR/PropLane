@@ -94,14 +94,18 @@ request, which may have started before a write that caller just made
 (save-then-refresh is a real pattern here), so mid-flight callers share one
 queued follow-up that begins only after the current run settles. Wired into
 property-pipeline, pro-relationships, household-charges, the dashboard's
-document-expiry counts, and the resident ledger read
-(`src/lib/resident-ledger-client.ts`). Each refresher is keyed on whatever makes
+document-expiry counts, the resident ledger read
+(`src/lib/resident-ledger-client.ts`), and the inspection list
+(`src/lib/inspections/client.ts`). Each refresher is keyed on whatever makes
 two runs non-interchangeable — the viewer id where the fetch is per-user (a
 module-global cache would serve the previous manager's rows after an in-session
 account switch), `skipReconcile` for household charges (the resident path must
 not run the manager's reconcile), viewer id **plus the requested window** for
 the resident ledger (Documents lets the resident pick a date range, so an
-identity-only key would serve another window's receipts for the whole TTL).
+identity-only key would serve another window's receipts for the whole TTL),
+viewer id **plus portal role and application id** for inspections (the same
+account can be a manager and a resident, and the two sides see different
+observations on the same report).
 
 A server sync dispatches its store event **tagged** (`serverSyncOriginatedEvent`
 / `isServerSyncOriginatedEvent` in `src/lib/property-pipeline-events.ts`),

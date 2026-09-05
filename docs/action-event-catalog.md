@@ -1,15 +1,19 @@
 # Action event catalog
 
 `emitActionEvent` in `src/lib/action-events.server.ts` is the only fanout bus for
-system-created work-order, payment, and lease lifecycle messages. Domain
-adapters render audience-safe copy; the bus owns persistence, preference-aware
-inbox/email/SMS delivery, idempotency, deferral, and retry.
+system-created lifecycle messages. `ACTION_EVENT_CATALOG` in
+`src/lib/domain-action-events.server.ts` is the authoritative list of domains and
+event names; the table below mirrors it. Domain adapters render audience-safe
+copy; the bus owns persistence, preference-aware inbox/email/SMS delivery,
+idempotency, deferral, and retry.
 
 | Domain | Events | Notification category |
 | --- | --- | --- |
 | Work order | `created`, `vendor_offered`, `accepted`, `scheduled`, `completed`, `invoiced`, `paid` | `maintenance` |
 | Payment | `charge_created`, `payment_processing`, `payment_received`, `payment_failed`, `payment_refunded` | `payments` |
-| Lease | `lease_created`, `lease_sent`, `lease_signed`, `lease_voided` | `leases` |
+| Lease | `lease_created`, `lease_sent`, `lease_signed_by_resident`, `lease_countersigned`, `lease_signed`, `lease_voided` | `leases` |
+| Application | `application_submitted`, `application_approved`, `application_declined`, `application_withdrawn` | `applications` |
+| Add-on service request | `service_request_submitted`, `service_request_approved`, `service_request_denied`, `service_request_returned` | `maintenance` |
 
 ## Producer contract
 

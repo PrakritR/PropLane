@@ -1230,6 +1230,15 @@ they were already correct. Coverage: `stay-pricing-repro.test.ts` cases 12 and 1
 the same lease before and after a holding-deposit payment and asserts the documents are
 byte-identical while the ledger's `security_deposit` charge drops to the net.
 
+**Scope of that rule after 2026-09-05.** It still governs the deposit OBLIGATION on every
+document, and the short-term branch (case 12) is unchanged because it carries no holding
+charge at all. It does NOT mean a standard lease is blind to what has been collected: the
+long form now prints the application's own scoped `holding_deposit` charge, its state, and
+the separate security-deposit balance, and the signing collection excludes dollars that
+already cleared. Those figures are READ from the scoped charges rather than recomputed, which
+is what keeps them from re-creating the ordering mismatch above — see "Reference lease review:
+applicable fees and holding credit" below for the full rule.
+
 ### Executed short-term clauses added in this change (user-approved)
 
 These are new contract terms a guest signs, not a pricing change, and they were approved
@@ -1608,7 +1617,7 @@ fee, and charge snapshot inputs used by the new unit coverage.
 | Lease Summary | Already present for branded Seattle leases with billing data. P9 adds Landlord and reads its figures from the billing snapshot. Its current shape — grouped sections, per-month partial-month lines, the final partial month — is owned by "Partial months: BOTH boundaries" above. |
 | Parties, premises, lease term, rent, deposits, returned payments, utilities, occupancy, shared spaces, rules, pets, maintenance, entry, assignment, insurance, default, early termination, payment order, notices, lead paint, governing law, attorney fees, application, schedule, signature, Addenda A-E | Already present, with stable tested order. |
 | Delivery of possession | Added. It states delayed-possession rent abatement and defers remedies to applicable law. The reference's fourteen-day termination interval is deliberately not copied. |
-| Early termination economics | Rendered when a break-lease fee or lease-up percentage resolves — from the listing, else from the jurisdiction default (see below). It itemizes the fee, the lease-up percentage, continuing liability until replacement possession or end of term, any re-rent shortfall, and actual re-renting costs. |
+| Early termination economics | Rendered when a break-lease fee or lease-up percentage resolves from the listing (there is no jurisdiction fallback — see below). It itemizes the fee, the lease-up percentage, continuing liability until replacement possession or end of term, any re-rent shortfall, and actual re-renting costs. |
 | Holdover | The fixed-term Lease Term section now states unconditionally that the lease terminates at the end of the term and does not convert to month-to-month, with a 12:00 PM vacate time. A per-day holdover charge is appended only when a daily rate resolves. A month-to-month lease instead prints `monthToMonthTerminationNotice`. |
 | Deposit labor and reissue fees | The deduction categories were present. Labor and reissue amounts now render only from optional listing fields. |
 | Move-in condition | Existing Addendum A supplies the area-by-area report. P9 removes the unrelated five-day default and makes a signed report supersede the baseline acknowledgement. |
@@ -1646,7 +1655,9 @@ values render. Missing, blank, or zero fees are omitted. Existing saved values
 are preserved because a migration cannot determine which managers chose them.
 
 `lateFeeAmount` and `lateFeeEnabled` already existed. The long form uses the listing's
-configured late fee when supplied and omits the late-fee paragraph when it is disabled.
+configured late fee when supplied and omits the late-fee paragraph when it is disabled or
+unset — the jurisdiction `defaultLateFeeUsd` fallback (Seattle `$75`) is gone with the other
+commercial defaults.
 The existing `monthToMonthSurcharge` is not rendered because the billing snapshot and
 household-charge ledger do not charge it.
 
