@@ -28,6 +28,9 @@ export const REMINDER_SUBJECT_CO_MANAGER_MODULE: Record<ReminderSubjectKind, CoM
   lease_manager: "leases",
   payment_manager: "payments",
   outgoing_payment: "financials",
+  // Bookings sit in the Operations group beside the calendar, and a co-manager
+  // who can see the schedule is the one who can see the stays on it.
+  booking: "calendar",
 };
 
 /**

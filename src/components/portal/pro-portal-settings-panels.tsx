@@ -474,6 +474,40 @@ export function ServicesSettingsPanel({
   );
 }
 
+/**
+ * Bookings settings.
+ *
+ * Reminders are the whole panel. Settings used to open the Link Airbnb dialog —
+ * the same dialog the button beside it already opens — so the section had two
+ * controls leading to one place and no home for a booking preference.
+ *
+ * Manager-side only, so no counterparty switch: an imported channel booking
+ * carries no guest contact. See the note at the top of `lib/reminders/rules.ts`.
+ */
+export function BookingsSettingsPanel({
+  teamMembers,
+  onFooterReady,
+  reminderFormRef,
+}: {
+  teamMembers: WorkAssignmentTeamMember[];
+  onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
+  reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
+}) {
+  useReportSettingsPanelFooter(onFooterReady, null);
+
+  return (
+    <div className="space-y-4">
+      <ManagerReminderRuleSettingsPanel
+        kind="booking"
+        audienceMode="manager"
+        sectionTitle="Booking reminders"
+        teamMembers={teamMembers}
+        formRef={reminderFormRef}
+      />
+    </div>
+  );
+}
+
 export function ResidentSettingsPanel() {
   return (
     <p className="text-sm text-muted">
