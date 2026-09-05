@@ -10,7 +10,7 @@ import {
   type NotificationCategory,
 } from "@/lib/notification-preferences";
 import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
-import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
+import { notifyPropertyScopedManagersFromAgent } from "@/lib/co-manager-notification-recipients.server";
 import { resolveShareableAppOrigin } from "@/lib/app-url";
 import { traceSystemNotification } from "@/lib/observability/langfuse";
 import { createHouseholdChargeCheckout } from "@/lib/stripe-household-charge-checkout.server";
@@ -266,12 +266,15 @@ export async function deliverPaymentReminder(input: {
 
   try {
     if (managerId) {
-      await notifyManagerFromAgent(db, {
-        landlordId: managerId,
+      await notifyPropertyScopedManagersFromAgent(db, {
+        ownerManagerUserId: managerId,
+        propertyId: charge.propertyId,
+        module: "payments",
         subject: "Payment reminder sent",
         text: `${subject} was sent to ${residentLower}.`,
         category: "payment_reminders",
         url: "/portal/payments",
+        idempotencyKey: dedupId,
       });
     }
   } catch {

@@ -10,9 +10,10 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import {
   loadManagerReminderRecipients,
-  loadTeamReminderRecipientsByManager,
+  loadTeamReminderRecipients,
   teamReminderRecipients,
 } from "@/lib/reminders/manager-recipients.server";
+import { REMINDER_SUBJECT_CO_MANAGER_MODULE } from "@/lib/co-manager-notification-recipients.server";
 import { materializeReminders } from "@/lib/reminders/queue.server";
 import { loadReminderSettingsForManagers } from "@/lib/reminders/settings.server";
 import {
@@ -102,13 +103,6 @@ export async function sweepApplicationReminders(db: SupabaseClient, now: Date = 
     loadReminderSettingsForManagers(db, managerIds),
     loadManagerReminderRecipients(db, managerIds),
   ]);
-  const teamRecipientsByManager = await loadTeamReminderRecipientsByManager(
-    db,
-    managerIds.map((managerUserId) => ({
-      managerUserId,
-      teamUserIds: settingsByManager.get(managerUserId)?.rules.application.teamUserIds ?? [],
-    })),
-  );
   const origin = resolveEmailLinkBaseUrl().replace(/\/$/, "");
 
   let queued = 0;
@@ -116,9 +110,12 @@ export async function sweepApplicationReminders(db: SupabaseClient, now: Date = 
     const settings = settingsByManager.get(entry.managerUserId);
     if (!settings?.rules.application.enabled) continue;
     const managerRecipient = managerRecipients.get(entry.managerUserId);
-    const teamRecipients = settings.rules.application.audience.team
-      ? teamReminderRecipients(teamRecipientsByManager.get(entry.managerUserId) ?? [])
-      : [];
+    const teamRecipients = teamReminderRecipients(
+      await loadTeamReminderRecipients(db, entry.managerUserId, settings.rules.application.teamUserIds ?? [], {
+        module: REMINDER_SUBJECT_CO_MANAGER_MODULE.application,
+        propertyId: entry.row.propertyId ?? null,
+      }),
+    );
     const resumeUrl = inProgressApplicationResumeUrl(origin, entry.row);
 
     queued += await materializeReminders(

@@ -14,7 +14,7 @@ function member(overrides: Partial<TeamReminderRecipient> = {}): TeamReminderRec
     email: "co@example.com",
     name: "Co Manager",
     assignedPropertyIds: ["prop-1"],
-    permissions: { "prop-1": { financials: { read: true } } },
+    permissions: { "prop-1": { financials: { notification: true } } },
     ...overrides,
   };
 }
@@ -46,15 +46,15 @@ describe("teamRecipientsScopedToSubject", () => {
   it("requires the module on EVERY assigned property when the subject has none", () => {
     const partial = member({
       assignedPropertyIds: ["prop-1", "prop-2"],
-      permissions: { "prop-1": { financials: { read: true } } },
+      permissions: { "prop-1": { financials: { notification: true } } },
     });
     expect(teamRecipientsScopedToSubject([partial], null, "financials")).toHaveLength(0);
 
     const full = member({
       assignedPropertyIds: ["prop-1", "prop-2"],
       permissions: {
-        "prop-1": { financials: { read: true } },
-        "prop-2": { financials: { read: true } },
+        "prop-1": { financials: { notification: true } },
+        "prop-2": { financials: { notification: true } },
       },
     });
     expect(teamRecipientsScopedToSubject([full], null, "financials")).toHaveLength(1);
