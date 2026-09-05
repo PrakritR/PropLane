@@ -1,4 +1,7 @@
-import type { UtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
+import {
+  longTermUtilitiesEstimateRequired,
+  type UtilitiesPaymentModel,
+} from "@/lib/listing-utilities-payment";
 import { parseMoneyAmount } from "@/lib/parse-money";
 
 /**
@@ -99,7 +102,11 @@ export function applyListingFeeContextDefaults<
   if (!next.utilitiesPaymentModel) {
     next.utilitiesPaymentModel = d.utilitiesPaymentModel;
   }
-  if (next.utilitiesPaymentModel === "manager_billed" && isEmptyMoney(next.utilitiesEstimate) && d.utilitiesEstimate) {
+  if (
+    longTermUtilitiesEstimateRequired(next.utilitiesPaymentModel) &&
+    isEmptyMoney(next.utilitiesEstimate) &&
+    d.utilitiesEstimate
+  ) {
     next.utilitiesEstimate = d.utilitiesEstimate;
   }
   return next;

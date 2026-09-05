@@ -3,8 +3,19 @@ import { isEntireHomeListing } from "@/lib/manager-listing-submission";
 import { hasResidentPaidLeaseUtility, normalizeLeaseUtilities } from "@/lib/lease-utilities";
 import { parseMoneyAmount } from "@/lib/parse-money";
 
-/** How utilities are paid for a listed room or entire-home lease. */
-export type UtilitiesPaymentModel = "manager_billed" | "tenant_direct" | "included_in_rent";
+/**
+ * How utilities are paid for a listed room or entire-home lease.
+ *
+ * `variable` is manager-billed like `manager_billed`, but the amount is not
+ * known in advance — it follows actual usage, so the manager raises the real
+ * charge each period instead of a fixed recurring one. The listing still
+ * carries an estimate, for disclosure only.
+ */
+export type UtilitiesPaymentModel =
+  | "manager_billed"
+  | "variable"
+  | "tenant_direct"
+  | "included_in_rent";
 
 export const UTILITIES_PAYMENT_MODEL_OPTIONS: ReadonlyArray<{
   id: UtilitiesPaymentModel;
@@ -15,6 +26,11 @@ export const UTILITIES_PAYMENT_MODEL_OPTIONS: ReadonlyArray<{
     id: "manager_billed",
     label: "Billed through manager",
     hint: "Resident pays the estimated utilities with monthly rent through the portal.",
+  },
+  {
+    id: "variable",
+    label: "Billed by usage",
+    hint: "Resident pays the manager for actual usage each period; the listing amount is an estimate only.",
   },
   {
     id: "tenant_direct",
@@ -37,23 +53,58 @@ export const LONG_TERM_UTILITIES_PAYMENT_OPTIONS: ReadonlyArray<{
   // than a state, next to two options that ARE states. It is the fixed monthly
   // utilities charge the manager bills, so name it that.
   { id: "manager_billed", label: "Fixed amount" },
+  { id: "variable", label: "Variable (by usage)" },
   { id: "tenant_direct", label: "Paid by resident" },
   { id: "included_in_rent", label: "Included in rent" },
 ] as const;
 
 export function longTermUtilitiesPickerValue(model: UtilitiesPaymentModel | undefined): UtilitiesPaymentModel {
-  if (model === "tenant_direct" || model === "included_in_rent") return model;
+  if (model === "tenant_direct" || model === "included_in_rent" || model === "variable") return model;
   return "manager_billed";
 }
 
-/** Only "Fixed amount" (manager-billed) needs an amount. Both "Paid by resident" and
- *  "Included in rent" have no separate utilities charge, so the amount input is hidden. */
+/**
+ * Whether the amount input is shown beside the picker.
+ *
+ * "Fixed amount" needs one because it IS the monthly charge. "Variable" shows
+ * one too, but it is an ESTIMATE — a prospect still has to see roughly what
+ * utilities run, and the lease quotes it for disclosure. Neither "Paid by
+ * resident" nor "Included in rent" has a separate charge, so the input is
+ * hidden for both.
+ */
 export function longTermUtilitiesEstimateRequired(model: UtilitiesPaymentModel | undefined): boolean {
+  const picked = longTermUtilitiesPickerValue(model);
+  return picked === "manager_billed" || picked === "variable";
+}
+
+/**
+ * Whether the amount is a real charge or only an estimate.
+ *
+ * The one place that separates "Fixed amount" from "Variable": a fixed amount
+ * is billed as-is every period, a variable one is a guide and the manager
+ * raises the actual charge once usage is known. Everything that turns a listing
+ * into money reads this rather than testing the model by hand.
+ */
+export function utilitiesAmountIsFixedCharge(model: UtilitiesPaymentModel | undefined): boolean {
   return longTermUtilitiesPickerValue(model) === "manager_billed";
 }
 
+/**
+ * What the amount beside the picker IS, in the manager's words.
+ *
+ * The same input means two different things depending on the model, and the
+ * difference is money: under "Fixed amount" it is the charge, under "Variable"
+ * it is only a guide. One helper so every field that renders it says the same
+ * thing.
+ */
+export function utilitiesAmountFieldNoun(model: UtilitiesPaymentModel | undefined): string {
+  return longTermUtilitiesPickerValue(model) === "variable"
+    ? "Estimated monthly utilities"
+    : "Utilities amount";
+}
+
 export function normalizeUtilitiesPaymentModel(raw: unknown): UtilitiesPaymentModel {
-  if (raw === "tenant_direct" || raw === "included_in_rent") return raw;
+  if (raw === "tenant_direct" || raw === "included_in_rent" || raw === "variable") return raw;
   return "manager_billed";
 }
 
@@ -73,6 +124,10 @@ export function formatUtilitiesListingLine(
 ): string {
   const est = formatEstimateSuffix(estimateRaw);
   switch (model) {
+    case "variable":
+      // Never rendered as a flat "$X/mo" — that is the fixed-amount sentence,
+      // and a prospect reading it would expect that exact bill every month.
+      return est ? `Billed by usage (~${est}/mo typical)` : "Billed by usage";
     case "tenant_direct":
       return est ? `Tenant pays directly (~${est}/mo typical)` : "Tenant pays directly";
     case "included_in_rent":
@@ -142,11 +197,14 @@ export function resolveAggregateUtilitiesPaymentModel(
 export function aggregateBillableUtilitiesEstimate(sub: ManagerListingSubmissionV1 | undefined): number {
   if (!sub?.v) return 0;
   if (isEntireHomeListing(sub)) {
-    if (resolveEntireHomeUtilitiesPaymentModel(sub) !== "manager_billed") return 0;
+    if (!utilitiesAmountIsFixedCharge(resolveEntireHomeUtilitiesPaymentModel(sub))) return 0;
     const raws = [sub.entireHomeUtilitiesEstimate, sub.rooms.find((r) => r.name.trim())?.utilitiesEstimate];
     return raws.reduce<number>((max, raw) => Math.max(max, parseMoneyAmount(raw ?? "")), 0);
   }
-  if (resolveUniformRoomUtilitiesPaymentModel(sub) !== "manager_billed") return 0;
+  // `null` means the rooms DISAGREE, which is not a billing fact — it must not
+  // fall through to the fixed-amount default the way an absent model does.
+  const uniform = resolveUniformRoomUtilitiesPaymentModel(sub);
+  if (uniform === null || !utilitiesAmountIsFixedCharge(uniform)) return 0;
   return sub.rooms
     .filter((r) => r.name.trim())
     .reduce<number>((max, room) => Math.max(max, utilitiesBillableMonthlyAmount(sub, room)), 0);
@@ -172,7 +230,11 @@ export function utilitiesBillableMonthlyAmount(
 ): number {
   if (estimateOverride?.trim()) return parseMoneyAmount(estimateOverride);
   const model = resolveListingUtilitiesPaymentModel(sub, room);
-  if (model !== "manager_billed") return 0;
+  // Variable utilities deliberately bill NOTHING on a recurring schedule. The
+  // stored number is an estimate, and charging an estimate every month as if it
+  // were metered usage would put a figure nobody measured on a resident's
+  // ledger. The manager raises the real charge once usage is known.
+  if (!utilitiesAmountIsFixedCharge(model)) return 0;
   const raw = room?.utilitiesEstimate?.trim() || sub?.entireHomeUtilitiesEstimate?.trim() || "";
   return parseMoneyAmount(raw);
 }
@@ -197,6 +259,16 @@ export function utilitiesListingSummaryLabel(sub: ManagerListingSubmissionV1 | u
       const lo = Math.min(...vals);
       const hi = Math.max(...vals);
       return lo === hi ? `$${lo.toFixed(2)}/mo est.` : `$${lo.toFixed(2)}–${hi.toFixed(2)}/mo est.`;
+    }
+    if (model === "variable") {
+      const vals = rooms
+        .map((r) => parseMoneyAmount(r.utilitiesEstimate ?? ""))
+        .filter((x) => x > 0);
+      if (!vals.length) return "Billed by usage";
+      const lo = Math.min(...vals);
+      const hi = Math.max(...vals);
+      const range = lo === hi ? `~$${lo.toFixed(0)}/mo` : `~$${lo.toFixed(0)}–${hi.toFixed(0)}/mo`;
+      return `Billed by usage (${range} typical)`;
     }
     if (model === "tenant_direct") {
       const vals = rooms

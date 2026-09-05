@@ -15,7 +15,11 @@ import {
   utilitiesListingEstimateLabel,
 } from "@/lib/rental-application/listing-fees-display";
 import { leaseDocumentFeeLines } from "@/lib/listing-fees";
-import { formatUtilitiesListingLine, resolveListingUtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
+import {
+  formatUtilitiesListingLine,
+  resolveListingUtilitiesPaymentModel,
+  utilitiesAmountIsFixedCharge,
+} from "@/lib/listing-utilities-payment";
 import {
   hasResidentPaidLeaseUtility,
   leaseUtilityAllowanceNote,
@@ -629,11 +633,11 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     "—";
   const utilitiesStr = escapeHtml(overrideFeeLabel(a.managerUtilitiesOverride, utilitiesBase));
   const utilitiesNum =
-    utilitiesModel === "manager_billed" && !a.managerUtilitiesOverride?.trim()
+    utilitiesAmountIsFixedCharge(utilitiesModel) && !a.managerUtilitiesOverride?.trim()
       ? parseAmount(specificRoom?.utilitiesEstimate?.trim() || utilitiesBase)
       : a.managerUtilitiesOverride?.trim()
         ? parseAmount(a.managerUtilitiesOverride)
-        : utilitiesModel === "manager_billed"
+        : utilitiesAmountIsFixedCharge(utilitiesModel)
           ? parseAmount(utilitiesBase)
           : 0;
   // Adding a per-day rate to a monthly utilities figure is meaningless arithmetic, and a

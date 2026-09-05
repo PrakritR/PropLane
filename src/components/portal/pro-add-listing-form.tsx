@@ -115,6 +115,7 @@ import { syncPropertyLeaseTemplatesFromListing } from "@/lib/property-lease-temp
 import {
   LONG_TERM_UTILITIES_PAYMENT_OPTIONS,
   longTermUtilitiesEstimateRequired,
+  utilitiesAmountFieldNoun,
   longTermUtilitiesPickerValue,
   resolveRoomUtilitiesPaymentModel,
   type UtilitiesPaymentModel,
@@ -3348,7 +3349,7 @@ export function ManagerAddListingForm({
                       />
                       {longTermUtilitiesEstimateRequired(room.utilitiesPaymentModel) ? (
                         <MoneyInput
-                          ariaLabel={`Utilities amount for ${roomLabel}`}
+                          ariaLabel={`${utilitiesAmountFieldNoun(room.utilitiesPaymentModel)} for ${roomLabel}`}
                           value={room.utilitiesEstimate.replace(/^\$/, "").replace(/\/mo(nth)?\.?$/i, "").trim()}
                           onChange={(e) => setRoom(i, { utilitiesEstimate: sanitizeMoneyInput(e.target.value) })}
                           placeholder="175"
@@ -3504,7 +3505,7 @@ export function ManagerAddListingForm({
                     />
                     {longTermUtilitiesEstimateRequired(bundle.utilitiesPaymentModel) ? (
                       <MoneyInput
-                        ariaLabel={`Utilities amount for ${bundle.label.trim() || "bundle"}`}
+                        ariaLabel={`${utilitiesAmountFieldNoun(bundle.utilitiesPaymentModel)} for ${bundle.label.trim() || "bundle"}`}
                         value={(bundle.utilitiesEstimate ?? "").replace(/^\$/, "").replace(/\/mo(nth)?\.?$/i, "").trim()}
                         onChange={(e) => setBundle(i, { utilitiesEstimate: sanitizeMoneyInput(e.target.value) })}
                         placeholder="200"
@@ -3577,7 +3578,9 @@ export function ManagerAddListingForm({
       ? "Paid by resident"
       : sub.entireHomeUtilitiesPaymentModel === "included_in_rent"
         ? "Utilities included"
-        : "Fixed amount";
+        : sub.entireHomeUtilitiesPaymentModel === "variable"
+          ? "Billed by usage"
+          : "Fixed amount";
   const wholePlaceStNightly = shortTermNightlyRate(sub.shortTermDailyCost);
   const wholePlaceStSummary =
     wholePlaceStNightly > 0
@@ -3654,7 +3657,7 @@ export function ManagerAddListingForm({
                             />
                             {longTermUtilitiesEstimateRequired(sub.entireHomeUtilitiesPaymentModel) ? (
                               <MoneyInput
-                                ariaLabel="Utilities amount (whole home)"
+                                ariaLabel={`${utilitiesAmountFieldNoun(sub.entireHomeUtilitiesPaymentModel)} (whole home)`}
                                 value={(sub.entireHomeUtilitiesEstimate ?? "").replace(/^\$/, "").replace(/\/mo(nth)?\.?$/i, "").trim()}
                                 onChange={(e) =>
                                   setSub((s) =>

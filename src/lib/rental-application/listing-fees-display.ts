@@ -6,6 +6,7 @@ import { parseMoneyAmount } from "@/lib/parse-money";
 import {
   formatUtilitiesListingLine,
   resolveRoomUtilitiesPaymentModel,
+  utilitiesAmountIsFixedCharge,
   utilitiesListingSummaryLabel,
 } from "@/lib/listing-utilities-payment";
 import { roomDailyRentPrice, roomHeadlinePriceLabel, roomIsDailyPriced, roomMonthlyEquivalent } from "@/lib/room-pricing";
@@ -238,7 +239,9 @@ function roomMoveInFeeAmount(room: ManagerRoomSubmission, sub: ManagerListingSub
 }
 
 function roomMonthlyUtilitiesAmount(room: ManagerRoomSubmission): number {
-  if (resolveRoomUtilitiesPaymentModel(room) !== "manager_billed") return 0;
+  // Variable utilities have no fixed monthly figure to add to a total — the
+  // stored amount is an estimate for disclosure, not a charge.
+  if (!utilitiesAmountIsFixedCharge(resolveRoomUtilitiesPaymentModel(room))) return 0;
   return parseMoneyAmount(room.utilitiesEstimate ?? "");
 }
 
