@@ -54,10 +54,6 @@
       "schedule": "0 16 * * *"
     },
     {
-      "path": "/api/cron/action-event-deliveries",
-      "schedule": "*/10 * * * *"
-    },
-    {
       "path": "/api/cron/manager-attention-digest",
       "schedule": "0 14 * * *"
     }

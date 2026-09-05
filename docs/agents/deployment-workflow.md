@@ -16,6 +16,23 @@ deployment for the contract.
 `prakrit` is retired — do not merge new work into it. There is no long-lived
 `dev` branch; feature and agent branches are the messy layer.
 
+## Vercel: `axis-2` is PropLane production
+
+The dashboard project is still named **`axis-2`** — it serves `prop-lane.space`.
+Do **not** use the auto-created **`proplane-cursor-branch-1`** project for live
+traffic.
+
+If Production deployments stay on an old commit:
+
+1. **GitHub `Vercel Deploy` may be skipping** — without `VERCEL_TOKEN`,
+   `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` repo secrets, only a no-op notice
+   runs. Add secrets from `.vercel/project.json` after
+   `npx vercel link --project axis-2`.
+2. **Vercel Hobby rejects sub-daily crons** — remove `*/10` schedules from
+   `vercel.json` or upgrade to Pro.
+3. **Manual deploy:** `npm run vercel:deploy:production` on the `production`
+   branch (see `scripts/vercel-deploy-cli.sh`).
+
 ## Ship path
 
 ```

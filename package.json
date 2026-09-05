@@ -83,6 +83,8 @@
     "ship:preflight": "bash scripts/ship-preflight.sh",
     "ship:staging": "bash scripts/promote-main-to-staging.sh",
     "ship:production": "bash scripts/promote-staging-to-production.sh",
+    "vercel:deploy:staging": "bash scripts/vercel-deploy-cli.sh staging",
+    "vercel:deploy:production": "bash scripts/vercel-deploy-cli.sh production",
     "scrape:apm": "node scripts/scrape-allpropertymanagement.mjs",
     "scrape:apm:quick": "node scripts/scrape-allpropertymanagement.mjs --quick",
     "scrape:apm:contacts": "node scripts/scrape-apm-contacts.mjs",
