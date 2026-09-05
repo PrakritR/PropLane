@@ -138,6 +138,9 @@ export async function runLeasingSmsAgentTurn(
     inboundMessageSid?: string | null;
     /** True on the shared Claw line — lets listing tools span the whole public catalog. */
     crossCatalog?: boolean;
+    channel?: "sms" | "voice";
+    maxReplyChars?: number;
+    traceName?: string;
   },
 ): Promise<{
   reply: string;
@@ -156,6 +159,10 @@ export async function runLeasingSmsAgentTurn(
     prospectPhoneE164: args.prospectPhoneE164,
   });
   if (!session) return null;
+
+  const channel = args.channel ?? "sms";
+  const maxReplyChars = args.maxReplyChars ?? (channel === "voice" ? 900 : 1500);
+  const traceName = args.traceName ?? "leasing-sms-agent-turn";
 
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const { count } = await db
@@ -176,7 +183,7 @@ export async function runLeasingSmsAgentTurn(
     landlord_id: session.landlord_id,
     role: "user",
     content: text,
-    channel: "sms",
+    channel,
     source_message_sid: sourceMessageSid,
   }).select("id").maybeSingle();
   let inboundMessageId = insertedInbound?.id ? String(insertedInbound.id) : null;
@@ -192,7 +199,9 @@ export async function runLeasingSmsAgentTurn(
     console.error("leasing-sms inbound message persistence failed", session.id, inboundError.message);
     return null;
   }
-  track("leasing_sms_message_in", session.landlord_id, { channel: "sms" });
+  track(channel === "voice" ? "leasing_voice_message_in" : "leasing_sms_message_in", session.landlord_id, {
+    channel,
+  });
 
   const { data: historyRows } = await db
     .from("agent_messages")
@@ -224,9 +233,19 @@ export async function runLeasingSmsAgentTurn(
   try {
     // `session.landlord_id` is the manager who owns the sending work number;
     // it is resolved before this function, never supplied by a prospect.
-    const system = await leasingSmsSystemPromptForWorkNumberOwner(db, session.landlord_id);
+    const systemBase = await leasingSmsSystemPromptForWorkNumberOwner(db, session.landlord_id);
+    const system =
+      channel === "voice"
+        ? `${systemBase}\n\nYou are speaking on a phone call, not texting. Keep replies concise and easy to hear. Always call list_open_tour_slots before quoting tour availability.`
+        : systemBase;
     result = await traceAgentTurn(
-      leasingSmsTraceActor(session.landlord_id),
+      {
+        ...leasingSmsTraceActor(session.landlord_id),
+        metadata: {
+          ...leasingSmsTraceActor(session.landlord_id).metadata,
+          channel,
+        },
+      },
       history as { role: string; content: string }[],
       (observer) =>
         runAgentTurn({
@@ -240,7 +259,7 @@ export async function runLeasingSmsAgentTurn(
           allowWriteTools: LEASING_SMS_INLINE_WRITE_TOOLS,
         }),
       {
-        name: "leasing-sms-agent-turn",
+        name: traceName,
         sessionId: session.id,
         promptMeta: resolvePromptMeta(PROMPT_IDS.leasingSmsAgent, system),
         onTraceId: (id) => {
@@ -253,7 +272,7 @@ export async function runLeasingSmsAgentTurn(
     return null;
   }
 
-  const reply = result.reply.trim().slice(0, 1500);
+  const reply = result.reply.trim().slice(0, maxReplyChars);
   if (!reply) return null;
 
   const { data: assistantMessage } = await db.from("agent_messages").insert({
@@ -266,8 +285,8 @@ export async function runLeasingSmsAgentTurn(
     trace_id: traceId,
   }).select("id").maybeSingle();
   await db.from("agent_sessions").update({ updated_at: nowIso }).eq("id", session.id);
-  track("leasing_sms_message_out", session.landlord_id, {
-    channel: "sms",
+  track(channel === "voice" ? "leasing_voice_message_out" : "leasing_sms_message_out", session.landlord_id, {
+    channel,
     tools: result.toolTrace.length,
   });
 
@@ -278,6 +297,31 @@ export async function runLeasingSmsAgentTurn(
     assistantMessageId: assistantMessage?.id ? String(assistantMessage.id) : null,
     traceId,
   };
+}
+
+/** Leasing / prospect voice — shares session history with leasing SMS on the same phone. */
+export async function runLeasingVoiceAgentTurn(
+  db: Db,
+  args: {
+    landlordId: string;
+    prospectPhoneE164: string;
+    inboundText: string;
+    workNumber?: string | null;
+    inboundCallSid?: string | null;
+    crossCatalog?: boolean;
+  },
+) {
+  return runLeasingSmsAgentTurn(db, {
+    landlordId: args.landlordId,
+    prospectPhoneE164: args.prospectPhoneE164,
+    inboundText: args.inboundText,
+    workNumber: args.workNumber,
+    inboundMessageSid: args.inboundCallSid,
+    crossCatalog: args.crossCatalog,
+    channel: "voice",
+    maxReplyChars: 900,
+    traceName: "leasing-voice-agent-turn",
+  });
 }
 
 /** Send the leasing agent reply from the manager work number (logs to Communication SMS). */

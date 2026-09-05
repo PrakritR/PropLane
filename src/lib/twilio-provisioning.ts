@@ -28,6 +28,13 @@ export function resolveInboundWebhookUrl(): string {
   return `${base}/api/twilio/inbound`;
 }
 
+export function resolveVoiceWebhookUrlForProvisioning(): string {
+  const explicit = process.env.TWILIO_VOICE_INBOUND_WEBHOOK_URL?.trim();
+  if (explicit) return explicit;
+  const base = (resolveEmailLinkBaseUrl() || PRODUCTION_APP_ORIGIN).replace(/\/$/, "");
+  return `${base}/api/twilio/voice/inbound`;
+}
+
 export type PurchaseTwilioNumberResult =
   | { ok: true; number: string; sid: string; messagingServiceSid: string | null }
   | {
@@ -118,6 +125,8 @@ export async function purchaseManagerTwilioNumber(opts?: {
       ...(opts?.requestId ? { friendlyName: `proplane-manager-${opts.requestId}` } : {}),
       smsUrl: resolveInboundWebhookUrl(),
       smsMethod: "POST",
+      voiceUrl: resolveVoiceWebhookUrlForProvisioning(),
+      voiceMethod: "POST",
     });
     const number = String(purchased.phoneNumber ?? candidate).trim();
     const phoneNumberSid = String(purchased.sid ?? "").trim();

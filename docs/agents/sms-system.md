@@ -70,6 +70,13 @@ threads the same way across the mapped-manager cohort instead of returning one
 flat feed. The manager/admin SMS UI keys rows on `conversationKey` and sorts via
 `sortSmsConversationRows` (Newest / Oldest / Name A–Z / House).
 
+**Voice call notes land in the same Communication thread.**
+A manager voice turn writes the spoken line and the assistant reply through
+`logManagerSmsMessage` with a `voice:` message sid (`src/lib/voice/log-voice-call-notes.server.ts`).
+The Communication list prefixes that row with `Call:`, and the SMS bubble shows
+a Call badge. Threading still uses `conversation_key` (owner + `manager` role +
+the verified caller). Do not invent a second inbox for transcripts.
+
 **Manager Communication shows the full phone when there is no better label.**
 Every manager/admin SMS row and thread header — the SMS panel and the unified
 Communication list alike — takes its label from `smsConversationDisplayName` /

@@ -83,6 +83,7 @@ import {
   type ManagerSmsContactsChangedDetail,
   type ManagerSmsResidentConversation,
 } from "@/lib/manager-sms-messages";
+import { isVoiceCallNoteSid, voiceCallListPreviewPrefix } from "@/lib/voice/voice-call-notes";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import {
   loadManagerSmsArchivedIds,
@@ -515,7 +516,11 @@ export function ManagerUnifiedInbox({
             listSegment,
             80,
           ),
-          previewPrefix: lastOutbound ? "You: " : undefined,
+          previewPrefix: isVoiceCallNoteSid(lastMessage?.messageSid)
+            ? voiceCallListPreviewPrefix()
+            : lastOutbound
+              ? "You: "
+              : undefined,
           time: lastMessage ? iosListTimestamp(lastMessage.createdAt) : "",
           unread,
           sortMs: lastMessage ? Date.parse(lastMessage.createdAt) || 0 : 0,

@@ -10,6 +10,7 @@ import {
   type ManagerSmsMessageRow,
   type RoleSmsConversationPayload,
 } from "@/lib/manager-sms-messages";
+import { isVoiceCallNoteSid } from "@/lib/voice/voice-call-notes";
 import { PortalInboxEmptyState } from "@/components/portal/portal-inbox-ui";
 
 const OPENED_STORAGE_PREFIX = "axis_role_sms_opened_";
@@ -44,6 +45,7 @@ function SmsBubble({ msg }: { msg: ManagerSmsMessageRow }) {
     >
       <div className="mb-1 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-muted">
         <span>{inbound ? "Inbound" : "Outbound"}</span>
+        {isVoiceCallNoteSid(msg.messageSid) ? <span>Call</span> : null}
         <span className="ml-auto normal-case">{formatPacificDateTime(msg.createdAt)}</span>
       </div>
       <p className="whitespace-pre-wrap leading-relaxed">{msg.body || "—"}</p>
