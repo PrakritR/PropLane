@@ -178,6 +178,16 @@ burned the link's only use. A failed insert now hands the use back and removes t
 redemption row it recorded. Coverage: `tests/unit/invite-link-redeem-behavior.test.ts`
 drives the real function; the grep-based `invite-link-security.test.ts` could not see it.
 
+**`bankAccount` is a module like any other, but it is scoped to the OWNER, not to
+a property.** It is a `CO_MANAGER_PERMISSION_OPTIONS` entry granted per property
+like the rest, yet a Connect account belongs to the owner's profile rather than
+to one listing, so `coManagerCanEditOwnerBankAccount` asks only whether the
+co-manager holds `bankAccount` at `edit` on **any** property assigned by that
+owner. `assertCoManagerBankAccountAccess`
+(`src/lib/auth/co-manager-bank-account-access.ts`) is the route-level wrapper:
+acting on your own account is always allowed, `read` is always allowed, and only
+an `edit` against someone else's account consults the grant.
+
 **Payouts never guess an owner.** `resolveStripePayoutContext`
 (`src/lib/auth/manager-stripe-payout-access.server.ts`) decides whose
 `stripe_connect_account_id` `/api/stripe/connect/{status,onboard}` acts on, so every

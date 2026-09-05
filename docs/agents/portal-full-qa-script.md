@@ -181,6 +181,12 @@ For each section: **load URL → heading visible → no error toast → primary 
 - [ ] No erroneous "Previous" tab
 - [ ] Links to application / lease / communication work
 
+### 1.6b Inspections (`/portal/inspections/move-in`)
+
+- [ ] Move-in / Move-out tabs list reports; ADD creates one for the resident's assigned room
+- [ ] Report detail: photo upload, notes autosave, document preview, submit / request changes / complete
+- [ ] A completed report is read-only everywhere
+
 ### 1.7 Payments (`/portal/payments`)
 
 - [ ] Charges list; status filters
@@ -268,9 +274,9 @@ Sign in as **resident@test.proplane.local**. Nav **varies by stage** — see `sr
 
 | Stage | Unlocked sections | Locked (inert) |
 | --- | --- | --- |
-| Pre-approval (application submitted, not approved) | Tour, Application, Dashboard, Communication, Settings | Lease, Payments, House details, Services, Documents (most) |
-| Pre-lease (approved, lease not fully signed) | + Lease, Payments, Documents | Services, House details until signed |
-| Post-sign (fully signed lease) | Full nav including Services, House details | — |
+| Pre-approval (application submitted, not approved) | Tour, Application, Dashboard, Communication, Settings | Lease, Payments, My home, Services, Documents (most) |
+| Pre-lease (approved, lease not fully signed) | + Lease, Payments, Documents | Services, My home until signed |
+| Post-sign (fully signed lease) | Full nav including Services, My home | — |
 
 **Regression:** Manager+resident same account must not show empty lease while Applications says Approved.
 
@@ -317,9 +323,11 @@ Sign in as **resident@test.proplane.local**. Nav **varies by stage** — see `sr
 - [ ] Work orders tab: submit maintenance request
 - [ ] Label says "Add-on services" not "work orders" for purchasables
 
-### 2.8 House details (`/resident/move-in`) — post-sign
+### 2.8 My home (`/resident/move-in`) — post-sign
 
 - [ ] Move-in checklist / house info loads
+- [ ] Housemates tab: the four sharing opt-ins save; a peer who has not opted in stays redacted
+- [ ] Inspections tab (`/resident/move-in/inspections`): create, photo upload, autosave, submit + acknowledge
 
 ### 2.9 Documents (`/resident/documents/*`)
 
