@@ -153,8 +153,9 @@ describe("resident portal redesign completeness", () => {
       // that actually enforces "header actions reach a phone exactly once" — so
       // that one owns the shape, and this one just checks the button is present.
       expect(src).toContain('data-attr="communication-new-message"');
-      expect(src).toContain("PortalTextNotificationsBlock");
-      expect(src).toContain("communicationSettingsOpen");
+      expect(src).not.toContain("Set up messaging");
+      expect(src).not.toContain("communicationSettingsOpen");
+      expect(src).not.toContain("PortalTextNotificationsBlock");
       // Filtering matches the manager panel rather than being forbidden here.
       // This once asserted the resident had NO filter sheet, which contradicted
       // the reference implementation it is supposed to copy: pro-communication

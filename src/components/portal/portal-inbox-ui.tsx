@@ -967,23 +967,28 @@ export function InboxListSegmentTabs({
   );
 }
 
-/** A single chat bubble — outbound right (cobalt), assistant right (ice), inbound left (gray). */
+/** A single chat bubble — outbound right (cobalt), inbound left (gray).
+ * Assistant ice is left in the PropLane Assistant conversation and right in
+ * person-thread notices (reminders) so those still read as sent. */
 export function InboxBubble({
   message,
   showAuthor = false,
   cluster = "single",
   showMeta = true,
   showChannel = false,
+  alignAssistantStart = false,
 }: {
   message: InboxBubbleMessage;
   showAuthor?: boolean;
   cluster?: InboxBubbleClusterPosition;
   showMeta?: boolean;
   showChannel?: boolean;
+  /** True only for the PropLane Assistant conversation — AI sits on the left. */
+  alignAssistantStart?: boolean;
 }) {
   const outbound = message.direction === "outbound";
   const assistant = message.direction === "assistant";
-  const alignEnd = outbound || assistant;
+  const alignEnd = outbound || (assistant && !alignAssistantStart);
   const channel = message.channel ?? "email";
   const sending = message.delivery === "sending";
   const failed = message.delivery === "failed";
@@ -1047,9 +1052,11 @@ export function InboxBubble({
 export function InboxMessageTimeline({
   messages,
   showAuthors = false,
+  alignAssistantStart = false,
 }: {
   messages: InboxBubbleMessage[];
   showAuthors?: boolean;
+  alignAssistantStart?: boolean;
 }) {
   const items = buildInboxMessageTimeline(messages);
   return (
@@ -1066,6 +1073,7 @@ export function InboxMessageTimeline({
             cluster={item.cluster}
             showMeta={item.showMeta}
             showChannel={item.showChannel}
+            alignAssistantStart={alignAssistantStart}
           />
         </div>
       ))}
@@ -2216,6 +2224,7 @@ export function InboxThreadView({
   avatarName,
   messages,
   showAuthors = false,
+  alignAssistantStart = false,
   onBack,
   hideIdentityHeader = false,
   headerActions,
@@ -2233,6 +2242,8 @@ export function InboxThreadView({
   messages: InboxBubbleMessage[];
   /** Show the author name above inbound bubbles (multi-party threads). */
   showAuthors?: boolean;
+  /** Pin PropLane Assistant ice bubbles to the left in that conversation only. */
+  alignAssistantStart?: boolean;
   /** Mobile-only back affordance returning to the list. */
   onBack?: () => void;
   /** Hide avatar, title, and subtitle (e.g. resident profile Communication tab). */
@@ -2315,7 +2326,11 @@ export function InboxThreadView({
           <div
             className={`flex w-full min-h-min flex-col md:gap-0 ${pageScroll ? "" : "flex-grow justify-end"}`}
           >
-            <InboxMessageTimeline messages={messages} showAuthors={showAuthors} />
+            <InboxMessageTimeline
+              messages={messages}
+              showAuthors={showAuthors}
+              alignAssistantStart={alignAssistantStart}
+            />
             {afterMessages}
             <div ref={endRef} />
           </div>

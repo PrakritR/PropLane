@@ -83,7 +83,7 @@ describe("inbox bubble alignment", () => {
     for (const el of starts) expect(el.className).toMatch(/mr-auto/);
   });
 
-  it("pins assistant ice bubbles right with timestamp only and no author label", () => {
+  it("pins assistant ice bubbles left in the PropLane Assistant conversation", () => {
     const messages: InboxBubbleMessage[] = [
       {
         id: "intro",
@@ -107,19 +107,37 @@ describe("inbox bubble alignment", () => {
         direction: "assistant",
       },
     ];
-    render(<InboxMessageTimeline messages={messages} showAuthors />);
+    render(<InboxMessageTimeline messages={messages} showAuthors alignAssistantStart />);
     const ice = [...document.querySelectorAll('[data-inbox-bubble-kind="assistant"]')];
     const you = [...document.querySelectorAll('[data-inbox-bubble-kind="outbound"]')];
     expect(ice).toHaveLength(2);
     expect(you).toHaveLength(1);
     for (const el of ice) {
-      expect(el.className).toMatch(/ml-auto/);
+      expect(el.className).toMatch(/mr-auto/);
       expect(el.querySelector(".portal-inbox-assistant-bubble")).toBeTruthy();
       expect(el.textContent).not.toMatch(/Assistant/i);
       expect(el.textContent).toMatch(/2:14 PM/);
     }
     expect(you[0]?.className).toMatch(/ml-auto/);
     expect(you[0]?.querySelector(".portal-inbox-outbound-bubble")).toBeTruthy();
+  });
+
+  it("keeps assistant-authored reminders right in a person thread", () => {
+    render(
+      <InboxMessageTimeline
+        messages={[
+          {
+            id: "reminder",
+            author: "PropLane Assistant",
+            body: "Your rent is overdue.",
+            at: "2:14 PM",
+            direction: "assistant",
+          },
+        ]}
+      />,
+    );
+    const ice = document.querySelector('[data-inbox-bubble-kind="assistant"]');
+    expect(ice?.className).toMatch(/ml-auto/);
   });
 });
 

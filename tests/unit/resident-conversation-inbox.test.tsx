@@ -84,6 +84,14 @@ describe("resident conversation inbox", () => {
     expect(screen.queryByText("Property manager")).toBeNull();
   });
 
+  it("does not offer Set up messaging on resident Communication", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    render(<ResidentCommunication />);
+    expect(screen.queryByRole("button", { name: /set up messaging/i })).toBeNull();
+    expect(screen.queryByText("Set up messaging")).toBeNull();
+    expect(screen.getByRole("button", { name: /new message/i })).toBeTruthy();
+  });
+
   it("does not fetch SMS when the SMS UI flag is off (default)", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ messages: [] }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);

@@ -24,7 +24,7 @@ function thread(
 }
 
 describe("inbox turn direction", () => {
-  it("places PropLane Assistant turns on the right as ice, not as You", () => {
+  it("marks PropLane Assistant turns as ice, not as You", () => {
     const conversation = thread({
       id: "resident-agent-1",
       from: "PropLane Assistant",

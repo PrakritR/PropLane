@@ -41,7 +41,7 @@ import {
   type InboxThreadMessage,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
-import { inboxTurnDirection } from "@/lib/inbox-turn-direction";
+import { inboxTurnDirection, isConversationWithPropLaneAssistant } from "@/lib/inbox-turn-direction";
 import {
   InboxSendRefusal,
   inboxReplySentToastMessage,
@@ -772,6 +772,9 @@ export const VendorInboxPanel = forwardRef<
   }, [activeThread?.id, activeThread?.folder, activeThread?.unread, markReadSilent]);
 
   const activeIsSent = activeThread?.folder === "sent";
+  const activeIsAssistantThread = Boolean(
+    activeThread && isConversationWithPropLaneAssistant(activeThread),
+  );
   const activeThreadAvatarName = activeThread
     ? activeIsSent
       ? activeThread.email || undefined
@@ -921,6 +924,7 @@ export const VendorInboxPanel = forwardRef<
               avatarName={activeThreadAvatarName}
               subtitle={activeThread.subject || (activeIsSent ? undefined : activeThread.email)}
               messages={activeBubbles}
+              alignAssistantStart={activeIsAssistantThread}
               threadKey={activeThread.id}
               onBack={() => setExpandedId(null)}
               headerActions={renderExtraActions({
