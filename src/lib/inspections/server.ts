@@ -8,11 +8,13 @@ import { track } from "@/lib/analytics/posthog";
 import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import {
-  applyInspectionObservations, createInspectionDocument, createInspectionSchema,
+  applyInspectionObservations, createInspectionSchema,
   InspectionError, transitionInspection,
   type InspectionDetail, type InspectionDocument, type InspectionRecord,
   type InspectionResidency, type InspectionSummary,
 } from "./model";
+
+import { createRoomInspectionDocument, inspectionRoomListing, resolveInspectionRoom } from "./room-template";
 
 export type InspectionActor = { role: "manager"; context: AgentContext } | { role: "resident"; context: ResidentAgentContext };
 const TABLE = "resident_inspections";
@@ -113,6 +115,7 @@ type ResidencyView = {
   name: string;
   propertyLabel: string;
   roomLabel: string;
+  manualRoom: string;
   identity: { manager_user_id: string; property_id: string; resident_email: string; resident_user_id: string | null };
 };
 
@@ -127,6 +130,7 @@ function residencyFromRecord(record: Record<string, unknown>): ResidencyView {
     name: text("app_name") || "Resident",
     propertyLabel: text("app_property") || "Property",
     roomLabel: text("app_room_choice") || text("app_manual_room") || "",
+    manualRoom: text("app_manual_room"),
     identity: {
       manager_user_id: text("manager_user_id"),
       property_id: text("assigned_property_id") || text("app_assigned_property_id")
@@ -146,7 +150,7 @@ export async function listInspectionResidencies(actor: InspectionActor): Promise
     if (!residency.approved) return [];
     if (!identity.property_id || !identity.resident_email || !authorized(actor, scope, identity)) return [];
     return [{ id: residency.id, name: residency.name, property: residency.propertyLabel,
-      room: residency.roomLabel, canCreate: authorized(actor, editScope, identity) }];
+      room: residency.roomLabel, canCreate: Boolean(residency.roomLabel && residency.roomLabel !== identity.property_id) && authorized(actor, editScope, identity) }];
   });
 }
 
@@ -173,32 +177,34 @@ export async function prepareInspection(actor: InspectionActor, raw: unknown) {
   if (!authorized(actor, scope, identity)) throw new InspectionError("Residency not found.", 404);
   if (!residency.approved || !identity.property_id || !identity.resident_email) throw new InspectionError("Choose an approved resident with a property placement.");
   // The actual property's owner, rather than a caller-supplied or stale owner stamp.
-  const { data: property, error: propertyError } = await actor.context.db.from("manager_property_records").select("manager_user_id").eq("id", identity.property_id).maybeSingle();
+  const { data: property, error: propertyError } = await actor.context.db.from("manager_property_records").select("manager_user_id,listing_rooms:property_data->listingSubmission->rooms,listing_bathrooms:property_data->listingSubmission->bathrooms,legacy_rooms:row_data->submission->rooms,legacy_bathrooms:row_data->submission->bathrooms").eq("id", identity.property_id).maybeSingle();
   if (propertyError || !property?.manager_user_id) throw new InspectionError("The resident's property could not be found.");
   identity.manager_user_id = String(property.manager_user_id);
   if (!authorized(actor, scope, identity)) throw new InspectionError("Residency not found.", 404);
+  const submission = inspectionRoomListing(property.listing_rooms ?? property.legacy_rooms, property.listing_bathrooms ?? property.legacy_bathrooms);
+  const room = resolveInspectionRoom(identity.property_id, residency.roomLabel, residency.manualRoom, submission);
   let baseline: InspectionRecord | null = null;
   if (input.baselineId) {
     baseline = await getInspection(actor, input.baselineId);
     if (input.kind !== "move-out" || baseline.kind !== "move-in" || baseline.status !== "completed" ||
       baseline.application_id !== input.applicationId || baseline.property_id !== identity.property_id ||
-      baseline.room_label !== residency.roomLabel ||
+      (baseline.document.roomScope ? baseline.document.roomScope.assignment !== room.assignment : baseline.room_label !== residency.roomLabel && baseline.room_label !== room.label) ||
       baseline.manager_user_id !== identity.manager_user_id || baseline.inspection_date > input.inspectionDate) {
       throw new InspectionError("Choose a completed move-in report from this residency dated before the move-out.");
     }
   }
-  return { input, identity, residency, baseline };
+  return { input, identity, residency, room, baseline };
 }
 
 export async function createInspection(actor: InspectionActor, raw: unknown): Promise<InspectionRecord> {
-  const { input, identity, residency, baseline } = await prepareInspection(actor, raw);
+  const { input, identity, residency, room, baseline } = await prepareInspection(actor, raw);
   const auditKey = await auditInspectionWrite(actor, "create", { application_id: input.applicationId, kind: input.kind });
   const now = new Date().toISOString();
-  const document = createInspectionDocument();
+  const document = createRoomInspectionDocument(room);
   document.history.push({ action: "create", role: actor.role, userId: actor.context.userId, at: now });
   const { data: created, error: insertError } = await actor.context.db.from(TABLE).insert({
     ...identity, application_id: input.applicationId, resident_name: residency.name,
-    property_label: residency.propertyLabel, room_label: residency.roomLabel,
+    property_label: residency.propertyLabel, room_label: room.label,
     kind: input.kind, inspection_date: input.inspectionDate, baseline_id: baseline?.id ?? null, document,
   }).select("*").single();
   await updateAuditResult(actor.context, auditKey, { status: insertError ? "failed" : "success", inspection_id: created?.id ?? null });

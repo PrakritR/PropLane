@@ -15,12 +15,13 @@ import { addInspectionPhoto, getInspection, listInspections, prepareInspection, 
 let reports: InspectionRecord[];
 let applications: Record<string, unknown>[];
 let writes: number;
+let properties: Record<string, unknown>[];
 const storage = { upload: vi.fn(), remove: vi.fn(), createSignedUrls: vi.fn() };
 const db = { storage: { from: () => storage }, from(table: string) {
   const filters: ((row: Record<string, unknown>) => boolean)[] = [];
   let patch: Record<string, unknown> | undefined;
   let from = 0; let to = Infinity;
-  const rows = () => table === "resident_inspections" ? reports : table === "manager_application_records" ? applications : [{ id: "home", manager_user_id: "owner" }];
+  const rows = () => table === "resident_inspections" ? reports : table === "manager_application_records" ? applications : properties;
   const run = () => {
     const matched = rows().filter(row => filters.every(f => f(row as unknown as Record<string, unknown>))).slice(from, to + 1);
     if (patch) { for (const row of matched) Object.assign(row, patch); writes += matched.length; }
@@ -37,7 +38,7 @@ const db = { storage: { from: () => storage }, from(table: string) {
 } };
 const manager = (userId = "owner"): InspectionActor => ({ role: "manager", context: { userId, landlordId: userId, db } as unknown as AgentContext });
 const resident = (userId = "resident", email = "resident@example.test"): InspectionActor => ({ role: "resident", context: { userId, landlordId: userId, email, phase: "approved", db } as unknown as ResidentAgentContext });
-beforeEach(() => { vi.clearAllMocks(); writes = 0; reports = [reportFixture()]; applications = [{ id: "AXIS-TEST", manager_user_id: "owner", property_id: "home", resident_email: "resident@example.test", app_bucket: "approved", app_name: "Resident", app_resident_user_id: "resident", app_property_id: "home", app_room_choice: "Room 1" }]; });
+beforeEach(() => { vi.clearAllMocks(); writes = 0; properties = [{ id: "home", manager_user_id: "owner" }]; reports = [reportFixture()]; applications = [{ id: "AXIS-TEST", manager_user_id: "owner", property_id: "home", resident_email: "resident@example.test", app_bucket: "approved", app_name: "Resident", app_resident_user_id: "resident", app_property_id: "home", app_room_choice: "Room 1" }]; });
 
 describe("inspection ownership and write isolation", () => {
   it("hides another landlord's report and another resident's evidence", async () => {
@@ -72,6 +73,27 @@ describe("inspection ownership and write isolation", () => {
     await expect(prepareInspection(manager("other"), input)).rejects.toMatchObject({ status: 404 });
     await expect(prepareInspection(resident("other", "other@example.test"), input)).rejects.toMatchObject({ status: 404 });
     await expect(prepareInspection(manager(), { ...input, manager_user_id: "other" })).rejects.toThrow();
+  });
+  it("resolves only the assigned room from the actual property's saved listing", async () => {
+    applications[0]!.app_room_choice = "home::b";
+    properties[0]!.listing_rooms = [{ id: "a", name: "Room A", furnishing: "Unfurnished" }, { id: "b", name: "Room B", furnishing: "Bed" }];
+    properties[0]!.listing_bathrooms = [{ assignedRoomIds: ["b"], allResidents: false, accessKindByRoomId: { b: "ensuite" } }];
+    const input = { applicationId: "AXIS-TEST", kind: "move-in", inspectionDate: "2026-09-05" };
+    expect((await prepareInspection(manager(), input)).room).toEqual({ assignment: "home::b", label: "Room B", furnished: true, privateBathroom: true });
+    applications[0]!.app_room_choice = "other::b";
+    await expect(prepareInspection(manager(), input)).rejects.toThrow("does not belong");
+    applications[0]!.app_room_choice = "";
+    await expect(prepareInspection(manager(), input)).rejects.toThrow("Assign a room");
+  });
+  it("uses the pinned room identity rather than a renamed room label when matching new baselines", async () => {
+    applications[0]!.app_room_choice = "home::b";
+    properties[0]!.listing_rooms = [{ id: "b", name: "Renamed room", furnishing: "Unfurnished" }];
+    reports[0]!.status = "completed";
+    reports[0]!.document.roomScope = { assignment: "home::b", label: "Original name" };
+    const input = { applicationId: "AXIS-TEST", kind: "move-out", inspectionDate: "2026-09-06", baselineId: reports[0]!.id };
+    expect((await prepareInspection(manager(), input)).baseline?.id).toBe(reports[0]!.id);
+    reports[0]!.document.roomScope.assignment = "home::a";
+    await expect(prepareInspection(manager(), input)).rejects.toThrow("this residency");
   });
   it("refuses concurrent writes rather than losing the other party's observations", async () => {
     const id = reports[0]!.id;

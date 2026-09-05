@@ -21,6 +21,7 @@ const kindLabel = (kind: InspectionKind) => kind === "move-in" ? "Move-in" : "Mo
 const statusLabel = (status: InspectionStatus) => status === "submitted" ? "Awaiting review" : status === "completed" ? "Completed" : "Draft";
 
 export function ManagerInspectionsPage({ kind = "move-in", reportId, basePath = "/portal" }: { kind?: InspectionKind; reportId?: string; basePath?: string }) {
+  if (reportId) return <InspectionsPanel role="manager" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} />;
   return <ManagerPortalPageShell title="Inspections" hideTitleOnMobileNav compactFilterRow><InspectionsPanel role="manager" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} /></ManagerPortalPageShell>;
 }
 

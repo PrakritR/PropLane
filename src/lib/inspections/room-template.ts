@@ -1,11 +1,29 @@
-import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import type { ManagerRoomSubmission, ManagerBathroomSubmission } from "@/lib/manager-listing-submission";
 import { roomFurnishingIsFurnished } from "@/data/manager-listing-presets";
 import { InspectionError, type InspectionDocument, type InspectionObservation } from "./model";
+
+type InspectionRoomListing = {
+  rooms: Pick<ManagerRoomSubmission, "id" | "name" | "furnishing">[];
+  bathrooms: Pick<ManagerBathroomSubmission, "allResidents" | "assignedRoomIds" | "accessKindByRoomId">[];
+};
+
+/** Read only the listing facts used by a room inspection; ignore malformed legacy values. */
+export function inspectionRoomListing(rooms: unknown, bathrooms: unknown): InspectionRoomListing {
+  const objects = (value: unknown): Record<string, unknown>[] => Array.isArray(value) ? value.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry)) : [];
+  const text = (value: unknown) => typeof value === "string" ? value : "";
+  return {
+    rooms: objects(rooms).filter(r => text(r.id)).map(r => ({ id: text(r.id), name: text(r.name), furnishing: text(r.furnishing) })),
+    bathrooms: objects(bathrooms).map(b => ({ allResidents: b.allResidents === true,
+      assignedRoomIds: Array.isArray(b.assignedRoomIds) ? b.assignedRoomIds.filter((id): id is string => typeof id === "string") : [],
+      accessKindByRoomId: b.accessKindByRoomId && typeof b.accessKindByRoomId === "object" ? Object.fromEntries(Object.entries(b.accessKindByRoomId).filter(([, kind]) => kind === "ensuite" || kind === "shared")) : {},
+    })),
+  };
+}
 
 export type InspectionRoom = { assignment: string; label: string; furnished: boolean; privateBathroom: boolean };
 
 /** An explicit placement is required. Never pick another room by rent or array position. */
-export function resolveInspectionRoom(propertyId: string, assignment: string, manualRoom: string, submission?: ManagerListingSubmissionV1): InspectionRoom {
+export function resolveInspectionRoom(propertyId: string, assignment: string, manualRoom: string, submission?: InspectionRoomListing): InspectionRoom {
   const choice = assignment.trim();
   const manual = manualRoom.trim();
   const separator = choice.indexOf("::");
