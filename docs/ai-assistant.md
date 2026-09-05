@@ -390,3 +390,5 @@ claimed on `user_id` + status `proposed`, 15-minute default expiry) and
 The archive/preferences extension is
 `20260804120000_agent_chat_archive_preferences.sql` (`agent_sessions.title`,
 the partial `portal_chat` archive index, and `agent_user_preferences`).
+
+Resident **My home** sharing tools (`get_housemates`, `get_housemate_sharing`, `update_housemate_sharing`) use server-redacted, current-residency-scoped data and the existing write-confirm gate. See [resident My home](agents/resident-my-home.md).

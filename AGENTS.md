@@ -1218,6 +1218,7 @@ below always apply; the files carry the full rationale, schemas, and gotchas.
 
 | Area | Read first | Never violate |
 | --- | --- | --- |
+| Resident My home & housemate privacy | `docs/agents/resident-my-home.md` | Peer details are redacted server-side by independent opt-ins; missing preferences disclose nothing. Only current residents share a household; writes use the authenticated resident identity. |
 | Vendor portal (roles, bids, Connect payouts) | `docs/agents/vendor-portal.md` | Vendor reads scope by `vendor_user_id = auth.uid()`; writes go through service-role routes; an accepted bid's `amount_cents` is the immutable payout anchor. |
 | Financials (ledger, GL, deposits, AP, NSF) | `docs/agents/financials.md` | Every charge/payment write MUST call `syncLedgerChargeEntry`/`syncLedgerPaymentEntry` + GL posting next to the DB write — the ledger is write-through only, never read-time backfill. `security_deposit` books to liability, not income. |
 | Vendor invoicing (Phase 4) | `docs/agents/vendor-invoicing.md` | Invoice totals recomputed server-side from line items; vendor tools live in `vendorAgentRegistry`, never the manager registry. |

@@ -1290,7 +1290,7 @@ export async function renderPortalSection(
     // Use the same entitlement as navigation, including attested off-platform tenancies.
     if (!residentAccess?.leaseAccessUnlocked) {
       return (
-        <ManagerPortalPageShell title="House details" hideTitleOnMobileNav>
+        <ManagerPortalPageShell title="My home" hideTitleOnMobileNav>
           <ResidentMoveInShell
             basePath={def.basePath}
             resolved={null}

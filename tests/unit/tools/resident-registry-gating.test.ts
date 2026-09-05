@@ -38,6 +38,9 @@ const INBOX_TOOLS = [
 ];
 
 const UNGATED_TOOLS = [
+  "get_housemates",
+  "get_housemate_sharing",
+  "update_housemate_sharing",
   "list_inspections",
   "get_inspection",
   "create_inspection",

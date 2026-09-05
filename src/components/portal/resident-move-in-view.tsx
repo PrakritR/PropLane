@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import { ResidentHousemateSharing } from "@/components/portal/resident-housemate-sharing";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
 import { ResidentMoveInMediaGallery } from "@/components/portal/move-in-media-fields";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
@@ -46,7 +47,7 @@ function PlacementTabContent({ resolved }: { resolved: ResidentMoveInResolved })
 
 function HousemateRow({ mate }: { mate: ResidentMoveInHousemate }) {
   return (
-    <li className="flex flex-wrap items-start justify-between gap-2 py-3 first:pt-0 last:pb-0">
+    <li className="ph-no-capture ph-no-record flex flex-wrap items-start justify-between gap-2 py-3 first:pt-0 last:pb-0">
       <div>
         <p className="text-sm font-semibold text-foreground">{mate.name}</p>
         <p className="mt-0.5 text-xs text-muted">{mate.roomLabel}</p>
@@ -60,9 +61,9 @@ function HousemateRow({ mate }: { mate: ResidentMoveInHousemate }) {
             {mate.phone}
           </a>
         ) : (
-          <span>No phone on file</span>
+          <span>{mate.email ? "Phone not shared" : "Contact details not shared"}</span>
         )}
-        <p className="mt-0.5 text-xs">{mate.email}</p>
+        {mate.email ? <p className="mt-0.5 text-xs">{mate.email}</p> : null}
       </div>
     </li>
   );
@@ -98,8 +99,8 @@ function HousematesTabContent({ resolved }: { resolved: ResidentMoveInResolved }
               : `Sharing your room (${roommates.length}).`}
           </p>
           <ul className="divide-y divide-border/50">
-            {roommates.map((mate) => (
-              <HousemateRow key={mate.email} mate={mate} />
+            {roommates.map((mate, index) => (
+              <HousemateRow key={mate.id ?? `housemate-${index}`} mate={mate} />
             ))}
           </ul>
         </section>
@@ -108,12 +109,12 @@ function HousematesTabContent({ resolved }: { resolved: ResidentMoveInResolved }
       {others.length > 0 ? (
         <section data-attr="move-in-housemates">
           {roommates.length > 0 ? (
-            <h3 className="text-sm font-semibold text-foreground">Other housemates</h3>
+            <h3 className="text-sm font-semibold text-foreground">Housemates</h3>
           ) : null}
-          <p className="mb-3 mt-0.5 text-sm text-muted">Other residents in your household.</p>
+          <p className="mb-3 mt-0.5 text-sm text-muted">Residents in your household. Personal details appear only when a resident chooses to share them.</p>
           <ul className="divide-y divide-border/50">
-            {others.map((mate) => (
-              <HousemateRow key={mate.email} mate={mate} />
+            {others.map((mate, index) => (
+              <HousemateRow key={mate.id ?? `housemate-${index}`} mate={mate} />
             ))}
           </ul>
         </section>
@@ -233,7 +234,7 @@ function ResidentMoveInTabContent({
     case "placement":
       return <PlacementTabContent resolved={resolved} />;
     case "housemates":
-      return <HousematesTabContent resolved={resolved} />;
+      return <><ResidentHousemateSharing /><HousematesTabContent resolved={resolved} /></>;
     case "info":
       return <InfoTabContent resolved={resolved} />;
     case "amenities":
@@ -247,7 +248,7 @@ function ResidentMoveInTabContent({
   }
 }
 
-/** House details — routed sub-tabs (placement, housemates, info, amenities, move-in). */
+/** My home — routed sub-tabs (placement, housemates, info, amenities, move-in). */
 export function ResidentMoveInShell({
   basePath = "/resident",
   resolved,
@@ -287,7 +288,7 @@ export function ResidentMoveInShell({
       {locked ? (
         <>
           <p className={PORTAL_INLINE_UNLOCK_NOTICE_CLASS}>
-            <span className="font-semibold">Available once your lease is signed.</span> House details unlock after
+            <span className="font-semibold">Available once your lease is signed.</span> My home unlocks after
             both you and your property manager have signed the lease.
           </p>
           <PortalDataTableEmpty message="Unlocks after both signatures are complete." icon="lease" />
@@ -309,7 +310,7 @@ export function ResidentMoveInShell({
             stickyDestinations={false}
             destinations={destinations}
             activeDestinationId={tabId}
-            destinationAriaLabel="House details"
+            destinationAriaLabel="My home"
             destinationItemLayout="equal"
             destinationDenseEqualRow
           />
