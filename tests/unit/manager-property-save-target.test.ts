@@ -292,3 +292,83 @@ describe("persistApplicationConfigToPropertyIds", () => {
     expect(result).toEqual({ saved: 0, failed: 1 });
   });
 });
+
+describe("resolveManagerListingSubmissionForPropertyId", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("loads a co-managed listing from the owner catalog when the viewer does not own it", () => {
+    const sub = { ...createDefaultListingSubmission(), buildingName: "Linked House" };
+    vi.spyOn(propertyPipeline, "readExtraListingsForUser").mockReturnValue([]);
+    vi.spyOn(propertyPipeline, "readAllExtraListings").mockReturnValue([
+      {
+        id: "prop-linked",
+        title: "Linked House · Unit",
+        tagline: "",
+        address: "1 Main",
+        zip: "98101",
+        neighborhood: "Downtown",
+        beds: 2,
+        baths: 1,
+        rentLabel: "$2000",
+        available: "Now",
+        petFriendly: true,
+        buildingId: "b1",
+        buildingName: "Linked House",
+        unitLabel: "1",
+        mapLat: 0,
+        mapLng: 0,
+        managerUserId: "owner-1",
+        adminPublishLive: true,
+        listingSubmission: sub,
+      },
+    ]);
+    vi.spyOn(propertyPipeline, "readPendingManagerPropertiesForUser").mockReturnValue([]);
+    vi.spyOn(propertyPipeline, "readAllPendingManagerProperties").mockReturnValue([]);
+
+    const hit = resolveManagerListingSubmissionForPropertyId("mgr-co", "prop-linked");
+    expect(hit?.saveTarget).toEqual({ mode: "listing", saveId: "prop-linked" });
+    expect(hit?.sub.buildingName).toBe("Linked House");
+  });
+});
+
+describe("resolveManagerListingSubmissionForPropertyId", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("loads a co-managed listing from the owner catalog when the viewer does not own it", () => {
+    const sub = { ...createDefaultListingSubmission(), buildingName: "Linked House" };
+    vi.spyOn(propertyPipeline, "readExtraListingsForUser").mockReturnValue([]);
+    vi.spyOn(propertyPipeline, "readAllExtraListings").mockReturnValue([
+      {
+        id: "prop-linked",
+        title: "Linked House · Unit",
+        tagline: "",
+        address: "1 Main",
+        zip: "98101",
+        neighborhood: "Downtown",
+        beds: 2,
+        baths: 1,
+        rentLabel: "$2000",
+        available: "Now",
+        petFriendly: true,
+        buildingId: "b1",
+        buildingName: "Linked House",
+        unitLabel: "1",
+        mapLat: 0,
+        mapLng: 0,
+        managerUserId: "owner-1",
+        adminPublishLive: true,
+        listingSubmission: sub,
+      },
+    ]);
+    vi.spyOn(propertyPipeline, "readPendingManagerPropertiesForUser").mockReturnValue([]);
+    vi.spyOn(propertyPipeline, "readAllPendingManagerProperties").mockReturnValue([]);
+
+    const hit = resolveManagerListingSubmissionForPropertyId("mgr-co", "prop-linked");
+    expect(hit?.saveTarget).toEqual({ mode: "listing", saveId: "prop-linked" });
+    expect(hit?.sub.buildingName).toBe("Linked House");
+  });
+});

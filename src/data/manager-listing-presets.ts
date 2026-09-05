@@ -396,6 +396,26 @@ export function splitLineList(text: string): string[] {
     .filter(Boolean);
 }
 
+/** Newline-separated amenity storage — preserves spaces inside each custom line. */
+export function listingAmenityLinesFromValue(text: string): string[] {
+  return text.split("\n").filter((line) => line.length > 0);
+}
+
+/**
+ * Parse the "Other amenities, comma-separated" write-in without eating spaces or
+ * a trailing comma while the manager is still typing. Completed segments (before
+ * each comma) are trimmed; the segment after the last comma is left intact.
+ */
+export function splitCommaSeparatedList(text: string): string[] {
+  const parts = text.split(",");
+  const mapped = parts.map((part, index) => {
+    if (index < parts.length - 1) return part.trim();
+    return part.replace(/^\s+/, "");
+  });
+  const trailingComma = text.endsWith(",");
+  return mapped.filter((part, index) => part.length > 0 || (trailingComma && index === mapped.length - 1));
+}
+
 export function mergeToggleLine(existing: string, label: string, on: boolean): string {
   const set = new Set(splitLineList(existing));
   if (on) set.add(label);

@@ -215,6 +215,15 @@ export async function deletePortalAccountCompletely(db: ServiceDb, userId: strin
 }
 
 /**
+ * Admin PropLane Users delete — same full teardown as self-delete (Stripe cancel,
+ * vendor rows, SMS relay, manager + resident portal data, auth user). After this
+ * the email can register again as a genuinely fresh account.
+ */
+export async function deleteAdminPortalAccount(db: ServiceDb, userId: string) {
+  return deleteOwnAccount(db, userId);
+}
+
+/**
  * Self-delete: the authenticated user permanently deletes their OWN account,
  * whatever role(s) they hold. The resident path's PROTECTED_ROLES /
  * canHardDeleteResident guard exists to stop an ADMIN from hard-deleting a

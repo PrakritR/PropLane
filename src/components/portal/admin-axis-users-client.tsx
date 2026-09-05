@@ -360,7 +360,9 @@ function ManagerDetailContent({
         </Button>
         {confirmDelete ? (
           <div className="flex items-center gap-2 rounded-full border px-3 py-1.5 portal-banner-danger">
-            <span className="text-xs font-semibold text-rose-800">Remove manager access and delete all properties?</span>
+            <span className="text-xs font-semibold text-rose-800">
+              Permanently delete this manager, all properties, residents, payments, and login?
+            </span>
             <button
               type="button"
               className="rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
@@ -507,7 +509,7 @@ function SimpleAccountDetailContent({
           <div className="flex items-center gap-2 rounded-full border px-3 py-1.5 portal-banner-danger">
             <span className="text-xs font-semibold text-rose-800">
               {apiPath === "/api/admin/residents"
-                ? "Delete resident, leases, and payments?"
+                ? "Permanently delete this resident, leases, payments, and login?"
                 : apiPath === "/api/admin/vendors"
                   ? "Delete vendor bids, invoices, and payouts?"
                   : "Delete permanently?"}

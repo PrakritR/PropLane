@@ -152,11 +152,29 @@ export async function purgeManagerPortalData(db: ServiceDb, managerUserId: strin
     .filter((id): id is string => typeof id === "string" && id.length > 0);
 
   const deleteOps: PromiseLike<{ error: { message: string } | null }>[] = [
+    // Financial / GL chain — ledger rows must go before journal entries (FK pointer).
+    db.from("ledger_entries").delete().eq("manager_user_id", managerUserId),
+    db.from("security_deposit_ledger").delete().eq("manager_user_id", managerUserId),
+    db.from("gl_journal_entries").delete().eq("manager_user_id", managerUserId),
+    // Vendor AP / dispatch chain (before work orders they hang off).
+    db.from("vendor_payouts").delete().eq("manager_user_id", managerUserId),
+    db.from("vendor_invoices").delete().eq("manager_user_id", managerUserId),
+    db.from("manager_bills").delete().eq("manager_user_id", managerUserId),
+    db.from("work_order_vendor_offers").delete().eq("manager_user_id", managerUserId),
+    db.from("vendor_invites").delete().eq("manager_user_id", managerUserId),
+    db.from("vendor_tax_profiles").delete().eq("manager_user_id", managerUserId),
+    // Agent + audit (landlord_id is the manager on portal surfaces).
+    db.from("agent_pending_actions").delete().eq("landlord_id", managerUserId),
+    db.from("agent_sessions").delete().eq("landlord_id", managerUserId),
+    db.from("audit_log").delete().eq("landlord_id", managerUserId),
+    db.from("manager_sms_numbers").delete().eq("manager_user_id", managerUserId),
+    db.from("manager_assistant_emails").delete().eq("manager_user_id", managerUserId),
     db.from("manager_property_records").delete().eq("manager_user_id", managerUserId),
     db.from("manager_application_records").delete().eq("manager_user_id", managerUserId),
     db.from("portal_household_charge_records").delete().eq("manager_user_id", managerUserId),
     db.from("portal_recurring_rent_profile_records").delete().eq("manager_user_id", managerUserId),
     db.from("portal_lease_pipeline_records").delete().eq("manager_user_id", managerUserId),
+    db.from("portal_service_request_records").delete().eq("manager_user_id", managerUserId),
     db.from("portal_work_order_records").delete().eq("manager_user_id", managerUserId),
     db.from("portal_inbox_thread_records").delete().eq("owner_user_id", managerUserId),
     db.from("portal_schedule_records").delete().eq("manager_user_id", managerUserId),
