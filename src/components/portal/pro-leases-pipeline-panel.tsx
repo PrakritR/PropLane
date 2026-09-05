@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
+import { LeasePipelineReviewPanel } from "@/components/portal/lease-pipeline-review-panel";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/pro-pipeline-lease-edit-modal";
 import { LeaseGenerateModal } from "@/components/portal/lease-generate-modal";
 import { LeaseAmendMoveOutModal } from "@/components/portal/lease-amend-move-out-modal";
@@ -83,7 +84,12 @@ function leaseRowIsBulkSendable(
   // result for truthiness, so both spellings of absent are accepted.
   sendBlockedReason: (row: LeasePipelineRow) => string | null | undefined,
 ): boolean {
-  return (row.status === "Manager Review" || row.status === "Draft") && !sendBlockedReason(row);
+  const hasDocument = Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl);
+  return (
+    (row.status === "Manager Review" || row.status === "Draft") &&
+    hasDocument &&
+    !sendBlockedReason(row)
+  );
 }
 
 export function ManagerLeasesPipelinePanel({
@@ -284,7 +290,18 @@ export function ManagerLeasesPipelinePanel({
   const showBulkSendButton =
     tab === "manager" &&
     selectedLeaseRows.length > 0 &&
-    (selectedLeaseRows.length === 1 || bulkSendableLeaseRows.length > 0);
+    (selectedLeaseRows.length > 1
+      ? bulkSendableLeaseRows.length > 0
+      : Boolean(singleSelectedLeaseRow && hasLeaseDocument(singleSelectedLeaseRow)));
+
+  const showBulkGenerateButton =
+    tab === "manager" &&
+    Boolean(
+      singleSelectedLeaseRow &&
+        selectedLeaseRows.length === 1 &&
+        !hasLeaseDocument(singleSelectedLeaseRow) &&
+        leaseAllowsManagerDocumentEdits(singleSelectedLeaseRow),
+    );
 
   const openBulkSendLeasePreview = useCallback(() => {
     if (bulkSendableLeaseRows.length === 0) {
@@ -585,7 +602,8 @@ export function ManagerLeasesPipelinePanel({
       : !row.generatedHtml && !row.managerUploadedPdf?.dataUrl
         ? "Generate or upload a lease document first."
         : sendGateBlockerForRender(row);
-    const showSendToResident = row.status === "Manager Review" || row.status === "Draft";
+    const showSendToResident =
+      hasDocument && (row.status === "Manager Review" || row.status === "Draft");
     const showMoveToReview = row.status === "Resident Signature Pending";
     const showManagerSign = !row.managerSignature && residentHasSignedLease(row);
     const showSigningReminder = row.status === "Resident Signature Pending";
@@ -669,6 +687,34 @@ export function ManagerLeasesPipelinePanel({
         menuItem: (
           <DropdownMenuItem data-attr="lease-edit" onSelect={() => setEditLeaseRowId(row.id)}>
             Edit
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (showGenerate && !hasDocument) {
+      const generationOk = leaseGenerationSupportedForRow(row).ok;
+      actions.push({
+        id: "generate",
+        button: (
+          <Button
+            type="button"
+            variant="outline"
+            className={actionBtnClass}
+            data-attr="lease-generate"
+            disabled={!generationOk || generatingRowId === row.id}
+            onClick={() => runGenerateLease(row)}
+          >
+            {generatingRowId === row.id ? "Generating…" : "Generate lease"}
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem
+            data-attr="lease-generate"
+            disabled={!generationOk || generatingRowId === row.id}
+            onSelect={() => runGenerateLease(row)}
+          >
+            {generatingRowId === row.id ? "Generating…" : "Generate lease"}
           </DropdownMenuItem>
         ),
       });
@@ -1023,6 +1069,10 @@ export function ManagerLeasesPipelinePanel({
             hasLeaseDocument(editLeaseRow) ? "Regenerate" : "Generate lease"
           }
           regenerateDisabled={!leaseGenerationSupportedForRow(editLeaseRow).ok}
+          onSendToResident={
+            hasLeaseDocument(editLeaseRow) ? () => openSendLeasePreview(editLeaseRow) : undefined
+          }
+          sendToResidentBusy={sendingToResidentRowId === editLeaseRow.id}
         />
       ) : null}
 
@@ -1123,6 +1173,21 @@ export function ManagerLeasesPipelinePanel({
                   {sendingToResidentRowId ? "Sending…" : "Send"}
                 </Button>
               ) : null}
+              {showBulkGenerateButton && singleSelectedLeaseRow ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="leases-bulk-generate"
+                  disabled={
+                    !leaseGenerationSupportedForRow(singleSelectedLeaseRow).ok ||
+                    generatingRowId === singleSelectedLeaseRow.id
+                  }
+                  onClick={() => runGenerateLease(singleSelectedLeaseRow)}
+                >
+                  {generatingRowId === singleSelectedLeaseRow.id ? "Generating…" : "Generate lease"}
+                </Button>
+              ) : null}
               {singleSelectedLeaseRow && hasLeaseDocument(singleSelectedLeaseRow) ? (
                 <PortalRecordShareLinkButton
                   kind="lease"
@@ -1146,6 +1211,20 @@ export function ManagerLeasesPipelinePanel({
           onToggleSelected={toggleSelected}
           onOpenLease={openLeaseDetail}
         />
+        {tab === "manager" && singleSelectedLeaseRow ? (
+          <LeasePipelineReviewPanel
+            row={singleSelectedLeaseRow}
+            managerUserId={managerUserId}
+            onSaved={() => void syncLeasePipelineFromServer(managerUserId, { force: true })}
+            onGenerateLease={() => runGenerateLease(singleSelectedLeaseRow)}
+            generateLeaseDisabled={!leaseGenerationSupportedForRow(singleSelectedLeaseRow).ok}
+            generateLeaseTitle={
+              leaseGenerationSupportedForRow(singleSelectedLeaseRow).ok
+                ? undefined
+                : leaseGenerationSupportedForRow(singleSelectedLeaseRow).error
+            }
+          />
+        ) : null}
       </PortalRecordListSurface>
     </>
   );

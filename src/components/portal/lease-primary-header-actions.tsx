@@ -99,7 +99,9 @@ export function LeasePrimaryHeaderActions({
   const hasDocument = Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl);
 
   const showSendToResident =
-    (row.status === "Manager Review" || row.status === "Draft") && Boolean(onSendToResident);
+    hasDocument &&
+    (row.status === "Manager Review" || row.status === "Draft") &&
+    Boolean(onSendToResident);
   const showSign = !row.managerSignature && residentHasSignedLease(row) && Boolean(onSignManager);
   const showSigningReminder = row.status === "Resident Signature Pending" && Boolean(onSigningReminder);
   const showMoveToReview = row.status === "Resident Signature Pending" && Boolean(onMoveToManagerReview);
