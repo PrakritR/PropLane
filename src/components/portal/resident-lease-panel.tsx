@@ -16,6 +16,12 @@ import {
 import { ResidentLeaseListTable, useResidentLeasePipelineRow } from "@/components/portal/resident-lease-list";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import {
+  residentDocumentsDownloadAction,
+  residentDocumentsOpenAction,
+} from "@/components/portal/resident-documents-bulk";
+import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
+import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
+import {
   RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
 } from "@/components/portal/resident-portal-grouped-data-list";
 import {
@@ -28,7 +34,7 @@ import {
   residentLeaseListHref,
   type ResidentLeaseBucketId,
 } from "@/lib/portal-detail-routes";
-import { decodeLeaseDocumentDetailId, buildResidentLeaseDocumentRows, resolveResidentLeaseDocumentView } from "@/lib/resident-lease-documents";
+import { decodeLeaseDocumentDetailId, buildResidentLeaseDocumentRows, filterResidentLeaseDocumentRows, resolveResidentLeaseDocumentView } from "@/lib/resident-lease-documents";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import {
   shortToLongTermUpgradeBreakdown,
@@ -52,6 +58,8 @@ import { residentLeaseRenewalStatus } from "@/lib/resident-lease-renewal-status"
 import { cn } from "@/lib/utils";
 import { safeFormatDateTime } from "@/lib/pacific-time";
 import { useResidentPortalAxisContext } from "@/hooks/use-resident-portal-axis";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
+import { usePortalNavigate } from "@/lib/portal-nav-client";
 
 /**
  * Resident Lease section — list of all lease records (current, prior, in progress);
@@ -67,6 +75,7 @@ export function ResidentLeasePanel({
   basePath?: string;
 }) {
   const { showToast } = useAppUi();
+  const portalNavigate = usePortalNavigate();
   const uploadRef = useRef<HTMLInputElement>(null);
   const { email, residentAxisId, profileManagerId, axisResolved } = useResidentPortalAxisContext();
   const pipelineRow = useResidentLeasePipelineRow();
@@ -75,6 +84,38 @@ export function ResidentLeasePanel({
   const [showMoveOutModal, setShowMoveOutModal] = useState(false);
 
   const allLeaseRows = useMemo(() => buildResidentLeaseDocumentRows(pipelineRow), [pipelineRow]);
+  const { selectedIds, toggleSelected } = usePortalRowSelection(bucket);
+  const bucketRows = useMemo(
+    () => filterResidentLeaseDocumentRows(allLeaseRows, bucket),
+    [allLeaseRows, bucket],
+  );
+
+  const leaseSelectionActions = useMemo((): PortalAdaptiveAction[] => {
+    if (selectedIds.size !== 1) return [];
+    const entry = bucketRows.find((row) => row.id === [...selectedIds][0]);
+    if (!entry) return [];
+    const openSelected = () => {
+      portalNavigate(residentLeaseDetailHref(basePath, bucket, entry.id));
+    };
+    const actions: PortalAdaptiveAction[] = [
+      residentDocumentsOpenAction("Open", openSelected, "resident-lease-open-selected"),
+    ];
+    if (entry.filterBucket === "signed") {
+      const downloadTarget = entry.pipelineRow ?? pipelineRow;
+      actions.push(
+        residentDocumentsDownloadAction(
+          "Download",
+          () => {
+            if (downloadTarget) runLeaseDownload(downloadTarget, showToast);
+            else showToast("Lease document is not ready to download yet.");
+          },
+          "resident-lease-download-selected",
+          !downloadTarget,
+        ),
+      );
+    }
+    return actions;
+  }, [basePath, bucket, bucketRows, pipelineRow, portalNavigate, selectedIds, showToast]);
 
   const detailEntry = useMemo(() => {
     if (!leaseDetailId || !pipelineRow) return null;
@@ -489,9 +530,17 @@ export function ResidentLeasePanel({
               bucket={bucket}
               detailHref={residentLeaseDetailHref}
               groupMode={RESIDENT_PORTAL_DEFAULT_GROUP_MODE}
+              selectable={axisResolved && Boolean(email)}
+              selectedIds={selectedIds}
+              onToggleSelected={toggleSelected}
             />
           )}
         </ManagerPortalPageShell>
+        <ResidentPortalListBottomBar
+          selectionCount={selectedIds.size}
+          selectionActions={leaseSelectionActions}
+          selectionBarVariant="payments"
+        />
       </>
     );
   }
