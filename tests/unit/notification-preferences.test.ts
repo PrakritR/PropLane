@@ -94,12 +94,12 @@ describe("DEFAULT_NOTIFICATION_PREFERENCES + normalize", () => {
     }
   });
 
-  it("normalize forces inbox on and clamps to the 6 categories", () => {
+  it("normalize forces inbox on and clamps to the known categories", () => {
     const out = normalizeNotificationPreferences({ messages: { inbox: false, sms: true }, bogus: {} });
     expect(out.messages.inbox).toBe(true); // inbox not user-suppressible
     expect(out.messages.sms).toBe(true);
     expect(Object.keys(out).sort()).toEqual(
-      ["account", "applications", "leases", "maintenance", "messages", "payments"].sort(),
+      ["account", "applications", "leases", "maintenance", "messages", "payments", "voice_calls"].sort(),
     );
   });
 });

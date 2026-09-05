@@ -39,6 +39,14 @@ export function resolveVoiceTurnWebhookUrl(phase: "consent" | "agent" = "agent")
   return `${base}/api/twilio/voice/turn?phase=${phase}`;
 }
 
+/** Twilio call-status callback (fires on completed/failed/no-answer). */
+export function resolveVoiceStatusWebhookUrl(): string {
+  const explicit = process.env.TWILIO_VOICE_STATUS_WEBHOOK_URL?.trim();
+  if (explicit) return explicit;
+  const base = (resolveEmailLinkBaseUrl() || PRODUCTION_APP_ORIGIN).replace(/\/$/, "");
+  return `${base}/api/twilio/voice/status`;
+}
+
 export function resolveVoiceRecordingWebhookUrl(): string {
   const explicit = process.env.TWILIO_VOICE_RECORDING_WEBHOOK_URL?.trim();
   if (explicit) return explicit;
@@ -72,6 +80,23 @@ export function twimlResponse(innerXml: string, status = 200): Response {
 
 export function twimlSay(text: string, voice = resolveVoicePollyVoice(), language = resolveVoiceLanguage()): string {
   return `<Say voice="${escapeXml(voice)}" language="${escapeXml(language)}">${escapeXml(text)}</Say>`;
+}
+
+/**
+ * Bridge the live call to a real phone.
+ *
+ * `callerId` must be a number this Twilio account owns — the manager's work
+ * number — so the manager sees the call coming from PropLane rather than from
+ * the caller's own line. `answerOnBridge` keeps the caller hearing ringing
+ * instead of silence, and the call ends when the bridge does.
+ */
+export function twimlDial(args: { toPhone: string; callerId: string; timeoutSeconds?: number }): string {
+  const timeout = Math.max(5, Math.min(60, args.timeoutSeconds ?? 25));
+  return (
+    `<Dial answerOnBridge="true" callerId="${escapeXml(args.callerId)}" timeout="${timeout}">` +
+    `<Number>${escapeXml(args.toPhone)}</Number>` +
+    `</Dial>`
+  );
 }
 
 export function twimlHangup(): string {

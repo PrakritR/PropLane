@@ -6,6 +6,7 @@ import {
   resolveVoiceRecordingWebhookUrl,
   resolveVoiceTurnWebhookUrl,
   truncateForVoiceSpeech,
+  twimlDial,
   twimlGatherSpeech,
   twimlHangup,
   twimlResponse,
@@ -13,7 +14,15 @@ import {
   twimlStartRecording,
   validateTwilioVoiceWebhook,
 } from "@/lib/twilio-voice.server";
-import { logVoiceCallStarted } from "@/lib/voice/log-voice-call-notes.server";
+import {
+  callerWantsHuman,
+  resolveManagerTransferTarget,
+  transferUnavailablePrompt,
+} from "@/lib/voice/voice-transfer.server";
+import {
+  logVoiceCallStarted,
+  logVoiceCallTurnNotes,
+} from "@/lib/voice/log-voice-call-notes.server";
 import {
   MANAGER_VOICE_UNCONFIGURED_PROMPT,
   resolveVoiceCallRoute,
@@ -96,6 +105,43 @@ export async function POST(req: Request) {
   const resolved = await resolveVoiceCallRoute(db, { fromPhone, toPhone });
   if (!resolved.ok) {
     return twimlResponse(twimlSay(MANAGER_VOICE_UNCONFIGURED_PROMPT) + twimlHangup());
+  }
+
+  // "Let me talk to a person" — bridge to the manager's own verified mobile
+  // rather than answering it with the agent. Checked before the model runs, so
+  // the caller is not made to argue with an assistant to reach a human.
+  if (callerWantsHuman(speech)) {
+    const target = await resolveManagerTransferTarget(db, {
+      managerUserId: resolved.managerId,
+      workNumber: resolved.workNumber,
+      callerIsManager: resolved.route.kind === "manager",
+    });
+    if (target.ok) {
+      // Recorded as an ordinary turn so the handoff shows up in Communication
+      // in sequence, the same as any spoken exchange.
+      await logVoiceCallTurnNotes(db, {
+        ...voiceCallLogIdentity({
+          managerId: resolved.managerId,
+          workNumber: resolved.workNumber,
+          fromPhone,
+          route: resolved.route,
+        }),
+        callSid,
+        spoken: speech,
+        reply: "Transferred the call to the manager's mobile.",
+      });
+      return twimlResponse(
+        twimlSay("Connecting you now.") +
+          twimlDial({ toPhone: target.toPhone, callerId: target.callerId }),
+      );
+    }
+    return twimlResponse(
+      twimlSay(transferUnavailablePrompt(target.reason)) +
+        twimlGatherSpeech({
+          actionUrl: resolveVoiceTurnWebhookUrl("agent"),
+          prompt: "What can I help with?",
+        }),
+    );
   }
 
   const reply = await runVoiceCallTurnFromSpeechOrFallback({

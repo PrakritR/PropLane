@@ -286,8 +286,9 @@ export function PortalProfileClient({
     if (!demo && variant === "manager") {
       list.push({
         id: "messaging",
-        label: "Messaging",
-        description: "Personal mobile verification and your dedicated work number for texts.",
+        label: "Communication",
+        description:
+          "Personal mobile, your work number for texts and calls, and what reaches you after a call.",
         icon: MessagesSquare,
         group: "Workspace",
       });
