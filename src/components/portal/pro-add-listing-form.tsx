@@ -3219,32 +3219,6 @@ export function ManagerAddListingForm({
                     </div>
                   </GridField>
                   <GridField>
-                    <FieldLabel>Beds (residents)</FieldLabel>
-                    <Select
-                      aria-label={`Number of residents for ${roomLabel}`}
-                      className={selectInputCls}
-                      data-attr="listing-room-occupancy-capacity"
-                      value={String(normalizeRoomOccupancyCapacity(room.occupancyCapacity))}
-                      onChange={(e) => {
-                        expandListingItem(priceKey);
-                        // The select can only emit 1..20, so normalizing here is a
-                        // backstop rather than the gate; junk cannot be typed in.
-                        setRoom(i, { occupancyCapacity: normalizeRoomOccupancyCapacity(e.target.value) });
-                      }}
-                    >
-                      {LISTING_BEDROOM_SLOT_OPTIONS.map((n) => (
-                        <option key={n} value={n}>
-                          {n === 1 ? "1 resident" : `${n} residents`}
-                        </option>
-                      ))}
-                    </Select>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {normalizeRoomOccupancyCapacity(room.occupancyCapacity) > 1
-                        ? "Rented by the bed — each resident signs their own lease and pays the full rate above."
-                        : "One resident holds this room."}
-                    </p>
-                  </GridField>
-                  <GridField>
                     <FieldLabel>Security deposit</FieldLabel>
                     <MoneyInput
                       ariaLabel={`Security deposit for ${roomLabel}`}
@@ -4579,6 +4553,28 @@ export function ManagerAddListingForm({
                           {floorLevelSelectOptions(sub.listingStoriesId, room.floor).map((label) => (
                             <option key={label} value={label}>
                               {label}
+                            </option>
+                          ))}
+                        </Select>
+                      </GridField>
+                      <GridField>
+                        <FieldLabel hint="Each resident signs their own lease and pays this room's full rent.">
+                          Beds (residents)
+                        </FieldLabel>
+                        <Select
+                          aria-label={`Number of residents for ${room.name || `room ${i + 1}`}`}
+                          className={selectInputCls}
+                          data-attr="listing-room-occupancy-capacity"
+                          value={String(normalizeRoomOccupancyCapacity(room.occupancyCapacity))}
+                          // The select can only emit 1..20, so normalizing here is a
+                          // backstop rather than the gate; junk cannot be typed in.
+                          onChange={(e) =>
+                            setRoom(i, { occupancyCapacity: normalizeRoomOccupancyCapacity(e.target.value) })
+                          }
+                        >
+                          {LISTING_BEDROOM_SLOT_OPTIONS.map((n) => (
+                            <option key={n} value={n}>
+                              {n === 1 ? "1 resident" : `${n} residents`}
                             </option>
                           ))}
                         </Select>
