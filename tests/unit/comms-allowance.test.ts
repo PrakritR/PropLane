@@ -9,12 +9,14 @@ import {
 } from "@/lib/comms-billing/allowances";
 
 describe("included allowance by plan", () => {
-  it("gives Free a real allowance, Pro more, and Business no cap", () => {
+  it("gives every plan a real allowance, rising with price", () => {
     expect(includedAllowanceCents("free")).toBeGreaterThan(0);
     expect(includedAllowanceCents("pro")).toBeGreaterThan(includedAllowanceCents("free")!);
-    // Business is uncapped by design — null, not a very large number, so no
-    // arithmetic can accidentally exhaust it.
-    expect(includedAllowanceCents("business")).toBeNull();
+    // Business is CAPPED, not uncapped. "No limit" is not a price, it is an
+    // unbounded liability on a fixed fee — and it removes the only signal that
+    // an account has started doing something nobody priced. The cap sits far
+    // above real use, and with a card on file passing it bills, not blocks.
+    expect(includedAllowanceCents("business")).toBeGreaterThan(includedAllowanceCents("pro")!);
   });
 
   it("treats an unknown or missing plan as Free — the smallest allowance", () => {
@@ -52,17 +54,33 @@ describe("evaluateCommsAllowance", () => {
     expect(state.blocked).toBe(false);
   });
 
-  it("never blocks Business, with or without a card", () => {
-    for (const hasPaymentMethod of [true, false]) {
-      const state = evaluateCommsAllowance({
-        tier: "business",
-        usedCents: 1_000_000,
-        hasPaymentMethod,
-      });
-      expect(state.blocked).toBe(false);
-      expect(state.exhausted).toBe(false);
-      expect(state.remainingCents).toBeNull();
-    }
+  it("does not block a Business account that has a card, however much it uses", () => {
+    const state = evaluateCommsAllowance({
+      tier: "business",
+      usedCents: 1_000_000,
+      hasPaymentMethod: true,
+    });
+    expect(state.blocked).toBe(false);
+    expect(state.exhausted).toBe(true);
+  });
+
+  it("still stops a Business account with no card once its cap is spent", () => {
+    const state = evaluateCommsAllowance({
+      tier: "business",
+      usedCents: 1_000_000,
+      hasPaymentMethod: false,
+    });
+    expect(state.blocked).toBe(true);
+  });
+
+  it("leaves Business plenty of headroom before any of that applies", () => {
+    const state = evaluateCommsAllowance({
+      tier: "business",
+      usedCents: 5_000,
+      hasPaymentMethod: false,
+    });
+    expect(state.exhausted).toBe(false);
+    expect(state.blocked).toBe(false);
   });
 
   it("never reports a negative remainder", () => {
@@ -81,8 +99,10 @@ describe("billableCentsAboveAllowance", () => {
     expect(billableCentsAboveAllowance({ tier: "free", totalUsedCents: free + 250 })).toBe(250);
   });
 
-  it("bills nothing at all on Business", () => {
-    expect(billableCentsAboveAllowance({ tier: "business", totalUsedCents: 999_999 })).toBe(0);
+  it("bills Business only above its cap", () => {
+    const cap = includedAllowanceCents("business")!;
+    expect(billableCentsAboveAllowance({ tier: "business", totalUsedCents: cap })).toBe(0);
+    expect(billableCentsAboveAllowance({ tier: "business", totalUsedCents: cap + 250 })).toBe(250);
   });
 });
 

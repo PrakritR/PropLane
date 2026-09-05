@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
-import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
+import { areCommsLimitsEnforced } from "@/lib/comms-billing/rates";
 import { refreshManagerCommsPaymentMethod } from "@/lib/comms-billing/payment-method.server";
 import {
   commsAllowanceBlockedMessage,
@@ -24,7 +24,11 @@ export async function evaluateManagerCommsBillingGate(
   db: SupabaseClient,
   managerUserId: string,
 ): Promise<CommsBillingGateResult> {
-  if (!isCommsPaygBillingEnabled()) {
+  // Keyed on LIMITS, not on billing. Gating this on the pay-as-you-go billing
+  // switch meant that with billing off — its default — this returned "allowed"
+  // for everyone and every plan had unlimited texting, calling and AI. Limits
+  // hold whether or not usage is being charged; charging is a separate switch.
+  if (!areCommsLimitsEnforced()) {
     return { allowed: true, billingOwnerId: managerUserId.trim() };
   }
 
