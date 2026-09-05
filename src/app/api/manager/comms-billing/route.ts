@@ -9,17 +9,17 @@ export const runtime = "nodejs";
 
 export async function GET() {
   const auth = await requireManagerRouteUser();
-  if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
+  if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   const db = createSupabaseServiceRoleClient();
-  await refreshManagerCommsPaymentMethod(db, auth.user.id);
-  const summary = await loadManagerCommsBillingSummary(db, auth.user.id);
+  await refreshManagerCommsPaymentMethod(db, auth.userId);
+  const summary = await loadManagerCommsBillingSummary(db, auth.userId);
   return NextResponse.json(summary);
 }
 
 export async function PATCH(req: Request) {
   const auth = await requireManagerRouteUser();
-  if (!auth.ok) return NextResponse.json({ error: auth.message }, { status: auth.status });
+  if (!auth) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   let body: { monthlyBudgetCents?: number | null; clearBillingPause?: boolean };
   try {
@@ -32,7 +32,7 @@ export async function PATCH(req: Request) {
   const now = new Date().toISOString();
 
   if (body.clearBillingPause) {
-    await clearCommsBillingPause(db, auth.user.id);
+    await clearCommsBillingPause(db, auth.userId);
   }
 
   if (body.monthlyBudgetCents !== undefined) {
@@ -45,7 +45,7 @@ export async function PATCH(req: Request) {
     }
     await db.from("manager_comms_billing_accounts").upsert(
       {
-        manager_user_id: auth.user.id,
+        manager_user_id: auth.userId,
         monthly_budget_cents: budget,
         notified_budget_80_at: null,
         notified_budget_100_at: null,
@@ -55,6 +55,6 @@ export async function PATCH(req: Request) {
     );
   }
 
-  const summary = await loadManagerCommsBillingSummary(db, auth.user.id);
+  const summary = await loadManagerCommsBillingSummary(db, auth.userId);
   return NextResponse.json(summary);
 }

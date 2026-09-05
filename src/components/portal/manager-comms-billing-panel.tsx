@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
-  PortalSettingsField,
+  PortalSettingsRow,
   PortalSettingsGroup,
   PortalSettingsSection,
 } from "@/components/portal/portal-settings-ui";
@@ -70,7 +70,9 @@ export function ManagerCommsBillingPanel() {
 
   if (loading) {
     return (
-      <PortalSettingsSection title="Usage billing" subtitle="Loading pay-as-you-go communication rates…" />
+      <PortalSettingsSection title="Usage billing" description="Pay-as-you-go communication rates.">
+        <p className="text-sm text-muted">Loading…</p>
+      </PortalSettingsSection>
     );
   }
 
@@ -79,16 +81,18 @@ export function ManagerCommsBillingPanel() {
   return (
     <PortalSettingsSection
       title="Usage billing"
-      subtitle="Text, voice, and AI on your work number are billed pay-as-you-go. Inbound messages and calls are charged to your account."
+      description="Text, voice, and AI on your work number are billed pay-as-you-go. Inbound messages and calls are charged to your account."
     >
       {summary.blockMessage ? (
         <p className="text-sm text-destructive">{summary.blockMessage}</p>
       ) : null}
 
-      <PortalSettingsGroup title="This month">
-        <PortalSettingsField label="Estimated usage" hint="Resets on the 1st (UTC).">
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">This month</p>
+        <PortalSettingsGroup>
+        <PortalSettingsRow label="Estimated usage" description="Resets on the 1st (UTC).">
           <p className="text-lg font-semibold">{summary.formattedMonthToDate}</p>
-        </PortalSettingsField>
+        </PortalSettingsRow>
         {summary.meterTotals.length > 0 ? (
           <ul className="text-sm space-y-1">
             {summary.meterTotals.map((row) => (
@@ -104,8 +108,11 @@ export function ManagerCommsBillingPanel() {
           <p className="text-sm text-muted-foreground">No usage recorded yet this month.</p>
         )}
       </PortalSettingsGroup>
+      </div>
 
-      <PortalSettingsGroup title="Rates">
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Rates</p>
+        <PortalSettingsGroup>
         <ul className="text-sm space-y-1 text-muted-foreground">
           <li>Outbound SMS — $0.03 / segment</li>
           <li>Inbound SMS — $0.02 / segment</li>
@@ -115,11 +122,14 @@ export function ManagerCommsBillingPanel() {
           <li>Work number — $3.00 / month</li>
         </ul>
       </PortalSettingsGroup>
+      </div>
 
-      <PortalSettingsGroup title="Budget alerts">
-        <PortalSettingsField
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Budget alerts</p>
+        <PortalSettingsGroup>
+        <PortalSettingsRow
           label="Monthly budget (optional)"
-          hint="Email at 80% and 100% of this amount. Leave blank for no alerts."
+          description="Email at 80% and 100% of this amount. Leave blank for no alerts."
         >
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-muted-foreground">$</span>
@@ -134,8 +144,9 @@ export function ManagerCommsBillingPanel() {
               Save budget
             </Button>
           </div>
-        </PortalSettingsField>
+        </PortalSettingsRow>
       </PortalSettingsGroup>
+      </div>
 
       <p className="text-sm text-muted-foreground">
         {summary.hasPaymentMethod
