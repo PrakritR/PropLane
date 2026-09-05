@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import { residentSetupIdFromUrlParams } from "@/lib/auth/resident-setup-token";
+import { residentSetupIdFromUrlParams } from "@/lib/auth/resident-setup-links";
 import { FIELD_LABEL_CLASS, READONLY_INPUT_CLASS } from "@/lib/ui-styles";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 
