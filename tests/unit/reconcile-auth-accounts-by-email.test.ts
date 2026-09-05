@@ -131,4 +131,23 @@ describe("reconcileAuthAccountsByEmail", () => {
 
     expect(db.purchaseUpdates).toEqual([{ id: "purchase-1", patch: { user_id: "session-user" } }]);
   });
+
+  it("ensures manager role for an existing primary-admin profile on reconcile", async () => {
+    const { reconcileAuthAccountsByEmail } = await import("@/lib/auth/reconcile-auth-accounts-by-email");
+    const { ensureProfileRoleRow } = await import("@/lib/auth/profile-role-row");
+    const db = mockDb({
+      users: [{ id: "session-user", email: "admin@axis.test" }],
+      profile: { role: "admin", full_name: "Founder" },
+    });
+
+    await reconcileAuthAccountsByEmail(db as never, {
+      id: "session-user",
+      email: "admin@axis.test",
+      identities: [],
+      user_metadata: {},
+    } as never);
+
+    expect(ensureProfileRoleRow).toHaveBeenCalledWith(db, "session-user", "admin");
+    expect(ensureProfileRoleRow).toHaveBeenCalledWith(db, "session-user", "manager");
+  });
 });

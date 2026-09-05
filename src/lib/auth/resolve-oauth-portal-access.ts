@@ -73,6 +73,30 @@ function applicationBucket(rowData: unknown): string {
   return String((rowData as Record<string, unknown>).bucket ?? "").toLowerCase();
 }
 
+/** Primary admin signing up or continuing as a property manager — not ops admin. */
+function primaryAdminWantsManagerPortal(
+  intent: OAuthSignInIntent | null | undefined,
+  safeIntended: string,
+): boolean {
+  if (intent === "manager") return true;
+  if (safeIntended.startsWith("/portal") || safeIntended.startsWith("/pro")) return true;
+  if (safeIntended.startsWith("/auth/create-account") && safeIntended.includes("role=manager")) return true;
+  if (safeIntended.startsWith(MANAGER_PRICING_ENTRY_PATH) || safeIntended.startsWith("/partner/pricing")) {
+    return true;
+  }
+  return false;
+}
+
+async function finishPrimaryAdminManagerPortal(
+  supabase: SupabaseClient,
+  userId: string,
+  safeIntended: string,
+  finish: (path: string) => string,
+): Promise<string> {
+  await ensureProfileRoleRow(supabase, userId, "manager");
+  return finish(await managerPortalDestination(supabase, userId, safeIntended));
+}
+
 /**
  * After Google OAuth, decide where the user may go.
  * Unknown accounts → free manager portal. Residents need an application. Managers use their tier.
@@ -114,6 +138,9 @@ export async function resolveOAuthPortalRedirect(
   // Multi-role users (e.g. admin+manager) always pick their portal explicitly — the chooser
   // must never be skipped by a single-role branch below.
   if (roles.length > 1) {
+    if (isPrimaryAdminEmail(email) && primaryAdminWantsManagerPortal(intent, safeIntended)) {
+      return await finishPrimaryAdminManagerPortal(supabase, user.id, safeIntended, finish);
+    }
     return finish(resolvePostOAuthPathFromRoles(roles, safeIntended));
   }
 
@@ -131,6 +158,9 @@ export async function resolveOAuthPortalRedirect(
     return finish(resolvePostOAuthPathFromRoles(roles, safeIntended));
   }
   if (soleRole === "admin" || soleRole === "vendor") {
+    if (soleRole === "admin" && isPrimaryAdminEmail(email) && primaryAdminWantsManagerPortal(intent, safeIntended)) {
+      return await finishPrimaryAdminManagerPortal(supabase, user.id, safeIntended, finish);
+    }
     return finish(resolvePostOAuthPathFromRoles(roles, safeIntended));
   }
   if (soleRole === "manager") {
@@ -141,6 +171,9 @@ export async function resolveOAuthPortalRedirect(
   }
 
   if (isPrimaryAdminEmail(email)) {
+    if (primaryAdminWantsManagerPortal(intent, safeIntended)) {
+      return await finishPrimaryAdminManagerPortal(supabase, user.id, safeIntended, finish);
+    }
     return finish(isGenericOAuthContinuePath(safeIntended) ? portalDashboardPath("admin") : safeIntended);
   }
 
@@ -259,6 +292,10 @@ export async function finalizeOAuthPortalRedirect(
     return portalDashboardPath(roles[0]!);
   }
   if (roles.length > 1) return "/auth/choose-portal";
-  if (isPrimaryAdminEmail(email)) return portalDashboardPath("admin");
+  if (isPrimaryAdminEmail(email)) {
+    return primaryAdminWantsManagerPortal(options?.intent, intendedPath)
+      ? await resolveManagerPortalEntryPath(supabase, user.id)
+      : portalDashboardPath("admin");
+  }
   return GET_STARTED_PATH;
 }

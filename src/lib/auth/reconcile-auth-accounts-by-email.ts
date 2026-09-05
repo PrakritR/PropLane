@@ -44,6 +44,9 @@ async function syncProfileForUser(db: ServiceDb, user: User): Promise<void> {
     if (!existing.full_name?.trim() && fullName) patch.full_name = fullName;
     const { error } = await db.from("profiles").update(patch).eq("id", user.id);
     if (error) throw error;
+    if (isPrimaryAdminEmail(email)) {
+      await ensureProfileRoleRow(db, user.id, "manager");
+    }
     return;
   }
 
@@ -103,6 +106,9 @@ export async function reconcileAuthAccountsByEmail(db: ServiceDb, sessionUser: U
   }
   if (role === "admin" || isPrimaryAdminEmail(email)) {
     await ensureProfileRoleRow(db, sessionUser.id, "admin");
+  }
+  if (isPrimaryAdminEmail(email)) {
+    await ensureProfileRoleRow(db, sessionUser.id, "manager");
   }
 
   if (hasProvider(sessionUser, "google")) {
