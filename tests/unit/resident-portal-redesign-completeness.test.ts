@@ -153,8 +153,9 @@ describe("resident portal redesign completeness", () => {
       // that actually enforces "header actions reach a phone exactly once" — so
       // that one owns the shape, and this one just checks the button is present.
       expect(src).toContain('data-attr="communication-new-message"');
-      expect(src).toContain("PortalTextNotificationsBlock");
-      expect(src).toContain("communicationSettingsOpen");
+      expect(src).not.toContain("Set up messaging");
+      expect(src).not.toContain("communicationSettingsOpen");
+      expect(src).not.toContain("PortalTextNotificationsBlock");
       // Filtering matches the manager panel rather than being forbidden here.
       // This once asserted the resident had NO filter sheet, which contradicted
       // the reference implementation it is supposed to copy: pro-communication
@@ -189,12 +190,11 @@ describe("resident portal redesign completeness", () => {
   });
 
   describe("390px mobile density sweep", () => {
-    it("unlock and tier gates use compact inline notices, not glass cards", () => {
+    it("stage gates stay compact while plan gates use the disabled preview", () => {
       const unlockSurfaces = [
         readPanel("resident-payments-panel.tsx"),
         readPanel("resident-services-panel.tsx"),
         readPanel("resident-move-in-view.tsx"),
-        readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8"),
       ];
       for (const src of unlockSurfaces) {
         expect(src).toContain("PORTAL_INLINE_UNLOCK_NOTICE_CLASS");
@@ -202,6 +202,12 @@ describe("resident portal redesign completeness", () => {
       }
       expect(readPanel("resident-payments-panel.tsx")).not.toContain("glass-card");
       expect(readPanel("resident-lease-panel.tsx")).not.toContain("glass-card");
+      const routeRenderer = readFileSync(
+        join(process.cwd(), "src/lib/render-portal-section.tsx"),
+        "utf8",
+      );
+      expect(routeRenderer).toContain("ResidentTierPaywall");
+      expect(readPanel("portal-tier-paywall.tsx")).toContain("data-tier-paywall-disabled-content");
     });
 
     it("house details uses routed sub-tabs with command layout", () => {
@@ -295,8 +301,10 @@ describe("resident portal redesign completeness", () => {
 
     it("lease renewal uses one modal — renew fields expand in place", () => {
       const amend = readPanel("lease-amend-move-out-modal.tsx");
-      expect(amend).toContain("assistantStrip={false}");
-      expect(amend).toContain("ModalAssistantStrip");
+      expect(amend).not.toContain("assistantStrip={false}");
+      expect(amend).not.toContain("ModalAssistantStrip");
+      expect(amend).toContain("assistantContext={title}");
+      expect(amend).toContain('assistantContext="Renew lease"');
       expect(amend).toContain('data-attr="lease-amend-intent"');
       expect(amend).toContain('data-attr="lease-amend-extend-type"');
       expect(amend).toContain("activeRenewTerm");

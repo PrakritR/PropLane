@@ -1,17 +1,25 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
-import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
+import { usePortalContainer } from "@/components/ui/portal-container-context";
 import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
 import { AxisAssistantSparkleIcon } from "@/components/portal/assistant-shared";
 import { AssistantConversationProvider } from "@/lib/axis-assistant/assistant-conversation-context";
 import { modalAssistantStorageScope } from "@/lib/axis-assistant/assistant-chat-storage";
 import { usePortalAssistantConfig } from "@/lib/axis-assistant/portal-assistant-context";
 import { cn } from "@/lib/utils";
+import { useVisualViewportBottomInset } from "@/hooks/use-visual-viewport-bottom-inset";
+
+let openModalAssistants = 0;
 
 export type ModalAssistantStripProps = {
   contextHint?: string | null;
+  /** Shared dialog header slot; custom editors keep the compact trigger in place. */
+  triggerTarget?: HTMLElement | null;
+  hideTrigger?: boolean;
+  detached?: boolean;
   /** Shown beside the assistant label — e.g. "Type in chat to edit lease". */
   editHint?: string | null;
   /**
@@ -32,9 +40,7 @@ export type ModalAssistantStripProps = {
    */
   onExpandedChange?: (expanded: boolean) => void;
   /**
-   * Which side the expanded chat docks to once the container is wide enough
-   * (the `@2xl` breakpoint). Defaults to `"right"` — the shared-`Modal` layout —
-   * so only surfaces that opt in (the listing wizard) move it left.
+   * @deprecated The shared assistant always opens at the right viewport rail.
    */
   side?: "left" | "right";
   /**
@@ -50,16 +56,7 @@ export type ModalAssistantStripProps = {
   fillHeight?: boolean;
 };
 
-/**
- * Compact assistant input strip for portal modals — scoped to the modal title
- * so the agent knows what surface the manager is working in.
- *
- * Collapsed by default so form fields keep the full scroll area; managers expand
- * when they want help. Once open, it renders as a side panel (chat to the right
- * of the modal content) whenever the surrounding container is wide enough —
- * see the `@2xl` container-query breakpoint below — and otherwise stays a
- * stacked band beneath the content, matching the pre-existing collapsed layout.
- */
+/** Compact editor CTA and right-side assistant, within the editor’s focus boundary. */
 export function ModalAssistantStrip({
   contextHint,
   editHint,
@@ -67,92 +64,102 @@ export function ModalAssistantStrip({
   conversationInstance = 0,
   className,
   onExpandedChange,
-  side = "right",
+  triggerTarget,
+  hideTrigger = false,
+  detached = false,
   defaultExpanded = false,
   alwaysExpanded = false,
-  fillHeight = false,
 }: ModalAssistantStripProps) {
   const config = usePortalAssistantConfig();
+  const portalContainer = usePortalContainer();
   const [expanded, setExpanded] = useState(alwaysExpanded || defaultExpanded);
-  const showExpanded = alwaysExpanded || expanded;
+  const showExpanded = expanded;
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [railTarget, setRailTarget] = useState<HTMLElement | null>(null);
+  const railId = useId();
+  const focusRail = useCallback((node: HTMLElement | null) => {
+    node?.querySelector<HTMLElement>("button")?.focus();
+  }, []);
+  const keyboardInset = useVisualViewportBottomInset(showExpanded);
 
   const toggle = (next: boolean) => {
     setExpanded(next);
     onExpandedChange?.(next);
+    if (!next) requestAnimationFrame(() => triggerRef.current?.focus());
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- a new editor visit resets its local presentation
     setExpanded(alwaysExpanded || defaultExpanded);
     onExpandedChange?.(alwaysExpanded || defaultExpanded);
-    // onExpandedChange + defaultExpanded intentionally excluded: callers commonly
-    // pass a fresh inline setter each render, and this reset should only fire when
-    // a new conversation instance starts (a fresh modal open), not on every parent
-    // re-render — it re-reads defaultExpanded at that moment.
+    // Reset only for a fresh editor visit, not each parent render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationInstance]);
 
-  if (!config) return null;
+  useEffect(() => {
+    const target = anchorRef.current?.closest<HTMLElement>('[role="dialog"]');
+    setRailTarget(target ?? portalContainer ?? document.body);
+  }, [portalContainer]);
 
+  useEffect(() => {
+    if (!showExpanded) return;
+    const dialog = railTarget?.matches('[role="dialog"]') ? railTarget : null;
+    dialog?.setAttribute("data-modal-assistant-open", "");
+    openModalAssistants += 1;
+    document.documentElement.setAttribute("data-modal-assistant-active", "");
+    return () => {
+      dialog?.removeAttribute("data-modal-assistant-open");
+      openModalAssistants -= 1;
+      if (openModalAssistants === 0) document.documentElement.removeAttribute("data-modal-assistant-active");
+    };
+  }, [showExpanded, railTarget]);
+
+  if (!config) return null;
   const scopeSource = (storageScopeKey ?? contextHint ?? "Portal modal").trim();
   const storageScope = modalAssistantStorageScope(scopeSource, conversationInstance);
-
+  const trigger = !hideTrigger ? (
+    <button
+      ref={triggerRef}
+      type="button"
+      onClick={() => toggle(!showExpanded)}
+      className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border border-primary/25 px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      data-attr="modal-assistant-expand"
+      aria-expanded={showExpanded}
+      aria-controls={showExpanded ? railId : undefined}
+    >
+      <AxisAssistantSparkleIcon className="h-4 w-4 shrink-0" />
+      Ask PropLane
+    </button>
+  ) : null;
+  const rail = showExpanded ? (
+    <aside
+      ref={focusRail}
+      id={railId}
+      aria-label="PropLane Assistant"
+      style={{ bottom: keyboardInset }}
+      data-attr="modal-assistant-rail"
+      className="pointer-events-auto fixed inset-y-0 right-0 z-[72] flex w-full min-w-0 flex-col border-l border-border bg-background p-4 pt-[max(1rem,var(--native-safe-top,0px))] pb-[max(1rem,var(--native-safe-bottom,0px))] md:w-[var(--portal-assistant-rail-width)]"
+    >
+      {detached ? <p className="mb-3 text-sm text-muted" role="status">Editor closed. Start a new conversation below.</p> : null}
+      <AssistantDockPanel
+        managerName={config.managerName}
+        endpoint={config.endpoint}
+        contextHint={contextHint}
+        compact
+        pinnedComposer
+        onCollapse={() => toggle(false)}
+        composerHint={editHint?.trim()}
+        className="min-h-0 flex-1 max-h-none"
+      />
+    </aside>
+  ) : null;
   return (
     <AssistantConversationProvider endpoint={config.endpoint} storageScope={storageScope}>
-      <div
-        className={cn(
-          "flex min-w-0 flex-col border-t border-border bg-transparent",
-          fillHeight && showExpanded ? "min-h-0 flex-1" : "shrink-0",
-          showExpanded && "@2xl:min-h-0 @2xl:w-80 @2xl:shrink-0 @2xl:border-t-0",
-          showExpanded && (side === "left" ? "@2xl:border-r" : "@2xl:border-l"),
-          className,
-        )}
-        data-attr="modal-assistant-strip"
-        data-expanded={showExpanded ? "true" : "false"}
-      >
-        {showExpanded ? (
-          <div
-            className={cn(
-              "flex min-h-0 flex-1 flex-col px-0 pt-3 @2xl:pt-4",
-              side === "left" ? "@2xl:pr-4" : "@2xl:pl-4",
-            )}
-          >
-            <AssistantDockPanel
-              managerName={config.managerName}
-              endpoint={config.endpoint}
-              contextHint={contextHint}
-              compact
-              pinnedComposer
-              onCollapse={alwaysExpanded ? undefined : () => toggle(false)}
-              composerHint={
-                editHint?.trim() ||
-                "Ask below — PropLane uses this screen as context for your question."
-              }
-              className={
-                fillHeight
-                  ? "min-h-0 flex-1 max-h-none"
-                  : "max-h-[min(36vh,17rem)] @2xl:min-h-0 @2xl:max-h-none @2xl:flex-1"
-              }
-            />
-          </div>
-        ) : alwaysExpanded ? null : (
-          <button
-            type="button"
-            onClick={() => toggle(true)}
-            className="flex w-full flex-col gap-1.5 py-3 text-left text-sm transition hover:bg-foreground/[0.02]"
-            data-attr="modal-assistant-expand"
-            aria-expanded={false}
-          >
-            <span className="flex min-w-0 items-center justify-between gap-2">
-              <span className="flex min-w-0 items-center gap-1.5 font-semibold text-primary">
-                <AxisAssistantSparkleIcon className="h-4 w-4 shrink-0" />
-                Ask PropLane Assistant
-              </span>
-              <ChevronDown className="h-4 w-4 shrink-0 text-muted" aria-hidden />
-            </span>
-            {editHint?.trim() ? <span className="text-xs font-normal text-muted">{editHint.trim()}</span> : null}
-          </button>
-        )}
-      </div>
+      <span ref={anchorRef} className={cn("shrink-0", className)} data-attr="modal-assistant-strip" data-expanded={showExpanded}>
+        {triggerTarget ? createPortal(trigger, triggerTarget) : trigger}
+        {railTarget ? createPortal(rail, railTarget) : rail}
+      </span>
     </AssistantConversationProvider>
   );
 }

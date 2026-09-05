@@ -50,12 +50,12 @@ import {
   landlordLegalNameFromAccountFullName,
 } from "@/lib/manager-landlord-profile";
 
-function dashToEmpty(v: string) {
-  return v === "—" ? "" : v;
+function dashToEmpty(v: unknown): string {
+  return typeof v === "string" && v !== "—" ? v : "";
 }
 
-function emptyToDash(v: string) {
-  const t = v.trim();
+function emptyToDash(v: unknown) {
+  const t = typeof v === "string" ? v.trim() : "";
   return t.length ? t : "—";
 }
 

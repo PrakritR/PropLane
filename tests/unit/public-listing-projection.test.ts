@@ -58,6 +58,8 @@ function storedListing(): MockProperty {
           name: "Room A",
           floor: "2",
           monthlyRent: 900,
+          // Shared room: a prospect must be able to see how many beds are left.
+          occupancyCapacity: 2,
           availability: "Now",
           moveInAvailableDate: "2026-08-01",
           // Manager/resident-internal: door codes and key handoff.
@@ -230,7 +232,7 @@ describe("publicListingProjection", () => {
     expect(projected.contactSmsPhone).toBeUndefined();
     expect(projected.managerUserId).toBe("mgr-user");
     expect(projected.adminPublishLive).toBe(true);
-    expect(sub.rooms[0]).toMatchObject({ id: "r1", monthlyRent: 900, availability: "Now" });
+    expect(sub.rooms[0]).toMatchObject({ id: "r1", monthlyRent: 900, availability: "Now", occupancyCapacity: 2 });
     expect(sub.quickFacts[0]).toEqual({ id: "q1", label: "Built", value: "1998" });
   });
 

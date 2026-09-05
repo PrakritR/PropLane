@@ -8,8 +8,6 @@ import {
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/ui/modal";
-import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { ResidentInboxPanel, type ResidentInboxPanelHandle } from "@/components/portal/resident-inbox-panel";
 import { RoleSmsPanel } from "@/components/portal/role-sms-panel";
 import { ResidentManagerNumberCard } from "@/components/portal/resident-manager-number-card";
@@ -22,9 +20,7 @@ import {
 } from "@/components/portal/portal-inbox-ui";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalTextNotificationsBlock } from "@/components/portal/portal-text-notifications-block";
 import {
-  PORTAL_COMMAND_ACTION_BTN,
   PORTAL_COMMAND_PRIMARY_ACTION_BTN,
   PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
@@ -64,7 +60,6 @@ import {
   selectCommunicationThreadUrl,
 } from "@/lib/portal-communication-nav";
 import { useCommunicationThreadId } from "@/hooks/use-communication-thread-id";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { RESIDENT_PORTAL_BASE_PATH } from "@/lib/portals/resident-sections";
 import {
   normalizeRoleSmsPayload,
@@ -430,8 +425,6 @@ export function ResidentCommunication({
   const { activeThreadId, setActiveThreadId } = useCommunicationThreadId(commBase, threadId);
   const [threadOpen, setThreadOpen] = useState(Boolean(threadId));
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
-  const [communicationSettingsOpen, setCommunicationSettingsOpen] = useState(false);
-  const demo = isDemoModeActive();
 
   const communicationFilterSheet = (
     <PortalFilterSortSheet
@@ -470,15 +463,6 @@ export function ResidentCommunication({
   const communicationCommandActions = (
     <>
       {communicationFilterSheet}
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
-        data-attr="communication-settings-open"
-        onClick={() => setCommunicationSettingsOpen(true)}
-      >
-        Set up messaging
-      </Button>
       {communicationNewMessageButton}
     </>
   );
@@ -524,21 +508,6 @@ export function ResidentCommunication({
         onAddConversation={() => inboxRef.current?.openCompose()}
         residentUserId={residentUserId}
       />
-      <Modal
-        open={communicationSettingsOpen}
-        onClose={() => setCommunicationSettingsOpen(false)}
-        title="Set up messaging"
-        panelClassName={MODAL_LARGE_PANEL_CLASS}
-      >
-        <div className="space-y-4">
-          <ResidentManagerNumberCard />
-          <PortalTextNotificationsBlock
-            dataAttrPrefix="resident"
-            demo={demo}
-            description="Verify your mobile number to receive property updates and securely use the resident text assistant."
-          />
-        </div>
-      </Modal>
     </PortalCommunicationShell>
   );
 }

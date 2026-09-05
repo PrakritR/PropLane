@@ -24,7 +24,7 @@ export function ManagerWorkNumberCopyControl({
 }) {
   const { showToast } = useAppUi();
   const [copied, setCopied] = useState(false);
-  const trimmed = phone.trim();
+  const trimmed = typeof phone === "string" ? phone.trim() : "";
   const formatted = formatManagerMessagingPhone(trimmed);
 
   useEffect(() => {
@@ -34,6 +34,7 @@ export function ManagerWorkNumberCopyControl({
   }, [copied]);
 
   async function copyNumber() {
+    if (!trimmed) return;
     const ok = await copyTextToClipboard(trimmed);
     showToast(ok ? "Work number copied." : "Could not copy work number.");
     if (ok) setCopied(true);
@@ -44,6 +45,7 @@ export function ManagerWorkNumberCopyControl({
       <p className={portalMessageFieldLabel()}>Work number</p>
       <button
         type="button"
+        disabled={!trimmed}
         onClick={() => void copyNumber()}
         data-attr={dataAttr}
         title="Copy work number"
@@ -84,8 +86,9 @@ export function ManagerSmsWorkNumberHint({
 
   if (!show) return null;
 
-  if (canSend && phone?.trim()) {
-    return <ManagerWorkNumberCopyControl phone={phone} className={className} />;
+  const trimmed = typeof phone === "string" ? phone.trim() : "";
+  if (canSend && trimmed) {
+    return <ManagerWorkNumberCopyControl phone={trimmed} className={className} />;
   }
 
   // This hint renders inside the messaging settings page itself as well as in
@@ -96,12 +99,12 @@ export function ManagerSmsWorkNumberHint({
   // A number that exists but cannot send is waiting on carrier approval — there
   // is no setup left for the manager to "finish", and saying otherwise sends
   // them hunting for a control that is not there.
-  const awaitingCarrier = Boolean(phone?.trim());
+  const awaitingCarrier = Boolean(trimmed);
 
   return (
     <p className={cn("text-xs font-medium text-danger", className)} role="alert">
       {awaitingCarrier
-        ? `SMS is waiting on carrier approval for ${formatManagerMessagingPhone(phone!.trim())}.`
+        ? `SMS is waiting on carrier approval for ${formatManagerMessagingPhone(trimmed)}.`
         : "SMS needs an active work number."}{" "}
       {alreadyOnSettings ? null : (
         <>

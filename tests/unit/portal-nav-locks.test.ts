@@ -53,7 +53,7 @@ describe("portal nav lock kinds", () => {
     }
   });
 
-  describe("resident — locks are inert, because there is nothing to buy", () => {
+  describe("resident — stage locks are inert and plan locks explain the next step", () => {
     it("stage locks are inert", () => {
       const params = {
         kind: "resident" as const,
@@ -82,17 +82,15 @@ describe("portal nav lock kinds", () => {
       }
     });
 
-    it("a free-tier MANAGER plan still locks the resident's section, inertly", () => {
-      // The resident cannot upgrade their manager's plan, so the row is a
-      // no-op — same behaviour as a stage lock, so a lock reads one way.
+    it("a free-tier manager plan opens the resident's disabled feature preview", () => {
       const params = {
         kind: "resident" as const,
         section: "services",
         subscriptionTier: "free" as const,
         residentNavStage: "post_lease" as const,
       };
-      expect(portalNavLockKind(params)).toBe("inert");
-      expect(portalNavLockNavigable(params)).toBe(false);
+      expect(portalNavLockKind(params)).toBe("notice");
+      expect(portalNavLockNavigable(params)).toBe(true);
     });
 
     it("unlocked resident sections are not locked", () => {
@@ -119,7 +117,7 @@ describe("portal nav lock kinds", () => {
       ).toBe("none");
     });
 
-    it("never returns upsell for a resident, at any stage or tier", () => {
+    it("never returns a manager upsell for a resident, at any stage or tier", () => {
       for (const stage of ["pre_approval", "post_approval_pre_lease", "post_lease"] as const) {
         for (const tier of ["free", "paid", null] as const) {
           for (const section of ["lease", "services", "documents", "tour", "applications", "payments"]) {

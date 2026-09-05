@@ -19,9 +19,10 @@ still refuses the live production project on the `staging` git branch.
 A full **data** copy from production (auth users, tenant rows, storage) is
 `npm run db:sync:staging` (`scripts/sync-prod-to-staging.mjs`). It is
 read-only against production and writes only to `xwszcafaontidfgznlxd`.
-`--apply` requires `ALLOW_STAGING_PROD_CLONE=1` and `PROD_DB_PASSWORD`.
-The first apply is a full clone. Later refreshes keep staging-only rows and
-take production on conflicts (`decideRowFate`). Production listing restore
+`--apply` requires `ALLOW_STAGING_PROD_CLONE=1`. The dump uses the logged-in
+Supabase CLI (read-only); `PROD_DB_PASSWORD` is optional. The first apply is a
+full clone. Later refreshes keep staging-only rows and take production on
+conflicts (`decideRowFate`). Production listing restore
 migrations (Brooklyn / 4709A) were skipped on purpose. Do not write those
 live rows back to production from staging.
 
@@ -38,8 +39,11 @@ At Namecheap, the apex **A** record must be `76.76.21.21` (not the registrar
 parking IP `162.255.119.95`). Keep Namecheap nameservers.
 
 Auth Site URL + redirect allowlist on project `xwszcafaontidfgznlxd` must be
-`https://staging-prop-lane.space`. Preview/`staging` `NEXT_PUBLIC_APP_URL` /
-`NEXT_PUBLIC_CANONICAL_APP_URL` already use that hostname.
+`https://staging-prop-lane.space` (plus `/auth/callback` and the signup variants).
+Preview/`staging` `NEXT_PUBLIC_APP_URL` / `NEXT_PUBLIC_CANONICAL_APP_URL` already
+use that hostname. Google sign-in is enabled on this project with the production
+OAuth client. Google Cloud → Credentials → that Web client must also allow
+`https://xwszcafaontidfgznlxd.supabase.co/auth/v1/callback`.
 
 Rules:
 

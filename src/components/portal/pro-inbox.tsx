@@ -2059,6 +2059,7 @@ export const ManagerInbox = forwardRef<
           : activeThread.subject || (activeIsSent ? undefined : activeThread.email)
       }
       messages={activeBubbles}
+      alignAssistantStart={activeIsAssistantThread}
       threadKey={activeThread.id}
       onBack={embeddedResidentChat ? undefined : () => setExpandedId(null)}
       hideIdentityHeader={embeddedResidentChat}

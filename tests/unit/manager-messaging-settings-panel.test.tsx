@@ -111,9 +111,24 @@ describe("work number resident announce recipients", () => {
       "alex@example.com, jordan@example.com",
     );
   });
+
+  it("ignores malformed legacy recipient emails instead of crashing", () => {
+    const residents = approvedResidentsForWorkNumberAnnounce("mgr-test");
+    Object.assign(residents[0]!, { email: { legacy: "alex@example.com" } });
+    expect(() => formatWorkNumberAnnounceRecipientDisplay(residents)).not.toThrow();
+    expect(formatWorkNumberAnnounceRecipientDisplay(residents)).toBe("jordan@example.com");
+  });
 });
 
 describe("ManagerMessagingSettingsPanel", () => {
+  it("shows a recoverable error for a malformed API payload", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ personalPhone: [] })));
+    render(<ManagerMessagingSettingsPanel />);
+
+    expect(await screen.findByText("Couldn't load messaging settings")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
   it("shows a paused rollout without offering a provisioning action", async () => {
     vi.stubGlobal(
       "fetch",

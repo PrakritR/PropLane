@@ -166,6 +166,8 @@ const PUBLIC_ROOM_KEYS = [
   "utilitiesPaymentModel",
   "rentBasis",
   "dailyRentPrice",
+  // A prospect must be able to see "1 of 2 beds available" on a shared room.
+  "occupancyCapacity",
 ] as const satisfies readonly (keyof ManagerRoomSubmission)[];
 
 const PUBLIC_BATHROOM_KEYS = [

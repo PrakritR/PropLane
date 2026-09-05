@@ -34,7 +34,7 @@ export type AssistantConversationValue = {
   loading: boolean;
   error: string | null;
   setError: (message: string | null) => void;
-  send: (prompt?: string) => Promise<void>;
+  send: ReturnType<typeof useAssistantConversation>["send"];
   resolvePendingAction: (decision: "confirm" | "deny") => Promise<void>;
   reset: () => void;
   openHistory: () => void;

@@ -88,10 +88,16 @@ export async function notifyApplicantApplicationSms(
     signupUrl?: string | null;
     managerUserId?: string | null;
     fromNumber?: string | null;
+    /** Stable owner-scoped idempotency key for lifecycle retries. */
+    dedupeKey?: string | null;
   },
-): Promise<{ sent: boolean; error?: string }> {
+): Promise<{ sent: boolean; accepted?: boolean; error?: string }> {
   const email = input.applicantEmail.trim().toLowerCase();
-  if (!canSendResidentOutboundSms(input.fromNumber)) {
+  const managerUserId = input.managerUserId?.trim() || null;
+  // Managed Twilio derives the authoritative sender from manager_sms_numbers,
+  // not the denormalized profiles.sms_from_number cache. Only require the
+  // legacy transport check when there is no owner scope to resolve.
+  if (!managerUserId && !canSendResidentOutboundSms(input.fromNumber)) {
     return { sent: false, error: "sms_not_configured" };
   }
 
@@ -105,7 +111,6 @@ export async function notifyApplicantApplicationSms(
     signupUrl: input.signupUrl,
   });
 
-  const managerUserId = input.managerUserId?.trim() || null;
   const result = await sendResidentOutboundSms({
     to: phone,
     text,
@@ -118,11 +123,14 @@ export async function notifyApplicantApplicationSms(
           residentUserId: userId,
           residentEmail: email || null,
           topic: "applications",
+          counterpartyRole: "applicant",
         }
       : null,
     // Submitted often has no manager thread yet / prospect — skip inverted mirror.
     mirrorToManager: Boolean(managerUserId) && input.event !== "submitted",
+    purpose: `application_${input.event}_notification`,
+    dedupeKey: input.dedupeKey ?? undefined,
   });
 
-  return { sent: result.sent, error: result.error };
+  return { sent: result.sent, accepted: result.accepted, error: result.error };
 }

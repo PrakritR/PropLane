@@ -22,7 +22,8 @@ export type InboxThreadForTurns = {
  * Bubble kind from the viewer's chair.
  * - inbound: other person, left, gray
  * - outbound: the viewer, right, cobalt
- * - assistant: PropLane Assistant, right, ice (never labelled as such)
+ * - assistant: PropLane Assistant ice (never labelled as You). Left in the
+ *   assistant conversation; right in person-thread notices/reminders.
  */
 export type InboxTurnDirection = "inbound" | "outbound" | "assistant";
 

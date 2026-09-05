@@ -26,6 +26,8 @@ import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 
 export type ResidentOutboundSmsResult = {
   sent: boolean;
+  /** True once the managed outbox owns delivery, even if provider submission is deferred. */
+  accepted?: boolean;
   channel?: "claw" | "twilio";
   error?: string;
   sid?: string;
@@ -180,6 +182,10 @@ export async function sendResidentOutboundSms(args: {
 
   return {
     sent: result.ok,
+    // Preserve the long-standing result shape for immediate success/failure;
+    // this extra state matters only when the durable outbox accepted a message
+    // that has not reached provider submission yet.
+    ...(result.ok === false && result.durablyAccepted === true ? { accepted: true } : {}),
     channel: result.channel,
     error: result.error,
     sid: result.sid,

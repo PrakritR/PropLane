@@ -31,8 +31,8 @@ let managerApplicationsSyncPromise: Promise<DemoApplicantRow[]> | null = null;
 let publicApprovedApplicationsLastSyncedAt = 0;
 let publicApprovedApplicationsSyncPromise: Promise<DemoApplicantRow[]> | null = null;
 
-export function normalizeApplicationAxisId(id: string): string {
-  const raw = id.trim();
+export function normalizeApplicationAxisId(id: unknown): string {
+  const raw = typeof id === "string" ? id.trim() : "";
   if (!raw) return raw;
   // Pre-rebrand applications keep their AXIS- ids; new ones are PROPLANE-.
   const upper = raw.toUpperCase();
@@ -81,13 +81,15 @@ export function resolveResidentPortalAxisId(input: {
 function normalizeApplicationLeaseFields(row: DemoApplicantRow): DemoApplicantRow {
   if (!row.application) return row;
   const app = row.application;
-  const leaseTerm = app.leaseTerm?.trim() || "";
+  const leaseTerm = typeof app.leaseTerm === "string" ? app.leaseTerm.trim() : "";
   const leaseStart = normalizeIsoDateInput(app.leaseStart);
   let leaseEnd = leaseTerm === "Month-to-Month" ? "" : normalizeIsoDateInput(app.leaseEnd);
   if (!leaseEnd && shouldAutoComputeLeaseEnd(leaseTerm, app.rentalType) && leaseStart) {
     leaseEnd = computeLeaseEndDate(leaseStart, leaseTerm);
   }
-  if (leaseStart === (app.leaseStart?.trim() || "") && leaseEnd === (app.leaseEnd?.trim() || "")) return row;
+  const storedLeaseStart = typeof app.leaseStart === "string" ? app.leaseStart.trim() : "";
+  const storedLeaseEnd = typeof app.leaseEnd === "string" ? app.leaseEnd.trim() : "";
+  if (leaseStart === storedLeaseStart && leaseEnd === storedLeaseEnd) return row;
   return {
     ...row,
     application: {

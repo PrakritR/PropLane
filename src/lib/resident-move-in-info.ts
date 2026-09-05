@@ -5,6 +5,7 @@ import {
   asObject,
   propertyFromRecord,
   resolveBestResidentRow,
+  isRoommatePlacement,
   resolveResidentMoveInFromApplications,
   type ResidentMoveInHousemate,
   type ResidentMoveInResolved,
@@ -24,6 +25,18 @@ function formatPhoneDisplay(phone: string | null | undefined): string | null {
     return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
   }
   return raw;
+}
+
+/**
+ * The structured room id from a "propertyId::roomId" choice. Empty when the row
+ * predates structured choices (a manually added resident), which is why the
+ * roommate test below falls back to an exact room-name match only then.
+ */
+function canonicalRoomIdFromAppRow(row: DemoApplicantRow): string {
+  const choice = row.assignedRoomChoice?.trim() || row.application?.roomChoice1?.trim() || "";
+  const sep = "::";
+  const idx = choice.indexOf(sep);
+  return idx >= 0 ? choice.slice(idx + sep.length).trim() : "";
 }
 
 function roomLabelFromAppRow(row: DemoApplicantRow): string {
@@ -51,6 +64,7 @@ async function loadHousematesForProperty(
   selfEmail: string,
   propertyId: string,
   managerUserId: string | null | undefined,
+  self: { roomId: string; roomLabel: string },
 ): Promise<ResidentMoveInHousemate[]> {
   if (!propertyId) return [];
 
@@ -58,7 +72,7 @@ async function loadHousematesForProperty(
   if (managerUserId) query = query.eq("manager_user_id", managerUserId);
   const { data: apps } = await query;
 
-  const peers: Array<{ email: string; name: string; roomLabel: string }> = [];
+  const peers: Array<{ email: string; name: string; roomLabel: string; roomId: string }> = [];
   const seen = new Set<string>();
   for (const row of apps ?? []) {
     const rowData = asObject(row.row_data) as unknown as DemoApplicantRow | null;
@@ -73,6 +87,7 @@ async function loadHousematesForProperty(
       email,
       name: String(rowData.name ?? "").trim() || email,
       roomLabel: roomLabelFromAppRow(rowData),
+      roomId: canonicalRoomIdFromAppRow(rowData),
     });
   }
 
@@ -104,6 +119,7 @@ async function loadHousematesForProperty(
       email: peer.email,
       roomLabel: peer.roomLabel,
       phone: phoneByEmail.get(peer.email) ?? null,
+      isRoommate: isRoommatePlacement(self, { roomId: peer.roomId, roomLabel: peer.roomLabel }),
     }))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 }
@@ -153,6 +169,9 @@ export async function loadResidentMoveInForEmail(email: string): Promise<Residen
   });
   if (!resolved) return null;
 
-  const housemates = await loadHousematesForProperty(db, normalizedEmail, propertyId, managerUserId);
+  const housemates = await loadHousematesForProperty(db, normalizedEmail, propertyId, managerUserId, {
+    roomId: canonicalRoomIdFromAppRow(bestRow),
+    roomLabel: roomLabelFromAppRow(bestRow),
+  });
   return { ...resolved, housemates };
 }

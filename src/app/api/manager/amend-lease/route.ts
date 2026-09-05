@@ -121,7 +121,9 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ available: true, direction: "extend" });
     }
 
-    const availability = await checkMoveOutAvailabilityForLease(db, leaseRow, leaseRecord, newLeaseEnd);
+    // Manager audience: they own the property, so they may be told which resident
+    // holds the room and until when. A resident asking the same question may not.
+    const availability = await checkMoveOutAvailabilityForLease(db, leaseRow, leaseRecord, newLeaseEnd, undefined, "manager");
     if (availability.ok) {
       return NextResponse.json({ available: true, direction: availability.direction });
     }

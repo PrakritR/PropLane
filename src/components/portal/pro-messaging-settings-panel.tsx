@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, MessageSquareText } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   PortalSettingsField,
@@ -59,7 +59,9 @@ export function formatWorkNumberAnnounceRecipientDisplay(
 ): string {
   if (residents.length === 0) return "No residents to notify yet";
   return residents
-    .map((resident) => resident.email.trim())
+    .map((resident) =>
+      typeof resident?.email === "string" ? resident.email.trim() : "",
+    )
     .filter((email) => email.includes("@"))
     .join(", ");
 }
@@ -175,8 +177,8 @@ function registrationLabel(status: ManagerMessagingNumberStatus): string {
   return "Pending";
 }
 
-function inferredUsAreaCode(phone: string | null | undefined): string {
-  const digits = phone?.replace(/\D/g, "") ?? "";
+function inferredUsAreaCode(phone: unknown): string {
+  const digits = typeof phone === "string" ? phone.replace(/\D/g, "") : "";
   if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1, 4);
   return digits.length === 10 ? digits.slice(0, 3) : "";
 }
@@ -192,6 +194,8 @@ function isMessagingNumberStatus(
     typeof candidate.provisioningAvailable === "boolean" &&
     typeof candidate.canRequest === "boolean" &&
     typeof candidate.canSend === "boolean" &&
+    Boolean(candidate.entitlement) &&
+    typeof candidate.entitlement === "object" &&
     Boolean(candidate.personalPhone) &&
     typeof candidate.personalPhone === "object"
   );
@@ -236,6 +240,9 @@ export function ManagerMessagingSettingsPanel({
       };
       if (!res.ok)
         throw new Error(body.error ?? "Could not load messaging settings.");
+      if (!isMessagingNumberStatus(body)) {
+        throw new Error("Messaging settings returned an invalid response.");
+      }
       setStatus(body);
       setAreaCode((current) =>
         current || !body.personalPhone.verifiedAt
@@ -323,8 +330,15 @@ export function ManagerMessagingSettingsPanel({
           setError(body.error ?? "Could not request a messaging number.");
           return;
         }
+        if (!isMessagingNumberStatus(body)) {
+          setError("Messaging settings returned an invalid response.");
+          return;
+        }
         setStatus(body);
-        const assignedPhone = body.number?.phoneNumber?.trim() || null;
+        const assignedPhone =
+          typeof body.number?.phoneNumber === "string"
+            ? body.number.phoneNumber.trim() || null
+            : null;
         if (action === "request_number" && assignedPhone) {
           const seenKey = announceStorageKey(assignedPhone);
           const alreadyAnnounced =
@@ -358,14 +372,17 @@ export function ManagerMessagingSettingsPanel({
 
   const announceChannels = portalMessageChannelsFromSelection(announceSendVia);
   const announceSmsBlocked = announceChannels.viaSms && !status?.canSend;
-  const announceResidents = useMemo(
-    () => approvedResidentsForWorkNumberAnnounce(userId),
-    [userId, announceOpen],
-  );
+  const statusPhoneNumber =
+    typeof status?.number?.phoneNumber === "string"
+      ? status.number.phoneNumber.trim()
+      : "";
+  const announceResidents = announceOpen
+    ? approvedResidentsForWorkNumberAnnounce(userId)
+    : [];
   const announceRecipientDisplay = formatWorkNumberAnnounceRecipientDisplay(announceResidents);
 
   const sendResidentAnnounce = useCallback(async () => {
-    const phone = status?.number?.phoneNumber?.trim();
+    const phone = statusPhoneNumber;
     if (!phone) return;
     const subject = announceSubject.trim();
     const body = announceBody.trim();
@@ -427,15 +444,15 @@ export function ManagerMessagingSettingsPanel({
     announceSubject,
     dismissAnnounce,
     showToast,
-    status?.number?.phoneNumber,
+    statusPhoneNumber,
   ]);
 
   const copyNumber = useCallback(async () => {
-    const phone = status?.number?.phoneNumber?.trim();
+    const phone = statusPhoneNumber;
     if (!phone) return;
     const copied = await copyTextToClipboard(phone);
     showToast(copied ? "Work number copied." : "Could not copy work number.");
-  }, [showToast, status?.number?.phoneNumber]);
+  }, [showToast, statusPhoneNumber]);
 
   if (loading && !status) {
     return (
@@ -489,7 +506,7 @@ export function ManagerMessagingSettingsPanel({
   }
 
   const planMessage = messagingUpsellMessage(status);
-  const phoneNumber = status.number?.phoneNumber ?? null;
+  const phoneNumber = statusPhoneNumber || null;
   const isCoManager = status.workspaceRole === "co_manager";
   const unverifiedEntitlement = entitlementIsUnverified(status);
   /**
