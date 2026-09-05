@@ -4348,51 +4348,62 @@ export function ManagerAddListingForm({
                   </GridField>
                   <GridField>
                     <FieldLabel>Processing fee paid by</FieldLabel>
-                    <Select
-                      value={serviceFeePayerUi}
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        const next: ServiceFeePayer =
-                          raw === "proplane" || raw === "manager" || raw === "resident" ? raw : "resident";
-                        if (next === "manager" && !canSelectManagerAbsorbFee) return;
-                        setSub((s) => ({
-                          ...s,
-                          serviceFeePayer: next,
-                          serviceFeeWaiverCode: next === "proplane" ? s.serviceFeeWaiverCode : undefined,
-                        }));
-                      }}
-                    >
-                      <option value="resident">Resident pays</option>
-                      <option value="manager" disabled={!canSelectManagerAbsorbFee}>
-                        Manager pays{canSelectManagerAbsorbFee ? "" : " (needs paid plan)"}
-                      </option>
-                      <option value="proplane">PropLane absorbs</option>
-                    </Select>
-                    {proplaneAbsorbNeedsWaiverCode ? (
-                      <div className="mt-2">
-                        <FieldLabel>Waiver code</FieldLabel>
-                        <Input
-                          value={sub.serviceFeeWaiverCode ?? ""}
-                          onChange={(e) =>
+                    <div className="flex w-full flex-col gap-2">
+                      <div
+                        className={
+                          proplaneAbsorbNeedsWaiverCode
+                            ? "flex flex-col gap-2 sm:flex-row sm:items-center"
+                            : "w-full"
+                        }
+                      >
+                        <Select
+                          className={proplaneAbsorbNeedsWaiverCode ? "min-w-0 sm:flex-1" : undefined}
+                          value={serviceFeePayerUi}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const next: ServiceFeePayer =
+                              raw === "proplane" || raw === "manager" || raw === "resident" ? raw : "resident";
+                            if (next === "manager" && !canSelectManagerAbsorbFee) return;
                             setSub((s) => ({
                               ...s,
-                              serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value),
-                            }))
-                          }
-                          placeholder="FREE100"
-                          autoComplete="off"
-                          aria-invalid={Boolean(stepFieldErrors.serviceFeeWaiverCode)}
-                          aria-describedby={
-                            stepFieldErrors.serviceFeeWaiverCode ? "listing-service-fee-waiver-error" : undefined
-                          }
-                        />
-                        {stepFieldErrors.serviceFeeWaiverCode ? (
-                          <p id="listing-service-fee-waiver-error" className="mt-1 text-xs text-destructive">
-                            {stepFieldErrors.serviceFeeWaiverCode}
-                          </p>
+                              serviceFeePayer: next,
+                              serviceFeeWaiverCode: next === "proplane" ? s.serviceFeeWaiverCode : undefined,
+                            }));
+                          }}
+                        >
+                          <option value="resident">Resident pays</option>
+                          <option value="manager" disabled={!canSelectManagerAbsorbFee}>
+                            Manager pays{canSelectManagerAbsorbFee ? "" : " (needs paid plan)"}
+                          </option>
+                          <option value="proplane">PropLane absorbs</option>
+                        </Select>
+                        {proplaneAbsorbNeedsWaiverCode ? (
+                          <Input
+                            className="min-w-0 sm:flex-1"
+                            value={sub.serviceFeeWaiverCode ?? ""}
+                            onChange={(e) =>
+                              setSub((s) => ({
+                                ...s,
+                                serviceFeePayer: "proplane",
+                                serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value),
+                              }))
+                            }
+                            placeholder="FREE100"
+                            aria-label="PropLane absorb waiver code"
+                            autoComplete="off"
+                            aria-invalid={Boolean(stepFieldErrors.serviceFeeWaiverCode)}
+                            aria-describedby={
+                              stepFieldErrors.serviceFeeWaiverCode ? "listing-service-fee-waiver-error" : undefined
+                            }
+                          />
                         ) : null}
                       </div>
-                    ) : null}
+                      {stepFieldErrors.serviceFeeWaiverCode ? (
+                        <p id="listing-service-fee-waiver-error" className="text-xs text-destructive">
+                          {stepFieldErrors.serviceFeeWaiverCode}
+                        </p>
+                      ) : null}
+                    </div>
                   </GridField>
                   <GridField>
                     <FieldLabel>Late fee grace (days)</FieldLabel>
