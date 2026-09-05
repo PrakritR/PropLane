@@ -84,6 +84,7 @@ describe("modal assistant workspace", () => {
     render(<PortalAssistantConfigProvider endpoint="/api/agent/chat"><ModalAssistantStrip contextHint="Communication thread" /></PortalAssistantConfigProvider>);
     await user.click(screen.getByRole("button", { name: "Ask PropLane" }));
     expect(document.documentElement).toHaveAttribute("data-modal-assistant-active");
+    expect(screen.getByRole("complementary").parentElement).toBe(document.body);
     await user.click(screen.getByRole("button", { name: "Close assistant" }));
     expect(document.documentElement).not.toHaveAttribute("data-modal-assistant-active");
   });

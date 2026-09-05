@@ -3,6 +3,7 @@
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 
+import { usePortalContainer } from "@/components/ui/portal-container-context";
 import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
 import { AxisAssistantSparkleIcon } from "@/components/portal/assistant-shared";
 import { AssistantConversationProvider } from "@/lib/axis-assistant/assistant-conversation-context";
@@ -70,6 +71,7 @@ export function ModalAssistantStrip({
   alwaysExpanded = false,
 }: ModalAssistantStripProps) {
   const config = usePortalAssistantConfig();
+  const portalContainer = usePortalContainer();
   const [expanded, setExpanded] = useState(alwaysExpanded || defaultExpanded);
   const showExpanded = expanded;
   const anchorRef = useRef<HTMLSpanElement>(null);
@@ -97,16 +99,17 @@ export function ModalAssistantStrip({
 
   useEffect(() => {
     const target = anchorRef.current?.closest<HTMLElement>('[role="dialog"]');
-    setRailTarget(target ?? null);
-  }, []);
+    setRailTarget(target ?? portalContainer ?? document.body);
+  }, [portalContainer]);
 
   useEffect(() => {
     if (!showExpanded) return;
-    railTarget?.setAttribute("data-modal-assistant-open", "");
+    const dialog = railTarget?.matches('[role="dialog"]') ? railTarget : null;
+    dialog?.setAttribute("data-modal-assistant-open", "");
     openModalAssistants += 1;
     document.documentElement.setAttribute("data-modal-assistant-active", "");
     return () => {
-      railTarget?.removeAttribute("data-modal-assistant-open");
+      dialog?.removeAttribute("data-modal-assistant-open");
       openModalAssistants -= 1;
       if (openModalAssistants === 0) document.documentElement.removeAttribute("data-modal-assistant-active");
     };
@@ -146,7 +149,7 @@ export function ModalAssistantStrip({
         compact
         pinnedComposer
         onCollapse={() => toggle(false)}
-        composerHint={editHint?.trim() || "How can I help?"}
+        composerHint={editHint?.trim()}
         className="min-h-0 flex-1 max-h-none"
       />
     </aside>

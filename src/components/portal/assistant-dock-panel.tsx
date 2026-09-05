@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronsRight, X } from "lucide-react";
+import { ArrowUpRight, ChevronsRight, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { AssistantChatComposer } from "@/components/portal/assistant-chat-composer";
@@ -232,9 +232,7 @@ export function AssistantDockPanel({
         className={cn(
           "flex min-h-0 flex-col overflow-y-auto overscroll-contain px-3",
           pinnedComposer && compact
-            ? hasConversation || loading
-              ? "min-h-0 flex-1 py-2"
-              : "shrink-0 py-1"
+            ? "flex-1 py-4"
             : compact
               ? "min-h-0 flex-1 py-2"
               : "flex-1 py-4",
@@ -242,10 +240,32 @@ export function AssistantDockPanel({
         )}
       >
         {!hasConversation && compact && pinnedComposer ? (
-          <p className="text-xs leading-relaxed text-muted">
-            {composerHint?.trim() ||
-              "Describe the change below — rent, dates, names, or other terms."}
-          </p>
+          <div className="flex flex-1 flex-col justify-center px-1 pb-8" data-attr="assistant-task-empty-state">
+            <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary" aria-hidden>
+              <AxisAssistantSparkleIcon className="h-5 w-5" />
+            </span>
+            <h2 className="text-lg font-semibold tracking-tight text-foreground">Let’s work on this</h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted">
+              {composerHint?.trim() || "Ask a question, or tell me what you’d like to change."}
+            </p>
+            <div className="mt-5 grid gap-2">
+              {["Help me get started", "Review this with me"].map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  data-attr="assistant-task-suggestion"
+                  disabled={loading}
+                  onClick={() => {
+                    setInput(prompt);
+                    inputRef.current?.focus();
+                  }}
+                  className="flex min-h-10 items-center justify-between gap-2 rounded-xl border border-border px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {prompt}<ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                </button>
+              ))}
+            </div>
+          </div>
         ) : !hasConversation && !compact ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary">
@@ -300,9 +320,6 @@ export function AssistantDockPanel({
                 <span className="text-xs">Thinking…</span>
               </div>
             ) : null}
-            {error ? (
-              <p className="rounded-xl border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{error}</p>
-            ) : null}
           </div>
         ) : null}
       </div>
@@ -311,6 +328,7 @@ export function AssistantDockPanel({
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          e.stopPropagation();
           void sendWithContext();
         }}
         className={cn(
@@ -319,6 +337,7 @@ export function AssistantDockPanel({
           pinnedComposer && "sticky bottom-0 z-10",
         )}
       >
+        {error ? <p role="alert" className="mb-2 rounded-xl border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{error}</p> : null}
         {pendingAction ? (
           <AssistantPendingActionCard
             pendingAction={pendingAction}
@@ -336,8 +355,8 @@ export function AssistantDockPanel({
           compact={compact}
           inputRef={inputRef}
           inputId={inputId}
-          inputAriaLabel={inputId ? "Ask the PropLane Assistant about your portfolio" : undefined}
-          placeholder={compact ? "Ask PropLane to help — attach images or PDFs with the paperclip" : "Ask about your portfolio… Attach images or PDFs with the paperclip."}
+          inputAriaLabel={compact ? "Message PropLane Assistant" : "Ask the PropLane Assistant about your portfolio"}
+          placeholder={compact ? "Ask PropLane…" : "Ask about your portfolio… Attach images or PDFs with the paperclip."}
           onSend={() => void sendWithContext()}
         />
       </form>

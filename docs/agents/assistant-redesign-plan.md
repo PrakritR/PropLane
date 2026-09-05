@@ -246,3 +246,17 @@ The normal suite exposed stale integration fixtures for work-order event deliver
 vendor inbox identity, the moved ACH resolver, OAuth requests, and the admin
 allowlist. Fixtures now follow the current contracts; ownership and replay
 assertions remain strict. All 11 previously failing integration cases pass.
+
+## Communication rail and task welcome state
+
+Standalone thread assistants portal to the page overlay container (or scoped demo
+container), so transformed or clipped thread content cannot strand their composer
+outside the viewport. Dialog assistants remain inside their existing focus boundary.
+Task panels offer a welcome heading and editable starter prompts, a short composer
+placeholder, and visible errors even before the first message. Assistant submissions
+do not bubble into an enclosing editor's submit handler.
+
+An authenticated read-only request to the existing local development API returned
+HTTP 200 in 19.55s with a reply, no tool calls, and no pending action. Chromium
+checks exercise replies with simulated API responses inside a transformed, clipped
+thread; Chromium and WebKit also verify the real listing editor and the shared rail.
