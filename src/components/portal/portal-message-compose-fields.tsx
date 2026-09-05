@@ -333,7 +333,7 @@ export function PortalMessageRecipientLockedField({
           options={[{ value: lockedValue, label }]}
           selected={[lockedValue]}
           onChange={() => {}}
-          disabled
+          readOnly
           selectionTriggerLabel={label}
           emptyLabel="Choose recipients"
           dataAttr={dataAttr}
@@ -440,9 +440,9 @@ export function PortalMessageSendViaField({
       />
       {!channelsOk ? (
         <p className="mt-1.5 text-xs font-medium text-red-600">Choose at least one channel.</p>
-      ) : (
+      ) : footerNote?.trim() ? (
         <p className="mt-1.5 text-xs text-muted">{footerNote}</p>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -519,7 +519,9 @@ export function PortalMessageSendViaDropdown({
         emptyLabel="Choose channels…"
         dataAttr={dataAttr}
       />
-      <p className="mt-1.5 text-xs text-muted">{footerNote}</p>
+      {footerNote?.trim() ? (
+        <p className="mt-1.5 text-xs text-muted">{footerNote}</p>
+      ) : null}
     </div>
   );
 }
