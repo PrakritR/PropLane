@@ -43,6 +43,14 @@ const nextConfig: NextConfig = {
   // Lets the iOS/Android WebView load from your Mac's LAN IP during `npm run dev`.
   allowedDevOrigins: capacitorDevOrigins(),
   skipTrailingSlashRedirect: true,
+  ...(process.env.PROPLANE_LOW_MEMORY_BUILD === "1" ? {
+    webpack: (config: Parameters<NonNullable<NextConfig["webpack"]>>[0]) => {
+      // Validation builds on small disks must not keep a second copy of the
+      // compiler graph in the filesystem cache. Release defaults are unchanged.
+      config.cache = false;
+      return config;
+    },
+  } : {}),
   experimental: {
     // Opt-in local validation on constrained machines; deployment defaults stay
     // unchanged. Next's documented Webpack memory optimization avoids swap/disk

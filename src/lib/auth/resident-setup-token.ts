@@ -1,9 +1,13 @@
+import "server-only";
 import { openApplicantRow, sealApplicantRow } from "@/lib/security/applicant-identity";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
-import { formatProplaneIdForDisplay, proplaneIdLookupVariants } from "@/lib/manager-id";
+import { proplaneIdLookupVariants } from "@/lib/manager-id";
 import type { SupabaseClient } from "@supabase/supabase-js";
+
+// Keep existing server imports compatible while browser callers use the URL-only module.
+export { residentSetupIdFromUrlParams, buildResidentSetupHref, residentSetupAccountUrl } from "./resident-setup-links";
 
 /** Default lifetime for resident account-setup links emailed after apply / approval. */
 export const RESIDENT_SETUP_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -27,27 +31,6 @@ function hashesEqual(a: string, b: string): boolean {
   }
 }
 
-
-export function residentSetupIdFromUrlParams(params: { get(name: string): string | null }): string {
-  const proplane = params.get("proplane_id")?.trim() ?? "";
-  if (proplane) return normalizeApplicationAxisId(proplane);
-  const legacy = params.get("axis_id")?.trim() ?? "";
-  return legacy ? normalizeApplicationAxisId(legacy) : "";
-}
-
-export function buildResidentSetupHref(token: string, axisId: string): string {
-  const id = formatProplaneIdForDisplay(normalizeApplicationAxisId(axisId));
-  const params = new URLSearchParams({
-    token: token.trim(),
-    proplane_id: id,
-  });
-  return `/auth/resident-setup?${params.toString()}`;
-}
-
-export function residentSetupAccountUrl(origin: string, token: string, axisId: string): string {
-  const base = origin.replace(/\/$/, "") || "https://prop-lane.space";
-  return `${base}${buildResidentSetupHref(token, axisId)}`;
-}
 
 export function isResidentSetupTokenValid(row: Pick<DemoApplicantRow, "setupTokenHash" | "setupTokenExpiresAt" | "setupTokenConsumedAt">, token: string): boolean {
   const trimmed = token.trim();

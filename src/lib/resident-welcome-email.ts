@@ -3,7 +3,7 @@
  */
 
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
-import { residentSetupAccountUrl } from "@/lib/auth/resident-setup-token";
+import { residentSetupAccountUrl } from "@/lib/auth/resident-setup-links";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
 import {
   appendManagerReachabilityToWelcomeBody,
