@@ -1728,8 +1728,27 @@ Zero due is never by itself proof of payment, so a `received` figure that is
 undefined can only produce "no payment due". A voided holding charge is also not
 an active holding record: `buildLeaseBillingSnapshot` selects a non-cancelled,
 non-refunded `holding_deposit` row, so a waived holding neither raises the
-holding-deposit disclosure nor credits the security-deposit fallback, while a
-real security charge keeps its own exact balance either way.
+holding-deposit disclosure nor credits the security-deposit fallback. What the
+deposit still owes then comes from the security ROW: its own recorded balance
+whenever one exists, and the full contractual deposit only when no security charge
+exists at all.
+
+**The snapshot is a READ of the scoped charges, never a writer or a corrector.**
+It never invents a charge and never rewrites a recorded balance to what it thinks
+the balance ought to be. That matters for one sequence: a $100 holding is paid, so
+`recordApprovedApplicationCharges` writes the security charge NET of the credit
+($300 — `holdingDepositCreditCentsForApplication` counts `pending`/`paid`), and the
+holding is later voided by status alone. The surviving $300 row is what the lease
+quotes, because that row is the ledger's own record of what is owed. Re-deriving
+$400 in document generation would have the lease disagree with the Payments page
+and with the resident's own balance. Reconciling a genuinely refunded holding is
+the ledger's job, not the document's: the supported waive path
+(`removeApplicantHoldingFee`) DELETES the row and calls
+`reconcileApprovedChargesForHoldingFee`, which regenerates the security charge at
+full. A status-only void has no equivalent reconcile; if one is ever wanted it
+belongs in `household-charges.ts`. Coverage: the voided-holding cases in
+`lease-billing-snapshot.test.ts` pin all three security-row shapes (surviving net
+row, cancelled row, absent row).
 
 The signing total is a FIRST-PERIOD figure and is resolved AFTER proration in
 `build-lease-html.ts`. Resolving it earlier quoted a full month of rent and

@@ -17,6 +17,7 @@ import type { MockProperty } from "@/data/types";
 import type { DemoApplicantRow } from "@/lib/manager-applications-storage";
 import {
   applyHouseholdChargePatches,
+  deleteHouseholdCharge,
   readHouseholdCharges,
   seedDemoHouseholdCharges,
   setApplicantHoldingFee,
@@ -212,38 +213,48 @@ describe("buildLeaseBillingSnapshot", () => {
     expect(billing.dueAtSigning).toBe(450);
   });
 
-  it.each(["cancelled", "refunded"] as const)("does not let a %s holding charge disclose or credit a deposit", (status) => {
-    for (const withSecurityRow of [true, false]) {
-      const propertyId = `prop-void-holding-${status}-${withSecurityRow}`;
-      const email = `void-holding-${status}-${withSecurityRow}@example.com`;
-      removeResidentHouseholdPaymentData(email);
-      seedListing(propertyId, normalizeManagerListingSubmissionV1({
-        ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150",
-        rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
-      }));
-      const row = applicantRow(propertyId, email);
-      setApplicantHoldingFee({ residentEmail: email, residentName: row.name, residentUserId: null, propertyId, applicationId: row.id, managerUserId: MANAGER_ID, amount: 100 });
-      recordApprovedApplicationCharges(row, MANAGER_ID, true);
-      const holding = readHouseholdCharges().find((c) => c.applicationId === row.id && c.kind === "holding_deposit")!;
-      const patches = [{ ...holding, status }];
-      const security = readHouseholdCharges().find((c) => c.applicationId === row.id && c.kind === "security_deposit");
-      if (!withSecurityRow && security) applyHouseholdChargePatches([{ ...security, status: "cancelled" as const }]);
-      applyHouseholdChargePatches(patches);
-      const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
-      expect(billing.holdingDeposit).toBeUndefined();
-      expect(billing.securityDeposit).toBe(400);
-      // A real net security charge keeps its exact balance; a waived one owes nothing.
-      expect(billing.securityDepositDue).toBe(withSecurityRow ? 300 : 0);
-      expect(billing.securityDepositReceived).toBe(0);
-      const html = buildLeaseHtml({
-        application: row.application!,
-        submission: normalizeManagerListingSubmissionV1({ ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150" }),
-        leaseBilling: billing,
-        generatedAtIso: "2026-09-01T00:00:00.000Z",
-      }, SEATTLE_LEASE_CONFIG);
-      expect(html).not.toContain("Holding deposit");
-      expect(html).not.toContain("Already received");
-    }
+  // A voided holding raises no disclosure and grants no credit. What the deposit still
+  // owes then comes from the security ROW: its own recorded balance when one exists (kept
+  // verbatim, even a stale net-of-holding figure), and the full contractual deposit only
+  // when no row exists at all.
+  const voidedHoldingCases = [
+    { securityRow: "surviving" as const, due: 300 },
+    { securityRow: "cancelled" as const, due: 0 },
+    { securityRow: "absent" as const, due: 400 },
+  ];
+  it.each(
+    (["cancelled", "refunded"] as const).flatMap((status) => voidedHoldingCases.map((c) => ({ status, ...c }))),
+  )("does not let a $status holding charge disclose or credit a deposit ($securityRow security row)", ({ status, securityRow, due }) => {
+    const propertyId = `prop-void-holding-${status}-${securityRow}`;
+    const email = `void-holding-${status}-${securityRow}@example.com`;
+    removeResidentHouseholdPaymentData(email);
+    seedListing(propertyId, normalizeManagerListingSubmissionV1({
+      ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150",
+      rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
+    }));
+    const row = applicantRow(propertyId, email);
+    setApplicantHoldingFee({ residentEmail: email, residentName: row.name, residentUserId: null, propertyId, applicationId: row.id, managerUserId: MANAGER_ID, amount: 100 });
+    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    const holding = readHouseholdCharges().find((c) => c.applicationId === row.id && c.kind === "holding_deposit")!;
+    const security = readHouseholdCharges().find((c) => c.applicationId === row.id && c.kind === "security_deposit")!;
+    expect(security.balanceLabel).toBe("$300.00");
+    if (securityRow === "cancelled") applyHouseholdChargePatches([{ ...security, status: "cancelled" }]);
+    if (securityRow === "absent") expect(deleteHouseholdCharge(security.id, MANAGER_ID)).toBe(true);
+    applyHouseholdChargePatches([{ ...holding, status }]);
+    const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
+    expect(billing.holdingDeposit).toBeUndefined();
+    expect(billing.securityDeposit).toBe(400);
+    expect(billing.securityDepositDue).toBe(due);
+    expect(billing.securityDepositReceived).toBe(0);
+    expect(billing.dueAtSigning).toBe(due + 150);
+    const html = buildLeaseHtml({
+      application: row.application!,
+      submission: normalizeManagerListingSubmissionV1({ ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150" }),
+      leaseBilling: billing,
+      generatedAtIso: "2026-09-01T00:00:00.000Z",
+    }, SEATTLE_LEASE_CONFIG);
+    expect(html).not.toContain("Holding deposit");
+    expect(html).not.toContain("Already received");
   });
 
   it("reads a cleared holding beside a waived security balance as settled, not paid in full", () => {
