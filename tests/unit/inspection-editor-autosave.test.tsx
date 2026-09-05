@@ -174,7 +174,7 @@ it("keeps a captured photo recoverable when a refresh freezes the report", async
   expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(photo.previewUrl);
   // The handoff removed the pending thumbnail, so it must announce where the photo went
   // and open the recovery section rather than leaving the capture to look discarded.
-  expect(screen.getByText(/could not be uploaded/)).toBeTruthy();
+  expect(document.querySelector('[data-attr="inspection-unsent-notice"]')?.textContent).toMatch(/never reached the server/);
   expect(screen.getByAltText("Photo that was never uploaded")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Save photo to device" })).toBeTruthy();
 
@@ -236,4 +236,78 @@ it("keeps baseline room sections the current listing no longer has", () => {
   expect(screen.getByText("Desk chipped at move-in")).toBeTruthy();
   // Read-only history, never an item of this inspection.
   expect(screen.queryByRole("textbox", { name: "Furniture notes" })).toBeNull();
+});
+
+/**
+ * Recovery material outlives the freeze that produced it. A manager who returns to a
+ * submitted report (retained draft becomes recovery), clicks Request changes, and
+ * navigates away used to lose the whole bucket: `draftRef` tracked it only while the
+ * report was NOT editable, and the reopen flipped that back before the unmount.
+ */
+it("keeps recovered material through a reopen, alongside a fresh draft", async () => {
+  // Drafts are actor-scoped, so the whole lifecycle stays on the manager side.
+  render(<InspectionEditor initial={detail} role="manager" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /Room overview/ }));
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Never sent" } });
+  cleanup();
+
+  const submitted = structuredClone(detail);
+  submitted.report.status = "submitted";
+  submitted.report.revision = 4;
+  submitted.report.document.residentAcknowledgment = { userId: "resident", at: "2026-09-05" } as never;
+  detail = submitted;
+  render(<InspectionEditor initial={detail} role="manager" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /Unsent notes and photos/ }));
+  expect(screen.getByText("Never sent")).toBeTruthy();
+
+  // Request changes reopens the report, so the editor becomes editable again.
+  const reopened = structuredClone(submitted);
+  reopened.report.status = "draft";
+  reopened.report.revision = 5;
+  reopened.report.document.residentAcknowledgment = null;
+  request.mockResolvedValueOnce(reopened);
+  fireEvent.click(screen.getByRole("button", { name: "Request changes" }));
+  await act(async () => { fireEvent.click(screen.getByRole("dialog").querySelector("button")!); });
+  expect(screen.getByRole("button", { name: "Upload photos" })).toBeTruthy();
+
+  // Reopening does not fold the recovered notes into the now-editable report.
+  fireEvent.click(screen.getByRole("button", { name: /Room overview/ }));
+  expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Fresh manager note" } });
+
+  // Back out with both buckets live, then return: neither evicted the other.
+  cleanup();
+  detail = reopened;
+  render(<InspectionEditor initial={detail} role="manager" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /Room overview/ }));
+  expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("Fresh manager note");
+  fireEvent.click(screen.getByRole("button", { name: "Back to room sections" }));
+  fireEvent.click(screen.getByRole("button", { name: /Unsent notes and photos/ }));
+  expect(screen.getByText("Never sent")).toBeTruthy();
+  // The standing notice must not claim an editable report is locked.
+  const notice = document.querySelector('[data-attr="inspection-unsent-notice"]')?.textContent ?? "";
+  expect(notice).toMatch(/never reached the server/);
+  expect(notice).not.toContain("no longer editable");
+
+  fireEvent.click(screen.getByRole("button", { name: "Discard unsent notes" }));
+  expect(screen.queryByText("Never sent")).toBeNull();
+  expect((screen.getByRole("button", { name: "Upload photos" }))).toBeTruthy();
+});
+
+/** Leaving without saving discards the active draft only — recovery has its own discard. */
+it("does not take the recovery bucket with a discard-and-leave", async () => {
+  mount();
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "Never sent" } });
+  cleanup();
+
+  const completed = structuredClone(detail);
+  completed.report.status = "completed";
+  detail = completed;
+  render(<InspectionEditor initial={detail} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+  cleanup();
+
+  render(<InspectionEditor initial={detail} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /Unsent notes and photos/ }));
+  expect(screen.getByText("Never sent")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Discard unsent notes" }));
 });

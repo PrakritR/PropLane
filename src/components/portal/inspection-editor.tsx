@@ -11,7 +11,7 @@ import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible
 import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { useNativeCamera, type CapturedPhoto } from "@/lib/native/use-native-camera";
-import { inspectionDraftKey, discardInspectionDraft, retainInspectionDraft, peekInspectionDraft, takeInspectionDraft, type InspectionEditorDraft } from "@/lib/inspections/editor-drafts";
+import { inspectionDraftKey, appendUnsentRecovery, discardInspectionDraft, retainInspectionDraft, peekInspectionDraft, takeInspectionDraft, type InspectionEditorDraft, type InspectionEditorSnapshot } from "@/lib/inspections/editor-drafts";
 import { downloadInspection, inspectionRequest } from "@/lib/inspections/client";
 import { downloadBlobFile } from "@/lib/portal-document-download";
 import { inspectionRoomLabel, INSPECTION_CONDITIONS, type InspectionDetail, type InspectionItem, type InspectionObservation, type InspectionRole, type InspectionArea } from "@/lib/inspections/model";
@@ -52,29 +52,33 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   // A report that is no longer an editable draft is frozen: the server copy is the
   // authoritative record, so a recovered local draft is never merged into it. It is
   // kept beside the report as clearly unsent material the person can read or discard.
-  const [resumable] = useState(() => Boolean(restored) && initial.canEdit && initial.report.status === "draft");
-  const [unsent, setUnsent] = useState(() => (restored && !resumable ? restored : null));
+  const [resumable] = useState(() => Boolean(restored?.active) && initial.canEdit && initial.report.status === "draft");
+  const [unsent, setUnsent] = useState<InspectionEditorSnapshot[]>(() => {
+    const buckets = restored?.unsent ?? [];
+    return restored?.active && !resumable ? appendUnsentRecovery(buckets, restored.active) : buckets;
+  });
   const [detail, setDetail] = useState(() => {
-    if (!restored || !resumable) return initial;
-    const previous = new Map(observations(restored.detail, role).map(item => [item.itemId, item]));
-    return { ...initial, report: { ...initial.report, revision: restored.detail.report.revision, document: { ...initial.report.document,
+    if (!restored?.active || !resumable) return initial;
+    const previous = new Map(observations(restored.active.detail, role).map(item => [item.itemId, item]));
+    return { ...initial, report: { ...initial.report, revision: restored.active!.detail.report.revision, document: { ...initial.report.document,
       areas: initial.report.document.areas.map(area => ({ ...area, items: area.items.map(item => {
         const local = previous.get(item.id);
         return local ? { ...item, [role]: { ...item[role], notes: local.notes, condition: local.condition } } : item;
       }) })),
     } } };
   });
-  const [saved, setSaved] = useState(() => (resumable && restored ? restored.saved : JSON.stringify(observations(initial, role))));
-  const [error, setError] = useState(resumable && restored && restored.detail.report.revision !== initial.report.revision ? "Your draft was restored, but the saved report has changed. Review latest before continuing." : "");
+  const [saved, setSaved] = useState(() => (resumable && restored?.active ? restored.active.saved : JSON.stringify(observations(initial, role))));
+  const [error, setError] = useState(resumable && restored?.active && restored.active.detail.report.revision !== initial.report.revision ? "Your draft was restored, but the saved report has changed. Review latest before continuing." : "");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [activeAreaId, setActiveAreaId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [documentOpen, setDocumentOpen] = useState(false);
   const [choosePhoto, setChoosePhoto] = useState(false);
-  const [pendingPhoto, setPendingPhoto] = useState<{ itemId: string; photo: CapturedPhoto } | null>((resumable ? restored?.pendingPhoto : null) ?? null);
+  const [pendingPhoto, setPendingPhoto] = useState<{ itemId: string; photo: CapturedPhoto } | null>((resumable ? restored?.active?.pendingPhoto : null) ?? null);
   const live = useRef(true);
-  const draftRef = useRef<{ dirty: boolean; value: InspectionEditorDraft } | null>(null);
+  const draftRef = useRef<InspectionEditorDraft | null>(null);
+  const handedOff = useRef(false);
   const working = useRef(false);
   const discardConfirmed = useRef(false);
   const leaveHref = useRef<string | null>(null);
@@ -96,29 +100,35 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
       ? baseline.document.areas.flatMap(a => a.items).filter(item => !report.document.areas.some(area => area.items.some(i => i.id === item.id)))
       : baseline.document.areas.filter(area => area.id === "area-0").flatMap(area => area.items);
 
-  // While frozen there is nothing to resume, so the retained entry stays the unsent
-  // material itself rather than the authoritative report the person is only reading.
+  // The two buckets are tracked independently. A reopened report can carry a fresh
+  // draft AND frozen-out recovery material at the same time, and neither may evict
+  // the other on the way out.
   useEffect(() => {
-    draftRef.current = editable
-      ? { dirty, value: { detail, saved, pendingPhoto } }
-      : unsent ? { dirty: true, value: unsent } : null;
+    const active = editable && (dirty || pendingPhoto) ? { detail, saved, pendingPhoto } : null;
+    draftRef.current = active || unsent.length > 0 ? { active, unsent } : null;
   }, [dirty, detail, saved, pendingPhoto, editable, unsent]);
   // A refresh mid-session can freeze a report that still holds a captured file or
-  // unsaved typing. Hand that material to the recovery panel rather than leaving it
-  // in live state, where `draftRef` would drop it on the next navigation.
+  // unsaved typing. Hand that material to the recovery bucket rather than leaving it
+  // in live state, where the active slot would drop it on the next navigation. The
+  // latch resets when a report reopens, so a second freeze is captured too.
   useEffect(() => {
-    if (editable || unsent) return;
-    if (!dirty && !pendingPhoto) return;
-    setUnsent({ detail, saved, pendingPhoto });
+    if (editable) { handedOff.current = false; return; }
+    if (handedOff.current || (!dirty && !pendingPhoto)) return;
+    handedOff.current = true;
+    setUnsent(current => appendUnsentRecovery(current, { detail, saved, pendingPhoto }));
     if (pendingPhoto) setPendingPhoto(null);
-  }, [editable, unsent, dirty, detail, saved, pendingPhoto]);
+  }, [editable, dirty, detail, saved, pendingPhoto]);
   useEffect(() => {
     live.current = true; takeInspectionDraft(draftKey);
     return () => {
       live.current = false;
       const draft = draftRef.current;
-      if (draft && !discardConfirmed.current && (draft.dirty || draft.value.pendingPhoto)) retainInspectionDraft(draftKey, draft.value);
-      else if (draft?.value.pendingPhoto) URL.revokeObjectURL(draft.value.pendingPhoto.photo.previewUrl);
+      if (!draft) return;
+      // "Discard and leave" discards the ACTIVE draft only. Recovery material has its
+      // own explicit discard, so leaving must never take it silently.
+      const active = discardConfirmed.current ? null : draft.active;
+      if (!active && draft.active?.pendingPhoto) URL.revokeObjectURL(draft.active.pendingPhoto.photo.previewUrl);
+      if (active || draft.unsent.length > 0) retainInspectionDraft(draftKey, { active, unsent: draft.unsent });
     };
   }, [draftKey]);
   useEffect(() => {
@@ -248,33 +258,37 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     <p className="border-t border-border pt-5 text-sm text-muted">{report.document.residentAcknowledgment ? `Resident acknowledged on ${new Date(report.document.residentAcknowledgment.at).toLocaleDateString()}.` : "Resident acknowledgment pending."} {report.status === "completed" ? "Manager approved. This completed report is preserved." : "Manager approval pending."}</p>
   </article>;
   const itemLabels = new Map(report.document.areas.flatMap(a => a.items).map(i => [i.id, i.label]));
-  // Only what the server never acknowledged. `saved` is the last accepted snapshot,
-  // so an observation matching it IS in the report above and must not be relisted
-  // as never sent — this panel is read as a statement about an evidence document.
+  // Only what the server never acknowledged. Each bucket carries the snapshot the
+  // server had accepted at the time, so an observation matching it IS in the report
+  // above and must not be relisted as never sent — this panel is read as a statement
+  // about an evidence document. Later buckets win for the same item.
   const unsentNotes = (() => {
-    if (!unsent) return [];
-    let acknowledged: Map<string, { notes: string; condition: InspectionObservation["condition"] }>;
-    try {
-      acknowledged = new Map(
-        (JSON.parse(unsent.saved) as ReturnType<typeof observations>).map(entry => [entry.itemId, entry]),
-      );
-    } catch {
-      acknowledged = new Map();
+    const byItem = new Map<string, { itemId: string; notes: string; condition: InspectionObservation["condition"] }>();
+    for (const bucket of unsent) {
+      let acknowledged: Map<string, { notes: string; condition: InspectionObservation["condition"] }>;
+      try {
+        acknowledged = new Map(
+          (JSON.parse(bucket.saved) as ReturnType<typeof observations>).map(entry => [entry.itemId, entry]),
+        );
+      } catch {
+        acknowledged = new Map();
+      }
+      for (const entry of observations(bucket.detail, role)) {
+        if (!entry.notes.trim() && entry.condition === "unchecked") continue;
+        const prior = acknowledged.get(entry.itemId);
+        if (prior && prior.notes === entry.notes && prior.condition === entry.condition) continue;
+        byItem.set(entry.itemId, entry);
+      }
     }
-    return observations(unsent.detail, role).filter(entry => {
-      if (!entry.notes.trim() && entry.condition === "unchecked") return false;
-      const prior = acknowledged.get(entry.itemId);
-      return !prior || prior.notes !== entry.notes || prior.condition !== entry.condition;
-    });
+    return [...byItem.values()];
   })();
+  const unsentPhotos = unsent.flatMap(bucket => (bucket.pendingPhoto ? [bucket.pendingPhoto] : []));
   const discardUnsent = () => {
-    if (unsent?.pendingPhoto) URL.revokeObjectURL(unsent.pendingPhoto.photo.previewUrl);
-    setUnsent(null);
+    for (const pending of unsentPhotos) URL.revokeObjectURL(pending.photo.previewUrl);
+    setUnsent([]);
     discardInspectionDraft(draftKey);
   };
-  const saveUnsentPhoto = async () => {
-    const photo = unsent?.pendingPhoto?.photo;
-    if (!photo) return;
+  const saveUnsentPhoto = async (photo: CapturedPhoto) => {
     const result = await downloadBlobFile({
       fileName: photo.file.name || "inspection-photo.jpg",
       mimeType: photo.file.type || "image/jpeg",
@@ -291,13 +305,18 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
       : "no longer editable";
   // The handoff removes the pending-photo thumbnail, so without a standing line the
   // freeze reads as the capture being thrown away. This stays put rather than using
-  // the transient `notice`, which the next operation clears.
-  const hasUnsentMaterial = Boolean(unsent) && (unsentNotes.length > 0 || Boolean(unsent?.pendingPhoto));
+  // the transient `notice`, which the next operation clears. It describes what
+  // happened to the MATERIAL, because a reopened report is editable again while its
+  // recovery bucket still holds work the server never saw.
+  const hasUnsentMaterial = unsentNotes.length > 0 || unsentPhotos.length > 0;
+  const unsentLead = editable
+    ? "Earlier work on this device never reached the server, so it is not part of the report."
+    : `This report is ${frozenReason}, so work on this device never reached the server.`;
   const unsentRecoveryMessage = !hasUnsentMaterial
     ? ""
-    : unsent?.pendingPhoto
-      ? `This report is ${frozenReason}, so your photo could not be uploaded. It is kept below under "Unsent notes and photos from this device" — save it to your device before discarding it.`
-      : `This report is ${frozenReason}, so these notes were never sent. They are kept below under "Unsent notes and photos from this device".`;
+    : unsentPhotos.length > 0
+      ? `${unsentLead} It is kept below under "Unsent notes and photos from this device" — save any photo to your device before discarding it.`
+      : `${unsentLead} It is kept below under "Unsent notes and photos from this device".`;
   const areaCount = (area: InspectionArea) => area.items.reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
   const backLabel = documentOpen || activeArea ? "Back to room sections" : "Back to inspections";
   const status = report.status === "completed" ? "Completed" : report.status === "submitted" ? "Awaiting review" : "Draft";
@@ -313,18 +332,18 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
       {roomAreas.map(area => <div key={area.id} className={`flex min-h-24 items-center gap-4 border-b border-l-2 border-b-border px-3 py-5 ${selected.has(area.id) ? "border-l-primary bg-primary/5" : "border-l-transparent"}`} data-attr="inspection-section-row"><input type="checkbox" className="h-4 w-4 shrink-0 accent-primary" aria-label={`Select ${area.label}`} checked={selected.has(area.id)} onChange={e => setSelected(current => { const next = new Set(current); if (e.target.checked) next.add(area.id); else next.delete(area.id); return next; })} /><button className="min-w-0 flex-1 text-left" onClick={() => setActiveAreaId(area.id)} data-attr="inspection-area-open"><span className="flex items-center gap-2 text-base font-semibold">{area.label}<ChevronRight className="h-4 w-4 text-muted" /></span><span className="mt-1 block text-sm text-muted">{areaCount(area) ? `${areaCount(area)} photo${areaCount(area) === 1 ? "" : "s"} added` : "Photos and optional notes"}</span></button></div>)}
     </div>}
     {report.status === "submitted" && !report.document.residentAcknowledgment && <p className="px-2 text-sm text-muted">The resident needs to confirm review before the manager can approve.</p>}
-    {hasUnsentMaterial && unsent && <PortalCollapsibleSection title="Unsent notes and photos from this device" defaultExpanded={Boolean(unsent.pendingPhoto)}>
-      <p className="pb-3 text-sm text-muted">This report became {frozenReason} before these reached the server, so they are <strong>not part of the report</strong> above and were never sent. Keep anything you still need, then discard them.</p>
+    {hasUnsentMaterial && <PortalCollapsibleSection title="Unsent notes and photos from this device" defaultExpanded={unsentPhotos.length > 0}>
+      <p className="pb-3 text-sm text-muted">These never reached the server, so they are <strong>not part of the report</strong> above.{editable ? " Reopening the report did not add them — retype anything you still want recorded." : ""} Keep anything you still need, then discard them.</p>
       {unsentNotes.map(entry => <div key={entry.itemId} className="space-y-1 border-t border-border py-3">
         <p className="text-sm font-semibold">{itemLabels.get(entry.itemId) ?? entry.itemId}</p>
         {entry.condition !== "unchecked" && <p className="text-xs text-muted">{INSPECTION_CONDITIONS[entry.condition]}</p>}
         {entry.notes.trim() && <p className="ph-no-capture ph-no-record whitespace-pre-wrap break-words text-sm">{entry.notes}</p>}
       </div>)}
-      {unsent.pendingPhoto && <div className="flex flex-wrap items-center gap-4 border-t border-border py-3">
-        <Image src={unsent.pendingPhoto.photo.previewUrl} unoptimized width={96} height={72} alt="Photo that was never uploaded" className="ph-no-capture ph-no-record h-18 w-24 rounded-lg object-cover" />
-        <p className="min-w-0 flex-1 text-sm text-muted">This photo never uploaded and cannot be added to a locked report. Save it to your device if you still need it.</p>
-        <Button variant="outline" onClick={() => saveUnsentPhoto()} data-attr="inspection-unsent-photo-save">Save photo to device</Button>
-      </div>}
+      {unsentPhotos.map((pending, index) => <div key={`${pending.itemId}-${index}`} className="flex flex-wrap items-center gap-4 border-t border-border py-3">
+        <Image src={pending.photo.previewUrl} unoptimized width={96} height={72} alt="Photo that was never uploaded" className="ph-no-capture ph-no-record h-18 w-24 rounded-lg object-cover" />
+        <p className="min-w-0 flex-1 text-sm text-muted">This photo never uploaded and is not part of the report. Save it to your device if you still need it.</p>
+        <Button variant="outline" onClick={() => saveUnsentPhoto(pending.photo)} data-attr="inspection-unsent-photo-save">Save photo to device</Button>
+      </div>)}
       <Button variant="ghost" className="mt-2" onClick={discardUnsent} data-attr="inspection-unsent-discard">Discard unsent notes</Button>
     </PortalCollapsibleSection>}
     {retainedBaselineItems.length > 0 && <PortalCollapsibleSection title={baseline?.document.roomScope ? "Move-in sections not in this report" : "Original move-in room photos"} defaultExpanded={false}>
