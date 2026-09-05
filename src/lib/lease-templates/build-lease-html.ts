@@ -403,27 +403,6 @@ ${closing}
   }
 }
 
-function resolveLongTermFeeAmount(
-  raw: string | undefined | null,
-  normalized: string | undefined,
-  configDefault: number | undefined,
-): number | null {
-  if (typeof raw === "string" && raw.trim()) {
-    const parsed = parseAmount(normalized ?? raw);
-    return parsed != null && parsed > 0 ? parsed : null;
-  }
-  return configDefault != null && configDefault > 0 ? configDefault : null;
-}
-
-function resolveLongTermLeaseUpFeePercent(
-  raw: number | undefined,
-  rawWasProvided: boolean,
-  configDefault: number | undefined,
-): number | undefined {
-  if (rawWasProvided) return raw;
-  return configDefault;
-}
-
 /** Full HTML document suitable for download and "Print to PDF". */
 
 export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdictionTemplateConfig): string {
@@ -645,20 +624,20 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   // picked the field the ledger will charge (override, then shortTermDeposit or
   // securityDeposit keyed on rentalType). Recomputing it here let the document and the ledger
   // drift the moment either rule changed.
-  const secDep = escapeHtml(stay.deposit !== undefined ? fmtUsd(stay.deposit) : "—");
+  const secDep = escapeHtml(ctx.leaseBilling ? fmtUsd(ctx.leaseBilling.securityDeposit) : stay.deposit !== undefined ? fmtUsd(stay.deposit) : "—");
   // Room-first, then the listing, matching the ledger. A room carrying its own move-in fee
   // is charged that fee, so a lease quoting the listing's figure understates what is owed.
   const moveInFee = escapeHtml(
-    overrideFeeLabel(
+    ctx.leaseBilling ? fmtUsd(ctx.leaseBilling.moveInFee) : overrideFeeLabel(
           a.managerMoveInFeeOverride,
           specificRoom?.moveInFee?.trim() || sub?.moveInFee || "—",
         ),
   );
-  const rawOtherCostLabel = a.managerOtherCostLabel?.trim() || "Other costs";
+  const rawOtherCostLabel = ctx.leaseBilling?.otherCostLabel?.trim() || a.managerOtherCostLabel?.trim() || "Other costs";
   const otherCostIsMonthToMonth = isMonthToMonthOtherCost(rawOtherCostLabel);
   const otherCostLabel = escapeHtml(rawOtherCostLabel);
-  const otherCostAmount = escapeHtml(overrideFeeLabel(a.managerOtherCostAmount, "—"));
-  const otherCostNum = otherCostIsMonthToMonth ? 0 : parseAmount(a.managerOtherCostAmount);
+  const otherCostNum = otherCostIsMonthToMonth ? 0 : ctx.leaseBilling?.otherCostAmount ?? parseAmount(a.managerOtherCostAmount);
+  const otherCostAmount = escapeHtml(otherCostNum != null ? fmtUsd(otherCostNum) : "—");
   const showOtherSigningCost = !otherCostIsMonthToMonth && Boolean(otherCostNum && otherCostNum > 0);
 
   // One-time custom fees the manager added DO bill (once at move-in, via
@@ -686,7 +665,9 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   };
   const leaseDocFees = !subNorm
     ? { oneTime: [], monthly: [] }
-    : leaseDocumentFeeLines(subNorm, leaseBasicsSection, leaseFeeBillingContext);
+    : leaseDocumentFeeLines(subNorm, leaseBasicsSection, leaseFeeBillingContext, {
+        excludeHoldingDeposit: !propertyTemplatePreview,
+      });
   // Monthly preset + custom fees (parking, MTM surcharge, custom lease, etc.) bill recurring
   // and must appear in the lease — not only genuinely-custom rows.
   const billableMonthlyCustomFees = leaseDocFees.monthly;
@@ -730,7 +711,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const paySigningNum =
     leaseBilling?.dueAtSigning != null ? leaseBilling.dueAtSigning : computedSigning;
   const paySigning = escapeHtml(
-    paySigningNum > 0 ? fmtUsd(paySigningNum) : "—",
+    !propertyTemplatePreview || listingFeePreview ? fmtUsd(paySigningNum) : "—",
   );
   const paySigningIncludesNote = sub
     ? escapeHtml(paymentAtSigningIncludedLabels(sub))
@@ -822,21 +803,10 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const bathroomArrangement = propertyTemplatePreview
     ? ""
     : bathroomArrangementLeaseParagraph(subNorm, specificRoom?.id);
-  const longTermBreakLeaseFee = resolveLongTermFeeAmount(
-    sub?.longTermBreakLeaseFee,
-    subNorm?.longTermBreakLeaseFee,
-    config.defaultLongTermBreakLeaseFeeUsd,
-  );
-  const longTermLeaseUpFeePercent = resolveLongTermLeaseUpFeePercent(
-    subNorm?.longTermLeaseUpFeePercent,
-    sub?.longTermLeaseUpFeePercent !== undefined,
-    config.defaultLongTermLeaseUpFeePercent,
-  );
-  const longTermHoldoverDailyRate = resolveLongTermFeeAmount(
-    sub?.longTermHoldoverDailyRate,
-    subNorm?.longTermHoldoverDailyRate,
-    config.defaultLongTermHoldoverDailyUsd,
-  );
+  // Commercial terms come only from the saved listing, never jurisdiction defaults.
+  const longTermBreakLeaseFee = parseAmount(subNorm?.longTermBreakLeaseFee);
+  const longTermLeaseUpFeePercent = subNorm?.longTermLeaseUpFeePercent;
+  const longTermHoldoverDailyRate = parseAmount(subNorm?.longTermHoldoverDailyRate);
   const longTermReturnedPaymentFee = parseAmount(subNorm?.longTermReturnedPaymentFee);
   const longTermDepositLaborRate = parseAmount(subNorm?.longTermDepositLaborRate);
   const longTermDepositReissueFee = parseAmount(subNorm?.longTermDepositReissueFee);
@@ -869,8 +839,8 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     .join("\n");
   const petPolicy = propertyTemplatePreview
     ? "Pet policy is specified when a resident is placed at this property."
-    : (room?.petFriendly ?? list?.petFriendly)
-      ? "Pets may be permitted subject to prior written approval from Landlord, a separate pet deposit (amount specified in writing), and compliance with all house rules."
+    : (sub?.petFriendly ?? room?.petFriendly ?? list?.petFriendly)
+      ? "Pets may be permitted subject to prior written approval from Landlord and compliance with the property&apos;s pet rules. Any applicable pet charges must be separately specified in writing."
       : "No pets or animals of any kind are permitted on the Premises without prior written consent of Landlord.";
   const manualPaymentMethods = [
     sub?.zellePaymentsEnabled && sub.zelleContact?.trim()
@@ -970,8 +940,17 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
       });
   const showProratedLastMonth = Boolean(lastMonthTotals?.applies);
 
+  const monthlyDueDay = sub?.rentDueDayMode === "last_of_month" ? "last calendar day" : "1st calendar day";
+  const lateFeeAmount = !propertyTemplatePreview && sub?.lateFeeEnabled !== false
+    ? parseAmount(sub?.lateFeeAmount) : null;
+  const lateFeeGraceDays = sub?.lateFeeGraceDays;
+  const graceLabel = lateFeeGraceDays != null && Number.isFinite(lateFeeGraceDays) && lateFeeGraceDays >= 0
+    ? `${lateFeeGraceDays} day${lateFeeGraceDays === 1 ? "" : "s"}` : "the period specified in the listing";
+  const lateFeeHtml = lateFeeAmount != null && lateFeeAmount > 0
+    ? `<p><strong>Late fee:</strong> After a grace period of <strong>${escapeHtml(graceLabel)}</strong> following the payment due date, the configured late fee is <strong>${fmtUsd(lateFeeAmount)}</strong>, subject to applicable law.</p>` : "";
+
   if (stay.stayKind === "short") {
-    const dailyCost = stay.dailyRate;
+    const dailyCost = ctx.leaseBilling?.nightlyRent ?? stay.dailyRate;
     // Same night count the ledger bills from. The previous inline math parsed
     // "YYYY-MM-DD" as UTC, which could land a day off from the charges.
     // Two ledger paths bill a "short" stay and they count days differently, so the document
@@ -987,7 +966,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
           shortTermStayNightCount(a.leaseStart, a.leaseEnd));
     const stayUnitNoun = a.rentalType === "short_term" ? "Night" : "Day";
     const dailyCostRaw = propertyTemplatePreview ? "—" : dailyCost !== undefined ? fmtUsd(dailyCost) : "—";
-    const depositAmount = propertyTemplatePreview ? undefined : stay.deposit;
+    const depositAmount = propertyTemplatePreview ? undefined : ctx.leaseBilling?.securityDeposit ?? stay.deposit;
     const shortDepositRaw = propertyTemplatePreview ? "—" : depositAmount !== undefined ? fmtUsd(depositAmount) : "—";
     const totalRent =
       propertyTemplatePreview ? "—" : dailyCost && stayNights ? fmtUsd(shortTermStayTotalAmount(dailyCost, stayNights)) : "—";
@@ -1004,7 +983,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
             ? (specificRoom?.shortTermMoveInFee?.trim() || subNorm?.shortTermMoveInFee)
             : (specificRoom?.moveInFee?.trim() || subNorm?.moveInFee)) ?? "",
         );
-    const stayMoveInNum = parseAmount(stayMoveInLabel) ?? 0;
+    const stayMoveInNum = ctx.leaseBilling?.moveInFee ?? parseAmount(stayMoveInLabel) ?? 0;
     const stayOtherNum = showOtherSigningCost ? (otherCostNum ?? 0) : 0;
     // Utilities are billed alongside a standard-application stay but never on an explicit
     // short-term stay, whose nightly rate is all-in. The ledger PRORATES them across the
@@ -1048,6 +1027,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
       : (subNorm?.customFees ?? []).filter((fee) => {
       const presetId = (fee as { presetId?: string }).presetId;
       if (presetId && presetId !== "custom") return false;
+      if (a.rentalType !== "short_term" && fee.frequency !== "one-time") return false;
       const n = parseAmount(stayFeeAmount(fee));
       return n != null && n > 0;
     });
@@ -1060,6 +1040,8 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
       .join("\n");
     const totalDue = propertyTemplatePreview
       ? "—"
+      : ctx.leaseBilling?.totalBeforeCheckIn != null
+        ? fmtUsd(ctx.leaseBilling.totalBeforeCheckIn)
       : dailyCost && stayNights
         ? fmtUsd(
             shortTermStayTotalAmount(dailyCost, stayNights) +
@@ -1070,6 +1052,11 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
               stCustomFeesTotal,
           )
         : "—";
+    const receivedBeforeCheckIn = ctx.leaseBilling?.totalBeforeCheckIn != null && dailyCost != null && stayNights != null
+      ? Math.max(0, shortTermStayTotalAmount(dailyCost, stayNights) + (depositAmount ?? 0) + stayMoveInNum + stayOtherNum + stayUtilitiesNum + stCustomFeesTotal - ctx.leaseBilling.totalBeforeCheckIn)
+      : 0;
+    const receivedStayLine = receivedBeforeCheckIn > 0
+      ? `<p><strong>Already received:</strong> ${fmtUsd(receivedBeforeCheckIn)}. Recorded payments are excluded from the balance due before check-in.</p>` : "";
     const requirements = escapeHtml(
       propertyTemplatePreview
         ? "House rules and short-term requirements are filled when a guest is placed at this property."
@@ -1095,7 +1082,7 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     const stayMonthLabel = prorationMonthLabel(a.leaseStart);
     const stayFeeSummaryLines = [
       shortDepositRaw !== "—" ? stayLine("Deposit", escapeHtml(shortDepositRaw)) : "",
-      stayMoveInLabel ? stayLine("Move-in Fee", escapeHtml(stayMoveInLabel)) : "",
+      stayMoveInNum > 0 ? stayLine("Move-in Fee", fmtUsd(stayMoveInNum)) : "",
       stayOtherNum > 0 ? stayLine(otherCostLabel, fmtUsd(stayOtherNum)) : "",
       ...stCustomFees.map((f) =>
         stayLine(
@@ -1104,6 +1091,16 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
         ),
       ),
     ].filter(Boolean);
+    const staySigningTotal = ctx.leaseBilling?.dueAtSigning ?? computeLeasePaymentAtSigning(subNorm, {
+      securityDeposit: depositAmount ?? 0,
+      moveInFee: stayMoveInNum,
+      monthlyRent: dailyCost != null && stayNights != null ? shortTermStayTotalAmount(dailyCost, stayNights) : 0,
+      monthlyUtilities: stayUtilitiesNum,
+      customOneTimeFees: stCustomFeesTotal,
+      otherSigningCost: stayOtherNum,
+    });
+    const staySigningLine = !propertyTemplatePreview
+      ? `<p><strong>Payment Due at Signing:</strong> ${fmtUsd(staySigningTotal)}${paySigningIncludesNote ? ` (${paySigningIncludesNote}; first-period rent means rent for this stay)` : ""}. Any remaining balance above is due before check-in.</p>` : "";
     const staySummaryHtml = `<div style="border:1px solid #999;padding:12px 14px;margin:0 0 1.25rem;background:#fafafa">
   <p style="margin:0 0 0.5rem;font-weight:700;text-align:center;text-transform:uppercase;letter-spacing:.04em">Stay Summary</p>
   <p style="margin:0.2rem 0"><strong>Owner / Host:</strong> ${landlordEntity}</p>
@@ -1120,8 +1117,9 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   }
   ${stayFeeSummaryLines.length ? `${stayHeading("Fees &amp; deposit")}\n  ${stayFeeSummaryLines.join("\n  ")}` : ""}
   ${stayHeading("Initial payment")}
+  ${receivedStayLine}
   <p style="margin:0.2rem 0"><strong>Payment Due Before Check-In:</strong> ${totalDue}</p>
-  ${paySigningIncludesNote ? `<p style="margin:0.35rem 0 0;font-size:0.92em">Amounts collected before check-in follow the listing&apos;s payment settings: ${paySigningIncludesNote}.</p>` : ""}
+  ${staySigningLine}
 </div>`;
 
     return `<!doctype html><html><head><meta charset="utf-8"/><title>Short-Term Room Stay Agreement</title><style>${leaseCss()}</style></head><body>
@@ -1130,7 +1128,7 @@ ${
     ? `<h1>${escapeHtml(config.brandTitle)}</h1><p class="sub" style="font-weight:700;margin-bottom:0.15rem">SHORT-TERM ROOM STAY AGREEMENT${stayNights ? ` (${stayNights}-${stayUnitNoun} Stay)` : ""}</p>`
     : `<h1>SHORT-TERM ROOM STAY AGREEMENT${stayNights ? ` (${stayNights}-${stayUnitNoun} Stay)` : ""}</h1>`
 }
-<p class="sub">Owner-Occupied Residence · ${config.headerSubtitle}</p>
+<p class="sub">Temporary stay · ${config.headerSubtitle}</p>
 <p class="generated">Generated ${generatedDate} via PropLane</p>
 ${staySummaryHtml}
 
@@ -1160,13 +1158,15 @@ ${staySummaryHtml}
   <tr><th>Total rent for stay</th><td>${totalRent}</td></tr>
   <tr><th>Deposit</th><td>${escapeHtml(shortDepositRaw)}</td></tr>
   ${stayUtilitiesNum > 0 && stayUtilitiesSpan ? `<tr><th>Utilities estimate (${stayUtilitiesSpan.billableDays}/${stayUtilitiesSpan.daysInMonth} days)</th><td>${fmtUsd(stayUtilitiesNum)}</td></tr>` : ""}
-  ${stayMoveInLabel ? `<tr><th>Move-in fee</th><td>${escapeHtml(stayMoveInLabel)}</td></tr>` : ""}
+  ${stayMoveInNum > 0 ? `<tr><th>Move-in fee</th><td>${fmtUsd(stayMoveInNum)}</td></tr>` : ""}
   ${stayOtherNum > 0 ? `<tr><th>${otherCostLabel}</th><td>${fmtUsd(stayOtherNum)}</td></tr>` : ""}
 ${stCustomFeeRows}
   <tr class="total-row"><th>Total due</th><td class="amount"><strong>${totalDue}</strong></td></tr>
 </table>
-${paySigningIncludesNote ? `<p class="fee-note">Amounts due before check-in follow the listing&apos;s payment-at-signing settings (${paySigningIncludesNote}).</p>` : ""}
+${receivedStayLine}
+${staySigningLine}
 ${holdingCreditApplies ? `<p>${HOLDING_DEPOSIT_CREDIT_NOTE}</p>` : ""}
+${lateFeeHtml}
 
 <h2>5. Lodger Status</h2>
 <p>${config.shortTermPurposeParagraph}</p>
@@ -1187,11 +1187,7 @@ ${
 }
 
 <h2>8. No Right to Remain After Check-Out</h2>
-<p>Guest must vacate the room and property by the check-out date and time. If Guest refuses to leave, Guest may be treated as a trespasser to the fullest extent permitted by law.${
-  hasConfiguredHoldover
-    ? ` Any continued occupancy after check-out shall be charged <strong>${fmtUsd(longTermHoldoverDailyRate)} per day</strong>.`
-    : ""
-}</p>
+<p>Guest must vacate the room and property by the check-out date and time. Any enforcement or remedy for continued occupancy is subject to applicable law.</p>
 
 <h2>9. Revocation of Permission</h2>
 <p>Guest occupies the room by permission of the Owner/Host, not under a tenancy. To the extent permitted by applicable law, Owner/Host may revoke that permission for conduct that endangers persons or property, violates the house rules, or breaches this agreement, and Guest must then leave the property.</p>
@@ -1202,7 +1198,7 @@ ${
 <p>Guest is responsible for insuring Guest's own belongings. To the extent permitted by applicable law, Owner/Host is not liable for loss, theft, or damage to Guest's personal property except to the extent caused by Owner/Host's own negligence or as otherwise required by law. Nothing in this section waives any right Guest may have under law that applies to this stay.</p>
 
 <h2>11. Shared Residence</h2>
-<p>Owner/Host lives on or controls the property. Guest is renting a room only and receives only temporary shared-area access as approved by Owner/Host.</p>
+<p>Owner/Host provides access to the property described in this Agreement. Guest is renting a room only and receives only temporary shared-area access as approved by Owner/Host.</p>
 
 <h2>12. No Mail / No Residency</h2>
 <p>Guest may not receive mail, declare residency, or claim tenancy at the property. Guest may not use the property address for government ID, voter registration, banking, employment, delivery accounts, or similar residency purposes.</p>
@@ -1216,19 +1212,17 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
 </body></html>`;
   }
 
-  const lateFeeUsd = propertyTemplatePreview
-    ? null
-    : sub?.lateFeeEnabled === false
-      ? null
-      : (parseAmount(sub?.lateFeeAmount) ?? config.defaultLateFeeUsd);
   const billing = ctx.leaseBilling;
+  const holdingDepositHtml = billing?.holdingDeposit && billing.holdingDeposit.amount > 0
+    ? `<p><strong>Holding deposit:</strong> ${fmtUsd(billing.holdingDeposit.amount)} (${billing.holdingDeposit.amountDue > 0 ? `${fmtUsd(billing.holdingDeposit.amountDue)} outstanding` : "paid"}). This is part of the security deposit, not an additional fee. The separate security-deposit balance is <strong>${fmtUsd(billing.securityDepositDue ?? Math.max(0, billing.securityDeposit - billing.holdingDeposit.amount))}</strong>.${billing.holdingDeposit.amountDue > 0 ? " The outstanding holding deposit remains payable separately; it has not been recorded as paid." : ""}</p>`
+    : "";
   const summaryMonthlyRent = billing
     ? fmtUsd(billing.monthlyRent)
     : showListingFees && rentNum != null
       ? fmtUsd(rentNum)
       : escapeHtml(monthlyRentBaseStr);
   const summaryMonthlyUtilities =
-    billing && billing.monthlyUtilities > 0
+    billing
       ? fmtUsd(billing.monthlyUtilities)
       : showListingFees && utilitiesNum != null && utilitiesNum > 0
         ? fmtUsd(utilitiesNum)
@@ -1343,7 +1337,9 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
 </div>`
       : "";
 
-  if (config.documentStyle === "compact_room") {
+  // The compact form has a fixed monthly housing summary. Daily tenancies use
+  // the full form, whose rate labels and schedule follow actual billable days.
+  if (config.documentStyle === "compact_room" && !isDailyBasis) {
     const compactBody = buildCompactRoomLeaseBody({
       config,
       tenantRaw,
@@ -1358,7 +1354,14 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
       monthlyRentDisplay: summaryMonthlyRent,
       utilitiesDisplay: summaryMonthlyUtilities,
       secDep,
+      firstPeriodRentDue: billing?.firstPeriodRentDue,
+      firstPeriodUtilitiesDue: billing?.firstPeriodUtilitiesDue,
+      securityDepositDue: billing?.securityDepositDue,
+      holdingDeposit: billing?.holdingDeposit,
+      holdingDepositHtml,
       moveInFee,
+      moveInFeeDue: billing?.moveInFeeDue,
+      otherSigningCost: showOtherSigningCost ? { label: rawOtherCostLabel, amount: otherCostNum!, amountDue: billing?.otherCostDue } : undefined,
       paySigning,
       paySigningNum,
       firstPartialMonthPayment,
@@ -1371,11 +1374,17 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
       lastMonthLabel: lastMonthTotals?.applies ? lastMonthTotals.monthLabel : undefined,
       lastMonthDaysLabel: lastMonthTotals?.applies ? lastMonthTotals.label : undefined,
       lastMonthDueDateLabel: lastMonthTotals?.applies ? lastMonthTotals.dueDateLabel : undefined,
-      billableOneTimeCustomFees,
+      billableOneTimeCustomFees: billableOneTimeCustomFees.map((fee) => ({
+        ...fee,
+        amountDue: billing?.oneTimeCustomFeeBalances?.[fee.id],
+      })),
       billableMonthlyCustomFees,
       supplementalOneTimeLeaseFees,
       paymentAtSigningIncludes: subNorm?.paymentAtSigningIncludes,
       paymentMethod,
+      monthlyDueDay,
+      lateFeeHtml,
+      petPolicy,
       sub: subNorm,
       specificRoom,
       bathroomArrangement,
@@ -1497,8 +1506,8 @@ ${
   ${documentTotalMonthly ? `<tr class="total-row"><th>Total monthly payment</th><td><strong>${documentTotalMonthly}</strong></td></tr>` : ""}
 </table>
 ${isDailyBasis ? `<p>Rent for this Premises is charged <strong>by the day</strong>. Each month's rent is the actual number of days of the term falling in that month multiplied by the daily base rent above. No fixed monthly rent total applies. The utilities estimate is billed monthly and is prorated for any partial month.</p>` : ""}
-<p>Rent is due on the <strong>1st calendar day</strong> of each month. ${paymentMethod}</p>
-${lateFeeUsd != null ? `<p><strong>Late fee:</strong> If rent is not received after the listing's configured grace period, a late fee of <strong>${fmtUsd(lateFeeUsd)}</strong> (non-refundable) may be assessed. Acceptance of late payment does not waive Landlord&apos;s right to enforce late fees or pursue other remedies under this Agreement or applicable law.</p>` : ""}
+<p>Rent is due on the <strong>${monthlyDueDay}</strong> of each month. ${paymentMethod}</p>
+${lateFeeHtml}
 ${rentDisclosureHtml}
 
 ${showProratedFirstMonth && proratedSection ? proratedSection.replace(PRORATED_SECTION_TOKEN, String(nextSection())) : ""}
@@ -1506,16 +1515,17 @@ ${showProratedLastMonth && lastMonthTotals ? lastMonthBlock(lastMonthTotals).rep
 
 <h2>${nextSection()}. Security Deposit &amp; Move-In Charges</h2>
 <table class="fee-table">
-  <tr><th width="50%">Application fee</th><td class="amount">${appFee}</td></tr>
+  ${(parseAmount(sub?.applicationFee) ?? 0) > 0 ? `<tr><th width="50%">Application fee</th><td class="amount">${appFee}</td></tr>` : ""}
   <tr><th>Security deposit</th><td class="amount"><strong>${secDep}</strong></td></tr>
-  <tr><th>Move-in fee (non-refundable)</th><td class="amount">${moveInFee}</td></tr>
+  ${(parseAmount(moveInFee) ?? 0) > 0 ? `<tr><th>Move-in fee (non-refundable)</th><td class="amount">${moveInFee}</td></tr>` : ""}
   ${showOtherSigningCost ? `<tr><th>${otherCostLabel}</th><td class="amount">${otherCostAmount}</td></tr>` : ""}
 ${customFeeSigningRows}
   <tr class="total-row"><th>Total due at signing</th><td class="amount"><strong>${paySigning}</strong></td></tr>
 </table>
 ${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySigningIncludesNote}.</p>` : ""}
 <p>${HOLDING_DEPOSIT_CREDIT_NOTE}</p>
-<p>Resident shall pay a security deposit of <strong>${secDep}</strong> at lease signing. The deposit shall be held in accordance with ${config.depositStatuteRef} and secures Resident&apos;s full performance under this Agreement. Resident&apos;s liability is not limited to the deposit amount, and the deposit may not be applied toward rent or other charges during the tenancy.</p>
+<p>The total security deposit is <strong>${secDep}</strong>; the payment summary states the amount due at signing. The deposit shall be held in accordance with ${config.depositStatuteRef} and secures Resident&apos;s full performance under this Agreement. Resident&apos;s liability is not limited to the deposit amount, and the deposit may not be applied toward rent or other charges during the tenancy.</p>
+${holdingDepositHtml}
 <p>${config.depositReturnWindow ?? "Within the period required by applicable law after termination of the tenancy and vacancy of the Premises"}, Landlord shall return any refundable portion of the deposit or provide a written itemized statement of deductions, as required by law. Resident shall provide a forwarding address for delivery of the deposit accounting and any refund. Any refund may be issued as a single check payable to all Residents.</p>
 <p>Deductions from the deposit may include, to the extent permitted by law:</p>
 <ul>
@@ -1684,15 +1694,15 @@ ${longTermDisputeVenue ? `<p>Venue for a dispute arising from this Agreement is 
 <h2>${nextSection()}. Rent &amp; Fees Schedule (Exhibit A)</h2>
 <table class="fee-table">
   <tr><th>Item</th><th>Amount</th><th>Frequency</th></tr>
-  <tr><td>${rentRowLabel}</td><td class="amount"><strong>${escapeHtml(typeof monthlyRentStr === "string" ? monthlyRentStr : String(monthlyRentStr))}</strong></td><td>${isDailyBasis ? "Per day, billed each month by actual days" : "Monthly, due 1st"}</td></tr>
+  <tr><td>${rentRowLabel}</td><td class="amount"><strong>${escapeHtml(typeof monthlyRentStr === "string" ? monthlyRentStr : String(monthlyRentStr))}</strong></td><td>${isDailyBasis ? "Per day, billed each month by actual days" : `Monthly, due ${monthlyDueDay}`}</td></tr>
   <tr><td>Utilities / services estimate</td><td class="amount">${documentUtilitiesDisplay}</td><td>Monthly</td></tr>
 ${monthlyCustomFeeExhibitRows}
   ${documentTotalMonthly ? `<tr class="total-row"><td><strong>Total monthly payment</strong></td><td class="amount"><strong>${documentTotalMonthly}</strong></td><td>Monthly</td></tr>` : ""}
   ${proratedRentAmount > 0 ? `<tr><td>Prorated first month&apos;s rent</td><td class="amount">${fmtUsd(proratedRentAmount)}</td><td>One-time (partial month)</td></tr>` : ""}
   ${proratedUtilitiesAmount > 0 ? `<tr><td>Prorated utilities</td><td class="amount">${fmtUsd(proratedUtilitiesAmount)}</td><td>One-time (partial month)</td></tr>` : ""}
-  <tr><td>Application fee</td><td class="amount">${appFee}</td><td>One-time</td></tr>
+  ${(parseAmount(sub?.applicationFee) ?? 0) > 0 ? `<tr><td>Application fee</td><td class="amount">${appFee}</td><td>One-time</td></tr>` : ""}
   <tr><td>Security deposit</td><td class="amount">${secDep}</td><td>One-time (refundable)</td></tr>
-  <tr><td>Move-in fee</td><td class="amount">${moveInFee}</td><td>One-time (non-refundable)</td></tr>
+  ${(parseAmount(moveInFee) ?? 0) > 0 ? `<tr><td>Move-in fee</td><td class="amount">${moveInFee}</td><td>One-time (non-refundable)</td></tr>` : ""}
   ${showOtherSigningCost ? `<tr><td>${otherCostLabel}</td><td class="amount">${otherCostAmount}</td><td>One-time</td></tr>` : ""}
 ${customFeeExhibitRows}
 ${terminationFeeExhibitRows}
@@ -1706,7 +1716,7 @@ ${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySi
 <!-- ═══════════════════════════════════════════════════════════════════════ -->
 <div class="addendum page-break">
 <h2>Addendum A — Move-In Condition Report</h2>
-<p>Resident and Landlord may complete and sign this report after move-in. A signed report, including any dated photographs or video recordings, supersedes this baseline acknowledgement for documenting move-in condition.</p>
+<p>Landlord and Resident shall document the condition of the Premises, including existing damage, in a completed checklist at the beginning of the tenancy. Both parties shall sign and date the completed report, and Resident shall receive a copy. A blank or missing report does not establish that the Premises were undamaged.</p>
 <table>
   <tr><th>Area / item</th><th>Condition at move-in</th><th>Notes</th></tr>
   <tr><td>Room walls / paint</td><td>&nbsp;</td><td>&nbsp;</td></tr>
@@ -1720,13 +1730,14 @@ ${paySigningIncludesNote ? `<p class="fee-note">Due at signing includes: ${paySi
   <tr><td>Common area general</td><td>&nbsp;</td><td>&nbsp;</td></tr>
   <tr><td>Other / notes</td><td colspan="2">&nbsp;</td></tr>
 </table>
-<p>When you sign this Agreement in the PropLane portal, those electronic signatures apply to this checklist as well. No separate signature lines are required on this page.</p>
+<p>Signing this Agreement does not certify blank condition entries or a report completed later. The completed condition report requires both parties&apos; signatures and dates.</p>
+<p>Landlord signature: ____________________ Date: __________<br/>Resident signature: ____________________ Date: __________</p>
 ${moveInDisclosureHtml}
 </div>
 
 <div class="addendum">
 <h2>Addendum B — Bed Bug Disclosure</h2>
-<p>Landlord discloses that, to Landlord's knowledge as of the date of this Agreement, there is <strong>no known active bed bug infestation</strong> in the unit or building. Resident shall inspect the room upon move-in and report any signs of bed bugs immediately. If an infestation is discovered during the tenancy, Resident shall notify Landlord in writing within 24 hours and cooperate with any required inspection or treatment. Resident shall not introduce second-hand mattresses, upholstered furniture, or bedding without prior written approval. Resident is responsible for infestation caused by Resident's belongings or guests.</p>
+<p>Landlord shall provide any property-specific pest disclosures required by applicable law. Resident shall inspect the room upon move-in and report any signs of bed bugs immediately. If an infestation is discovered during the tenancy, Resident shall notify Landlord in writing within 24 hours and cooperate with any required inspection or treatment. Resident shall not introduce second-hand mattresses, upholstered furniture, or bedding without prior written approval. Resident is responsible for infestation caused by Resident's belongings or guests.</p>
 ${bedBugDisclosureHtml}
 </div>
 

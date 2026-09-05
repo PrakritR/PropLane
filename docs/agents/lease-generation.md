@@ -1623,14 +1623,14 @@ fee, and charge snapshot inputs used by the new unit coverage.
 
 All fields below live on `ManagerListingSubmissionV1`. Empty, invalid, or absent values
 normalize to `undefined`. The builder omits the associated term rather than printing a
-zero or a term borrowed from another listing — with one exception, the three termination
-fields, which now fall back to a platform default (see below the table).
+zero or a term borrowed from another listing. Termination fees also require an explicit
+listing value; there are no jurisdiction-level commercial defaults.
 
 | Field | Renders when set | Unset behavior |
 | --- | --- | --- |
-| `longTermBreakLeaseFee` | fixed early-termination fee | **jurisdiction default** (WA `$900`), else absent |
-| `longTermLeaseUpFeePercent` | percentage lease-up fee | **jurisdiction default** (WA `100%`), else absent |
-| `longTermHoldoverDailyRate` | per-day holdover charge | **jurisdiction default** (WA `$45`), else absent — the no-conversion statement renders either way |
+| `longTermBreakLeaseFee` | fixed early-termination fee | absent |
+| `longTermLeaseUpFeePercent` | percentage lease-up fee | absent |
+| `longTermHoldoverDailyRate` | per-day holdover charge | absent — the no-conversion statement renders either way |
 | `longTermReturnedPaymentFee` | returned-payment fee | fee sentence absent; general actual-cost language remains |
 | `longTermDepositLaborRate` | manager labor rate in deposit deductions | generic documented-cost language |
 | `longTermDepositReissueFee` | stop-payment or refund reissue fee | sentence absent |
@@ -1640,19 +1640,10 @@ fields, which now fall back to a platform default (see below the table).
 | `longTermDisputeVenue` | venue sentence | sentence absent |
 | `longTermProfessionalCleaningRequired` | professional-cleaning move-out section | whole move-out section absent |
 
-**The three termination fields above are no longer omit-when-unset.** They now fall
-back to platform defaults on two levels: `createDefaultListingSubmission` seeds a
-new listing with `$900` / `100%` / `$45`, and
-`WASHINGTON_LEASE_CONFIG` supplies the same figures as
-`defaultLongTermBreakLeaseFeeUsd` / `defaultLongTermLeaseUpFeePercent` /
-`defaultLongTermHoldoverDailyUsd` for any listing that carries none
-(`resolveLongTermFeeAmount` in `build-lease-html.ts`). These are commercial
-defaults for this operator, NOT statutory figures, and no other jurisdiction sets
-them — a California lease still omits the terms entirely. An explicit listing
-value always wins, and a listing value of `0`/blank is treated as "not set", so
-it inherits the default rather than printing a zero. The fees also render as rows
-in the Exhibit fee table. When you add a jurisdiction, do not copy these numbers
-into it; they are one operator's terms, not a state rule.
+**Updated 2026-09-05:** The former $900 / 100% / $45 operator defaults have
+been removed from new listings and the Washington config. Only saved listing
+values render. Missing, blank, or zero fees are omitted. Existing saved values
+are preserved because a migration cannot determine which managers chose them.
 
 `lateFeeAmount` and `lateFeeEnabled` already existed. The long form uses the listing's
 configured late fee when supplied and omits the late-fee paragraph when it is disabled.
@@ -1691,6 +1682,71 @@ unset citation still renders the returned-payment clause without a Washington ci
 amount movement, absence of all new commercial clauses when unset, California output with
 an unset citation, summary values sourced from the billing snapshot, and byte-identical
 short-term output when only long-term fields change.
+
+## Reference lease review: applicable fees and holding credit (2026-09-05)
+
+A second Seattle room-lease reference exposed an unselected $100 holding-deposit
+fallback. Blank holdings now stay blank in `createDefaultListingSubmission`,
+`defaultCoreListingFeeRows`, and `normalizeHoldingDepositLabel`. An existing stored
+amount is preserved; there is no destructive migration guessing which old values
+were intentional. A resident lease's holding-deposit disclosure comes from the
+application's scoped charge, not a property's possibly inherited fee. Property
+previews may still show an explicitly configured holding amount.
+
+`LeaseBillingSnapshot` distinguishes the full contractual security deposit from
+its remaining collection. The ledger already splits a configured application
+holding charge from the security charge at approval. A $100 holding charge and
+$300 security balance represent ONE $400 deposit: while the holding charge is
+unpaid, total deposit collection is $400; once paid, it is $300. Never describe
+an unpaid holding charge as received. Scope these reads by manager, property,
+resident identity AND application id so a previous tenancy cannot supply a
+credit. Paid deposit/move-in charges are excluded from signing collection while
+their full obligations remain in the document. One-time custom charges and
+manager-entered other costs contribute their outstanding balances to signing.
+
+The compact room document now includes a manager-entered one-time fee in both
+its summary and its signing breakdown; the reference's short-duration fee is not
+converted into a recurring monthly surcharge or made a platform default. It also
+includes the missing trust-account/name-and-address notice and shared-space
+cleaning responsibilities. Addendum A no longer treats a missing report as proof
+of undamaged condition or a lease signature as certification of a blank checklist.
+The completed checklist requires both parties' signatures and dates.
+
+Verified primary sources for the added Washington text:
+- [RCW 59.18.270 — deposit custody and notice](https://app.leg.wa.gov/rcw/default.aspx?cite=59.18.270)
+- [RCW 59.18.260 — completed, signed move-in checklist](https://app.leg.wa.gov/rcw/default.aspx?cite=59.18.260)
+
+The reference's personal details, payment destination, purported receipts, daily
+rates and commercial fees were not imported as defaults. Its $825 rent plus $200
+utilities equals $1,025, not the $1,000 discussed alongside it; its $315/$35
+partial-month amounts imply a separate $35/day rule. Do not guess a replacement
+rent/utilities split or install that daily rate. Last-month charges keep their
+actual ledger due dates; a PDF claiming prepayment is not proof of payment.
+The reference's $75 late fee is also not a verified Seattle term:
+[Seattle's guidance limits late rent fees to $10/month](https://www.seattle.gov/rentinginseattle).
+This comparison is not blanket legal approval of the supplied lease.
+
+Every generated format reads the listing's payment-at-signing selections, rent due
+day, enabled late-fee amount and grace period. An explicit empty signing selection
+stays empty through normalization and persistence; it must not become the legacy
+security-deposit/move-in defaults. The compact table includes selected full first
+months as well as prorated periods. Manager overrides take precedence, including
+zero amounts. No reference-specific utility list, quiet hours, fines, or venue is
+invented for an unconfigured listing.
+
+Explicit short-term applications resolve their selected room's nightly rate and
+short-term deposit/move-in fee, use checkout-exclusive nights, and distinguish
+payment due at signing from the outstanding total before check-in. A monthly room
+rate must never be copied into the nightly override by the billing snapshot.
+Already-paid stay charges and deposits reduce collection without changing the
+contractual rate. Monthly custom fees do not become nightly-stay charges unless
+the listing explicitly supplies a short-term amount.
+
+Coverage: `lease-listing-source-of-truth.test.ts` (all 16 signing checkbox combinations),
+`holding-deposit.test.ts`, `listing-fees.test.ts`,
+`lease-billing-snapshot.test.ts`, and `long-term-lease-parity.test.ts`, alongside
+existing proration, short-term generation, and executed-document immutability tests.
+Template changes affect newly generated documents, never executed lease bytes.
 
 ## Manager lease-body edits (P8)
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { InspectionsPanel } from "@/components/portal/inspections-panel";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { cn } from "@/lib/utils";
 import { useCommunicationSurfaceChrome } from "@/hooks/use-communication-surface-chrome";
@@ -1346,7 +1347,7 @@ export function ManagerResidents({
     }
     if (showResidentLease) tabs.push("lease");
     if (showResidentTours) tabs.push("tours");
-    tabs.push("payments", "services", "communication");
+    tabs.push("payments", "services", "inspections", "communication");
     return tabs;
   }, [showResidentApplication, showResidentLease, showResidentTours, selectedApplicationRow]);
 
@@ -2955,6 +2956,7 @@ export function ManagerResidents({
                                       showResidentTours ? "tours" : null,
                                       "payments",
                                       "services",
+                                      "inspections",
                                       "communication",
                                     ] as const
                                   )
@@ -2973,7 +2975,9 @@ export function ManagerResidents({
                               </div>
                             </PortalPageChrome>
 
-                            {resolvedDetailTab === "communication" ? (
+                            {resolvedDetailTab === "inspections" ? (
+                              <ResidentDetailTabPanel><InspectionsPanel role="manager" applicationId={selectedApplicationRow?.id ?? selected.id} /></ResidentDetailTabPanel>
+                            ) : resolvedDetailTab === "communication" ? (
                             <div className="flex min-h-0 flex-1 flex-col">
                             <ResidentDetailTabPanel fill>
                               <ManagerResidentDetailInbox

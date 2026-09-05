@@ -270,9 +270,9 @@ describe("listing fee and lease helpers", () => {
     expect(syncShortTermLeaseTermInAllowed(["Custom", "3-Month"], false)).toEqual(["3-Month", "Custom"]);
   });
 
-  it("defaults holding deposit on new listings", () => {
+  it("leaves holding deposit unset on new listings", () => {
     const sub = createDefaultListingSubmission();
-    expect(sub.holdingDeposit).toBe("$100");
+    expect(sub.holdingDeposit).toBe("");
   });
 });
 

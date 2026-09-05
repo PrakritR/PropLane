@@ -255,10 +255,7 @@ export function presetListingFeeRow(presetId: ListingFeePresetId, amount = ""): 
 
 /** Default fee rows for a new listing wizard (long-term core fees only). */
 export function defaultCoreListingFeeRows(): ListingFeeRow[] {
-  return CORE_LISTING_FEE_PRESET_IDS.map((presetId) => {
-    const amount = presetId === "holding_deposit" ? "100" : "";
-    return presetListingFeeRow(presetId, amount);
-  });
+  return CORE_LISTING_FEE_PRESET_IDS.map((presetId) => presetListingFeeRow(presetId));
 }
 
 export function shortTermListingFeeRows(): ListingFeeRow[] {
@@ -525,7 +522,6 @@ export function derivePaymentAtSigningIncludes(
   if (moveIn?.dueAtSigning) next.push("move_in_fee");
   if (keepRent) next.push("first_month_rent");
   if (keepUtils) next.push("first_month_utilities");
-  if (next.length === 0) return ["security_deposit", "move_in_fee"];
   return next;
 }
 
@@ -1004,6 +1000,7 @@ export function leaseDocumentFeeLines(
   sub: ManagerListingSubmissionV1 | undefined,
   section: LeaseBasicsFeeSection = "long-term",
   billingContext?: LeaseRecurringFeeBillingContext,
+  options?: { excludeHoldingDeposit?: boolean },
 ): { oneTime: LeaseDocumentFeeLine[]; monthly: LeaseDocumentFeeLine[] } {
   if (!sub?.v) return { oneTime: [], monthly: [] };
   const shortTermOn = Boolean(sub.shortTermRentalsAllowed);
@@ -1032,6 +1029,9 @@ export function leaseDocumentFeeLines(
     if (!feeMeaningfulForPublicListing(fee.amount)) continue;
     if (!feeBelongsInLeaseBasicsSection(fee, section, shortTermOn)) continue;
     const presetId = fee.presetId && fee.presetId !== "custom" ? fee.presetId : undefined;
+    // A resident lease describes the application's actual holding charge separately,
+    // including its credit. A listing amount alone is not evidence it was charged.
+    if (presetId === "holding_deposit" && options?.excludeHoldingDeposit) continue;
     if (presetId && LEASE_DOCUMENT_EXCLUDED_PRESET_IDS.has(presetId)) continue;
     if (presetId && excludedRemovedPresets.has(presetId)) continue;
     // Only for the context-free listing preview. Once there is a real lease, ITS term is

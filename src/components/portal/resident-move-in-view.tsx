@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import { InspectionsPanel } from "@/components/portal/inspections-panel";
 import { ResidentMoveInMediaGallery } from "@/components/portal/move-in-media-fields";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -238,7 +239,9 @@ function ResidentMoveInTabContent({
     case "amenities":
       return <AmenitiesTabContent resolved={resolved} />;
     case "instructions":
-      return <InstructionsTabContent resolved={resolved} />;
+      return <div className="space-y-6"><InstructionsTabContent resolved={resolved} /><section aria-label="Move-in and move-out inspections"><h2 className="mb-3 text-base font-semibold text-foreground">Inspections</h2><InspectionsPanel role="resident" /></section></div>;
+    case "inspections":
+      return <InspectionsPanel role="resident" />;
     default:
       return <PlacementTabContent resolved={resolved} />;
   }

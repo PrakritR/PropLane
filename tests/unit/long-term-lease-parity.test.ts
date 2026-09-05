@@ -140,7 +140,7 @@ describe("long-term lease parity", () => {
     expect(first).toContain("Residents do not have exclusive possession of shared areas");
     expect(first).toContain("break lease fee of <strong>$900.00</strong>");
     expect(first).toContain("RCW 59.18.310");
-    expect(first).toContain("use only bathroom on their floor");
+    expect(first).toContain("Hall bath");
     expect(first).toContain("Lease Summary");
     expect(first).toContain("<strong>Monthly Rent:</strong> $825.00");
     expect(first).toContain("<strong>Utility:</strong> $175.00");
@@ -321,7 +321,7 @@ describe("long-term lease parity", () => {
     expect(html).toContain("4. Move-In Payment Summary");
   });
 
-  it("renders listing Other fees (preset monthly and one-time) in the compact lease", () => {
+  it("renders applicable listing fees without inventing an applicant holding charge", () => {
     const html = buildLeaseHtml(
       longTermContext({
         applicationFee: "50",
@@ -333,8 +333,7 @@ describe("long-term lease parity", () => {
     );
     expect(html).not.toContain("Month-to-month surcharge");
     expect(html).not.toContain("Custom lease");
-    expect(html).toContain("Holding deposit");
-    expect(html).toMatch(/<strong>Holding deposit:<\/strong> \$100\.00 \(one-time\)/);
+    expect(html).not.toContain("Holding deposit");
     expect(html).toContain("Application fee");
     expect(html).toMatch(/<strong>Application fee:<\/strong> \$50\.00 \(one-time\)/);
   });
@@ -363,6 +362,37 @@ describe("long-term lease parity", () => {
     expect(html).toContain("Custom lease");
     expect(html).toMatch(/<strong>Custom lease:<\/strong> \$100\.00 \(monthly\)/);
     expect(html).not.toContain("Month-to-month surcharge");
+  });
+
+  it("includes a manager-entered one-time short-term lease fee in the compact summary and signing breakdown", () => {
+    const ctx = longTermContext({ holdingDeposit: "" });
+    ctx.leaseBilling = { ...ctx.leaseBilling!, otherCostLabel: "Short-Term Lease Fee", otherCostAmount: 100, dueAtSigning: 700 };
+    const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
+    expect(html).toContain("<strong>Short-Term Lease Fee:</strong> $100.00 (one-time)");
+    expect(html).toContain("<strong>$100.00</strong> Short-Term Lease Fee (one-time)");
+    expect(html).toContain("Total payment due at signing: <strong>$700.00</strong>");
+    expect(html).not.toContain("Holding deposit");
+  });
+
+  it.each([0, 100])("itemizes a holding deposit with %s outstanding without reducing the contractual deposit", (amountDue) => {
+    const ctx = longTermContext();
+    ctx.leaseBilling = { ...ctx.leaseBilling!, securityDepositDue: 300, holdingDeposit: { amount: 100, amountDue }, dueAtSigning: 500 + amountDue };
+    const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
+    expect(html).toContain("<strong>Security Deposit:</strong> $400.00");
+    expect(html).toContain("part of the security deposit, not an additional fee");
+    expect(html).toContain("<strong>$300.00</strong> security deposit balance");
+    expect(html).toContain(`Total payment due at signing: <strong>$${(500 + amountDue).toFixed(2)}</strong>`);
+    expect(html).toContain(amountDue ? "$100.00 outstanding" : "$100.00 (paid)");
+  });
+
+  it("does not make the lease signature certify a blank move-in condition report", () => {
+    const html = buildLeaseHtml(longTermContext(), SEATTLE_LEASE_CONFIG);
+    expect(html).toContain("RCW 59.18.270");
+    expect(html).toContain("name and address of the institution");
+    expect(html).toContain("RCW 59.18.260");
+    expect(html).toContain("does not certify blank condition entries");
+    expect(html).not.toContain("deemed to be in clean, undamaged condition");
+    expect(html).not.toContain("those electronic signatures apply to this checklist");
   });
 
   it("leaves short-term agreements byte-identical when only long-term terms change", () => {

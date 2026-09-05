@@ -39,6 +39,7 @@ describe("buildManagerSmsRegistry — destructive tools stay portal-only", () =>
     expect(withheld).toEqual([
       "approve_and_pay_work_order",
       "cancel_calendar_event",
+      "change_inspection_status",
       "delete_charge",
       "delete_promotion",
       "revoke_resident_access",

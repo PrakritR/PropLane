@@ -139,9 +139,6 @@ export const WASHINGTON_LEASE_CONFIG: LeaseJurisdictionTemplateConfig = {
   landlordMaintenanceStatuteRef: "RCW 59.18.060",
   defaultNoticeStatuteRef: "RCW 59.12.030",
   earlyTerminationStatuteRef: "RCW 59.18.310",
-  defaultLongTermBreakLeaseFeeUsd: 900,
-  defaultLongTermHoldoverDailyUsd: 45,
-  defaultLongTermLeaseUpFeePercent: 100,
   monthToMonthTerminationNotice: "at least 20 days before the end of any monthly rental period",
   depositReturnWindow: "Within 30 days after termination of the tenancy and vacancy of the Premises",
   minimumHeatTemperature: "68°F",
@@ -149,11 +146,8 @@ export const WASHINGTON_LEASE_CONFIG: LeaseJurisdictionTemplateConfig = {
 
 export const SEATTLE_LEASE_CONFIG: LeaseJurisdictionTemplateConfig = {
   ...WASHINGTON_LEASE_CONFIG,
-  // Seattle-only branding and late-fee default. Deliberately NOT on the statewide config:
-  // a Spokane lease must not inherit a Seattle brand line, and no verified statewide figure
-  // exists, so the rest of Washington falls back to the builder's own default.
+  // Seattle-only branding. Commercial amounts are supplied by the property listing.
   brandTitle: "PROPLANE SEATTLE HOUSING",
-  defaultLateFeeUsd: 75,
   headerSubtitle: "State of Washington · King County",
   municipalComplianceParagraph:
     "This Agreement shall be interpreted consistently with the Washington Residential Landlord-Tenant Act (RCW Chapter 59.18). If the Premises are located within the City of Seattle, applicable Seattle rental regulations (including notice, just-cause, relocation, or habitability rules) shall apply to the minimum extent required by law.",

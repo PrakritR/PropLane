@@ -26,6 +26,8 @@ import {
 describe("listing fees migration", () => {
   it("builds termination fee rows from legacy scalar fields", () => {
     const sub = createDefaultListingSubmission();
+    sub.longTermBreakLeaseFee = "900";
+    sub.longTermHoldoverDailyRate = "45";
     const fees = listingFeesFromLegacyScalars(sub);
     expect(fees.find((f) => f.presetId === "break_lease_fee")?.amount).toBe("900");
     expect(fees.find((f) => f.presetId === "holdover_daily")?.amount).toBe("45");
@@ -39,6 +41,13 @@ describe("listing fees migration", () => {
     const fees = listingFeesFromLegacyScalars(sub);
     expect(fees.find((f) => f.presetId === "security_deposit")?.amount).toBe("900");
     expect(fees.find((f) => f.presetId === "parking_monthly")?.amount).toBe("25");
+  });
+
+  it("never seeds an unselected holding deposit on a blank listing or default fee row", () => {
+    const sub = normalizeManagerListingSubmissionV1(createDefaultListingSubmission());
+    expect(sub.holdingDeposit).toBe("");
+    expect(defaultCoreListingFeeRows().find((fee) => fee.presetId === "holding_deposit")?.amount).toBe("");
+    expect(leaseDocumentFeeLines(sub).oneTime.some((fee) => fee.label === "Holding deposit")).toBe(false);
   });
 
   it("dual-writes legacy fields from unified fee rows", () => {

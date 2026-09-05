@@ -341,6 +341,8 @@ lifecycle, the remaining tour tools, and the ceilings that are deliberate — is
 [`docs/agents/agent-capability-backlog.md`](agents/agent-capability-backlog.md).
 Check it before adding a tool, and prune the row you close.
 
+Inspection capabilities (`list_inspections`, `get_inspection`, `create_inspection`, `save_inspection_observations`, `change_inspection_status`) use the shared manager/resident service and existing confirm gate. See [inspection architecture](agents/inspections.md). Status changes are excluded from manager SMS because completion is irreversible.
+
 ## How to add a new tool (checklist)
 
 1. **Define it** in the right `src/lib/tools/domains/` file (or a new one):

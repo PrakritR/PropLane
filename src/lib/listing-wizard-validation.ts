@@ -1,4 +1,5 @@
 import { isValidZipInput } from "@/lib/listing-form-inputs";
+import { LISTING_STEP_FIELD_ORDER } from "@/lib/wizard-field-errors";
 import { validateStateAbbrev } from "@/app/(public)/rent/apply/apply-validation";
 import {
   deriveListingLtFeeToggles,

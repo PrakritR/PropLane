@@ -320,6 +320,7 @@ export const PORTAL_SECTION_CO_MANAGER_PERMISSION: Partial<Record<string, CoMana
   properties: "properties",
   applications: "applications",
   residents: "residents",
+  inspections: "residents",
   leases: "leases",
   payments: "payments",
   documents: "documents",
