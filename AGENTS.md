@@ -817,9 +817,11 @@ decides what a click does:
   destination renders `PortalTierPaywall` and the sidebar row is the ONLY entry
   point to the upgrade page anywhere in the product. Rendering it as a `<span>`
   deletes a revenue path.
-- **`inert`** — every resident lock (stage locks and the linked manager's
-  free-tier locks alike). Nothing for the resident to buy, so the row is a
-  no-op and `aria-disabled`.
+- **`notice`** — a resident feature controlled by the linked manager's Free
+  plan. It stays a live `<Link>` to an inert, grayed preview that explains who
+  must upgrade and offers a path to message the property manager.
+- **`inert`** — a resident lifecycle-stage lock. The row remains a no-op and
+  `aria-disabled` until the application or lease milestone is reached.
 
 A locked row must never be a live link to a path the server then redirects home
 — that reads as a broken tab. Coverage: `tests/unit/portal-nav-locks.test.ts`,
