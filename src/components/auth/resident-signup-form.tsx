@@ -10,7 +10,7 @@ import { ResidentGoogleSignUpButton } from "@/components/auth/resident-google-si
 import { useSignedInPortalRoles } from "@/components/auth/use-signed-in-portal-roles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PasswordInput } from "@/components/ui/password-input";
+import { SignupFieldStack } from "@/components/auth/signup-field-stack";
 import { FIELD_LABEL_CLASS } from "@/lib/ui-styles";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { isUnsafeRedirectPath } from "@/lib/auth/normalize-post-auth-path";
@@ -167,119 +167,24 @@ export function ResidentSignupForm({
   );
 
   const fieldsCompact = (
-    <>
-      <Input
-        type="text"
-        autoComplete="name"
-        placeholder="Full name"
-        value={fullName}
-        onChange={(e) => setFullName(e.target.value)}
-        disabled={locked}
-      />
-      <Input
-        type="email"
-        autoComplete="email"
-        // iOS/macOS autocapitalise the first letter by default, which used to
-        // make Manager@… a different account from manager@… (PRP-196).
-        autoCapitalize="none"
-        autoCorrect="off"
-        spellCheck={false}
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        disabled={locked}
-      />
-      <Input
-        type="tel"
-        inputMode="tel"
-        autoComplete="tel"
-        placeholder="Phone number"
-        value={phone}
-        onChange={(e) => setPhone(e.target.value)}
-        disabled={locked}
-      />
-      <PasswordInput
-        autoComplete="new-password"
-        placeholder="Password (8+ characters)"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        disabled={locked}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") void submit();
-        }}
-      />
-    </>
+    <SignupFieldStack
+      values={{ fullName, email, phone, password }}
+      onChange={(patch) => {
+        if (patch.fullName !== undefined) setFullName(patch.fullName);
+        if (patch.email !== undefined) setEmail(patch.email);
+        if (patch.phone !== undefined) setPhone(patch.phone);
+        if (patch.password !== undefined) setPassword(patch.password);
+      }}
+      disabled={locked}
+      onSubmit={() => void submit()}
+    />
   );
 
-  const fieldsDefault = (
-    <>
-      <div>
-        <label className={FIELD_LABEL_CLASS} htmlFor="resident-name">
-          Full name
-        </label>
-        <Input
-          id="resident-name"
-          type="text"
-          className="mt-1.5"
-          autoComplete="name"
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          disabled={locked}
-        />
-      </div>
-      <div>
-        <label className={FIELD_LABEL_CLASS} htmlFor="resident-email">
-          Email
-        </label>
-        <Input
-          id="resident-email"
-          type="email"
-          className="mt-1.5"
-          autoComplete="email"
-          // iOS/macOS autocapitalise the first letter by default, which used to
-          // make Manager@… a different account from manager@… (PRP-196).
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          disabled={locked}
-        />
-      </div>
-      <div>
-        <label className={FIELD_LABEL_CLASS} htmlFor="resident-phone">
-          Phone number
-        </label>
-        <Input
-          id="resident-phone"
-          type="tel"
-          inputMode="tel"
-          className="mt-1.5"
-          autoComplete="tel"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          disabled={locked}
-        />
-        <p className="mt-1 text-xs text-muted/70">Used for tenancy and account text updates. Reply STOP anytime.</p>
-      </div>
-      <div>
-        <label className={FIELD_LABEL_CLASS} htmlFor="resident-password">
-          Password
-        </label>
-        <PasswordInput
-          id="resident-password"
-          className="mt-1.5"
-          autoComplete="new-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          disabled={locked}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void submit();
-          }}
-        />
-      </div>
-    </>
-  );
+  // Both layouts render the SAME fields now. This used to be a second,
+  // label-above-input design for the non-compact variant, so the same signup
+  // asked for the same things in two visibly different ways depending on where
+  // it was mounted.
+  const fieldsDefault = fieldsCompact;
 
   const tagline = (
     <p className="text-center text-[11px] leading-tight text-muted sm:text-xs">
