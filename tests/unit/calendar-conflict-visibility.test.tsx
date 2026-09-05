@@ -65,16 +65,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-/** Availability grid is inline on the Tours tab — no modal step. */
-async function renderPropertyToursPanel(options: {
+/** Availability grid opens in the tour availability modal. */
+async function renderTourAvailabilityModal(options: {
   managerUserId: string | null;
   showToast?: (message: string) => void;
 }) {
-  const { ManagerPropertyTourPanel } = await import("@/components/portal/pro-property-tour-panel");
+  const { ManagerTourAvailabilityModal } = await import(
+    "@/components/portal/manager-tour-availability-modal"
+  );
   render(
-    <ManagerPropertyTourPanel
-      listingId="mgr-demo-ballard"
+    <ManagerTourAvailabilityModal
+      open
+      onClose={() => {}}
       managerUserId={options.managerUserId}
+      propertyId="mgr-demo-ballard"
       propertyLabel="Ballard House"
       showToast={options.showToast ?? (() => {})}
     />,
@@ -114,7 +118,7 @@ describe("property availability calendar shows the same conflicts (F-CAL-6)", ()
       "fetch",
       vi.fn(async () => ({ ok: true, json: async () => ({ meetings: [busy] }) })),
     );
-    await renderPropertyToursPanel({ managerUserId: "m1" });
+    await renderTourAvailabilityModal({ managerUserId: "m1" });
     await waitFor(() => {
       const latest = capturedProps.at(-1);
       expect((latest?.externalMeetings as DemoMeeting[] | undefined)?.map((m) => m.id)).toEqual(["busy-1"]);
@@ -127,7 +131,7 @@ describe("property availability calendar shows the same conflicts (F-CAL-6)", ()
     const { GOOGLE_BUSY_DEFAULT_DAYS_AHEAD, GOOGLE_BUSY_DAYS_BEFORE } = await import(
       "@/hooks/use-google-calendar-busy"
     );
-    await renderPropertyToursPanel({ managerUserId: "m1" });
+    await renderTourAvailabilityModal({ managerUserId: "m1" });
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
 
     const url = new URL(String(fetchMock.mock.calls[0]![0]), "https://example.test");
@@ -154,7 +158,7 @@ describe("property availability calendar shows the same conflicts (F-CAL-6)", ()
   it("asks Google for nothing when there is no signed-in manager", async () => {
     const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ meetings: [] }) }));
     vi.stubGlobal("fetch", fetchMock);
-    await renderPropertyToursPanel({ managerUserId: null });
+    await renderTourAvailabilityModal({ managerUserId: null });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(capturedProps.at(-1)?.storageKey).toBeNull();
   });
@@ -168,9 +172,9 @@ describe("property availability calendar shows the same conflicts (F-CAL-6)", ()
  * account-level problem is not toasted twice.
  */
 describe("an incomplete busy read is never presented as a free calendar", () => {
-  async function renderPropertyPanel() {
+  async function renderAvailabilityModal() {
     const toasts: string[] = [];
-    await renderPropertyToursPanel({
+    await renderTourAvailabilityModal({
       managerUserId: "m1",
       showToast: (message: string) => toasts.push(message),
     });
@@ -191,7 +195,7 @@ describe("an incomplete busy read is never presented as a free calendar", () => 
       })),
     );
 
-    const toasts = await renderPropertyPanel();
+    const toasts = await renderAvailabilityModal();
     await waitFor(() => expect(toasts).toEqual(["Some busy time may be missing."]));
     // The events it DID load still reach the grid.
     expect((capturedProps.at(-1)?.externalMeetings as DemoMeeting[]).map((m) => m.id)).toEqual(["busy-1"]);
@@ -203,7 +207,7 @@ describe("an incomplete busy read is never presented as a free calendar", () => 
       vi.fn(async () => ({ ok: false, status: 500, json: async () => ({ error: "Failed" }) })),
     );
 
-    const toasts = await renderPropertyPanel();
+    const toasts = await renderAvailabilityModal();
     await waitFor(() => expect(toasts).toHaveLength(1));
     expect(toasts[0]).toMatch(/could not load/i);
   });
@@ -221,7 +225,7 @@ describe("an incomplete busy read is never presented as a free calendar", () => 
       })),
     );
 
-    const toasts = await renderPropertyPanel();
+    const toasts = await renderAvailabilityModal();
     await waitFor(() => expect(toasts).toHaveLength(1));
     expect(toasts[0]).toMatch(/could not load/i);
   });
@@ -232,7 +236,7 @@ describe("an incomplete busy read is never presented as a free calendar", () => 
       vi.fn(async () => ({ ok: true, json: async () => ({}) })),
     );
 
-    const toasts = await renderPropertyPanel();
+    const toasts = await renderAvailabilityModal();
     await waitFor(() => expect(toasts).toHaveLength(1));
     expect(toasts[0]).toMatch(/could not load/i);
   });
@@ -245,7 +249,7 @@ describe("an incomplete busy read is never presented as a free calendar", () => 
       }),
     );
 
-    const toasts = await renderPropertyPanel();
+    const toasts = await renderAvailabilityModal();
     await waitFor(() => expect(toasts).toHaveLength(1));
     expect(toasts[0]).toMatch(/could not load/i);
   });
@@ -263,7 +267,7 @@ describe("an incomplete busy read is never presented as a free calendar", () => 
       })),
     );
 
-    const toasts = await renderPropertyPanel();
+    const toasts = await renderAvailabilityModal();
     await waitFor(() => expect(capturedProps.length).toBeGreaterThan(0));
     expect(toasts).toEqual([]);
   });

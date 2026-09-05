@@ -6,6 +6,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { ManagerAddScheduledTourModal } from "@/components/portal/pro-add-scheduled-tour-modal";
 import { ManagerToursGroupedTable } from "@/components/portal/pro-tours-grouped-table";
+import { ManagerTourAvailabilityModal } from "@/components/portal/manager-tour-availability-modal";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
@@ -260,10 +261,22 @@ export function ManagerTours({
   bucket = "pending",
   basePath = "/portal",
   tourId: tourIdProp,
+  embedded = false,
+  scopedPropertyId,
+  scopedPropertyLabel,
+  tourListHref: tourListHrefOverride,
+  tourDetailHref: tourDetailHrefOverride,
 }: {
   bucket?: ManagerTourBucketId;
   basePath?: string;
   tourId?: string;
+  /** Property detail tab — no duplicate page title shell. */
+  embedded?: boolean;
+  /** Limit the list to one property and hide the portfolio property filter. */
+  scopedPropertyId?: string;
+  scopedPropertyLabel?: string;
+  tourListHref?: (bucket: ManagerTourBucketId) => string;
+  tourDetailHref?: (bucket: ManagerTourBucketId, tourId: string) => string;
 }) {
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
@@ -277,6 +290,7 @@ export function ManagerTours({
   const [shareTourOpen, setShareTourOpen] = useState(false);
   const [addTourOpen, setAddTourOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [notifyPreview, setNotifyPreview] = useState<TourNotifyPreview | null>(null);
   const [notifyBusy, setNotifyBusy] = useState(false);
   const [guestMessagePreview, setGuestMessagePreview] = useState<GuestMessagePreview | null>(null);
@@ -309,6 +323,26 @@ export function ManagerTours({
     [userId, propertyTick],
   );
 
+  const listHrefForBucket = useCallback(
+    (targetBucket: ManagerTourBucketId) =>
+      tourListHrefOverride?.(targetBucket) ?? managerTourListHref(basePath, targetBucket),
+    [basePath, tourListHrefOverride],
+  );
+
+  const detailHrefForTour = useCallback(
+    (targetBucket: ManagerTourBucketId, tourId: string) =>
+      tourDetailHrefOverride?.(targetBucket, tourId) ??
+      managerTourDetailHref(basePath, targetBucket, tourId),
+    [basePath, tourDetailHrefOverride],
+  );
+
+  const scopedPropertyIds = useMemo(
+    () => (scopedPropertyId ? [scopedPropertyId] : propertyOptions.map((option) => option.id)),
+    [scopedPropertyId, propertyOptions],
+  );
+
+  const effectivePropertyFilters = scopedPropertyId ? [scopedPropertyId] : propertyFilters;
+
   const propertyLabelById = useMemo(
     () => new Map(propertyOptions.map((option) => [option.id, option.label])),
     [propertyOptions],
@@ -319,15 +353,15 @@ export function ManagerTours({
     if (!userId) return [];
     return buildManagerTourRows({
       viewerUserId: userId,
-      propertyIds: propertyOptions.map((option) => option.id),
+      propertyIds: scopedPropertyIds,
     });
-  }, [tick, userId, propertyOptions]);
+  }, [tick, userId, scopedPropertyIds]);
 
   const counts = useMemo(() => countManagerTourRowsByBucket(allRows), [allRows]);
 
   const rowsForBucket = useMemo(
-    () => filterManagerTourRows(allRows, bucket, propertyFilters, ""),
-    [allRows, bucket, propertyFilters],
+    () => filterManagerTourRows(allRows, bucket, effectivePropertyFilters, ""),
+    [allRows, bucket, effectivePropertyFilters],
   );
 
   const clusters = useMemo(() => {
@@ -377,9 +411,9 @@ export function ManagerTours({
     [counts],
   );
 
-  const filterTouchCount = propertyFilters.length > 0 ? 1 : 0;
+  const filterTouchCount = !scopedPropertyId && propertyFilters.length > 0 ? 1 : 0;
 
-  const filterSheet = (
+  const filterSheet = scopedPropertyId ? null : (
     <PortalFilterSortSheet
       activeCount={filterTouchCount}
       compactPanel
@@ -406,7 +440,7 @@ export function ManagerTours({
   );
 
   const activeFilterChips =
-    propertyFilters.length > 0 ? (
+    !scopedPropertyId && propertyFilters.length > 0 ? (
       <PortalActiveFilterChips
         chips={[
           {
@@ -423,9 +457,9 @@ export function ManagerTours({
 
   const openTourDetail = useCallback(
     (row: ManagerTourRow) => {
-      navigate(managerTourDetailHref(basePath, bucket, row.id));
+      navigate(detailHrefForTour(bucket, row.id));
     },
-    [basePath, bucket, navigate],
+    [bucket, detailHrefForTour, navigate],
   );
 
   const openApprovePreview = useCallback((rows: ManagerTourRow[]) => {
@@ -628,7 +662,7 @@ export function ManagerTours({
           }
           setNotifyPreview(null);
           await refresh();
-          if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
+          if (tourIdProp) navigate(listHrefForBucket(bucket));
           const count = targetRows.length;
           showToast(
             skipMessage
@@ -657,7 +691,7 @@ export function ManagerTours({
           }
           setNotifyPreview(null);
           await refresh();
-          if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
+          if (tourIdProp) navigate(listHrefForBucket(bucket));
           const count = targetRows.length;
           showToast(
             skipMessage
@@ -687,7 +721,7 @@ export function ManagerTours({
           }
           setNotifyPreview(null);
           await refresh();
-          if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
+          if (tourIdProp) navigate(listHrefForBucket(bucket));
           const count = targetRows.length;
           showToast(
             skipMessage
@@ -740,7 +774,7 @@ export function ManagerTours({
           }
           setNotifyPreview(null);
           await refresh();
-          if (tourIdProp) navigate(managerTourListHref(basePath, bucket));
+          if (tourIdProp) navigate(listHrefForBucket(bucket));
           const count = targetRows.length;
           showToast(
             skipMessage
@@ -1148,7 +1182,7 @@ export function ManagerTours({
           title={detailRow.guestName}
           subtitle={detailRow.whenLabel}
           avatarName={detailRow.guestName}
-          backHref={managerTourListHref(basePath, bucket)}
+          backHref={listHrefForBucket(bucket)}
           backLabel="Back to tours"
           hideBackText
           bareHeader
@@ -1162,13 +1196,8 @@ export function ManagerTours({
     );
   }
 
-  return (
-    <ManagerPortalPageShell
-      title="Tours"
-      hideTitleOnMobileNav
-      titleInlineFilter={null}
-      compactFilterRow
-    >
+  const listPageContent = (
+    <>
       {modals}
 
       <PortalListControlStack
@@ -1177,7 +1206,7 @@ export function ManagerTours({
         destinations={tabs.map((tab) => ({
           id: tab.id,
           label: tab.label,
-          href: managerTourListHref(basePath, tab.id),
+          href: listHrefForBucket(tab.id),
           count: tab.count,
           alert: tab.alert,
           dataAttr: `tours-bucket-${tab.id}`,
@@ -1191,6 +1220,16 @@ export function ManagerTours({
               type="button"
               variant="outline"
               className={PORTAL_COMMAND_ACTION_BTN}
+              data-attr="tours-add-availability-open"
+              onClick={() => setAvailabilityOpen(true)}
+              disabled={!authReady || scopedPropertyIds.length === 0}
+            >
+              Add availability
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_COMMAND_ACTION_BTN}
               data-attr="tours-settings-open"
               onClick={() => setSettingsOpen(true)}
             >
@@ -1200,7 +1239,7 @@ export function ManagerTours({
               type="button"
               className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
               style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-              disabled={propertyOptions.length === 0}
+              disabled={scopedPropertyIds.length === 0}
               data-attr="tours-share-open"
               onClick={() => setShareTourOpen(true)}
             >
@@ -1211,51 +1250,60 @@ export function ManagerTours({
         activeFilterChips={activeFilterChips}
       />
 
-      {bucket === "pending" ? <TourProposalsPanel /> : null}
+      {!scopedPropertyId && bucket === "pending" ? <TourProposalsPanel /> : null}
 
       <PortalRecordListSurface
-          isEmpty={authReady && rowsForBucket.length === 0}
-          add={{
-            label: "Add tour",
-            ariaLabel: "Schedule tour",
-            icon: PORTAL_LIST_ADD_ICONS.tour,
-            // No `inline` override and no typography override: Tours used to
-            // force the compact footer at every state AND re-style the label to
-            // normal-case text-sm, which made it the only tab whose ADD row did
-            // not match the rest (AXI-160). It now follows the house rule — the
-            // full dashed block on an empty list, inline once rows exist — the
-            // same as Finances, Promotion and Documents.
-            onClick: () => setAddTourOpen(true),
-            disabled: !authReady || propertyOptions.length === 0,
-            dataAttr: "tours-list-add",
-          }}
-          bulkCount={selectedIds.size}
-          bulkActions={listBulkActions}
-        >
-          {!authReady ? (
-            <p className="text-sm text-muted">Loading tours…</p>
-          ) : rowsForBucket.length > 0 ? (
-            renderGroupedTours()
-          ) : null}
-        </PortalRecordListSurface>
+        isEmpty={authReady && rowsForBucket.length === 0}
+        add={{
+          label: "Add tour",
+          ariaLabel: "Schedule tour",
+          icon: PORTAL_LIST_ADD_ICONS.tour,
+          onClick: () => setAddTourOpen(true),
+          disabled: !authReady || scopedPropertyIds.length === 0,
+          dataAttr: "tours-list-add",
+        }}
+        bulkCount={selectedIds.size}
+        bulkActions={listBulkActions}
+      >
+        {!authReady ? (
+          <p className="text-sm text-muted">Loading tours…</p>
+        ) : rowsForBucket.length > 0 ? (
+          renderGroupedTours()
+        ) : null}
+      </PortalRecordListSurface>
 
       <ShareLeadLinkModal
         open={shareTourOpen}
         onClose={() => setShareTourOpen(false)}
         kind="tour"
-        properties={propertyOptions}
+        properties={
+          scopedPropertyId
+            ? propertyOptions.filter((option) => option.id === scopedPropertyId)
+            : propertyOptions
+        }
+        preselectedPropertyId={scopedPropertyId}
       />
       <ManagerAddScheduledTourModal
         open={addTourOpen}
         onClose={() => setAddTourOpen(false)}
         managerUserId={userId ?? ""}
         propertyTick={propertyTick}
+        defaultPropertyId={scopedPropertyId}
         onSaved={() => {
           void refresh();
           if (bucket !== "upcoming") {
-            navigate(managerTourListHref(basePath, "upcoming"));
+            navigate(listHrefForBucket("upcoming"));
           }
         }}
+      />
+      <ManagerTourAvailabilityModal
+        open={availabilityOpen}
+        onClose={() => setAvailabilityOpen(false)}
+        managerUserId={userId}
+        propertyId={scopedPropertyId}
+        propertyLabel={scopedPropertyLabel}
+        propertyOptions={propertyOptions}
+        showToast={showToast}
       />
       <ManagerPortalSettingsModal
         open={settingsOpen}
@@ -1263,6 +1311,21 @@ export function ManagerTours({
         initialTab="tours"
         scopedTitle="Tours"
       />
+    </>
+  );
+
+  if (embedded) {
+    return listPageContent;
+  }
+
+  return (
+    <ManagerPortalPageShell
+      title="Tours"
+      hideTitleOnMobileNav
+      titleInlineFilter={null}
+      compactFilterRow
+    >
+      {listPageContent}
     </ManagerPortalPageShell>
   );
 }

@@ -78,12 +78,15 @@ export function ManagerAddScheduledTourModal({
   onClose,
   managerUserId,
   propertyTick = 0,
+  defaultPropertyId,
   onSaved,
 }: {
   open: boolean;
   onClose: () => void;
   managerUserId: string;
   propertyTick?: number;
+  /** Property detail tours tab — pre-select this listing. */
+  defaultPropertyId?: string;
   onSaved?: () => void;
 }) {
   const { showToast } = useAppUi();
@@ -113,8 +116,9 @@ export function ManagerAddScheduledTourModal({
     setForm({
       ...EMPTY_FORM,
       ...defaultScheduleFields(),
+      propertyId: defaultPropertyId ?? "",
     });
-  }, [open]);
+  }, [defaultPropertyId, open]);
 
   async function handleSave() {
     if (!form.propertyId) {

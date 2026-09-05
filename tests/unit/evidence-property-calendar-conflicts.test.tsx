@@ -2,14 +2,12 @@
 //
 // EVIDENCE HARNESS (manager audit F-CAL-6).
 //
-// `/portal/calendar` showed a linked Google meeting as a Blocked half hour. The
-// PER-PROPERTY availability editor — the screen where a manager actually
-// publishes tour windows — fetched no busy time at all, so the same half hour
-// rendered free and selectable. Publishing on it is a double-booking.
+// Tour availability now opens in a modal (`ManagerTourAvailabilityModal`). The
+// per-property grid must still show linked Google busy time before a manager
+// publishes a slot — publishing on a hidden conflict is a double-booking.
 //
-// This renders the REAL `ManagerPropertyTourPanel` against a stubbed
-// `/api/portal/google-calendar/events` and counts the blocked cells on the
-// grid. With EVIDENCE_DIR set it writes the rendered availability week.
+// This renders the REAL availability modal against a stubbed
+// `/api/portal/google-calendar/events` and counts the blocked cells on the grid.
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -76,7 +74,7 @@ vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
   });
 });
 
-import { ManagerPropertyTourPanel } from "@/components/portal/pro-property-tour-panel";
+import { ManagerTourAvailabilityModal } from "@/components/portal/manager-tour-availability-modal";
 
 const EVIDENCE_DIR = process.env.EVIDENCE_DIR ?? "";
 const captured: { name: string; html: string }[] = [];
@@ -107,9 +105,11 @@ function blockedSlots(root: HTMLElement): string[] {
 describe("F-CAL-6 — the per-property availability editor shows the same conflicts", () => {
   it("renders Google busy time on the grid a manager publishes availability on", async () => {
     render(
-      <ManagerPropertyTourPanel
-        listingId="mgr-magnolia-2b-a1b2c3"
+      <ManagerTourAvailabilityModal
+        open
+        onClose={() => {}}
         managerUserId={MANAGER_ID}
+        propertyId="mgr-magnolia-2b-a1b2c3"
         propertyLabel="The Magnolia · 2B"
         showToast={() => {}}
       />,
@@ -125,7 +125,7 @@ describe("F-CAL-6 — the per-property availability editor shows the same confli
     });
 
     const blocked = blockedSlots(root);
-     
+
     console.log(
       `\nF-CAL-6 evidence — property availability grid: ${blocked.length} blocked half hours\n` +
         blocked.map((slot) => `    ${slot}`).join("\n") +

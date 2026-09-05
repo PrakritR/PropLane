@@ -296,6 +296,25 @@ export function managerTourDetailHref(
   return `${basePath}/tours/${bucket}/${encodeURIComponent(tourId)}`;
 }
 
+export function propertyTourListHref(
+  basePath: string,
+  stage: PropertyStageId,
+  propertyKey: string,
+  bucket: ManagerTourBucketId = "pending",
+): string {
+  return `${propertyDetailHref(basePath, stage, propertyKey, "tours")}/${bucket}`;
+}
+
+export function propertyTourDetailHref(
+  basePath: string,
+  stage: PropertyStageId,
+  propertyKey: string,
+  bucket: ManagerTourBucketId,
+  tourId: string,
+): string {
+  return `${propertyTourListHref(basePath, stage, propertyKey, bucket)}/${encodeURIComponent(tourId)}`;
+}
+
 export const MANAGER_TASK_LIST_TABS = ["in-progress", "overdue", "completed"] as const;
 export type ManagerTaskListTabId = (typeof MANAGER_TASK_LIST_TABS)[number];
 
