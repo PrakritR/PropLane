@@ -3,6 +3,9 @@ import { addDays, dateKey, startOfLocalDay, startOfWeekSunday } from "@/lib/room
 
 export type BookingsListTabId = "all" | "check_ins" | "check_outs";
 
+/** Portfolio list buckets (Calendar is routed separately). */
+export type ManagerBookingListBucketId = "upcoming" | "inhouse" | "past";
+
 export type BookingsHubMode = "calendar" | "list";
 
 export type BookingsOccupancyStats = {
@@ -37,6 +40,46 @@ export function formatBookingStayRange(
   };
   if (openEnded || start === end) return `${fmt(start)} onward`;
   return `${fmt(start)} – ${fmt(end)}`;
+}
+
+export function classifyBookingListBucket(
+  entry: PropertyBookingEntry,
+  todayKey: string,
+): ManagerBookingListBucketId {
+  if (entry.openEnded) {
+    return entry.start > todayKey ? "upcoming" : "inhouse";
+  }
+  if (entry.start > todayKey) return "upcoming";
+  if (entry.end < todayKey) return "past";
+  if (entry.start <= todayKey && entry.end >= todayKey) return "inhouse";
+  return entry.end < todayKey ? "past" : "upcoming";
+}
+
+export function bookingsForListBucket(
+  entries: readonly PropertyBookingEntry[],
+  bucket: ManagerBookingListBucketId,
+  todayKey: string,
+): PropertyBookingEntry[] {
+  return [...entries]
+    .filter((entry) => classifyBookingListBucket(entry, todayKey) === bucket)
+    .sort(
+      (a, b) => a.start.localeCompare(b.start) || a.summary.localeCompare(b.summary),
+    );
+}
+
+export function countBookingsByListBucket(
+  entries: readonly PropertyBookingEntry[],
+  todayKey: string,
+): Record<ManagerBookingListBucketId, number> {
+  const counts: Record<ManagerBookingListBucketId, number> = {
+    upcoming: 0,
+    inhouse: 0,
+    past: 0,
+  };
+  for (const entry of entries) {
+    counts[classifyBookingListBucket(entry, todayKey)] += 1;
+  }
+  return counts;
 }
 
 export function bookingsForListTab(

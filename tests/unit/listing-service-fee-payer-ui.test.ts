@@ -7,6 +7,7 @@ import {
   listingServiceFeePayerUiValue,
   managerCanSelectManagerAbsorbServiceFee,
   managerCanSelectProplaneServiceFee,
+  persistListingServiceFeePayer,
 } from "@/lib/payment-policy";
 
 describe("listing service fee payer UI helpers", () => {
@@ -21,16 +22,36 @@ describe("listing service fee payer UI helpers", () => {
     expect(managerCanSelectManagerAbsorbServiceFee("free")).toBe(false);
   });
 
-  it("defaults unset listing values to proplane on paid and resident on Free", () => {
-    expect(listingServiceFeePayerUiValue(null, "pro", false)).toBe("proplane");
+  it("defaults unset listing values to resident on every plan", () => {
+    expect(listingServiceFeePayerUiValue(null, "pro", false)).toBe("resident");
     expect(listingServiceFeePayerUiValue(null, "free", false)).toBe("resident");
-    expect(listingServiceFeePayerUiValue(null, "free", true)).toBe("proplane");
+    expect(listingServiceFeePayerUiValue(null, "free", true)).toBe("resident");
   });
 
-  it("requires a per-listing waiver code on Free when PropLane absorb is selected", () => {
+  it("requires a per-listing waiver code whenever PropLane absorb is selected", () => {
     expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", false)).toBe(true);
-    expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", true)).toBe(false);
-    expect(listingProplaneAbsorbNeedsWaiverCode("pro", "proplane", false)).toBe(false);
+    expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", true)).toBe(true);
+    expect(listingProplaneAbsorbNeedsWaiverCode("pro", "proplane", false)).toBe(true);
+    expect(listingProplaneAbsorbNeedsWaiverCode("pro", "resident", false)).toBe(false);
+  });
+
+  it("persists PropLane absorb only with FREE100; otherwise resident pays", () => {
+    expect(persistListingServiceFeePayer("proplane", "FREE100")).toEqual({
+      serviceFeePayer: "proplane",
+      serviceFeeWaiverCode: "FREE100",
+    });
+    expect(persistListingServiceFeePayer("proplane", "")).toEqual({
+      serviceFeePayer: "resident",
+      serviceFeeWaiverCode: undefined,
+    });
+    expect(persistListingServiceFeePayer("proplane", "WRONG")).toEqual({
+      serviceFeePayer: "resident",
+      serviceFeeWaiverCode: undefined,
+    });
+    expect(persistListingServiceFeePayer(null, "FREE100")).toEqual({
+      serviceFeePayer: null,
+      serviceFeeWaiverCode: undefined,
+    });
   });
 
   it("accepts only FREE100 as the listing waiver code", () => {

@@ -40,6 +40,11 @@ vi.mock("@/lib/payment-policy", () => ({
   // Production resolves through the precedence-aware form; a double that omits it makes the call
   // undefined and the whole checkout fail for a reason unrelated to what this file tests.
   resolveServiceFeePayerFor: vi.fn(() => "resident"),
+  // Same trap, second time (e55113ec added the waiver check): a missing export here
+  // throws inside the checkout, which the catch turns into a codeless 500 — so all
+  // four money-routing assertions fail without ever reaching the routing logic.
+  // No waiver is the neutral case for these tests; the fee split is not what they cover.
+  resolveAccountOrListingWaiverGranted: vi.fn(() => false),
 }));
 
 vi.mock("@/lib/manager-manual-payment-settings", () => ({

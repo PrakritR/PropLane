@@ -1,4 +1,6 @@
 import { isValidZipInput } from "@/lib/listing-form-inputs";
+// buildListingStepFieldOrder reads this; without the import it throws a
+// ReferenceError the moment the wizard tries to scroll to its first invalid field.
 import { LISTING_STEP_FIELD_ORDER } from "@/lib/wizard-field-errors";
 import { validateStateAbbrev } from "@/app/(public)/rent/apply/apply-validation";
 import {
@@ -13,7 +15,6 @@ import { isEntireHomeListing, resolveAllowedLeaseTerms, type ManagerListingSubmi
 import type { ManagerSkuTier } from "@/lib/manager-access";
 import {
   listingPaymentWaiverCodeMatches,
-  listingProplaneAbsorbNeedsWaiverCode,
 } from "@/lib/payment-policy";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
@@ -140,10 +141,8 @@ export function validateListingWizardStep(
     }
     Object.assign(errs, validateListingBundleShortTermPricing(sub));
 
-    const tier = opts.managerSkuTier ?? "free";
-    const accountWaiver = opts.accountPaymentWaiverGranted === true;
     if (
-      listingProplaneAbsorbNeedsWaiverCode(tier, sub.serviceFeePayer, accountWaiver) &&
+      sub.serviceFeePayer === "proplane" &&
       !listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
     ) {
       errs.serviceFeeWaiverCode = "Enter a valid waiver code (FREE100).";

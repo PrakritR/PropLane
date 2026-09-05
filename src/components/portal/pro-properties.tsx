@@ -46,11 +46,15 @@ export function ManagerProperties({
   basePath = "/portal",
   propertyKey: propertyKeyProp,
   detailTab: detailTabProp,
+  propertyTourBucket,
+  propertyTourId,
 }: {
   stage?: ManagerStageKey;
   basePath?: string;
   propertyKey?: string;
   detailTab?: PropertyDetailTabId;
+  propertyTourBucket?: import("@/lib/portal-detail-routes").ManagerTourBucketId;
+  propertyTourId?: string;
 }) {
   const { showToast } = useAppUi();
   const router = useRouter();
@@ -238,6 +242,8 @@ export function ManagerProperties({
       propertiesBase={basePath}
       propertyKey={propertyKeyProp}
       detailTab={detailTabProp}
+      propertyTourBucket={propertyTourBucket}
+      propertyTourId={propertyTourId}
       onAddProperty={tryOpenAdd}
       /*
         Disabled only while the PLAN is still unknown — never because the cap is

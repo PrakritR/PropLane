@@ -59,6 +59,9 @@ const CATEGORY_BY_KIND: Record<ReminderSubjectKind, NotificationCategory> = {
   lease_manager: "leases",
   payment_manager: "payments",
   outgoing_payment: "payments",
+  // A stay is the occupancy side of a lease, so it silences with leases rather
+  // than inventing a category that no existing preference row has an answer for.
+  booking: "leases",
 };
 
 /**

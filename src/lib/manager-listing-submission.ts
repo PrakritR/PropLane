@@ -32,6 +32,7 @@ import {
   submissionUsesUnifiedListingFees,
   type ListingFeeRow,
 } from "@/lib/listing-fees";
+import { persistListingServiceFeePayer } from "@/lib/payment-policy";
 
 export type PaymentAtSigningOptionId =
   | "security_deposit"
@@ -1670,14 +1671,12 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
     rentDueDayMode: sub.rentDueDayMode === "last_of_month" ? "last_of_month" : "first_of_month",
     // Null, not a default payer: absence means this property follows the manager's account
     // setting, so an untouched property keeps tracking it rather than pinning today's value.
-    serviceFeePayer:
-      sub.serviceFeePayer === "resident" || sub.serviceFeePayer === "manager" || sub.serviceFeePayer === "proplane"
-        ? sub.serviceFeePayer
-        : null,
-    serviceFeeWaiverCode: (() => {
-      if (sub.serviceFeePayer !== "proplane") return undefined;
-      const raw = typeof sub.serviceFeeWaiverCode === "string" ? sub.serviceFeeWaiverCode.trim() : "";
-      return raw ? raw.toUpperCase().replace(/\s+/g, "") : undefined;
+    ...(() => {
+      const persisted = persistListingServiceFeePayer(sub.serviceFeePayer, sub.serviceFeeWaiverCode);
+      return {
+        serviceFeePayer: persisted.serviceFeePayer,
+        serviceFeeWaiverCode: persisted.serviceFeeWaiverCode,
+      };
     })(),
     lateFeeEnabled: sub.lateFeeEnabled !== false,
     lateFeeGraceDays: (() => {

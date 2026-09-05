@@ -36,8 +36,10 @@ import {
   PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS,
   propertyDetailHref,
   propertyListHref,
+  propertyTourListHref,
   propertyDetailTopNavId,
   parsePropertyDetailTab,
+  type ManagerTourBucketId,
   type PropertyDetailTabId,
   type PropertyDetailTopTabId,
 } from "@/lib/portal-detail-routes";
@@ -237,6 +239,8 @@ function ManagerPropertyInlineDetails({
   propertiesBase,
   stage,
   detailTab: detailTabProp = "preview",
+  propertyTourBucket = "pending",
+  propertyTourId,
 }: {
   bucket: AdminPropertyBucketIndex;
   row: AdminPropertyRow | null;
@@ -253,6 +257,8 @@ function ManagerPropertyInlineDetails({
   propertiesBase: string;
   stage: ManagerStageKey;
   detailTab?: PropertyDetailTabId;
+  propertyTourBucket?: ManagerTourBucketId;
+  propertyTourId?: string;
 }) {
   const mock = useMemo(() => (row ? resolveAdminPropertyRowPreview(row) : null), [row]);
   const contactSmsPhone = useListingContactSmsPhone({
@@ -551,11 +557,15 @@ function ManagerPropertyInlineDetails({
     }> = [];
     const pushTopTab = (id: PropertyDetailTopTabId, tab: PropertyDetailTabId) => {
       if (!availableTabs.includes(tab)) return;
+      const href =
+        tab === "tours"
+          ? propertyTourListHref(propertiesBase, stage, propertyRouteKey, "pending")
+          : propertyDetailHref(propertiesBase, stage, propertyRouteKey, tab);
       items.push({
         id,
         label: PROPERTY_DETAIL_TOP_TAB_LABELS[id],
         shortLabel: PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS[id],
-        href: propertyDetailHref(propertiesBase, stage, propertyRouteKey, tab),
+        href,
         dataAttr: `property-detail-tab-${id}`,
       });
     };
@@ -855,7 +865,6 @@ function ManagerPropertyInlineDetails({
     Boolean(propertyTabFooterActions) ||
     activeDetailTab === "house-details" ||
     activeDetailTab === "move-in" ||
-    activeDetailTab === "tours" ||
     activeDetailTab === "bookings" ||
     activeDetailTab === "application" ||
     activeDetailTab === "lease";
@@ -980,6 +989,11 @@ function ManagerPropertyInlineDetails({
           managerUserId={managerUserId}
           propertyLabel={propertyShareLabel}
           showToast={showToast}
+          propertiesBase={propertiesBase}
+          stage={stage}
+          propertyRouteKey={propertyRouteKey}
+          tourBucket={propertyTourBucket}
+          tourId={propertyTourId}
         />
       ) : null}
 
@@ -1107,6 +1121,8 @@ export function ManagerHousePropertiesPanel({
   propertiesBase,
   propertyKey: propertyKeyProp,
   detailTab: detailTabProp,
+  propertyTourBucket = "pending",
+  propertyTourId,
   onAddProperty,
   addPropertyDisabled = false,
   addPropertyHint,
@@ -1120,6 +1136,8 @@ export function ManagerHousePropertiesPanel({
   propertiesBase: string;
   propertyKey?: string;
   detailTab?: PropertyDetailTabId;
+  propertyTourBucket?: ManagerTourBucketId;
+  propertyTourId?: string;
   onAddProperty?: () => void;
   addPropertyDisabled?: boolean;
   /** Shown under the ADD label when the row is disabled at plan cap. */
@@ -1424,6 +1442,8 @@ export function ManagerHousePropertiesPanel({
       propertiesBase={propertiesBase}
       stage={activeStage}
       detailTab={detailTabProp}
+      propertyTourBucket={propertyTourBucket}
+      propertyTourId={propertyTourId}
     />
   );
 

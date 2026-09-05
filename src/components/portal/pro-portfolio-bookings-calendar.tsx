@@ -297,6 +297,7 @@ export function ManagerPortfolioBookingsCalendar({
   roomFilterId = "",
   emptyMessage,
   variant = "embedded",
+  calendarOnly = false,
 }: {
   propertyIds: string[];
   showToast: (message: string) => void;
@@ -305,6 +306,7 @@ export function ManagerPortfolioBookingsCalendar({
   roomFilterId?: string;
   emptyMessage?: string;
   variant?: "embedded" | "standalone";
+  calendarOnly?: boolean;
 }) {
   return (
     <ManagerBookingsHub
@@ -315,6 +317,7 @@ export function ManagerPortfolioBookingsCalendar({
       roomFilterId={roomFilterId}
       emptyMessage={emptyMessage}
       variant={variant}
+      calendarOnly={calendarOnly}
     />
   );
 }
@@ -327,6 +330,7 @@ export function ManagerBookingsHub({
   roomFilterId = "",
   emptyMessage,
   variant = "embedded",
+  calendarOnly = false,
 }: {
   propertyIds: string[];
   showToast: (message: string) => void;
@@ -335,6 +339,8 @@ export function ManagerBookingsHub({
   roomFilterId?: string;
   emptyMessage?: string;
   variant?: "embedded" | "standalone";
+  /** When true, skip the List|Calendar hub toggle — calendar grid only (portfolio Calendar tab). */
+  calendarOnly?: boolean;
 }) {
   const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -431,8 +437,10 @@ export function ManagerBookingsHub({
   const goToMonth = (year: number, month: number) => {
     setAnchorDate(new Date(year, month, 1));
     setView("month");
-    setHubMode("calendar");
+    if (!calendarOnly) setHubMode("calendar");
   };
+
+  const showListHub = !calendarOnly && hubMode === "list";
 
   if (propertyIds.length === 0) {
     return (
@@ -445,7 +453,7 @@ export function ManagerBookingsHub({
 
   if (loading) {
     return (
-      <div className="flex min-h-[12rem] items-center justify-center rounded-2xl border border-border bg-card/60">
+      <div className="flex min-h-[12rem] flex-1 items-center justify-center rounded-2xl border border-border bg-card/60">
         <p className="text-sm text-muted">Loading bookings…</p>
       </div>
     );
@@ -478,14 +486,16 @@ export function ManagerBookingsHub({
   return (
     <>
       <div className={shellClass} data-attr="bookings-hub">
-        <PortalSegmentedControl
-          options={HUB_OPTIONS}
-          value={hubMode}
-          onChange={setHubMode}
-          ariaLabel="Bookings layout"
-        />
+        {!calendarOnly ? (
+          <PortalSegmentedControl
+            options={HUB_OPTIONS}
+            value={hubMode}
+            onChange={setHubMode}
+            ariaLabel="Bookings layout"
+          />
+        ) : null}
 
-        {hubMode === "list" ? (
+        {showListHub ? (
           <ManagerBookingsListPanel entries={entries} onOpenDay={openDay} />
         ) : (
           <div className={PORTAL_CALENDAR_FRAME}>

@@ -1769,6 +1769,31 @@ export function leaseAllowsManagerGeneratedBodyEdits(row: LeasePipelineRow): boo
   );
 }
 
+export function leasePipelineRowHasDocument(
+  row: Pick<LeasePipelineRow, "generatedHtml" | "managerUploadedPdf">,
+): boolean {
+  return Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl);
+}
+
+/** Manager can change the lease packet in the edit modal (manager review / draft). */
+export function leaseRowOpensManagerEditModal(row: LeasePipelineRow): boolean {
+  const hasDocument = leasePipelineRowHasDocument(row);
+  if (leaseAllowsManagerDocumentEdits(row)) {
+    if (!hasDocument) return true;
+    if (leaseAllowsManagerGeneratedBodyEdits(row)) return true;
+    if (row.managerUploadedPdf?.dataUrl) return true;
+  }
+  if (row.uploadedLeaseParse && leaseNeedsUploadedLeaseReviewAction(row)) {
+    return true;
+  }
+  return false;
+}
+
+/** Read-only lease modal — signing stages where the list still needs a document peek. */
+export function leaseRowOpensManagerViewModal(row: LeasePipelineRow): boolean {
+  return leasePipelineRowHasDocument(row) && !leaseRowOpensManagerEditModal(row);
+}
+
 /** All lease pipeline rows for a manager resident profile, best match first. */
 export function leasePipelineRowsForManagerResident(
   managerUserId: string | null | undefined,

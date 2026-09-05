@@ -371,6 +371,43 @@ const OUTGOING_PAYMENT_META: ReminderSubjectSettingsMeta = {
   recipientPreview: "Your team",
 };
 
+const BOOKING_META: ReminderSubjectSettingsMeta = {
+  directions: ["before"],
+  timingLabel: "Remind before check-in",
+  notifyYouLabel: "You",
+  notifyTeamLabel: "Team",
+  // There is no counterparty control on this subject — an imported channel
+  // booking carries no guest contact — but the label is here so the shared
+  // panel has something to render if a guest-reachable source is ever added.
+  notifyCounterpartyLabel: "Guest",
+  defaultTemplate: {
+    subject: "Check-in {duePhrase}: {counterpartyName} at {propertyTitle}",
+    body: [
+      "Hi {recipientName},",
+      "",
+      "Reminder: {counterpartyName} checks in to {propertyTitle} {duePhrase}.",
+      "",
+      "Stay: {whenLabel}",
+      "",
+      "See the booking in PropLane:",
+      "{url}",
+      "",
+      "— PropLane",
+    ].join("\n"),
+  },
+  placeholders:
+    "Placeholders: {recipientName}, {counterpartyName}, {propertyTitle}, {whenLabel}, {duePhrase}, {url}",
+  previewContext: {
+    recipientName: "Your team",
+    counterpartyName: "Airbnb guest",
+    propertyTitle: "Ash Flats 6 · Room B",
+    whenLabel: "Fri, Sep 18 \u2013 Tue, Sep 22",
+    duePhrase: "in 1 day",
+    url: "https://prop-lane.space/portal/bookings/upcoming",
+  },
+  recipientPreview: "Your team",
+};
+
 export const REMINDER_SUBJECT_SETTINGS_META: Partial<
   Record<ReminderSubjectKind, ReminderSubjectSettingsMeta>
 > = {
@@ -385,6 +422,7 @@ export const REMINDER_SUBJECT_SETTINGS_META: Partial<
   lease_manager: LEASE_MANAGER_META,
   payment_manager: PAYMENT_MANAGER_META,
   outgoing_payment: OUTGOING_PAYMENT_META,
+  booking: BOOKING_META,
 };
 
 export function reminderSubjectSettingsMeta(kind: ReminderSubjectKind): ReminderSubjectSettingsMeta | null {

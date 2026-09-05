@@ -5,6 +5,8 @@ import {
   managerDocumentsApplicationDetailHref,
   managerDocumentsApplicationsListHref,
   propertyListHref,
+  propertyTourDetailHref,
+  propertyTourListHref,
   residentDocumentsApplicationDetailHref,
   residentDocumentsApplicationListHref,
 } from "@/lib/portal-detail-routes";
@@ -27,6 +29,18 @@ describe("portal-detail-routes href helpers", () => {
     expect(legacyManagerPortalSectionPath("approved")).toBe("applications/approved");
     expect(legacyManagerPortalSectionPath("manager")).toBe("leases/manager");
     expect(legacyManagerPortalSectionPath("dashboard")).toBeNull();
+  });
+
+  it("builds property-scoped tour bucket URLs", () => {
+    expect(propertyTourListHref(base, "listed", "mgr-scale-06", "pending")).toBe(
+      "/portal/properties/listed/mgr-scale-06/tours/pending",
+    );
+    expect(propertyTourListHref(base, "listed", "mgr-scale-06", "upcoming")).toBe(
+      "/portal/properties/listed/mgr-scale-06/tours/upcoming",
+    );
+    expect(
+      propertyTourDetailHref(base, "listed", "mgr-scale-06", "pending", "tour-abc"),
+    ).toBe("/portal/properties/listed/mgr-scale-06/tours/pending/tour-abc");
   });
 
   it("builds documents application detail URLs", () => {

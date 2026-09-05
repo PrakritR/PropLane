@@ -972,10 +972,6 @@ export async function updateExtraListingFromSubmissionOnServer(
   if (!managerUserId.trim()) return false;
   const map = readExtrasMap();
   const ownerKey = Object.keys(map).find((uid) => (map[uid] ?? []).some((p) => p.id === listingId));
-  if (!ownerKey) return false;
-  const list = map[ownerKey]!;
-  const idx = list.findIndex((p) => p.id === listingId);
-  if (idx === -1) return false;
   const legacy = deriveLegacyFields(input);
   const pendingLike: ManagerPendingPropertyRow = {
     ...legacy,
@@ -985,6 +981,23 @@ export async function updateExtraListingFromSubmissionOnServer(
     submittedByUserId: managerUserId,
   };
   const next = buildMockPropertyFromDraft(pendingLike, listingId);
+  if (!ownerKey) {
+    const propertyData: MockProperty = { ...next, managerUserId, adminPublishLive: true };
+    const rowData = { ...legacy, adminRefId: listingId, listingId, managerUserId };
+    const ok = await upsertPropertyRecordToServer({
+      id: listingId,
+      managerUserId,
+      status: "live",
+      propertyData,
+      rowData,
+    });
+    if (!ok) return false;
+    await syncPropertyPipelineFromServer({ force: true });
+    return true;
+  }
+  const list = map[ownerKey]!;
+  const idx = list.findIndex((p) => p.id === listingId);
+  if (idx === -1) return false;
   const owner = list[idx]!.managerUserId ?? next.managerUserId ?? ownerKey;
   const propertyData: MockProperty = { ...next, managerUserId: owner, adminPublishLive: true };
   const rowData = { ...legacy, adminRefId: listingId, listingId, managerUserId };

@@ -28,6 +28,10 @@ type RoomSaveTarget =
 const HOUSE_MOVE_IN_TARGET_ID = "__house__";
 type MoveInEditTarget = typeof HOUSE_MOVE_IN_TARGET_ID | string;
 
+/** Checkbox + label — stay inline on phones (detail list rows stack actions below). */
+const MOVE_IN_SELECT_ROW_CLASS =
+  "flex flex-row items-start gap-2.5 border-b border-border/50 py-3 last:border-0";
+
 function MoveInInstructionsField({
   moveInInstructions,
   disabled,
@@ -454,8 +458,8 @@ export function ManagerPropertyRoomMoveInPanel({
           <div className="px-1">
             <div
               className={cn(
-                PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
-                "flex items-start gap-2.5 rounded-lg transition",
+                MOVE_IN_SELECT_ROW_CLASS,
+                "rounded-lg transition",
                 houseSelected ? "border-l-2 border-l-primary bg-primary/5" : "hover:bg-accent/20",
               )}
             >
@@ -505,8 +509,8 @@ export function ManagerPropertyRoomMoveInPanel({
               <div key={room.id} className="px-1">
                 <div
                   className={cn(
-                    PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
-                    "flex items-start gap-2.5 rounded-lg transition",
+                    MOVE_IN_SELECT_ROW_CLASS,
+                    "rounded-lg transition",
                     checked ? "border-l-2 border-l-primary bg-primary/5" : "hover:bg-accent/20",
                   )}
                 >

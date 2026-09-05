@@ -109,7 +109,7 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Tasks", path: "/portal/tasks" },
   { label: "Communication", path: "/portal/communication/active" },
   { label: "Calendar", path: "/portal/calendar" },
-  { label: "Bookings", path: "/portal/bookings" },
+  { label: "Bookings", path: "/portal/bookings/upcoming" },
   { label: "Teams (managers)", path: "/portal/teams/managers" },
   { label: "Teams (vendors)", path: "/portal/teams/vendors" },
   { label: "Promotion", path: "/portal/promotion" },

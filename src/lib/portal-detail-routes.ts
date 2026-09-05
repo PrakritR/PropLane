@@ -258,12 +258,39 @@ export function parseCalendarViewTab(raw: string | undefined | null): CalendarVi
 }
 
 export function calendarViewHref(basePath: string, tab: CalendarViewTabId): string {
-  if (tab === "bookings") return `${basePath}/bookings`;
+  if (tab === "bookings") return managerBookingListHref(basePath, "upcoming");
   return `${basePath}/calendar`;
 }
 
 export function bookingsHref(basePath: string): string {
-  return `${basePath}/bookings`;
+  return managerBookingListHref(basePath, "upcoming");
+}
+
+/** Manager portfolio booking list buckets (table + calendar tab). */
+export const MANAGER_BOOKING_BUCKETS = ["upcoming", "inhouse", "past", "calendar"] as const;
+export type ManagerBookingBucketId = (typeof MANAGER_BOOKING_BUCKETS)[number];
+
+export const MANAGER_BOOKING_BUCKET_LABELS: Record<ManagerBookingBucketId, string> = {
+  upcoming: "Upcoming",
+  inhouse: "In-house",
+  past: "Past",
+  calendar: "Calendar",
+};
+
+export function parseManagerBookingBucket(
+  raw: string | undefined | null,
+): ManagerBookingBucketId {
+  if (raw && (MANAGER_BOOKING_BUCKETS as readonly string[]).includes(raw)) {
+    return raw as ManagerBookingBucketId;
+  }
+  return "upcoming";
+}
+
+export function managerBookingListHref(
+  basePath: string,
+  bucket: ManagerBookingBucketId = "upcoming",
+): string {
+  return `${basePath}/bookings/${bucket}`;
 }
 
 export function portfolioToursHref(basePath: string): string {
@@ -297,6 +324,25 @@ export function managerTourDetailHref(
   tourId: string,
 ): string {
   return `${basePath}/tours/${bucket}/${encodeURIComponent(tourId)}`;
+}
+
+export function propertyTourListHref(
+  basePath: string,
+  stage: PropertyStageId,
+  propertyKey: string,
+  bucket: ManagerTourBucketId = "pending",
+): string {
+  return `${propertyDetailHref(basePath, stage, propertyKey, "tours")}/${bucket}`;
+}
+
+export function propertyTourDetailHref(
+  basePath: string,
+  stage: PropertyStageId,
+  propertyKey: string,
+  bucket: ManagerTourBucketId,
+  tourId: string,
+): string {
+  return `${propertyTourListHref(basePath, stage, propertyKey, bucket)}/${encodeURIComponent(tourId)}`;
 }
 
 export const MANAGER_TASK_LIST_TABS = ["in-progress", "overdue", "completed"] as const;

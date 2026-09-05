@@ -43,6 +43,7 @@ import {
   loadManagerAllServicesPanel,
   loadManagerTaskList,
   loadManagerTours,
+  loadManagerBookings,
   loadManagerApplications,
   loadManagerBackgroundChecks,
   loadManagerDocumentsPanel,
@@ -401,12 +402,6 @@ export async function renderPortalSection(
   }
 
 
-  if ((kind === "manager" || kind === "pro") && section === "bookings") {
-    if (tabParts?.length) notFound();
-    const PortalCalendar = await loadPortalCalendar();
-    return <PortalCalendar portal="manager" calendarView="bookings" bookingsPage />;
-  }
-
   if ((kind === "manager" || kind === "pro") && section === "calendar") {
     const { parseCalendarViewTab } = await import("@/lib/portal-detail-routes");
     if (!tabParts?.length) {
@@ -415,7 +410,7 @@ export async function renderPortalSection(
     }
     const viewRaw = tabParts[0]!;
     if (viewRaw === "bookings") {
-      redirect(`${def.basePath}/bookings`);
+      redirect(`${def.basePath}/bookings/upcoming`);
     }
     if (viewRaw === "availability") {
       redirect(`${def.basePath}/calendar`);
@@ -992,25 +987,48 @@ export async function renderPortalSection(
       if (stageRaw !== stage) {
         redirect(`${def.basePath}/properties/${stage}`);
       }
-      if (tabParts.length > 4) notFound();
+      if (tabParts.length > 5) notFound();
       const propertyKey = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
       const propertyDetailTabRaw = tabParts.length >= 3 ? tabParts[2]! : undefined;
       if (propertyKey && propertyDetailTabRaw === "calendar") {
         redirect(
-          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/tours`,
+          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/tours/pending`,
         );
       }
       if (propertyDetailTabRaw === "tour-calendar" && propertyKey) {
         redirect(
-          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/tours`,
+          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/tours/pending`,
         );
       }
       if (propertyDetailTabRaw === "booking-calendars" && propertyKey) {
         redirect(
-          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/tours`,
+          `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/tours/pending`,
         );
       }
-      const { parsePropertyDetailTab } = await import("@/lib/portal-detail-routes");
+      const {
+        parsePropertyDetailTab,
+        parseManagerTourBucket,
+        MANAGER_TOUR_BUCKETS,
+      } = await import("@/lib/portal-detail-routes");
+      let propertyTourBucket: import("@/lib/portal-detail-routes").ManagerTourBucketId | undefined;
+      let propertyTourId: string | undefined;
+      if (propertyKey && propertyDetailTabRaw === "tours") {
+        if (tabParts.length === 3) {
+          redirect(
+            `${def.basePath}/properties/${stage}/${encodeURIComponent(propertyKey)}/tours/pending`,
+          );
+        }
+        const bucketRaw = tabParts[3]!;
+        if (!MANAGER_TOUR_BUCKETS.includes(bucketRaw as (typeof MANAGER_TOUR_BUCKETS)[number])) {
+          notFound();
+        }
+        propertyTourBucket = parseManagerTourBucket(bucketRaw);
+        if (tabParts.length === 5) {
+          propertyTourId = decodeURIComponent(tabParts[4]!);
+        } else if (tabParts.length > 4) {
+          notFound();
+        }
+      }
       const propertyDetailTab = propertyDetailTabRaw
         ? parsePropertyDetailTab(propertyDetailTabRaw)
         : undefined;
@@ -1021,6 +1039,8 @@ export async function renderPortalSection(
           basePath={def.basePath}
           propertyKey={propertyKey}
           detailTab={propertyDetailTab as import("@/lib/portal-detail-routes").PropertyDetailTabId | undefined}
+          propertyTourBucket={propertyTourBucket}
+          propertyTourId={propertyTourId}
         />,
         kind,
         "properties",
@@ -1047,6 +1067,28 @@ export async function renderPortalSection(
         <ManagerPromotion basePath={def.basePath} />,
         kind,
         "promotion",
+        managerOwnerSubscriptionTier,
+      );
+    }
+
+    if (section === "bookings") {
+      const { MANAGER_BOOKING_BUCKETS, parseManagerBookingBucket } = await import(
+        "@/lib/portal-detail-routes"
+      );
+      if (!tabParts?.length) {
+        redirect(`${def.basePath}/bookings/upcoming`);
+      }
+      const segmentRaw = tabParts[0]!;
+      if (!MANAGER_BOOKING_BUCKETS.includes(segmentRaw as (typeof MANAGER_BOOKING_BUCKETS)[number])) {
+        notFound();
+      }
+      if (tabParts.length > 1) notFound();
+      const bucket = parseManagerBookingBucket(segmentRaw);
+      const ManagerBookings = await loadManagerBookings();
+      return subscriptionGated(
+        <ManagerBookings bucket={bucket} basePath={def.basePath} />,
+        kind,
+        "bookings",
         managerOwnerSubscriptionTier,
       );
     }

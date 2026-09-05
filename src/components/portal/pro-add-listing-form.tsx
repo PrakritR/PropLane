@@ -1471,6 +1471,7 @@ export function ManagerAddListingForm({
     managerSkuTier,
     paymentWaiverGranted,
   );
+  const showProcessingFeeWaiveCode = serviceFeePayerUi === "proplane";
 
   useEffect(() => {
     if (isDemoModeActive()) return;
@@ -1710,6 +1711,9 @@ export function ManagerAddListingForm({
   const autosaveDirtyRef = useRef(false);
   const persistDraftRef = useRef<
     (opts?: { silent?: boolean; closeAfter?: boolean }) => Promise<boolean>
+  >(() => Promise.resolve(false));
+  const persistEditListingRef = useRef<
+    (opts?: { advanceOnSuccess?: boolean; closeAfter?: boolean; silent?: boolean }) => Promise<boolean>
   >(() => Promise.resolve(false));
   const wizardSteps = useMemo(() => listingWizardStepIndices(wizardScope), [wizardScope]);
   const lastStepIndex = wizardSteps[wizardSteps.length - 1] ?? LISTING_STEP_COUNT - 1;
@@ -2010,7 +2014,11 @@ export function ManagerAddListingForm({
       return;
     }
     setStepFieldErrors({});
-    if (!isEditMode && !isPreviewWizard) {
+    if (isEditMode) {
+      void persistEditListingRef.current({ advanceOnSuccess: true });
+      return;
+    }
+    if (!isPreviewWizard) {
       void persistDraftRef.current({ silent: true }).then((ok) => {
         if (ok) advanceFromCurrentStep();
       });
@@ -2729,6 +2737,110 @@ export function ManagerAddListingForm({
    */
   const draftAutoSaveEligible = !isEditMode && !isPreviewWizard;
 
+  const buildSubmissionPayload = useCallback((): ManagerListingSubmissionV1 => {
+    const submission = ensureSubmissionListingFees({
+      ...sub,
+      serviceRequestOptions: serviceOffers,
+      customApplicationFields: finalizeCustomApplicationFields(sub.customApplicationFields),
+      disabledStandardApplicationKeys: sub.disabledStandardApplicationKeys ?? [],
+      applicationConfigMode:
+        (sub.disabledStandardApplicationKeys?.length ?? 0) > 0 ||
+        (sub.customApplicationFields?.length ?? 0) > 0
+          ? "custom"
+          : "standard",
+      rooms: sub.rooms.map((room) => ({
+        ...room,
+        roomAmenitiesText: sanitizeRoomAmenityText(room.roomAmenitiesText),
+      })),
+    });
+    submission.sharedSpaces = submission.sharedSpaces.filter((space) => space.name.trim());
+    submission.rooms = submission.rooms.map((room, i) => ({
+      ...room,
+      name: room.name.trim() || `Room ${i + 1}`,
+    }));
+    submission.bathrooms = submission.bathrooms.map((bath, i) => ({
+      ...bath,
+      name: bath.name.trim() || emptyBathroom(i).name,
+    }));
+    return normalizeManagerListingSubmissionV1(submission);
+  }, [sub, serviceOffers]);
+
+  const persistEditListing = useCallback(
+    async (opts?: { advanceOnSuccess?: boolean; closeAfter?: boolean; silent?: boolean }): Promise<boolean> => {
+      if (!isEditMode || busy || closingDraft) return false;
+      if (!authReady || !userId) {
+        if (!opts?.silent) showToast("Sign in to save changes.");
+        return false;
+      }
+
+      const stepPos = wizardSteps.indexOf(stepIndex);
+      const advancingToReview = stepPos >= 0 && stepPos === wizardSteps.length - 2;
+      const shouldToast = !opts?.silent && (advancingToReview || opts?.closeAfter);
+
+      setBusy(true);
+      try {
+        const uploaded = await uploadSubmissionMedia(buildSubmissionPayload());
+        if (uploaded.failedCount > 0) {
+          if (!opts?.silent) showToast("Could not upload photos. Check your connection and try again.");
+          return false;
+        }
+        const uploadedSubmission = uploaded.submission;
+        let ok = false;
+        if (editPendingId) {
+          ok = await updatePendingManagerPropertyOnServer(editPendingId, uploadedSubmission, userId);
+        } else if (editRequestChangeId) {
+          ok = updateRequestChangeProperty(editRequestChangeId, userId, uploadedSubmission);
+        } else if (editListingId) {
+          const saveUserId = editListingOwnerUserId?.trim() || userId;
+          ok = await updateExtraListingFromSubmissionOnServer(editListingId, saveUserId, uploadedSubmission);
+        }
+        if (!ok) {
+          if (!opts?.silent) showToast("Could not save changes.");
+          return false;
+        }
+
+        const fingerprint = listingSubmissionFingerprint({
+          ...uploadedSubmission,
+          serviceRequestOptions: serviceOffers,
+        });
+        baselineFingerprintRef.current = fingerprint;
+
+        if (shouldToast) showToast("Changes saved.");
+        if (opts?.advanceOnSuccess) advanceFromCurrentStep();
+        if (opts?.closeAfter) onClose();
+        return true;
+      } catch (err) {
+        console.error("manager-add-listing-form: persistEditListing failed", err);
+        if (!opts?.silent) showToast("Could not save changes.");
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [
+      advanceFromCurrentStep,
+      authReady,
+      buildSubmissionPayload,
+      busy,
+      closingDraft,
+      editListingId,
+      editListingOwnerUserId,
+      editPendingId,
+      editRequestChangeId,
+      isEditMode,
+      onClose,
+      serviceOffers,
+      showToast,
+      stepIndex,
+      userId,
+      wizardSteps,
+    ],
+  );
+
+  useEffect(() => {
+    persistEditListingRef.current = persistEditListing;
+  }, [persistEditListing]);
+
   /**
    * Closing also saves: persist whatever the manager has entered as a draft,
    * then close. Background autosave runs while the wizard stays open; close
@@ -2736,6 +2848,14 @@ export function ManagerAddListingForm({
    */
   const closeWizard = () => {
     if (!draftAutoSaveEligible) {
+      const current = ensureSubmissionListingFees({ ...sub, serviceRequestOptions: serviceOffers });
+      if (
+        isEditMode &&
+        listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")
+      ) {
+        void persistEditListingRef.current({ closeAfter: true, silent: true });
+        return;
+      }
       onClose();
       return;
     }
@@ -2983,30 +3103,7 @@ export function ManagerAddListingForm({
       return;
     }
 
-    const submission: ManagerListingSubmissionV1 = ensureSubmissionListingFees({
-      ...sub,
-      serviceRequestOptions: serviceOffers,
-      customApplicationFields: finalizeCustomApplicationFields(sub.customApplicationFields),
-      disabledStandardApplicationKeys: sub.disabledStandardApplicationKeys ?? [],
-      applicationConfigMode:
-        (sub.disabledStandardApplicationKeys?.length ?? 0) > 0 ||
-        (sub.customApplicationFields?.length ?? 0) > 0
-          ? "custom"
-          : "standard",
-      rooms: sub.rooms.map((room) => ({
-        ...room,
-        roomAmenitiesText: sanitizeRoomAmenityText(room.roomAmenitiesText),
-      })),
-    });
-    submission.sharedSpaces = submission.sharedSpaces.filter((space) => space.name.trim());
-    submission.rooms = submission.rooms.map((room, i) => ({
-      ...room,
-      name: room.name.trim() || `Room ${i + 1}`,
-    }));
-    submission.bathrooms = submission.bathrooms.map((bath, i) => ({
-      ...bath,
-      name: bath.name.trim() || emptyBathroom(i).name,
-    }));
+    const submission = buildSubmissionPayload();
     // ONE predicate with the Pricing step. Submit used to demand
     // `monthlyRent > 0` while Pricing accepted a daily rate too, so a manager
     // who priced every room daily — the correct setup for the short-term
@@ -4348,63 +4445,61 @@ export function ManagerAddListingForm({
                   </GridField>
                   <GridField>
                     <FieldLabel>Processing fee paid by</FieldLabel>
-                    <div className="flex w-full flex-col gap-2">
-                      <div
-                        className={
-                          proplaneAbsorbNeedsWaiverCode
-                            ? "flex flex-col gap-2 sm:flex-row sm:items-center"
-                            : "w-full"
+                    <Select
+                      value={serviceFeePayerUi}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        const next: ServiceFeePayer =
+                          raw === "proplane" || raw === "manager" || raw === "resident" ? raw : "resident";
+                        if (next === "manager" && !canSelectManagerAbsorbFee) return;
+                        setSub((s) => ({
+                          ...s,
+                          serviceFeePayer: next,
+                          serviceFeeWaiverCode: next === "proplane" ? s.serviceFeeWaiverCode : undefined,
+                        }));
+                      }}
+                    >
+                      <option value="resident">Resident pays</option>
+                      <option value="manager" disabled={!canSelectManagerAbsorbFee}>
+                        Manager pays{canSelectManagerAbsorbFee ? "" : " (needs paid plan)"}
+                      </option>
+                      <option value="proplane">PropLane absorbs</option>
+                    </Select>
+                  </GridField>
+                  {showProcessingFeeWaiveCode ? (
+                    <div className="space-y-2 sm:col-span-2">
+                      <FieldLabel optional={!proplaneAbsorbNeedsWaiverCode}>Processing fee waive code</FieldLabel>
+                      <Input
+                        value={sub.serviceFeeWaiverCode ?? ""}
+                        onChange={(e) =>
+                          setSub((s) => ({
+                            ...s,
+                            serviceFeePayer: "proplane",
+                            serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value),
+                          }))
                         }
-                      >
-                        <Select
-                          className={proplaneAbsorbNeedsWaiverCode ? "min-w-0 sm:flex-1" : undefined}
-                          value={serviceFeePayerUi}
-                          onChange={(e) => {
-                            const raw = e.target.value;
-                            const next: ServiceFeePayer =
-                              raw === "proplane" || raw === "manager" || raw === "resident" ? raw : "resident";
-                            if (next === "manager" && !canSelectManagerAbsorbFee) return;
-                            setSub((s) => ({
-                              ...s,
-                              serviceFeePayer: next,
-                              serviceFeeWaiverCode: next === "proplane" ? s.serviceFeeWaiverCode : undefined,
-                            }));
-                          }}
-                        >
-                          <option value="resident">Resident pays</option>
-                          <option value="manager" disabled={!canSelectManagerAbsorbFee}>
-                            Manager pays{canSelectManagerAbsorbFee ? "" : " (needs paid plan)"}
-                          </option>
-                          <option value="proplane">PropLane absorbs</option>
-                        </Select>
-                        {proplaneAbsorbNeedsWaiverCode ? (
-                          <Input
-                            className="min-w-0 sm:flex-1"
-                            value={sub.serviceFeeWaiverCode ?? ""}
-                            onChange={(e) =>
-                              setSub((s) => ({
-                                ...s,
-                                serviceFeePayer: "proplane",
-                                serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value),
-                              }))
-                            }
-                            placeholder="FREE100"
-                            aria-label="PropLane absorb waiver code"
-                            autoComplete="off"
-                            aria-invalid={Boolean(stepFieldErrors.serviceFeeWaiverCode)}
-                            aria-describedby={
-                              stepFieldErrors.serviceFeeWaiverCode ? "listing-service-fee-waiver-error" : undefined
-                            }
-                          />
-                        ) : null}
-                      </div>
+                        placeholder="FREE100"
+                        aria-label="Processing fee waive code"
+                        autoComplete="off"
+                        data-attr="listing-service-fee-waiver-code"
+                        className="w-full font-mono uppercase sm:max-w-xs"
+                        aria-invalid={Boolean(stepFieldErrors.serviceFeeWaiverCode)}
+                        aria-describedby={
+                          stepFieldErrors.serviceFeeWaiverCode ? "listing-service-fee-waiver-error" : undefined
+                        }
+                      />
+                      {proplaneAbsorbNeedsWaiverCode ? (
+                        <p className="text-xs text-muted">
+                          Required — enter FREE100 so PropLane can absorb processing fees on this listing.
+                        </p>
+                      ) : null}
                       {stepFieldErrors.serviceFeeWaiverCode ? (
                         <p id="listing-service-fee-waiver-error" className="text-xs text-destructive">
                           {stepFieldErrors.serviceFeeWaiverCode}
                         </p>
                       ) : null}
                     </div>
-                  </GridField>
+                  ) : null}
                   <GridField>
                     <FieldLabel>Late fee grace (days)</FieldLabel>
                     <Input

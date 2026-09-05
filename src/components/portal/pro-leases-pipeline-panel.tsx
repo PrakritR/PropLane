@@ -44,6 +44,9 @@ import {
   deleteLeasePipelineRow,
   generateLeaseHtmlForRow,
   leaseAllowsManagerDocumentEdits,
+  leaseRowOpensManagerEditModal,
+  leaseRowOpensManagerViewModal,
+  leasePipelineRowHasDocument,
   managerSignLease,
   confirmUploadedLeaseParse,
   leaseNeedsUploadedLeaseReviewAction,
@@ -251,7 +254,7 @@ export function ManagerLeasesPipelinePanel({
   const sendGateBlockerForRender = (row: LeasePipelineRow) =>
     leaseSendGateBlockerAmong(row, (renderPassApplicationRows ??= readManagerApplicationRows()));
 
-  const hasLeaseDocument = (row: LeasePipelineRow) => Boolean(row.generatedHtml || row.managerUploadedPdf?.dataUrl);
+  const hasLeaseDocument = leasePipelineRowHasDocument;
   void refreshKey;
   const bucketRows = useMemo(() => rows.filter((r) => leaseRowMatchesManagerTab(r, tab)), [rows, tab]);
 
@@ -593,7 +596,6 @@ export function ManagerLeasesPipelinePanel({
 
   const renderLeaseDetailFooterActions = (row: LeasePipelineRow) => {
     const canEditDocument = leaseAllowsManagerDocumentEdits(row);
-    const canEditGeneratedBody = leaseRowAllowsGeneratedBodyEdit(row);
     const showGenerate = canEditDocument;
     const hasDocument = hasLeaseDocument(row);
     const sendBlockedReason = !residentAccountEmails.has(row.residentEmail.trim().toLowerCase())
@@ -612,8 +614,8 @@ export function ManagerLeasesPipelinePanel({
     const reviewImportLabel = importNeedsReview ? "Review import" : "Imported lease";
     const actionBtnClass = RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN;
 
-    const showEditButton =
-      canEditDocument || hasDocument || showGenerate || canEditGeneratedBody || showReviewImport;
+    const showEditButton = leaseRowOpensManagerEditModal(row);
+    const editActionLabel = "Edit";
 
     const actions: PortalFooterFitAction[] = [];
 
@@ -680,12 +682,12 @@ export function ManagerLeasesPipelinePanel({
             data-attr="lease-edit"
             onClick={() => setEditLeaseRowId(row.id)}
           >
-            Edit
+            {editActionLabel}
           </Button>
         ),
         menuItem: (
           <DropdownMenuItem data-attr="lease-edit" onSelect={() => setEditLeaseRowId(row.id)}>
-            Edit
+            {editActionLabel}
           </DropdownMenuItem>
         ),
       });
@@ -925,7 +927,7 @@ export function ManagerLeasesPipelinePanel({
           leaseSentPreview ? leaseLandlordNameWarning(leaseSentPreview.row) ?? undefined : undefined
         }
         warningLead={null}
-        footerNote="The lease will be released to the resident portal after you confirm. This message is delivered to PropLane inbox and email."
+        hideSendViaFooterNote
         confirmLabel="Send lease & notification"
         confirmLabelWithoutMessage="Send lease only"
         confirmBusy={Boolean(leaseSentPreview && sendingToResidentRowId === leaseSentPreview.row.id)}
@@ -1147,19 +1149,23 @@ export function ManagerLeasesPipelinePanel({
         bulkActions={
           selectedLeaseRows.length > 0 ? (
             <>
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="leases-bulk-edit"
-                disabled={!singleSelectedLeaseRow}
-                onClick={() => {
-                  if (!singleSelectedLeaseRow) return;
-                  setEditLeaseRowId(singleSelectedLeaseRow.id);
-                }}
-              >
-                Edit
-              </Button>
+              {singleSelectedLeaseRow &&
+              (leaseRowOpensManagerEditModal(singleSelectedLeaseRow) ||
+                leaseRowOpensManagerViewModal(singleSelectedLeaseRow)) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr={
+                    leaseRowOpensManagerViewModal(singleSelectedLeaseRow)
+                      ? "leases-bulk-view"
+                      : "leases-bulk-edit"
+                  }
+                  onClick={() => setEditLeaseRowId(singleSelectedLeaseRow.id)}
+                >
+                  {leaseRowOpensManagerViewModal(singleSelectedLeaseRow) ? "View" : "Edit"}
+                </Button>
+              ) : null}
               {showBulkSendButton ? (
                 <Button
                   type="button"
