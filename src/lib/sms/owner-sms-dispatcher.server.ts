@@ -14,6 +14,11 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { sendSms } from "@/lib/twilio";
 import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
+import {
+  evaluateManagerCommsBillingGate,
+} from "@/lib/comms-billing/eligibility.server";
+import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
+import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
 
 type RuntimeRow = {
   mode: string;
@@ -129,7 +134,12 @@ async function loadSendPolicy(
   }
 
   const entitlement = await getStoredManagerSmsEntitlement(db, ownerId);
-  if (!entitlement.eligible) return { allowed: false, reason: `entitlement_${entitlement.reason}` };
+  if (isCommsPaygBillingEnabled()) {
+    const billing = await evaluateManagerCommsBillingGate(db, ownerId);
+    if (!billing.allowed) return { allowed: false, reason: `comms_billing_${billing.reason}` };
+  } else if (!entitlement.eligible) {
+    return { allowed: false, reason: `entitlement_${entitlement.reason}` };
+  }
 
   const suppression = await readSmsSuppressionState(db, recipient, { userId: input.recipientUserId });
   if (!suppression.ok) return { allowed: false, reason: suppression.error };
@@ -531,6 +541,15 @@ export async function dispatchOwnerSmsOutbox(
       source: row.send_class === "automated" ? "automated" : "work_number",
       counterpartyRole: row.counterparty_role ?? undefined,
     });
+    if (isCommsPaygBillingEnabled()) {
+      await recordManagerCommsUsage(db, {
+        managerUserId: row.manager_user_id,
+        meter: "sms_outbound_segment",
+        quantity: row.segment_count,
+        idempotencyKey: `sms_outbound:${row.id}`,
+        metadata: { outboxId: row.id, messageSid: sent.sid },
+      });
+    }
     if (submitPersistError || !submittedRow) {
       // The provider accepted the message. Never resend. If the attempt SID was
       // saved, a callback can still correlate it through the atomic RPC.

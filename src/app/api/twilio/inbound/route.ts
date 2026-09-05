@@ -31,6 +31,10 @@ import {
   type SmsInboundReplay,
 } from "@/lib/sms/inbound-replay.server";
 import { upsertManagerSmsContact } from "@/lib/sms/manager-sms-contacts.server";
+import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
+import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
+import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
+import { estimateSmsSegments } from "@/lib/sms/number-registration-policy";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -226,7 +230,6 @@ export async function POST(req: Request) {
     }
   }
 
-  // Manager is whoever owns the work number that was texted.
   const managerId = ownedNumber?.managerId ?? "";
   if (!managerId) {
     if (!rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000).ok) {
@@ -243,6 +246,15 @@ export async function POST(req: Request) {
       })
       .then(() => undefined, () => undefined);
     return twimlOk();
+  }
+
+  if (isCommsPaygBillingEnabled()) {
+    const billing = await evaluateManagerCommsBillingGate(db, managerId);
+    if (!billing.allowed) {
+      return twimlOk(
+        "This number cannot receive messages right now. Please contact your property manager directly.",
+      );
+    }
   }
 
   if (!messageSid) {
@@ -288,6 +300,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Inbound processing is still pending." }, { status: 503 });
     }
     return twimlOk();
+  }
+
+  if (isCommsPaygBillingEnabled()) {
+    const inboundSegments = estimateSmsSegments(body).segmentCount;
+    await recordManagerCommsUsage(db, {
+      managerUserId: managerId,
+      meter: "sms_inbound_segment",
+      quantity: inboundSegments,
+      idempotencyKey: `sms_inbound:${messageSid}`,
+      metadata: { messageSid },
+    });
   }
 
   const replay = await loadInboundReplay(db, messageSid);

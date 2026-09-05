@@ -12,6 +12,12 @@ import {
   voiceCallLogIdentity,
   type VoiceCallRoute,
 } from "@/lib/voice/voice-call-routing.server";
+import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
+import {
+  recordCommsAgentTurnUsage,
+  recordVoiceSpeechGatherUsage,
+} from "@/lib/comms-billing/agent-usage.server";
+import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
 
 const FALLBACK_REPLY =
   "Sorry, I could not process that right now. Please try again or text this number instead.";
@@ -47,6 +53,11 @@ export async function runVoiceCallTurnFromSpeech(args: {
     toPhone: args.toPhone,
   });
   if (!resolved.ok) return null;
+
+  if (isCommsPaygBillingEnabled()) {
+    const billing = await evaluateManagerCommsBillingGate(args.db, resolved.managerId);
+    if (!billing.allowed) return null;
+  }
 
   const { managerId, route } = resolved;
   await touchSmsContact(args.db, { managerId, fromPhone: args.fromPhone, route });
@@ -94,6 +105,19 @@ export async function runVoiceCallTurnFromSpeech(args: {
   }
 
   if (!reply) return null;
+
+  const turnKey = `${Date.now()}:${speech.slice(0, 32)}`;
+  await recordVoiceSpeechGatherUsage(args.db, {
+    managerUserId: managerId,
+    callSid,
+    turnKey,
+  });
+  await recordCommsAgentTurnUsage(args.db, {
+    managerUserId: managerId,
+    idempotencyKey: `ai_voice:${callSid}:${turnKey}`,
+    channel: "voice",
+    metadata: { callSid },
+  });
 
   await logVoiceCallTurnNotes(args.db, {
     ...logIdentity,

@@ -27,6 +27,8 @@ import {
   normalizeSmsRuntimeMode,
   smsRuntimeAllowsManager,
 } from "@/lib/sms/number-registration-policy";
+import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
+import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
 
 export const runtime = "nodejs";
 
@@ -167,6 +169,13 @@ async function buildStatus(
     managerIsAllowlisted,
   });
 
+  const paygBilling = isCommsPaygBillingEnabled()
+    ? await evaluateManagerCommsBillingGate(db, userId)
+    : null;
+  const commsBillingAllowed = paygBilling ? paygBilling.allowed : entitlement.eligible;
+  const canRequestBilling =
+    paygBilling != null ? paygBilling.allowed : entitlementCanBeReconciled;
+
   return {
     mode,
     workspaceRole: pureCoManager ? "co_manager" : "primary",
@@ -179,12 +188,12 @@ async function buildStatus(
     // manager: POST performs the authoritative Stripe/Apple reconciliation.
     requestedAtSignup: automationSettings?.workNumberRequestedAtSignup === true,
     canRequest:
-      entitlementCanBeReconciled &&
+      canRequestBilling &&
       provisioningEnvEnabled &&
       modeAllowsManager &&
       requestableState,
     canSend:
-      entitlement.eligible &&
+      commsBillingAllowed &&
       sendEnvEnabled &&
       modeAllowsManager &&
       strictNumberReady,

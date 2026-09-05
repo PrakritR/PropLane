@@ -42,6 +42,7 @@ import {
   supersedeOpenSmsProposals,
   SMS_PENDING_ACTION_TTL_MS,
 } from "@/lib/sms/agent-confirmation.server";
+import { recordCommsAgentTurnUsage } from "@/lib/comms-billing/agent-usage.server";
 
 type Db = SupabaseClient;
 
@@ -50,6 +51,21 @@ const HISTORY_LIMIT = 24;
 const MAX_INBOUND_PER_HOUR = 30;
 /** Texts are read on a phone; keep replies inside a couple of segments. */
 const DEFAULT_MAX_REPLY_CHARS = 1200;
+
+async function billSmsAgentTurn(
+  db: Db,
+  landlordId: string,
+  sessionId: string,
+  assistantMessageId: string | null,
+): Promise<void> {
+  if (!assistantMessageId) return;
+  await recordCommsAgentTurnUsage(db, {
+    managerUserId: landlordId,
+    idempotencyKey: `ai_sms:${sessionId}:${assistantMessageId}`,
+    channel: "sms",
+    metadata: { sessionId, assistantMessageId },
+  });
+}
 
 export type SmsAgentSessionRow = {
   id: string;
@@ -255,6 +271,7 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
       ? "No problem, I have cancelled that. Anything else?"
       : "I could not cancel that just now. Please try again.";
     const assistantMessageId = await recordAssistantReply(db, session, reply);
+    await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId);
     return { reply, sessionId: session.id, assistantMessageId, pendingActionId: open.actionId };
   }
 
@@ -274,6 +291,7 @@ async function handleConfirmationReply<Ctx extends SmsAgentActor>(
     ? [executed.reply, executed.checkoutUrl].filter(Boolean).join("\n\n").slice(0, args.maxReplyChars)
     : executed.error;
   const assistantMessageId = await recordAssistantReply(db, session, reply);
+  await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId);
   return { reply, sessionId: session.id, assistantMessageId, pendingActionId: open.actionId };
 }
 
@@ -374,6 +392,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
   if (precomputedReply) {
     const assistantMessageId = await recordAssistantReply(db, session, precomputedReply, [], null);
     track(surface.analytics.messageOut, ctx.userId, { channel: messageChannel, tools: 0 });
+    await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId);
     return { reply: precomputedReply, sessionId: session.id, inboundMessageId, assistantMessageId };
   }
 
@@ -467,6 +486,7 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
       channel: messageChannel,
       tool: result.pendingAction.toolName,
     });
+    await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId);
     return {
       reply,
       sessionId: session.id,
@@ -485,5 +505,6 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     channel: messageChannel,
     tools: result.toolTrace.length,
   });
+  await billSmsAgentTurn(db, ctx.landlordId, session.id, assistantMessageId);
   return { reply, sessionId: session.id, inboundMessageId, assistantMessageId, traceId };
 }

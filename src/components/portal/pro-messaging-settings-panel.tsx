@@ -25,6 +25,7 @@ import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { buildManagerInboxLiveContacts } from "@/lib/manager-inbox-contacts";
 import { ManagerMessagingOutboundDefaults } from "@/components/portal/pro-messaging-outbound-defaults";
+import { ManagerCommsBillingPanel } from "@/components/portal/manager-comms-billing-panel";
 import { ManagerSmsWorkNumberHint } from "@/components/portal/pro-sms-work-number-hint";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
 import {
@@ -111,7 +112,7 @@ function messagingUpsellMessage(
   status: ManagerMessagingNumberStatus,
 ): string | null {
   if (status.planTier === "free") {
-    return "A dedicated number is included with an active paid Pro or Business plan.";
+    return "Upgrade to Pro or Business, then add a payment method for pay-as-you-go texting and voice.";
   }
   if (status.entitlement.eligible) return null;
   switch (status.entitlement.reason) {
@@ -525,6 +526,7 @@ export function ManagerMessagingSettingsPanel({
       workNumber={phoneNumber}
       canSendSms={status.canSend}
     />
+    <ManagerCommsBillingPanel />
     <PortalSettingsSection
       title="Work number"
       description={

@@ -12,6 +12,8 @@ import {
   validateTwilioVoiceWebhook,
 } from "@/lib/twilio-voice.server";
 import { logVoiceCallStarted } from "@/lib/voice/log-voice-call-notes.server";
+import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
+import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
 import {
   MANAGER_VOICE_UNCONFIGURED_PROMPT,
   resolveVoiceCallRoute,
@@ -49,6 +51,15 @@ export async function POST(req: Request) {
   const resolved = await resolveVoiceCallRoute(db, { fromPhone, toPhone });
   if (!resolved.ok) {
     return twimlResponse(twimlSay(MANAGER_VOICE_UNCONFIGURED_PROMPT) + twimlHangup());
+  }
+
+  if (isCommsPaygBillingEnabled()) {
+    const billing = await evaluateManagerCommsBillingGate(db, resolved.managerId);
+    if (!billing.allowed) {
+      return twimlResponse(
+        twimlSay("This number cannot take calls right now. Please try again later.") + twimlHangup(),
+      );
+    }
   }
 
   if (isVoiceRecordingEnabled()) {
