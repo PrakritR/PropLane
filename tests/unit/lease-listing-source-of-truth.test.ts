@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildLeaseHtml } from "@/lib/lease-templates/build-lease-html";
-import { SEATTLE_LEASE_CONFIG, CALIFORNIA_LEASE_CONFIG } from "@/lib/lease-templates/types";
+import { SEATTLE_LEASE_CONFIG, CALIFORNIA_LEASE_CONFIG, type LeaseJurisdictionTemplateConfig } from "@/lib/lease-templates/types";
 import { createDefaultListingSubmission, emptyRoom, normalizeManagerListingSubmissionV1, type PaymentAtSigningOptionId } from "@/lib/manager-listing-submission";
 import { applyListingFeesToSubmission, applyPaymentAtSigningSelection } from "@/lib/listing-fees";
 import type { LeaseGenerationContext } from "@/lib/generated-lease";
@@ -14,6 +14,12 @@ function context(): LeaseGenerationContext {
     landlordLegalName: "Test Manager",
     generatedAtIso: "2026-08-01T00:00:00.000Z",
   };
+}
+
+// Jurisdiction configs carry no fee defaults any more. Passing extra numeric values proves the
+// document reads none of them, even if a future config re-grows one.
+function withExtraConfigValues(extras: Record<string, number>): LeaseJurisdictionTemplateConfig {
+  return { ...SEATTLE_LEASE_CONFIG, ...extras } as LeaseJurisdictionTemplateConfig;
 }
 
 const options: PaymentAtSigningOptionId[] = ["security_deposit", "move_in_fee", "first_month_rent", "first_month_utilities"];
@@ -52,6 +58,49 @@ describe("lease listing and application source of truth", () => {
     if (mask & 8) expect(html).toContain("<strong>$200.00</strong> first month&apos;s utilities");
   });
 
+  describe("first-period signing totals in direct generation (no ledger snapshot)", () => {
+    const usd = (n: number) => `$${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
+    const proratedContext = (includes: PaymentAtSigningOptionId[] = options) => {
+      const ctx = context();
+      ctx.application = { ...ctx.application, leaseStart: "2026-09-22", leaseEnd: "2027-09-21" };
+      ctx.submission = normalizeManagerListingSubmissionV1({ ...ctx.submission!, paymentAtSigningIncludes: includes });
+      return ctx;
+    };
+
+    it("charges the prorated first period, not a full month, in the compact document", () => {
+      const html = buildLeaseHtml(proratedContext(), SEATTLE_LEASE_CONFIG);
+      expect(html).toContain("<strong>Payment Due at Signing:</strong> $857.50");
+      expect(html).not.toContain("<strong>Payment Due at Signing:</strong> $1,575.00");
+      expect(html).toContain("$247.50");
+      expect(html).toContain("$60.00");
+    });
+
+    it("charges the prorated first period in the full document too", () => {
+      const html = buildLeaseHtml(proratedContext(), CALIFORNIA_LEASE_CONFIG);
+      expect(html).toContain("Total due at signing");
+      expect(html).toContain("<strong>$857.50</strong>");
+      expect(html).not.toContain("<strong>$1,575.00</strong>");
+    });
+
+    it("prices a daily-basis first period by its actual billable days", () => {
+      const ctx = proratedContext();
+      ctx.submission!.rooms[0] = { ...ctx.submission!.rooms[0]!, rentBasis: "daily", dailyRentPrice: 55 };
+      ctx.submission = normalizeManagerListingSubmissionV1(ctx.submission!);
+      const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
+      // 9 billable days x $55 + $60 prorated utilities + $400 deposit + $150 move-in.
+      expect(html).toContain("<strong>$1,105.00</strong>");
+      expect(html).not.toContain("<strong>$665.00</strong>");
+    });
+
+    it.each(Array.from({ length: 16 }, (_, mask) => mask))("honors signing selection %i on a prorated start", (mask) => {
+      const ctx = proratedContext(options.filter((_, i) => mask & (1 << i)));
+      const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
+      const firstPeriod = [400, 150, 247.5, 60];
+      const total = firstPeriod.reduce((sum, amount, i) => sum + ((mask & (1 << i)) ? amount : 0), 0);
+      expect(html).toContain(`<strong>Payment Due at Signing:</strong> ${usd(total)}`);
+    });
+  });
+
   it("keeps every checkbox cleared across normalization and fee edits", () => {
     let sub = normalizeManagerListingSubmissionV1(context().submission!);
     for (const option of options) sub = applyPaymentAtSigningSelection(sub, option, false);
@@ -73,7 +122,7 @@ describe("lease listing and application source of truth", () => {
   it.each([undefined, "", "0"])("does not replace an unset or zero late fee (%s) with a jurisdiction fee", (lateFeeAmount) => {
     const ctx = context();
     ctx.submission!.lateFeeAmount = lateFeeAmount;
-    expect(buildLeaseHtml(ctx, { ...SEATTLE_LEASE_CONFIG, defaultLateFeeUsd: 75 })).not.toContain("<strong>Late fee:</strong>");
+    expect(buildLeaseHtml(ctx, withExtraConfigValues({ defaultLateFeeUsd: 75 }))).not.toContain("<strong>Late fee:</strong>");
   });
 
   it("honors disabling automatic late fees even when the amount is saved", () => {
@@ -92,7 +141,7 @@ describe("lease listing and application source of truth", () => {
   });
 
   it("omits template-only commercial terms when absent from the listing", () => {
-    const html = buildLeaseHtml(context(), { ...SEATTLE_LEASE_CONFIG, defaultLongTermBreakLeaseFeeUsd: 900, defaultLongTermHoldoverDailyUsd: 45, defaultLongTermLeaseUpFeePercent: 100 });
+    const html = buildLeaseHtml(context(), withExtraConfigValues({ defaultLongTermBreakLeaseFeeUsd: 900, defaultLongTermHoldoverDailyUsd: 45, defaultLongTermLeaseUpFeePercent: 100 }));
     expect(html).not.toContain("$900.00");
     expect(html).not.toContain("$45.00 per day");
     expect(html).not.toContain("$50</strong>");

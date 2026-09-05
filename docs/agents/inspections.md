@@ -4,7 +4,7 @@ The same inspection record appears in three places:
 
 - Manager sidebar: `/portal/inspections/move-in` and `/portal/inspections/move-out`; append a report UUID to open a saved report directly.
 - Manager resident detail: `/portal/residents/current/{applicationId}/inspections` (also under `past`).
-- Resident House details: `/resident/move-in/instructions`, with a dedicated `/resident/move-in/inspections` tab.
+- Resident House details: the dedicated `/resident/move-in/inspections` tab is the only workspace; `/resident/move-in/instructions` links to it rather than rendering a second copy of the panel.
 
 `InspectionsPanel` and `InspectionEditor` compose the existing portal list, row, command bar, modal, collapsible section, and button primitives. The 15-area template follows the supplied inspection form: bedroom, bathroom, kitchen, shared rooms, entry, stairs, laundry, systems, exterior, parking, safety, and keys. Photos in the reference PDF are not imported into anyone's residency.
 

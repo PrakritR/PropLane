@@ -29,9 +29,9 @@ function inspectionTools<Ctx extends AgentContext | ResidentAgentContext>(actorF
   const create = defineWriteTool({
     name: "create_inspection", description: "Start a move-in or move-out inspection for an approved residency. Get applicationId from list_inspections. This creates a blank checklist; it does not infer condition or import photos.", inputSchema: createInspectionSchema,
     preview: async (ctx: Ctx, input) => {
-      const { row, baseline } = await prepareInspection(actorFor(ctx), input);
+      const { residency, baseline } = await prepareInspection(actorFor(ctx), input);
       return { kind: "create_inspection", title: "Create inspection", confirmLabel: "Create inspection", fields: [
-        { label: "Resident", value: row.name || "Resident" }, { label: "Property", value: row.property || "Property" },
+        { label: "Resident", value: residency.name }, { label: "Property", value: residency.propertyLabel },
         { label: "Type", value: input.kind }, { label: "Date", value: input.inspectionDate },
         { label: "Move-in baseline", value: baseline?.inspection_date ?? "None" },
       ] };

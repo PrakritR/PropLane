@@ -2,6 +2,7 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
   type HouseholdCharge,
   type HouseholdChargeKind,
+  isManagerAddedOneOffCharge,
   readChargesForManager,
 } from "@/lib/household-charges";
 import { collectLinkedPropertyIdsForModule } from "@/lib/manager-portfolio-access";
@@ -69,6 +70,20 @@ function chargeAmount(c: HouseholdCharge): number {
   return parseMoneyLabel(c.balanceLabel || c.amountLabel || "0");
 }
 
+// Money that has not CLEARED is still owed. A clearing ACH ("processing"), a part payment
+// and a failed attempt all leave a real balance on the row; dropping them made the snapshot
+// fall back to the full contractual figure and quote the whole obligation a second time.
+const OUTSTANDING_CHARGE_STATUSES = new Set<HouseholdCharge["status"]>([
+  "pending",
+  "processing",
+  "partially_paid",
+  "failed",
+]);
+
+function chargeIsOutstanding(c: HouseholdCharge): boolean {
+  return OUTSTANDING_CHARGE_STATUSES.has(c.status);
+}
+
 function chargesForPlacement(
   residentEmail: string,
   propertyId: string,
@@ -81,7 +96,10 @@ function chargesForPlacement(
   const linked = collectLinkedPropertyIdsForModule(managerUserId, "payments");
   return readChargesForManager(managerUserId, { linkedPropertyIds: linked }).filter(
     (c) =>
-      (c.status === "pending" || c.status === "paid") &&
+      (chargeIsOutstanding(c) || c.status === "paid") &&
+      // A fine, a replacement key or any other ad-hoc manager charge is not a lease term,
+      // so it never enters the signing itemization or its total.
+      !isManagerAddedOneOffCharge(c) &&
       (!applicationId || c.applicationId === applicationId) &&
       c.residentEmail.trim().toLowerCase() === email &&
       c.propertyId?.trim() === prop,
@@ -164,7 +182,7 @@ export function buildLeaseBillingSnapshot(
 ): LeaseBillingSnapshot {
   const placement = resolvePlacementValuesForRow(applicant);
   const placementCharges = chargesForPlacement(applicant.email ?? "", placement.propertyId, managerUserId, applicant.id);
-  const charges = placementCharges.filter((c) => c.status === "pending");
+  const charges = placementCharges.filter(chargeIsOutstanding);
   const listing = placement.propertyId ? getPropertyById(placement.propertyId) : undefined;
   const sub = listing?.listingSubmission?.v === 1
     ? normalizeManagerListingSubmissionV1(listing.listingSubmission) : undefined;

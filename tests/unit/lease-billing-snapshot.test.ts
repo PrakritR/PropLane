@@ -16,7 +16,9 @@ import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
 import type { MockProperty } from "@/data/types";
 import type { DemoApplicantRow } from "@/lib/manager-applications-storage";
 import {
+  applyHouseholdChargePatches,
   readHouseholdCharges,
+  seedDemoHouseholdCharges,
   setApplicantHoldingFee,
   markHouseholdChargePaid,
   recordApprovedApplicationCharges,
@@ -127,6 +129,68 @@ describe("buildLeaseBillingSnapshot", () => {
     expect(html).toContain("Already received toward the security deposit and move-in fee: <strong>$550.00</strong>");
     expect(html).toContain("No additional payment is due at signing");
     expect(html).not.toContain("Holding deposit");
+  });
+
+  it("keeps a clearing or part-paid balance owed instead of re-quoting the full obligation", () => {
+    const propertyId = "prop-clearing-balance";
+    const email = "clearing-balance@example.com";
+    removeResidentHouseholdPaymentData(email);
+    seedListing(propertyId, normalizeManagerListingSubmissionV1({
+      ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150",
+      rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
+    }));
+    const row = applicantRow(propertyId, email);
+    const holding = setApplicantHoldingFee({ residentEmail: email, residentName: row.name, residentUserId: null, propertyId, applicationId: row.id, managerUserId: MANAGER_ID, amount: 100 });
+    expect(holding.ok).toBe(true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    const charges = readHouseholdCharges().filter((c) => c.applicationId === row.id);
+    const deposit = charges.find((c) => c.kind === "security_deposit")!;
+    const moveIn = charges.find((c) => c.kind === "move_in_fee")!;
+    applyHouseholdChargePatches([
+      { ...readHouseholdCharges().find((c) => c.kind === "holding_deposit" && c.applicationId === row.id)!, status: "processing" },
+      { ...deposit, status: "processing" },
+      { ...moveIn, status: "partially_paid", balanceLabel: "$50.00", paidAmountCents: 10_000 },
+    ]);
+    const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
+    expect(billing.holdingDeposit).toEqual({ amount: 100, amountDue: 100 });
+    expect(billing.securityDepositDue).toBe(300);
+    expect(billing.moveInFeeDue).toBe(50);
+    expect(billing.dueAtSigning).toBe(450);
+  });
+
+  it("keeps an ad-hoc manager charge out of the signing itemization and total", () => {
+    const propertyId = "prop-adhoc-fine";
+    const email = "adhoc-fine@example.com";
+    removeResidentHouseholdPaymentData(email);
+    seedListing(propertyId, normalizeManagerListingSubmissionV1({
+      ...createDefaultListingSubmission(), securityDeposit: "400", moveInFee: "150",
+      rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
+    }));
+    const row = applicantRow(propertyId, email);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    const baseline = buildLeaseBillingSnapshot(row, MANAGER_ID);
+    // Same shape `createManagerCharge` writes for a fine or a replacement key.
+    seedDemoHouseholdCharges([...readHouseholdCharges(), {
+      id: `hc_mgr_${Date.now()}_adhoc`,
+      createdAt: new Date().toISOString(),
+      applicationId: row.id,
+      residentEmail: email,
+      residentName: row.name,
+      residentUserId: null,
+      propertyId,
+      propertyLabel: "Proration House",
+      managerUserId: MANAGER_ID,
+      kind: "other_cost",
+      title: "Broken window",
+      amountLabel: "$75.00",
+      balanceLabel: "$75.00",
+      status: "pending",
+      blocksLeaseUntilPaid: false,
+    }]);
+    const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
+    expect(billing.otherCostDue).toBe(baseline.otherCostDue);
+    expect(billing.otherCostAmount).toBe(baseline.otherCostAmount);
+    expect(billing.dueAtSigning).toBe(baseline.dueAtSigning);
   });
 
   it("includes an applicable one-time fee in the signing total without making it monthly", () => {

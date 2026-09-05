@@ -27,6 +27,12 @@ async function actorFor(req: NextRequest): Promise<InspectionActor> {
   throw new InspectionError("Sign in to your portal to access inspections.", 401);
 }
 
+function originHost(value: string | null): string | null {
+  if (!value) return null;
+  try { return new URL(value).host; }
+  catch { return null; }
+}
+
 async function body(req: NextRequest) {
   const text = await req.text();
   if (text.length > 800_000) throw new InspectionError("The report is too large.", 413);
@@ -37,8 +43,8 @@ async function body(req: NextRequest) {
 async function handle(req: NextRequest, context: RouteContext) {
   try {
     if (req.method !== "GET") {
-      const origin = req.headers.get("origin");
-      if (!origin || new URL(origin).host !== req.headers.get("host")) throw new InspectionError("Open the inspection in your portal and try again.", 403);
+      const host = originHost(req.headers.get("origin"));
+      if (!host || host !== req.headers.get("host")) throw new InspectionError("Open the inspection in your portal and try again.", 403);
       if (Number(req.headers.get("content-length") ?? 0) > 7 * 1024 * 1024) throw new InspectionError("The upload is too large.", 413);
     }
     const actor = await actorFor(req);

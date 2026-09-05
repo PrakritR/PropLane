@@ -76,8 +76,6 @@ export type LeaseJurisdictionTemplateConfig = {
   documentStyle?: LeaseDocumentStyle;
   /** Optional branded title above the agreement name (Seattle Axis generic leases). */
   brandTitle?: string;
-  /** Default late fee when listing does not specify one. */
-  defaultLateFeeUsd?: number;
   governingLawParagraph: string;
   municipalComplianceParagraph?: string;
   shortTermPurposeParagraph: string;
@@ -115,10 +113,6 @@ export type LeaseJurisdictionTemplateConfig = {
   monthToMonthTerminationNotice?: string;
   depositReturnWindow?: string;
   minimumHeatTemperature?: string;
-  /** Platform defaults for fixed-term termination fees (Washington standard terms). */
-  defaultLongTermBreakLeaseFeeUsd?: number;
-  defaultLongTermHoldoverDailyUsd?: number;
-  defaultLongTermLeaseUpFeePercent?: number;
 };
 
 /**
