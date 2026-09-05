@@ -37,6 +37,7 @@ import { portalDownloadToastMessage } from "@/lib/portal-document-download";
 import {
   LEASE_PIPELINE_EVENT,
   runLeaseDownload,
+  downloadLeaseFromRow,
   getLeaseDocumentHtml,
   readLeasePipeline,
   syncLeasePipelineFromServer,
@@ -445,13 +446,23 @@ export function ManagerLeaseDocumentsTab({ userId }: { userId: string | null }) 
     setPreviewId((cur) => (cur === row.id ? null : row.id));
   }, []);
 
-  const exportSelected = useCallback(() => {
+  // Await each download rather than calling the fire-and-forget runLeaseDownload:
+  // that fired all N at once and reported "Exported N" before any had finished,
+  // so per-row failure toasts arrived afterwards contradicting the count, and
+  // setExporting(true/false) in one synchronous tick meant "Exporting…" never
+  // rendered. Mirrors the applications export above.
+  const exportSelected = useCallback(async () => {
     if (selectedRows.length === 0) return;
     setExporting(true);
     let exported = 0;
     for (const row of selectedRows) {
       if (!leaseHasDownloadableDocument(row)) continue;
-      runLeaseDownload(row, showToast);
+      const result = await downloadLeaseFromRow(row);
+      const message = portalDownloadToastMessage(result, "lease");
+      if (result === "failed") {
+        if (message) showToast(message);
+        break;
+      }
       exported += 1;
     }
     if (exported > 0) {
