@@ -3,10 +3,10 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { LandingDashboardChatDemo } from "@/components/marketing/landing-dashboard-chat-demo";
 import { LandingInboxApproveDemo } from "@/components/marketing/landing-inbox-approve-demo";
-import { BOOK_DEMO_HREF, MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
+import { BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import "./landing-proplane.css";
 
-const GET_STARTED = MANAGER_GET_STARTED_HREF;
+const GET_STARTED = GET_STARTED_HREF;
 
 /** Dashboard+assistant demo, learn guides, ops banner, FAQ board, closing CTAs. */
 export function LandingHomeSections() {

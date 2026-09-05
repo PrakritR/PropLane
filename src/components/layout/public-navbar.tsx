@@ -196,9 +196,15 @@ export function PublicNavbar() {
   // The header CTA is the most prominent button on the page, and it pointed at
   // MANAGER signup everywhere — including /rent, where the visitor is a renter
   // looking for a home. Route the renter surfaces to resident signup instead.
+  // PRP-307: the fallback used to hard-code role=manager, so the most prominent
+  // button on the public site decided the visitor's role FOR them. A renter or
+  // vendor arriving from the landing page was silently put into manager signup
+  // and only found out once they were inside the wrong portal. Role-less lands
+  // on CreateAccountRoleGateway, which asks. /rent keeps its answer because a
+  // visitor browsing homes has already told us what they are.
   const signupHref = (pathname ?? "").startsWith("/rent")
     ? "/auth/create-account?mode=create&role=resident"
-    : "/auth/create-account?mode=create&role=manager";
+    : "/auth/create-account";
 
   if (hideOnNative) return null;
 

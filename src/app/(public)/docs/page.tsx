@@ -389,7 +389,7 @@ export default function DocsPage() {
             </p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <Link
-                href="/auth/create-account?mode=create&role=manager"
+                href="/auth/create-account"
                 data-attr="docs-demo-get-started"
                 className="inline-flex min-h-[46px] items-center justify-center gap-2 rounded-[10px] bg-[var(--pl-brand)] px-6 text-[14.5px] font-medium text-white shadow-[0_4px_14px_color-mix(in_srgb,var(--pl-brand)_28%,transparent)] transition hover:brightness-110"
               >

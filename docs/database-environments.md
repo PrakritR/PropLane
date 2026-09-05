@@ -16,10 +16,14 @@ loaded — the app code never switches databases by itself.
 migrations. It is **not** the live production database. `assertNonProdDatabase()`
 still refuses the live production project on the `staging` git branch.
 
-A full **data** copy from production (auth users, tenant rows, storage) is a
-separate captain-owned dump/restore. Schema is applied. Production listing
-restore migrations (Brooklyn / 4709A) were skipped on purpose. Do not write
-those live rows back to production from staging.
+A full **data** copy from production (auth users, tenant rows, storage) is
+`npm run db:sync:staging` (`scripts/sync-prod-to-staging.mjs`). It is
+read-only against production and writes only to `xwszcafaontidfgznlxd`.
+`--apply` requires `ALLOW_STAGING_PROD_CLONE=1` and `PROD_DB_PASSWORD`.
+The first apply is a full clone. Later refreshes keep staging-only rows and
+take production on conflicts (`decideRowFate`). Production listing restore
+migrations (Brooklyn / 4709A) were skipped on purpose. Do not write those
+live rows back to production from staging.
 
 The default Preview `NEXT_PUBLIC_SUPABASE_URL` record is shared with Production
 and currently still names the live project. Do not copy that default onto
@@ -28,19 +32,14 @@ and currently still names the live project. Do not copy that default onto
 
 ### Staging custom domain (Namecheap → Vercel)
 
-After the captain buys the hostname:
+QA host: `https://staging-prop-lane.space` (project domain, git branch `staging`).
 
-1. Tell the agent the exact domain (example: `proplane-staging.com`).
-2. `vercel domains add <domain> axis-2` and assign it to git branch `staging`.
-3. At Namecheap, either:
-   - Point nameservers to Vercel (`ns1.vercel-dns.com`, `ns2.vercel-dns.com`), or
-   - Keep Namecheap DNS and add a CNAME for `@` or `www` to `cname.vercel-dns.com`.
-4. Set staging Auth Site URL + redirect allowlist on project `xwszcafaontidfgznlxd`
-   to `https://<domain>`.
-5. Add Preview/`staging` `NEXT_PUBLIC_APP_URL` / `NEXT_PUBLIC_CANONICAL_APP_URL`
-   for that hostname.
+At Namecheap, the apex **A** record must be `76.76.21.21` (not the registrar
+parking IP `162.255.119.95`). Keep Namecheap nameservers.
 
-Until that domain exists, QA uses the Vercel Preview URL for the `staging` branch.
+Auth Site URL + redirect allowlist on project `xwszcafaontidfgznlxd` must be
+`https://staging-prop-lane.space`. Preview/`staging` `NEXT_PUBLIC_APP_URL` /
+`NEXT_PUBLIC_CANONICAL_APP_URL` already use that hostname.
 
 Rules:
 

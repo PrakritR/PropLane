@@ -41,11 +41,16 @@ function db(opts: { usage?: typeof USAGE; hasCard?: boolean; updateError?: strin
         }),
         update: (patch: Record<string, unknown>) => {
           updates.push(patch);
-          return {
-            eq: () => ({
-              is: async () => ({ error: opts.updateError ? { message: opts.updateError } : null }),
-            }),
+          const err = opts.updateError ? { message: opts.updateError } : null;
+          // Each link must be BOTH awaitable and chainable: the code does
+          // .update().eq().is().select() to claim, .update().eq() to stamp the
+          // item id, and .update().eq().is() to release a failed claim.
+          const result = { data: err ? null : [{ id: "evt" }], error: err };
+          const leaf = {
+            select: async () => result,
+            then: (res: (v: typeof result) => unknown) => res(result),
           };
+          return { eq: () => ({ ...leaf, is: () => leaf }) };
         },
       };
     }
@@ -78,10 +83,16 @@ describe("invoiceManagerCommsUsage", () => {
     const res = await invoiceManagerCommsUsage(client, "mgr-1");
     expect(res).toMatchObject({ ok: true, invoiced: true, invoiceId: "in_1", itemCount: 2, totalCents: 60 });
     expect(invoiceItemCreate).toHaveBeenCalledTimes(2);
-    expect(invoiceFinalize).toHaveBeenCalledTimes(1);
-    // Each event is marked billed WITH its Stripe item id — the pair is what
-    // makes a second run skip it.
-    expect(updates.every((u) => u.billed_at && u.stripe_invoice_item_id)).toBe(true);
+    expect(invoiceFinalize).toHaveBeenCalledWith("in_1", { auto_advance: true });
+    // Claimed BEFORE the charge, then stamped with the item id after. The claim
+    // is what stops a 24h-expired idempotency key double-charging next run.
+    expect(updates.some((u) => u.billed_at)).toBe(true);
+    expect(updates.some((u) => u.stripe_invoice_item_id)).toBe(true);
+    // Every item is attached to THIS invoice, so a pending subscription
+    // proration on the customer is never swept into a usage invoice.
+    for (const call of invoiceItemCreate.mock.calls) {
+      expect(call[0]).toMatchObject({ invoice: "in_1" });
+    }
   });
 
   it("keys each invoice item on the usage event id, so a retry cannot double-charge", async () => {
@@ -118,10 +129,9 @@ describe("invoiceManagerCommsUsage", () => {
     const { client } = db({ updateError: "db down" });
     const res = await invoiceManagerCommsUsage(client, "mgr-1");
     expect(res.ok).toBe(false);
-    // Stopped after the FIRST item: continuing would leave more charges the
-    // next run cannot tell apart from unbilled usage.
-    expect(invoiceItemCreate).toHaveBeenCalledTimes(1);
-    expect(invoiceCreate).not.toHaveBeenCalled();
+    // The claim failed, so nothing was charged at all — the safe direction.
+    expect(invoiceItemCreate).not.toHaveBeenCalled();
+    expect(invoiceFinalize).not.toHaveBeenCalled();
   });
 
   it("does not invoice a manager with no outstanding usage", async () => {

@@ -27,8 +27,12 @@ import {
   normalizeSmsRuntimeMode,
   smsRuntimeAllowsManager,
 } from "@/lib/sms/number-registration-policy";
-import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
+import {
+  commsBillingBlockMessage,
+  evaluateManagerCommsBillingGate,
+} from "@/lib/comms-billing/eligibility.server";
 import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
+import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
 
 export const runtime = "nodejs";
 
@@ -355,7 +359,19 @@ export async function POST(req: Request) {
     actor.db,
     actor.userId,
   );
-  if (!entitlement.eligible) {
+  // Under pay-as-you-go a number is BOUGHT, not bundled: a card on file is what
+  // qualifies a manager, on any plan including Free. The plan entitlement still
+  // stands in when PAYG is off, so turning the flag off restores the old rule
+  // rather than leaving the number ungated.
+  if (isCommsPaygBillingEnabled()) {
+    const gate = await evaluateManagerCommsBillingGate(actor.db, actor.userId);
+    if (!gate.allowed) {
+      return NextResponse.json(
+        { error: commsBillingBlockMessage(gate.reason) },
+        { status: 402 },
+      );
+    }
+  } else if (!entitlement.eligible) {
     return NextResponse.json(
       {
         error:
@@ -402,6 +418,17 @@ export async function POST(req: Request) {
     actor.userId,
     areaCode ? { areaCode } : undefined,
   );
+  // Charge the one-time setup only once a number was actually bought. Billing
+  // before provisioning would charge for a failed purchase; the idempotency key
+  // carries the number, so a retry that returns the same one bills once.
+  if (result.ok && isCommsPaygBillingEnabled() && result.number) {
+    await recordManagerCommsUsage(actor.db, {
+      managerUserId: actor.userId,
+      meter: "work_number_setup",
+      idempotencyKey: `work_number_setup:${actor.userId}:${result.number}`,
+      metadata: { phoneNumber: result.number, areaCode: areaCode || null },
+    });
+  }
   const next = publicStatus(await buildStatus(actor.db, actor.userId));
   if (!result.ok) {
     return NextResponse.json(

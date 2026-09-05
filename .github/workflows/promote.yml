@@ -1,6 +1,7 @@
-# Auditable fast-forward promotes for the three-rung ladder.
-# Local equivalents: npm run ship:staging / npm run ship:production
+# Auditable promotes for the three-rung ladder.
+# Local equivalents: npm run ship:integrate / ship:staging / ship:production
 #
+#   integrate  — origin/<source> → origin/main → origin/staging
 #   staging    — origin/main → origin/staging  (QA preview)
 #   production — origin/staging → origin/production  (live + TestFlight)
 #
@@ -15,8 +16,14 @@ on:
         required: true
         type: choice
         options:
+          - integrate
           - staging
           - production
+      source:
+        description: Source branch (integrate only)
+        required: false
+        type: string
+        default: prakrit
 
 permissions:
   contents: write
@@ -39,6 +46,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Integrate source → main → staging
+        if: ${{ inputs.target == 'integrate' }}
+        run: bash scripts/integrate-source-to-main-and-staging.sh --source "${{ inputs.source }}"
 
       - name: Promote main → staging
         if: ${{ inputs.target == 'staging' }}

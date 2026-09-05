@@ -24,9 +24,14 @@ export async function evaluateManagerCommsBillingGate(
   const ownerId = managerUserId.trim();
   if (!ownerId) return { allowed: false, reason: "plan_unreadable" };
 
+  // Plan no longer gates communication. Under pay-as-you-go the cost is billed
+  // rather than bundled, so a FREE manager with a card on file may text and take
+  // calls exactly like a paid one — the card is the requirement, not the tier.
+  // The plan is still read, because an unreadable plan means we cannot identify
+  // the billing account at all, and that must fail closed rather than bill the
+  // wrong person.
   const tierResult = await getEffectiveManagerSkuTier(ownerId);
   if (!tierResult.ok) return { allowed: false, reason: "plan_unreadable" };
-  if (tierResult.tier === "free") return { allowed: false, reason: "free_tier" };
 
   const { data: account } = await db
     .from("manager_comms_billing_accounts")
@@ -44,9 +49,10 @@ export async function evaluateManagerCommsBillingGate(
 export function commsBillingBlockMessage(reason: CommsBillingBlockReason): string {
   switch (reason) {
     case "free_tier":
-      return "Texting and voice require a paid plan. Upgrade to Pro or Business, then add a payment method for usage billing.";
+      // Retained for stored rows written before plan gating was dropped.
+      return "Add a payment method in Settings to use texting and voice on your work number.";
     case "no_payment_method":
-      return "Add a payment method in Settings before sending texts or taking calls on your work number.";
+      return "Add a payment method in Settings before sending texts or taking calls on your work number. Usage is billed as you go on any plan, including Free.";
     case "billing_paused":
       return "Communication is paused until your payment method is updated.";
     case "plan_unreadable":

@@ -17,6 +17,19 @@ export const PUBLIC_SUPPORT_PHONE_TEL = "+15103098345";
 export const PUBLIC_SUPPORT_ADDRESS_LINE = "5259 Brooklyn Ave NE, Seattle, WA 98105";
 export const PUBLIC_SUPPORT_ADDRESS_MAP_QUERY = "5259+Brooklyn+Ave+NE%2C+98105";
 
+/**
+ * Generic "Get started" — the visitor has NOT said who they are yet, so this
+ * lands on the role picker and asks. PRP-307: every public CTA used to carry
+ * role=manager, which put renters and vendors into manager signup and only
+ * showed itself once they were inside the wrong portal.
+ */
+export const GET_STARTED_HREF = "/auth/create-account";
+
+/**
+ * Manager signup with the role already decided. Only for surfaces where the
+ * visitor HAS declared it — the pricing plan CTAs, which also carry a tier.
+ * Do not use this for a plain "Get started" button.
+ */
 export const MANAGER_GET_STARTED_HREF =
   "/auth/create-account?mode=create&role=manager";
 export const BOOK_DEMO_HREF = "/contact?tab=schedule";

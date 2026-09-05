@@ -46,11 +46,18 @@ describe("evaluateManagerCommsBillingGate", () => {
     expect(res).toEqual({ allowed: true, billingOwnerId: MANAGER });
   });
 
-  it("blocks free tier when PAYG is enabled", async () => {
+  it("allows free tier when PAYG is enabled and a card is on file", async () => {
     vi.stubEnv("COMMS_PAYG_BILLING_ENABLED", "1");
+    // Deliberately inverted: pay-as-you-go bills the cost rather than bundling
+    // it, so the plan no longer decides who may text or take calls. The card
+    // does. See eligibility.server.ts.
     vi.mocked(getEffectiveManagerSkuTier).mockResolvedValue({ ok: true, tier: "free" });
+    vi.mocked(refreshManagerCommsPaymentMethod).mockResolvedValue({
+      hasPaymentMethod: true,
+      checkedAt: new Date().toISOString(),
+    });
     const res = await evaluateManagerCommsBillingGate(makeDb(), MANAGER);
-    expect(res).toEqual({ allowed: false, reason: "free_tier" });
+    expect(res).toMatchObject({ allowed: true });
   });
 
   it("blocks paid managers without a payment method", async () => {

@@ -7,6 +7,9 @@ import {
 import { resolveVoiceCallRoute } from "@/lib/voice/voice-call-routing.server";
 import { deliverVoiceCallSummary, type VoiceCallerKind } from "@/lib/voice/voice-call-summary.server";
 import { sendVoiceSummaryEmail } from "@/lib/voice/voice-summary-email.server";
+import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
+import { isVoiceRecordingEnabled } from "@/lib/twilio-voice.server";
+import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
 
 export const runtime = "nodejs";
 
@@ -39,6 +42,43 @@ export async function POST(req: Request) {
   const db = createSupabaseServiceRoleClient();
   const resolved = await resolveVoiceCallRoute(db, { fromPhone, toPhone });
   if (!resolved.ok) return NextResponse.json({ ok: true, skipped: "unconfigured" });
+
+  // Bill the call itself. Duration is only known once the call ends, which is
+  // why this is the only place voice minutes can be metered — the inbound and
+  // turn webhooks fire while it is still running. Twilio reports whole seconds;
+  // partial minutes round UP, the way carriers bill them.
+  const durationSeconds = Number(validated.params.CallDuration ?? 0);
+  // Gated like every other meter. Without this, voice rows accrue while
+  // pay-as-you-go is OFF and the sweeper has no start date — so switching the
+  // feature on would retro-bill every call ever taken.
+  if (isCommsPaygBillingEnabled() && Number.isFinite(durationSeconds) && durationSeconds > 0) {
+    const minutes = Math.ceil(durationSeconds / 60);
+    await recordManagerCommsUsage(db, {
+      managerUserId: resolved.managerId,
+      meter: "voice_minute",
+      quantity: minutes,
+      // Keyed on the call, so Twilio's status-callback retries cannot bill the
+      // same call twice.
+      idempotencyKey: `voice_minute:${callSid}`,
+      metadata: { callSid, durationSeconds, from: fromPhone, to: toPhone },
+    });
+    // The env flag only means recording is POSSIBLE. A caller who declines
+    // consent is hung up on and never recorded, so billing them recording
+    // minutes would be a charge for something that did not happen. Twilio
+    // reports the recording's own duration only when one exists.
+    const recordingSeconds = Number(validated.params.RecordingDuration ?? 0);
+    if (isVoiceRecordingEnabled() && Number.isFinite(recordingSeconds) && recordingSeconds > 0) {
+      await recordManagerCommsUsage(db, {
+        managerUserId: resolved.managerId,
+        meter: "voice_recording_minute",
+        // The RECORDING's length, not the call's — recording starts after the
+        // consent turn, so the call is always the longer of the two.
+        quantity: Math.ceil(recordingSeconds / 60),
+        idempotencyKey: `voice_recording_minute:${callSid}`,
+        metadata: { callSid, durationSeconds },
+      });
+    }
+  }
 
   const { data: manager } = await db
     .from("profiles")

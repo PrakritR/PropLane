@@ -20,7 +20,10 @@ create unique index if not exists manager_comms_usage_events_invoice_item_uidx
   on public.manager_comms_usage_events (stripe_invoice_item_id)
   where stripe_invoice_item_id is not null;
 
+-- Deliberately NO stripe_customer_id here: the customer id lives on
+-- manager_purchases and is read through getManagerPurchaseSku. A second copy
+-- that nothing writes would read back NULL and make a later caller conclude the
+-- manager has no Stripe customer at all.
 alter table public.manager_comms_billing_accounts
-  add column if not exists stripe_customer_id text,
   add column if not exists last_invoiced_at timestamptz,
   add column if not exists last_invoice_id text;

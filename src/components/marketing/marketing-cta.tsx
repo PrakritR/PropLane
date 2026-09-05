@@ -1,7 +1,7 @@
 import Link from "next/link";
 import {
   BOOK_DEMO_HREF,
-  MANAGER_GET_STARTED_HREF,
+  GET_STARTED_HREF,
 } from "@/lib/marketing/public-contact";
 
 const primaryCls =
@@ -24,7 +24,7 @@ type CtaPairProps = {
 
 /** Dual CTAs matching homepage: Get started + Book a demo. */
 export function MarketingCtaPair({
-  primaryHref = MANAGER_GET_STARTED_HREF,
+  primaryHref = GET_STARTED_HREF,
   primaryLabel = "Get started",
   primaryAttr,
   secondaryHref = BOOK_DEMO_HREF,
