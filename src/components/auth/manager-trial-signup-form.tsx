@@ -11,7 +11,7 @@ import { PricingGoogleContinueButton } from "@/components/auth/pricing-google-co
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PasswordInput } from "@/components/ui/password-input";
+import { SignupFieldStack } from "@/components/auth/signup-field-stack";
 import type { PlanTierId } from "@/data/manager-plan-tiers";
 import {
   buildPricingOffer,
@@ -319,45 +319,16 @@ export function ManagerTrialSignupForm({
 
           <AuthDivider label="or enter your details" />
 
-          <Input
-            type="text"
-            autoComplete="name"
-            placeholder="Full name"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            disabled={locked}
-          />
-          <Input
-            type="email"
-            autoComplete="email"
-            // iOS/macOS autocapitalise the first letter by default, which used to
-            // make Manager@… a different account from manager@… (PRP-196).
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            disabled={locked}
-          />
-          <Input
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
-            placeholder="Phone number"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            disabled={locked}
-          />
-          <PasswordInput
-            autoComplete="new-password"
-            placeholder="Password (8+ characters)"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            disabled={locked}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void submit();
+          <SignupFieldStack
+            values={{ fullName, email, phone, password }}
+            onChange={(patch) => {
+              if (patch.fullName !== undefined) setFullName(patch.fullName);
+              if (patch.email !== undefined) setEmail(patch.email);
+              if (patch.phone !== undefined) setPhone(patch.phone);
+              if (patch.password !== undefined) setPassword(patch.password);
             }}
+            disabled={locked}
+            onSubmit={() => void submit()}
           />
           <Button
             type="button"

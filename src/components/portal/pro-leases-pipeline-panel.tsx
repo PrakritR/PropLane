@@ -286,6 +286,12 @@ export function ManagerLeasesPipelinePanel({
   );
 
   const singleSelectedLeaseRow = selectedLeaseRows.length === 1 ? selectedLeaseRows[0]! : null;
+  // Called ONCE and narrowed once. Calling it per-prop meant TypeScript saw
+  // three unrelated results, so the discriminated union never narrowed and
+  // `.error` did not exist on the ok branch — the build was already failing.
+  const leaseGenerationSupport = singleSelectedLeaseRow
+    ? leaseGenerationSupportedForRow(singleSelectedLeaseRow)
+    : ({ ok: false, error: "" } as const);
 
   const showBulkSendButton =
     tab === "manager" &&
@@ -1217,12 +1223,8 @@ export function ManagerLeasesPipelinePanel({
             managerUserId={managerUserId}
             onSaved={() => void syncLeasePipelineFromServer(managerUserId, { force: true })}
             onGenerateLease={() => runGenerateLease(singleSelectedLeaseRow)}
-            generateLeaseDisabled={!leaseGenerationSupportedForRow(singleSelectedLeaseRow).ok}
-            generateLeaseTitle={
-              leaseGenerationSupportedForRow(singleSelectedLeaseRow).ok
-                ? undefined
-                : leaseGenerationSupportedForRow(singleSelectedLeaseRow).error
-            }
+            generateLeaseDisabled={!leaseGenerationSupport.ok}
+            generateLeaseTitle={leaseGenerationSupport.ok ? undefined : leaseGenerationSupport.error}
           />
         ) : null}
       </PortalRecordListSurface>
