@@ -78,6 +78,8 @@ const SCOPE_FILTERS: { id: string; label: string }[] = [
   { id: "work_order", label: "Work order" },
 ];
 
+export const DOCUMENT_LIBRARY_SCOPE_FILTER_OPTIONS = SCOPE_FILTERS;
+
 const SCOPE_LABELS: Record<ManagerDocumentDTO["scopeKind"], string> = {
   manager: "Manager-level",
   property: "Property",
@@ -254,6 +256,8 @@ export type ManagerDocumentLibraryHandle = {
 
 type ManagerDocumentLibraryProps = {
   userId: string | null;
+  /** Upload/edit modals only — list body hidden (Applications/Leases tabs). */
+  listHidden?: boolean;
   hideFilterChrome?: boolean;
   search?: string;
   onSearchChange?: (value: string) => void;
@@ -272,6 +276,7 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
   function ManagerDocumentLibrary(
     {
       userId,
+      listHidden = false,
       hideFilterChrome = false,
       search: searchProp,
       onSearchChange,
@@ -669,6 +674,54 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
       </div>
     ) : null;
 
+  const documentModals = (
+    <>
+      <UploadModal
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        propertyOptions={propertyOptions}
+        vendorRows={vendorRows.filter((v) => v.active !== false)}
+        onUploaded={(doc) => {
+          setDocuments((cur) => [doc, ...cur]);
+          refreshExpirySummary();
+          setUploadOpen(false);
+        }}
+      />
+
+      <UploadModal
+        open={Boolean(versionTarget)}
+        onClose={() => setVersionTarget(null)}
+        propertyOptions={propertyOptions}
+        vendorRows={vendorRows.filter((v) => v.active !== false)}
+        supersedeDocumentId={versionTarget?.id}
+        title={versionTarget ? `Upload new version · ${versionTarget.displayName}` : "Upload new version"}
+        versionMode
+        onUploaded={(doc) => {
+          setDocuments((cur) => [doc, ...cur.filter((row) => row.id !== versionTarget?.id)]);
+          refreshExpirySummary();
+          setVersionTarget(null);
+        }}
+      />
+
+      <EditDocumentModal
+        doc={renameTarget}
+        vendorRows={vendorRows.filter((v) => v.active !== false)}
+        onClose={() => setRenameTarget(null)}
+        onSaved={(updated) => {
+          setDocuments((cur) => cur.map((d) => (d.id === updated.id ? updated : d)));
+          refreshExpirySummary();
+          setRenameTarget(null);
+        }}
+      />
+
+      <PreviewModal doc={previewTarget} onClose={() => setPreviewTarget(null)} />
+    </>
+  );
+
+  if (listHidden) {
+    return documentModals;
+  }
+
   return (
     <div className="space-y-3">
       {complianceBanner}
@@ -818,45 +871,7 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
         </>
       )}
 
-      <UploadModal
-        open={uploadOpen}
-        onClose={() => setUploadOpen(false)}
-        propertyOptions={propertyOptions}
-        vendorRows={vendorRows.filter((v) => v.active !== false)}
-        onUploaded={(doc) => {
-          setDocuments((cur) => [doc, ...cur]);
-          refreshExpirySummary();
-          setUploadOpen(false);
-        }}
-      />
-
-      <UploadModal
-        open={Boolean(versionTarget)}
-        onClose={() => setVersionTarget(null)}
-        propertyOptions={propertyOptions}
-        vendorRows={vendorRows.filter((v) => v.active !== false)}
-        supersedeDocumentId={versionTarget?.id}
-        title={versionTarget ? `Upload new version · ${versionTarget.displayName}` : "Upload new version"}
-        versionMode
-        onUploaded={(doc) => {
-          setDocuments((cur) => [doc, ...cur.filter((row) => row.id !== versionTarget?.id)]);
-          refreshExpirySummary();
-          setVersionTarget(null);
-        }}
-      />
-
-      <EditDocumentModal
-        doc={renameTarget}
-        vendorRows={vendorRows.filter((v) => v.active !== false)}
-        onClose={() => setRenameTarget(null)}
-        onSaved={(updated) => {
-          setDocuments((cur) => cur.map((d) => (d.id === updated.id ? updated : d)));
-          refreshExpirySummary();
-          setRenameTarget(null);
-        }}
-      />
-
-      <PreviewModal doc={previewTarget} onClose={() => setPreviewTarget(null)} />
+      {documentModals}
     </div>
   );
 });

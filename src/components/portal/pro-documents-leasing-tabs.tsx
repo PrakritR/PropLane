@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { FileUp } from "lucide-react";
 import {
   ApplicationDocumentPreview,
   downloadApplicationPdf,
@@ -8,6 +9,11 @@ import {
 import { DocumentInlineViewer } from "@/components/portal/resident-other-documents";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { FilterCollapsibleSection, FilterFieldsAccordion, FilterSingleSelectList, filterSingleSelectSummary } from "@/components/portal/filter-field-lists";
+import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import {
+  PortalListAddRow,
+  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
+} from "@/components/portal/portal-list-add-row";
 import { DataList } from "@/components/ui/data-list";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
@@ -23,7 +29,6 @@ import {
 import {
   MANAGER_PORTFOLIO_REFRESH_EVENTS,
   applicationVisibleToPortalUser,
-  buildManagerPropertyFilterOptions,
   leaseVisibleToPortalUser,
 } from "@/lib/manager-portfolio-access";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
@@ -43,6 +48,8 @@ import {
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
 import { safeFormatDateTime } from "@/lib/pacific-time";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { cn } from "@/lib/utils";
 
 function applicationStatusLabel(bucket: ManagerApplicationBucket): string {
   if (bucket === "approved") return "Approved";
@@ -68,7 +75,28 @@ function applicationPropertyId(row: DemoApplicantRow): string {
   );
 }
 
-function LeasingDocumentsPropertyFilter({
+function LeasingDocumentsAddRow({
+  onAdd,
+  dataAttr,
+}: {
+  onAdd: () => void;
+  dataAttr: string;
+}) {
+  if (isDemoModeActive()) return null;
+  return (
+    <div className={cn(PORTAL_LIST_PAGE_BODY, PORTAL_LIST_ADD_ROW_WRAP_CLASS)}>
+      <PortalListAddRow
+        label="Add"
+        ariaLabel="Add document"
+        icon={FileUp}
+        onClick={onAdd}
+        dataAttr={dataAttr}
+      />
+    </div>
+  );
+}
+
+export function LeasingDocumentsPropertyFilterFields({
   propertyFilter,
   onPropertyFilterChange,
   propertyOptions,
@@ -88,25 +116,23 @@ function LeasingDocumentsPropertyFilter({
     ...propertyOptions.map((p) => ({ value: p.id, label: p.label })),
   ];
   return (
-    <div className="mb-3 px-1">
-      <FilterFieldsAccordion>
-        <FilterCollapsibleSection
-          sectionId={`${dataAttr}-property`}
-          label="Property"
-          summary={filterSingleSelectSummary(propertyFilter, options, "All properties")}
-          empty={!propertyFilter}
-          menuOptionCount={options.length}
-          dataAttr={`${dataAttr}-trigger`}
-        >
-          <FilterSingleSelectList
-            options={options}
-            value={propertyFilter}
-            onChange={onPropertyFilterChange}
-            dataAttr={dataAttr}
-          />
-        </FilterCollapsibleSection>
-      </FilterFieldsAccordion>
-    </div>
+    <FilterFieldsAccordion>
+      <FilterCollapsibleSection
+        sectionId={`${dataAttr}-property`}
+        label="Property"
+        summary={filterSingleSelectSummary(propertyFilter, options, "All properties")}
+        empty={!propertyFilter}
+        menuOptionCount={options.length}
+        dataAttr={`${dataAttr}-trigger`}
+      >
+        <FilterSingleSelectList
+          options={options}
+          value={propertyFilter}
+          onChange={onPropertyFilterChange}
+          dataAttr={dataAttr}
+        />
+      </FilterCollapsibleSection>
+    </FilterFieldsAccordion>
   );
 }
 
@@ -141,14 +167,17 @@ function LeasingDocumentsBulkBar({
 export function ManagerApplicationDocumentsTab({
   userId,
   basePath = "/portal",
+  propertyFilter = "",
+  onAddDocument,
 }: {
   userId: string | null;
   basePath?: string;
+  propertyFilter?: string;
+  onAddDocument?: () => void;
 }) {
   const navigate = usePortalNavigate();
   const { showToast } = useAppUi();
   const [tick, setTick] = useState(0);
-  const [propertyFilter, setPropertyFilter] = useState("");
   const [exporting, setExporting] = useState(false);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(propertyFilter);
 
@@ -167,11 +196,6 @@ export function ManagerApplicationDocumentsTab({
       }
     };
   }, []);
-
-  const propertyOptions = useMemo(() => {
-    void tick;
-    return buildManagerPropertyFilterOptions(userId ?? null);
-  }, [tick, userId]);
 
   const rows = useMemo(() => {
     void tick;
@@ -222,12 +246,6 @@ export function ManagerApplicationDocumentsTab({
 
   return (
     <>
-      <LeasingDocumentsPropertyFilter
-        propertyFilter={propertyFilter}
-        onPropertyFilterChange={setPropertyFilter}
-        propertyOptions={propertyOptions}
-        dataAttr="documents-applications-property-filter"
-      />
       {rows.length === 0 ? (
         <PortalDataTableEmpty
           icon="application"
@@ -290,6 +308,9 @@ export function ManagerApplicationDocumentsTab({
           ]}
         />
       )}
+      {onAddDocument ? (
+        <LeasingDocumentsAddRow onAdd={onAddDocument} dataAttr="documents-applications-list-add" />
+      ) : null}
       <LeasingDocumentsBulkBar
         count={selectedIds.size}
         exporting={exporting}
@@ -398,11 +419,18 @@ export function ManagerApplicationDocumentDetail({
   );
 }
 
-export function ManagerLeaseDocumentsTab({ userId }: { userId: string | null }) {
+export function ManagerLeaseDocumentsTab({
+  userId,
+  propertyFilter = "",
+  onAddDocument,
+}: {
+  userId: string | null;
+  propertyFilter?: string;
+  onAddDocument?: () => void;
+}) {
   const { showToast } = useAppUi();
   const [tick, setTick] = useState(0);
   const [previewId, setPreviewId] = useState<string | null>(null);
-  const [propertyFilter, setPropertyFilter] = useState("");
   const [exporting, setExporting] = useState(false);
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(propertyFilter);
 
@@ -421,11 +449,6 @@ export function ManagerLeaseDocumentsTab({ userId }: { userId: string | null }) 
       }
     };
   }, [userId]);
-
-  const propertyOptions = useMemo(() => {
-    void tick;
-    return buildManagerPropertyFilterOptions(userId ?? null);
-  }, [tick, userId]);
 
   const rows = useMemo(() => {
     void tick;
@@ -469,12 +492,6 @@ export function ManagerLeaseDocumentsTab({ userId }: { userId: string | null }) 
 
   return (
     <>
-      <LeasingDocumentsPropertyFilter
-        propertyFilter={propertyFilter}
-        onPropertyFilterChange={setPropertyFilter}
-        propertyOptions={propertyOptions}
-        dataAttr="documents-leases-property-filter"
-      />
       {rows.length === 0 ? (
         <PortalDataTableEmpty
           icon="lease"
@@ -555,6 +572,9 @@ export function ManagerLeaseDocumentsTab({ userId }: { userId: string | null }) 
           ]}
         />
       )}
+      {onAddDocument ? (
+        <LeasingDocumentsAddRow onAdd={onAddDocument} dataAttr="documents-leases-list-add" />
+      ) : null}
       <LeasingDocumentsBulkBar
         count={selectedIds.size}
         exporting={exporting}

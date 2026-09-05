@@ -9,20 +9,30 @@ function portalSource(file: string): string {
 }
 
 describe("Finance and Documents command layout", () => {
-  it("keeps Applications and Leases free of title-row property filters", () => {
+  it("keeps Applications and Leases filters in the command strip like Finances", () => {
     const documents = portalSource("pro-documents-panel.tsx");
     const leasingTabs = portalSource("pro-documents-leasing-tabs.tsx");
 
-    expect(documents).not.toContain("leasingDocumentsFilterSheet");
-    expect(documents).not.toContain("leasingPropertyFilter");
+    expect(documents).toContain("documentsFilterSheet");
+    expect(documents).toContain("PortalFilterSortSheet");
+    expect(documents).toContain("leasingPropertyFilter");
+    expect(documents).toContain("documents-leasing-filter-sheet-open");
     expect(documents).toContain("titleInlineFilter={null}");
     expect(documents).toContain('variant="command"');
     expect(documents).toContain("documentsCommandActions");
-    expect(documents).not.toContain("document-search");
+    expect(documents).toContain("activeDocumentsFilterChips");
     expect(documents).not.toContain('data-attr="document-upload-open"');
     expect(leasingTabs).not.toContain("<PortalFilterSortSheet");
+    expect(leasingTabs).not.toMatch(/LeasingDocumentsPropertyFilter[^F]/);
+    expect(leasingTabs).toContain("LeasingDocumentsPropertyFilterFields");
     expect(leasingTabs).toContain("hideColumnHeaders");
     expect(leasingTabs).toContain("<DataList");
+    expect(leasingTabs).toContain("documents-applications-list-add");
+    expect(leasingTabs).toContain("documents-leases-list-add");
+    expect(leasingTabs).toContain("onAddDocument");
+    expect(documents).toContain("listHidden");
+    expect(documents).toContain("hideFilterChrome");
+    expect(documents).toContain("openDocumentUpload");
   });
 
   it("renders Finance through a flat left nav without search or header Add", () => {

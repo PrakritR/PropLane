@@ -52,12 +52,22 @@ import {
   ManagerApplicationDocumentDetail,
   ManagerApplicationDocumentsTab,
   ManagerLeaseDocumentsTab,
+  LeasingDocumentsPropertyFilterFields,
 } from "@/components/portal/pro-documents-leasing-tabs";
 import {
+  DocumentLibraryFilterFields,
+  DOCUMENT_LIBRARY_SCOPE_FILTER_OPTIONS,
   ManagerDocumentLibrary,
   type ManagerDocumentLibraryHandle,
+  type DocumentLibraryFilterFieldsProps,
 } from "@/components/portal/pro-document-library";
 import { ManagerDocumentTemplatesPanel } from "@/components/portal/pro-document-templates-panel";
+import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
+import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
+import {
+  DOCUMENT_CATEGORIES,
+  DOCUMENT_CATEGORY_LABELS,
+} from "@/lib/documents/manager-documents";
 
 export const DOCUMENT_TAB_DESTINATIONS = [
   { id: "applications", label: "Applications" },
@@ -135,7 +145,20 @@ export function ManagerDocumentsPanel({
   const [taxVendorName, setTaxVendorName] = useState("");
   const [expanded1099Id, setExpanded1099Id] = useState<string | null>(null);
   const [generateModalOpen, setGenerateModalOpen] = useState(false);
+  const [leasingPropertyFilter, setLeasingPropertyFilter] = useState("");
+  const [librarySearch, setLibrarySearch] = useState("");
+  const [libraryCategoryFilter, setLibraryCategoryFilter] = useState("");
+  const [libraryScopeFilter, setLibraryScopeFilter] = useState("");
+  const [libraryPropertyFilter, setLibraryPropertyFilter] = useState("");
+  const [libraryExpiryFilter, setLibraryExpiryFilter] = useState("");
+  const [libraryExpiryPills, setLibraryExpiryPills] = useState<
+    DocumentLibraryFilterFieldsProps["expiryPills"]
+  >([{ id: "", label: "All", count: 0 }]);
   const libraryRef = useRef<ManagerDocumentLibraryHandle>(null);
+
+  const openDocumentUpload = useCallback(() => {
+    libraryRef.current?.openUpload();
+  }, []);
 
   const propertyOptions = useMemo(() => {
     void propertyTick;
@@ -247,6 +270,12 @@ export function ManagerDocumentsPanel({
       setOccupancyReport(null);
       setGenerated(false);
       setGenerateModalOpen(false);
+      setLeasingPropertyFilter("");
+      setLibrarySearch("");
+      setLibraryCategoryFilter("");
+      setLibraryScopeFilter("");
+      setLibraryPropertyFilter("");
+      setLibraryExpiryFilter("");
     });
   }, [tabId]);
 
@@ -275,6 +304,158 @@ export function ManagerDocumentsPanel({
   const isLeasingDocumentsTab = tabId === "applications" || tabId === "leases";
   const isOtherDocumentsTab = tabId === "other" || tabId === "library";
   const activeTabLabel = DOCUMENT_TABS.find((tab) => tab.id === tabId)?.label ?? "Documents";
+
+  const libraryCategoryFilterOptions = useMemo(
+    () => DOCUMENT_CATEGORIES.map((c) => ({ id: c, label: DOCUMENT_CATEGORY_LABELS[c] })),
+    [],
+  );
+  const libraryScopeFilterOptions = useMemo(
+    () => DOCUMENT_LIBRARY_SCOPE_FILTER_OPTIONS.map((s) => ({ id: s.id, label: s.label })),
+    [],
+  );
+  const libraryPropertyFilterOptions = useMemo(
+    () => propertyOptions.map((p) => ({ id: p.id, label: p.label })),
+    [propertyOptions],
+  );
+
+  const resetLeasingFilters = useCallback(() => setLeasingPropertyFilter(""), []);
+  const resetLibraryFilters = useCallback(() => {
+    setLibrarySearch("");
+    setLibraryCategoryFilter("");
+    setLibraryScopeFilter("");
+    setLibraryPropertyFilter("");
+    setLibraryExpiryFilter("");
+  }, []);
+
+  const leasingPropertyLabel = useMemo(() => {
+    if (!leasingPropertyFilter) return "";
+    return propertyOptions.find((p) => p.id === leasingPropertyFilter)?.label ?? leasingPropertyFilter;
+  }, [leasingPropertyFilter, propertyOptions]);
+
+  const libraryPropertyLabel = useMemo(() => {
+    if (!libraryPropertyFilter) return "";
+    return propertyOptions.find((p) => p.id === libraryPropertyFilter)?.label ?? libraryPropertyFilter;
+  }, [libraryPropertyFilter, propertyOptions]);
+
+  const documentsFilterSheet = isLeasingDocumentsTab ? (
+    <PortalFilterSortSheet
+      activeCount={portalFilterActiveCount([leasingPropertyFilter])}
+      compactPanel
+      filterFieldCount={propertyOptions.length > 0 ? 1 : 0}
+      constrainDropdownToTitleBand
+      mobileFlushBody
+      className="min-w-0 w-auto shrink-0 max-md:w-full max-md:[&_button]:w-full max-md:[&_button]:px-2.5 md:!w-auto md:!max-w-none"
+      onReset={resetLeasingFilters}
+      dataAttr="documents-leasing-filter-sheet-open"
+    >
+      <LeasingDocumentsPropertyFilterFields
+        propertyFilter={leasingPropertyFilter}
+        onPropertyFilterChange={setLeasingPropertyFilter}
+        propertyOptions={propertyOptions}
+        dataAttr={
+          tabId === "applications"
+            ? "documents-applications-property-filter"
+            : "documents-leases-property-filter"
+        }
+      />
+    </PortalFilterSortSheet>
+  ) : isOtherDocumentsTab ? (
+    <PortalFilterSortSheet
+      activeCount={portalFilterActiveCount([
+        librarySearch,
+        libraryCategoryFilter,
+        libraryScopeFilter,
+        libraryPropertyFilter,
+        libraryExpiryFilter,
+      ])}
+      compactPanel
+      filterFieldCount={propertyOptions.length > 0 ? 4 : 3}
+      constrainDropdownToTitleBand
+      mobileFlushBody
+      className="min-w-0 w-auto shrink-0 max-md:w-full max-md:[&_button]:w-full max-md:[&_button]:px-2.5 md:!w-auto md:!max-w-none"
+      onReset={resetLibraryFilters}
+      dataAttr="documents-library-filter-sheet-open"
+    >
+      <DocumentLibraryFilterFields
+        search={librarySearch}
+        onSearchChange={setLibrarySearch}
+        categoryFilter={libraryCategoryFilter}
+        onCategoryFilterChange={setLibraryCategoryFilter}
+        scopeFilter={libraryScopeFilter}
+        onScopeFilterChange={setLibraryScopeFilter}
+        propertyFilter={libraryPropertyFilter}
+        onPropertyFilterChange={setLibraryPropertyFilter}
+        expiryFilter={libraryExpiryFilter}
+        onExpiryFilterChange={setLibraryExpiryFilter}
+        expiryPills={libraryExpiryPills}
+        categoryFilterOptions={libraryCategoryFilterOptions}
+        scopeFilterOptions={libraryScopeFilterOptions}
+        propertyFilterOptions={libraryPropertyFilterOptions}
+        propertyOptions={propertyOptions}
+      />
+    </PortalFilterSortSheet>
+  ) : null;
+
+  const activeDocumentsFilterChips = useMemo((): PortalActiveFilterChip[] => {
+    if (isLeasingDocumentsTab) {
+      if (!leasingPropertyFilter) return [];
+      return [
+        {
+          id: "property",
+          label: `Property: ${leasingPropertyLabel}`,
+          onRemove: () => setLeasingPropertyFilter(""),
+        },
+      ];
+    }
+    if (!isOtherDocumentsTab) return [];
+    const chips: PortalActiveFilterChip[] = [];
+    if (librarySearch.trim()) {
+      chips.push({ id: "search", label: `Search: ${librarySearch.trim()}`, onRemove: () => setLibrarySearch("") });
+    }
+    if (libraryCategoryFilter) {
+      const label =
+        libraryCategoryFilterOptions.find((o) => o.id === libraryCategoryFilter)?.label ?? libraryCategoryFilter;
+      chips.push({ id: "category", label: `Category: ${label}`, onRemove: () => setLibraryCategoryFilter("") });
+    }
+    if (libraryScopeFilter) {
+      const label =
+        libraryScopeFilterOptions.find((o) => o.id === libraryScopeFilter)?.label ?? libraryScopeFilter;
+      chips.push({ id: "scope", label: `Scope: ${label}`, onRemove: () => setLibraryScopeFilter("") });
+    }
+    if (libraryPropertyFilter) {
+      chips.push({
+        id: "property",
+        label: `Property: ${libraryPropertyLabel}`,
+        onRemove: () => setLibraryPropertyFilter(""),
+      });
+    }
+    if (libraryExpiryFilter) {
+      const expiryLabels: Record<string, string> = {
+        expired: "Expired",
+        expiring30: "Expiring ≤30d",
+        expiring90: "Expiring ≤90d",
+      };
+      chips.push({
+        id: "expiry",
+        label: `Expiry: ${expiryLabels[libraryExpiryFilter] ?? libraryExpiryFilter}`,
+        onRemove: () => setLibraryExpiryFilter(""),
+      });
+    }
+    return chips;
+  }, [
+    isLeasingDocumentsTab,
+    isOtherDocumentsTab,
+    leasingPropertyFilter,
+    leasingPropertyLabel,
+    librarySearch,
+    libraryCategoryFilter,
+    libraryCategoryFilterOptions,
+    libraryScopeFilter,
+    libraryScopeFilterOptions,
+    libraryPropertyFilter,
+    libraryPropertyLabel,
+    libraryExpiryFilter,
+  ]);
 
   const handleGenerateReport = useCallback(() => {
     setGenerateModalOpen(false);
@@ -339,6 +520,8 @@ export function ManagerDocumentsPanel({
           {loading ? "Generating…" : "Generate report"}
         </Button>
       </>
+    ) : documentsFilterSheet ? (
+      <>{documentsFilterSheet}</>
     ) : null;
 
   if (tabId === "applications" && applicationId) {
@@ -372,16 +555,50 @@ export function ManagerDocumentsPanel({
         activeDestinationId={activeDestinationId}
         destinationAriaLabel="Document view"
         actions={documentsCommandActions}
+        activeFilterChips={
+          activeDocumentsFilterChips.length > 0 ? (
+            <PortalActiveFilterChips chips={activeDocumentsFilterChips} />
+          ) : null
+        }
       />
       {tabId === "templates" ? (
           <ManagerDocumentTemplatesPanel />
+        ) : isLeasingDocumentsTab ? (
+          <>
+            {tabId === "applications" ? (
+              <ManagerApplicationDocumentsTab
+                userId={userId ?? null}
+                basePath={basePath}
+                propertyFilter={leasingPropertyFilter}
+                onAddDocument={openDocumentUpload}
+              />
+            ) : (
+              <ManagerLeaseDocumentsTab
+                userId={userId ?? null}
+                propertyFilter={leasingPropertyFilter}
+                onAddDocument={openDocumentUpload}
+              />
+            )}
+            <ManagerDocumentLibrary ref={libraryRef} userId={userId ?? null} listHidden hideFilterChrome />
+          </>
         ) : isOtherDocumentsTab ? (
-            <ManagerDocumentLibrary ref={libraryRef} userId={userId ?? null} />
-          ) : tabId === "applications" ? (
-          <ManagerApplicationDocumentsTab userId={userId ?? null} basePath={basePath} />
-        ) : tabId === "leases" ? (
-          <ManagerLeaseDocumentsTab userId={userId ?? null} />
-        ) : tabId === "income-documents" ? (
+            <ManagerDocumentLibrary
+              ref={libraryRef}
+              userId={userId ?? null}
+              hideFilterChrome
+              search={librarySearch}
+              onSearchChange={setLibrarySearch}
+              categoryFilter={libraryCategoryFilter}
+              onCategoryFilterChange={setLibraryCategoryFilter}
+              scopeFilter={libraryScopeFilter}
+              onScopeFilterChange={setLibraryScopeFilter}
+              propertyFilter={libraryPropertyFilter}
+              onPropertyFilterChange={setLibraryPropertyFilter}
+              expiryFilter={libraryExpiryFilter}
+              onExpiryFilterChange={setLibraryExpiryFilter}
+              onExpiryPillsChange={setLibraryExpiryPills}
+            />
+          ) : tabId === "income-documents" ? (
           <div>
             {loading ? (
               <ReportGeneratePrompt loading loadingTitle="Generating documents…" />
