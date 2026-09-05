@@ -1,6 +1,7 @@
 import { after } from "next/server";
 import { completeFreeManagerTierForUser } from "@/lib/auth/manager-pricing-selection";
 import { finalizePendingManagerFreeTier } from "@/lib/auth/manager-onboarding";
+import { markGoogleServicesOnboardingPending } from "@/lib/auth/manager-google-services-onboarding.server";
 import { maybeSendManagerPropLaneAssistantIntro } from "@/lib/claw-onboarding-sms.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -48,6 +49,8 @@ export async function completeManagerSignupTrial(
   } catch {
     void run();
   }
+
+  await markGoogleServicesOnboardingPending(supabase, opts.userId).catch(() => undefined);
 
   return { managerId };
 }

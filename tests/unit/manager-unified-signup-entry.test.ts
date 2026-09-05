@@ -24,7 +24,14 @@ describe("PRP-193 unified manager signup entry", () => {
 
   it("asks for a role before hub signup when the URL has no role", () => {
     expect(gateway).toContain("AuthRoleStack");
+    expect(gateway).toContain('variant="blend"');
     expect(gateway).toContain('params.set("role", nextRole)');
+  });
+
+  it("matches sign-in layout — no frosted auth card shell", () => {
+    expect(gateway).toContain('variant="blend"');
+    expect(gateway).toContain("native-auth-hub-stack");
+    expect(gateway).not.toMatch(/<AuthCard>\s*\n/);
   });
 
   it("manager trial signup posts to manager-register only", () => {

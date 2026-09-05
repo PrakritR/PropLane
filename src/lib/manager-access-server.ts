@@ -6,6 +6,7 @@ import {
   normalizeManagerSkuTier,
   pickBestManagerPurchaseRow,
   resolveEffectiveManagerSkuTier,
+  resolveManagerNavLockTierFromPurchase,
   resolveManagerSubscriptionTierFromPurchase,
   type ManagerSkuTier,
   type ManagerSubscriptionTier,
@@ -158,9 +159,31 @@ export async function getManagerSubscriptionTier(userId: string): Promise<Manage
   return getManagerSubscriptionTierCached(userId);
 }
 
+const getManagerNavLockTierCached = cache(async (userId: string): Promise<ManagerSubscriptionTier> => {
+  try {
+    const { syncManagerPurchaseTierState } = await import("@/lib/manager-tier-sync");
+    await syncManagerPurchaseTierState(userId);
+    const { rows, readFailed } = await loadManagerPurchaseRowsResult(userId);
+    const purchase = await getManagerPurchaseRowByUserId(userId);
+    return resolveManagerNavLockTierFromPurchase({
+      readFailed,
+      hasPurchaseRow: rows.length > 0,
+      tier: purchase.tier,
+      billing: purchase.billing,
+      stripeSubscriptionId: purchase.stripeSubscriptionId,
+      stripeCheckoutSessionId: purchase.stripeCheckoutSessionId,
+      promoCode: purchase.promoCode,
+      appleOriginalTransactionId: purchase.appleOriginalTransactionId,
+      paidAt: purchase.paidAt,
+    });
+  } catch {
+    return null;
+  }
+});
+
 const getManagerPortalNavSubscriptionTierCached = cache(
   async (userId: string): Promise<ManagerSubscriptionTier> => {
-    const ownTier = await getManagerSubscriptionTierCached(userId);
+    const ownTier = await getManagerNavLockTierCached(userId);
     try {
       const supabase = createSupabaseServiceRoleClient();
       const { data: ownedRow } = await supabase
@@ -188,7 +211,7 @@ const getManagerPortalNavSubscriptionTierCached = cache(
 
       const { pickManagerPortalNavSubscriptionTier } = await import("@/lib/manager-access");
       const linkedOwnerTiers = await Promise.all(
-        inviterIds.map((inviterId) => getManagerSubscriptionTierCached(inviterId)),
+        inviterIds.map((inviterId) => getManagerNavLockTierCached(inviterId)),
       );
       return pickManagerPortalNavSubscriptionTier(ownTier, false, linkedOwnerTiers);
     } catch {
@@ -197,7 +220,12 @@ const getManagerPortalNavSubscriptionTierCached = cache(
   },
 );
 
-/** Plan tier used for manager sidebar locks and section paywalls (not billing UI). */
+/**
+ * Plan tier used for manager sidebar locks and section paywalls (not billing UI).
+ * Uses `resolveManagerNavLockTierFromPurchase` so Free matches property caps and
+ * expired trials downgrade to locked nav — unlike `getManagerSubscriptionTier`,
+ * which still treats a missing purchase row as legacy unlimited access.
+ */
 export async function getManagerPortalNavSubscriptionTier(
   userId: string,
 ): Promise<ManagerSubscriptionTier> {
@@ -217,12 +245,14 @@ const getManagerSubscriptionTierByManagerIdCached = cache(
         )
         .eq("manager_id", normalized)
         .maybeSingle();
-      if (!data) return null;
+      if (!data) return "free";
       const userId = data.user_id != null ? String(data.user_id) : "";
       if (userId) {
-        return getManagerSubscriptionTier(userId);
+        return getManagerNavLockTierCached(userId);
       }
-      return resolveManagerSubscriptionTierFromPurchase({
+      return resolveManagerNavLockTierFromPurchase({
+        readFailed: false,
+        hasPurchaseRow: true,
         tier: data.tier != null ? String(data.tier) : null,
         billing: data.billing != null ? String(data.billing) : null,
         stripeSubscriptionId: data.stripe_subscription_id ?? null,
@@ -230,7 +260,6 @@ const getManagerSubscriptionTierByManagerIdCached = cache(
         promoCode: data.promo_code ?? null,
         appleOriginalTransactionId: data.apple_original_transaction_id ?? null,
         paidAt: data.paid_at ?? null,
-        hasPurchaseRow: true,
       });
     } catch {
       return null;

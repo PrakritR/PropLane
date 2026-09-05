@@ -98,7 +98,69 @@ describe("resolveOAuthPortalRedirect", () => {
     expect(path).toBe("/auth/get-started");
   });
 
-  it("routes a legacy profiles.role manager to Google services onboarding before the portal", async () => {
+  it("routes a new manager with pending setup to Google services onboarding before the portal", async () => {
+    const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
+
+    const user = { id: "user-1", email: "manager@test.com" } as User;
+    const supabase = {
+      from: (table: string) => {
+        if (table === "profile_roles") {
+          return { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) };
+        }
+        if (table === "profiles") {
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: () => Promise.resolve({ data: { role: "manager" }, error: null }),
+              }),
+            }),
+          };
+        }
+        if (table === "manager_purchases") {
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: () => Promise.resolve({ data: null, error: null }),
+                is: () => ({
+                  order: () => ({
+                    limit: () => Promise.resolve({ data: [], error: null }),
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === "manager_application_records") {
+          return {
+            select: () => ({
+              eq: () => Promise.resolve({ data: [], error: null }),
+            }),
+          };
+        }
+        if (table === "manager_automation_settings") {
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: () =>
+                  Promise.resolve({
+                    data: {
+                      row_data: { googleServicesOnboarding: { pendingAt: "2026-01-01T00:00:00.000Z" } },
+                    },
+                    error: null,
+                  }),
+              }),
+            }),
+          };
+        }
+        throw new Error(`unexpected table ${table}`);
+      },
+    };
+
+    const path = await resolveOAuthPortalRedirect(supabase as never, user, "/auth/continue");
+    expect(path).toBe("/portal/dashboard");
+  });
+
+  it("routes a legacy manager without pending setup straight to the portal", async () => {
     const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
 
     const user = { id: "user-1", email: "manager@test.com" } as User;
@@ -151,7 +213,7 @@ describe("resolveOAuthPortalRedirect", () => {
     };
 
     const path = await resolveOAuthPortalRedirect(supabase as never, user, "/auth/continue");
-    expect(path).toBe("/auth/connect-google-services");
+    expect(path).toBe("/portal/dashboard");
   });
 
   it("AXI-152: a resident-intent prospect is never asked which portal they want", async () => {
@@ -287,6 +349,6 @@ describe("resolveOAuthPortalRedirect", () => {
     });
 
     expect(ensureProfileRoleRow).toHaveBeenCalledWith(supabase, "founder", "manager");
-    expect(path === "/portal/dashboard" || path === "/auth/connect-google-services").toBe(true);
+    expect(path).toBe("/portal/dashboard");
   });
 });

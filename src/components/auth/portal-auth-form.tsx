@@ -2,8 +2,9 @@
 
 import posthog from "posthog-js";
 import { AuthCard } from "@/components/auth/auth-card";
-import { AuthBrandHeader, AuthDivider, AuthLegalConsent, AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
+import { AuthBrandHeader, AuthDivider, AuthLegalConsent } from "@/components/auth/auth-mobile-primitives";
 import { OAuthSocialStack } from "@/components/auth/oauth-social-stack";
+import { SignupFieldStack } from "@/components/auth/signup-field-stack";
 import { oauthErrorFromParams } from "@/lib/auth/oauth-error-params";
 import {
   AUTH_PORTAL_PICKER_OPTIONS,
@@ -17,8 +18,6 @@ import { useAuthWelcomeChrome } from "@/components/auth/use-auth-welcome-chrome"
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { PasswordInput } from "@/components/ui/password-input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { recoverImplicitAuthHash } from "@/lib/auth/recover-implicit-auth-hash";
 import { waitForOAuthUser } from "@/lib/auth/wait-for-oauth-user";
@@ -30,7 +29,6 @@ import {
   prospectHandoffFromSearchParams,
 } from "@/lib/auth/prospect-handoff-storage";
 import Link from "next/link";
-import { GET_STARTED_PATH } from "@/lib/auth/get-started-path";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
@@ -38,7 +36,6 @@ import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 const LOGIN_TIMEOUT_MS = 6000;
 /** Hub signup can lag GoTrue propagation; retries need a longer ceiling than sign-in. */
 const SIGNUP_SIGNIN_TIMEOUT_MS = 15_000;
-const REMEMBERED_EMAIL_KEY = "axis:remembered-login-email";
 
 type SignInResult = {
   data: { user: { id: string } | null; session: unknown | null };
@@ -111,15 +108,6 @@ function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number, message: str
   return Promise.race([Promise.resolve(promise), timeout]).finally(() => window.clearTimeout(timeoutId));
 }
 
-function readRememberedEmail(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    return window.localStorage.getItem(REMEMBERED_EMAIL_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
-
 function continueHref(nextPath: string): string {
   const safe = safeNextPath(nextPath);
   if (!safe) return "/auth/continue";
@@ -139,33 +127,18 @@ function pickerRoleFromParam(value: string): AuthPortalPickerId | null {
     : null;
 }
 
-async function tryResidentAutoConfirm(email: string): Promise<boolean> {
-  try {
-    const res = await fetch("/api/auth/confirm-resident-email", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: normalizeAuthEmail(email) }),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 /**
- * The single portal auth surface for every account type — one clean screen used by both
- * /auth/sign-in and /auth/create-account, web and native. Role and plan are resolved
- * AFTER authentication (the single engine + /auth/get-started chooser), so this screen
- * has no role toggle, no plan selection, and no "change role" affordance.
+ * The single account-CREATION surface, reached only from
+ * /auth/create-account (role picked before it, or carried on `?role=`).
+ *
+ * It used to serve sign-in too, behind `mode` and `variant` props, and carried a
+ * second full copy of the fields for the layout no caller asked for. Sign-in
+ * moved to NativeAuthHub, so those branches had no route into them — and the
+ * unreachable copy had already drifted, losing the phone input the live one
+ * collects. Both are gone; role and plan are still resolved AFTER
+ * authentication, so this screen has no role toggle and no plan selection.
  */
-export function PortalAuthForm({
-  mode,
-  variant = "default",
-}: {
-  mode: "sign-in" | "create";
-  /** Hub layout matches the legacy NativeAuthHub create surface (placeholders, no role toggle). */
-  variant?: "default" | "hub";
-}) {
+export function PortalAuthForm() {
   const router = useRouter();
   const { showToast } = useAppUi();
   const { isNative } = useIsNativeApp();
@@ -187,9 +160,7 @@ export function PortalAuthForm({
     () => prospectHandoffFromSearchParams(searchParams),
     [searchParams],
   );
-  const isCreate = mode === "create";
-  const isHub = variant === "hub";
-  useAuthWelcomeChrome(isCreate);
+  useAuthWelcomeChrome(true);
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -202,11 +173,12 @@ export function PortalAuthForm({
   );
 
   useEffect(() => {
-    if (!isCreate) return;
+    /* eslint-disable react-hooks/set-state-in-effect -- one-time hydration from the URL */
     if (emailFromUrl) setEmail((cur) => cur || emailFromUrl);
     if (nameFromUrl) setFullName((cur) => cur || nameFromUrl);
     if (phoneFromUrl) setPhone((cur) => cur || phoneFromUrl);
-  }, [emailFromUrl, isCreate, nameFromUrl, phoneFromUrl]);
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [emailFromUrl, nameFromUrl, phoneFromUrl]);
 
   useEffect(() => {
     if (!prospectHandoffSnapshot) return;
@@ -227,15 +199,6 @@ export function PortalAuthForm({
     };
   }, [nextPath]);
 
-  useEffect(() => {
-    if (isCreate) return;
-    const remembered = readRememberedEmail();
-    if (remembered) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time hydration from stored login
-      setEmail(remembered);
-    }
-  }, [isCreate]);
-
   // Native shell returns to this screen after the OAuth browser tab closes; finish routing.
   useEffect(() => {
     const redirectAfterOAuth = async () => {
@@ -250,53 +213,6 @@ export function PortalAuthForm({
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
-
-  const handleSignIn = async () => {
-    if (!email.trim() || !password) {
-      setErrorText("Enter email and password.");
-      return;
-    }
-    setErrorText(null);
-    setBusy(true);
-    let didRedirect = false;
-    try {
-      const supabase = createSupabaseBrowserClient();
-      let authResult = await withTimeout(
-        supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }) as PromiseLike<SignInResult>,
-        LOGIN_TIMEOUT_MS,
-        "Login is taking too long. Please check your connection and try again.",
-      );
-      if (authResult.error?.message.toLowerCase().includes("email not confirmed")) {
-        if (await tryResidentAutoConfirm(email)) {
-          authResult = await withTimeout(
-            supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }) as PromiseLike<SignInResult>,
-            LOGIN_TIMEOUT_MS,
-            "Login is taking too long. Please check your connection and try again.",
-          );
-        }
-      }
-      if (authResult.error) {
-        setErrorText(friendlyAuthError(authResult.error.message));
-        return;
-      }
-      const user = authResult.data.user;
-      if (!user) throw new Error("No active session.");
-      posthog.identify(user.id);
-      try {
-        window.localStorage.setItem(REMEMBERED_EMAIL_KEY, normalizeAuthEmail(email));
-      } catch {
-        /* ignore */
-      }
-      await supabase.auth.refreshSession().catch(() => undefined);
-      await supabase.auth.getSession();
-      didRedirect = true;
-      window.location.replace(continueHref(nextPath));
-    } catch (e) {
-      setErrorText(friendlyAuthError(e instanceof Error ? e.message : "Sign-in failed"));
-    } finally {
-      if (!didRedirect) setBusy(false);
-    }
-  };
 
   const handleCreate = async () => {
     if (!email.trim() || password.length < 8) {
@@ -417,7 +333,7 @@ export function PortalAuthForm({
     }
   };
 
-  const submit = isCreate ? handleCreate : handleSignIn;
+  const submit = handleCreate;
 
   const browseHomesHref = residentBrowseFromAuthHref();
   const onBrowseHomesClick = useMemo(
@@ -441,128 +357,29 @@ export function PortalAuthForm({
       )
     : "/auth/sign-in";
 
-  const stackClassName = `native-auth-hub-stack mx-auto w-full self-center ${isHub && isCreate ? "max-w-[52rem]" : "max-w-[460px]"}`;
+  const stackClassName = "native-auth-hub-stack mx-auto w-full max-w-[52rem] self-center";
 
-  const hubFields = (
+  const fields = (
     <div className="space-y-3">
-      {isCreate ? (
-        <Input
-          autoComplete="name"
-          placeholder="Full name"
-          value={fullName}
-          onChange={(e) => setFullName(e.target.value)}
-          disabled={busy}
-        />
-      ) : null}
-      <Input
-        type="email"
-        autoComplete="email"
-        // iOS/macOS autocapitalise the first letter by default, which used to
-        // make Manager@… a different account from manager@… (PRP-196).
-        autoCapitalize="none"
-        autoCorrect="off"
-        spellCheck={false}
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        disabled={busy}
-        readOnly={prospectHandoff && Boolean(emailFromUrl)}
-      />
-      {/*
-        PRP-186: this input used to render ONLY for a prospect handoff, so
-        someone signing up cold here and then choosing Manager at
-        /auth/get-started was never asked for a phone — and nothing later in
-        manager onboarding asks either. A manager without one cannot have a work
-        number, because inbound SMS identity binds the sender to their verified
-        cell, so the whole texting path was dead for anyone who arrived by this
-        door rather than through a ?role=manager marketing link.
-
-        It stays optional here: this form is role-agnostic and a resident does
-        not need one. `?role=manager` continues to use ManagerTrialSignupForm,
-        which requires it.
-      */}
-      {isCreate ? (
-        <Input
-          type="tel"
-          autoComplete="tel"
-          placeholder={tourInquiryFromUrl ? "Phone from your tour request" : "Phone (optional)"}
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          disabled={busy}
-        />
-      ) : null}
-      <PasswordInput
-        autoComplete={isCreate ? "new-password" : "current-password"}
-        placeholder={isCreate ? "Password (8+ characters)" : "Password"}
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        disabled={busy}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") void submit();
+      <SignupFieldStack
+        values={{ fullName, email, phone, password }}
+        onChange={(patch) => {
+          if (patch.fullName !== undefined) setFullName(patch.fullName);
+          if (patch.email !== undefined) setEmail(patch.email);
+          if (patch.phone !== undefined) setPhone(patch.phone);
+          if (patch.password !== undefined) setPassword(patch.password);
         }}
+        disabled={busy}
+        // A prospect handoff carries the address off the tour request; letting it
+        // be edited here would sign the person up as somebody else.
+        emailDisabled={prospectHandoff && Boolean(emailFromUrl)}
+        phonePlaceholder={tourInquiryFromUrl ? "Phone from your tour request" : undefined}
+        onSubmit={() => void submit()}
       />
     </div>
   );
 
-  const labeledFields = (
-    <div className="space-y-3 sm:space-y-4">
-      {isCreate ? (
-        <div>
-          <label className="text-xs font-semibold text-muted" htmlFor="full-name">
-            Full name
-          </label>
-          <Input
-            id="full-name"
-            className="mt-1.5"
-            autoComplete="name"
-            placeholder="Your name"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            disabled={busy}
-          />
-        </div>
-      ) : null}
-      <div>
-        <label className="text-xs font-semibold text-muted" htmlFor="email">
-          Email
-        </label>
-        <Input
-          id="email"
-          className="mt-1.5"
-          type="email"
-          autoComplete="email"
-          // iOS/macOS autocapitalise the first letter by default, which used to
-          // make Manager@… a different account from manager@… (PRP-196).
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          disabled={busy}
-        />
-      </div>
-      <div>
-        <label className="text-xs font-semibold text-muted" htmlFor="password">
-          {isCreate ? "Create password" : "Password"}
-        </label>
-        <PasswordInput
-          id="password"
-          className="mt-1.5"
-          autoComplete={isCreate ? "new-password" : "current-password"}
-          placeholder={isCreate ? "Minimum 8 characters" : undefined}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          disabled={busy}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void submit();
-          }}
-        />
-      </div>
-    </div>
-  );
-
-  if (isHub && isCreate) {
-    return (
+  return (
       <div className={stackClassName} data-auth-mode="create-compact">
         <AuthCard variant="blend" wide>
           <div className="native-auth-hub">
@@ -601,7 +418,7 @@ export function PortalAuthForm({
                     : "or enter your details"
                 }
               />
-              {hubFields}
+              {fields}
               {errorText ? <p className="text-center text-xs text-rose-600">{errorText}</p> : null}
               <Button
                 type="button"
@@ -641,87 +458,4 @@ export function PortalAuthForm({
         </div>
       </div>
     );
-  }
-
-  return (
-    <AuthCard>
-      <AuthPageHeader
-        showLogo
-        title={isCreate ? "Create your account" : "Portal sign-in"}
-        subtitle={isCreate ? "One account for managers and residents" : undefined}
-        accent={!isCreate}
-      />
-
-      <div className="mt-5 sm:mt-6">
-        <OAuthSocialStack
-          nextPath={nextPath}
-          disabled={busy}
-          onError={(message) => setErrorText(message || null)}
-        />
-      </div>
-
-      <div className="my-4 sm:my-5">
-        <AuthDivider />
-      </div>
-
-      {labeledFields}
-
-      {!isCreate ? (
-        <div className="mt-3 text-sm sm:mt-4">
-          <Link className="font-semibold text-primary hover:opacity-90" href="/auth/forgot-password">
-            Forgot password
-          </Link>
-        </div>
-      ) : null}
-
-      {errorText ? (
-        <div className="mt-4 text-center" data-attr="portal-auth-error">
-          <p className="text-sm text-rose-600">{errorText}</p>
-          {authErrorOffersAccountRoutes(errorText) ? (
-            // The error itself routes somewhere. Previously the only ways
-            // forward were small print at the bottom of the page, so someone
-            // whose account did not exist had nothing to act on (PRP-189).
-            <p className="mt-1.5 text-xs text-muted">
-              <Link className="font-semibold underline underline-offset-2" href="/auth/forgot-password">
-                Reset your password
-              </Link>
-              {" · "}
-              <Link className="font-semibold underline underline-offset-2" href={GET_STARTED_PATH}>
-                Create an account
-              </Link>
-            </p>
-          ) : null}
-        </div>
-      ) : null}
-
-      <Button
-        type="button"
-        className="mt-4 w-full rounded-full py-2.5 text-[15px] font-semibold sm:mt-5 sm:py-3 sm:text-base"
-        onClick={() => submit()}
-        disabled={busy}
-      >
-        {busy ? (isCreate ? "Creating…" : "Signing in…") : isCreate ? "Create account" : "Sign in"}
-      </Button>
-
-      <p className="mt-5 text-center text-[13px] text-muted sm:mt-6 sm:text-sm">
-        {isCreate ? (
-          <>
-            Already have an account?{" "}
-            <Link className="font-semibold text-primary hover:opacity-90" href="/auth/sign-in">
-              Sign in
-            </Link>
-          </>
-        ) : (
-          <>
-            New here?{" "}
-            <Link className="font-semibold text-primary hover:opacity-90" href="/auth/create-account">
-              Get started
-            </Link>
-          </>
-        )}
-      </p>
-
-      <AuthLegalConsent action={isCreate ? "create" : "continue"} className="mt-4 sm:mt-5" />
-    </AuthCard>
-  );
 }

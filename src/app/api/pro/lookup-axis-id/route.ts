@@ -3,6 +3,7 @@ import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { proplaneIdLookupVariants } from "@/lib/manager-id";
+import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 
 export const runtime = "nodejs";
 
@@ -49,20 +50,22 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "No account found with this PropLane ID." }, { status: 404 });
     }
 
-    const role = String(profile.role ?? "").toLowerCase();
-    if (role !== "manager" && role !== "owner") {
+    const eligible = await userIsPropertyPortalManager(supabase, profile.id);
+    if (!eligible) {
       return NextResponse.json(
         { ok: false, error: "This account is not eligible for co-manager linking (must be a property portal manager)." },
         { status: 400 },
       );
     }
 
+    const role = String(profile.role ?? "").toLowerCase();
+
     return NextResponse.json({
       ok: true,
       userId: profile.id,
       axisId: String(profile.manager_id ?? axisId),
       displayName: profile.full_name?.trim() || axisId,
-      role,
+      role: role === "owner" ? "owner" : "manager",
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";

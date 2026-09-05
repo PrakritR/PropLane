@@ -12,6 +12,7 @@ import {
   pickBestManagerPurchaseRow,
   residentSectionAllowedForManagerTier,
   residentSectionLockedForManagerTier,
+  resolveManagerNavLockTierFromPurchase,
   resolveManagerSubscriptionTierFromPurchase,
 } from "@/lib/manager-access";
 
@@ -82,6 +83,40 @@ describe("manager-access", () => {
     expect(residentSectionAllowedForManagerTier("communication", "free")).toBe(true);
     expect(residentSectionLockedForManagerTier("services", "free")).toBe(true);
     expect(residentSectionAllowedForManagerTier("services", "paid")).toBe(true);
+  });
+
+  it("nav lock tier matches enforced Free for accounts without a purchase row", () => {
+    expect(
+      resolveManagerNavLockTierFromPurchase({
+        readFailed: false,
+        hasPurchaseRow: false,
+        tier: null,
+      }),
+    ).toBe("free");
+  });
+
+  it("nav lock tier stays unlimited when the plan cannot be read", () => {
+    expect(
+      resolveManagerNavLockTierFromPurchase({
+        readFailed: true,
+        hasPurchaseRow: false,
+        tier: null,
+      }),
+    ).toBeNull();
+  });
+
+  it("nav lock tier downgrades an expired signup trial to Free", () => {
+    const expiredPaidAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    expect(
+      resolveManagerNavLockTierFromPurchase({
+        readFailed: false,
+        hasPurchaseRow: true,
+        tier: "pro",
+        billing: "trial",
+        paidAt: expiredPaidAt,
+        stripeSubscriptionId: null,
+      }),
+    ).toBe("free");
   });
 
   it("resolves subscription tier from purchase rows", () => {

@@ -132,7 +132,7 @@ describe("POST /api/auth/manager-register", () => {
   });
 
   it("grants a Pro trial and redirects new managers to optional Google setup", async () => {
-    vi.mocked(resolveManagerPortalEntryPath).mockResolvedValue("/auth/connect-google-services");
+    vi.mocked(resolveManagerPortalEntryPath).mockResolvedValue("/portal/dashboard");
     vi.mocked(findManagerPurchaseForAccount).mockResolvedValue(null);
     vi.mocked(isManagerOnboardingComplete).mockReturnValue(false);
     vi.mocked(provisionPendingManagerAccount).mockResolvedValue({ managerId: "MGR-PENDING-01" });
@@ -176,7 +176,7 @@ describe("POST /api/auth/manager-register", () => {
     expect(status).toBe(200);
     expect(data.ok).toBe(true);
     expect(data.managerId).toBe("MGR-PENDING-01");
-    expect(data.redirectTo).toBe("/auth/connect-google-services");
+    expect(data.redirectTo).toBe("/portal/dashboard");
     expect(completeManagerSignupTrial).toHaveBeenCalledWith(expect.anything(), {
       userId: "user-new",
       email: "trial@example.com",
@@ -186,7 +186,7 @@ describe("POST /api/auth/manager-register", () => {
   });
 
   it("defaults to a Pro trial when tier is omitted", async () => {
-    vi.mocked(resolveManagerPortalEntryPath).mockResolvedValue("/auth/connect-google-services");
+    vi.mocked(resolveManagerPortalEntryPath).mockResolvedValue("/portal/dashboard");
     vi.mocked(findManagerPurchaseForAccount).mockResolvedValue(null);
     vi.mocked(isManagerOnboardingComplete).mockReturnValue(false);
     vi.mocked(provisionPendingManagerAccount).mockResolvedValue({ managerId: "MGR-PENDING-02" });
@@ -229,7 +229,7 @@ describe("POST /api/auth/manager-register", () => {
     expect(status).toBe(200);
     expect(data.ok).toBe(true);
     expect(data.managerId).toBe("MGR-PENDING-02");
-    expect(data.redirectTo).toBe("/auth/connect-google-services");
+    expect(data.redirectTo).toBe("/portal/dashboard");
     expect(completeManagerSignupTrial).toHaveBeenCalledWith(expect.anything(), {
       userId: "user-new-2",
       email: "new@example.com",

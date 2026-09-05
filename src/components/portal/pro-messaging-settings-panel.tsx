@@ -24,7 +24,6 @@ import {
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { buildManagerInboxLiveContacts } from "@/lib/manager-inbox-contacts";
-import { ManagerMessagingOutboundDefaults } from "@/components/portal/pro-messaging-outbound-defaults";
 import { ManagerCommsBillingPanel } from "@/components/portal/manager-comms-billing-panel";
 import { ManagerSmsWorkNumberHint } from "@/components/portal/pro-sms-work-number-hint";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
@@ -539,10 +538,6 @@ export function ManagerMessagingSettingsPanel({
 
   return (
     <>
-    <ManagerMessagingOutboundDefaults
-      workNumber={phoneNumber}
-      canSendSms={status.canSend}
-    />
     <ManagerCommsBillingPanel />
     <PortalSettingsSection
       title="Work number"

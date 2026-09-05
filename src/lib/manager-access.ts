@@ -263,6 +263,39 @@ export function isWaiverGrantedManagerPurchase(promoCode: string | null | undefi
 }
 
 /** Resolve subscription access from a purchase row (synced tier state). */
+/**
+ * Sidebar locks, section paywalls, and resident manager-tier gates must read the
+ * same enforced plan as property caps (`resolveEffectiveManagerSkuTier`), not the
+ * legacy `getManagerSubscriptionTier` shape that still treats a missing purchase
+ * row as unlimited access.
+ */
+export function resolveManagerNavLockTierFromPurchase(input: {
+  readFailed: boolean;
+  hasPurchaseRow: boolean;
+  tier: string | null | undefined;
+  billing?: string | null | undefined;
+  stripeSubscriptionId?: string | null | undefined;
+  stripeCheckoutSessionId?: string | null | undefined;
+  promoCode?: string | null | undefined;
+  appleOriginalTransactionId?: string | null | undefined;
+  paidAt?: string | null | undefined;
+  nowMs?: number;
+}): ManagerSubscriptionTier {
+  if (input.readFailed) return null;
+  if (!input.hasPurchaseRow) return "free";
+  return resolveManagerSubscriptionTierFromPurchase({
+    tier: input.tier,
+    billing: input.billing,
+    stripeSubscriptionId: input.stripeSubscriptionId,
+    stripeCheckoutSessionId: input.stripeCheckoutSessionId,
+    promoCode: input.promoCode,
+    appleOriginalTransactionId: input.appleOriginalTransactionId,
+    paidAt: input.paidAt,
+    hasPurchaseRow: true,
+    nowMs: input.nowMs,
+  });
+}
+
 export function resolveManagerSubscriptionTierFromPurchase(input: {
   tier: string | null | undefined;
   billing?: string | null | undefined;

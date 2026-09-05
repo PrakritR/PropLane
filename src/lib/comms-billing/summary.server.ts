@@ -42,6 +42,33 @@ function currentBillingPeriodUtc(): { start: string; end: string } {
   return { start: start.toISOString(), end: end.toISOString() };
 }
 
+/**
+ * Month-to-date usage in cents, for the allowance gate.
+ *
+ * Separate from the full summary because the gate runs on the hot path of every
+ * send — it needs one number, not the per-meter breakdown and account row the
+ * settings panel asks for.
+ */
+export async function monthToDateUsageCents(
+  db: SupabaseClient,
+  managerUserId: string,
+): Promise<number> {
+  const { start, end } = currentBillingPeriodUtc();
+  const { data, error } = await db
+    .from("manager_comms_usage_events")
+    .select("total_cents")
+    .eq("manager_user_id", managerUserId)
+    .gte("created_at", start)
+    .lt("created_at", end);
+  // A failed read must not read as "no usage" — that would hand out unlimited
+  // free usage whenever the database hiccups. Report the allowance as spent and
+  // let the card check decide.
+  if (error) return Number.MAX_SAFE_INTEGER;
+  let cents = 0;
+  for (const row of data ?? []) cents += Number((row as { total_cents?: unknown }).total_cents) || 0;
+  return cents;
+}
+
 export async function loadManagerCommsBillingSummary(
   db: SupabaseClient,
   managerUserId: string,

@@ -1,4 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/auth/with-timeout", () => ({
+  AUTH_CALL_TIMEOUT_MS: 6000,
+  withAuthTimeout: <T,>(promise: PromiseLike<T>) => Promise.resolve(promise),
+}));
+
 import { waitForOAuthUser } from "@/lib/auth/wait-for-oauth-user";
 
 describe("waitForOAuthUser", () => {
@@ -13,7 +19,7 @@ describe("waitForOAuthUser", () => {
       },
     };
 
-    const result = await waitForOAuthUser(supabase as never, { attempts: 3, delayMs: 1 });
+    const result = await waitForOAuthUser(supabase as never, { maxWaitMs: 500, delayMs: 1 });
     expect(result).toBe(user);
     expect(supabase.auth.getUser).toHaveBeenCalledTimes(2);
   });
@@ -25,7 +31,7 @@ describe("waitForOAuthUser", () => {
       },
     };
 
-    const result = await waitForOAuthUser(supabase as never, { attempts: 2, delayMs: 1 });
+    const result = await waitForOAuthUser(supabase as never, { maxWaitMs: 50, delayMs: 1 });
     expect(result).toBeNull();
   });
 });

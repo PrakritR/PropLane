@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 const FORM = "src/components/auth/portal-auth-form.tsx";
+const STACK = "src/components/auth/signup-field-stack.tsx";
 const ROUTE = "src/app/api/auth/signup/route.ts";
 
 /**
@@ -20,13 +21,19 @@ const ROUTE = "src/app/api/auth/signup/route.ts";
  */
 describe("PRP-186: the hub signup form collects a phone", () => {
   it("renders the input for any create, not just a prospect handoff", () => {
+    // The fields moved into the one shared stack, so the guarantee is now that
+    // the hub form renders that stack and the stack renders phone
+    // UNCONDITIONALLY — there is no longer any condition it could regrow.
     const form = read(FORM);
-    // The gate that caused the bug must be gone from the phone input.
-    expect(form).not.toContain("{prospectHandoff ? (\n        <Input\n          type=\"tel\"");
-    const telIdx = form.indexOf('type="tel"');
+    expect(form).toContain("<SignupFieldStack");
+    expect(form).not.toContain('type="tel"');
+
+    const stack = read(STACK);
+    const telIdx = stack.indexOf('type="tel"');
     expect(telIdx).toBeGreaterThan(-1);
-    // The nearest enclosing condition is now `isCreate`.
-    expect(form.slice(Math.max(0, telIdx - 400), telIdx)).toContain("{isCreate ? (");
+    // Nothing between the fragment open and the phone input may branch on it.
+    const before = stack.slice(stack.indexOf("return (\n    <>"), telIdx);
+    expect(before).not.toContain("?");
   });
 
   it("sends the phone it collected", () => {

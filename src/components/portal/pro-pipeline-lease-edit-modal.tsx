@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { Input, NativeSelect } from "@/components/ui/input";
@@ -65,6 +65,8 @@ type ManagerPipelineLeaseEditModalProps = {
   onRegenerate?: (templateId: string | null) => void;
   regenerateLabel?: string;
   regenerateDisabled?: boolean;
+  onSendToResident?: () => void;
+  sendToResidentBusy?: boolean;
 };
 
 /** Resident / pipeline lease editor — same shell as the property Lease tab editor, but edits one lease packet. */
@@ -87,15 +89,18 @@ export function ManagerPipelineLeaseEditModal({
   onRegenerate,
   regenerateLabel = "Regenerate",
   regenerateDisabled = false,
+  onSendToResident,
+  sendToResidentBusy = false,
 }: ManagerPipelineLeaseEditModalProps) {
   const { showToast } = useAppUi();
   const { userId: sessionManagerUserId } = useManagerUserId();
   const resolvedManagerUserId = managerUserId ?? sessionManagerUserId;
   const [htmlOverride, setHtmlOverride] = useState("");
   const [saveReviewOpen, setSaveReviewOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
+  const [autoSaveState, setAutoSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const autoSaveSkipRef = useRef(true);
   const usesAiHtml = leaseUsesAiGeneratedHtml(row);
 
   const canEdit = leaseAllowsManagerDocumentEdits(row);
@@ -157,8 +162,68 @@ export function ManagerPipelineLeaseEditModal({
     setHtmlOverride(html ? stripDisclosureReviewFromLeaseHtml(html) : "");
     setSaveReviewOpen(false);
     setReviewAcknowledged(false);
+    setAutoSaveState("idle");
+    autoSaveSkipRef.current = true;
     setSelectedChoiceId(defaultChoiceId);
   }, [open, row.id, row.updatedAtIso, row.generatedHtml, row.managerSectionEdits, defaultChoiceId]);
+
+  const commitSave = useCallback(
+    (options?: { silent?: boolean }) => {
+      if (!canEdit || !editableHtml) return;
+      if (usesAiHtml && !reviewAcknowledged) return;
+      if (editorHtml.trim() === baselineHtml.trim()) return;
+      if (propertyLeaseNeedsAssistantReview(noticeHtml)) {
+        setSaveReviewOpen(true);
+        return;
+      }
+      setAutoSaveState("saving");
+      const result = saveLeaseDocumentHtml(row.id, editorHtml, resolvedManagerUserId);
+      if (!result.ok) {
+        setAutoSaveState("error");
+        if (!options?.silent) showToast(result.error);
+        return;
+      }
+      setAutoSaveState("saved");
+      if (!options?.silent) showToast("Lease saved.");
+      onDone();
+    },
+    [
+      baselineHtml,
+      canEdit,
+      editableHtml,
+      editorHtml,
+      noticeHtml,
+      onDone,
+      resolvedManagerUserId,
+      reviewAcknowledged,
+      row.id,
+      showToast,
+      usesAiHtml,
+    ],
+  );
+
+  useEffect(() => {
+    if (!open || !canEdit || !editableHtml) return;
+    if (editorHtml.trim() === baselineHtml.trim()) return;
+    if (usesAiHtml && !reviewAcknowledged) return;
+    if (autoSaveSkipRef.current) {
+      autoSaveSkipRef.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      commitSave({ silent: true });
+    }, 1000);
+    return () => window.clearTimeout(timer);
+  }, [
+    baselineHtml,
+    canEdit,
+    commitSave,
+    editableHtml,
+    editorHtml,
+    open,
+    reviewAcknowledged,
+    usesAiHtml,
+  ]);
 
   const assistantContext = useMemo(() => buildLeasePacketEditAssistantContext(row), [row]);
 
@@ -182,7 +247,7 @@ export function ManagerPipelineLeaseEditModal({
   const draftShowsPlaceholder = Boolean(editorHtml.includes(LEASE_LANDLORD_PLACEHOLDER));
 
   const runInPlaceRegenerate = () => {
-    if (regenerating || regenerateDisabled || saving) return;
+    if (regenerating || regenerateDisabled) return;
     if (onRegenerate) {
       onRegenerate(selectedTemplateId);
       return;
@@ -208,36 +273,17 @@ export function ManagerPipelineLeaseEditModal({
     onDone();
   };
 
-  const commitSave = () => {
-    if (!canEdit || !editableHtml) return;
-    setSaving(true);
-    const result = saveLeaseDocumentHtml(row.id, editorHtml, resolvedManagerUserId);
-    setSaving(false);
-    if (!result.ok) {
-      showToast(result.error);
-      return;
-    }
-    showToast("Lease saved.");
-    onDone();
-    onClose();
-  };
-
-  const save = () => {
-    if (usesAiHtml && !reviewAcknowledged) {
-      showToast("Confirm that you have reviewed this AI-generated draft before saving.");
-      return;
-    }
-    if (propertyLeaseNeedsAssistantReview(noticeHtml)) {
-      setSaveReviewOpen(true);
-      return;
-    }
-    commitSave();
-  };
-
-  const showSave = canEdit && Boolean(editableHtml);
+  const showSend = Boolean(onSendToResident && editableHtml);
+  const showSave = false;
   const showGenerationFormat = canEdit && generationSupported;
   const hasFooterActions =
-    showSave || showDownload || showUpload || showDelete || showShare || showRegenerate;
+    showSend ||
+    showDownload ||
+    showUpload ||
+    showDelete ||
+    showShare ||
+    showRegenerate ||
+    autoSaveState !== "idle";
   const footerBtnClass = cn(RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN, "rounded-full");
   const deleteBtnClass = cn(
     footerBtnClass,
@@ -248,9 +294,9 @@ export function ManagerPipelineLeaseEditModal({
     <Modal
       open={open}
       title="Edit lease"
-      description="Update this resident's lease format below, or type in chat to edit with PropLane Assistant."
+      description="Lease review — edits save automatically. Send when you are ready for the resident to sign."
       onClose={handleClose}
-      dismissBlocked={saving || regenerating}
+      dismissBlocked={regenerating}
       dense
       scrollableContent={false}
       panelClassName={cn(
@@ -322,25 +368,26 @@ export function ManagerPipelineLeaseEditModal({
                 </Button>
               ) : null}
             </div>
-            {showSave ? (
-              <div className="ml-auto flex items-center gap-3">
-                {/* A dead button with no stated reason reads as a broken feature:
-                    the review tick is REQUIRED before an AI-drafted lease can be
-                    saved, so name that instead of leaving the manager clicking. */}
+            {showSend ? (
+              <div className="ml-auto flex flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-3">
                 {usesAiHtml && !reviewAcknowledged ? (
-                  <span className="text-xs text-muted" data-attr="resident-lease-save-blocked-reason">
-                    Confirm you have reviewed the draft above to save.
+                  <span className="text-xs text-muted" data-attr="resident-lease-send-blocked-reason">
+                    Confirm you have reviewed the draft above to send.
                   </span>
+                ) : autoSaveState === "saving" ? (
+                  <span className="text-xs text-muted">Saving…</span>
+                ) : autoSaveState === "saved" ? (
+                  <span className="text-xs text-muted">All changes saved</span>
                 ) : null}
                 <Button
                   type="button"
                   variant="primary"
                   className="rounded-full"
-                  disabled={saving || (usesAiHtml && !reviewAcknowledged)}
-                  onClick={save}
-                  data-attr="resident-lease-edit-save"
+                  disabled={sendToResidentBusy || (usesAiHtml && !reviewAcknowledged)}
+                  onClick={onSendToResident}
+                  data-attr="resident-lease-edit-send"
                 >
-                  {saving ? "Saving…" : "Save"}
+                  {sendToResidentBusy ? "Sending…" : "Send"}
                 </Button>
               </div>
             ) : null}

@@ -1986,6 +1986,20 @@ html[data-native] .auth-plan-picker .auth-footer-link {
   animation: auth-spin 0.75s linear infinite;
 }
 
+/* Password-manager autofill paints a loud blue box over auth fields — match our input surface. */
+.auth-layout :is(input, textarea):-webkit-autofill,
+.auth-layout :is(input, textarea):-webkit-autofill:hover,
+.auth-layout :is(input, textarea):-webkit-autofill:focus,
+.manager-trial-signup-form :is(input, textarea):-webkit-autofill,
+.manager-trial-signup-form :is(input, textarea):-webkit-autofill:hover,
+.manager-trial-signup-form :is(input, textarea):-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--foreground);
+  caret-color: var(--foreground);
+  -webkit-box-shadow: 0 0 0 1000px var(--auth-input-bg) inset;
+  box-shadow: 0 0 0 1000px var(--auth-input-bg) inset;
+  transition: background-color 99999s ease-out 0s;
+}
+
 /* PRP-184 — web auth copy on chrome substrate must stay ≥4.5:1 over the brand wash. */
 html:not([data-native]) .auth-layout .auth-page-subtitle,
 html:not([data-native]) .auth-layout .auth-footer-link,

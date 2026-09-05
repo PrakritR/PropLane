@@ -11,6 +11,7 @@ import { VendorAppleSignUpButton } from "@/components/auth/vendor-apple-sign-up-
 import { VendorGoogleSignUpButton } from "@/components/auth/vendor-google-sign-up-button";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { SignupFieldStack } from "@/components/auth/signup-field-stack";
 import { PasswordInput } from "@/components/ui/password-input";
 import { queuePendingNotice, VENDOR_PORTAL_PATH } from "@/lib/pending-notice";
 import { FIELD_LABEL_CLASS } from "@/lib/ui-styles";
@@ -52,6 +53,10 @@ export function VendorSignupForm({
   const router = useRouter();
   const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState("");
+  // Vendor signup asked only for email and password, so the same product
+  // collected different details depending on which link you arrived through.
+  const [fullName, setFullName] = useState(initialFullName ?? "");
+  const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingConfirmation, setPendingConfirmation] = useState(false);
@@ -91,8 +96,18 @@ export function VendorSignupForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           inviteToken
-            ? { token: inviteToken, password, fullName: initialFullName.trim() || undefined }
-            : { email: normalizeAuthEmail(email), password },
+            ? {
+                token: inviteToken,
+                password,
+                fullName: (fullName || initialFullName).trim() || undefined,
+                phone: phone.trim() || undefined,
+              }
+            : {
+                email: normalizeAuthEmail(email),
+                password,
+                fullName: fullName.trim() || undefined,
+                phone: phone.trim() || undefined,
+              },
         ),
       });
       const body = (await res.json()) as RegisterResponse;
@@ -167,65 +182,23 @@ export function VendorSignupForm({
   );
 
   const passwordFieldsCompact = (
-    <>
-      <Input
-        type="email"
-        autoComplete="email"
-        // iOS/macOS autocapitalise the first letter by default, which used to
-        // make Manager@… a different account from manager@… (PRP-196).
-        autoCapitalize="none"
-        autoCorrect="off"
-        spellCheck={false}
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        disabled={Boolean(inviteToken) || locked}
-      />
-      <PasswordInput
-        autoComplete="new-password"
-        placeholder="Password (8+ characters)"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        disabled={locked}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") void submit();
-        }}
-      />
-    </>
+    <SignupFieldStack
+      values={{ fullName, email, phone, password }}
+      onChange={(patch) => {
+        if (patch.fullName !== undefined) setFullName(patch.fullName);
+        if (patch.email !== undefined) setEmail(patch.email);
+        if (patch.phone !== undefined) setPhone(patch.phone);
+        if (patch.password !== undefined) setPassword(patch.password);
+      }}
+      disabled={locked}
+      // An invite pins the address it was sent to.
+      emailDisabled={Boolean(inviteToken)}
+      onSubmit={() => void submit()}
+    />
   );
 
-  const passwordFieldsDefault = (
-    <>
-      <div>
-        <label className={FIELD_LABEL_CLASS} htmlFor="vendor-email">
-          Email
-        </label>
-        <Input
-          id="vendor-email"
-          type="email"
-          className="mt-1.5"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          disabled={Boolean(inviteToken) || locked}
-        />
-      </div>
-      <div>
-        <label className={FIELD_LABEL_CLASS} htmlFor="vendor-password">
-          Password
-        </label>
-        <PasswordInput
-          id="vendor-password"
-          className="mt-1.5"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          disabled={locked}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void submit();
-          }}
-        />
-      </div>
-    </>
-  );
+  // Both layouts render the SAME fields.
+  const passwordFieldsDefault = passwordFieldsCompact;
 
   const tagline = (
     <p className="text-center text-[11px] leading-tight text-muted whitespace-nowrap sm:text-xs">

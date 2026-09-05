@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { ApplicationsPipelinePanel } from "@/components/marketing/landing-applications-pipeline";
-import { BOOK_DEMO_HREF, MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
+import { BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 
-const GET_STARTED = MANAGER_GET_STARTED_HREF;
+const GET_STARTED = GET_STARTED_HREF;
 
 const TRUST = ["14-day Pro trial", "Approval-first AI", "Free plan, $0"] as const;
 

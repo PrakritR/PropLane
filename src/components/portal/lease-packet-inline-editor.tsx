@@ -29,7 +29,12 @@ type Props = {
   managerUserId?: string | null;
   onSaved: (row: LeasePipelineRow) => void;
   className?: string;
-  layout?: "default" | "panel";
+  layout?: "default" | "panel" | "manager-review";
+  /** Debounced save when values change — no manual Save button. */
+  autoSave?: boolean;
+  onGenerateLease?: () => void;
+  generateLeaseDisabled?: boolean;
+  generateLeaseTitle?: string;
 };
 
 function patchFormValues(values: LeasePacketFormValues, patch: Partial<LeasePacketFormValues>): LeasePacketFormValues {
@@ -99,23 +104,36 @@ function LeaseDoubleClickSection({
   );
 }
 
-export function LeasePacketInlineEditor({ row, managerUserId, onSaved, className, layout = "default" }: Props) {
+export function LeasePacketInlineEditor({
+  row,
+  managerUserId,
+  onSaved,
+  className,
+  layout = "default",
+  autoSave = false,
+  onGenerateLease,
+  generateLeaseDisabled = false,
+  generateLeaseTitle,
+}: Props) {
   const { showToast } = useAppUi();
   const baseline = useMemo(() => leasePacketFormValuesFromRow(row), [row]);
   const [values, setValues] = useState<LeasePacketFormValues>(baseline);
   const [saving, setSaving] = useState(false);
   const [editingSection, setEditingSection] = useState<TermsEditSection | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const autoSaveSkipRef = useRef(true);
 
   useEffect(() => {
     setValues(leasePacketFormValuesFromRow(row));
     setEditingSection(null);
+    autoSaveSkipRef.current = true;
   }, [row]);
 
   const dirty = !leasePacketFormValuesEqual(values, baseline);
   const willRegenerate = dirty && leasePacketFormValuesRegeneratesDocument(baseline, values);
   const leaseEndAuto = shouldAutoComputeLeaseEnd(values.leaseTerm, values.rentalType);
   const isPanel = layout === "panel";
+  const isManagerReview = layout === "manager-review";
 
   const update = (patch: Partial<LeasePacketFormValues>) => {
     setValues((cur) => patchFormValues(cur, patch));
@@ -123,26 +141,40 @@ export function LeasePacketInlineEditor({ row, managerUserId, onSaved, className
 
   const reset = () => setValues(baseline);
 
-  const save = async () => {
+  const save = async (options?: { silent?: boolean }) => {
     const built = buildLeasePacketUpdateFromForm(row.id, values, baseline);
     if (!built.ok) {
-      showToast(built.error);
+      if (!options?.silent) showToast(built.error);
       return;
     }
     setSaving(true);
     try {
       const result = await patchLeasePacketFromManager(built.input, managerUserId);
       if (!result.ok) {
-        showToast(result.error);
+        if (!options?.silent) showToast(result.error);
         return;
       }
-      showToast(willRegenerate ? "Lease updated and document regenerated." : "Lease updated.");
+      if (!options?.silent) {
+        showToast(willRegenerate ? "Lease updated and document regenerated." : "Lease updated.");
+      }
       onSaved(result.row);
       setEditingSection(null);
     } finally {
       setSaving(false);
     }
   };
+
+  useEffect(() => {
+    if (!autoSave || !dirty) return;
+    if (autoSaveSkipRef.current) {
+      autoSaveSkipRef.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void save({ silent: true });
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [autoSave, dirty, values, baseline, row.id, managerUserId]);
 
   const termOptions =
     values.rentalType === "short_term"
@@ -203,9 +235,72 @@ export function LeasePacketInlineEditor({ row, managerUserId, onSaved, className
         ref={scrollRef}
         className={cn(
           "min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5 [-webkit-overflow-scrolling:touch]",
-          isPanel ? "mt-3 space-y-3 pb-2" : "space-y-3",
+          isPanel || isManagerReview ? "mt-3 space-y-3 pb-2" : "space-y-3",
         )}
       >
+        {isManagerReview ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label className={fieldLabelClass} htmlFor="lease-mgr-review-rent">
+                Monthly rent
+              </label>
+              <Input
+                id="lease-mgr-review-rent"
+                inputMode="decimal"
+                value={values.monthlyRent}
+                onChange={(e) => update({ monthlyRent: e.target.value })}
+                placeholder="0"
+                data-attr="lease-mgr-review-rent"
+              />
+            </div>
+            <div>
+              <label className={fieldLabelClass} htmlFor="lease-mgr-review-deposit">
+                Security deposit
+              </label>
+              <Input
+                id="lease-mgr-review-deposit"
+                inputMode="decimal"
+                value={values.securityDeposit}
+                onChange={(e) => update({ securityDeposit: e.target.value })}
+                placeholder="0"
+                data-attr="lease-mgr-review-deposit"
+              />
+            </div>
+            <div>
+              <label className={fieldLabelClass} htmlFor="lease-mgr-review-term">
+                Lease term (in months)
+              </label>
+              <Select
+                id="lease-mgr-review-term"
+                value={values.leaseTerm}
+                onChange={(e) => update({ leaseTerm: e.target.value })}
+                data-attr="lease-mgr-review-term"
+              >
+                <option value="">Select term</option>
+                {termOptions.map((term) => (
+                  <option key={term} value={term}>
+                    {term}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <label className={fieldLabelClass} htmlFor="lease-mgr-review-start">
+                Start date
+              </label>
+              <Input
+                id="lease-mgr-review-start"
+                type="date"
+                value={values.leaseStart}
+                onChange={(e) => update({ leaseStart: e.target.value })}
+                data-attr="lease-mgr-review-start"
+              />
+            </div>
+          </div>
+        ) : null}
+
+        {!isManagerReview ? (
+        <>
         <LeaseDoubleClickSection
           title="Placement"
           summary={placementSummary}
@@ -372,8 +467,36 @@ export function LeasePacketInlineEditor({ row, managerUserId, onSaved, className
           fullHeight
           className="scroll-mt-2 border-t border-border pt-4"
         />
+        </>
+        ) : null}
       </div>
 
+      {isManagerReview ? (
+        <div className="mt-3 flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+          {autoSave && saving ? (
+            <span className="text-xs text-muted" data-attr="lease-mgr-review-autosave">
+              Saving…
+            </span>
+          ) : autoSave && dirty ? (
+            <span className="text-xs text-muted">Unsaved changes…</span>
+          ) : autoSave ? (
+            <span className="text-xs text-muted">All changes saved</span>
+          ) : null}
+          {onGenerateLease ? (
+            <Button
+              type="button"
+              variant="primary"
+              className="rounded-full"
+              disabled={generateLeaseDisabled || saving}
+              title={generateLeaseTitle}
+              data-attr="lease-mgr-review-generate"
+              onClick={onGenerateLease}
+            >
+              Generate lease
+            </Button>
+          ) : null}
+        </div>
+      ) : (
       <div
         className={cn(
           "flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-border bg-card pt-3",
@@ -395,6 +518,7 @@ export function LeasePacketInlineEditor({ row, managerUserId, onSaved, className
           {saving ? "Saving…" : "Save changes"}
         </Button>
       </div>
+      )}
     </form>
   );
 }

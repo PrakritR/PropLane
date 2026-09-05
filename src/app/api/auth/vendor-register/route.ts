@@ -18,6 +18,7 @@ import {
 } from "@/lib/vendor-signup-confirm-email";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { NextResponse } from "next/server";
+import { normalizeE164 } from "@/lib/twilio";
 
 export const runtime = "nodejs";
 
@@ -26,6 +27,7 @@ type Body = {
   email?: string;
   password?: string;
   fullName?: string;
+  phone?: string;
 };
 
 /** Invite-link preview — lets the register page show/lock the invited email without trusting the client for it. */
@@ -42,12 +44,37 @@ export async function GET(req: Request) {
   return NextResponse.json({ email: invite.vendor_email, name: invite.vendor_name ?? "" });
 }
 
+/**
+ * Store the vendor's phone once the account exists.
+ *
+ * provisionVendorAccountByEmail does not take a phone, and widening its
+ * contract from here would touch every caller. Writing it explicitly keeps the
+ * change to this route — and a failure here must never fail the signup: the
+ * account is already created, and the number is optional.
+ */
+async function applyVendorPhone(
+  supabase: ReturnType<typeof createSupabaseServiceRoleClient>,
+  userId: string | null | undefined,
+  phone: string,
+): Promise<void> {
+  if (!userId || !phone) return;
+  try {
+    await supabase.from("profiles").update({ phone }).eq("id", userId);
+  } catch {
+    /* optional field — never block account creation on it */
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Body;
     const token = typeof body.token === "string" ? body.token.trim() : "";
     const password = typeof body.password === "string" ? body.password : "";
     const fullName = typeof body.fullName === "string" ? body.fullName.trim() : "";
+    // Optional for a vendor, unlike a resident — an invited vendor may only
+    // have the email their manager sent the invite to. Normalised so a stored
+    // number is always E.164, never whatever the keypad produced.
+    const phone = normalizeE164(typeof body.phone === "string" ? body.phone : "") ?? "";
 
     if (password.length < 8) {
       return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
@@ -57,14 +84,14 @@ export async function POST(req: Request) {
 
     if (token) {
       const confirmEmail = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
-      return await registerFromInvite(supabase, { token, password, fullName, confirmEmail });
+      return await registerFromInvite(supabase, { token, password, fullName, phone, confirmEmail });
     }
 
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     if (!email.includes("@")) {
       return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
     }
-    return await registerSelfServe(req, supabase, { email, password, fullName });
+    return await registerSelfServe(req, supabase, { email, password, fullName, phone });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Could not create vendor account.";
     return NextResponse.json({ error: message }, { status: 500 });
@@ -83,7 +110,7 @@ export async function POST(req: Request) {
  */
 async function registerFromInvite(
   supabase: ReturnType<typeof createSupabaseServiceRoleClient>,
-  opts: { token: string; password: string; fullName: string; confirmEmail?: string },
+  opts: { token: string; password: string; fullName: string; phone?: string; confirmEmail?: string },
 ) {
   const invite = await findPendingVendorInviteByToken(supabase, opts.token);
   if (!invite) {
@@ -130,6 +157,8 @@ async function registerFromInvite(
     return NextResponse.json({ error: provisioned.error }, { status: provisioned.status });
   }
 
+  await applyVendorPhone(supabase, userId, opts.phone ?? "");
+
   track("vendor_account_created", userId!, { signup_method: "invite" });
 
   return NextResponse.json({
@@ -147,7 +176,7 @@ async function registerFromInvite(
 async function registerSelfServe(
   req: Request,
   supabase: ReturnType<typeof createSupabaseServiceRoleClient>,
-  opts: { email: string; password: string; fullName: string },
+  opts: { email: string; password: string; fullName: string; phone?: string },
 ) {
   const { email, password, fullName } = opts;
   const existingId = await findAuthUserIdByEmail(supabase, email);
@@ -167,6 +196,7 @@ async function registerSelfServe(
     if (!provisioned.ok) {
       return NextResponse.json({ error: provisioned.error }, { status: provisioned.status });
     }
+    await applyVendorPhone(supabase, existingId, opts.phone ?? "");
     track("vendor_account_created", existingId, { signup_method: "self_serve_existing_account" });
     return NextResponse.json({
       ok: true,
@@ -204,6 +234,8 @@ async function registerSelfServe(
     await rollbackSelfServeVendorSignup(supabase, linkData.user.id);
     return NextResponse.json({ error: provisioned.error }, { status: provisioned.status });
   }
+
+  await applyVendorPhone(supabase, linkData.user.id, opts.phone ?? "");
 
   // Not yet a completed signup — the account can't sign in until the vendor confirms.
   track("vendor_signup_started", linkData.user.id, { signup_method: "self_serve" });

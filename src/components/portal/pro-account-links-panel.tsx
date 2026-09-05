@@ -986,6 +986,44 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
             ? skuTier
             : null;
 
+  const copyInviteAcceptLink = useCallback(
+    async (inviteId: string) => {
+      const url = teamMemberDetailHref(portalBase, inviteId);
+      try {
+        await navigator.clipboard.writeText(url);
+        showToast("Invite link copied.");
+      } catch {
+        showToast("Could not copy the invite link.");
+      }
+    },
+    [portalBase, showToast],
+  );
+
+  const renderInviteAcceptLinkCard = (inviteId: string) => {
+    const url = teamMemberDetailHref(portalBase, inviteId);
+    return (
+      <div
+        className="rounded-2xl border border-primary/20 bg-primary/[0.04] px-4 py-3"
+        data-attr="co-manager-invite-link-card"
+      >
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Invite link</p>
+        <p className="mt-1 break-all font-mono text-xs text-foreground">{url}</p>
+        <p className="mt-2 text-xs leading-relaxed text-muted">
+          Share this link with the co-manager. When they sign in and open it, they can accept the invite.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-3 h-9 min-h-0 rounded-full px-4 text-[13px]"
+          data-attr="co-manager-copy-invite-link"
+          onClick={() => void copyInviteAcceptLink(inviteId)}
+        >
+          Copy invite link
+        </Button>
+      </div>
+    );
+  };
+
   const lookup = async (): Promise<boolean> => {
     const raw = axisInput.trim();
     if (!raw) {
@@ -1207,12 +1245,20 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       }
 
       if (!skipMessage) {
+        const propertyLabels = ids.map((id) => teamPropertyLabel(id));
+        const inviteBody = pendingInviteId
+          ? buildCoManagerInviteBody({
+              inviterName: managerDisplayName,
+              propertyLabels,
+              inviteId: pendingInviteId,
+            })
+          : linkInvitePreview.body;
         const result = await deliverManagerDirectoryMessage(
           {
             name: linkInvitePreview.recipientName,
             email: "",
             subject: linkInvitePreview.subject,
-            body: linkInvitePreview.body,
+            body: inviteBody,
           },
           false,
           channels,
@@ -1233,13 +1279,17 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         await loadRemoteInvites();
         resetLinkDraft();
         setLinkInvitePreview(null);
+        if (pendingInviteId) {
+          await copyInviteAcceptLink(pendingInviteId);
+        }
         showToast(
           skipMessage
-            ? // "Invite sent" while nothing left the building is the sentence
-              // that left managers waiting on an approval the other person was
-              // never told to give (PRP-205). Say what actually happened.
-              "Invite created, but nothing was sent. Tell them to open PropLane → Co-managers to accept it."
-            : "Invite sent and team member notified.",
+            ? pendingInviteId
+              ? "Invite created. Invite link copied — share it so they can accept."
+              : "Invite created, but nothing was sent. Tell them to open PropLane → Teams to accept it."
+            : pendingInviteId
+              ? "Invite sent and invite link copied."
+              : "Invite sent and team member notified.",
         );
         return;
       }
@@ -2190,6 +2240,9 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     return (
       <div className="space-y-4" data-attr="team-member-property-access">
         <TeamMemberContactCard entry={entry} />
+        {inv.status === "pending" && inv.direction === "outgoing"
+          ? renderInviteAcceptLinkCard(inv.id)
+          : null}
         {!readOnly ? (
           <AddPropertyToCoManager
             linkId={inv.id}
@@ -2299,7 +2352,20 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
                   {useRemote ? "Send invite" : "Save link (local)"}
                 </Button>
               </div>
-            ) : undefined
+            ) : (
+              <div className="flex w-full justify-end">
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="rounded-full"
+                  loading={lookupBusy}
+                  disabled={lookupBusy || linkAccountBlocked}
+                  onClick={() => void submitLinkAccount()}
+                >
+                  {lookupBusy ? "Checking…" : "Continue"}
+                </Button>
+              </div>
+            )
           }
         >
           <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-border pb-4 text-xs text-muted">
@@ -2331,19 +2397,9 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
               </label>
               <p className="mt-3 text-xs leading-relaxed text-muted">
                 Enter the {AXIS_ID_LABEL} of the manager you want to add. Next you&apos;ll choose which properties
-                they co-manage and what they can do on each.
+                they co-manage and what they can do on each. After you send the invite, you&apos;ll get a shareable
+                link they can open to accept.
               </p>
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  type="submit"
-                  variant="primary"
-                  className="rounded-full"
-                  loading={lookupBusy}
-                  disabled={lookupBusy || linkAccountBlocked}
-                >
-                  {lookupBusy ? "Checking…" : "Continue"}
-                </Button>
               </div>
             </form>
           ) : (

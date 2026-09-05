@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { AuthRole } from "@/components/auth/portal-switcher";
+import { AUTH_CALL_TIMEOUT_MS, withAuthTimeout } from "@/lib/auth/with-timeout";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { safeBrowserGetSession } from "@/lib/supabase/safe-browser-session";
 
@@ -31,14 +32,22 @@ export function useSignedInPortalRoles(): SignedInPortalRoles {
     void (async () => {
       try {
         const supabase = createSupabaseBrowserClient();
-        const { session } = await safeBrowserGetSession(supabase);
+        const { session } = await withAuthTimeout(
+          safeBrowserGetSession(supabase),
+          AUTH_CALL_TIMEOUT_MS,
+          "Session check timed out.",
+        );
         const sessionEmail = session?.user?.email ?? null;
         if (!cancelled) setEmail(sessionEmail);
         if (!sessionEmail) {
           if (!cancelled) setRoles([]);
           return;
         }
-        const res = await fetch("/api/auth/portal-roles", { credentials: "include" });
+        const res = await withAuthTimeout(
+          fetch("/api/auth/portal-roles", { credentials: "include" }),
+          AUTH_CALL_TIMEOUT_MS,
+          "Session check timed out.",
+        );
         const body = (await res.json().catch(() => ({}))) as { roles?: AuthRole[] };
         if (!cancelled) setRoles(res.ok && Array.isArray(body.roles) ? body.roles : []);
       } catch {

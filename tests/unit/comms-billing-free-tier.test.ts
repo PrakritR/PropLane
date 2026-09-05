@@ -15,11 +15,16 @@ import {
   COMMS_BILLING_METER_LABELS,
 } from "@/lib/comms-billing/rates";
 
-function db(pausedAt: string | null = null) {
+function db(pausedAt: string | null = null, usedCents = 0) {
+  const usage = usedCents > 0 ? [{ total_cents: usedCents }] : [];
   return {
     from: () => ({
       select: () => ({
-        eq: () => ({ maybeSingle: async () => ({ data: { billing_paused_at: pausedAt } }) }),
+        eq: () => ({
+          maybeSingle: async () => ({ data: { billing_paused_at: pausedAt } }),
+          // Month-to-date usage, for the allowance check.
+          gte: () => ({ lt: async () => ({ data: usage, error: null }) }),
+        }),
       }),
     }),
   } as never;
@@ -42,14 +47,25 @@ describe("pay-as-you-go is open to every plan", () => {
     });
   });
 
-  it("still refuses anyone without a card, free or paid", async () => {
+  it("lets anyone send with NO card while inside the included allowance", async () => {
+    // The allowance is what makes a work number usable before any billing
+    // setup at all — that is the point of it.
     refreshPm.mockResolvedValue({ hasPaymentMethod: false, checkedAt: "now" });
     for (const tier of ["free", "pro"]) {
       skuTier.mockResolvedValue({ ok: true, tier });
-      await expect(evaluateManagerCommsBillingGate(db(), "mgr-1")).resolves.toEqual({
-        allowed: false,
-        reason: "no_payment_method",
+      await expect(evaluateManagerCommsBillingGate(db(null, 0), "mgr-1")).resolves.toMatchObject({
+        allowed: true,
       });
+    }
+  });
+
+  it("refuses once the allowance is spent and no card was ever added", async () => {
+    refreshPm.mockResolvedValue({ hasPaymentMethod: false, checkedAt: "now" });
+    for (const tier of ["free", "pro"]) {
+      skuTier.mockResolvedValue({ ok: true, tier });
+      await expect(
+        evaluateManagerCommsBillingGate(db(null, 1_000_000), "mgr-1"),
+      ).resolves.toEqual({ allowed: false, reason: "allowance_exhausted" });
     }
   });
 

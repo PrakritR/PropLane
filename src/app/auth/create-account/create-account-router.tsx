@@ -23,7 +23,7 @@ export default function CreateAccountRouter() {
 
   if (axisId) {
     return (
-      <AuthCard>
+      <AuthCard variant="blend">
         <ResidentSignupBlocked />
       </AuthCard>
     );
