@@ -40,13 +40,17 @@ describe("resident payment selection", () => {
     expect(unpaidAchChargesForResident(charges).map((c) => c.id)).toEqual(["a"]);
   });
 
-  it("includes zelle/venmo charges in payable selection", () => {
+  it("EXCLUDES zelle/venmo charges — checkout is Stripe-only", () => {
+    // bc91cc80 removed Zelle/Venmo from the resident pay flow so rent and fees run
+    // through PropLane (ACH and card). A stored zelle/venmo contact on a charge is
+    // leftover snapshot data, not a way to pay, and must not put the charge back
+    // into a selection the resident cannot actually check out.
     const charges = [
       mkCharge("a"),
       { ...mkCharge("b"), axisPaymentsEnabledSnapshot: false, zelleContactSnapshot: "z@x.com" },
     ];
-    expect(unpaidPayableChargesForResident(charges).map((c) => c.id)).toEqual(["a", "b"]);
-    expect(selectAllUnpaidPayableChargeIds(charges)).toEqual(new Set(["a", "b"]));
+    expect(unpaidPayableChargesForResident(charges).map((c) => c.id)).toEqual(["a"]);
+    expect(selectAllUnpaidPayableChargeIds(charges)).toEqual(new Set(["a"]));
   });
 
   it("toggles and selects all unpaid ACH charges", () => {
@@ -63,7 +67,9 @@ describe("resident payment selection", () => {
       mkCharge("c", "paid"),
     ];
     expect(parseSelectedChargeIds("a,c,bogus", charges)).toEqual(new Set(["a"]));
-    expect(parseSelectedChargeIds("b,a", charges)).toEqual(new Set(["b", "a"]));
+    // "b" carries only a venmo contact, so it is no longer payable and a URL that
+    // names it must not smuggle it back into the selection.
+    expect(parseSelectedChargeIds("b,a", charges)).toEqual(new Set(["a"]));
     expect(encodeSelectedChargeIds(["b", "a"])).toBe("b,a");
   });
 

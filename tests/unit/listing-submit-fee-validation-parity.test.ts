@@ -55,7 +55,14 @@ describe("submit and the steps validate identically", () => {
   it("submit passes the real toggles, not a derived guess", () => {
     const submit = FORM.slice(FORM.indexOf("const submitListing = async () => {"));
     const head = submit.slice(0, 1400);
-    expect(head).toContain("const validateOpts = { isEditMode, entireHomeRent, stFeeToggles, ltFeeToggles }");
+    // Assert the CONTENT of validateOpts, not its formatting. The object was
+    // reflowed onto several lines (and gained managerSkuTier and the waiver flag),
+    // which broke a single-line literal match while the guarantee this test exists
+    // for — submit passes the real toggles — was never in question.
+    const optsBody = head.slice(head.indexOf("const validateOpts = {"), head.indexOf("};", head.indexOf("const validateOpts = {")));
+    for (const key of ["isEditMode", "entireHomeRent", "stFeeToggles", "ltFeeToggles"]) {
+      expect(optsBody, `validateOpts must pass ${key} through`).toContain(key);
+    }
     expect(head).toContain("firstInvalidListingStep(sub, validateOpts, 5)");
     expect(head).toContain("validateListingWizardStep(i, sub, validateOpts)");
   });
