@@ -2,10 +2,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
 import { refreshManagerCommsPaymentMethod } from "@/lib/comms-billing/payment-method.server";
+import {
+  commsAllowanceBlockedMessage,
+  evaluateCommsAllowance,
+  normalizeCommsPlanTier,
+} from "@/lib/comms-billing/allowances";
+import { monthToDateUsageCents } from "@/lib/comms-billing/summary.server";
 
 export type CommsBillingBlockReason =
   | "free_tier"
   | "no_payment_method"
+  | "allowance_exhausted"
   | "billing_paused"
   | "plan_unreadable";
 
@@ -41,7 +48,18 @@ export async function evaluateManagerCommsBillingGate(
   if (account?.billing_paused_at) return { allowed: false, reason: "billing_paused" };
 
   const payment = await refreshManagerCommsPaymentMethod(db, ownerId);
-  if (!payment.hasPaymentMethod) return { allowed: false, reason: "no_payment_method" };
+
+  // Every plan includes a real allowance, so a manager can set up a work number
+  // and use it with NO card at all. A card is only required once that allowance
+  // is spent — which is the point at which usage starts costing money.
+  const tier = normalizeCommsPlanTier(tierResult.tier);
+  const usedCents = await monthToDateUsageCents(db, ownerId);
+  const allowance = evaluateCommsAllowance({
+    tier,
+    usedCents,
+    hasPaymentMethod: payment.hasPaymentMethod,
+  });
+  if (allowance.blocked) return { allowed: false, reason: "allowance_exhausted" };
 
   return { allowed: true, billingOwnerId: ownerId };
 }
@@ -51,6 +69,10 @@ export function commsBillingBlockMessage(reason: CommsBillingBlockReason): strin
     case "free_tier":
       // Retained for stored rows written before plan gating was dropped.
       return "Add a payment method in Settings to use texting and voice on your work number.";
+    case "allowance_exhausted":
+      // The one refusal a manager can act on immediately, so it says the
+      // number and the fix rather than "not allowed".
+      return commsAllowanceBlockedMessage("free");
     case "no_payment_method":
       return "Add a payment method in Settings before sending texts or taking calls on your work number. Usage is billed as you go on any plan, including Free.";
     case "billing_paused":

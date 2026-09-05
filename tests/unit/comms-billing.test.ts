@@ -15,12 +15,20 @@ import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server
 
 const MANAGER = "11111111-1111-1111-1111-111111111111";
 
-function makeDb() {
+/**
+ * `usedCents` drives the allowance check the gate now runs: the account row is
+ * read with .eq().maybeSingle(), and month-to-date usage with .eq().gte().lt().
+ */
+function makeDb(usedCents = 0) {
+  const usage = usedCents > 0 ? [{ total_cents: usedCents }] : [];
   return {
     from: vi.fn().mockReturnValue({
       select: vi.fn().mockReturnValue({
         eq: vi.fn().mockReturnValue({
           maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+          gte: vi.fn().mockReturnValue({
+            lt: vi.fn().mockResolvedValue({ data: usage, error: null }),
+          }),
         }),
       }),
     }),
@@ -60,15 +68,28 @@ describe("evaluateManagerCommsBillingGate", () => {
     expect(res).toMatchObject({ allowed: true });
   });
 
-  it("blocks paid managers without a payment method", async () => {
+  it("lets a paid manager with no card send INSIDE the included allowance", async () => {
     vi.stubEnv("COMMS_PAYG_BILLING_ENABLED", "1");
     vi.mocked(getEffectiveManagerSkuTier).mockResolvedValue({ ok: true, tier: "pro" });
     vi.mocked(refreshManagerCommsPaymentMethod).mockResolvedValue({
       hasPaymentMethod: false,
       checkedAt: new Date().toISOString(),
     });
-    const res = await evaluateManagerCommsBillingGate(makeDb(), MANAGER);
-    expect(res).toEqual({ allowed: false, reason: "no_payment_method" });
+    // Under the allowance model a card is only needed once the included
+    // amount is spent — not to send the first message.
+    const res = await evaluateManagerCommsBillingGate(makeDb(0), MANAGER);
+    expect(res).toMatchObject({ allowed: true });
+  });
+
+  it("blocks once the allowance is spent and there is still no card", async () => {
+    vi.stubEnv("COMMS_PAYG_BILLING_ENABLED", "1");
+    vi.mocked(getEffectiveManagerSkuTier).mockResolvedValue({ ok: true, tier: "pro" });
+    vi.mocked(refreshManagerCommsPaymentMethod).mockResolvedValue({
+      hasPaymentMethod: false,
+      checkedAt: new Date().toISOString(),
+    });
+    const res = await evaluateManagerCommsBillingGate(makeDb(1_000_000), MANAGER);
+    expect(res).toEqual({ allowed: false, reason: "allowance_exhausted" });
   });
 
   it("allows paid managers with a payment method", async () => {
