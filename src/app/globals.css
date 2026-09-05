@@ -3443,27 +3443,72 @@ html[data-native] [data-listing-subnav] {
   background: transparent;
 }
 
-/* Custom listing/lease editors share the same viewport assistant rail. The
-   shared Modal workspace reserves its own editor column inside one focus scope. */
-@media (min-width: 1024px) {
+/* One width contract for page chat and dialog chat. Reserve the rail before
+   centering/sizing the editor, so narrow and wide dialogs both move left. */
+:root {
+  --portal-assistant-rail-width: clamp(20rem, 28vw, 24rem);
+  --portal-assistant-panel-gap: 1rem;
+}
+
+@media (min-width: 768px) {
+  [role="dialog"][data-modal-assistant-open] > [data-modal-assistant-workspace] {
+    padding-right: calc(var(--portal-assistant-rail-width) + 2 * var(--portal-assistant-panel-gap));
+  }
+  [role="dialog"][data-modal-assistant-open] > [data-modal-assistant-workspace][data-full-screen="true"] {
+    padding-right: calc(var(--portal-assistant-rail-width) + var(--portal-assistant-panel-gap));
+  }
+  /* Retained custom dialog shells use their original max-width. A real margin
+     reserves rail space; padding inside the editor made its form look squeezed
+     while leaving the outer dialog centered underneath the assistant. */
   [role="dialog"][data-modal-assistant-open]:not(:has(> [data-modal-assistant-workspace])) {
-    min-width: min(64rem, calc(100vw - 2rem));
-    padding-right: 25rem;
+    min-width: 0;
+    margin-right: calc(var(--portal-assistant-rail-width) + var(--portal-assistant-panel-gap));
+  }
+  [data-vaul-drawer][data-modal-assistant-open] {
+    right: auto !important;
+    margin-right: 0 !important;
+  }
+  html[data-modal-assistant-active] #portal-main-content {
+    margin-right: calc(var(--portal-assistant-rail-width) + var(--portal-assistant-panel-gap));
   }
 }
-@media (max-width: 1023px) {
+
+@media (min-width: 768px) {
+  html[data-axis-assistant-open] #portal-main-content {
+    margin-right: calc(var(--portal-assistant-rail-width) + 2 * var(--portal-assistant-panel-gap));
+  }
+  .axis-assistant-panel {
+    width: var(--portal-assistant-rail-width);
+    right: var(--portal-assistant-panel-gap);
+  }
+}
+
+/* Only phones use one pane at a time. Tablets and small laptops keep the editor
+   visible and editable beside the assistant. */
+@media (max-width: 767px) {
   [role="dialog"][data-modal-assistant-open] > :not([data-attr="modal-assistant-rail"]) {
     visibility: hidden;
   }
 }
 
-/* Vaul normally transforms partial sheets. While its assistant is open, expand
-   that same focus boundary to the viewport so the fixed rail is not clipped or
-   offset by a raised sheet. Closing chat restores the sheet's original layout. */
+/* Vaul transforms partial sheets. Remove that fixed-position containing block
+   while chat is open; closing chat restores the original raised sheet. */
 [data-vaul-drawer][data-modal-assistant-open] {
-  inset: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
   height: 100dvh !important;
   max-height: 100dvh !important;
   transform: none !important;
   will-change: auto !important;
+}
+
+/* Important utilities such as a full-screen sheet's !w-screen live in a
+   cascade layer. The reserved width must participate in that cascade too. */
+@layer base {
+  @media (min-width: 768px) {
+    [role="dialog"][data-modal-assistant-open]:not(:has(> [data-modal-assistant-workspace])) {
+      width: calc(100vw - var(--portal-assistant-rail-width) - 3 * var(--portal-assistant-panel-gap)) !important;
+    }
+  }
 }

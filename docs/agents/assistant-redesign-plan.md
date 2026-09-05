@@ -225,3 +225,18 @@ Validation: 110 tests across 12 focused unit suites passed; changed-file ESLint
 and diff checks passed. Real-component browser checks passed at desktop/tablet/
 phone widths, including a raised Vaul sheet and typed confirmation with simulated
 API responses. Full compilation is delegated to the staging Vercel deployment.
+
+## Follow-up: reserve space beside pages and custom editors
+
+The shared rail width is `clamp(20rem, 28vw, 24rem)`. At 768px and above,
+opening the assistant reserves a column before the editor is centered; custom
+listing and Vaul shells narrow and shift left. Communication's standalone thread
+assistant also marks the active page layout, and the ordinary popup reserves space
+beside portal content. Phones retain one readable pane at a time. The header CTA
+is a rounded pill across shared dialogs, listing, lease, resident, and sheet flows.
+
+Browser verification uses the real shared components with simulated API responses:
+1440/1024/768px shared and custom editors, page-thread content, and raised sheets
+have non-overlapping bounding boxes; 390px preserves drafts after closing chat.
+The broad normal suite also exposes existing failures in unchanged payment and
+work-order integration tests; those are separate from the focused UI checks.

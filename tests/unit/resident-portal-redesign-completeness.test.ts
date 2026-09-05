@@ -301,8 +301,10 @@ describe("resident portal redesign completeness", () => {
 
     it("lease renewal uses one modal — renew fields expand in place", () => {
       const amend = readPanel("lease-amend-move-out-modal.tsx");
-      expect(amend).toContain("assistantStrip={false}");
-      expect(amend).toContain("ModalAssistantStrip");
+      expect(amend).not.toContain("assistantStrip={false}");
+      expect(amend).not.toContain("ModalAssistantStrip");
+      expect(amend).toContain("assistantContext={title}");
+      expect(amend).toContain('assistantContext="Renew lease"');
       expect(amend).toContain('data-attr="lease-amend-intent"');
       expect(amend).toContain('data-attr="lease-amend-extend-type"');
       expect(amend).toContain("activeRenewTerm");

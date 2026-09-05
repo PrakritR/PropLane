@@ -101,12 +101,12 @@ export function ModalAssistantStrip({
   }, []);
 
   useEffect(() => {
-    if (!showExpanded || !railTarget) return;
-    railTarget.setAttribute("data-modal-assistant-open", "");
+    if (!showExpanded) return;
+    railTarget?.setAttribute("data-modal-assistant-open", "");
     openModalAssistants += 1;
     document.documentElement.setAttribute("data-modal-assistant-active", "");
     return () => {
-      railTarget.removeAttribute("data-modal-assistant-open");
+      railTarget?.removeAttribute("data-modal-assistant-open");
       openModalAssistants -= 1;
       if (openModalAssistants === 0) document.documentElement.removeAttribute("data-modal-assistant-active");
     };
@@ -120,7 +120,7 @@ export function ModalAssistantStrip({
       ref={triggerRef}
       type="button"
       onClick={() => toggle(!showExpanded)}
-      className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-primary/25 px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-full border border-primary/25 px-3 text-xs font-semibold text-primary transition-colors hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       data-attr="modal-assistant-expand"
       aria-expanded={showExpanded}
       aria-controls={showExpanded ? railId : undefined}
@@ -136,7 +136,7 @@ export function ModalAssistantStrip({
       aria-label="PropLane Assistant"
       style={{ bottom: keyboardInset }}
       data-attr="modal-assistant-rail"
-      className="pointer-events-auto fixed inset-y-0 right-0 z-[72] flex w-full min-w-0 flex-col border-l border-border bg-background p-4 pt-[max(1rem,var(--native-safe-top,0px))] pb-[max(1rem,var(--native-safe-bottom,0px))] lg:w-96"
+      className="pointer-events-auto fixed inset-y-0 right-0 z-[72] flex w-full min-w-0 flex-col border-l border-border bg-background p-4 pt-[max(1rem,var(--native-safe-top,0px))] pb-[max(1rem,var(--native-safe-bottom,0px))] md:w-[var(--portal-assistant-rail-width)]"
     >
       {detached ? <p className="mb-3 text-sm text-muted" role="status">Editor closed. Start a new conversation below.</p> : null}
       <AssistantDockPanel

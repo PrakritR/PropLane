@@ -131,6 +131,7 @@ export function VaulBottomSheet({
     (typeof title === "string" ? title.trim() : "") ||
     "Portal sheet";
   const [assistantConversationInstance, setAssistantConversationInstance] = useState(1);
+  const [assistantTriggerTarget, setAssistantTriggerTarget] = useState<HTMLSpanElement | null>(null);
   const wasOpenRef = useRef(false);
   useLayoutEffect(() => {
     if (open && !wasOpenRef.current) {
@@ -226,6 +227,7 @@ export function VaulBottomSheet({
                 <Drawer.Description className="mt-1 text-sm text-muted">{description}</Drawer.Description>
               ) : null}
             </div>
+            <span ref={setAssistantTriggerTarget} className="shrink-0" />
             <Drawer.Close asChild>
               <button
                 type="button"
@@ -261,7 +263,7 @@ export function VaulBottomSheet({
                 contextHint={assistantHint}
                 storageScopeKey={assistantHint}
                 conversationInstance={assistantConversationInstance}
-                className="shrink-0 px-4"
+                triggerTarget={assistantTriggerTarget}
               />
             ) : null}
             {footer ? (

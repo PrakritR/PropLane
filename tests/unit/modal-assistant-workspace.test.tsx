@@ -29,6 +29,7 @@ vi.mock("@/components/portal/assistant-dock-panel", () => ({
   ),
 }));
 
+import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { Modal } from "@/components/ui/modal";
 import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 
@@ -78,6 +79,15 @@ afterEach(() => {
 });
 
 describe("modal assistant workspace", () => {
+  it("reserves page space for a Communication thread assistant outside a dialog", async () => {
+    const user = userEvent.setup();
+    render(<PortalAssistantConfigProvider endpoint="/api/agent/chat"><ModalAssistantStrip contextHint="Communication thread" /></PortalAssistantConfigProvider>);
+    await user.click(screen.getByRole("button", { name: "Ask PropLane" }));
+    expect(document.documentElement).toHaveAttribute("data-modal-assistant-active");
+    await user.click(screen.getByRole("button", { name: "Close assistant" }));
+    expect(document.documentElement).not.toHaveAttribute("data-modal-assistant-active");
+  });
+
   it("starts with a compact assistant action in the editor header", () => {
     render(<Workspace />);
     const action = screen.getByRole("button", { name: "Ask PropLane" });

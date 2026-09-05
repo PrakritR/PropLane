@@ -1411,10 +1411,7 @@ export function ManagerAddListingForm({
    */
   const [draftSaveError, setDraftSaveError] = useState<string | null>(null);
   const [demoAutofillSubmitPending, setDemoAutofillSubmitPending] = useState(false);
-  /** Mirrors the assistant strip's own open/closed state so the wizard body can
-   * lay out beside it (wide screens) instead of always stacking above it. Opens
-   * to the left by default on desktop; collapsed on narrow screens. */
-  const [assistantExpanded, setAssistantExpanded] = useState(prefersAssistantOpenBeside);
+  const [assistantTriggerTarget, setAssistantTriggerTarget] = useState<HTMLSpanElement | null>(null);
   const resumedStepIndex = clampWizardStep(initialStepIndex);
   const resumedMaxStepReached = Math.max(clampWizardStep(initialMaxStepReached), resumedStepIndex);
   const [stepIndex, setStepIndex] = useState(resumedStepIndex);
@@ -3577,11 +3574,12 @@ export function ManagerAddListingForm({
         {/* ── Header ── */}
         <div className="modal-panel shrink-0 border-b border-border px-5 pt-5 pb-6 sm:px-6">
           <div className="flex w-full min-w-0 items-center justify-between gap-3">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="truncate text-lg font-bold tracking-tight text-foreground sm:text-xl">
                 {wizardTitlePrefix} · {LISTING_FORM_STEPS[stepIndex]?.label}
               </p>
             </div>
+            <span ref={setAssistantTriggerTarget} className="shrink-0" />
             <button
               type="button"
               onClick={closeWizard}
@@ -3650,15 +3648,7 @@ export function ManagerAddListingForm({
           </p>
         </div>
 
-        {/* `@container` lives on the panel <div> above (a container cannot query
-            its own size for its own layout), so this row/column switch can react
-            to how much space the panel actually has. */}
-        <div
-          className={cn(
-            "flex min-h-0 flex-1",
-            assistantExpanded ? "flex-col @2xl:flex-row" : "flex-col",
-          )}
-        >
+        <div className="flex min-h-0 flex-1 flex-col">
         <div ref={scrollRef} className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 pb-6 sm:px-6">
           {/* Content FILLS the modal width (padding on the scroll container provides the
               margins). A max-width column here centered wide children and clipped them on
@@ -5272,13 +5262,8 @@ export function ManagerAddListingForm({
           <ModalAssistantStrip
             contextHint={listingAssistantContext}
             storageScopeKey={wizardTitlePrefix}
-            onExpandedChange={setAssistantExpanded}
-            side="left"
+            triggerTarget={assistantTriggerTarget}
             defaultExpanded={prefersAssistantOpenBeside()}
-            // Content is first in the DOM so the collapsed strip (and the whole
-            // narrow-screen stack) sits below the fields; when expanded on a wide
-            // panel, `order-first` floats the chat to the left of the form.
-            className={cn("z-10 px-5 sm:px-6", assistantExpanded && "@2xl:order-first")}
           />
         </div>
 

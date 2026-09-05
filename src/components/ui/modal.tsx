@@ -559,13 +559,11 @@ export function Modal({
       >
         <div
           data-modal-assistant-workspace=""
+          data-full-screen={workspaceFullScreen ? "true" : "false"}
           className={cn(
             "pointer-events-none flex min-h-0 min-w-0 flex-1 items-center justify-center",
             workspaceFullScreen ? "p-0" : "p-4",
-            assistantExpanded && (workspaceFullScreen ? "lg:pr-96" : "lg:pr-[25rem]"),
-            assistantExpanded && "max-lg:invisible",
           )}
-          inert={assistantExpanded && presentation === "drawer" ? true : undefined}
         >
           {!editorDismissed ? (
             <div className={cn(

@@ -1463,7 +1463,7 @@ export function InboxAiAssistBar({
       <Button
         type="button"
         variant="outline"
-        className="h-8 min-h-0 w-full justify-start gap-2 rounded-lg border border-primary/15 bg-primary/[0.04] px-2.5 text-[12px] font-medium text-foreground/90 hover:bg-primary/[0.08]"
+        className="h-10 min-h-0 w-fit justify-start gap-2 rounded-full border border-primary/15 bg-primary/[0.04] px-2.5 text-[12px] font-medium text-foreground/90 hover:bg-primary/[0.08]"
         onClick={onGenerate}
         data-attr="inbox-ai-draft-generate"
       >
