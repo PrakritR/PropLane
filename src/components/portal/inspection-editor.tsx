@@ -289,6 +289,15 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     : report.status === "submitted"
       ? "submitted for review"
       : "no longer editable";
+  // The handoff removes the pending-photo thumbnail, so without a standing line the
+  // freeze reads as the capture being thrown away. This stays put rather than using
+  // the transient `notice`, which the next operation clears.
+  const hasUnsentMaterial = Boolean(unsent) && (unsentNotes.length > 0 || Boolean(unsent?.pendingPhoto));
+  const unsentRecoveryMessage = !hasUnsentMaterial
+    ? ""
+    : unsent?.pendingPhoto
+      ? `This report is ${frozenReason}, so your photo could not be uploaded. It is kept below under "Unsent notes and photos from this device" — save it to your device before discarding it.`
+      : `This report is ${frozenReason}, so these notes were never sent. They are kept below under "Unsent notes and photos from this device".`;
   const areaCount = (area: InspectionArea) => area.items.reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
   const backLabel = documentOpen || activeArea ? "Back to room sections" : "Back to inspections";
   const status = report.status === "completed" ? "Completed" : report.status === "submitted" ? "Awaiting review" : "Draft";
@@ -297,13 +306,14 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     <div className="flex flex-wrap items-center gap-3 px-2 text-sm text-muted"><span>{report.kind === "move-in" ? "Move-in" : "Move-out"} · {report.inspection_date}</span><Badge tone={report.status === "completed" ? "success" : report.status === "submitted" ? "warning" : "neutral"}>{status}</Badge><span role="status" className="ml-auto">{busy ? "Saving…" : dirty ? "Changes waiting to save" : `${photoCount} photo${photoCount === 1 ? "" : "s"} in report`}</span></div>
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error} {dirty ? "Your unsaved notes remain here." : ""}</p>}
     {notice && <p role="status" className="px-2 text-sm text-muted">{notice}</p>}
+    {unsentRecoveryMessage && <p role="status" className="rounded-xl border border-border p-3 text-sm" data-attr="inspection-unsent-notice">{unsentRecoveryMessage}</p>}
     {pendingPhoto && <div className="flex items-center gap-4 rounded-xl border border-border p-3"><Image src={pendingPhoto.photo.previewUrl} unoptimized width={96} height={72} alt="Photo waiting to upload" className="ph-no-capture ph-no-record h-18 w-24 rounded-lg object-cover" /><p className="text-sm text-muted">{busy ? "Uploading photo…" : editable ? "This photo has not uploaded. Use Retry upload below." : "This photo has not uploaded and this report can no longer be edited."}</p></div>}
     {documentOpen ? renderDocument() : activeArea ? <div className="space-y-4 px-2">{activeArea.items.map(renderItem)}</div> : <div>
       <p className="px-2 pb-4 text-sm text-muted">Open a section to add photos of the assigned room. Photos and notes update the document automatically.</p>
       {roomAreas.map(area => <div key={area.id} className={`flex min-h-24 items-center gap-4 border-b border-l-2 border-b-border px-3 py-5 ${selected.has(area.id) ? "border-l-primary bg-primary/5" : "border-l-transparent"}`} data-attr="inspection-section-row"><input type="checkbox" className="h-4 w-4 shrink-0 accent-primary" aria-label={`Select ${area.label}`} checked={selected.has(area.id)} onChange={e => setSelected(current => { const next = new Set(current); if (e.target.checked) next.add(area.id); else next.delete(area.id); return next; })} /><button className="min-w-0 flex-1 text-left" onClick={() => setActiveAreaId(area.id)} data-attr="inspection-area-open"><span className="flex items-center gap-2 text-base font-semibold">{area.label}<ChevronRight className="h-4 w-4 text-muted" /></span><span className="mt-1 block text-sm text-muted">{areaCount(area) ? `${areaCount(area)} photo${areaCount(area) === 1 ? "" : "s"} added` : "Photos and optional notes"}</span></button></div>)}
     </div>}
     {report.status === "submitted" && !report.document.residentAcknowledgment && <p className="px-2 text-sm text-muted">The resident needs to confirm review before the manager can approve.</p>}
-    {unsent && (unsentNotes.length > 0 || unsent.pendingPhoto) && <PortalCollapsibleSection title="Unsent notes and photos from this device" defaultExpanded={false}>
+    {hasUnsentMaterial && unsent && <PortalCollapsibleSection title="Unsent notes and photos from this device" defaultExpanded={Boolean(unsent.pendingPhoto)}>
       <p className="pb-3 text-sm text-muted">This report became {frozenReason} before these reached the server, so they are <strong>not part of the report</strong> above and were never sent. Keep anything you still need, then discard them.</p>
       {unsentNotes.map(entry => <div key={entry.itemId} className="space-y-1 border-t border-border py-3">
         <p className="text-sm font-semibold">{itemLabels.get(entry.itemId) ?? entry.itemId}</p>
@@ -336,7 +346,7 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     </PortalPageFooterActions>
     <Modal open={choosePhoto} onClose={() => { if (!busy) setChoosePhoto(false); }} dismissBlocked={busy} title="Add photos to a section" assistantStrip={false}><div className="space-y-2">{(activeArea ? [activeArea] : selected.size ? roomAreas.filter(area => selected.has(area.id)) : roomAreas).map(area => <div key={area.id}><h3 className="py-2 text-sm font-semibold">{area.label}</h3>{area.items.map(item => <Button key={item.id} variant="outline" className="mb-2 w-full justify-between" disabled={busy} onClick={() => upload(item.id)} data-attr="inspection-upload-section">{item.label}<Camera className="h-4 w-4" /></Button>)}</div>)}</div></Modal>
     <Modal open={confirm !== null} onClose={() => { if (!busy) setConfirm(null); }} dismissBlocked={busy} title={confirm === "leave" ? "Leave without saving?" : confirm === "reload" ? "Review the latest saved report?" : confirm === "complete" ? "Approve inspection" : confirm ? actions[confirm].label : "Review report"} assistantStrip={false} footer={<Button disabled={busy} onClick={confirmAction} data-attr="inspection-confirm">{confirm === "leave" ? "Discard and leave" : confirm === "reload" ? "Review latest" : confirm === "complete" ? "Approve inspection" : confirm ? actions[confirm].label : "Confirm"}</Button>}>
-      <p className="text-sm text-muted">{confirm === "leave" ? "Unsaved notes and pending uploads will be discarded. Saved photos and observations remain." : confirm === "reload" ? "Unsaved notes will be discarded. Your pending photo is kept so you can retry its upload against the latest report." : confirm === "submit" && role === "resident" ? "I have reviewed the report, including both parties' notes and photos. Submit and acknowledge this saved report for manager review. This does not mean agreeing to charges or responsibility for damage." : confirm ? actions[confirm].explanation : ""}</p>
+      <p className="text-sm text-muted">{confirm === "leave" ? "Unsaved notes and pending uploads will be discarded. Saved photos and observations remain." : confirm === "reload" ? "Unsaved notes will be discarded. Your pending photo is kept: retry its upload if the latest report is still a draft, or save it to your device if it has since been submitted or completed." : confirm === "submit" && role === "resident" ? "I have reviewed the report, including both parties' notes and photos. Submit and acknowledge this saved report for manager review. This does not mean agreeing to charges or responsibility for damage." : confirm ? actions[confirm].explanation : ""}</p>
       {error && <p role="alert" className="mt-3 text-sm">{error}</p>}
     </Modal>
   </div>;

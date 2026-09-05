@@ -89,7 +89,14 @@ export async function GET() {
         });
       }
 
-      const acct = await ensureConnectAccountTransfersRequested(stripe, accountId);
+      // `ensureConnectAccountTransfersRequested` PATCHes the Connect account when the
+      // transfers capability has not been requested, so a read-only co-manager loading
+      // a status page would mutate the owner's Stripe account. They report on the
+      // account already retrieved above; only a caller who may change bank details
+      // requests the capability.
+      const acct = payout.canEditBankAccount
+        ? await ensureConnectAccountTransfersRequested(stripe, accountId)
+        : existing;
       const transfersEnabled = connectAccountTransfersActive(acct);
       const paymentReady = connectAccountReadyForAchPayouts(acct);
       return NextResponse.json({

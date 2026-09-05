@@ -172,16 +172,24 @@ it("keeps a captured photo recoverable when a refresh freezes the report", async
   const writesAfterRefresh = writes();
   expect(screen.queryByRole("button", { name: "Retry upload" })).toBeNull();
   expect(URL.revokeObjectURL).not.toHaveBeenCalledWith(photo.previewUrl);
+  // The handoff removed the pending thumbnail, so it must announce where the photo went
+  // and open the recovery section rather than leaving the capture to look discarded.
+  expect(screen.getByText(/could not be uploaded/)).toBeTruthy();
+  expect(screen.getByAltText("Photo that was never uploaded")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Save photo to device" })).toBeTruthy();
 
   cleanup(); // Browser/native back on the frozen report.
   detail = completed;
   render(<InspectionEditor initial={detail} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
 
-  fireEvent.click(screen.getByRole("button", { name: /Unsent notes and photos/ }));
+  // Already open on arrival — a collapsed section is not discoverable on a phone.
   expect(screen.getByAltText("Photo that was never uploaded")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Save photo to device" })).toBeTruthy();
   await pause();
   expect(writes()).toBe(writesAfterRefresh);
+
+  fireEvent.click(screen.getByRole("button", { name: "Discard unsent notes" }));
+  expect(screen.queryByAltText("Photo that was never uploaded")).toBeNull();
 });
 
 /**
@@ -206,6 +214,7 @@ it("lists only observations the server never acknowledged", async () => {
   fireEvent.click(screen.getByRole("button", { name: /Unsent notes and photos/ }));
   expect(screen.getByText("Saved earlier plus a later thought")).toBeTruthy();
   expect(screen.queryByText("Saved earlier")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Discard unsent notes" }));
 });
 
 /**

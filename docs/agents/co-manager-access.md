@@ -187,10 +187,15 @@ nothing", which re-classified an owner as somebody's co-manager mid-outage), and
 co-manager accepted by TWO owners returns `"ambiguous_owner"` instead of the first row
 of an unordered query. A manager with no listings and no accepted link still resolves to
 their OWN account, so a brand-new account can onboard. Clearing a stale Connect id on
-the status route needs `canEditBankAccount`, because it rewrites the owner's profile.
+the status route needs `canEditBankAccount`, because it rewrites the owner's profile. So does
+`ensureConnectAccountTransfersRequested`: despite sitting in a GET handler it PATCHes the
+Connect account whenever the transfers capability has never been requested, so a read-only
+co-manager loading the payments page was mutating the owner's Stripe account. That caller
+now reports on the account `retrieveManagerConnectAccountOrNull` already returned.
 
 A refused status answers `{ error }` and nothing else, so the client reads that body only
 AFTER the `!res.ok` guard: reading `canEditBankAccount` first resolved `undefined !== false`
 to `true` and left the bank control enabled while discarding the only sentence that says
 why it cannot work. Coverage: `tests/unit/manager-stripe-payout-context.test.ts`,
-`tests/unit/manager-payment-setup-refusal.test.tsx`.
+`tests/unit/manager-payment-setup-refusal.test.tsx`,
+`tests/unit/stripe-connect-status-readonly.test.ts`.
