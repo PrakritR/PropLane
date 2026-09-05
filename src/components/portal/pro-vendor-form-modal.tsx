@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter, MODAL_FIELD_LABEL_CLASS, PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS, PORTAL_MODAL_FORM_GRID_CLASS } from "@/components/ui/modal";
+import { ManagerInviteLinkModal } from "@/components/portal/manager-invite-link-modal";
+import { PortalInviteChoiceStep } from "@/components/portal/portal-invite-choice-step";
 import {
   PortalNotificationPreviewModal,
   type NotificationConfirmDraft,
@@ -231,6 +233,7 @@ export function ManagerVendorFormModal({
   const [invitePreview, setInvitePreview] = useState<VendorInvitePreview | null>(null);
   const [removePreview, setRemovePreview] = useState<ManagerVendorRemovalPreview | null>(null);
   const [createdVendorId, setCreatedVendorId] = useState<string | null>(null);
+  const [vendorInviteLinkOpen, setVendorInviteLinkOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -247,6 +250,7 @@ export function ManagerVendorFormModal({
     setInvitePreview(null);
     setRemovePreview(null);
     setCreatedVendorId(null);
+    setVendorInviteLinkOpen(false);
   }, [open, mode, vendor, initialTrade]);
 
   const patch = (next: Partial<ManagerVendorFormDraft>) => setDraft((prev) => ({ ...prev, ...next }));
@@ -441,13 +445,15 @@ export function ManagerVendorFormModal({
     }
   };
 
-  const title = mode === "edit" ? "Edit vendor" : "Add vendor";
+  const title = mode === "edit" ? "Edit vendor" : "Invite vendor";
 
   return (
     <>
       <Modal
-        open={open && invitePreview === null && removePreview === null}
+        open={open && invitePreview === null && removePreview === null && !vendorInviteLinkOpen}
         title={title}
+        assistantContext={mode === "add" ? "Invite vendor" : "Edit vendor"}
+        assistantStorageScopeKey={mode === "add" ? "Invite vendor" : "Edit vendor"}
         onClose={onClose}
         panelClassName="max-w-lg"
         dense
@@ -473,7 +479,7 @@ export function ManagerVendorFormModal({
                 onClick={() => void addOnly()}
                 data-attr="vendor-form-preview-invite"
               >
-                {saving ? "Saving…" : "Review & add vendor"}
+                {saving ? "Saving…" : "Continue"}
               </Button>
             ) : (
               <Button
@@ -492,30 +498,49 @@ export function ManagerVendorFormModal({
       >
         <div className="space-y-4">
           {mode === "add" ? (
-            <p className="text-xs text-muted">
-              Add a vendor to your directory, then review the PropLane vendor portal signup message before it goes out.
-            </p>
-          ) : null}
-          {onBrowseCatalog ? (
-            <p className="text-xs text-muted">
-              Prefer a curated vendor?{" "}
-              <button
-                type="button"
-                className="font-semibold text-primary hover:underline"
-                data-attr="vendor-form-browse-catalog"
-                onClick={() => {
-                  onClose();
-                  onBrowseCatalog();
-                }}
-              >
-                Browse PropLane catalog
-              </button>
-            </p>
-          ) : null}
-          <ManagerVendorFormFields draft={draft} onPatch={patch} />
+            <PortalInviteChoiceStep
+              inviteDescription="Create a shareable link to invite a vendor to your directory. It's the fastest way to get them on PropLane."
+              inviteLinkDataAttr="vendor-invite-link-open"
+              secondaryTitle="Invite by email"
+              secondaryDescription="Enter the vendor's details to send a portal signup invite."
+              secondaryIcon="person"
+              onCreateInviteLink={() => {
+                setVendorInviteLinkOpen(true);
+              }}
+            >
+              <ManagerVendorFormFields draft={draft} onPatch={patch} idPrefix="vendor-choice" />
+            </PortalInviteChoiceStep>
+          ) : (
+            <>
+              {onBrowseCatalog ? (
+                <p className="text-xs text-muted">
+                  Prefer a curated vendor?{" "}
+                  <button
+                    type="button"
+                    className="font-semibold text-primary hover:underline"
+                    data-attr="vendor-form-browse-catalog"
+                    onClick={() => {
+                      onClose();
+                      onBrowseCatalog();
+                    }}
+                  >
+                    Browse PropLane catalog
+                  </button>
+                </p>
+              ) : null}
+              <ManagerVendorFormFields draft={draft} onPatch={patch} />
+            </>
+          )}
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
         </div>
       </Modal>
+
+      <ManagerInviteLinkModal
+        open={open && vendorInviteLinkOpen}
+        kind="vendor"
+        propertyOptions={[]}
+        onClose={() => setVendorInviteLinkOpen(false)}
+      />
 
       <PortalNotificationPreviewModal
         open={invitePreview !== null}

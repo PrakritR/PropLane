@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
 import { ManagerInviteLinkModal } from "@/components/portal/manager-invite-link-modal";
+import { PortalInviteChoiceStep } from "@/components/portal/portal-invite-choice-step";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { DataList } from "@/components/ui/data-list";
 import { Modal } from "@/components/ui/modal";
@@ -2370,6 +2371,8 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         <Modal
           open={linkModalOpen}
           title={draftAxisId ? "Assign properties & permissions" : "Link account"}
+          assistantContext="Link account"
+          assistantStorageScopeKey="Link account"
           onClose={closeLinkModal}
           panelClassName={draftAxisId ? "max-w-2xl" : undefined}
           footer={
@@ -2419,36 +2422,29 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
               }}
               className="space-y-4"
             >
-              <div className="rounded-2xl border border-border bg-accent/20 p-4">
-              <label className="block text-xs font-semibold text-muted">
-                {AXIS_ID_LABEL}
-                <Input
-                  type="text"
-                  value={axisInput}
-                  onChange={(e) => setAxisInput(e.target.value)}
-                  placeholder="e.g. PROPLANE-1A2B3C4D"
-                  autoFocus
-                  className="mt-1 font-mono"
-                />
-              </label>
-              {/*
-                The second way in, offered as an action rather than as a
-                paragraph explaining that one exists. Closes this modal first:
-                the two flows both pick properties and permissions, and stacking
-                them would leave two dialogs arguing over the same choice.
-              */}
-              <button
-                type="button"
-                className="mt-3 text-xs font-semibold text-primary hover:opacity-90"
-                data-attr="link-account-invite-link"
-                onClick={() => {
+              <PortalInviteChoiceStep
+                inviteDescription="Create a shareable link to invite your team member. It's the fastest and easiest way to link an account."
+                inviteLinkDataAttr="link-account-invite-link"
+                inviteDisabled={linkAccountBlocked}
+                secondaryTitle={`Link with ${AXIS_ID_LABEL}`}
+                secondaryDescription={`Enter the account's ${AXIS_ID_LABEL} to link directly.`}
+                onCreateInviteLink={() => {
                   closeLinkModal();
                   setInviteLinkModalOpen(true);
                 }}
               >
-                Don&apos;t have their {AXIS_ID_LABEL}? Create an invite link instead
-              </button>
-              </div>
+                <label className="block text-xs font-semibold text-muted">
+                  {AXIS_ID_LABEL}
+                  <Input
+                    type="text"
+                    value={axisInput}
+                    onChange={(e) => setAxisInput(e.target.value)}
+                    placeholder="e.g. PROPLANE-1A2B3C4D"
+                    autoFocus
+                    className="mt-1 font-mono"
+                  />
+                </label>
+              </PortalInviteChoiceStep>
             </form>
           ) : (
             <div className="space-y-5">
