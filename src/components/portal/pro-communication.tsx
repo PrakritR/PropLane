@@ -45,6 +45,7 @@ import { selectCommunicationThreadUrl } from "@/lib/portal-communication-nav";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import { consumeManagerComposePrefill, type ManagerComposePrefill } from "@/lib/manager-compose-prefill";
+import { loadManagerMessagingNumberStatusClient } from "@/lib/sms/manager-messaging-number-client";
 
 export type ManagerInboxTabId = "unopened" | "opened" | "schedule" | "sent" | "trash";
 /** @deprecated Legacy SMS routes redirect to unified inbox. */
@@ -152,15 +153,10 @@ export function ManagerCommunication({
   useEffect(() => {
     if (!sessionReady || !userId) return;
     let cancelled = false;
-    void fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body) => {
-        if (cancelled || !body || typeof body !== "object") return;
-        setSmsCanSend((body as { canSend?: boolean }).canSend === true);
-      })
-      .catch(() => {
-        if (!cancelled) setSmsCanSend(false);
-      });
+    void loadManagerMessagingNumberStatusClient(userId).then((result) => {
+      if (cancelled || !result.ok) return;
+      setSmsCanSend(result.status.canSend === true);
+    });
     return () => {
       cancelled = true;
     };
