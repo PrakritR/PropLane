@@ -103,7 +103,7 @@ export function CreateAccountRoleGateway() {
   }
 
   if (isCreateRoleParam(role)) {
-    return <PortalAuthForm mode="create" variant="hub" />;
+    return <PortalAuthForm />;
   }
 
   const selectRole = (nextRole: string) => {

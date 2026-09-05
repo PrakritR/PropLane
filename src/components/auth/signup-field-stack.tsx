@@ -24,6 +24,7 @@ export function SignupFieldStack({
   onChange,
   disabled = false,
   emailDisabled = false,
+  phonePlaceholder = "Phone (optional)",
   onSubmit,
 }: {
   values: SignupFieldValues;
@@ -31,6 +32,8 @@ export function SignupFieldStack({
   disabled?: boolean;
   /** Vendor invites pin the address the invite was sent to. */
   emailDisabled?: boolean;
+  /** The tour funnel pre-fills the number the prospect gave, and says so. */
+  phonePlaceholder?: string;
   onSubmit?: () => void;
 }) {
   const enterSubmits = (e: { key: string }) => {
@@ -64,7 +67,7 @@ export function SignupFieldStack({
         type="tel"
         inputMode="tel"
         autoComplete="tel"
-        placeholder="Phone (optional)"
+        placeholder={phonePlaceholder}
         value={values.phone}
         onChange={(e) => onChange({ phone: e.target.value })}
         disabled={disabled}

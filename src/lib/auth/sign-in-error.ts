@@ -26,6 +26,16 @@ export function presentSignInError(raw: string): SignInErrorPresentation {
     };
   }
 
+  // Supabase's raw "Email not confirmed" is provider language and reads as a
+  // system fault rather than an inbox to check. Not an existence oracle: it is
+  // only ever returned for an account the caller just proved the password for.
+  if (lower.includes("email not confirmed")) {
+    return {
+      message: "This account hasn't been confirmed yet. Check your email for the confirmation link.",
+      credentialMismatch: false,
+    };
+  }
+
   if (lower.includes("failed to fetch") || lower.includes("network") || lower.includes("fetch")) {
     return {
       message: "We could not reach PropLane. Check your connection and try again.",

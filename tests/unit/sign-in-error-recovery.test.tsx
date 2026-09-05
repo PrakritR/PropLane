@@ -47,13 +47,26 @@ describe("sign-in error recovery", () => {
   it("does not show account-creation recovery for unrelated errors", () => {
     render(
       <SignInErrorNotice
+        error={presentSignInError("Too many requests")}
+        createAccountHref="/auth/create-account"
+      />,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Too many requests");
+    expect(screen.queryByRole("link", { name: "Reset password" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Create account" })).not.toBeInTheDocument();
+  });
+
+  it("rewords the unconfirmed-email case, still without recovery links", () => {
+    render(
+      <SignInErrorNotice
         error={presentSignInError("Email not confirmed")}
         createAccountHref="/auth/create-account"
       />,
     );
 
-    expect(screen.getByRole("alert")).toHaveTextContent("Email not confirmed");
-    expect(screen.queryByRole("link", { name: "Reset password" })).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("hasn't been confirmed yet");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("Email not confirmed");
     expect(screen.queryByRole("link", { name: "Create account" })).not.toBeInTheDocument();
   });
 

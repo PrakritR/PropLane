@@ -64,4 +64,22 @@ describe("the vendor register route accepts what its form now collects", () => {
     // Applied on ALL success paths: invite, self-serve existing, self-serve new.
     expect(route.match(/await applyVendorPhone\(/g)?.length ?? 0).toBe(3);
   });
+
+  it("the create-account hub form is create-only — no second field copy", () => {
+    const form = readFileSync(join(process.cwd(), "src/components/auth/portal-auth-form.tsx"), "utf8");
+    // It served sign-in too, behind mode/variant props no caller passed, and
+    // carried a whole second set of inputs for the unreachable layout. That
+    // copy had already drifted (it never grew the phone field), which is the
+    // failure mode this whole unification exists to prevent.
+    expect(form).toContain("<SignupFieldStack");
+    expect(form).not.toContain("labeledFields");
+    expect(form).not.toContain("isCreate");
+    expect(form).not.toContain("handleSignIn");
+    expect(form).not.toMatch(/mode\s*:\s*"sign-in"/);
+    expect(
+      readFileSync(join(process.cwd(), "src/app/auth/create-account/create-account-role-gateway.tsx"), "utf8"),
+    ).toContain(
+      "<PortalAuthForm />",
+    );
+  });
 });
