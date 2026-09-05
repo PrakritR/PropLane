@@ -5,6 +5,7 @@
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { deliverPortalInboxMessage } from "@/lib/portal-inbox-delivery";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { buildCoManagerInviteBody, coManagerInviteSubject } from "@/lib/co-manager-link-email";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -25,26 +26,19 @@ export async function notifyCoManagerInviteSent(input: {
   inviteeUserId: string;
   inviterName: string;
   propertyLabels: string[];
+  inviteId: string;
 }): Promise<void> {
   const db = (await import("@/lib/supabase/service")).createSupabaseServiceRoleClient();
   const invitee = await profileEmail(db, input.inviteeUserId);
   const inviter = await profileEmail(db, input.inviterUserId);
   if (!invitee) return;
 
-  const properties =
-    input.propertyLabels.length > 0
-      ? input.propertyLabels.join(", ")
-      : "assigned properties";
-  const subject = `${input.inviterName} invited you as a co-manager`;
-  const text = [
-    `${input.inviterName} invited you to co-manage properties on PropLane.`,
-    "",
-    `Properties: ${properties}`,
-    "",
-    `Open your portal to review and approve the link: ${appOrigin()}/manager/relationships`,
-    "",
-    "— PropLane",
-  ].join("\n");
+  const subject = coManagerInviteSubject(input.inviterName);
+  const text = buildCoManagerInviteBody({
+    inviterName: input.inviterName,
+    propertyLabels: input.propertyLabels,
+    inviteId: input.inviteId,
+  });
 
   await deliverPortalInboxMessage(db, {
     senderUserId: input.inviterUserId,
