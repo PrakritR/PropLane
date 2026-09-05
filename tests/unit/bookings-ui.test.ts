@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   bookingsForListTab,
+  bookingsForListBucket,
+  classifyBookingListBucket,
+  countBookingsByListBucket,
   bookingOccupancyStats,
   formatBookingStayRange,
 } from "@/lib/channel-calendar/bookings-ui";
@@ -42,6 +45,32 @@ describe("bookingsForListTab", () => {
   it("filters check-outs within the horizon", () => {
     const checkOuts = bookingsForListTab(rows, "check_outs", today);
     expect(checkOuts.map((r) => r.summary)).toEqual(["Departing", "Riley Group Lead"]);
+  });
+});
+
+describe("bookingsForListBucket", () => {
+  const today = "2026-09-04";
+  const rows = [
+    entry({ start: "2026-09-10", end: "2026-09-20", summary: "Upcoming guest" }),
+    entry({ start: "2026-09-01", end: "2026-09-15", summary: "In-house guest" }),
+    entry({ start: "2026-08-01", end: "2026-08-31", summary: "Past guest" }),
+  ];
+
+  it("classifies stays into upcoming, in-house, and past", () => {
+    expect(classifyBookingListBucket(rows[0], today)).toBe("upcoming");
+    expect(classifyBookingListBucket(rows[1], today)).toBe("inhouse");
+    expect(classifyBookingListBucket(rows[2], today)).toBe("past");
+  });
+
+  it("filters and counts by bucket", () => {
+    expect(bookingsForListBucket(rows, "upcoming", today).map((r) => r.summary)).toEqual([
+      "Upcoming guest",
+    ]);
+    expect(countBookingsByListBucket(rows, today)).toEqual({
+      upcoming: 1,
+      inhouse: 1,
+      past: 1,
+    });
   });
 });
 
