@@ -55,9 +55,7 @@ describe("ADD PROPERTY at the plan limit", () => {
 });
 
 /**
- * The Drafts tab with zero drafts rendered the plan banner and the ADD row and
- * nothing else — an apparently blank screen, where every other list surface in
- * the product says "nothing here yet" (PRP-225, second finding).
+ * Empty property stages show only the ADD row — no empty-state card.
  */
 describe("empty property stages", () => {
   const PANEL = readFileSync(
@@ -65,16 +63,10 @@ describe("empty property stages", () => {
     "utf8",
   );
 
-  it("renders an empty state, not just the ADD row", () => {
-    const emptyBranch = PANEL.slice(PANEL.indexOf("      ) : (\n        <div className={PORTAL_LIST_PAGE_BODY}>"));
-    expect(emptyBranch.slice(0, 700)).toContain("PortalEmptyState");
-    expect(emptyBranch.slice(0, 700)).toContain("renderAddPropertyRow()");
-  });
-
-  it("has copy for every stage, so no tab can fall back to blank", () => {
-    for (const stage of ["drafts", "listed", "unlisted"]) {
-      expect(PANEL).toContain(`  ${stage}: {`);
-    }
-    expect(PANEL).toContain("PROPERTY_STAGE_EMPTY_COPY: Record<ManagerStageKey");
+  it("renders only the ADD row when a stage has no properties", () => {
+    expect(PANEL).not.toContain("PortalEmptyState");
+    expect(PANEL).not.toContain("PROPERTY_STAGE_EMPTY_COPY");
+    expect(PANEL).toContain("renderAddPropertyRow()");
+    expect(PANEL).toContain("PORTAL_LIST_PAGE_BODY");
   });
 });

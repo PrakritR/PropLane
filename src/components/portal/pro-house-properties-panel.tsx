@@ -50,7 +50,6 @@ import {
   PORTAL_LIST_ADD_ICONS,
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
 } from "@/components/portal/portal-list-add-row";
-import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -186,22 +185,6 @@ const MANAGER_STAGES = [
 ] as const;
 
 export type ManagerStageKey = (typeof MANAGER_STAGES)[number]["key"];
-
-/** What an empty stage says. Each one names what would live there and how it gets there. */
-const PROPERTY_STAGE_EMPTY_COPY: Record<ManagerStageKey, { title: string; description: string }> = {
-  drafts: {
-    title: "No drafts",
-    description: "A property you start and close before publishing is saved here.",
-  },
-  listed: {
-    title: "No listed properties",
-    description: "Publish a property and it appears here, visible to prospects browsing homes.",
-  },
-  unlisted: {
-    title: "No unlisted properties",
-    description: "A property you take off the market stays here, with its records intact.",
-  },
-};
 
 /** A draft can be saved before it has a name — never render an empty title cell. */
 function managerPropertyRowTitle(row: AdminPropertyRow, bucket: AdminPropertyBucketIndex): string {
@@ -1474,7 +1457,6 @@ export function ManagerHousePropertiesPanel({
     );
   }
 
-  const hasRows = rows.length > 0;
   const renderAddPropertyRow = () =>
     onAddProperty ? (
       <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
@@ -1493,59 +1475,44 @@ export function ManagerHousePropertiesPanel({
 
   return (
     <>
-      {hasRows ? (
-        <div className={PORTAL_LIST_PAGE_BODY}>
-          {rows.map(({ sourceBucket, row, linked }) => {
-            const rowKey = row.adminRefId + (row.listingId ?? "");
-            const address = `${row.address}${row.zip ? `, ${row.zip}` : ""}`;
-            const summary = `${adminPropertyRentDisplayLabel(row)} · ${row.beds} bd / ${row.baths} ba · ${row.neighborhood}`;
-            return (
-              <PortalPropertyRecordRow
-                key={rowKey}
-                title={managerPropertyRowTitle(row, sourceBucket)}
-                address={address}
-                summary={summary}
-                checked={selectedIds.has(rowKey)}
-                onSelectedChange={() => toggleSelected(rowKey)}
-                badge={
-                  linked ? (
-                    <Badge tone="info">
-                      Co-managed
-                    </Badge>
-                  ) : undefined
-                }
-                onOpen={() => {
-                  const routeKey = propertyKeyFromRow(row);
-                  router.push(
-                    propertyDetailHref(
-                      propertiesBase,
-                      activeStage,
-                      routeKey,
-                      detailTabProp ?? "preview",
-                    ),
-                    { scroll: false },
-                  );
-                }}
-                dataAttr="property-list-row"
-              />
-            );
-          })}
-          {renderAddPropertyRow()}
-        </div>
-      ) : (
-        <div className={PORTAL_LIST_PAGE_BODY}>
-          {/* An empty stage used to render the ADD row and nothing else, so a
-              manager with no drafts saw an apparently blank screen — every
-              other list surface in the product says "nothing here yet". */}
-          <PortalEmptyState
-            variant="compact"
-            icon="default"
-            title={PROPERTY_STAGE_EMPTY_COPY[activeStage].title}
-            description={PROPERTY_STAGE_EMPTY_COPY[activeStage].description}
-          />
-          {renderAddPropertyRow()}
-        </div>
-      )}
+      <div className={PORTAL_LIST_PAGE_BODY}>
+        {rows.map(({ sourceBucket, row, linked }) => {
+          const rowKey = row.adminRefId + (row.listingId ?? "");
+          const address = `${row.address}${row.zip ? `, ${row.zip}` : ""}`;
+          const summary = `${adminPropertyRentDisplayLabel(row)} · ${row.beds} bd / ${row.baths} ba · ${row.neighborhood}`;
+          return (
+            <PortalPropertyRecordRow
+              key={rowKey}
+              title={managerPropertyRowTitle(row, sourceBucket)}
+              address={address}
+              summary={summary}
+              checked={selectedIds.has(rowKey)}
+              onSelectedChange={() => toggleSelected(rowKey)}
+              badge={
+                linked ? (
+                  <Badge tone="info">
+                    Co-managed
+                  </Badge>
+                ) : undefined
+              }
+              onOpen={() => {
+                const routeKey = propertyKeyFromRow(row);
+                router.push(
+                  propertyDetailHref(
+                    propertiesBase,
+                    activeStage,
+                    routeKey,
+                    detailTabProp ?? "preview",
+                  ),
+                  { scroll: false },
+                );
+              }}
+              dataAttr="property-list-row"
+            />
+          );
+        })}
+        {renderAddPropertyRow()}
+      </div>
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
