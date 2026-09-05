@@ -220,10 +220,19 @@ export async function GET(): Promise<NextResponse<AccountLinksPayload | { error:
       .map((r) => {
         const invite = serializeInvite(r, user.id, propertyLabelsById);
         const linkedId = invite.linkedUserId.trim();
+        // Contact details are NOT disclosed by the mere existence of an invite.
+        // Creating one needs only the target's PropLane ID and a property the
+        // INVITER owns — the invitee never consents and may never even see it —
+        // so an outgoing pending invite would otherwise be a free read of any
+        // manager's email and phone. Disclose them once the link is accepted,
+        // or on an INCOMING invite, where the inviter revealed themselves by
+        // reaching out. That keeps the recipient able to identify who is asking
+        // while closing the harvesting direction.
+        const contactDisclosed = invite.status === "accepted" || invite.direction === "incoming";
         return {
           ...invite,
-          linkedEmail: emailByUserId.get(linkedId) ?? null,
-          linkedPhone: phoneByUserId.get(linkedId) ?? null,
+          linkedEmail: contactDisclosed ? (emailByUserId.get(linkedId) ?? null) : null,
+          linkedPhone: contactDisclosed ? (phoneByUserId.get(linkedId) ?? null) : null,
         };
       });
     return NextResponse.json({ invites });

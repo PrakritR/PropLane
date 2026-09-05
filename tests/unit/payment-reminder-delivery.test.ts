@@ -21,6 +21,18 @@ vi.mock("@/lib/observability/langfuse", () => ({
   traceSystemNotification: vi.fn(async (opts: { run: () => Promise<unknown> }) => opts.run()),
 }));
 
+// The inbox write is another module's concern, covered by its own tests. It is
+// mocked here so "delivery succeeds" is actually true: the db stub below has no
+// thread-lookup chain, so the real writer throws, and the reminder now reports
+// what was DELIVERED rather than what was merely allowed.
+vi.mock("@/lib/portal-inbox-delivery", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/portal-inbox-delivery")>();
+  return {
+    ...actual,
+    deliverPortalMessageThreadSide: vi.fn().mockResolvedValue({ action: "create", threadId: "thread-1" }),
+  };
+});
+
 vi.mock("@/lib/notification-preferences", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/notification-preferences")>();
   return {

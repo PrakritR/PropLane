@@ -83,8 +83,13 @@ export async function sendScheduledInboxMessageNow(
       toUserIds: message.recipientUserId ? [message.recipientUserId] : [],
       broadcastCategories: message.broadcastCategories,
       eventCategory: "messages",
-      deliverViaEmail: message.deliverViaEmail,
-      deliverViaSms: message.deliverViaSms,
+      // With an eventCategory set, deliverViaEmail/deliverViaSms are IGNORED —
+      // each recipient's own preference decides. The manager's explicit "off"
+      // has to travel as a suppression, which is honoured in both modes, or
+      // unticking Email still sent email. Leaving a channel on stays a
+      // deferral to the recipient's preference rather than an override.
+      suppressEmail: message.deliverViaEmail === false,
+      suppressSms: message.deliverViaSms !== true,
       suppressInbox: message.deliverViaInbox === false,
     });
     if (!result.ok) return { ok: false, error: result.error };

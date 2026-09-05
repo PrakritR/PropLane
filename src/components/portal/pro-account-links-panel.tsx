@@ -273,12 +273,15 @@ function PermissionLevelToggle({
   disabled,
   onToggle,
   dataAttr,
+  title,
 }: {
   label: string;
   active: boolean;
   disabled?: boolean;
   onToggle: () => void;
   dataAttr?: string;
+  /** Why a toggle is disabled, so a locked control explains itself. */
+  title?: string;
 }) {
   return (
     <button
@@ -286,6 +289,7 @@ function PermissionLevelToggle({
       disabled={disabled}
       onClick={onToggle}
       data-attr={dataAttr}
+      title={title}
       className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
         active ? permissionToggleActive : permissionToggleInactive
       }`}
@@ -311,8 +315,13 @@ function CoManagerPermissionsEditor({
 
   const setLevels = (id: CoManagerPermissionId, levels: GrantLevels) => {
     const next = { ...value };
+    // The readWrite editor shows no Delete control, but dropping the level
+    // outright meant an existing delete grant was revoked the moment ANY level
+    // on that module was toggled. Carry the stored value through untouched.
     const normalized: GrantLevels =
-      variant === "readWrite" ? { read: levels.read, edit: levels.edit } : levels;
+      variant === "readWrite"
+        ? { read: levels.read, edit: levels.edit, delete: grantToLevels(value[id]).delete }
+        : levels;
     const grant = levelsToGrant(normalized);
     if (grant === undefined) delete next[id];
     else next[id] = grant;
@@ -354,10 +363,16 @@ function CoManagerPermissionsEditor({
             >
               <span className="text-sm font-medium text-foreground">{label}</span>
               <div className="flex flex-wrap items-center gap-1.5">
+                {/* grantToLevels derives read as read||edit||delete, so with Write
+                    on, turning Read off reads straight back as on. Rather than
+                    let it silently no-op, show it as the implication it is. */}
                 <PermissionLevelToggle
                   label="Read"
                   active={Boolean(levels.read)}
-                  disabled={disabled}
+                  disabled={disabled || Boolean(levels.edit) || Boolean(levels.delete)}
+                  title={
+                    levels.edit || levels.delete ? "Write access includes read." : undefined
+                  }
                   dataAttr={`co-manager-${id}-read`}
                   onToggle={() =>
                     setLevels(
@@ -2023,8 +2038,12 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   const renderDetailFooter = (entry: TeamListEntry) => {
     if (entry.kind === "remote") {
       const inv = entry.invite;
-      if (inv.status !== "accepted") return null;
-      const readOnly = inv.direction === "incoming";
+      // Pending links carry their own accept / decline / cancel affordances in
+      // the header. Every other state needs this one — gating on "accepted"
+      // alone left a declined or cancelled link's detail page with no action at
+      // all, so a dead record could not be cleared.
+      if (inv.status === "pending") return null;
+      const readOnly = inv.status === "accepted" && inv.direction === "incoming";
       return (
         <Button
           type="button"

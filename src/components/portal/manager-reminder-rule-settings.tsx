@@ -71,7 +71,10 @@ export function ManagerReminderRuleSettingsPanel({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [rule, setRule] = useState<ReminderRule>(DEFAULT_REMINDER_RULES[kind]);
-  const savedRef = useRef(ruleSnapshot(DEFAULT_REMINDER_RULES[kind]));
+  // The saved snapshot decides isDirty, which drives the UI — so it is render
+  // state, not a ref. As a ref it was read during render (a lint error), and
+  // isDirty's useMemo listed only `rule`, so it went stale after a save.
+  const [savedSnapshot, setSavedSnapshot] = useState(ruleSnapshot(DEFAULT_REMINDER_RULES[kind]));
   const [messageModalOpen, setMessageModalOpen] = useState(false);
 
   useEffect(() => {
@@ -83,7 +86,7 @@ export function ManagerReminderRuleSettingsPanel({
           if (!cancelled) {
             const next = DEFAULT_REMINDER_RULES[kind];
             setRule(next);
-            savedRef.current = ruleSnapshot(next);
+            setSavedSnapshot(ruleSnapshot(next));
           }
           return;
         }
@@ -94,7 +97,7 @@ export function ManagerReminderRuleSettingsPanel({
         const next = settings.rules[kind];
         if (!cancelled) {
           setRule(next);
-          savedRef.current = ruleSnapshot(next);
+          setSavedSnapshot(ruleSnapshot(next));
         }
       } catch (e) {
         showToast(e instanceof Error ? e.message : "Could not load reminder settings.");
@@ -107,7 +110,7 @@ export function ManagerReminderRuleSettingsPanel({
     };
   }, [demo, kind, showToast]);
 
-  const isDirty = useMemo(() => ruleSnapshot(rule) !== savedRef.current, [rule]);
+  const isDirty = useMemo(() => ruleSnapshot(rule) !== savedSnapshot, [rule, savedSnapshot]);
   const disabled = disabledProp || loading || saving;
   const templatePreview = useMemo(() => resolveTemplate(kind, rule), [kind, rule]);
 
@@ -126,7 +129,7 @@ export function ManagerReminderRuleSettingsPanel({
       setSaving(true);
       try {
         if (demo) {
-          savedRef.current = ruleSnapshot(rule);
+          setSavedSnapshot(ruleSnapshot(rule));
           if (!options?.silent) showToast("Reminder settings saved (demo).");
           return true;
         }
@@ -141,7 +144,7 @@ export function ManagerReminderRuleSettingsPanel({
         const settings = normalizeReminderSettings(body.settings);
         const next = settings.rules[kind];
         setRule(next);
-        savedRef.current = ruleSnapshot(next);
+        setSavedSnapshot(ruleSnapshot(next));
         if (!options?.silent) showToast("Reminder settings saved.");
         return true;
       } catch (e) {
