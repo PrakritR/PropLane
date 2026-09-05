@@ -71,7 +71,10 @@ export async function loadProfilesByIdChunks<T extends Record<string, unknown>>(
   for (const chunk of chunks) {
     const { data, error } = await db.from("profiles").select(select).in("id", chunk);
     if (error) throw error;
-    rows.push(...((data ?? []) as T[]));
+    // Through `unknown`: with a runtime `select` string the client types the
+    // result as its error shape, which does not overlap T, so a direct cast is
+    // a compile error rather than a widening.
+    rows.push(...((data ?? []) as unknown as T[]));
   }
   return rows;
 }
