@@ -63,11 +63,15 @@ export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRo
     );
   }
 
-  if (row.kind === "application") {
+  if (row.kind === "application" || row.kind === "application_manager") {
     return applicationIsCurrent(db, row, expectedAnchor);
   }
 
-  if (row.kind === "lease") {
+  if (row.kind === "application_post_tour") {
+    return postTourReminderIsCurrent(db, row, expectedAnchor);
+  }
+
+  if (row.kind === "lease" || row.kind === "lease_manager") {
     return leaseIsCurrent(db, row, expectedAnchor);
   }
 
@@ -120,6 +124,32 @@ async function applicationIsCurrent(
   return reminderAnchorMatches(expectedAnchor, anchor);
 }
 
+async function postTourReminderIsCurrent(
+  db: SupabaseClient,
+  row: ReminderQueueRow,
+  expectedAnchor: unknown,
+): Promise<boolean> {
+  const { data, error } = await db
+    .from("portal_schedule_records")
+    .select("row_data")
+    .eq("id", "axis_admin_planned_events_v1")
+    .maybeSingle();
+  if (error) throw error;
+  const payload = (data?.row_data as { payload?: unknown } | null)?.payload;
+  const event = (Array.isArray(payload) ? payload : []).find(
+    (candidate) =>
+      candidate &&
+      typeof candidate === "object" &&
+      String((candidate as Record<string, unknown>).id ?? "") === row.subjectId,
+  ) as Record<string, unknown> | undefined;
+  if (!event || String(event.canceledAt ?? "").trim()) return false;
+  if (String(event.managerUserId ?? "").trim() !== row.managerUserId) return false;
+  const endIso = String(event.end ?? event.start ?? "");
+  const endMs = Date.parse(endIso);
+  if (!Number.isFinite(endMs) || endMs > Date.now()) return false;
+  return reminderAnchorMatches(expectedAnchor, endIso);
+}
+
 async function leaseIsCurrent(
   db: SupabaseClient,
   row: ReminderQueueRow,
@@ -135,6 +165,17 @@ async function leaseIsCurrent(
   const { normalizeLeasePipelineRow } = await import("@/lib/lease-pipeline-storage");
   const lease = normalizeLeasePipelineRow(data.row_data);
   if (lease.status === "Fully Signed" || lease.status === "Voided") return false;
+
+  if (row.kind === "lease_manager") {
+    if (lease.status === "Resident Signature Pending" || lease.bucket === "resident") {
+      return reminderAnchorMatches(expectedAnchor, lease.sentToResidentAt ?? lease.updatedAtIso);
+    }
+    if (lease.status === "Manager Review" || lease.status === "Draft") {
+      return reminderAnchorMatches(expectedAnchor, lease.updatedAtIso ?? lease.sentToResidentAt);
+    }
+    return false;
+  }
+
   if (row.recipientRole === "counterparty") {
     if (lease.status !== "Resident Signature Pending" && lease.bucket !== "resident") return false;
     return reminderAnchorMatches(expectedAnchor, lease.sentToResidentAt ?? lease.updatedAtIso);

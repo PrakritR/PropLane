@@ -102,11 +102,6 @@ export async function sweepTourReminders(db: SupabaseClient, now: Date = new Dat
             ? [{ email: managerRecipient.email, role: "manager" as const, name: managerRecipient.name, userId: managerUserId }]
             : []),
           ...teamRecipients,
-          {
-            email: tour.attendeeEmail!.trim().toLowerCase(),
-            role: "counterparty",
-            name: tour.attendeeName ?? null,
-          },
         ],
         payload: {
           title: tour.title ?? "Tour",

@@ -43,6 +43,67 @@ const APPLICATION_META: ReminderSubjectSettingsMeta = {
   recipientPreview: "Alex Prospect",
 };
 
+const APPLICATION_MANAGER_META: ReminderSubjectSettingsMeta = {
+  directions: ["after"],
+  timingLabel: "Remind after started",
+  notifyYouLabel: "You",
+  notifyTeamLabel: "Team",
+  notifyCounterpartyLabel: "Applicant",
+  defaultTemplate: {
+    subject: "Incomplete application waiting: {propertyTitle}",
+    body: [
+      "Hi {recipientName},",
+      "",
+      "{applicantName} started a rental application for {propertyTitle} but has not submitted it yet.",
+      "",
+      "Open Applications in PropLane to review or follow up:",
+      "{url}",
+      "",
+      "— PropLane",
+    ].join("\n"),
+  },
+  placeholders: "Placeholders: {recipientName}, {applicantName}, {propertyTitle}, {url}",
+  previewContext: {
+    recipientName: "Your team",
+    applicantName: "Alex Prospect",
+    propertyTitle: "5257 Brooklyn Avenue Northeast",
+    url: "https://prop-lane.space/portal/applications",
+  },
+  recipientPreview: "Your team",
+};
+
+const APPLICATION_POST_TOUR_META: ReminderSubjectSettingsMeta = {
+  directions: ["after"],
+  timingLabel: "Remind after tour",
+  notifyYouLabel: "You",
+  notifyTeamLabel: "Team",
+  notifyCounterpartyLabel: "Prospect",
+  defaultTemplate: {
+    subject: "Apply for {propertyTitle} on PropLane",
+    body: [
+      "Hi {applicantName},",
+      "",
+      "Thanks for touring {propertyTitle}. If you would like to move forward, start your rental application here:",
+      "{applyUrl}",
+      "",
+      "What happens next:",
+      "• Complete the application in PropLane",
+      "• Your property manager reviews it",
+      "• If approved, you will receive a lease to sign",
+      "",
+      "— PropLane",
+    ].join("\n"),
+  },
+  placeholders: "Placeholders: {applicantName}, {propertyTitle}, {applyUrl}, {tourTime}",
+  previewContext: {
+    applicantName: "Alex Prospect",
+    propertyTitle: "5257 Brooklyn Avenue Northeast",
+    applyUrl: "https://prop-lane.space/rent/apply",
+    tourTime: "Aug 15, 2026 at 10:00 AM",
+  },
+  recipientPreview: "Alex Prospect",
+};
+
 const LEASE_META: ReminderSubjectSettingsMeta = {
   directions: ["after"],
   timingLabel: "Remind after sent",
@@ -70,6 +131,35 @@ const LEASE_META: ReminderSubjectSettingsMeta = {
     managerName: "Your property manager",
   },
   recipientPreview: "Jamie Resident",
+};
+
+const LEASE_MANAGER_META: ReminderSubjectSettingsMeta = {
+  directions: ["after"],
+  timingLabel: "Remind after sent",
+  notifyYouLabel: "You",
+  notifyTeamLabel: "Team",
+  notifyCounterpartyLabel: "Resident",
+  defaultTemplate: {
+    subject: "Lease needs attention: {propertyTitle}",
+    body: [
+      "Hi {recipientName},",
+      "",
+      "The lease for {propertyTitle} with {residentName} still needs your attention.",
+      "",
+      "Open the lease pipeline in PropLane:",
+      "{url}",
+      "",
+      "— PropLane",
+    ].join("\n"),
+  },
+  placeholders: "Placeholders: {recipientName}, {residentName}, {propertyTitle}, {url}",
+  previewContext: {
+    recipientName: "Your team",
+    residentName: "Jamie Resident",
+    propertyTitle: "5257 Brooklyn Avenue Northeast",
+    url: "https://prop-lane.space/portal/leases",
+  },
+  recipientPreview: "Your team",
 };
 
 const TOUR_META: ReminderSubjectSettingsMeta = {
@@ -252,7 +342,10 @@ export const REMINDER_SUBJECT_SETTINGS_META: Partial<
   service_order: SERVICE_ORDER_META,
   work_order: WORK_ORDER_META,
   application: APPLICATION_META,
+  application_manager: APPLICATION_MANAGER_META,
+  application_post_tour: APPLICATION_POST_TOUR_META,
   lease: LEASE_META,
+  lease_manager: LEASE_MANAGER_META,
   outgoing_payment: OUTGOING_PAYMENT_META,
 };
 

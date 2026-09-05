@@ -40,6 +40,7 @@ export type ReminderPayload = {
   paymentTitle?: string | null;
   leaseUrl?: string | null;
   resumeUrl?: string | null;
+  applyUrl?: string | null;
 };
 
 export type RenderedReminder = { subject: string; body: string };
@@ -73,7 +74,10 @@ const SUBJECT_NOUN: Record<ReminderSubjectKind, string> = {
   service_order: "service visit",
   work_order: "maintenance visit",
   application: "application",
+  application_manager: "application",
+  application_post_tour: "tour follow-up",
   lease: "lease",
+  lease_manager: "lease",
   outgoing_payment: "payment",
 };
 
@@ -129,6 +133,7 @@ function templateContextFromPayload(
     url,
     leaseUrl: (payload.leaseUrl ?? url).trim(),
     resumeUrl: (payload.resumeUrl ?? url).trim(),
+    applyUrl: (payload.applyUrl ?? url).trim(),
     notes: (payload.notes ?? "").trim(),
     kind,
   };
