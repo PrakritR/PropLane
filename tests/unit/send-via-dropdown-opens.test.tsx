@@ -28,8 +28,9 @@ describe("Send via", () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole("button", { name: /send via|email/i }));
+    await userEvent.click(screen.getByRole("button", { name: /send via|email|proplane/i }));
 
+    expect(screen.getByText(/^PropLane$/i)).toBeInTheDocument();
     const sms = await screen.findByText(/SMS \(not enabled\)/i);
     expect(sms).toBeInTheDocument();
     // The multi-select marks the ROW aria-disabled and disables its checkbox,

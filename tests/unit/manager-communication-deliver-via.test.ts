@@ -56,9 +56,9 @@ describe("manager-communication-deliver-via", () => {
   it("maps deliver-via to compose channel selection", () => {
     expect(
       portalMessageSelectionFromDeliverVia({ viaEmail: true, viaSms: true }, true),
-    ).toEqual(["email", "sms"]);
+    ).toEqual(["proplane", "email", "sms"]);
     expect(
       portalMessageSelectionFromDeliverVia({ viaEmail: false, viaSms: true }, false),
-    ).toEqual(["email"]);
+    ).toEqual(["proplane"]);
   });
 });

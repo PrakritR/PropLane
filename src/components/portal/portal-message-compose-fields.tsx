@@ -17,18 +17,19 @@ export const PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS =
 export type PortalMessageSendViaMode = "email" | "sms" | "both";
 
 export const PORTAL_MESSAGE_SEND_VIA_OPTIONS: CheckboxMultiSelectOption[] = [
+  { value: "proplane", label: "PropLane" },
   { value: "email", label: "Email" },
   { value: "sms", label: "SMS" },
 ];
 
 export const PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE =
-  "Always saved to PropLane inbox. SMS uses your work number when enabled.";
+  "SMS uses your work number when enabled.";
 
 /** Send-via helper copy — matches the Communication compose modal. */
 export function portalMessageSendViaFooterNote(smsAvailable: boolean): string {
   return smsAvailable
     ? "SMS uses your work number; recipients need a phone on file or under Other."
-    : "Messages are sent by email and saved to PropLane inbox.";
+    : "Add a work number under Communication → SMS to text recipients.";
 }
 
 /** Primary CTA label for compose-style modals (Send email / SMS / message / Schedule). */
@@ -226,13 +227,28 @@ export function defaultPortalMessageScheduleAt(): string {
 }
 
 export function portalMessageChannelsFromSelection(selected: string[]): {
+  viaInbox: boolean;
   viaEmail: boolean;
   viaSms: boolean;
 } {
   return {
+    viaInbox: selected.includes("proplane"),
     viaEmail: selected.includes("email"),
     viaSms: selected.includes("sms"),
   };
+}
+
+export function portalMessageChannelsSelectionValid(
+  selected: string[],
+  emailAvailable: boolean,
+  smsAvailable: boolean,
+): boolean {
+  return selected.some(
+    (value) =>
+      value === "proplane" ||
+      (value === "email" && emailAvailable) ||
+      (value === "sms" && smsAvailable),
+  );
 }
 
 /** Read-only To line: only destinations for the selected delivery channels. */
@@ -255,11 +271,14 @@ export function defaultPortalMessageChannelSelection(
   smsAvailable: boolean,
   defaultViaEmail: boolean,
   defaultViaSms: boolean,
+  defaultViaInbox: boolean = true,
 ): string[] {
   const selected: string[] = [];
+  if (defaultViaInbox) selected.push("proplane");
   if (emailAvailable && defaultViaEmail) selected.push("email");
   if (smsAvailable && defaultViaSms) selected.push("sms");
-  return selected;
+  if (selected.length > 0) return selected;
+  return ["proplane", ...(emailAvailable ? ["email"] : [])];
 }
 
 export function PortalMessageRecipientReadonly({
@@ -441,7 +460,12 @@ export function PortalMessageSendViaDropdown({
   dataAttr?: string;
 }) {
   const options = [
-    ...(emailAvailable ? [{ value: "email", label: "Email" }] : []),
+    { value: "proplane", label: "PropLane" },
+    {
+      value: "email",
+      label: emailAvailable ? "Email" : "Email (unavailable)",
+      disabled: !emailAvailable,
+    },
     {
       value: "sms",
       label: smsAvailable ? "SMS" : "SMS (not enabled)",
@@ -450,16 +474,22 @@ export function PortalMessageSendViaDropdown({
   ];
 
   const effectiveSelected = selected.filter(
-    (value) => (value === "email" && emailAvailable) || (value === "sms" && smsAvailable),
+    (value) =>
+      value === "proplane" ||
+      (value === "email" && emailAvailable) ||
+      (value === "sms" && smsAvailable),
   );
   const displaySelected =
     effectiveSelected.length > 0
       ? effectiveSelected
-      : emailAvailable
-        ? ["email"]
-        : smsAvailable
-          ? ["sms"]
-          : [];
+      : ["proplane", ...(emailAvailable ? ["email"] : [])];
+
+  const labels: string[] = [];
+  if (displaySelected.includes("proplane")) labels.push("PropLane");
+  if (displaySelected.includes("email")) labels.push("Email");
+  if (displaySelected.includes("sms")) labels.push("SMS");
+  const selectionTriggerLabel =
+    labels.length > 1 ? labels.join(" & ") : labels[0] ?? "PropLane";
 
   return (
     <div>
@@ -468,8 +498,14 @@ export function PortalMessageSendViaDropdown({
         labelClassName={portalMessageFieldLabel()}
         options={options}
         selected={displaySelected}
+        selectionTriggerLabel={selectionTriggerLabel}
         onChange={(next) => {
-          const enabled = next.filter((value) => value !== "sms" || smsAvailable);
+          const enabled = next.filter(
+            (value) =>
+              value === "proplane" ||
+              (value === "email" && emailAvailable) ||
+              (value === "sms" && smsAvailable),
+          );
           if (enabled.length === 0) return;
           onChange(enabled);
         }}

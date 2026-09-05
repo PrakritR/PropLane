@@ -439,6 +439,52 @@ export async function setManagerPurchaseTier(
 }
 
 /**
+ * Every manager workspace needs a public PropLane ID (`profiles.manager_id`) for
+ * co-manager linking and lookups. Legacy test accounts may have been created
+ * before the column was backfilled — mint one on demand instead of failing the
+ * invite with a cryptic error.
+ */
+export async function ensureProfileProplaneId(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  userId: string,
+): Promise<
+  | {
+      ok: true;
+      proplaneId: string;
+      fullName: string | null;
+      email: string | null;
+      role: string | null;
+    }
+  | { ok: false; error: string }
+> {
+  const { data: profile, error } = await db
+    .from("profiles")
+    .select("manager_id, full_name, email, role")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (error) return { ok: false, error: error.message };
+
+  let proplaneId = profile?.manager_id?.trim() ?? "";
+  if (!proplaneId) {
+    proplaneId = generateManagerId();
+    const { error: updateErr } = await db
+      .from("profiles")
+      .update({ manager_id: proplaneId, updated_at: new Date().toISOString() })
+      .eq("id", userId);
+    if (updateErr) return { ok: false, error: updateErr.message };
+  }
+
+  return {
+    ok: true,
+    proplaneId,
+    fullName: profile?.full_name?.trim() || null,
+    email: profile?.email?.trim() || null,
+    role: profile?.role ? String(profile.role) : null,
+  };
+}
+
+/**
  * Sets this account to Business in `manager_purchases` (service role).
  * Used for self-serve upgrade from the property portal; billing is marked `portal` until live checkout is wired.
  */

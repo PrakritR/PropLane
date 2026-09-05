@@ -53,7 +53,7 @@ export function deliverViaFromManagerSettings(
         viaSms: settings.maintenanceDeliverViaSms === true,
       };
     case "account":
-      return { viaEmail: true, viaSms: true };
+      return { viaEmail: true, viaSms: true, viaInbox: true };
     default:
       return { viaEmail: true, viaSms: false };
   }
@@ -64,10 +64,11 @@ export function portalMessageSelectionFromDeliverVia(
   smsAvailable: boolean,
 ): string[] {
   const selected: string[] = [];
+  if (channels.viaInbox !== false) selected.push("proplane");
   if (channels.viaEmail) selected.push("email");
   if (channels.viaSms && smsAvailable) selected.push("sms");
   if (selected.length > 0) return selected;
-  return smsAvailable ? ["sms"] : ["email"];
+  return ["proplane", ...(smsAvailable ? ["sms"] : ["email"])];
 }
 
 export const MANAGER_COMMUNICATION_SEND_VIA_SECTIONS = [
