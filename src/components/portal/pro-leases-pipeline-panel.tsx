@@ -13,7 +13,6 @@ import {
 import {
   RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN,
   ResidentDocumentsDetailFooter,
-  PortalDataTableEmpty,
 } from "@/components/portal/portal-data-table";
 import { PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
@@ -1079,38 +1078,11 @@ export function ManagerLeasesPipelinePanel({
     );
   }
 
-  if (bucketRows.length === 0) {
-    return (
-      <>
-        {leaseModals}
-        <PortalRecordListSurface
-          isEmpty
-          empty={
-            <PortalDataTableEmpty
-              icon="lease"
-              message="No leases in this bucket yet. Add a lease or generate one from an approved application."
-            />
-          }
-          add={
-            onAddLease
-              ? {
-                  label: "Add lease",
-                  ariaLabel: "Add lease",
-                  icon: PORTAL_LIST_ADD_ICONS.lease,
-                  onClick: onAddLease,
-                  dataAttr: "leases-list-add",
-                }
-              : undefined
-          }
-        />
-      </>
-    );
-  }
-
   return (
     <>
       {leaseModals}
       <PortalRecordListSurface
+        isEmpty={bucketRows.length === 0}
         add={
           onAddLease
             ? {
