@@ -122,9 +122,45 @@ export function resolveEffectiveManagerSkuTier(input: {
   tier: string | null | undefined;
   stripeSubscriptionId?: string | null | undefined;
   appleManaged?: boolean;
+  /**
+   * Pass these two so a LAPSED signup trial resolves to Free here, exactly as
+   * it already does for nav locks.
+   *
+   * The stored row keeps `tier: pro|business, billing: trial` forever — the
+   * trial expires by DATE, nothing rewrites the row — so reading `tier` alone
+   * reported Pro to every quota for the rest of the account's life. A manager
+   * whose 14 days ran out kept the Pro property cap and the Pro communication
+   * allowance while the sidebar correctly said Free: the plan the product
+   * ENFORCES has to equal the plan it DISPLAYS, which is what this function is
+   * for.
+   *
+   * Omitting them keeps the older behaviour, so a caller that genuinely has no
+   * billing row to read is unchanged.
+   */
+  billing?: string | null | undefined;
+  paidAt?: string | null | undefined;
+  nowMs?: number;
 }): ManagerSkuTier | null {
   const normalized = normalizeManagerSkuTier(input.tier);
-  if (normalized) return normalized;
+  if (normalized) {
+    if (normalized === "free") return "free";
+    // A live Stripe or Apple grant is authoritative; never date-math over it.
+    if (trimmedText(input.stripeSubscriptionId)) return normalized;
+    if (input.appleManaged) return normalized;
+    // Only the SIGNUP TRIAL is expired here. Waiver, admin and portal grants
+    // have their own authorization rules, and running them through date math
+    // would revoke comp access this function was never asked to judge.
+    if (!isSignupTrialManagerPurchase(input.billing)) return normalized;
+    return resolveEffectiveManagerTier(
+      {
+        tier: normalized,
+        billing: input.billing,
+        paid_at: input.paidAt,
+        stripe_subscription_id: null,
+      },
+      input.nowMs,
+    );
+  }
   if (trimmedText(input.stripeSubscriptionId)) return null;
   if (input.appleManaged) return null;
   return "free";

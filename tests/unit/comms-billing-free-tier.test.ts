@@ -41,10 +41,22 @@ describe("pay-as-you-go is open to every plan", () => {
     // The whole point of PAYG: cost is billed, not bundled, so the plan does
     // not decide who may text or take calls.
     skuTier.mockResolvedValue({ ok: true, tier: "free" });
+    const res = await evaluateManagerCommsBillingGate(db(), "mgr-1");
+    // Inside the allowance it still allows — the point is that the plan was
+    // consulted at all rather than short-circuited to "allowed".
+    expect(res).toMatchObject({ allowed: true });
+    expect(skuTier).toHaveBeenCalled();
+  });
+
+  it("is inert only when limits are explicitly disabled", async () => {
+    process.env.COMMS_LIMITS_ENFORCED = "0";
+    skuTier.mockClear();
     await expect(evaluateManagerCommsBillingGate(db(), "mgr-1")).resolves.toEqual({
       allowed: true,
       billingOwnerId: "mgr-1",
     });
+    expect(skuTier).not.toHaveBeenCalled();
+    delete process.env.COMMS_LIMITS_ENFORCED;
   });
 
   it("lets anyone send with NO card while inside the included allowance", async () => {
@@ -85,8 +97,11 @@ describe("pay-as-you-go is open to every plan", () => {
     });
   });
 
-  it("is inert when the feature is off, whatever the plan", async () => {
+  it("still enforces the allowance when only BILLING is off", async () => {
+    // Limits and charging are separate switches. Turning off pay-as-you-go
+    // stops money moving; it must not hand every plan unlimited messaging.
     process.env.COMMS_PAYG_BILLING_ENABLED = "0";
+    delete process.env.COMMS_LIMITS_ENFORCED;
     skuTier.mockResolvedValue({ ok: true, tier: "free" });
     await expect(evaluateManagerCommsBillingGate(db(), "mgr-1")).resolves.toEqual({
       allowed: true,
@@ -100,9 +115,14 @@ describe("pay-as-you-go is open to every plan", () => {
   });
 });
 
-describe("work number setup charge", () => {
-  it("is a real one-time meter with a price and a label", () => {
-    expect(COMMS_BILLING_RATES_CENTS.work_number_setup).toBeGreaterThan(0);
+describe("work number charges", () => {
+  it("are FREE on every plan — the number itself is never a paywall", () => {
+    // Every manager account can provision a work number at no cost; what is
+    // limited is what the number does. The meters stay declared (with labels)
+    // so the ledger records the number and a price can return without a
+    // schema change.
+    expect(COMMS_BILLING_RATES_CENTS.work_number_setup).toBe(0);
+    expect(COMMS_BILLING_RATES_CENTS.work_number_monthly).toBe(0);
     expect(COMMS_BILLING_METER_LABELS.work_number_setup).toMatch(/one-time/i);
   });
 

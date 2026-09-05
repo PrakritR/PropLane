@@ -334,10 +334,13 @@ export async function getManagerPurchaseSku(userId: string): Promise<{
   stripeCheckoutSessionId: string | null;
   promoCode: string | null;
   appleOriginalTransactionId: string | null;
+  /** Trial start. Needed to expire a lapsed signup trial by date. */
+  paidAt: string | null;
   readFailed: boolean;
 }> {
   const row = await getManagerPurchaseRowByUserId(userId);
   return {
+    paidAt: row.paidAt,
     tier: row.tier,
     billing: row.billing,
     stripeCustomerId: row.stripeCustomerId,
@@ -377,6 +380,11 @@ export async function getEffectiveManagerSkuTier(userId: string): Promise<Manage
       tier: row.tier,
       stripeSubscriptionId: row.stripeSubscriptionId,
       appleManaged: isAppleBilledManagerPurchase(row.billing, row.appleOriginalTransactionId),
+      // A lapsed 14-day signup trial must read Free to every quota, not just to
+      // the sidebar. Without these the row's frozen `tier: pro` kept the Pro
+      // property cap and the Pro communication allowance forever.
+      billing: row.billing,
+      paidAt: row.paidAt,
     }),
   };
 }

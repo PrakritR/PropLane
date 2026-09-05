@@ -26,7 +26,13 @@ export const runtime = "nodejs";
 function subscriptionJson(
   tier: string | null,
   billing: string | null,
-  opts: { stripeSubscriptionId: string | null; appleManaged: boolean; planUnknown: boolean },
+  opts: {
+    stripeSubscriptionId: string | null;
+    appleManaged: boolean;
+    planUnknown: boolean;
+    /** Trial start, so a lapsed 14-day signup trial reports Free here too. */
+    paidAt?: string | null;
+  },
 ) {
   const t = tier?.toLowerCase() ?? null;
   /**
@@ -51,6 +57,8 @@ function subscriptionJson(
         tier: t,
         stripeSubscriptionId: opts.stripeSubscriptionId,
         appleManaged: opts.appleManaged,
+        billing,
+        paidAt: opts.paidAt ?? null,
       });
   return {
     tier: t,
@@ -86,7 +94,7 @@ export async function GET() {
       /* Stripe not configured or transient error — serve last known DB state */
     }
 
-    const { tier, billing, stripeSubscriptionId, appleOriginalTransactionId, promoCode, readFailed } =
+    const { tier, billing, stripeSubscriptionId, appleOriginalTransactionId, promoCode, paidAt, readFailed } =
       await getManagerPurchaseSku(user.id);
     let stripeManaged = false;
     try {
@@ -101,6 +109,7 @@ export async function GET() {
       stripeSubscriptionId,
       appleManaged,
       planUnknown: readFailed,
+      paidAt,
     });
     const missingTier = tier == null || String(tier).trim() === "";
     /** Treat missing tier row as Free in the plan UI when there is no paid Stripe subscription. */

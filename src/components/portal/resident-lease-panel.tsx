@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { LeaseAmendMoveOutModal } from "@/components/portal/lease-amend-move-out-modal";
 import { LeaseSigningModal } from "@/components/portal/lease-signing-modal";
+import { ResidentLeaseReportIssueModal } from "@/components/portal/resident-lease-report-issue-modal";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
@@ -49,6 +50,7 @@ import {
   runLeaseDownload,
   residentCanViewLeaseRow,
   residentLeaseAuthorized,
+  residentReportLeaseIssue,
   residentSendLeaseToManager,
   residentSignLease,
   residentUploadLeasePdf,
@@ -80,6 +82,7 @@ export function ResidentLeasePanel({
   const { email, residentAxisId, profileManagerId, axisResolved } = useResidentPortalAxisContext();
   const pipelineRow = useResidentLeasePipelineRow();
   const [showSigningModal, setShowSigningModal] = useState(false);
+  const [showReportIssueModal, setShowReportIssueModal] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [showMoveOutModal, setShowMoveOutModal] = useState(false);
 
@@ -159,6 +162,12 @@ export function ResidentLeasePanel({
   const showSigningWorkflowActions = !leaseFullyExecuted && pipelineRow?.status !== "Fully Signed";
 
   const residentAlreadySigned = Boolean(pipelineRow?.residentSignature);
+  const canReportLeaseIssue = Boolean(
+    pipelineRow &&
+      pipelineRow.bucket === "resident" &&
+      pipelineRow.status === "Resident Signature Pending" &&
+      !residentAlreadySigned,
+  );
 
   const upgradeBreakdown = useMemo(() => {
     const propertyId = pipelineRow?.propertyId ?? pipelineRow?.application?.propertyId ?? leaseCtx.application?.propertyId;
@@ -247,6 +256,17 @@ export function ResidentLeasePanel({
     }
   };
 
+  const handleReportLeaseIssue = async (message: string) => {
+    if (!pipelineRow) return false;
+    const result = await residentReportLeaseIssue(pipelineRow.id, message);
+    if (result.ok) {
+      showToast("Your manager was notified. The lease is back under review.");
+      return true;
+    }
+    showToast(result.error ?? "Could not send your report.");
+    return false;
+  };
+
   const handleMoveOutSuccess = useCallback(async () => {
     await syncLeasePipelineFromServer(undefined, { force: true });
     showToast("Your manager was notified. A new lease is being prepared for your review.");
@@ -289,6 +309,17 @@ export function ResidentLeasePanel({
                 >
                   {uploadingPdf ? "Uploading..." : "Upload"}
                 </Button>
+                {canReportLeaseIssue ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
+                    data-attr="resident-lease-report-issue"
+                    onClick={() => setShowReportIssueModal(true)}
+                  >
+                    Report issue
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant="outline"
@@ -432,6 +463,11 @@ export function ResidentLeasePanel({
           onClose={() => setShowSigningModal(false)}
         />
       ) : null}
+      <ResidentLeaseReportIssueModal
+        open={showReportIssueModal}
+        onClose={() => setShowReportIssueModal(false)}
+        onSubmit={handleReportLeaseIssue}
+      />
 
       <LeaseAmendMoveOutModal
         open={showMoveOutModal}

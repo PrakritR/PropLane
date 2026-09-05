@@ -49,9 +49,11 @@ describe("comms payg rates", () => {
 });
 
 describe("evaluateManagerCommsBillingGate", () => {
-  it("allows when PAYG is disabled", async () => {
+  it("is inert only when LIMITS are disabled, not when billing is", async () => {
+    vi.stubEnv("COMMS_LIMITS_ENFORCED", "0");
     const res = await evaluateManagerCommsBillingGate(makeDb(), MANAGER);
     expect(res).toEqual({ allowed: true, billingOwnerId: MANAGER });
+    expect(vi.mocked(getEffectiveManagerSkuTier)).not.toHaveBeenCalled();
   });
 
   it("allows free tier when PAYG is enabled and a card is on file", async () => {

@@ -9,18 +9,43 @@
  * count, because the meters are not comparable: an outbound SMS segment is 3¢
  * and an AI turn is 15¢. One number per plan covers every meter and stays
  * correct when a rate changes.
+ *
+ * The WORK NUMBER is not part of this. Provisioning and holding a number is
+ * free on every plan (`rates.ts` zero-rates both meters), so the allowance is
+ * spent purely on what the number DOES. Before that, a Free manager's $3/mo
+ * number consumed most of their allowance and the number was "free" in name
+ * only.
+ *
+ * Sizing, against the September 2026 cost model — outbound SMS $0.0120,
+ * inbound $0.0075, voice $0.0140/min, number $1.15/mo, and a modelled resident
+ * at 6 outbound + 4 inbound + 2 voice minutes a month:
+ *
+ *   Free      $2.50   ~83 texts / ~16 AI turns / ~62 voice min.  Costs us
+ *                     ~$0.92 of usage + $1.15 for the number on a $0 plan, so
+ *                     it has to be usable for one property without being worth
+ *                     farming.
+ *   Pro      $15.00   ~500 texts / ~100 AI turns.  ~$5.55 of usage against $20
+ *                     of revenue — comfortably inside the plan.
+ *   Business $150.00  ~5,000 texts / ~1,000 AI turns.  ~$55 against $200, and
+ *                     far above what 20 properties generate.
+ *
+ * Business is CAPPED rather than unmetered. "No limit" is not a price, it is an
+ * unbounded liability on a fixed fee, and it removes the only signal that an
+ * account has started doing something nobody priced. The cap sits so far above
+ * real use that reaching it is itself the alert — and with a card on file,
+ * passing it bills rather than blocks.
  */
 
 export type CommsPlanTier = "free" | "pro" | "business";
 
-/** `null` means no cap — Business is unmetered by design. */
+/**
+ * `null` would mean no cap. Every tier is capped; the type keeps `null` so a
+ * deliberate uncapped plan stays expressible without reworking every reader.
+ */
 export const COMMS_INCLUDED_ALLOWANCE_CENTS: Record<CommsPlanTier, number | null> = {
-  // ~165 outbound texts, or ~33 AI turns, or ~2 hours of calls a month. Enough
-  // to genuinely run a small portfolio, not enough to be worth abusing.
-  free: 500,
-  // 5x Free.
-  pro: 2500,
-  business: null,
+  free: 250,
+  pro: 1500,
+  business: 15000,
 };
 
 export function normalizeCommsPlanTier(raw: string | null | undefined): CommsPlanTier {

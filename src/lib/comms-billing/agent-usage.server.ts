@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
+import { areCommsLimitsEnforced } from "@/lib/comms-billing/rates";
 import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
 
 export async function recordCommsAgentTurnUsage(
@@ -11,7 +11,7 @@ export async function recordCommsAgentTurnUsage(
     metadata?: Record<string, unknown>;
   },
 ): Promise<void> {
-  if (!isCommsPaygBillingEnabled()) return;
+  if (!areCommsLimitsEnforced()) return;
   await recordManagerCommsUsage(db, {
     managerUserId: args.managerUserId,
     meter: "ai_agent_turn",
@@ -28,7 +28,7 @@ export async function recordVoiceSpeechGatherUsage(
     turnKey: string;
   },
 ): Promise<void> {
-  if (!isCommsPaygBillingEnabled()) return;
+  if (!areCommsLimitsEnforced()) return;
   await recordManagerCommsUsage(db, {
     managerUserId: args.managerUserId,
     meter: "voice_speech_gather",
