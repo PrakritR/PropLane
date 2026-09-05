@@ -205,8 +205,13 @@ export function ProPortalSettingsModal({
   const outgoingPaymentReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
   const workOrderReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
   const serviceOrderReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
-  const closeAndSave = useCallback(() => {
-    onClose();
+  /**
+   * Every autosaving panel is mounted only while ITS tab is selected, so a tab
+   * switch unmounts it and nulls its ref — after which closeAndSave has nothing
+   * left to call and the edits are silently discarded. Flush before the switch,
+   * while the outgoing panel is still mounted and its ref still resolves.
+   */
+  const flushPendingSaves = useCallback(() => {
     void paymentsFormRef.current?.saveIfDirty();
     void toursFormRef.current?.saveIfDirty();
     void applicationsReminderFormRef.current?.saveIfDirty();
@@ -216,7 +221,22 @@ export function ProPortalSettingsModal({
     void outgoingPaymentReminderFormRef.current?.saveIfDirty();
     void workOrderReminderFormRef.current?.saveIfDirty();
     void serviceOrderReminderFormRef.current?.saveIfDirty();
-  }, [onClose]);
+  }, []);
+
+  // Not inside the setTab updater: React may invoke an updater twice, which
+  // would fire every save a second time.
+  const selectTab = useCallback(
+    (next: (typeof TABS)[number]["id"]) => {
+      if (tab !== next) flushPendingSaves();
+      setTab(next);
+    },
+    [tab, flushPendingSaves],
+  );
+
+  const closeAndSave = useCallback(() => {
+    onClose();
+    flushPendingSaves();
+  }, [onClose, flushPendingSaves]);
 
   const changeAutomation = useCallback(
     (next: ApplicationAutomationPreferences) => {
@@ -259,7 +279,7 @@ export function ProPortalSettingsModal({
               type="button"
               className={tab === item.id ? PORTAL_TOOLBAR_PILL_BUTTON_ACTIVE : PORTAL_TOOLBAR_PILL_BUTTON}
               data-attr={`manager-settings-tab-${item.id}`}
-              onClick={() => setTab(item.id)}
+              onClick={() => selectTab(item.id)}
             >
               {item.label}
             </button>

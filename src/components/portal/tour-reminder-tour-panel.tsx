@@ -152,15 +152,17 @@ export function TourReminderTourPanel({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Tour reminders</p>
+            {/* Joined rather than interleaved with pairwise separators: those
+                emitted one only for inbox+email and email+sms, so PropLane on,
+                Email off, SMS on rendered "PropLaneSMS". */}
             <p className="mt-1 text-xs text-muted">
-              {primary.deliverViaInbox !== false ? "PropLane" : null}
-              {primary.deliverViaInbox !== false && primary.deliverViaEmail ? " · " : null}
-              {primary.deliverViaEmail ? "Email" : null}
-              {primary.deliverViaEmail && primary.deliverViaSms ? " · " : null}
-              {primary.deliverViaSms ? "SMS" : null}
-              {primary.deliverViaInbox === false && !primary.deliverViaEmail && !primary.deliverViaSms
-                ? "No channels selected"
-                : null}
+              {[
+                primary.deliverViaInbox !== false ? "PropLane" : null,
+                primary.deliverViaEmail ? "Email" : null,
+                primary.deliverViaSms ? "SMS" : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || "No channels selected"}
             </p>
           </div>
           <Link

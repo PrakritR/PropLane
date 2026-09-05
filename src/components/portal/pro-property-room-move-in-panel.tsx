@@ -267,6 +267,18 @@ export function ManagerPropertyRoomMoveInPanel({
     }
   };
 
+  // Back is the editor's only exit and it saves on the way out, so a failed
+  // save (the payload carries photo/video data URLs, and local storage has a
+  // quota) left the manager with no way out at all. Discard resets the draft
+  // from the saved submission and leaves.
+  const discardMoveInEdits = () => {
+    setDraftByRoomId(Object.fromEntries(sub.rooms.map((room) => [room.id, room])));
+    setHouseInstructions(sub.houseMoveInInstructions ?? "");
+    setHousePhotos(sub.houseMoveInPhotoDataUrls ?? []);
+    setHouseVideo(sub.houseMoveInVideoDataUrl ?? null);
+    setEditingTarget(null);
+  };
+
   const renderMoveInEditor = ({
     title,
     subtitle,
@@ -305,6 +317,19 @@ export function ManagerPropertyRoomMoveInPanel({
         }}
         dataAttrBack="property-move-in-editor-back"
       />
+      {canEdit && dirty ? (
+        <div className="flex justify-end px-1 pt-2">
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-9 min-h-0 px-3 text-[13px]"
+            data-attr="property-move-in-editor-discard"
+            onClick={discardMoveInEdits}
+          >
+            Discard changes
+          </Button>
+        </div>
+      ) : null}
       <div className="px-1 pt-4">
         <MoveInInstructionsField
           moveInInstructions={instructions}

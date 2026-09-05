@@ -1,5 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ReminderRecipient } from "@/lib/reminders/queue.server";
+import {
+  coManagerModuleAllowed,
+  normalizePropertyCoManagerPermissions,
+  type CoManagerPermissionId,
+  type PropertyCoManagerPermissions,
+} from "@/lib/co-manager-permissions";
 
 export type ManagerReminderRecipient = {
   email: string;
@@ -8,6 +14,10 @@ export type ManagerReminderRecipient = {
 
 export type TeamReminderRecipient = ManagerReminderRecipient & {
   userId: string;
+  /** Properties this co-manager was actually assigned on the accepted invite. */
+  assignedPropertyIds: string[];
+  /** Their per-property module grants — an absent/empty map confers nothing. */
+  permissions: PropertyCoManagerPermissions | undefined;
 };
 
 /** Load manager reminder destinations once per sweep, never once per subject. */
@@ -49,19 +59,35 @@ export async function loadTeamReminderRecipients(
   const ownerId = managerUserId.trim();
   if (!ownerId) return [];
 
-  let inviteeIds: string[] = [];
+  const inviteeIds: string[] = [];
+  const scopeByUserId = new Map<
+    string,
+    { assignedPropertyIds: string[]; permissions: PropertyCoManagerPermissions | undefined }
+  >();
   try {
     const { data: links, error } = await db
       .from("account_link_invites")
-      .select("invitee_user_id")
+      .select("invitee_user_id, assigned_property_ids, property_co_manager_permissions")
       .eq("status", "accepted")
       .eq("inviter_user_id", ownerId);
     if (error && !String(error.message ?? "").toLowerCase().includes("account_link_invites")) {
       throw error;
     }
-    inviteeIds = (links ?? [])
-      .map((row) => String((row as { invitee_user_id?: unknown }).invitee_user_id ?? "").trim())
-      .filter(Boolean);
+    for (const row of links ?? []) {
+      const id = String((row as { invitee_user_id?: unknown }).invitee_user_id ?? "").trim();
+      if (!id) continue;
+      inviteeIds.push(id);
+      scopeByUserId.set(id, {
+        assignedPropertyIds: Array.isArray((row as { assigned_property_ids?: unknown }).assigned_property_ids)
+          ? ((row as { assigned_property_ids: unknown[] }).assigned_property_ids
+              .map((value) => String(value ?? "").trim())
+              .filter(Boolean) as string[])
+          : [],
+        permissions: normalizePropertyCoManagerPermissions(
+          (row as { property_co_manager_permissions?: unknown }).property_co_manager_permissions,
+        ),
+      });
+    }
   } catch {
     return [];
   }
@@ -83,9 +109,48 @@ export async function loadTeamReminderRecipients(
     const email = String((row as { email?: unknown }).email ?? "").trim().toLowerCase();
     if (!userId || !email.includes("@")) continue;
     const name = String((row as { full_name?: unknown }).full_name ?? "").trim();
-    out.push({ userId, email, name: name || null });
+    const scope = scopeByUserId.get(userId);
+    out.push({
+      userId,
+      email,
+      name: name || null,
+      assignedPropertyIds: scope?.assignedPropertyIds ?? [],
+      permissions: scope?.permissions,
+    });
   }
   return out;
+}
+
+/**
+ * Restrict a team fan-out to the co-managers who may actually see this subject.
+ *
+ * The invite's assignment and per-property module grants are the product's
+ * authorization boundary everywhere else, and a reminder carries the same data
+ * the API would refuse them — bill payee, amount, due date, property. Fan-out
+ * without this pushed a manager's whole accounts payable to co-managers who
+ * were never assigned the property and never granted the module.
+ *
+ * A subject with no property cannot be shown to be in scope, so it requires the
+ * module on EVERY assigned property rather than defaulting to allow.
+ */
+export function teamRecipientsScopedToSubject(
+  members: readonly TeamReminderRecipient[],
+  propertyId: string | null | undefined,
+  module: CoManagerPermissionId,
+): TeamReminderRecipient[] {
+  const target = String(propertyId ?? "").trim();
+  return members.filter((member) => {
+    if (member.assignedPropertyIds.length === 0) return false;
+    if (target) {
+      return (
+        member.assignedPropertyIds.includes(target) &&
+        coManagerModuleAllowed(member.permissions, target, module, "read")
+      );
+    }
+    return member.assignedPropertyIds.every((id) =>
+      coManagerModuleAllowed(member.permissions, id, module, "read"),
+    );
+  });
 }
 
 export function teamReminderRecipients(members: readonly TeamReminderRecipient[]): ReminderRecipient[] {
