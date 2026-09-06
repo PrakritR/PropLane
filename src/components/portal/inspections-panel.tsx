@@ -25,7 +25,7 @@ const statusLabel = (status: InspectionStatus) => status === "submitted" ? "Awai
 /** Hide the dev-only missing-table banner for managers; still show real partial-load notices. */
 function showInspectionLoadNotice(role: InspectionRole, notice: string): boolean {
   if (role !== "manager") return true;
-  return !/not set up in this environment|resident_inspections.*missing/i.test(notice);
+  return !/not set up in this environment yet/i.test(notice);
 }
 
 /**

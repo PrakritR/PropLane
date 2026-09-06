@@ -60,6 +60,8 @@ export type RoomListingRow = {
   priceOverlayLabel: string;
   /** Raw listing availability string (for traffic-light styling on search cards). */
   availabilityRaw: string;
+  /** Prospect-facing short-lease surcharge note when configured on the room. */
+  shortLeaseNote?: string;
   /** Property-wide room media for search card carousel (Room 1, Room 2, … when uploaded). */
   mediaSlides: RoomListingSlide[];
 };
@@ -343,6 +345,7 @@ function browseRoomEntries(
           priceHeadlineAmount: roomPricingIsFlexible(r)
             ? roomFlexibleSortAmount(r)
             : (roomHeadlineAmount(r) ?? undefined),
+          shortLeaseNote: roomShortLeaseListingNote(r) ?? undefined,
           availability: "Available now",
           modal: BROWSE_ROOM_MODAL_STUB,
         };
@@ -462,10 +465,11 @@ export function filterRoomListings(
         propertyBeds: p.beds,
         propertyBaths: p.baths,
         petFriendly: p.petFriendly,
-        descriptionBlurb: descriptionBlurb(p, room),
+        descriptionBlurb: [descriptionBlurb(p, room), room.shortLeaseNote].filter(Boolean).join(" · "),
         listingTags: listingTags(p),
         priceOverlayLabel: priceOverlayLabelForProperty(p),
         availabilityRaw: room.availability,
+        shortLeaseNote: room.shortLeaseNote,
         mediaSlides,
       });
     }

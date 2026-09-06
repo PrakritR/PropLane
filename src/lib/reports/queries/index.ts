@@ -158,13 +158,13 @@ export async function queryRentRoll(
     unit: p.roomLabel || "—",
     resident: p.residentName,
     email: p.residentEmail,
-    monthlyRent: centsToUsd(Math.round(rentMonthlyEquivalent(p.monthlyRent, p.dailyRentPrice) * 100)),
+    monthlyRent: centsToUsd(Math.round(rentMonthlyEquivalent(p.monthlyRent, p.dailyRentPrice, p.weeklyRentPrice) * 100)),
     depositHeld: centsToUsd(depositByResident.get(p.residentEmail.toLowerCase()) ?? 0),
     status: p.active ? "Occupied" : "Inactive",
   }));
 
   const totalRentCents = profiles.reduce(
-    (sum, p) => sum + Math.round(rentMonthlyEquivalent(p.monthlyRent, p.dailyRentPrice) * 100),
+    (sum, p) => sum + Math.round(rentMonthlyEquivalent(p.monthlyRent, p.dailyRentPrice, p.weeklyRentPrice) * 100),
     0,
   );
 
@@ -719,7 +719,7 @@ export async function queryLeaseExpiration(
       property: p.propertyLabel,
       unit: p.roomLabel || "—",
       leaseEnd: p.leaseEnd!,
-      monthlyRent: centsToUsd(Math.round(rentMonthlyEquivalent(p.monthlyRent, p.dailyRentPrice) * 100)),
+      monthlyRent: centsToUsd(Math.round(rentMonthlyEquivalent(p.monthlyRent, p.dailyRentPrice, p.weeklyRentPrice) * 100)),
     }))
     .sort((a, b) => String(a.leaseEnd).localeCompare(String(b.leaseEnd)));
 

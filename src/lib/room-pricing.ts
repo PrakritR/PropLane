@@ -541,11 +541,13 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
   const roomWeekly = roomWeeklyRentPrice(room);
   if (roomWeekly !== undefined) {
     const surcharge = tenancyPaysShortLeaseSurcharge(room, app) ? roomShortLeaseSurcharge(room) : 0;
+    const weeklySurcharge =
+      surcharge > 0 ? Number(((surcharge * 12) / 52).toFixed(2)) : 0;
     return {
       stayKind: "long",
       basis: "weekly",
       dailyRate: undefined,
-      weeklyRate: roomWeekly,
+      weeklyRate: Number((roomWeekly + weeklySurcharge).toFixed(2)),
       monthlyRate: undefined,
       deposit,
       shortLeaseSurcharge: surcharge,
