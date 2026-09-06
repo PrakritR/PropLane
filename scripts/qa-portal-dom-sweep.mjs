@@ -314,6 +314,14 @@ async function sweepViewport(browser, viewport, routes, probeSource) {
             if (!box || box.width <= 4 || box.height <= 4) continue;
             if (box.x + box.width < 0 || box.y + box.height < 0) continue;
             if (await handle.getAttribute("aria-hidden") === "true") continue;
+            // A DISABLED control is correct behaviour, not a blocked one — but
+            // Playwright's actionability check waits for enabled and then times
+            // out, which reads identically to "something is covering it". Every
+            // greyed-out primary CTA on the portal came back as unclickable until
+            // this was excluded. Whether a button SHOULD be disabled is a product
+            // question a sweep cannot answer; whether it can be reached is not.
+            if (await handle.isDisabled().catch(() => false)) continue;
+            if (await handle.getAttribute("aria-disabled") === "true") continue;
             name = ((await handle.getAttribute("aria-label")) || (await handle.innerText().catch(() => "")) || (await handle.getAttribute("data-attr")) || "").trim().replace(/\s+/g, " ").slice(0, 60);
             checked += 1;
             await handle.click({ trial: true, timeout: ACTIONABILITY_TIMEOUT });
