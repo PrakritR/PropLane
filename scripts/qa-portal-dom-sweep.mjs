@@ -64,6 +64,11 @@ const RUN_DIR = join(OUT_ROOT, "runs", `${ROLE}-${RUN_ID}`);
 const ACTIONABILITY = flag("actionability");
 const ACTIONABILITY_TIMEOUT = Number(arg("actionability-timeout", "1500"));
 const ACTIONABILITY_LIMIT = Number(arg("actionability-limit", "45"));
+// Crawl mode: sweep the registry's routes, then sweep everything they linked to.
+const CRAWL = flag("crawl");
+const CRAWL_LIMIT = Number(arg("crawl-limit", "25"));
+const PORTAL_PREFIX = { manager: "/portal/", resident: "/resident/", admin: "/admin/", vendor: "/vendor/" }[ROLE];
+
 const DIALOGS = flag("dialogs");
 const DIALOG_LIMIT = Number(arg("dialog-limit", "6"));
 const DIALOG_OPENER_SELECTOR = 'button:visible, [role="button"]:visible';
@@ -185,7 +190,7 @@ function freshStoredSession(role) {
   return age < AUTH_MAX_AGE_MS ? file : null;
 }
 
-async function sweepViewport(browser, viewport, routes, probeSource) {
+async function sweepViewport(browser, viewport, routes, probeSource, discovered = new Set()) {
   const account = QA_ACCOUNTS[ROLE];
   if (!account?.email) throw new Error(`No QA account for role "${ROLE}"`);
   const home = ACCOUNT_HOME[ROLE];
@@ -358,6 +363,23 @@ async function sweepViewport(browser, viewport, routes, probeSource) {
       // exactly like defects, and none of which are. Tonight the whole dev
       // portfolio vanished mid-sweep and the pass reported "clean" the whole way
       // down; that must never read as good news again.
+      // Every in-portal link this page offers. The registry's smoke paths are one
+      // route per section; the portal actually has a tab under most of them, and
+      // a defect that only exists on /portal/properties/drafts is invisible to a
+      // sweep that only ever opens /portal/properties/listed.
+      if (CRAWL) {
+        const links = await page
+          .evaluate(
+            (prefix) =>
+              [...document.querySelectorAll("a[href]")]
+                .map((a) => a.getAttribute("href") || "")
+                .filter((h) => h.startsWith(prefix) && !h.includes("#") && !h.includes("?")),
+            PORTAL_PREFIX,
+          )
+          .catch(() => []);
+        for (const l of links) discovered.add(l);
+      }
+
       rowsSeen += await page
         .evaluate(() => document.querySelectorAll('[class*="-row"], tbody tr, [role="row"], [role="listitem"], li[data-attr]').length)
         .catch(() => 0);
@@ -533,16 +555,17 @@ async function main() {
   if (!SELECTED_VIEWPORTS.length) throw new Error(`--viewports matched none of: ${Object.keys(VIEWPORTS).join(", ")}`);
 
   const probeSource = readFileSync(join(__dirname, "qa-portal-dom-probe.js"), "utf8");
-  console.log(`portal DOM sweep · ${ROLE} · ${BASE} · ${routes.length} routes × ${SELECTED_VIEWPORTS.length} viewports${ACTIONABILITY ? " · actionability on" : ""}${DIALOGS ? " · dialogs on" : ""}`);
+  console.log(`portal DOM sweep · ${ROLE} · ${BASE} · ${routes.length} routes × ${SELECTED_VIEWPORTS.length} viewports${ACTIONABILITY ? " · actionability on" : ""}${DIALOGS ? " · dialogs on" : ""}${CRAWL ? " · crawl on" : ""}`);
 
   const browser = await chromium.launch({ headless: !flag("headed") });
   const all = [];
   const faults = [];
   let totalRowsSeen = 0;
+  const discovered = new Set();
   try {
     for (const viewport of SELECTED_VIEWPORTS) {
       try {
-        const viewportFindings = await sweepViewport(browser, viewport, routes, probeSource);
+        const viewportFindings = await sweepViewport(browser, viewport, routes, probeSource, discovered);
         totalRowsSeen += viewportFindings.rowsSeen ?? 0;
         all.push(...viewportFindings);
       } catch (err) {
@@ -551,6 +574,32 @@ async function main() {
         // loudly at the end so it is never mistaken for a clean pass.
         console.log(`\n  !! ${viewport.name} pass aborted — ${err.message}`);
         faults.push(`${viewport.name}: ${err.message}`);
+      }
+    }
+    // Second lap over what the first lap linked to, at one viewport — the point is
+    // route coverage, not a third measurement of the same page at three widths.
+    if (CRAWL) {
+      const known = new Set(routes.map((r) => r.path));
+      // Prefer routes that go DEEPER than a route already swept — those are the
+      // status tabs and buckets (/portal/properties/drafts, /portal/tasks/overdue)
+      // that the registry's one-path-per-section list never reaches. Sibling
+      // sections are already in the registry, so they add nothing.
+      const deepens = (p) => [...known].some((k) => p.startsWith(k.replace(/\/$/, "") + "/") || p.startsWith(k.split("/").slice(0, 3).join("/") + "/"));
+      const candidates = [...discovered].filter((p) => !known.has(p));
+      const extra = [...candidates.filter(deepens), ...candidates.filter((p) => !deepens(p))]
+        .slice(0, CRAWL_LIMIT)
+        .map((p) => ({ label: p.split("/").filter(Boolean).slice(1).join(" ") || p, path: p }));
+      if (extra.length) {
+        console.log(`\ncrawl: ${extra.length} route(s) the registry does not list`);
+        try {
+          const crawlFindings = await sweepViewport(browser, SELECTED_VIEWPORTS[0], extra, probeSource);
+          totalRowsSeen += crawlFindings.rowsSeen ?? 0;
+          all.push(...crawlFindings);
+        } catch (err) {
+          if (!(err instanceof HarnessFault)) throw err;
+          console.log(`\n  !! crawl aborted — ${err.message}`);
+          faults.push(`crawl: ${err.message}`);
+        }
       }
     }
   } finally {
