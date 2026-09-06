@@ -10,6 +10,9 @@
  * even typecheck into a resident registry.
  */
 import { managerInspectionTools } from "./domains/inspections";
+import { previewUtilityAllocationTool, allocateUtilityBillTool } from "./domains/utility-allocation";
+import { reviewInspectionDepositTool, disposeInspectionDepositTool } from "./domains/inspection-deposit-review";
+import { suggestStatementMatchesTool } from "./domains/statement-matching";
 import { buildRegistry, type ToolRegistry } from "./registry";
 import type { AgentContext } from "./context";
 import {
@@ -140,6 +143,8 @@ import {
 } from "./domains/leasing-sms";
 
 export const agentRegistry = buildRegistry([
+  suggestStatementMatchesTool,
+  previewUtilityAllocationTool, allocateUtilityBillTool, reviewInspectionDepositTool, disposeInspectionDepositTool,
   ...managerInspectionTools,
   // Cross-domain entity search — the model's first stop for loose names
   findRecordsTool,

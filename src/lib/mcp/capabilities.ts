@@ -69,8 +69,8 @@ export const API_KEY_PRODUCT_AREAS: readonly ApiKeyProductArea[] = [
     id: "financials",
     label: "Financials",
     description: "Reports, income, expenses, bills, budgets, and distributions.",
-    readTools: ["run_financial_report"],
-    writeTools: ["record_expense", "record_income", "create_manager_bill", "approve_manager_bill", "record_bill_payment", "create_manager_budget", "update_manager_budget", "dispose_security_deposit", "create_owner_distribution", "approve_owner_distribution", "reconcile_bank_statement_line"],
+    readTools: ["run_financial_report", "preview_utility_allocation", "review_inspection_deposit", "suggest_bank_statement_matches"],
+    writeTools: ["allocate_utility_bill", "dispose_inspection_deposit", "record_expense", "record_income", "create_manager_bill", "approve_manager_bill", "record_bill_payment", "create_manager_budget", "update_manager_budget", "dispose_security_deposit", "create_owner_distribution", "approve_owner_distribution", "reconcile_bank_statement_line"],
   },
   {
     id: "operations",

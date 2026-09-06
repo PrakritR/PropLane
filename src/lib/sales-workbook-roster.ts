@@ -19,6 +19,7 @@
 
 /** A room as the roster describes it. Absent fields mean the sheet did not say. */
 export type RosterRoom = {
+  sourceRow?: number;
   /** Room label exactly as written ("Room 1", "Room2", "Room 10"). */
   room: string;
   /** Normalized room number, for matching against a listing catalog. Null when unparseable. */
@@ -114,6 +115,10 @@ export function readDateCell(raw: string): {
   if (parsed) {
     const [, m, d, y] = parsed;
     const iso = `${y}-${m!.padStart(2, "0")}-${d!.padStart(2, "0")}`;
+    const date = new Date(`${iso}T12:00:00Z`);
+    if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== iso) {
+      return { iso: "", monthToMonth: false, problem: "invalid calendar date" };
+    }
     return { iso, monthToMonth: false, problem: "" };
   }
 
@@ -310,6 +315,7 @@ export function readSalesWorkbookRoster(rows: string[][]): RosterReadResult {
         : "resident";
 
     rooms.push({
+      sourceRow: r + 1,
       room: roomLabel,
       roomNumber,
       occupancy,

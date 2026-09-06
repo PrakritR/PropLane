@@ -408,3 +408,15 @@ The archive/preferences extension is
 the partial `portal_chat` archive index, and `agent_user_preferences`).
 
 Resident **My home** sharing tools (`get_housemates`, `get_housemate_sharing`, `update_housemate_sharing`) use server-redacted, current-residency-scoped data and the existing write-confirm gate. See [resident My home](agents/resident-my-home.md).
+
+### Actual utility bills, move-out deposit review and bank matching
+
+Manager reads: `preview_utility_allocation`, `review_inspection_deposit`, and
+`suggest_bank_statement_matches`. Manager confirmed writes:
+`allocate_utility_bill` and `dispose_inspection_deposit`. Both use
+`defineWriteTool`, pin the reviewed snapshot, recheck at confirmation, and are
+marked destructive so manager SMS withholds them. Inspection ratings never
+establish financial liability. Bank suggestions clear nothing; the existing
+`reconcile_bank_statement_line` write accepts either `matchedLedgerEntryId` or
+`matchedExpenseEntryId`, with owner/amount/exclusive-match validation in the
+shared database path. See [Sales migration](agents/sales-migration.md).

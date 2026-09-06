@@ -177,3 +177,14 @@ modules' header comments carry the full rationale.
   **Payments is the authority**: align a new counter to it, not the reverse.
 
 Coverage: `tests/unit/manager-payments-dashboard-agreement.test.ts`.
+
+## Sales migration, utility allocations and statement intake
+
+See [Sales migration](sales-migration.md) for version-2 canonical imports,
+source provenance, billing holds, actual-bill utility allocation, inspection-backed
+deposit review, and bank CSV intake. Ordinary and imported deposit dispositions
+share the atomic `commit_security_deposit_disposition` RPC; do not post a journal
+and update its held balance in separate transactions. Itemization is cumulative,
+with current refund journals distinguished from prior refunds in the PDF.
+Bank matching supports one receipt or expense target and checks owner, signed
+amount and exclusive consumption in the database for every writer.

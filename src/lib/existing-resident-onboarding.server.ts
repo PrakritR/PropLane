@@ -42,7 +42,7 @@ export async function runExistingResidentOnboarding(
   db: SupabaseClient,
   actor: ResidentWelcomeActor & { managerName?: string },
   row: DemoApplicantRow,
-  opts?: { sendWelcomeEmail?: boolean },
+  opts?: { sendWelcomeEmail?: boolean; preserveExistingLease?: boolean },
 ): Promise<ExistingResidentOnboardingResult> {
   if (!row.manuallyAdded) {
     return { ok: false, status: 400, error: "Not a manager-added existing resident." };
@@ -111,6 +111,11 @@ export async function runExistingResidentOnboarding(
         managerAttestedTenancyAt: iso,
         thread: [],
       });
+  if (opts?.preserveExistingLease) {
+    leaseRow.residentUserId = row.residentUserId ?? null;
+    leaseRow.roomChoice = row.assignedRoomChoice;
+    leaseRow.application = row.application;
+  }
 
   // `leaseId` is derived from the application's axis id, which is the SAME id
   // space real approved-application leases use, so two managers can arrive at
@@ -119,18 +124,25 @@ export async function runExistingResidentOnboarding(
   // manager's fully executed lease (document, signatures and all) and
   // re-parent the row to the caller. Never write onto a lease record somebody
   // else owns.
-  const { data: existingLease } = await db
+  const { data: existingLease, error: existingLeaseError } = await db
     .from("portal_lease_pipeline_records")
     .select("id, manager_user_id")
     .eq("id", leaseId)
     .maybeSingle();
+  if (existingLeaseError) return { ok: false, status: 500, error: existingLeaseError.message };
   if (existingLease && existingLease.manager_user_id && existingLease.manager_user_id !== actor.userId) {
     return { ok: false, status: 409, error: "That resident record belongs to another manager.", leaseId };
   }
+  if (opts?.preserveExistingLease && existingLease) {
+    if (existingLease.manager_user_id !== actor.userId) return { ok: false, status: 409, error: "Lease ownership could not be verified." };
+    return { ok: true, leaseId, welcomeEmailSent: false, axisId, row };
+  }
 
-  const { error: leaseError } = await db
-    .from("portal_lease_pipeline_records")
-    .upsert(buildLeaseUpsert(leaseRow as unknown as Record<string, unknown>), { onConflict: "id" });
+  const leaseTable = db.from("portal_lease_pipeline_records");
+  const payload = buildLeaseUpsert(leaseRow as unknown as Record<string, unknown>);
+  const { error: leaseError } = opts?.preserveExistingLease
+    ? await leaseTable.insert(payload)
+    : await leaseTable.upsert(payload, { onConflict: "id" });
   if (leaseError) {
     return { ok: false, status: 500, error: leaseError.message };
   }
