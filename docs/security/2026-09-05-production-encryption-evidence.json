@@ -86,7 +86,21 @@
       }
     }
   },
-  "strictReads": "pending staging QA and production redeploy",
+  "strictReads": {
+    "status": "configured true; production redeploy READY",
+    "deployment": "dpl_EPC5MjAjdtJS2Bw5mzxgDYM7tZsz",
+    "sha": "108b6533d11c30173fab0ea2f2b5009c8bb89b8c",
+    "canonicalAlias": "prop-lane.space",
+    "stagingPlaintextRejectionPassed": true,
+    "productionSyntheticMutationPerformed": false,
+    "valueReadback": "redacted by Vercel sensitive-variable type",
+    "configuredFlags": [
+      "DATA_ENCRYPTION_REQUIRE_ENCRYPTED_READS",
+      "APPLICANT_IDENTITY_REQUIRE_ENCRYPTED_READS",
+      "COSIGNER_IDENTITY_REQUIRE_ENCRYPTED_READS",
+      "DATA_ENCRYPTION_REQUIRE_ENCRYPTED_DOCUMENT_READS"
+    ]
+  },
   "verification": [
     {
       "kind": "applicant",
@@ -120,5 +134,11 @@
       "legacyReadable": 0,
       "unexpectedErrors": 0
     }
-  ]
+  ],
+  "finalHealth": {
+    "signInStatus": 200,
+    "unauthenticatedApplicationsStatus": 401,
+    "csp": true,
+    "hsts": true
+  }
 }
