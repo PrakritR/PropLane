@@ -635,6 +635,48 @@ never enabled (it would need App Review). Coverage:
 Full mobile model: [`docs/mobile-app.md`](docs/mobile-app.md).
 Ship checklist: [`docs/ship-gate.md`](docs/ship-gate.md).
 
+# Before you show a feature to the captain (agents)
+
+Finished does not mean "the code compiles and the tests are green". A feature is
+finished when it has been **run, with real data, including the edges** — and the
+captain is handed a browser he can click, not a summary he has to trust. Every
+agent, every runtime, every feature.
+
+1. **Seed real data for it.** `npm run test:seed` (dev/test project), or the
+   feature's own seeding path — `seed:dev`, `test:seed:tours`, `seed:akhil`. A
+   feature demonstrated against an empty table, a hand-built mock or `/demo`
+   has not been demonstrated. Never `seed:production`, and never
+   `wipe:test:all` / `ALLOW_DEV_WIPE` unless the captain explicitly asked.
+2. **Exercise the whole path against that data**, in the browser, at the
+   breakpoints the feature ships on — not the happy path alone. State the edges
+   you drove: the empty state, the refusal, the second actor, the concurrent
+   write, the over-limit case, the permission that should say no. Anything you
+   could not reach, say so plainly rather than implying coverage.
+3. **Run the no-mistakes pipeline** and let it reach a verdict. `/no-mistakes`.
+   Report the real exit codes; a piped `| tail` hides a failure.
+4. **Then open it.** Pin the port and start the server, leave it running, and
+   give the captain the exact URL of the page the feature lives on:
+
+   ```sh
+   npm run sandbox:pin -- 3000      # ports must be 3000-3014
+   npm run dev -- -p 3000
+   open "http://localhost:3000/<the route the feature is on>"
+   ```
+
+   `sandbox:pin` must run **before** the server starts: `NEXT_PUBLIC_APP_URL` is
+   inlined into the client bundle, so a server already running keeps serving the
+   old origin and auth redirects land on the wrong port. Ports outside
+   3000-3014 are refused by the browser tools as `ERR_BLOCKED_BY_CLIENT`, which
+   reads as a broken page rather than a blocked origin. Panes collide on 3000 —
+   check it is free and say which port you used.
+5. **Stop there.** The captain reviews it and runs `/promote prakrit` himself
+   when he is satisfied. That command lands the branch on `prakrit` for
+   integration and every lane pulls it; it does not deploy. Do not promote a
+   feature he has not seen.
+
+A green suite is evidence about the code. Only step 2 is evidence about the
+feature, and only step 4 lets him judge it himself.
+
 # Mandatory ship / change gate (agents)
 
 Before marking feature work done, and **always** before promoting `staging` →
