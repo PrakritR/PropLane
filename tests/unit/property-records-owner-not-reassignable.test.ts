@@ -28,7 +28,12 @@ let IS_ADMIN = false;
  * shape every case below models — is never re-charged and never reaches the
  * quota count. Omitting it made these ownership cases look like publishes.
  */
-let EXISTING_ROW: { manager_user_id: string; status?: string } | null = null;
+let EXISTING_ROW: {
+  manager_user_id: string;
+  status?: string;
+  row_data?: unknown;
+  property_data?: unknown;
+} | null = null;
 let UPSERTS: Record<string, unknown>[] = [];
 let DELETED_IDS: string[] = [];
 let CO_MANAGER_ACCESS: { ok: true } | { ok: false; error: string; status: number } = {
@@ -317,5 +322,29 @@ describe("POST /api/property-records — an EXISTING ownerless row is not a crea
       expect(UPSERTS[0].manager_user_id === null || typeof UPSERTS[0].manager_user_id === "string").toBe(true);
       expect(UPSERTS[0].manager_user_id).not.toBe("");
     }
+  });
+
+  it("preserves stored row_data when a mirror upsert sends only propertyData", async () => {
+    EXISTING_ROW = {
+      manager_user_id: OWNER,
+      status: "live",
+      row_data: { id: PROPERTY_ID, name: "Ballard House", status: "live" },
+      property_data: { id: PROPERTY_ID, title: "Old title" },
+    };
+    getUser.mockResolvedValue({ data: { user: { id: OWNER } } });
+
+    await post({
+      action: "upsert",
+      id: PROPERTY_ID,
+      status: "live",
+      propertyData: { id: PROPERTY_ID, title: "Ballard House" },
+    });
+
+    expect(UPSERTS[0].row_data).toEqual({
+      id: PROPERTY_ID,
+      name: "Ballard House",
+      status: "live",
+    });
+    expect(UPSERTS[0].property_data).toEqual({ id: PROPERTY_ID, title: "Ballard House" });
   });
 });

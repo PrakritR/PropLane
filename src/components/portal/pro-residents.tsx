@@ -48,6 +48,8 @@ import {
   RESIDENT_DIRECTORY_TABS,
   PAYMENT_BUCKETS,
   managerResidentItemDetailHref,
+  managerResidentTourDetailHref,
+  managerResidentTourListHref,
   residentDetailHref,
   residentListHref,
   residentPaymentDetailHref,
@@ -56,6 +58,7 @@ import {
   type ResidentDetailTabId,
   type ResidentsTabId,
   type ResidentApplicationBucketId,
+  type ManagerTourBucketId,
 } from "@/lib/portal-detail-routes";
 import {
   RESIDENT_DETAIL_APPLICATION_BUCKET_TABS,
@@ -346,6 +349,7 @@ export function ManagerResidents({
   residentId: residentIdProp,
   detailTab: detailTabProp,
   paymentId: paymentIdProp,
+  tourBucket: tourBucketProp = "pending",
   tourId: tourIdProp,
   serviceItemId: serviceItemIdProp,
   smsUiEnabled = false,
@@ -354,6 +358,7 @@ export function ManagerResidents({
   residentId?: string;
   detailTab?: ResidentDetailTabId;
   paymentId?: string;
+  tourBucket?: ManagerTourBucketId;
   tourId?: string;
   serviceItemId?: string;
   smsUiEnabled?: boolean;
@@ -2980,7 +2985,7 @@ export function ManagerResidents({
     : undefined;
 
   const residentToursListHref = selected
-    ? residentDetailHref(portalBase, residentsTab, selected.id, "tours")
+    ? managerResidentTourListHref(portalBase, residentsTab, selected.id, tourBucketProp)
     : undefined;
 
   const residentServicesListHref = selected
@@ -3050,7 +3055,15 @@ export function ManagerResidents({
                                       id: tab,
                                       label: RESIDENT_DETAIL_TAB_LABELS[tab],
                                       shortLabel: RESIDENT_DETAIL_TAB_SHORT_LABELS[tab],
-                                      href: residentDetailHref(portalBase, residentsTab, selected.id, tab),
+                                      href:
+                                        tab === "tours" && selected
+                                          ? managerResidentTourListHref(
+                                              portalBase,
+                                              residentsTab,
+                                              selected.id,
+                                              tourBucketProp,
+                                            )
+                                          : residentDetailHref(portalBase, residentsTab, selected.id, tab),
                                       dataAttr: `resident-detail-tab-${tab}`,
                                     }))}
                                   activeId={resolvedDetailTab}
@@ -3276,16 +3289,28 @@ export function ManagerResidents({
                                 managerUserId={userId}
                                 residentEmail={selected.email}
                                 residentName={selected.name}
+                                bucket={tourBucketProp}
                                 tourId={tourIdProp}
                                 propertyIds={managerPortfolioPropertyIds}
-                                buildTourDetailHref={
+                                buildTourListHref={
                                   selected
-                                    ? (row) =>
-                                        managerResidentItemDetailHref(
+                                    ? (targetBucket) =>
+                                        managerResidentTourListHref(
                                           portalBase,
                                           residentsTab,
                                           selected.id,
-                                          "tours",
+                                          targetBucket,
+                                        )
+                                    : undefined
+                                }
+                                buildTourDetailHref={
+                                  selected
+                                    ? (row) =>
+                                        managerResidentTourDetailHref(
+                                          portalBase,
+                                          residentsTab,
+                                          selected.id,
+                                          row.bucket,
                                           row.id,
                                         )
                                     : undefined

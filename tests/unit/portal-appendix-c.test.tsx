@@ -21,6 +21,8 @@ import {
   propertyDetailTopNavId,
   residentDetailHref,
   managerResidentItemDetailHref,
+  managerResidentTourDetailHref,
+  managerResidentTourListHref,
   residentPaymentDetailHref,
   calendarViewHref,
   bookingsHref,
@@ -111,6 +113,12 @@ describe("portal-detail-routes", () => {
     ).toBe("/portal/residents/current/res-1/payments/hc-1");
     expect(residentPaymentDetailHref("/portal", "current", "res-1", "hc-1")).toBe(
       "/portal/residents/current/res-1/payments/hc-1",
+    );
+    expect(managerResidentTourListHref("/portal", "current", "res-1", "upcoming")).toBe(
+      "/portal/residents/current/res-1/tours/upcoming",
+    );
+    expect(managerResidentTourDetailHref("/portal", "current", "res-1", "pending", "tour-1")).toBe(
+      "/portal/residents/current/res-1/tours/pending/tour-1",
     );
     expect(calendarViewHref("/portal", "availability")).toBe("/portal/calendar");
     expect(calendarViewHref("/portal", "bookings")).toBe("/portal/bookings/upcoming");

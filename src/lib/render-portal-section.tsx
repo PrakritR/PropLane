@@ -627,14 +627,43 @@ export async function renderPortalSection(
         );
       }
       const residentDetailTab = residentDetailTabRaw;
-      const residentDetailItemId =
-        tabParts.length >= 4 ? decodeURIComponent(tabParts[3]!) : undefined;
-      const residentPaymentId =
-        residentDetailTab === "payments" ? residentDetailItemId : undefined;
-      const residentTourId = residentDetailTab === "tours" ? residentDetailItemId : undefined;
-      const residentServiceItemId =
-        residentDetailTab === "services" ? residentDetailItemId : undefined;
-      if (tabParts.length > 4) notFound();
+      let residentPaymentId: string | undefined;
+      let residentTourBucket: import("@/lib/portal-detail-routes").ManagerTourBucketId | undefined;
+      let residentTourId: string | undefined;
+      let residentServiceItemId: string | undefined;
+      if (residentDetailTab === "tours" && residentId) {
+        const { MANAGER_TOUR_BUCKETS, parseManagerTourBucket } = await import(
+          "@/lib/portal-detail-routes"
+        );
+        if (tabParts.length === 3) {
+          redirect(
+            `${def.basePath}/residents/${parsedResidentsTab}/${encodeURIComponent(residentId)}/tours/pending`,
+          );
+        }
+        const segmentRaw = tabParts[3]!;
+        if (MANAGER_TOUR_BUCKETS.includes(segmentRaw as (typeof MANAGER_TOUR_BUCKETS)[number])) {
+          residentTourBucket = parseManagerTourBucket(segmentRaw);
+          if (tabParts.length === 5) {
+            residentTourId = decodeURIComponent(tabParts[4]!);
+          } else if (tabParts.length > 4) {
+            notFound();
+          }
+        } else if (tabParts.length === 4) {
+          redirect(
+            `${def.basePath}/residents/${parsedResidentsTab}/${encodeURIComponent(residentId)}/tours/pending/${encodeURIComponent(segmentRaw)}`,
+          );
+        } else {
+          notFound();
+        }
+      } else {
+        const residentDetailItemId =
+          tabParts.length >= 4 ? decodeURIComponent(tabParts[3]!) : undefined;
+        residentPaymentId =
+          residentDetailTab === "payments" ? residentDetailItemId : undefined;
+        residentServiceItemId =
+          residentDetailTab === "services" ? residentDetailItemId : undefined;
+        if (tabParts.length > 4) notFound();
+      }
       const ManagerResidents = await loadManagerResidents();
       return subscriptionGated(
         <ManagerResidents
@@ -642,6 +671,7 @@ export async function renderPortalSection(
           residentId={residentId}
           detailTab={residentDetailTab as import("@/lib/portal-detail-routes").ResidentDetailTabId | undefined}
           paymentId={residentPaymentId}
+          tourBucket={residentTourBucket}
           tourId={residentTourId}
           serviceItemId={residentServiceItemId}
           smsUiEnabled={isSmsCommUiEnabled()}

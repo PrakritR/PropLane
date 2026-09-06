@@ -226,6 +226,25 @@ export function managerResidentItemDetailHref(
   return `${basePath}/residents/${residentsTab}/${encodeURIComponent(residentId)}/${tab}/${encodeURIComponent(itemId)}`;
 }
 
+export function managerResidentTourListHref(
+  basePath: string,
+  residentsTab: string,
+  residentId: string,
+  bucket: ManagerTourBucketId = "pending",
+): string {
+  return `${basePath}/residents/${residentsTab}/${encodeURIComponent(residentId)}/tours/${bucket}`;
+}
+
+export function managerResidentTourDetailHref(
+  basePath: string,
+  residentsTab: string,
+  residentId: string,
+  bucket: ManagerTourBucketId,
+  tourId: string,
+): string {
+  return `${managerResidentTourListHref(basePath, residentsTab, residentId, bucket)}/${encodeURIComponent(tourId)}`;
+}
+
 export function residentPaymentDetailHref(
   basePath: string,
   residentsTab: string,

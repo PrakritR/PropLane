@@ -146,7 +146,7 @@ export async function POST(req: Request) {
     // server-read value, never on body.managerUserId (which a caller controls).
     const { data: existing, error: existingError } = await db
       .from("manager_property_records")
-      .select("manager_user_id, status")
+      .select("manager_user_id, status, row_data, property_data")
       .eq("id", id)
       .maybeSingle();
     // A FAILED read is not an absent row. Falling through would answer 404 on a
@@ -303,14 +303,24 @@ export async function POST(req: Request) {
       );
     }
 
+    // Background mirrors often send only `propertyData` (extras bucket) or only
+    // `rowData` (pending bucket). Treat an omitted field as "leave unchanged",
+    // not "clear" — `?? null` on a missing JSON key was wiping seeded row_data
+    // the first time a manager opened Properties after `npm run test:seed`.
+    const rowDataForWrite =
+      body.rowData !== undefined ? body.rowData : (existing?.row_data ?? null);
+    const propertyDataForWrite =
+      body.propertyData !== undefined ? body.propertyData : (existing?.property_data ?? null);
+
     const { error } = await db.from("manager_property_records").upsert(
       {
         id,
         manager_user_id: managerUserIdForWrite,
         status: body.status,
-        row_data: body.rowData ?? null,
-        property_data: body.propertyData ?? null,
-        edit_request_note: body.editRequestNote ?? null,
+        row_data: rowDataForWrite,
+        property_data: propertyDataForWrite,
+        edit_request_note:
+          body.editRequestNote !== undefined ? body.editRequestNote : null,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "id" },

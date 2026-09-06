@@ -6,6 +6,7 @@ import {
 import {
   RESIDENT_DETAIL_APPLICATION_BUCKET_TABS,
   RESIDENT_DETAIL_LEASE_PIPELINE_TABS,
+  RESIDENT_DETAIL_TOUR_BUCKET_TABS,
 } from "@/lib/resident-detail-subsection-tabs";
 
 describe("resident detail tab chrome", () => {
@@ -30,6 +31,14 @@ describe("resident detail tab chrome", () => {
     ]);
   });
 
+  it("tours subsection pills match the portfolio Tours hub buckets", () => {
+    expect(RESIDENT_DETAIL_TOUR_BUCKET_TABS.map((tab) => tab.id)).toEqual([
+      "pending",
+      "upcoming",
+      "past",
+    ]);
+  });
+
   it("manager resident detail always includes tours in the tab strip", () => {
     const src = readFileSync(
       `${process.cwd()}/src/components/portal/pro-residents.tsx`,
@@ -38,6 +47,7 @@ describe("resident detail tab chrome", () => {
     expect(src).toContain('const tabs: ResidentDetailTabId[] = ["tours"]');
     expect(src).not.toContain("showResidentTours");
     expect(src).toContain("propertyIds={managerPortfolioPropertyIds}");
+    expect(src).toContain("RESIDENT_DETAIL_TOUR_BUCKET_TABS");
   });
 
   it("shared subsection chrome uses equal-width destination nav", () => {

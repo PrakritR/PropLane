@@ -1,5 +1,10 @@
 import type { ManagerLeaseTab } from "@/data/demo-portal";
-import type { ResidentApplicationBucketId } from "@/lib/portal-detail-routes";
+import {
+  MANAGER_TOUR_BUCKET_LABELS,
+  MANAGER_TOUR_BUCKETS,
+  type ManagerTourBucketId,
+  type ResidentApplicationBucketId,
+} from "@/lib/portal-detail-routes";
 
 /** Resident detail Application tab — matches Applications hub buckets (no incomplete). */
 export const RESIDENT_DETAIL_APPLICATION_BUCKET_TABS: {
@@ -24,3 +29,14 @@ export const RESIDENT_DETAIL_LEASE_PIPELINE_TABS: {
   { id: "signed", label: "Manager signature", shortLabel: "Mgr sign", dataAttr: "resident-lease-tab-signed" },
   { id: "completed", label: "Signed", shortLabel: "Signed", dataAttr: "resident-lease-tab-completed" },
 ];
+
+/** Resident detail Tours tab — same buckets as the portfolio Tours hub. */
+export const RESIDENT_DETAIL_TOUR_BUCKET_TABS: {
+  id: ManagerTourBucketId;
+  label: string;
+  dataAttr: string;
+}[] = MANAGER_TOUR_BUCKETS.map((id) => ({
+  id,
+  label: MANAGER_TOUR_BUCKET_LABELS[id],
+  dataAttr: `resident-tour-bucket-${id}`,
+}));
