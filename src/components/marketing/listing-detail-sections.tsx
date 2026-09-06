@@ -25,7 +25,7 @@ import {
   ListingSidebarRenterCtasContext,
 } from "@/components/marketing/listing-preview-context";
 import { buildSmsDeepLink, isClawMessagingPubliclyEnabled } from "@/lib/claw-leasing-links";
-import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
+
 import { ProspectListingCta } from "@/components/marketing/prospect-listing-cta";
 import type { MockProperty } from "@/data/types";
 import { DEFAULT_LISTING_HOUSE_RULES_FALLBACK, type ListingRichContent } from "@/data/listing-rich-content";
@@ -402,27 +402,10 @@ export function ListingDetailSections({
             : "py-8 sm:py-10 [html[data-native]_&]:pb-[max(2rem,env(safe-area-inset-bottom))] [html[data-native]_&]:pt-[max(0.5rem,env(safe-area-inset-top))]"
         }`}
       >
-        {/* Manager-only, and gated on `managerPreviewChrome` for that reason: a
-            prospect must never see the owner's setup chrome on a public listing.
-            Without a work number the listing has no Text button at all, and nothing
-            else on the page says why. */}
-        {managerPreviewChrome && !isClawMessagingPubliclyEnabled(property.contactSmsPhone) ? (
-          <div
-            data-attr="listing-preview-messaging-setup-banner"
-            className="order-0 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-red-500/40 bg-red-500/10 px-4 py-3"
-          >
-            <p className="text-sm font-semibold text-red-600">
-              Set up messaging so renters can text you about this home.
-            </p>
-            <Link
-              href={MANAGER_MESSAGING_SETTINGS_HREF}
-              data-attr="listing-preview-messaging-setup"
-              className="text-sm font-semibold text-red-600 underline underline-offset-2 hover:opacity-80"
-            >
-              Set up messaging
-            </Link>
-          </div>
-        ) : null}
+        {/* The "set up messaging" notice used to live here, manager-preview only.
+            It is now `ManagerMessagingSetupBanner` in the portal layout, so it
+            reaches every page instead of this one tab — and rendering it here as
+            well would stack two of the same notice on this screen. */}
 
         {previewModal && !hidePreviewSubnav ? (
           <ListingStickySubnav mode="modal" />
