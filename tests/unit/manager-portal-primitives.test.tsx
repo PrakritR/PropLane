@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { QuickActionRow } from "@/components/ui/quick-action-row";
-import { DestinationNav } from "@/components/ui/destination-nav";
+import { DestinationNav, LocalDestinationNav } from "@/components/ui/destination-nav";
 import { DataList } from "@/components/ui/data-list";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FilterBar } from "@/components/ui/filter-bar";
@@ -74,6 +74,43 @@ describe("DestinationNav", () => {
     const active = screen.getByRole("link", { name: /Pending/ });
     expect(active.className).toContain("border-primary");
     expect(screen.getByLabelText("5 items")).toBeTruthy();
+  });
+});
+
+describe("LocalDestinationNav", () => {
+  it("uses an equal-width grid shell when itemLayout is equal", () => {
+    const { container } = render(
+      <LocalDestinationNav
+        items={[
+          { id: "pending", label: "Pending", count: 2 },
+          { id: "paid", label: "Paid", count: 0 },
+        ]}
+        activeId="pending"
+        itemLayout="equal"
+        size="toolbar"
+      />,
+    );
+    const nav = container.querySelector("[data-slot=local-destination-nav]");
+    expect(nav?.className).toContain("auto-cols-fr");
+    expect(nav?.className).toContain("grid-flow-col");
+    expect(nav?.hasAttribute("data-horizontal-scroll")).toBe(false);
+  });
+
+  it("switches buckets on click", () => {
+    const onChange = vi.fn();
+    render(
+      <LocalDestinationNav
+        items={[
+          { id: "pending", label: "Pending" },
+          { id: "approved", label: "Approved" },
+        ]}
+        activeId="pending"
+        onChange={onChange}
+        itemLayout="equal"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Approved/ }));
+    expect(onChange).toHaveBeenCalledWith("approved");
   });
 });
 

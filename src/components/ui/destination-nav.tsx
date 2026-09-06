@@ -142,6 +142,7 @@ export function DestinationNav({
 export type LocalDestinationNavItem = {
   id: string;
   label: string;
+  shortLabel?: string;
   count?: number;
   alert?: boolean;
   dataAttr?: string;
@@ -227,6 +228,10 @@ export function LocalDestinationNav({
   className,
   size = "default",
   tone = "default",
+  /** `equal` stretches every tab across the full bar (record-detail rows). */
+  itemLayout = "auto",
+  denseEqualRow = false,
+  centerEqualRow = false,
   /** `command` is the low-chrome list-page treatment: text tabs with an active underline. */
   appearance = "segmented",
 }: {
@@ -237,16 +242,25 @@ export function LocalDestinationNav({
   className?: string;
   size?: "default" | "toolbar";
   tone?: "default" | "monochrome";
+  itemLayout?: "auto" | "equal";
+  denseEqualRow?: boolean;
+  centerEqualRow?: boolean;
   appearance?: "segmented" | "command";
 }) {
-  const compactItems = items.length > 4;
+  const compactItems = itemLayout === "equal" ? false : items.length > 4;
 
   return (
     <nav
-      className={destinationNavShellClassName(className, "auto", false, false, appearance)}
+      className={destinationNavShellClassName(
+        className,
+        itemLayout,
+        denseEqualRow,
+        centerEqualRow,
+        appearance,
+      )}
       aria-label={ariaLabel}
       data-slot="local-destination-nav"
-      {...{ [HORIZONTAL_SCROLL_ATTR]: "" }}
+      {...(itemLayout === "equal" ? {} : { [HORIZONTAL_SCROLL_ATTR]: "" })}
     >
       {items.map((item) => {
         const active = item.id === activeId;
@@ -256,22 +270,60 @@ export function LocalDestinationNav({
             type="button"
             data-attr={item.dataAttr}
             className={cn(
-              destinationNavItemWidthClass(compactItems, appearance),
+              itemLayout === "equal"
+                ? "min-w-0"
+                : destinationNavItemWidthClass(compactItems, appearance),
               appearance === "command"
-                ? cn(
-                    "portal-pressable inline-flex min-h-11 items-center justify-center gap-1.5 rounded-none border-b-2 px-2.5 py-2 text-sm font-semibold transition-[color,border-color,background-color] duration-100 sm:px-3",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    active
-                      ? "border-primary text-primary"
-                      : "border-transparent text-muted hover:border-border hover:text-foreground",
-                    item.alert && !active && "text-[var(--status-overdue-fg)]",
-                  )
-                : destinationNavItemClassName({ active, alert: item.alert, size, tone }),
+                ? itemLayout === "equal" && denseEqualRow
+                  ? "portal-pressable inline-flex min-h-11 items-center justify-center gap-1.5 rounded-none border-b-2 px-0 py-2 text-center leading-none font-semibold transition-[color,border-color,background-color] duration-100 lg:min-h-11 lg:px-2 lg:py-2 lg:text-sm"
+                  : cn(
+                      "portal-pressable inline-flex min-h-11 items-center justify-center gap-1.5 rounded-none border-b-2 px-2.5 py-2 text-sm font-semibold transition-[color,border-color,background-color] duration-100 sm:px-3",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      active
+                        ? "border-primary text-primary"
+                        : "border-transparent text-muted hover:border-border hover:text-foreground",
+                      item.alert && !active && "text-[var(--status-overdue-fg)]",
+                    )
+                : itemLayout === "equal"
+                  ? denseEqualRow
+                    ? "portal-pressable inline-flex min-h-9 min-w-0 items-center justify-center gap-1.5 px-0 py-1 text-center leading-none font-semibold transition-colors lg:min-h-11 lg:px-2 lg:py-2 lg:text-sm"
+                    : "portal-pressable inline-flex min-h-10 min-w-0 items-center justify-center gap-1.5 px-0.5 py-1.5 text-center leading-tight font-semibold transition-colors lg:min-h-11 lg:px-2 lg:py-2 lg:text-sm"
+                  : destinationNavItemClassName({ active, alert: item.alert, size, tone }),
+              appearance !== "command" &&
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              appearance === "command" && itemLayout === "equal"
+                ? active
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted hover:border-border hover:text-foreground"
+                : null,
+              appearance !== "command" && itemLayout === "equal"
+                ? active
+                  ? "bg-card text-foreground shadow-[var(--shadow-sm)] ring-1 ring-primary/25"
+                  : "text-muted hover:bg-card/60 hover:text-foreground"
+                : null,
+              item.alert && !active && appearance !== "command" && "text-[var(--status-overdue-fg)]",
             )}
             aria-current={active ? "page" : undefined}
             onClick={() => onChange(item.id)}
           >
-            <span>{item.label}</span>
+            <span
+              className={
+                itemLayout === "equal"
+                  ? denseEqualRow
+                    ? "block w-full min-w-0 max-w-full whitespace-nowrap text-[length:clamp(8px,2.1vw,0.875rem)] leading-none lg:text-sm lg:leading-tight lg:truncate"
+                    : "block w-full min-w-0 max-w-full whitespace-nowrap text-xs leading-tight lg:truncate"
+                  : undefined
+              }
+            >
+              {item.shortLabel ? (
+                <>
+                  <span className={itemLayout === "equal" ? "lg:hidden" : "lg:hidden"}>{item.shortLabel}</span>
+                  <span className={itemLayout === "equal" ? "hidden lg:inline" : "hidden lg:inline"}>{item.label}</span>
+                </>
+              ) : (
+                item.label
+              )}
+            </span>
             {appearance === "command" && item.count != null ? (
               <span
                 className={cn(

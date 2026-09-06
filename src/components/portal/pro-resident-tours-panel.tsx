@@ -62,22 +62,24 @@ export function ManagerResidentToursPanel({
   residentName,
   tourId,
   buildTourDetailHref,
+  propertyIds,
 }: {
   managerUserId: string | null;
   residentEmail: string;
   residentName: string;
   tourId?: string;
   buildTourDetailHref?: (row: ManagerTourRow) => string;
+  propertyIds?: string[];
 }) {
   const navigate = usePortalNavigate();
   const normalizedEmail = residentEmail.trim().toLowerCase();
 
   const rows = useMemo(() => {
     if (!managerUserId || !normalizedEmail.includes("@")) return [];
-    return buildManagerTourRows({ viewerUserId: managerUserId, propertyIds: [] })
+    return buildManagerTourRows({ viewerUserId: managerUserId, propertyIds: propertyIds ?? [] })
       .filter((row) => row.guestEmail?.trim().toLowerCase() === normalizedEmail)
       .sort((a, b) => a.startMs - b.startMs);
-  }, [managerUserId, normalizedEmail]);
+  }, [managerUserId, normalizedEmail, propertyIds]);
 
   const detailRow = useMemo(() => {
     if (!tourId) return null;

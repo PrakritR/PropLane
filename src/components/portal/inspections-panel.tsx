@@ -10,6 +10,8 @@ import { Modal } from "@/components/ui/modal";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { LocalDestinationNav } from "@/components/ui/destination-nav";
+import { ResidentDetailCommandToolbar } from "@/components/portal/resident-detail-subsection-chrome";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { InspectionEditor } from "@/components/portal/inspection-editor";
@@ -132,18 +134,18 @@ export function ManagerInspectionsPage({ kind = "move-in", reportId, basePath = 
   return <ManagerPortalPageShell title="Inspections" hideTitleOnMobileNav compactFilterRow><InspectionsPanel role="manager" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} /></ManagerPortalPageShell>;
 }
 
-export function InspectionsPanel({ role, applicationId, initialKind = "move-in", reportId, routeBase }: {
-  role: InspectionRole; applicationId?: string; initialKind?: InspectionKind; reportId?: string; routeBase?: string;
+export function InspectionsPanel({ role, applicationId, initialKind = "move-in", reportId, routeBase, embeddedInResident = false }: {
+  role: InspectionRole; applicationId?: string; initialKind?: InspectionKind; reportId?: string; routeBase?: string; embeddedInResident?: boolean;
 }) {
   const { userId, ready } = usePortalSession();
   // Remount state on an account/portal/residency change so another viewer never sees old evidence.
   if (!ready) return <p role="status" className="p-4 text-sm text-muted">Loading inspections…</p>;
   if (!userId && !isDemoModeActive()) return <p className="p-4 text-sm text-muted">Sign in to view your inspections.</p>;
-  return <InspectionWorkspace key={`${role}:${userId}:${applicationId ?? ""}:${reportId ?? ""}:${initialKind}`} userId={userId ?? "demo"} role={role} applicationId={applicationId} initialKind={initialKind} reportId={reportId} routeBase={routeBase} />;
+  return <InspectionWorkspace key={`${role}:${userId}:${applicationId ?? ""}:${reportId ?? ""}:${initialKind}`} userId={userId ?? "demo"} role={role} applicationId={applicationId} initialKind={initialKind} reportId={reportId} routeBase={routeBase} embeddedInResident={embeddedInResident} />;
 }
 
-function InspectionWorkspace({ userId, role, applicationId, initialKind, reportId, routeBase }: {
-  userId: string; role: InspectionRole; applicationId?: string; initialKind: InspectionKind; reportId?: string; routeBase?: string;
+function InspectionWorkspace({ userId, role, applicationId, initialKind, reportId, routeBase, embeddedInResident = false }: {
+  userId: string; role: InspectionRole; applicationId?: string; initialKind: InspectionKind; reportId?: string; routeBase?: string; embeddedInResident?: boolean;
 }) {
   const router = useRouter();
   const [kind, setKind] = useState(initialKind);
@@ -245,6 +247,40 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   if (detail) return <InspectionEditor initial={detail} role={role} userId={userId} onChanged={() => { /* API mutations invalidate the shared list. */ }} onBack={() => { setDetail(null); setSelected(new Set()); if (routeBase) router.push(`${routeBase}/${kind}`); }} />;
   if (reportId) return <div className="space-y-3 p-4">{error ? <p role="alert">{error}</p> : <p role="status">Loading inspection…</p>}<Button variant="outline" onClick={() => router.push(`${routeBase}/${kind}`)} data-attr="inspection-list-back">Back to inspections</Button></div>;
   return <div className="min-w-0 space-y-3" data-attr="inspections-panel">
+    {embeddedInResident ? (
+      <div className="mb-3 shrink-0 space-y-2 bg-background">
+        <LocalDestinationNav
+          items={(["move-in", "move-out"] as const).map((id) => ({
+            id,
+            label: kindLabel(id),
+            count: rowsFor(id).length,
+            dataAttr: `inspection-type-${id}`,
+          }))}
+          activeId={kind}
+          onChange={(id) => changeKind(id as InspectionKind)}
+          ariaLabel="Inspection type"
+          size="toolbar"
+          itemLayout="equal"
+        />
+        {role === "manager" && !isDemoModeActive() ? (
+          <PortalListControlStack
+            variant="command"
+            stickyDestinations={false}
+            actions={
+              <ResidentDetailCommandToolbar
+                onSettings={() => setSettingsOpen(true)}
+                onEdit={
+                  selectedReports.length === 1
+                    ? () => void open(selectedReports[0]!.id)
+                    : undefined
+                }
+                editDisabled={selectedReports.length !== 1}
+              />
+            }
+          />
+        ) : null}
+      </div>
+    ) : (
     <PortalListControlStack variant="command" destinationAriaLabel="Inspection type" activeDestinationId={kind}
       destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
       destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
@@ -252,6 +288,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
         ? <Button type="button" variant="outline" data-attr="inspections-settings-open" onClick={() => setSettingsOpen(true)}>Settings</Button>
         : undefined}
     />
+    )}
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error}</p>}
     {role !== "manager" && !error && data.notice && <p role="status" className="rounded-xl border border-border p-3 text-sm text-muted">{data.notice}</p>}
     {loading ? <div role="status" aria-label="Loading inspections" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div> : <PortalRecordListSurface
