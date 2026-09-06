@@ -26,8 +26,9 @@ describe("vercel-should-build.sh", () => {
     expect(ignoreExit("cursor-1")).toBe(0);
     expect(ignoreExit("feat/anything")).toBe(0);
     expect(ignoreExit("prakrit")).toBe(0);
-  });
-});
     expect(ignoreExit("main")).toBe(0);
     expect(ignoreExit("")).toBe(0);
     expect(ignoreExit("unknown")).toBe(0);
+  });
+});
+

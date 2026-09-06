@@ -34,6 +34,13 @@ If Production deployments stay on an old commit:
 3. **Manual deploy:** `npm run vercel:deploy:production` on the `production`
    branch (see `scripts/vercel-deploy-cli.sh`).
 
+For a manual QA deploy, run `npm run vercel:deploy:staging` on `staging`.
+The helper pulls Preview variables with `--git-branch=staging`; omitting that
+scope can select the shared Preview defaults instead of the staging credentials
+(see [database environments](../database-environments.md)). It rejects `main`.
+The **Vercel Deploy** workflow likewise permits only `staging` and `production`,
+including manual dispatch; `main` retains its CI checks.
+
 ## Ship path
 
 ```
