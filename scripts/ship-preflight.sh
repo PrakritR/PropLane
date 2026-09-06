@@ -38,10 +38,25 @@ else
   note "missing docs/ship-gate.md"
 fi
 
-if [[ -f "vercel.json" ]] && grep -q '"main": false' vercel.json && grep -q '"staging": true' vercel.json && grep -q '"production": true' vercel.json && grep -q '"\*\*": false' vercel.json; then
+if node --input-type=module <<'NODE'
+import { readFileSync } from 'node:fs';
+
+try {
+  const enabled = JSON.parse(readFileSync('vercel.json', 'utf8')).git?.deploymentEnabled;
+  const valid = enabled && typeof enabled === 'object' && !Array.isArray(enabled)
+    && enabled.main === false && enabled['**'] === false
+    && enabled.staging === true && enabled.production === true
+    && Object.entries(enabled).every(([branch, value]) =>
+      value === (branch === 'staging' || branch === 'production'));
+  process.exit(valid ? 0 : 1);
+} catch {
+  process.exit(1);
+}
+NODE
+then
   pass "vercel.json enables staging and production only; main uses localhost"
 else
-  bad "vercel.json must set git.deploymentEnabled main=false, staging=true, production=true, and **=false"
+  bad "vercel.json must enable only staging and production, with main=false and **=false"
 fi
 
 if [[ -f "scripts/vercel-should-build.sh" ]]; then

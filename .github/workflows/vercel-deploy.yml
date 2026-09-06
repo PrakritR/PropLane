@@ -25,6 +25,7 @@ jobs:
   # skipping — route it through a job output like ios-testflight.yml does.
   # Only the boolean is written; the secret value never appears in logs.
   check-secrets:
+    if: ${{ github.ref_name == 'staging' || github.ref_name == 'production' }}
     runs-on: ubuntu-latest
     outputs:
       configured: ${{ steps.check.outputs.configured }}
@@ -34,7 +35,7 @@ jobs:
 
   deploy:
     needs: check-secrets
-    if: ${{ needs.check-secrets.outputs.configured == 'true' }}
+    if: ${{ (github.ref_name == 'staging' || github.ref_name == 'production') && needs.check-secrets.outputs.configured == 'true' }}
     runs-on: ubuntu-latest
     environment: ${{ github.ref_name == 'production' && 'production' || github.ref_name == 'staging' && 'staging' || 'preview' }}
     env:
@@ -103,4 +104,3 @@ jobs:
         run: |
           echo "::notice::VERCEL_TOKEN is not set — skipping CLI deploy job."
           echo "staging → staging-prop-lane.space and production → prop-lane.space still deploy via the Vercel Git integration. main uses localhost."
-    if: ${{ github.ref_name == 'staging' || github.ref_name == 'production' }}
