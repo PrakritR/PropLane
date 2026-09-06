@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/input";
-import { PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS, PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
+import { PortalPropertyDetailSection } from "@/components/portal/portal-property-detail-section";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { MoveInMediaFields } from "@/components/portal/move-in-media-fields";
 import { updateRequestChangeProperty } from "@/lib/demo-admin-property-inventory";
@@ -404,30 +404,94 @@ export function ManagerPropertyRoomMoveInPanel({
     });
   }
 
+  const houseRowDirty = houseDirty;
+  const bulkEditOpensEditor =
+    (houseSelected && selectedRoomIds.length === 0) ||
+    (selectedRoomIds.length === 1 && !houseSelected);
+  const bulkEditCopiesToRooms = selectedRoomIds.length > 0 && !bulkEditOpensEditor;
+  const bulkEditDisabled = copyingToRooms || (bulkEditCopiesToRooms && !houseHasSavedDetails);
+  const bulkEditLabel = copyingToRooms ? "Applying…" : bulkEditOpensEditor ? "Edit" : "Copy house details";
+
+  /* One selection contract for every property shape. A whole-home listing has no
+     room rows, but the house itself is still selectable — the bulk bar is where Edit
+     and Share live, so without the tick box those actions were unreachable there. */
+  const moveInBulkBar = selectionActive ? (
+    <BulkActionBar count={selectionCount} hideCount variant="payments">
+      <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          className={PORTAL_BULK_BAR_BTN}
+          data-attr="property-move-in-bulk-edit"
+          disabled={bulkEditDisabled}
+          onClick={handleBulkEdit}
+        >
+          {bulkEditLabel}
+        </Button>
+        <Button
+          type="button"
+          variant="primary"
+          className={PORTAL_BULK_BAR_BTN}
+          data-attr="property-move-in-share"
+          onClick={() => void handleShareMoveIn()}
+        >
+          Share
+        </Button>
+      </div>
+    </BulkActionBar>
+  ) : null;
+
   if (entireHome) {
     return (
-      <PortalPropertyDetailSection>
-        <p className="mb-3 px-1 text-sm text-muted">Whole-home move-in details shown to placed residents.</p>
-        <div className="divide-y divide-border/50">
-          <div className="px-1">
-            <button
-              type="button"
-              data-attr="property-move-in-house"
-              className={cn(
-                PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
-                "flex w-full cursor-pointer items-start gap-2.5 rounded-lg text-left transition hover:bg-accent/20",
-              )}
-              onClick={() => openEditor(HOUSE_MOVE_IN_TARGET_ID)}
-              onDoubleClick={() => openEditor(HOUSE_MOVE_IN_TARGET_ID)}
-            >
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-foreground">The whole house</p>
-                <p className="mt-0.5 text-xs text-muted">{houseMoveInSummary(sub)}</p>
+      <>
+        <PortalPropertyDetailSection>
+          <p className="mb-3 px-1 text-sm text-muted">Whole-home move-in details shown to placed residents.</p>
+          <div className="divide-y divide-border/50">
+            <div className="px-1">
+              <div
+                className={cn(
+                  MOVE_IN_SELECT_ROW_CLASS,
+                  "rounded-lg transition",
+                  houseSelected ? "border-l-2 border-l-primary bg-primary/5" : "hover:bg-accent/20",
+                )}
+              >
+                {canEdit ? (
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4 shrink-0 rounded border-border accent-primary"
+                    checked={houseSelected}
+                    aria-label="Select the whole house"
+                    data-attr="property-move-in-house-select"
+                    onChange={toggleHouseSelected}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : null}
+                <button
+                  type="button"
+                  data-attr="property-move-in-house"
+                  className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 text-left"
+                  onClick={() => openEditor(HOUSE_MOVE_IN_TARGET_ID)}
+                  onDoubleClick={() => openEditor(HOUSE_MOVE_IN_TARGET_ID)}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-foreground">The whole house</p>
+                      {houseRowDirty ? (
+                        <Badge tone="neutral" className="text-[10px] font-semibold uppercase tracking-wide">
+                          Draft
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted">{houseMoveInSummary(sub)}</p>
+                  </div>
+                </button>
               </div>
-            </button>
+            </div>
           </div>
-        </div>
-      </PortalPropertyDetailSection>
+        </PortalPropertyDetailSection>
+
+        {moveInBulkBar}
+      </>
     );
   }
 
@@ -438,14 +502,6 @@ export function ManagerPropertyRoomMoveInPanel({
       </PortalPropertyDetailSection>
     );
   }
-
-  const houseRowDirty = houseDirty;
-  const bulkEditOpensEditor =
-    (houseSelected && selectedRoomIds.length === 0) ||
-    (selectedRoomIds.length === 1 && !houseSelected);
-  const bulkEditCopiesToRooms = selectedRoomIds.length > 0 && !bulkEditOpensEditor;
-  const bulkEditDisabled = copyingToRooms || (bulkEditCopiesToRooms && !houseHasSavedDetails);
-  const bulkEditLabel = copyingToRooms ? "Applying…" : bulkEditOpensEditor ? "Edit" : "Copy house details";
 
   return (
     <>
@@ -553,31 +609,7 @@ export function ManagerPropertyRoomMoveInPanel({
         </div>
       </PortalPropertyDetailSection>
 
-      {selectionActive ? (
-        <BulkActionBar count={selectionCount} hideCount variant="payments">
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_BULK_BAR_BTN}
-              data-attr="property-move-in-bulk-edit"
-              disabled={bulkEditDisabled}
-              onClick={handleBulkEdit}
-            >
-              {bulkEditLabel}
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              className={PORTAL_BULK_BAR_BTN}
-              data-attr="property-move-in-share"
-              onClick={() => void handleShareMoveIn()}
-            >
-              Share
-            </Button>
-          </div>
-        </BulkActionBar>
-      ) : null}
+      {moveInBulkBar}
     </>
   );
 }
