@@ -23,6 +23,7 @@ import {
   queryVendorSpend,
 } from "@/lib/reports/queries";
 import { writeAuditLog, updateAuditResult } from "../audit";
+import { pacificCalendarDateYmd } from "@/lib/pacific-time";
 
 /**
  * Financial reports the agent may run. The numbers are computed by these query
@@ -223,6 +224,21 @@ async function resolveManualEntry(
   };
 }
 
+function withResolvedPostedDate(input: Omit<ManualEntryInput, "postedDate"> & { postedDate?: string }): ManualEntryInput {
+  const postedDate = input.postedDate?.trim();
+  return {
+    ...input,
+    postedDate: postedDate && /^\d{4}-\d{2}-\d{2}$/.test(postedDate) ? postedDate : pacificCalendarDateYmd(),
+  };
+}
+
+function postedDateYearWarning(postedDate: string): string | undefined {
+  const currentYear = pacificCalendarDateYmd().slice(0, 4);
+  const postedYear = postedDate.slice(0, 4);
+  if (postedYear === currentYear) return undefined;
+  return `This date is in ${postedYear}, not ${currentYear}. Confirm only if that year is intentional.`;
+}
+
 function manualEntryPreview(
   kind: ManualEntryKind,
   input: ManualEntryInput,
@@ -241,11 +257,13 @@ function manualEntryPreview(
     lines.push({ label: "Resident", value: input.residentEmail.trim().toLowerCase() });
   }
   if (input.description?.trim()) lines.push({ label: "Description", value: input.description.trim() });
+  const yearWarning = postedDateYearWarning(input.postedDate);
   return {
     kind: meta.toolName,
     title: kind === "expense" ? "Record expense" : "Record income",
     summary: `Record a ${centsToUsd(resolved.amountCents)} ${resolved.categoryLabel} ${meta.noun} entry dated ${input.postedDate}${resolved.propertyLabel ? ` for ${resolved.propertyLabel}` : ""}.`,
     fields: lines,
+    warnings: yearWarning ? [yearWarning] : undefined,
     confirmLabel: kind === "expense" ? "Record expense" : "Record income",
   };
 }
@@ -256,8 +274,9 @@ function manualEntryPreview(
  * amount+category+date+description), then books the entry via the same
  * manual-entries lib the /api/income and /api/expenses routes use.
  */
-async function executeManualEntry(ctx: AgentContext, kind: ManualEntryKind, input: ManualEntryInput) {
+async function executeManualEntry(ctx: AgentContext, kind: ManualEntryKind, rawInput: Omit<ManualEntryInput, "postedDate"> & { postedDate?: string }) {
   const meta = MANUAL_ENTRY_META[kind];
+  const input = withResolvedPostedDate(rawInput);
   const check = await resolveManualEntry(ctx, kind, input);
   if (!check.ok) throw new Error(check.error);
   const { resolved } = check;
@@ -323,12 +342,14 @@ async function executeManualEntry(ctx: AgentContext, kind: ManualEntryKind, inpu
 const POSTED_DATE_SCHEMA = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Must be an ISO date (YYYY-MM-DD)")
-  .describe("The date the entry applies to, as YYYY-MM-DD.");
+  .describe(
+    "Optional ISO date YYYY-MM-DD. Omit to use today's Pacific date. Use the current year unless the manager names another year.",
+  );
 
 export const recordExpenseTool = defineWriteTool({
   name: "record_expense",
   description:
-    "Record a manual expense entry in the landlord's books (same bookkeeping as the Financials page). Requires an expense category code; get propertyId from list_properties/find_records and vendorId from list_vendors/find_records when the expense should be attributed to one.",
+    "Record a manual expense entry in the landlord's books (same bookkeeping as the Financials page). Requires an expense category code; get propertyId from list_properties/find_records and vendorId from list_vendors/find_records when the expense should be attributed to one. Use today's Pacific date unless the manager names a different date.",
   inputSchema: z
     .object({
       amountUsd: z.number().positive().describe("Expense amount in US dollars, e.g. 125.5 for $125.50."),
@@ -336,16 +357,17 @@ export const recordExpenseTool = defineWriteTool({
         .string()
         .min(1)
         .describe("Expense category code from the chart of accounts, e.g. 'maintenance', 'plumbing', 'utilities', 'insurance'."),
-      postedDate: POSTED_DATE_SCHEMA,
+      postedDate: POSTED_DATE_SCHEMA.optional(),
       description: z.string().optional().describe("Optional memo describing the expense."),
       propertyId: z.string().optional().describe("Optional property id (from list_properties) to attribute the expense to."),
       vendorId: z.string().optional().describe("Optional vendor id (from list_vendors) the expense was paid to."),
     })
     .strict(),
   preview: async (ctx, input) => {
-    const check = await resolveManualEntry(ctx, "expense", input);
+    const resolvedInput = withResolvedPostedDate(input);
+    const check = await resolveManualEntry(ctx, "expense", resolvedInput);
     if (!check.ok) throw new Error(check.error);
-    return manualEntryPreview("expense", input, check.resolved);
+    return { ...manualEntryPreview("expense", resolvedInput, check.resolved), confirmedInput: resolvedInput };
   },
   handler: (ctx, input) => executeManualEntry(ctx, "expense", input),
 });
@@ -353,7 +375,7 @@ export const recordExpenseTool = defineWriteTool({
 export const recordIncomeTool = defineWriteTool({
   name: "record_income",
   description:
-    "Record a manual income entry in the landlord's books (rent collected outside Axis, fees, other income — same bookkeeping as the Financials page). Requires an income category code; get propertyId from list_properties/find_records when the income belongs to a property.",
+    "Record a manual income entry in the landlord's books (rent collected outside Axis, fees, other income — same bookkeeping as the Financials page). Requires an income category code; get propertyId from list_properties/find_records when the income belongs to a property. Use today's Pacific date unless the manager names a different date.",
   inputSchema: z
     .object({
       amountUsd: z.number().positive().describe("Income amount in US dollars, e.g. 1500 for $1,500.00."),
@@ -361,16 +383,17 @@ export const recordIncomeTool = defineWriteTool({
         .string()
         .min(1)
         .describe("Income category code from the chart of accounts, e.g. 'rent_income', 'late_fees', 'other_income'."),
-      postedDate: POSTED_DATE_SCHEMA,
+      postedDate: POSTED_DATE_SCHEMA.optional(),
       description: z.string().optional().describe("Optional description of the income entry."),
       propertyId: z.string().optional().describe("Optional property id (from list_properties) to attribute the income to."),
       residentEmail: z.string().optional().describe("Optional resident email the income was received from."),
     })
     .strict(),
   preview: async (ctx, input) => {
-    const check = await resolveManualEntry(ctx, "income", input);
+    const resolvedInput = withResolvedPostedDate(input);
+    const check = await resolveManualEntry(ctx, "income", resolvedInput);
     if (!check.ok) throw new Error(check.error);
-    return manualEntryPreview("income", input, check.resolved);
+    return { ...manualEntryPreview("income", resolvedInput, check.resolved), confirmedInput: resolvedInput };
   },
   handler: (ctx, input) => executeManualEntry(ctx, "income", input),
 });

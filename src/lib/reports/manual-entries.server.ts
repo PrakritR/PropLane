@@ -146,3 +146,77 @@ export async function recordManualExpense(
   });
   return { ok: true, entry: data as Record<string, unknown> };
 }
+
+export type ManualExpensePatch = ManualExpenseInput & { id: string };
+
+/** Update a manager-owned expense. Only supplied fields are written. */
+export async function updateManualExpense(
+  db: SupabaseClient,
+  managerUserId: string,
+  input: ManualExpensePatch,
+): Promise<ManualEntryResult> {
+  const id = typeof input.id === "string" ? input.id.trim() : "";
+  if (!id) return { ok: false, status: 400, error: "id required." };
+
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (typeof input.taxDeductible === "boolean") patch.tax_deductible = input.taxDeductible;
+  if (input.categoryCode !== undefined) {
+    if (typeof input.categoryCode !== "string" || !input.categoryCode.trim()) {
+      return { ok: false, status: 400, error: "categoryCode required." };
+    }
+    // Custom non-empty categories are supported by the create endpoint too.
+    patch.category_code = input.categoryCode.trim();
+  }
+  if (input.amountCents != null) {
+    const amountCents = Number(input.amountCents);
+    if (!Number.isSafeInteger(amountCents) || amountCents <= 0) return { ok: false, status: 400, error: "amountCents must be a positive integer." };
+    patch.amount_cents = amountCents;
+  }
+  if (input.expenseDate !== undefined) {
+    const date = typeof input.expenseDate === "string" ? input.expenseDate.trim() : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date) {
+      return { ok: false, status: 400, error: "expenseDate must be a valid YYYY-MM-DD date." };
+    }
+    patch.expense_date = date;
+  }
+  for (const field of ["memo", "propertyId", "vendorId"] as const) {
+    if (input[field] != null && typeof input[field] !== "string") {
+      return { ok: false, status: 400, error: `${field} must be a string or null.` };
+    }
+  }
+  if (input.taxDeductible !== undefined && typeof input.taxDeductible !== "boolean") {
+    return { ok: false, status: 400, error: "taxDeductible must be a boolean." };
+  }
+  for (const [field, table] of [["propertyId", "manager_property_records"], ["vendorId", "manager_vendor_records"]] as const) {
+    const targetId = input[field]?.trim();
+    if (!targetId) continue;
+    const { data: target, error: targetError } = await db.from(table).select("id")
+      .eq("manager_user_id", managerUserId).eq("id", targetId).maybeSingle();
+    if (targetError) return { ok: false, status: 500, error: targetError.message };
+    if (!target) return { ok: false, status: 400, error: `${field} is not owned by this manager.` };
+  }
+  if (input.memo !== undefined) patch.memo = input.memo?.trim() || null;
+  if (input.propertyId !== undefined) patch.property_id = input.propertyId?.trim() || null;
+  if (input.vendorId !== undefined) patch.vendor_id = input.vendorId?.trim() || null;
+
+  if (Object.keys(patch).length === 1) {
+    return { ok: false, status: 400, error: "Nothing to update." };
+  }
+
+  const { data, error } = await db
+    .from("manager_expense_entries")
+    .update(patch)
+    .eq("id", id)
+    .eq("manager_user_id", managerUserId)
+    .select("*")
+    .maybeSingle();
+
+  if (error) return { ok: false, status: 500, error: error.message };
+  if (!data) return { ok: false, status: 404, error: "Expense not found." };
+  const taxOnly = typeof input.taxDeductible === "boolean" && Object.keys(patch).length === 2;
+  track(taxOnly ? "expense_tax_status_changed" : "expense_updated", managerUserId, {
+    category_code: String(data.category_code ?? ""),
+    tax_deductible: typeof data.tax_deductible === "boolean" ? data.tax_deductible : undefined,
+  });
+  return { ok: true, entry: data as Record<string, unknown> };
+}

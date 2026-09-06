@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, ChevronsRight, X } from "lucide-react";
+import { ChevronsRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { AssistantChatComposer } from "@/components/portal/assistant-chat-composer";
@@ -19,6 +19,7 @@ import {
   AxisAssistantSparkleIcon,
 } from "@/components/portal/assistant-shared";
 import { useOptionalAssistantConversation } from "@/lib/axis-assistant/assistant-conversation-context";
+import { visibleConversationMessages } from "@/lib/axis-assistant/use-assistant-conversation";
 import { cn } from "@/lib/utils";
 
 export type AssistantDockPanelProps = {
@@ -27,11 +28,9 @@ export type AssistantDockPanelProps = {
   /** Internal task context sent separately from visible user messages (e.g. modal title). */
   contextHint?: string | null;
   className?: string;
-  /** Tighter layout for modal footers. */
-  compact?: boolean;
   /** Keep the composer pinned at the bottom; only message history scrolls. */
   pinnedComposer?: boolean;
-  /** One-line hint above the composer when pinned in compact mode with no messages yet. */
+  /** Replaces the empty-state subline when this surface has its own task framing. */
   composerHint?: string | null;
   /** When set, shows a collapse control in the header (desktop rail). */
   onCollapse?: () => void;
@@ -51,7 +50,6 @@ export function AssistantDockPanel({
   endpoint = "/api/agent/chat",
   contextHint = null,
   className,
-  compact = false,
   pinnedComposer = false,
   composerHint = null,
   onCollapse,
@@ -96,7 +94,8 @@ export function AssistantDockPanel({
   const [historyPortal, setHistoryPortal] = useState<HTMLElement | null>(null);
 
   const firstName = managerName?.trim().split(/\s+/)[0] || null;
-  const hasConversation = messages.length > 0;
+  const visibleMessages = visibleConversationMessages(messages);
+  const hasConversation = visibleMessages.length > 0 || Boolean(pendingAction);
   const hint = contextHint?.trim() || null;
 
   useEffect(() => {
@@ -104,8 +103,8 @@ export function AssistantDockPanel({
   }, [messages, loading]);
 
   useEffect(() => {
-    if (!compact) void hydrateArchive();
-  }, [compact, hydrateArchive]);
+    void hydrateArchive();
+  }, [hydrateArchive]);
 
   async function sendWithContext(prompt?: string) {
     await send(prompt, { contextHint: hint });
@@ -114,35 +113,12 @@ export function AssistantDockPanel({
   return (
     <div
       className={cn(
-        "flex h-full min-h-0 flex-col overflow-hidden",
-        compact
-          ? "rounded-xl border border-border bg-card"
-          : "rounded-xl border border-primary/15 bg-card shadow-[0_1px_2px_rgba(15,23,42,0.03)]",
+        "flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-primary/15 bg-card shadow-[0_1px_2px_rgba(15,23,42,0.03)]",
         className,
       )}
       data-attr="assistant-dock-panel"
     >
-      {pinnedComposer && compact ? (
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
-          <p className="flex min-w-0 items-center gap-1.5 text-sm font-semibold text-primary">
-            <AxisAssistantSparkleIcon className="h-4 w-4 shrink-0" />
-            PropLane Assistant
-          </p>
-          {onCollapse ? (
-            <button
-              type="button"
-              onClick={onCollapse}
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25"
-              data-attr="modal-assistant-close"
-              aria-label="Close assistant"
-            >
-              <X className="h-4 w-4" aria-hidden />
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-      {!compact ? (
-        <div className="relative shrink-0 overflow-hidden border-b border-border/70 px-4 py-3">
+      <div className="relative shrink-0 overflow-hidden border-b border-border/70 px-4 py-3">
           <div
             className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--primary)_10%,transparent),transparent_55%)]"
             aria-hidden
@@ -202,11 +178,10 @@ export function AssistantDockPanel({
             ) : null}
             </div>
           </div>
-        </div>
-      ) : null}
+      </div>
 
       <div ref={setHistoryPortal} className="relative flex min-h-0 flex-1 flex-col">
-        {multiThread && !compact ? (
+        {multiThread ? (
           <AssistantChatHistoryPanel
             open={historyOpen}
             threads={threads}
@@ -229,44 +204,9 @@ export function AssistantDockPanel({
         ) : null}
       <div
         ref={scrollRef}
-        className={cn(
-          "flex min-h-0 flex-col overflow-y-auto overscroll-contain px-3",
-          pinnedComposer && compact
-            ? "flex-1 py-4"
-            : compact
-              ? "min-h-0 flex-1 py-2"
-              : "flex-1 py-4",
-          !hasConversation && !compact && "flex-1",
-        )}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain px-3 py-4"
       >
-        {!hasConversation && compact && pinnedComposer ? (
-          <div className="flex flex-1 flex-col justify-center px-1 pb-8" data-attr="assistant-task-empty-state">
-            <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary" aria-hidden>
-              <AxisAssistantSparkleIcon className="h-5 w-5" />
-            </span>
-            <h2 className="text-lg font-semibold tracking-tight text-foreground">Let’s work on this</h2>
-            <p className="mt-2 text-sm leading-relaxed text-muted">
-              {composerHint?.trim() || "Ask a question, or tell me what you’d like to change."}
-            </p>
-            <div className="mt-5 grid gap-2">
-              {["Help me get started", "Review this with me"].map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  data-attr="assistant-task-suggestion"
-                  disabled={loading}
-                  onClick={() => {
-                    setInput(prompt);
-                    inputRef.current?.focus();
-                  }}
-                  className="flex min-h-10 items-center justify-between gap-2 rounded-xl border border-border px-3 py-2 text-left text-xs font-medium text-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {prompt}<ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : !hasConversation && !compact ? (
+        {!hasConversation ? (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
             <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary">
               <AxisAssistantSparkleIcon className="h-5 w-5" />
@@ -279,7 +219,8 @@ export function AssistantDockPanel({
                 What should we look at first?
               </h3>
               <p className="mx-auto max-w-[16rem] text-sm leading-relaxed text-muted">
-                Rent, leases, applications, and reminders — grounded in your live portfolio data.
+                {composerHint?.trim() ||
+                  "Rent, leases, applications, and reminders — grounded in your live portfolio data."}
               </p>
             </div>
             <AssistantSuggestionChips
@@ -288,9 +229,9 @@ export function AssistantDockPanel({
               className="grid w-full grid-cols-2 gap-2"
             />
           </div>
-        ) : hasConversation ? (
+        ) : (
           <div className="space-y-3 text-sm">
-            {messages.map((m, i) => (
+            {visibleMessages.map((m, i) => (
               <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
                 <span
                   className={
@@ -314,14 +255,14 @@ export function AssistantDockPanel({
             ))}
             {loading ? (
               <div className="flex w-fit items-center gap-2 rounded-2xl border border-border/70 bg-foreground/[0.03] px-3 py-2 text-muted">
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70 [animation-delay:-0.2s]" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70 [animation-delay:-0.1s]" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70 [animation-delay:-0.2s]" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70 [animation-delay:-0.1s]" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70" />
                 <span className="text-xs">Thinking…</span>
               </div>
             ) : null}
           </div>
-        ) : null}
+        )}
       </div>
       </div>
 
@@ -333,7 +274,6 @@ export function AssistantDockPanel({
         }}
         className={cn(
           "shrink-0 border-t border-border/60 bg-card px-3 pb-3 pt-3",
-          compact && "pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] pt-2",
           pinnedComposer && "sticky bottom-0 z-10",
         )}
       >
@@ -352,11 +292,11 @@ export function AssistantDockPanel({
           onAttachmentsChange={setAttachments}
           onAttachmentError={(message) => setError(message)}
           loading={loading}
-          compact={compact}
           inputRef={inputRef}
           inputId={inputId}
-          inputAriaLabel={compact ? "Message PropLane Assistant" : "Ask the PropLane Assistant about your portfolio"}
-          placeholder={compact ? "Ask PropLane…" : "Ask about your portfolio… Attach images or PDFs with the paperclip."}
+          inputAriaLabel="Ask the PropLane Assistant about your portfolio"
+          placeholder="Ask about your portfolio…"
+
           onSend={() => void sendWithContext()}
         />
       </form>

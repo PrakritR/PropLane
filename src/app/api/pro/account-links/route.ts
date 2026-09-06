@@ -17,10 +17,13 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
+import { mintOpenCoManagerInvite } from "@/lib/co-manager-open-invite.server";
+import { resolveRequestOrigin } from "@/lib/app-url";
 
 import { asStringArray, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
 
 export const runtime = "nodejs";
+
 
 async function countParticipantLinks(
   supabase: SupabaseClient,
@@ -65,6 +68,7 @@ export async function GET(): Promise<NextResponse<AccountLinksPayload | { error:
           "status",
           "created_at",
           "responded_at",
+          "expires_at",
         ].join(","),
       )
       .or(`inviter_user_id.eq.${user.id},invitee_user_id.eq.${user.id}`)
@@ -181,12 +185,7 @@ export async function POST(req: Request) {
     );
     const coManagerPermissions: CoManagerPermissions = flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions);
 
-    if (!inviteeAxisId) {
-      return NextResponse.json({ error: "inviteeAxisId is required." }, { status: 400 });
-    }
-    if (assignedPropertyIds.length === 0) {
-      return NextResponse.json({ error: "Select at least one property for this invite." }, { status: 400 });
-    }
+    const openInvite = !inviteeAxisId;
 
     const inviterOk = await userIsPropertyPortalManager(supabase, user.id);
     if (!inviterOk) {
@@ -238,6 +237,82 @@ export async function POST(req: Request) {
       email: inviterResolved.email,
       role: inviterResolved.role,
     };
+
+    if (openInvite) {
+      const { tier: openInviterTier } = await getManagerPurchaseSku(user.id);
+      if (!managerPlanAllowsCoManagerInvites({ tier: openInviterTier })) {
+        return NextResponse.json(
+          { error: "Upgrade to Pro or Business before linking co-managers." },
+          { status: 403 },
+        );
+      }
+      const openLinkCap = maxAccountLinksForTier(openInviterTier);
+      if (openLinkCap != null) {
+        const { count: used, error: capErr } = await countParticipantLinks(svc, user.id, tabKind);
+        if (capErr) {
+          if (looksLikeAccountLinksMissingTable(capErr)) {
+            return NextResponse.json(
+              {
+                error:
+                  "Database is missing account_link_invites. Apply supabase/migrations/20260422120000_account_link_invites.sql.",
+                migrationRequired: true,
+              },
+              { status: 503 },
+            );
+          }
+          return NextResponse.json({ error: capErr.message }, { status: 500 });
+        }
+        const { data: existingOpen } = await svc
+          .from("account_link_invites")
+          .select("id")
+          .eq("inviter_user_id", user.id)
+          .eq("tab_kind", tabKind)
+          .eq("status", "pending")
+          .is("invitee_user_id", null)
+          .maybeSingle();
+        const replacingOpen = Boolean(existingOpen?.id);
+        if (!replacingOpen && (used ?? 0) >= openLinkCap) {
+          return NextResponse.json(
+            {
+              error: `Plan limit: ${openLinkCap} link${openLinkCap === 1 ? "" : "s"} max for this link type on your plan.`,
+            },
+            { status: 403 },
+          );
+        }
+      }
+
+      const minted = await mintOpenCoManagerInvite({
+        svc,
+        inviterUserId: user.id,
+        inviterAxisId,
+        inviterDisplayName:
+          inviterProfile.full_name?.trim() || inviterProfile.email || null,
+        assignedPropertyIds,
+        payoutPercentForManager,
+        propertyCoManagerPermissions,
+        coManagerPermissions,
+        tabKind,
+        requestOrigin: resolveRequestOrigin(req),
+      });
+      if (!minted.ok) {
+        if (looksLikeAccountLinksMissingTable({ message: minted.error })) {
+          return NextResponse.json(
+            {
+              error:
+                "Database is missing account_link_invites. Apply supabase/migrations/20260422120000_account_link_invites.sql.",
+              migrationRequired: true,
+            },
+            { status: 503 },
+          );
+        }
+        return NextResponse.json({ error: minted.error }, { status: minted.status });
+      }
+      return NextResponse.json({
+        ok: true,
+        invite: serializeInvite(minted.row as InviteRow, user.id),
+        inviteUrl: minted.inviteUrl,
+      });
+    }
 
     const inviteeLookupIds = proplaneIdLookupVariants(inviteeAxisId);
     const inviteeQueryIds = inviteeLookupIds.length > 0 ? inviteeLookupIds : [inviteeAxisId];

@@ -11,7 +11,7 @@ import {
 } from "@/components/portal/assistant-shared";
 import { ASSISTANT_DOCK_INPUT_ID } from "@/components/portal/assistant-dock-input-id";
 import { usePortalAssistantConfig } from "@/lib/axis-assistant/portal-assistant-context";
-import { useAssistantConversation } from "@/lib/axis-assistant/use-assistant-conversation";
+import { useAssistantConversation, visibleConversationMessages } from "@/lib/axis-assistant/use-assistant-conversation";
 
 /**
  * Inline, right-docked PropLane Assistant. It shares the exact conversation loop
@@ -44,7 +44,8 @@ export function AssistantDock({
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const firstName = resolvedName?.trim().split(/\s+/)[0] || null;
-  const hasConversation = messages.length > 0;
+  const visibleMessages = visibleConversationMessages(messages);
+  const hasConversation = visibleMessages.length > 0 || Boolean(pendingAction);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -138,7 +139,7 @@ export function AssistantDock({
           </div>
         ) : (
           <div className="space-y-3 text-sm">
-            {messages.map((m, i) => (
+            {visibleMessages.map((m, i) => (
               <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
                 <span
                   className={
@@ -155,9 +156,9 @@ export function AssistantDock({
             ))}
             {loading ? (
               <div className="flex w-fit items-center gap-2 rounded-2xl border border-border/70 bg-foreground/[0.03] px-3 py-2 text-muted">
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70 [animation-delay:-0.2s]" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70 [animation-delay:-0.1s]" />
-                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70 [animation-delay:-0.2s]" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70 [animation-delay:-0.1s]" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70" />
                 <span className="text-xs">Thinking…</span>
               </div>
             ) : null}

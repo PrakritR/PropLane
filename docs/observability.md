@@ -64,6 +64,12 @@ Rules: `object_action` naming; **reuse existing names** (grep `src/lib/analytics
 and existing `track(` call sites first); **never send PII or secrets** as
 properties — ids and enums only.
 
+Browser `before_send` scrubs bearer URLs across every event property, including
+referrers, previous-page URLs, nested auth `next=` redirects, autocaptured hrefs,
+and nested event strings. The sanitizer removes the query/fragment on a
+sensitive URL and masks legacy `/invite/<token>` path tokens. Do not bypass it
+when adding a token-bearing entry route.
+
 **Verify project settings:** `POSTHOG_PERSONAL_API_KEY=phx_… npm run posthog:verify`
 (checks autocapture, dead clicks, web vitals, replay, and `$identify` volume).
 

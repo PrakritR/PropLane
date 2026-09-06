@@ -35,6 +35,7 @@ import {
   AssistantConversationProvider,
   useOptionalAssistantConversation,
 } from "@/lib/axis-assistant/assistant-conversation-context";
+import { visibleConversationMessages } from "@/lib/axis-assistant/use-assistant-conversation";
 import { useAssistantDisplayMode } from "@/hooks/use-assistant-display-mode";
 import { useIsClient } from "@/hooks/use-is-client";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -197,7 +198,8 @@ function AxisAssistantChrome({ managerName, endpoint = "/api/agent/chat" }: { ma
   const keyboardInset = useVisualViewportBottomInset(open && panelReady);
 
   const firstName = managerName?.trim().split(/\s+/)[0] || null;
-  const hasConversation = messages.length > 0;
+  const visibleMessages = visibleConversationMessages(messages);
+  const hasConversation = visibleMessages.length > 0 || Boolean(pendingAction);
   const keyboardOpen = keyboardInset > 0;
 
   useEffect(() => {
@@ -446,7 +448,7 @@ function AxisAssistantChrome({ managerName, endpoint = "/api/agent/chat" }: { ma
                 </div>
               ) : (
                 <div className="space-y-3 text-sm">
-                  {messages.map((m, i) => (
+                  {visibleMessages.map((m, i) => (
                     <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
                       <span
                         className={
@@ -470,9 +472,9 @@ function AxisAssistantChrome({ managerName, endpoint = "/api/agent/chat" }: { ma
                   ))}
                   {loading && (
                     <div className="flex items-center gap-2 rounded-2xl border border-border/70 bg-foreground/[0.03] px-3 py-2 text-muted w-fit">
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70 [animation-delay:-0.2s]" />
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70 [animation-delay:-0.1s]" />
-                      <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70" />
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70 [animation-delay:-0.2s]" />
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70 [animation-delay:-0.1s]" />
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70" />
                       <span className="text-xs">Thinking…</span>
                     </div>
                   )}

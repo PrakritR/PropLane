@@ -1135,21 +1135,6 @@ async function uploadVideoFile(file: File): Promise<string> {
 }
 
 /**
- * Desktop widths open the PropLane Assistant beside the form by default, so the
- * manager sees it beside the editor without hunting for the collapsed strip; phones
- * and tablets start collapsed so the fields keep the full width (a two-column
- * split is worse than the original on a narrow screen). SSR-guarded — the wizard
- * only mounts on the client, but a `useState` initializer still runs during any
- * server render of the tree.
- */
-function prefersAssistantOpenBeside(): boolean {
-  // `matchMedia` is missing under SSR and in jsdom; fall back to collapsed there
-  // (a safe default — the real browser opens it beside the form on desktop).
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
-  return window.matchMedia("(min-width: 1024px)").matches;
-}
-
-/**
  * One field's label. `required` marks a must-fill with a red asterisk;
  * `optional` prints a muted "Optional" tag so the two are never the same visual
  * weight (a plain optional input used to look identical to a required select).
@@ -3755,7 +3740,7 @@ export function ManagerAddListingForm({
       {/* A plain container, not a <form>: the PropLane Assistant embedded in the
           body has its own <form> for the chat composer, and a form-in-form is
           invalid HTML that throws a hydration error whenever the assistant is
-          open (now the default on desktop). Continue / Submit are onClick buttons,
+          open. Continue / Submit are onClick buttons,
           so nothing here relied on form submission. */}
       <div id="manager-add-listing-form" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* ── Header ── */}
@@ -5521,7 +5506,6 @@ export function ManagerAddListingForm({
             contextHint={listingAssistantContext}
             storageScopeKey={wizardTitlePrefix}
             triggerTarget={assistantTriggerTarget}
-            defaultExpanded={prefersAssistantOpenBeside()}
           />
         </div>
 

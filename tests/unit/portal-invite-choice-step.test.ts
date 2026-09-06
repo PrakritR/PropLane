@@ -19,9 +19,10 @@ describe("portal invite choice step", () => {
     expect(CHOICE).toContain("Create Invite Link");
   });
 
-  it("wires manager link account through the shared chooser", () => {
-    expect(PANEL).toContain("PortalInviteChoiceStep");
-    expect(PANEL).toContain('inviteLinkDataAttr="link-account-invite-link"');
+  it("defaults manager invites to open links with a direct-ID option", () => {
+    expect(PANEL).toContain('useState<"link" | "axis">("link")');
+    expect(PANEL).toContain('data-attr="co-manager-copy-open-invite"');
+    expect(PANEL).toContain('data-attr="co-manager-use-proplane-id"');
   });
 
   // A redeemed link can only ever create an `account_link_invites` co-manager row,

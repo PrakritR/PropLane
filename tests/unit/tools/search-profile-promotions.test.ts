@@ -367,6 +367,27 @@ describe("record_expense / record_income", () => {
     expect(foreignVendor.ok).toBe(false);
   });
 
+  it("preview defaults an omitted postedDate to today's Pacific date", async () => {
+    const { ctx } = makeWritableCtx(seedTables());
+    const { postedDate: _postedDate, ...withoutDate } = expenseInput;
+    const res = await previewWrite(recordExpenseTool, ctx, withoutDate);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const date = res.preview.fields.find((field) => field.label === "Date")?.value;
+    expect(date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(date?.slice(0, 4)).not.toBe("2024");
+    expect(res.input).toMatchObject({ postedDate: date });
+    expect(res.preview).not.toHaveProperty("confirmedInput");
+  });
+
+  it("preview warns when the posted year is not the current year", async () => {
+    const { ctx } = makeWritableCtx(seedTables());
+    const res = await previewWrite(recordExpenseTool, ctx, { ...expenseInput, postedDate: "2024-09-04" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.preview.warnings?.some((warning) => warning.includes("2024"))).toBe(true);
+  });
+
   it("preview shows server-derived amount, category label, and property", async () => {
     const { ctx } = makeWritableCtx(seedTables());
     const res = await previewWrite(recordExpenseTool, ctx, { ...expenseInput, vendorId: "v1" });
