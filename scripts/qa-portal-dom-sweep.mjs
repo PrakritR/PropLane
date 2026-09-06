@@ -539,12 +539,38 @@ async function sweepViewport(browser, viewport, routes, probeSource, discovered 
         if (f.check === "obscured-control") continue;
         push(f);
       }
+      // Geometry alone has been wrong every time it was checked by hand: a row
+      // mid-reflow, a chip under a header, a checkbox that a trial click reaches
+      // perfectly well. So geometry now only NOMINATES a control, and Playwright
+      // decides — the same actionability question a person asks by clicking.
+      // Both verified findings (the admin search box, the screening toggle) fail
+      // that click; every false positive passed it.
+      const nominated = (bottom?.findings ?? []).filter(
+        (f) => f.check === "obscured-control" && coveredAtRest.has(f.detail?.el),
+      );
       for (const f of bottom?.findings ?? []) {
-        if (f.check === "obscured-control") {
-          if (coveredAtRest.has(f.detail?.el)) push(f);
-          continue;
-        }
+        if (f.check === "obscured-control") continue;
         push(f);
+      }
+      for (const f of nominated) {
+        const anchor = String(f.detail?.el ?? "");
+        const attr = anchor.match(/\[data-attr="([^"]+)"\]/)?.[1];
+        let confirmed = false;
+        try {
+          const locator = attr
+            ? page.locator(`[data-attr="${attr}"]`).first()
+            : page.getByText(String(f.summary.split('"')[1] ?? "").slice(0, 40), { exact: false }).first();
+          await locator.click({ trial: true, timeout: 2000 });
+        } catch (err) {
+          confirmed = !/not attached|destroyed|navigation|strict mode|resolved to/i.test(String(err.message));
+        }
+        // Confirmed by the click: report it as measured. Not confirmed: keep it,
+        // but marked and demoted. Dropping it outright silently lost the screening
+        // toggle (PRP-383) on one run, and a sweep that can quietly discard a real
+        // finding is worse than one that reports a soft one — the first failure is
+        // invisible, the second is a line someone reads and dismisses.
+        if (confirmed) push(f);
+        else push({ ...f, severity: "low", suspected: true, summary: `${f.summary} (geometry only — a trial click reached it, so treat as unconfirmed)` });
       }
 
       for (const e of pageErrors.slice(0, 5)) {

@@ -225,6 +225,13 @@
           return null;
         })();
         if (blockerFixed && elFixedAncestor === blockerFixed) continue;
+        // A page HEADER covering something below it is the page scrolled, not a
+        // defect: the tab chips slide under the top bar and slide back. Narrowly
+        // scoped to an actual <header>/banner ABOVE the control, so it cannot
+        // swallow the real findings — a sidebar link over a toggle, or a span over
+        // an input, are neither headers nor above their victims.
+        const headerBlocker = hit.closest("header, [role='banner']");
+        if (headerBlocker && headerBlocker.getBoundingClientRect().top <= r.top) continue;
         out.push({
           check: "obscured-control",
           severity: blockerFixed ? "high" : "medium",
