@@ -480,7 +480,20 @@ async function sweepViewport(browser, viewport, routes, probeSource, discovered 
       const top = await page.evaluate(() => globalThis.__tmProbe?.());
       // Sticky chrome only collides once the page is scrolled — the floating bulk
       // bar meeting the phone tab bar is invisible from the top of the page.
-      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      //
+      // Scroll EVERY scrollable container, not just the window. The portal's lists
+      // scroll inside `portal-list-page-scroll`, so a window-only scroll leaves the
+      // list mid-way and measures rows that are passing under the fixed nav at that
+      // moment. That is transient and expected, and reporting it as "the last row is
+      // permanently unreachable" is a claim the measurement does not support — it
+      // put a wrong comment on PRP-359 before this was fixed.
+      await page.evaluate(() => {
+        for (const n of document.querySelectorAll("*")) {
+          const st = getComputedStyle(n);
+          if (/(auto|scroll)/.test(st.overflowY) && n.scrollHeight > n.clientHeight + 4) n.scrollTop = n.scrollHeight;
+        }
+        window.scrollTo(0, document.documentElement.scrollHeight);
+      });
       await page.waitForTimeout(600);
       const bottom = await page.evaluate(() => globalThis.__tmProbe?.());
       for (const pass of [top, bottom]) for (const f of pass?.findings ?? []) push(f);
