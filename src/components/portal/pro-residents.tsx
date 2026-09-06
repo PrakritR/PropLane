@@ -3244,7 +3244,7 @@ export function ManagerResidents({
                                   {residentApplicationsInActiveBucket.map((row) => (
                                     <PortalPersonRecordRow
                                       key={row.id}
-                                      name={row.name?.trim() || row.application?.name?.trim() || "Applicant"}
+                                      name={row.name?.trim() || "Applicant"}
                                       subtitle={[row.property, row.bucket].filter(Boolean).join(" · ")}
                                       onOpen={() =>
                                         navigate(
