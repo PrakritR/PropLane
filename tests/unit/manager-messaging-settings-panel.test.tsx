@@ -408,7 +408,11 @@ describe("ManagerMessagingSettingsPanel", () => {
     ).toBeTruthy();
   });
 
-  it("refreshes eligibility for an assigned number without requesting another number", async () => {
+  it("never asks billing again for an assigned number whose plan already has a settled answer", async () => {
+    // `past_due` is a real answer, not an unread one, so there is nothing for
+    // the panel to settle: restoring billing arrives through the Stripe and
+    // RevenueCat webhooks. Re-reading it on every visit would be a billing call
+    // per page view that changes nothing.
     const ineligible: ManagerMessagingNumberStatus = {
       ...pausedStatus,
       entitlement: { eligible: false, reason: "past_due" },
@@ -425,19 +429,17 @@ describe("ManagerMessagingSettingsPanel", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<ManagerMessagingSettingsPanel />);
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Check eligibility" }),
-    );
-    await waitFor(() => expect(numberCalls(fetchMock)).toHaveLength(2));
-    expect(JSON.parse(String(numberCalls(fetchMock)[1]?.[1]?.body))).toEqual({
-      action: "refresh_eligibility",
-    });
+    await screen.findByText("+1 (206) 555-0123");
+    await Promise.resolve();
+    expect(numberCalls(fetchMock)).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Check eligibility" })).toBeNull();
   });
 
-  it("lets a brand-new account with no number check its unconfirmed plan", async () => {
+  it("settles a brand-new account's unconfirmed plan without asking the manager to press anything", async () => {
     // A manager who has never been reconciled has no stored entitlement row,
-    // which reads back as `plan_unreadable`. Without a check control this state
-    // is a dead end: no number to request, nothing to buy, nothing to retry.
+    // which reads back as `plan_unreadable`. Reading the billing source needs
+    // no human judgement, so the panel settles it on sight rather than parking
+    // the one account that cannot interpret the state behind a button.
     const unchecked: ManagerMessagingNumberStatus = {
       ...pausedStatus,
       planTier: "unknown",
@@ -454,14 +456,12 @@ describe("ManagerMessagingSettingsPanel", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<ManagerMessagingSettingsPanel />);
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Check eligibility" }),
-    );
     await waitFor(() => expect(numberCalls(fetchMock)).toHaveLength(2));
     expect(JSON.parse(String(numberCalls(fetchMock)[1]?.[1]?.body))).toEqual({
       action: "refresh_eligibility",
     });
-    // Once checked, the state is a real plan answer with a real next step.
+    expect(screen.queryByRole("button", { name: "Check eligibility" })).toBeNull();
+    // Once settled, the state is a real plan answer with a real next step.
     expect(
       await screen.findByText(
         // PAYG changed this line: a number is no longer "included" with a paid

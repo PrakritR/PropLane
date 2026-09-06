@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, Mail } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   PortalSettingsField,
@@ -23,7 +23,7 @@ export function ManagerAssistantEmailSettingsPanel() {
   const { showToast } = useAppUi();
   const [status, setStatus] = useState<ManagerAssistantEmailStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [pendingAction, setPendingAction] = useState<"request" | "refresh" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"request" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -57,9 +57,50 @@ export function ManagerAssistantEmailSettingsPanel() {
     showToast(ok ? "Assistant email copied." : "Could not copy address.");
   }, [showToast, status?.address]);
 
+  /**
+   * Settle an unverified plan by itself, instead of behind a button. Reading
+   * the billing source needs no human judgement, and the account that saw
+   * "Check eligibility" was a new one with no stored entitlement row — the
+   * least likely to know what the button was for.
+   *
+   * It cannot become a billing ping: the server gates on the ABSENCE of that
+   * row and writes one on every resolved outcome, and the ref holds this to a
+   * single attempt per mount. Later plan changes arrive through the Stripe and
+   * RevenueCat webhooks, which reconcile the same entitlement.
+   */
+  const settleAttemptedRef = useRef(false);
+  const entitlementUnverified = status
+    ? assistantEmailEntitlementIsUnverified(status.entitlement)
+    : false;
+  useEffect(() => {
+    if (!entitlementUnverified || settleAttemptedRef.current) return;
+    settleAttemptedRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(ENDPOINT, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "refresh_eligibility" }),
+        });
+        if (!res.ok) return;
+        const body = (await res.json().catch(() => ({}))) as ManagerAssistantEmailStatus;
+        if (!cancelled && body && typeof body === "object" && "entitlement" in body) {
+          setStatus(body);
+        }
+      } catch {
+        // Work the manager never asked for should not raise an error banner.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [entitlementUnverified]);
+
   const postAction = useCallback(
-    async (action: "request_address" | "refresh_eligibility") => {
-      setPendingAction(action === "refresh_eligibility" ? "refresh" : "request");
+    async (action: "request_address") => {
+      setPendingAction("request");
       setError(null);
       try {
         const res = await fetch(ENDPOINT, {
@@ -73,10 +114,8 @@ export function ManagerAssistantEmailSettingsPanel() {
         };
         if (!res.ok) throw new Error(body.error ?? "Could not update assistant email settings.");
         setStatus(body);
-        if (action === "request_address" && body.address) {
+        if (body.address) {
           showToast("Your PropLane assistant email is ready.");
-        } else if (action === "refresh_eligibility") {
-          showToast("Eligibility updated.");
         }
       } catch (cause) {
         setError(
@@ -125,8 +164,6 @@ export function ManagerAssistantEmailSettingsPanel() {
   const planMessage = assistantEmailUpsellMessage(status.planTier, status.entitlement);
   const isCoManager = status.workspaceRole === "co_manager";
   const unverifiedEntitlement = assistantEmailEntitlementIsUnverified(status.entitlement);
-  const canRefreshEligibility =
-    !status.entitlement.eligible && (Boolean(status.address) || unverifiedEntitlement);
   const storageBlocked = status.storageReady === false;
 
   return (
@@ -179,8 +216,7 @@ export function ManagerAssistantEmailSettingsPanel() {
             </div>
           ) : unverifiedEntitlement ? (
             <p className="text-sm leading-relaxed text-muted">
-              Your plan has not been checked yet. Check eligibility, then request your assistant
-              email.
+              We&apos;re confirming your plan. Reload the page if this doesn&apos;t clear.
             </p>
           ) : null}
 
@@ -196,19 +232,6 @@ export function ManagerAssistantEmailSettingsPanel() {
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
               <p>{error}</p>
             </div>
-          ) : null}
-
-          {canRefreshEligibility ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={pendingAction !== null}
-              aria-busy={pendingAction === "refresh"}
-              onClick={() => postAction("refresh_eligibility")}
-              data-attr="assistant-email-refresh-eligibility"
-            >
-              {pendingAction === "refresh" ? "Checking…" : "Check eligibility"}
-            </Button>
           ) : null}
 
           {status.canRequest ? (

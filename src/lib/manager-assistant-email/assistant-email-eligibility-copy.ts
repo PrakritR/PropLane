@@ -50,9 +50,9 @@ export function assistantEmailEligibilityError(
     case "canceled":
       return "Restart a paid Pro or Business plan to request an assistant email.";
     case "plan_unreadable":
-      return "We could not read your plan. Tap Check eligibility, then try again.";
+      return "We could not read your plan. Reload the page and try again.";
     case "legacy_unknown":
-      return "We could not verify billing for this account. Check eligibility or contact support if you have an active paid plan.";
+      return "We could not verify billing for this account. Contact support if you have an active paid plan.";
     default:
       return "A paid Pro or Business plan is required for a PropLane assistant email.";
   }
