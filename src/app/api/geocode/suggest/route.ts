@@ -28,7 +28,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ suggestions: [] });
   }
 
-  if (!rateLimit(`geocode-suggest:${clientIpFrom(req)}`, 30, 60_000).ok) {
+  if (!(await rateLimit(`geocode-suggest:${clientIpFrom(req)}`, 30, 60_000)).ok) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

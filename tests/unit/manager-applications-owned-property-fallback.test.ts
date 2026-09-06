@@ -98,7 +98,7 @@ function makeDb() {
 
 async function getApplications() {
   const { GET } = await import("@/app/api/manager-applications/route");
-  const res = await GET();
+  const res = await GET(new Request("https://example.test/api/manager-applications"));
   return { status: res.status, body: (await res.json()) as { rows?: DemoApplicantRow[]; error?: string } };
 }
 

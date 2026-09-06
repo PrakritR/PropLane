@@ -12,7 +12,7 @@ import {
   type DraftShapedRowFields,
 } from "@/lib/rental-application/draft-shape";
 import { resolveApplicationPersonalFields } from "@/lib/application-personal-fields";
-import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
+import { notePortalResponse, onPortalSessionViewerChange, portalSessionEnded } from "@/lib/auth/portal-session-gate";
 import {
   defaultBackgroundCheckStatusForRow,
   normalizeBackgroundCheckStatus,
@@ -30,6 +30,30 @@ let managerApplicationsLastSyncedAt = 0;
 let managerApplicationsSyncPromise: Promise<DemoApplicantRow[]> | null = null;
 let publicApprovedApplicationsLastSyncedAt = 0;
 let publicApprovedApplicationsSyncPromise: Promise<DemoApplicantRow[]> | null = null;
+let applicationsScopeGeneration = 0;
+let applicationWriteGeneration = 0;
+
+function clearSensitiveApplicationCache() {
+  const changed = memoryRows.length > 0;
+  memoryRows = [];
+  applicationsScopeGeneration++;
+  managerApplicationsLastSyncedAt = 0;
+  publicApprovedApplicationsLastSyncedAt = 0;
+  managerApplicationsSyncPromise = null;
+  publicApprovedApplicationsSyncPromise = null;
+  if (changed) emit();
+}
+
+// This module also supplies pure helpers to server routes and Server Components.
+// React client references cannot be invoked while evaluating their server graph.
+if (typeof window !== "undefined") {
+  onPortalSessionViewerChange((viewerId) => {
+    if (isDemoModeActive()) return;
+    clearQueuedApplicationIdentity();
+    activeApplicationsScopeUserId = viewerId ?? undefined;
+    clearSensitiveApplicationCache();
+  });
+}
 
 export function normalizeApplicationAxisId(id: unknown): string {
   const raw = typeof id === "string" ? id.trim() : "";
@@ -315,13 +339,26 @@ function ensureApplicationsScope(scopeUserId?: string | null) {
   const nextScope = isDemoModeActive() ? undefined : scopeUserId ?? undefined;
   if (activeApplicationsScopeUserId !== nextScope) {
     activeApplicationsScopeUserId = nextScope;
-    memoryRows = [];
-    managerApplicationsLastSyncedAt = 0;
+    clearSensitiveApplicationCache();
   }
+}
+
+function purgePersistentApplicationRows() {
+  if (!canUseStorage()) return;
+  try {
+    for (let index = window.sessionStorage.length - 1; index >= 0; index--) {
+      const key = window.sessionStorage.key(index);
+      if (key?.startsWith(`${MANAGER_APPLICATIONS_SESSION_KEY_PREFIX}:`)) window.sessionStorage.removeItem(key);
+    }
+  } catch { /* Storage can be unavailable in privacy mode. */ }
 }
 
 function hydrateManagerApplicationsFromSession(scopeUserId?: string | null) {
   if (!canUseStorage()) return;
+  if (!isDemoModeActive()) {
+    purgePersistentApplicationRows();
+    return;
+  }
   if (memoryRows.length > 0) return;
   try {
     const raw = window.sessionStorage.getItem(managerApplicationsSessionKey(scopeUserId));
@@ -336,6 +373,10 @@ function hydrateManagerApplicationsFromSession(scopeUserId?: string | null) {
 
 function persistManagerApplicationsToSession(rows: DemoApplicantRow[], scopeUserId?: string | null) {
   if (!canUseStorage()) return;
+  if (!isDemoModeActive()) {
+    purgePersistentApplicationRows();
+    return;
+  }
   try {
     window.sessionStorage.setItem(
       managerApplicationsSessionKey(scopeUserId ?? activeApplicationsScopeUserId),
@@ -408,6 +449,7 @@ export function getApplicationSetupToken(id: string): string | null {
 
 function mirrorApplicationRowToServer(row: DemoApplicantRow): Promise<void> {
   if (typeof window === "undefined" || isDemoModeActive()) return Promise.resolve();
+  const generation = applicationWriteGeneration;
   const setupToken = getApplicationSetupToken(row.id);
   return fetch("/api/manager-applications", {
     method: "POST",
@@ -420,15 +462,19 @@ function mirrorApplicationRowToServer(row: DemoApplicantRow): Promise<void> {
     }),
   })
     .then(async (res) => {
+      if (generation !== applicationWriteGeneration) return;
       if (res.ok) {
         const body = (await res.json().catch(() => null)) as { setupToken?: string } | null;
+        if (generation !== applicationWriteGeneration) return;
         if (typeof body?.setupToken === "string" && body.setupToken) {
           rememberApplicationSetupToken(row.id, body.setupToken);
         }
       }
       emitApplicationSaveStatus(res.ok, row.id);
     })
-    .catch(() => emitApplicationSaveStatus(false, row.id));
+    .catch(() => {
+      if (generation === applicationWriteGeneration) emitApplicationSaveStatus(false, row.id);
+    });
 }
 
 const UPSERT_DEBOUNCE_MS = 400;
@@ -439,11 +485,28 @@ type UpsertQueueEntry = {
 };
 const upsertQueues = new Map<string, UpsertQueueEntry>();
 
+function clearQueuedApplicationIdentity() {
+  applicationWriteGeneration++;
+  for (const entry of upsertQueues.values()) {
+    if (entry.timer) clearTimeout(entry.timer);
+    entry.timer = null;
+    entry.latest = null;
+  }
+  upsertQueues.clear();
+  if (typeof window === "undefined") return;
+  try {
+    for (let index = window.sessionStorage.length - 1; index >= 0; index--) {
+      const key = window.sessionStorage.key(index);
+      if (key?.startsWith(APPLICATION_SETUP_TOKEN_STORE_PREFIX)) window.sessionStorage.removeItem(key);
+    }
+  } catch { /* Storage can be unavailable. */ }
+}
+
 /**
  * Best-effort flush when the page is being hidden or torn down: the debounced
  * queue can be holding the final edits (including a just-advanced wizardStep)
  * for up to 400ms — or longer, behind an in-flight write — and a closed tab
- * loses them, since the local mirror is sessionStorage. `keepalive: true` lets
+ * loses them, since the local mirror is memory-only. `keepalive: true` lets
  * the request outlive the page. Deliberately leaves `latest` and the timer
  * untouched: if the page survives (a mere tab switch), the normal serialized
  * path re-sends the identical snapshot, which also heals any ordering race
@@ -591,6 +654,7 @@ export async function upsertApplicationRowToServerAwait(
 }> {
   if (typeof window === "undefined") return { ok: false, error: "Not in browser." };
   if (isDemoModeActive()) return { ok: true };
+  const generation = applicationWriteGeneration;
   try {
     const res = await fetch("/api/manager-applications", {
       method: "POST",
@@ -614,6 +678,7 @@ export async function upsertApplicationRowToServerAwait(
         axisId?: string;
       };
     } | null;
+    if (generation !== applicationWriteGeneration) return { ok: false, error: "The active account changed. Reopen the application before saving." };
     if (!res.ok) {
       const errBody = body as { leaseId?: string; mailtoHref?: string } | null;
       return {
@@ -679,19 +744,32 @@ export async function syncManagerApplicationsFromServer(opts?: {
   if (isDemoModeActive()) return readManagerApplicationRows();
   // Stop polling once the session is gone — this loader runs on an interval and
   // otherwise keeps 401ing for as long as the signed-out tab stays open.
-  if (portalSessionEnded()) return readManagerApplicationRows();
+  if (activeApplicationsScopeUserId && portalSessionEnded()) {
+    clearQueuedApplicationIdentity();
+    clearSensitiveApplicationCache();
+    return [];
+  }
   const force = opts?.force === true;
   if (!force && managerApplicationsSyncPromise) return managerApplicationsSyncPromise;
   if (!force && managerApplicationsLastSyncedAt > 0 && Date.now() - managerApplicationsLastSyncedAt < MANAGER_APPLICATIONS_SYNC_TTL_MS) {
     return readManagerApplicationRows();
   }
+  const generation = applicationsScopeGeneration;
+  let currentRequest: Promise<DemoApplicantRow[]> | null = null;
   try {
-    managerApplicationsSyncPromise = (async () => {
+    currentRequest = (async () => {
       const url = opts?.selfScope ? "/api/manager-applications?scope=self" : "/api/manager-applications";
       const res = await fetch(url, { credentials: "include" });
+      if (generation !== applicationsScopeGeneration) return [];
       notePortalResponse(res.status);
+      if (res.status === 401 || res.status === 403) {
+        clearQueuedApplicationIdentity();
+        clearSensitiveApplicationCache();
+        return [];
+      }
       if (!res.ok) return readManagerApplicationRows();
       const body = (await res.json()) as { rows?: DemoApplicantRow[] };
+      if (generation !== applicationsScopeGeneration) return [];
       // Union with the CURRENT cache, not `[]` — a locally-created row whose
       // upsert POST hasn't landed yet must survive this force refetch (see
       // `mergeApplicationRows`'s doc comment).
@@ -702,12 +780,13 @@ export async function syncManagerApplicationsFromServer(opts?: {
       managerApplicationsLastSyncedAt = Date.now();
       if (changed) emit();
       return rows;
-    })().catch(() => readManagerApplicationRows());
-    return await managerApplicationsSyncPromise;
+    })().catch(() => generation === applicationsScopeGeneration ? readManagerApplicationRows() : []);
+    managerApplicationsSyncPromise = currentRequest;
+    return await currentRequest;
   } catch {
     return readManagerApplicationRows();
   } finally {
-    managerApplicationsSyncPromise = null;
+    if (managerApplicationsSyncPromise === currentRequest) managerApplicationsSyncPromise = null;
   }
 }
 
@@ -715,6 +794,7 @@ export async function syncPublicApprovedApplicationsFromServer(opts?: { force?: 
   if (!canUseStorage()) return [];
   // Demo sandbox is browser-local: never merge server rows into the seed.
   if (isDemoModeActive()) return readManagerApplicationRows();
+  const generation = applicationsScopeGeneration;
   const force = opts?.force === true;
   if (!force && publicApprovedApplicationsSyncPromise) return publicApprovedApplicationsSyncPromise;
   if (!force && publicApprovedApplicationsLastSyncedAt > 0 && Date.now() - publicApprovedApplicationsLastSyncedAt < MANAGER_APPLICATIONS_SYNC_TTL_MS) {
@@ -723,8 +803,10 @@ export async function syncPublicApprovedApplicationsFromServer(opts?: { force?: 
   try {
     publicApprovedApplicationsSyncPromise = (async () => {
       const res = await fetch("/api/public/approved-room-occupancy");
+      if (generation !== applicationsScopeGeneration) return [];
       if (!res.ok) return readManagerApplicationRows();
       const body = (await res.json()) as { rows?: DemoApplicantRow[] };
+      if (generation !== applicationsScopeGeneration) return [];
       const rows = mergeApplicationRows(memoryRows, Array.isArray(body.rows) ? body.rows : []);
       memoryRows = rows;
       publicApprovedApplicationsLastSyncedAt = Date.now();
@@ -739,6 +821,10 @@ export async function syncPublicApprovedApplicationsFromServer(opts?: { force?: 
 }
 
 export function readManagerApplicationRows(fallback: DemoApplicantRow[] = EMPTY_FALLBACK): DemoApplicantRow[] {
+  if (!isDemoModeActive() && activeApplicationsScopeUserId && portalSessionEnded()) {
+    clearSensitiveApplicationCache();
+    return [];
+  }
   hydrateManagerApplicationsFromSession(activeApplicationsScopeUserId);
   const stored = normalizeApplicationRows(memoryRows);
   if (stored.length === 0) return [...fallback];

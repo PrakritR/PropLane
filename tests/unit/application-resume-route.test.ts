@@ -1,3 +1,5 @@
+import { sealApplicantRow } from "@/lib/security/applicant-identity";
+import { randomBytes } from "node:crypto";
 /**
  * `POST /api/portal/application-resume` — the PUBLIC apply flow's guest draft
  * resume. A true guest has no session, so after a real reload the only proof
@@ -6,7 +8,7 @@
  * pair on a live in-progress application, strip the token credential fields
  * from the response, and answer every denial identically (no email/row oracle).
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { attachResidentSetupToken } from "@/lib/auth/resident-setup-token";
 
@@ -73,6 +75,8 @@ async function resume(payload: { id?: string; token?: string }) {
 }
 
 beforeEach(() => {
+  vi.stubEnv("DATA_ENCRYPTION_ACTIVE_KEY_ID", "test");
+  vi.stubEnv("DATA_ENCRYPTION_KEYS_JSON", JSON.stringify({ test: randomBytes(32).toString("base64") }));
   vi.clearAllMocks();
   STORED_ROWS = [];
 });
@@ -123,4 +127,18 @@ describe("POST /api/portal/application-resume", () => {
     expect(status).toBe(403);
     expect(body).toEqual({ error: "Not allowed." });
   });
+});
+
+afterEach(() => vi.unstubAllEnvs());
+
+
+it("opens protected identity only after a valid resume token and strips its metadata", async () => {
+  const token = storeRowWithToken({ managerUserId: "manager-a", application: { wizardStep: 7, ssn: "123-45-6789", dateOfBirth: "1980-01-02", driversLicense: "LICENSE-TEST" } as DemoApplicantRow["application"] });
+  STORED_ROWS[0].row_data = sealApplicantRow(STORED_ROWS[0].row_data, STORED_ROWS[0].id, "manager-a");
+  const success = await resume({ id: "RESUME01", token });
+  expect(success.status).toBe(200);
+  expect(success.body.row?.application?.dateOfBirth).toBe("1980-01-02");
+  expect(success.body.row).not.toHaveProperty("_applicantIdentity");
+  vi.stubEnv("DATA_ENCRYPTION_KEYS_JSON", "");
+  expect((await resume({ id: STORED_ROWS[0].id, token: "wrong" })).status).toBe(403);
 });

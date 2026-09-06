@@ -89,7 +89,7 @@ export const DELETE = GET;
 
 export async function POST(req: Request) {
   // Guards enumeration of the key space before any DB work happens.
-  if (!rateLimit(`mcp-auth:${clientIpFrom(req)}`, 60, 60_000).ok) {
+  if (!(await rateLimit(`mcp-auth:${clientIpFrom(req)}`, 60, 60_000)).ok) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429, headers: CORS_HEADERS });
   }
 
@@ -104,7 +104,7 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!rateLimit(`mcp:${auth.keyId}`, 120, 60_000).ok) {
+  if (!(await rateLimit(`mcp:${auth.keyId}`, 120, 60_000)).ok) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429, headers: CORS_HEADERS });
   }
 

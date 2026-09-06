@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+import { openApplicantRow } from "@/lib/security/applicant-identity";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -203,6 +205,8 @@ const ENV_KEYS = ["RESEND_API_KEY", "CERTN_API_KEY", "CHECKR_API_KEY", "BACKGROU
 const savedEnv: Record<string, string | undefined> = {};
 
 beforeEach(() => {
+  vi.stubEnv("DATA_ENCRYPTION_ACTIVE_KEY_ID", "test");
+  vi.stubEnv("DATA_ENCRYPTION_KEYS_JSON", JSON.stringify({ test: randomBytes(32).toString("base64") }));
   EFFECTIVE_TIER = null;
   for (const key of ENV_KEYS) {
     savedEnv[key] = process.env[key];
@@ -216,6 +220,7 @@ afterEach(() => {
     else process.env[key] = savedEnv[key];
   }
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 // ---------------------------------------------------------------------------
@@ -858,7 +863,8 @@ describe("record_move_out", () => {
     expect((rowData.manualResidentDetails as Row).moveOutDate).toBe("2026-09-30");
     // Merge, never rebuild: unrelated application answers survive untouched.
     expect((rowData.application as Row).leaseStart).toBe("2026-08-01");
-    expect((rowData.application as Row).ssn).toBe("123-45-6789");
+    expect((rowData.application as Row).ssn).toBeUndefined();
+    expect(openApplicantRow(rowData, "app_1").application?.ssn).toBe("123-45-6789");
     expect(rowData.name).toBe("Ten Ant");
 
     expect(auditRows(tables)[0]!.dedupe_key).toBe("record_move_out:manager_a:app_1:2026-09-30");
@@ -914,7 +920,8 @@ describe("update_application_bucket", () => {
     expect(rowData.bucket).toBe("approved");
     expect(rowData.stage).toBe("Approved"); // matches stageLabelForApplicationBucket
     expect(rowData.managerUserId).toBe("manager_a");
-    expect((rowData.application as Row).ssn).toBe("123-45-6789"); // merged, not rebuilt
+    expect((rowData.application as Row).ssn).toBeUndefined();
+    expect(openApplicantRow(rowData, "app_1").application?.ssn).toBe("123-45-6789"); // merged, not rebuilt
 
     // The resident's profiles.application_approved flag was synced on.
     expect(tables.profiles!.find((p) => p.id === "u1")!.application_approved).toBe(true);

@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     // the email below is taken from the body and, when no session exists, is
     // NOT bound to the caller (see the note on the session check that follows),
     // so an unthrottled caller could walk an address list.
-    if (!rateLimit(`application-fee-check-payment:${clientIpFrom(req)}`, 10, 60_000).ok) {
+    if (!(await rateLimit(`application-fee-check-payment:${clientIpFrom(req)}`, 10, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Try again shortly." }, { status: 429 });
     }
 

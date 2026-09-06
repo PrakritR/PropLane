@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 /**
  * Route-level regression: SMS consent evidence on the application snapshot is
  * SERVER-owned. `POST /api/manager-applications` (upsert) must never trust the
@@ -6,7 +7,7 @@
  * preserves the FIRST server stamp across the draft flow's re-upserts, and
  * clears both when consent is off.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import { createInitialRentalWizardState } from "@/lib/rental-application/state";
@@ -164,6 +165,8 @@ async function submit(row: DemoApplicantRow) {
 }
 
 beforeEach(() => {
+  vi.stubEnv("DATA_ENCRYPTION_ACTIVE_KEY_ID", "test");
+  vi.stubEnv("DATA_ENCRYPTION_KEYS_JSON", JSON.stringify({ test: randomBytes(32).toString("base64") }));
   vi.clearAllMocks();
   PROFILE = { role: "resident", email: "maya.alvarez@example.com" };
   getUser.mockResolvedValue({
@@ -353,3 +356,5 @@ describe("POST /api/manager-applications — server-owned SMS consent stamp", ()
     expect(revokeApplicationConsent).not.toHaveBeenCalled();
   });
 });
+
+afterEach(() => vi.unstubAllEnvs());

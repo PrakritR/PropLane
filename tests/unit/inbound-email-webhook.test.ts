@@ -460,6 +460,7 @@ describe("POST /api/webhooks/email/inbound", () => {
   beforeEach(() => {
     for (const k of ENV) delete process.env[k];
     vi.resetModules();
+    vi.doUnmock("@/lib/rate-limit");
     ingestSpy.mockClear();
     backfillSpy.mockClear();
     replyIngestSpy.mockClear();
@@ -478,6 +479,7 @@ describe("POST /api/webhooks/email/inbound", () => {
   });
   afterEach(() => {
     for (const k of ENV) delete process.env[k];
+    vi.doUnmock("@/lib/rate-limit");
     vi.restoreAllMocks();
   });
 
@@ -523,6 +525,36 @@ describe("POST /api/webhooks/email/inbound", () => {
     expect(ingestSpy).toHaveBeenCalledOnce();
     expect(ingestSpy.mock.calls[0]![0]).toMatchObject({ emailId: RECEIVED_PAYLOAD.data.email_id });
     expect(backfillSpy).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["global", 0, true, 503],
+    ["sender", 1, true, 503],
+    ["global", 0, false, 200],
+    ["sender", 1, false, 200],
+  ] as const)("handles %s limit after %i allowed calls, unavailable=%s, status=%i", async (_, priorAllowed, unavailable, expectedStatus) => {
+    const limiter = vi.fn().mockResolvedValue(unavailable ? { ok: false, unavailable: true } : { ok: false });
+    if (priorAllowed) limiter.mockResolvedValueOnce({ ok: true });
+    vi.doMock("@/lib/rate-limit", () => ({ rateLimit: limiter }));
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    process.env.VERCEL = "1";
+    process.env.RESEND_INBOUND_WEBHOOK_SECRET = SECRET;
+    const body = JSON.stringify(RECEIVED_PAYLOAD);
+    const id = "msg_limiter";
+    const ts = Math.floor(Date.now() / 1000);
+
+    const res = await post(body, {
+      "Content-Type": "application/json",
+      "svix-id": id,
+      "svix-timestamp": String(ts),
+      "svix-signature": svixSign(body, SECRET, id, ts),
+    });
+
+    expect(res.status).toBe(expectedStatus);
+    expect(limiter).toHaveBeenCalledTimes(priorAllowed + 1);
+    expect(ingestSpy).not.toHaveBeenCalled();
+    expect(replyIngestSpy).not.toHaveBeenCalled();
+    expect(backfillSpy).not.toHaveBeenCalled();
   });
 
   it("sheds a flood that rotates its From via the coarse instance cap", async () => {

@@ -202,7 +202,9 @@ export async function POST(req: Request) {
   // otherwise a crash between its relay legs could acknowledge a partially
   // delivered message. Runtime-off installations retain the legacy behavior.
   if (process.env.SMS_RUNTIME_ENABLED?.trim() !== "1") {
-    if (!rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000).ok) {
+    const limit = await rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000);
+    if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
+    if (!limit.ok) {
       return twimlOk();
     }
     const mediaUrls = twilioMediaUrls(params);
@@ -232,7 +234,9 @@ export async function POST(req: Request) {
 
   const managerId = ownedNumber?.managerId ?? "";
   if (!managerId) {
-    if (!rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000).ok) {
+    const limit = await rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000);
+    if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
+    if (!limit.ok) {
       return twimlOk();
     }
     await db
@@ -273,8 +277,10 @@ export async function POST(req: Request) {
   if (!replayBeforeClaim.ok) {
     return NextResponse.json({ error: "Inbound replay state unavailable." }, { status: 503 });
   }
-  if (!replayBeforeClaim.receipt && !rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000).ok) {
-    return twimlOk();
+  if (!replayBeforeClaim.receipt) {
+    const limit = await rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000);
+    if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
+    if (!limit.ok) return twimlOk();
   }
   const inboundWorkerId = `inbound-${randomUUID()}`;
   const { data: inboundClaimed, error: inboundClaimError } = await db.rpc("claim_sms_inbound", {

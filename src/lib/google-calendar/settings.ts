@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { decryptSensitiveValue, encryptSensitiveValue, isEncryptedSensitiveValue } from "@/lib/security/data-encryption";
 
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
 
@@ -22,6 +23,35 @@ export const DEFAULT_GOOGLE_CALENDAR_CONNECTION: GoogleCalendarConnection = {
   accessTokenExpiresAt: null,
   calendarId: "primary",
 };
+
+function tokenContext(managerUserId: string, field: "accessToken" | "refreshToken") {
+  return { purpose: "google-calendar-oauth", ownerId: managerUserId, recordId: managerUserId, field };
+}
+
+function openStoredConnection(raw: unknown, managerUserId: string): GoogleCalendarConnection {
+  const connection = normalizeGoogleCalendarConnection(raw);
+  for (const field of ["refreshToken", "accessToken"] as const) {
+    const value = connection[field];
+    if (value && isEncryptedSensitiveValue(value)) {
+      connection[field] = decryptSensitiveValue(value, tokenContext(managerUserId, field));
+    } else if (value && process.env.DATA_ENCRYPTION_REQUIRE_ENCRYPTED_READS === "true") {
+      throw new Error("Unmigrated Google credentials cannot be used.");
+    }
+    // Legacy plaintext is READ-only compatibility while the backfill runs.
+    // Every save below encrypts, even if the patch only changes syncEnabled.
+  }
+  return connection;
+}
+
+function sealConnection(connection: GoogleCalendarConnection, managerUserId: string): GoogleCalendarConnection {
+  return {
+    ...connection,
+    refreshToken: connection.refreshToken
+      ? encryptSensitiveValue(connection.refreshToken, tokenContext(managerUserId, "refreshToken")) : null,
+    accessToken: connection.accessToken
+      ? encryptSensitiveValue(connection.accessToken, tokenContext(managerUserId, "accessToken")) : null,
+  };
+}
 
 export function normalizeGoogleCalendarConnection(raw: unknown): GoogleCalendarConnection {
   const r = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
@@ -97,7 +127,7 @@ async function loadGoogleCalendarConnectionFromRowData(
     .eq("manager_user_id", managerUserId)
     .maybeSingle();
   if (error) throw error;
-  return normalizeGoogleCalendarConnection(rowDataRecord(data?.row_data).google_calendar ?? null);
+  return openStoredConnection(rowDataRecord(data?.row_data).google_calendar ?? null, managerUserId);
 }
 
 function rowDataRecord(raw: unknown): Record<string, unknown> {
@@ -193,7 +223,7 @@ export async function loadGoogleCalendarConnection(
       return loadGoogleCalendarConnectionFromRowData(db, managerUserId);
     }
     if (error) throw error;
-    return normalizeGoogleCalendarConnection(data?.google_calendar ?? null);
+    return openStoredConnection(data?.google_calendar ?? null, managerUserId);
   }
 
   return loadGoogleCalendarConnectionFromRowData(db, managerUserId);
@@ -204,8 +234,12 @@ export async function saveGoogleCalendarConnection(
   managerUserId: string,
   patch: Partial<GoogleCalendarConnection>,
 ): Promise<GoogleCalendarConnection> {
-  const current = await loadGoogleCalendarConnection(db, managerUserId);
+  // Disconnect must remain possible if a key was lost or ciphertext corrupted.
+  // This path only erases credentials; it cannot disclose/decrypt anything.
+  const disconnecting = patch.connected === false && patch.refreshToken === null && patch.accessToken === null;
+  const current = disconnecting ? DEFAULT_GOOGLE_CALENDAR_CONNECTION : await loadGoogleCalendarConnection(db, managerUserId);
   const next = normalizeGoogleCalendarConnection({ ...current, ...patch });
+  const stored = sealConnection(next, managerUserId);
   const mode = await resolveCalendarStorageMode(db);
   const updatedAt = new Date().toISOString();
 
@@ -213,7 +247,7 @@ export async function saveGoogleCalendarConnection(
     const { error } = await db.from("manager_automation_settings").upsert(
       {
         manager_user_id: managerUserId,
-        google_calendar: next,
+        google_calendar: stored,
         updated_at: updatedAt,
       },
       { onConflict: "manager_user_id" },
@@ -242,7 +276,7 @@ export async function saveGoogleCalendarConnection(
 
   const row_data = {
     ...rowDataRecord(existing?.row_data),
-    google_calendar: next,
+    google_calendar: stored,
   };
   const { error } = await db.from("manager_automation_settings").upsert(
     {

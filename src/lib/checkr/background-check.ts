@@ -1,3 +1,4 @@
+import { openApplicantRow, sealApplicantRow } from "@/lib/security/applicant-identity";
 /**
  * Orchestrates a Checkr Tenant API background check against an applicant
  * record. This is the single server-side entry point the API route and
@@ -26,6 +27,7 @@ import { chargeManagerForScreening } from "@/lib/screening/charge-manager";
 import { getStripe } from "@/lib/stripe";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
+import { loadOwnedCosignerRecord, persistOwnedCosignerRecord, type ScopedCosignerRecord } from "@/lib/security/cosigner-repository";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type BackgroundCheckResult =
@@ -96,11 +98,12 @@ async function waitForPrepaidScreeningRow(
   db: SupabaseClient,
   applicationId: string,
   checkoutSessionId: string,
+  managerUserId: string,
   maxAttempts = 15,
   delayMs = 400,
 ): Promise<DemoApplicantRow | null> {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const row = await loadApplicationRow(db, applicationId);
+    const row = await loadApplicationRow(db, applicationId, managerUserId);
     if (row?.backgroundCheck?.stripeCheckoutSessionId === checkoutSessionId) {
       return row;
     }
@@ -125,7 +128,7 @@ async function claimPrepaidScreeningCheckout(opts: {
   | { kind: "existing"; row: DemoApplicantRow; backgroundCheck: ApplicationBackgroundCheck }
   | { kind: "busy" }
 > {
-  const existing = await loadApplicationRow(opts.db, opts.applicationId);
+  const existing = await loadApplicationRow(opts.db, opts.applicationId, opts.managerUserId);
   if (existing?.backgroundCheck?.stripeCheckoutSessionId === opts.checkoutSessionId) {
     return { kind: "existing", row: existing, backgroundCheck: existing.backgroundCheck };
   }
@@ -142,7 +145,7 @@ async function claimPrepaidScreeningCheckout(opts: {
   if (!error) return { kind: "proceed" };
 
   if (error.code === "23505") {
-    const row = await waitForPrepaidScreeningRow(opts.db, opts.applicationId, opts.checkoutSessionId);
+    const row = await waitForPrepaidScreeningRow(opts.db, opts.applicationId, opts.checkoutSessionId, opts.managerUserId);
     if (row?.backgroundCheck) {
       return { kind: "existing", row, backgroundCheck: row.backgroundCheck };
     }
@@ -155,14 +158,19 @@ async function claimPrepaidScreeningCheckout(opts: {
 async function loadApplicationRow(
   db: SupabaseClient,
   applicationId: string,
+  expectedManagerId?: string,
 ): Promise<DemoApplicantRow | null> {
   const { data, error } = await db
     .from("manager_application_records")
-    .select("row_data")
+    .select("id, manager_user_id, row_data")
     .eq("id", applicationId)
     .maybeSingle();
   if (error || !data?.row_data) return null;
-  return data.row_data as DemoApplicantRow;
+  const raw = data.row_data as DemoApplicantRow;
+  const owner = String(data.manager_user_id ?? "").trim();
+  if (expectedManagerId && owner !== expectedManagerId) throw new Error("Application access denied.");
+  const row = expectedManagerId ? openApplicantRow(raw, String(data.id ?? applicationId)) : raw;
+  return { ...row, id: String(data.id ?? applicationId), managerUserId: owner };
 }
 
 async function persistApplicationRow(db: SupabaseClient, row: DemoApplicantRow): Promise<void> {
@@ -173,7 +181,7 @@ async function persistApplicationRow(db: SupabaseClient, row: DemoApplicantRow):
       resident_email: row.email?.trim().toLowerCase() || null,
       property_id: row.propertyId || row.application?.propertyId || null,
       assigned_property_id: row.assignedPropertyId || null,
-      row_data: row,
+      row_data: sealApplicantRow(row, row.id, row.managerUserId),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "id" },
@@ -236,7 +244,7 @@ export async function precheckBackgroundCheckOrder(opts: {
     };
   }
 
-  const row = await loadApplicationRow(opts.db, opts.applicationId);
+  const row = await loadApplicationRow(opts.db, opts.applicationId, opts.managerUserId);
   if (!row) return { ok: false, status: 404, error: "Application not found." };
   if (row.managerUserId && row.managerUserId !== opts.managerUserId) {
     return { ok: false, status: 403, error: "Forbidden." };
@@ -278,7 +286,7 @@ export async function runBackgroundCheck(opts: {
   // session — if we already placed this order, return it instead of
   // double-ordering.
   if (opts.prepaid) {
-    const existing = await loadApplicationRow(opts.db, opts.applicationId);
+    const existing = await loadApplicationRow(opts.db, opts.applicationId, opts.managerUserId);
     if (existing?.backgroundCheck?.stripeCheckoutSessionId === opts.prepaid.checkoutSessionId) {
       return { ok: true, row: existing, backgroundCheck: existing.backgroundCheck };
     }
@@ -414,7 +422,7 @@ export async function refreshBackgroundCheck(opts: {
   applicationId: string;
   managerUserId: string;
 }): Promise<BackgroundCheckResult> {
-  const row = await loadApplicationRow(opts.db, opts.applicationId);
+  const row = await loadApplicationRow(opts.db, opts.applicationId, opts.managerUserId);
   if (!row) return { ok: false, status: 404, error: "Application not found." };
   if (row.managerUserId && row.managerUserId !== opts.managerUserId) {
     return { ok: false, status: 403, error: "Forbidden." };
@@ -512,41 +520,9 @@ export async function applyBackgroundCheckReport(
   return nextRow;
 }
 
-type CosignerSubmissionRecord = {
-  id: string;
-  signerAppId: string;
-  managerUserId: string | null;
-  submission: CosignerSubmission;
-};
-
-async function loadCosignerSubmissionRecord(
-  db: SupabaseClient,
-  cosignerSubmissionId: string,
-): Promise<CosignerSubmissionRecord | null> {
-  const { data, error } = await db
-    .from("cosigner_submission_records")
-    .select("id, signer_app_id, manager_user_id, row_data")
-    .eq("id", cosignerSubmissionId)
-    .maybeSingle();
-  if (error || !data?.row_data) return null;
-  return {
-    id: String(data.id),
-    signerAppId: String(data.signer_app_id),
-    managerUserId: (data.manager_user_id as string | null) ?? null,
-    submission: data.row_data as CosignerSubmission,
-  };
-}
-
-async function persistCosignerSubmissionRecord(
-  db: SupabaseClient,
-  record: CosignerSubmissionRecord,
-): Promise<void> {
-  const { error } = await db.from("cosigner_submission_records").update({
-    row_data: record.submission,
-    updated_at: new Date().toISOString(),
-  }).eq("id", record.id);
-  if (error) throw new Error(error.message);
-}
+type CosignerSubmissionRecord = ScopedCosignerRecord;
+const loadCosignerSubmissionRecord = loadOwnedCosignerRecord;
+const persistCosignerSubmissionRecord = persistOwnedCosignerRecord;
 
 function applicantInputFromCosigner(sub: CosignerSubmission): CheckrApplicantInput {
   return applicantInputFromApplication({
@@ -569,11 +545,12 @@ async function waitForPrepaidCosignerScreening(
   db: SupabaseClient,
   cosignerSubmissionId: string,
   checkoutSessionId: string,
+  managerUserId: string,
   maxAttempts = 15,
   delayMs = 400,
 ): Promise<CosignerSubmissionRecord | null> {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const record = await loadCosignerSubmissionRecord(db, cosignerSubmissionId);
+    const record = await loadCosignerSubmissionRecord(db, cosignerSubmissionId, managerUserId);
     if (record?.submission.backgroundCheck?.stripeCheckoutSessionId === checkoutSessionId) {
       return record;
     }
@@ -594,7 +571,7 @@ async function claimPrepaidCosignerScreeningCheckout(opts: {
   | { kind: "existing"; record: CosignerSubmissionRecord; backgroundCheck: ApplicationBackgroundCheck }
   | { kind: "busy" }
 > {
-  const existing = await loadCosignerSubmissionRecord(opts.db, opts.cosignerSubmissionId);
+  const existing = await loadCosignerSubmissionRecord(opts.db, opts.cosignerSubmissionId, opts.managerUserId);
   if (existing?.submission.backgroundCheck?.stripeCheckoutSessionId === opts.checkoutSessionId) {
     return { kind: "existing", record: existing, backgroundCheck: existing.submission.backgroundCheck! };
   }
@@ -615,6 +592,7 @@ async function claimPrepaidCosignerScreeningCheckout(opts: {
       opts.db,
       opts.cosignerSubmissionId,
       opts.checkoutSessionId,
+      opts.managerUserId,
     );
     if (record?.submission.backgroundCheck) {
       return { kind: "existing", record, backgroundCheck: record.submission.backgroundCheck };
@@ -662,10 +640,10 @@ export async function precheckCosignerBackgroundCheckOrder(opts: {
     };
   }
 
-  const record = await loadCosignerSubmissionRecord(opts.db, opts.cosignerSubmissionId);
+  const record = await loadCosignerSubmissionRecord(opts.db, opts.cosignerSubmissionId, opts.managerUserId);
   if (!record) return { ok: false, status: 404, error: "Co-signer submission not found." };
 
-  const signerRow = await loadApplicationRow(opts.db, record.signerAppId);
+  const signerRow = record.signerRow;
   if (!signerRow) return { ok: false, status: 404, error: "Application not found." };
 
   const ownerId = signerRow.managerUserId?.trim() || record.managerUserId?.trim();
@@ -695,7 +673,7 @@ export async function runCosignerBackgroundCheck(opts: {
   prepaid?: { checkoutSessionId: string; paymentIntentId?: string };
 }): Promise<CosignerBackgroundCheckResult> {
   if (opts.prepaid) {
-    const existing = await loadCosignerSubmissionRecord(opts.db, opts.cosignerSubmissionId);
+    const existing = await loadCosignerSubmissionRecord(opts.db, opts.cosignerSubmissionId, opts.managerUserId);
     if (existing?.submission.backgroundCheck?.stripeCheckoutSessionId === opts.prepaid.checkoutSessionId) {
       return {
         ok: true,
@@ -842,10 +820,10 @@ export async function refreshCosignerBackgroundCheck(opts: {
   cosignerSubmissionId: string;
   managerUserId: string;
 }): Promise<CosignerBackgroundCheckResult> {
-  const record = await loadCosignerSubmissionRecord(opts.db, opts.cosignerSubmissionId);
+  const record = await loadCosignerSubmissionRecord(opts.db, opts.cosignerSubmissionId, opts.managerUserId);
   if (!record) return { ok: false, status: 404, error: "Co-signer submission not found." };
 
-  const signerRow = await loadApplicationRow(opts.db, record.signerAppId);
+  const signerRow = record.signerRow;
   if (!signerRow) return { ok: false, status: 404, error: "Application not found." };
   const ownerId = signerRow.managerUserId?.trim() || record.managerUserId?.trim();
   if (!ownerId || ownerId !== opts.managerUserId) {

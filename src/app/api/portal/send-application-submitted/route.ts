@@ -40,7 +40,7 @@ function appOrigin(): string {
 
 export async function POST(req: Request) {
   try {
-    if (!rateLimit(`send-application-submitted:${clientIpFrom(req)}`, 10, 60_000).ok) {
+    if (!(await rateLimit(`send-application-submitted:${clientIpFrom(req)}`, 10, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     }
 

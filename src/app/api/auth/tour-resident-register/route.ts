@@ -40,7 +40,7 @@ function textField(row: Record<string, unknown> | null | undefined, key: string)
  */
 export async function POST(req: Request) {
   try {
-    if (!rateLimit(`tour-resident-register:${clientIpFrom(req)}`, 10, 60_000).ok) {
+    if (!(await rateLimit(`tour-resident-register:${clientIpFrom(req)}`, 10, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
     }
 

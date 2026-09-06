@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
+import { openCosignerIdentity } from "@/lib/security/cosigner-identity";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { collectLinkedPropertyIdsForUser } from "@/lib/auth/manager-lease-scope";
+import { managerCanAccessApplicationRecord } from "@/lib/auth/manager-application-access";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -46,12 +47,7 @@ export async function GET(req: Request) {
           allowed = Boolean(email) && recordEmail === email;
         }
         if (!allowed) {
-          const linked = await collectLinkedPropertyIdsForUser(db, user.id);
-          const propertyId = String(appRow.property_id ?? "").trim();
-          const assignedPropertyId = String(appRow.assigned_property_id ?? "").trim();
-          allowed = Boolean(
-            (propertyId && linked.has(propertyId)) || (assignedPropertyId && linked.has(assignedPropertyId)),
-          );
+          allowed = await managerCanAccessApplicationRecord(db, user.id, appRow);
         }
       }
       if (!allowed) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
@@ -69,10 +65,10 @@ export async function GET(req: Request) {
       .map((r) => {
         const rowData = r.row_data as CosignerSubmission | null;
         if (!rowData) return null;
-        return { ...rowData, id: String(r.id) };
+        return { ...openCosignerIdentity(rowData, String(r.id)), id: String(r.id) };
       })
       .filter(Boolean) as CosignerSubmission[];
-    return NextResponse.json({ rows });
+    return NextResponse.json({ rows }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load co-signer submissions.";
     return NextResponse.json({ error: message }, { status: 500 });

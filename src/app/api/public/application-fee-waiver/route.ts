@@ -24,7 +24,7 @@ type Body = {
  */
 export async function POST(req: Request) {
   try {
-    if (!rateLimit(`application-fee-waiver:${clientIpFrom(req)}`, 10, 60_000).ok) {
+    if (!(await rateLimit(`application-fee-waiver:${clientIpFrom(req)}`, 10, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     }
 

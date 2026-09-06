@@ -1,3 +1,4 @@
+import { openApplicantRow } from "@/lib/security/applicant-identity";
 import { NextResponse } from "next/server";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { isResidentSetupTokenValid } from "@/lib/auth/resident-setup-token";
@@ -77,8 +78,8 @@ export async function POST(req: Request) {
 
     // The token fields are the row's write credential material — never echo them.
     // eslint-disable-next-line @typescript-eslint/no-unused-vars -- rest-destructure strips the credential fields
-    const { setupTokenHash: _hash, setupTokenExpiresAt: _expires, setupTokenConsumedAt: _consumed, ...row } = stored;
-    return NextResponse.json({ row: { ...row, id: normalizeApplicationAxisId(stored.id) } });
+    const { setupTokenHash: _hash, setupTokenExpiresAt: _expires, setupTokenConsumedAt: _consumed, ...row } = openApplicantRow(stored, String(data?.[0]?.id ?? stored.id));
+    return NextResponse.json({ row: { ...row, id: normalizeApplicationAxisId(stored.id) } }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return NextResponse.json({ error: "Something went wrong." }, { status: 500 });
   }

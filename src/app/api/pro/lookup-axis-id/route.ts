@@ -14,7 +14,7 @@ export const runtime = "nodejs";
  */
 export async function GET(req: Request) {
   try {
-    if (!rateLimit(`lookup-axis-id:${clientIpFrom(req)}`, 20, 60_000).ok) {
+    if (!(await rateLimit(`lookup-axis-id:${clientIpFrom(req)}`, 20, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     }
 

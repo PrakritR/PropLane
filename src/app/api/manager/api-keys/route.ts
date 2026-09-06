@@ -28,7 +28,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const actor = await resolveAgentContext();
   if (!actor) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  if (!rateLimit(`api-key-create:${actor.userId}`, 10, 60_000).ok) {
+  if (!(await rateLimit(`api-key-create:${actor.userId}`, 10, 60_000)).ok) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 

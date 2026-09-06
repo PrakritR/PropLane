@@ -67,29 +67,26 @@ function canUseStorage() {
 }
 
 function hydrate() {
-  if (!canUseStorage() || memory.length > 0) return;
+  if (!canUseStorage()) return;
   try {
-    const raw = window.sessionStorage.getItem(KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as CosignerSubmission[];
-    if (Array.isArray(parsed)) memory = parsed;
+    // Older versions persisted the ORIGINAL form (including full SSN and ID)
+    // even though the server masked its copy. Never hydrate that legacy cache.
+    window.sessionStorage.removeItem(KEY);
   } catch {
     /* ignore */
   }
 }
 
 function persist() {
-  if (!canUseStorage()) return;
-  try {
-    window.sessionStorage.setItem(KEY, JSON.stringify(memory));
-  } catch {
-    /* ignore */
-  }
+  hydrate();
 }
 
 export function appendCosignerSubmission(sub: CosignerSubmission) {
   hydrate();
-  memory = [...memory, sub];
+  // The actual form is sent directly to the server; a UI cache has no reason
+  // to retain a complete SSN. Keep the same last-four projection as storage.
+  const digits = sub.ssn.replace(/\D/g, "");
+  memory = [...memory, { ...sub, ssn: digits ? `***-**-${digits.slice(-4)}` : "" }];
   persist();
 }
 
@@ -121,11 +118,12 @@ export async function fetchCosignerSubmissionsForSignerAppId(
       credentials: "include",
       cache: "no-store",
     });
-    if (!res.ok) return readCosignerSubmissionsForSignerAppId(signerAppId);
+    // Cached data must not override revoked permissions or an expired session.
+    if (!res.ok) return [];
     const body = (await res.json()) as { rows?: CosignerSubmission[] };
     return Array.isArray(body.rows) ? body.rows : [];
   } catch {
-    return readCosignerSubmissionsForSignerAppId(signerAppId);
+    return [];
   }
 }
 

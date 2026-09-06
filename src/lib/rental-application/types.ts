@@ -12,7 +12,8 @@ export type ApplicantRole = "signer" | "cosigner" | null;
 /**
  * A photo/document an applicant attaches to their application — an image of a
  * driver's license / ID card, or proof of income. The image BYTES live in the
- * PRIVATE `application-documents` Supabase Storage bucket; only this reference
+ * PRIVATE `application-documents` Supabase Storage bucket (new uploads are
+ * encrypted before storage with a per-object key wrapped by the server); only this reference
  * (an unguessable object path plus display metadata) is persisted on the
  * application answers. That keeps the reference flowing through the existing
  * autosave/resume path like any other answer WITHOUT inlining base64 into the

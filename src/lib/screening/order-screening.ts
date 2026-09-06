@@ -1,3 +1,4 @@
+import { openApplicantRow, sealApplicantRow } from "@/lib/security/applicant-identity";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { screeningCostCents, screeningConfigured } from "@/lib/screening/config";
 import { chargeManagerForScreening } from "@/lib/screening/charge-manager";
@@ -58,14 +59,18 @@ function mergeVendorIntoScreening(
   };
 }
 
-async function loadApplicationRow(db: SupabaseClient, applicationId: string): Promise<DemoApplicantRow | null> {
+async function loadApplicationRow(db: SupabaseClient, applicationId: string, expectedManagerId?: string): Promise<DemoApplicantRow | null> {
   const { data, error } = await db
     .from("manager_application_records")
-    .select("row_data")
+    .select("id, manager_user_id, row_data")
     .eq("id", applicationId)
     .maybeSingle();
   if (error || !data?.row_data) return null;
-  return data.row_data as DemoApplicantRow;
+  const raw = data.row_data as DemoApplicantRow;
+  const owner = String(data.manager_user_id ?? "").trim();
+  if (expectedManagerId && owner !== expectedManagerId) throw new Error("Application access denied.");
+  const row = expectedManagerId ? openApplicantRow(raw, String(data.id ?? applicationId)) : raw;
+  return { ...row, id: String(data.id ?? applicationId), managerUserId: owner };
 }
 
 async function persistApplicationRow(db: SupabaseClient, row: DemoApplicantRow): Promise<void> {
@@ -76,7 +81,7 @@ async function persistApplicationRow(db: SupabaseClient, row: DemoApplicantRow):
       resident_email: row.email?.trim().toLowerCase() || null,
       property_id: row.propertyId || row.application?.propertyId || null,
       assigned_property_id: row.assignedPropertyId || null,
-      row_data: row,
+      row_data: sealApplicantRow(row, row.id, row.managerUserId),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "id" },
@@ -147,7 +152,7 @@ export async function orderScreeningForApplication(opts: {
     return { ok: false, status: 400, error: "Screening is turned off in Applications settings.", code: "disabled" };
   }
 
-  const row = await loadApplicationRow(opts.db, opts.applicationId);
+  const row = await loadApplicationRow(opts.db, opts.applicationId, opts.managerUserId);
   if (!row) return { ok: false, status: 404, error: "Application not found." };
   if (!row.application) return { ok: false, status: 400, error: "This record has no rental application to screen." };
   if (!row.application.consentCredit) {
@@ -216,7 +221,7 @@ export async function orderScreeningForApplication(opts: {
     if (vendor) {
       const completed = await applyScreeningReportToApplication(opts.db, row.id, vendor);
       if (completed) {
-        return { ok: true, row: completed, screening: completed.screening! };
+        return { ok: true, row: openApplicantRow(completed, row.id), screening: completed.screening! };
       }
     }
   }

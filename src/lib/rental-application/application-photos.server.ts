@@ -108,7 +108,10 @@ export function buildApplicationPhotoPath(applicationId: string, slot: Applicati
 
 /** Guard that a stored path really belongs to this application's folder. */
 export function isPathInApplicationFolder(path: string, applicationId: string): boolean {
-  return path.startsWith(`application/${applicationPhotoFolderKey(applicationId)}/`);
+  const parts = path.split("/");
+  return parts.length === 3 && parts[0] === "application" &&
+    parts[1] === applicationPhotoFolderKey(applicationId) &&
+    /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(parts[2]);
 }
 
 /**

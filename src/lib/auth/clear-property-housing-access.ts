@@ -1,3 +1,4 @@
+import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 type ServiceDb = ReturnType<typeof createSupabaseServiceRoleClient>;
@@ -131,11 +132,11 @@ export async function clearHousingAccessForDeletedProperty(
   const [byProperty, byAssigned] = await Promise.all([
     db
       .from("manager_application_records")
-      .select("id, property_id, assigned_property_id, row_data")
+      .select("id, manager_user_id, property_id, assigned_property_id, row_data")
       .eq("property_id", pid),
     db
       .from("manager_application_records")
-      .select("id, property_id, assigned_property_id, row_data")
+      .select("id, manager_user_id, property_id, assigned_property_id, row_data")
       .eq("assigned_property_id", pid),
   ]);
   for (const res of [byProperty, byAssigned]) {
@@ -155,7 +156,7 @@ export async function clearHousingAccessForDeletedProperty(
       .update({
         property_id: null,
         assigned_property_id: null,
-        row_data: scrubHousingFromRowData((app as { row_data?: unknown }).row_data),
+        row_data: sealApplicantRow(scrubHousingFromRowData((app as { row_data?: unknown }).row_data), id, String(app.manager_user_id ?? ((app as { row_data?: { managerUserId?: string } }).row_data)?.managerUserId ?? "")),
         updated_at: new Date().toISOString(),
       })
       .eq("id", id);
@@ -166,7 +167,7 @@ export async function clearHousingAccessForDeletedProperty(
   // Fallback for older rows that only keep the property id inside row_data.
   const { data: legacyApps, error: legacyErr } = await db
     .from("manager_application_records")
-    .select("id, property_id, assigned_property_id, row_data")
+    .select("id, manager_user_id, property_id, assigned_property_id, row_data")
     .is("property_id", null)
     .is("assigned_property_id", null)
     .limit(500);
@@ -180,7 +181,7 @@ export async function clearHousingAccessForDeletedProperty(
         .update({
           property_id: null,
           assigned_property_id: null,
-          row_data: scrubHousingFromRowData((app as { row_data?: unknown }).row_data),
+          row_data: sealApplicantRow(scrubHousingFromRowData((app as { row_data?: unknown }).row_data), id, String(app.manager_user_id ?? ((app as { row_data?: { managerUserId?: string } }).row_data)?.managerUserId ?? "")),
           updated_at: new Date().toISOString(),
         })
         .eq("id", id);

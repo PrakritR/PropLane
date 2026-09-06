@@ -37,7 +37,7 @@ const STATUS_BY_REASON: Record<string, number> = {
  */
 export async function POST(req: Request) {
   try {
-    if (!rateLimit(`partner-inquiries:${clientIpFrom(req)}`, 30, 60_000).ok) {
+    if (!(await rateLimit(`partner-inquiries:${clientIpFrom(req)}`, 30, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     }
 

@@ -14,7 +14,7 @@ import { propertyAcceptingOnlineApplications } from "@/lib/property-application-
 import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listing";
 import { BROWSE_IDS_PARAM, parseBrowseIdsParam } from "@/lib/manager-property-links";
 import { loadPublicPropertyLeadFromServer, PROPERTY_PIPELINE_EVENT } from "@/lib/demo-property-pipeline";
-import { residentSetupIdFromUrlParams } from "@/lib/auth/resident-setup-token";
+import { residentSetupIdFromUrlParams } from "@/lib/auth/resident-setup-links";
 import {
   hasPublicApplyGuestContinue,
   markPublicApplyGuestContinue,

@@ -26,7 +26,7 @@ const TOOL_NAME = "search_public_housing";
  */
 export async function POST(req: Request) {
   const ip = clientIpFrom(req);
-  if (!rateLimit(`housing-search:${ip}`, 12, 60_000).ok) {
+  if (!(await rateLimit(`housing-search:${ip}`, 12, 60_000)).ok) {
     return NextResponse.json(
       { error: "You're sending requests a little fast — please wait a moment and try again." },
       { status: 429 },
