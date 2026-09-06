@@ -4,6 +4,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { useIsClient } from "@/hooks/use-is-client";
 import { FIELD_SELECT_MENU_DATA_ATTR, fieldSelectEventTargetElement } from "@/components/ui/field-select-portal-interaction";
+import { trimmedText } from "@/lib/trimmed-text";
 
 /**
  * Shared machinery for the one portaled field-select dropdown pattern used by
@@ -739,5 +740,6 @@ export function FieldSelectMenuSearch({
 
 /** Case-insensitive substring match used by every searchable field-select menu. */
 export function fieldSelectMenuMatches(label: string, query: string): boolean {
-  return label.toLowerCase().includes(query.trim().toLowerCase());
+  const haystack = typeof label === "string" ? label : String(label ?? "");
+  return haystack.toLowerCase().includes(trimmedText(query).toLowerCase());
 }
