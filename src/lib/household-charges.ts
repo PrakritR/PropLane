@@ -711,13 +711,14 @@ function basisBillingMonthlyEquivalent(profile: Pick<RecurringRentProfile, "dail
 
 /**
  * True when a daily/weekly profile's `monthlyRent` still holds the pre-fix full monthly
- * figure instead of surcharge/fees fold-in only.
+ * figure instead of surcharge/fees fold-in only. Fold-in is always strictly below the
+ * basis rate's monthly equivalent; legacy storage used the rate-card monthly rent.
  */
 function profileHasLegacyBasisBillingMonthlyRent(profile: RecurringRentProfile): boolean {
   const hasBasis = (profile.dailyRentPrice ?? 0) > 0 || (profile.weeklyRentPrice ?? 0) > 0;
   if (!hasBasis || !(profile.monthlyRent > 0)) return false;
   const basisMonthly = basisBillingMonthlyEquivalent(profile);
-  return basisMonthly > 0 && profile.monthlyRent >= basisMonthly * 0.5;
+  return basisMonthly > 0 && profile.monthlyRent >= basisMonthly;
 }
 
 /** Fold-in monthly addon for daily/weekly recurring rent — never the legacy full monthly rent. */

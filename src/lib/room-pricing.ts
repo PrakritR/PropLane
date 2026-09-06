@@ -162,7 +162,7 @@ export function rentProfileMonthlyEquivalent(
   const hasBasis = (dailyRentPrice ?? 0) > 0 || (weeklyRentPrice ?? 0) > 0;
   if (!hasBasis) return basisEquivalent;
   const foldIn = monthlyRent ?? 0;
-  if (!(foldIn > 0) || (basisEquivalent > 0 && foldIn >= basisEquivalent * 0.5)) return basisEquivalent;
+  if (!(foldIn > 0) || (basisEquivalent > 0 && foldIn >= basisEquivalent)) return basisEquivalent;
   return Number((basisEquivalent + foldIn).toFixed(2));
 }
 

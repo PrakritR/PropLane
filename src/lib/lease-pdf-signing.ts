@@ -54,10 +54,17 @@ function riderLines(ctx: LeaseGenerationContext): string[] {
       ? pricing.dailyRate
       : pricing.basis === "weekly"
         ? pricing.weeklyRate
-        : (billedMonthly && billedMonthly > 0 ? billedMonthly : pricing.monthlyRate);
+        : pricing.monthlyRate && pricing.monthlyRate > 0
+          ? pricing.monthlyRate
+          : billedMonthly && billedMonthly > 0
+            ? billedMonthly
+            : pricing.monthlyRate;
   const propertyName = property?.address?.trim() || ctx.submission?.address?.trim() || "Not set";
   const roomName = property?.unitLabel?.trim() || room?.name?.trim() || "Not set";
   const fees = [
+    pricing.shortLeaseSurcharge && pricing.shortLeaseSurcharge > 0 && pricing.basis === "monthly"
+      ? `Short-lease surcharge (included in rent): ${riderMoney(pricing.shortLeaseSurcharge)}`
+      : "",
     ctx.leaseBilling?.moveInFee ? `Move-in fee: ${riderMoney(ctx.leaseBilling.moveInFee)}` : "",
     ctx.leaseBilling?.applicationFee ? `Application fee: ${riderMoney(ctx.leaseBilling.applicationFee)}` : "",
     ctx.leaseBilling?.otherCostAmount

@@ -280,6 +280,9 @@ function leaseTermsRiderHtml(ctx: LeaseGenerationContext): string {
   const rateLabel =
     pricing.basis === "daily" ? "Daily rate" : pricing.basis === "weekly" ? "Weekly rent" : "Monthly rent";
   const fees = [
+    pricing.shortLeaseSurcharge && pricing.shortLeaseSurcharge > 0 && pricing.basis === "monthly"
+      ? ["Short-lease surcharge (included in rent)", money(pricing.shortLeaseSurcharge)]
+      : null,
     ctx.leaseBilling?.moveInFee ? ["Move-in fee", money(ctx.leaseBilling.moveInFee)] : null,
     ctx.leaseBilling?.applicationFee ? ["Application fee", money(ctx.leaseBilling.applicationFee)] : null,
     ctx.leaseBilling?.otherCostAmount
