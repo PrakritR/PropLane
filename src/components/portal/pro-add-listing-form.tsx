@@ -190,10 +190,11 @@ import {
   listingRoomHasRent,
   listingRoomNameKey,
   listingRoomRentKey,
+  listingRoomWeeklyRentKey,
   listingSharedSpaceNameKey,
   validateListingWizardStep,
 } from "@/lib/listing-wizard-validation";
-import { roomHeadlinePriceLabel } from "@/lib/room-pricing";
+import { roomHeadlinePriceLabel, roomShortLeaseSurcharge } from "@/lib/room-pricing";
 import { listingRoomPricingSummaryLabel } from "@/lib/rental-application/listing-fees-display";
 import {
   scrollToFirstWizardFieldError,
@@ -4561,9 +4562,13 @@ export function ManagerAddListingForm({
                 const checkedFurniture = parseFurnitureSet(room.furnishing);
                 const roomNameKey = listingRoomNameKey(room.id);
                 const roomRentKey = listingRoomRentKey(room.id);
+                const roomDailyRentKey = listingRoomDailyRentKey(room.id);
+                const roomWeeklyRentKey = listingRoomWeeklyRentKey(room.id);
                 const roomNameErr = stepFieldErrors[roomNameKey];
                 const roomRentErr = stepFieldErrors[roomRentKey];
-                const roomHasErr = Boolean(roomNameErr || roomRentErr);
+                const roomDailyRentErr = stepFieldErrors[roomDailyRentKey];
+                const roomWeeklyRentErr = stepFieldErrors[roomWeeklyRentKey];
+                const roomHasErr = Boolean(roomNameErr || roomRentErr || roomDailyRentErr || roomWeeklyRentErr);
                 // The facts a manager compares rooms on, on the row itself
                 // (PRP-137): where it is, how big, whether it is furnished.
                 // Furnishing used to print the whole item list here, which
@@ -4712,13 +4717,32 @@ export function ManagerAddListingForm({
                                 <MoneyInput
                                   ariaLabel={`Weekly rent for ${room.name || `room ${i + 1}`}`}
                                   data-attr="listing-room-weekly-rent"
+                                  invalid={Boolean(roomWeeklyRentErr)}
                                   value={room.weeklyRentPrice === undefined ? "" : String(room.weeklyRentPrice)}
                                   onChange={(e) => {
                                     const n = parseFloat(sanitizeMoneyInput(e.target.value));
+                                    clearListingFieldError(roomWeeklyRentKey);
                                     setRoom(i, { weeklyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
                                   }}
                                   placeholder="Weekly rate"
                                 />
+                                <StepFieldError msg={roomWeeklyRentErr} />
+                              </GridField>
+                              <GridField>
+                                <FieldLabel>Rent / day</FieldLabel>
+                                <MoneyInput
+                                  ariaLabel={`Daily rent for ${room.name || `room ${i + 1}`}`}
+                                  data-attr="listing-room-daily-rent-basis"
+                                  invalid={Boolean(roomDailyRentErr)}
+                                  value={room.dailyRentPrice === undefined ? "" : String(room.dailyRentPrice)}
+                                  onChange={(e) => {
+                                    const n = parseFloat(sanitizeMoneyInput(e.target.value));
+                                    clearListingFieldError(roomDailyRentKey);
+                                    setRoom(i, { dailyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
+                                  }}
+                                  placeholder="Daily rate"
+                                />
+                                <StepFieldError msg={roomDailyRentErr} />
                               </GridField>
                               <GridField>
                                 <FieldLabel hint="Which rate leads the listing and drives billing.">
@@ -4781,7 +4805,7 @@ export function ManagerAddListingForm({
                               <p className="text-xs text-muted" data-attr="listing-room-short-lease-preview">
                                 A short lease is quoted as{" "}
                                 <strong>
-                                  ${(room.monthlyRent + (parseFloat(String(room.shortLeaseSurchargeMonthly).replace(/[^0-9.]/g, "")) || 0)).toLocaleString("en-US")}
+                                  ${(room.monthlyRent + roomShortLeaseSurcharge(room)).toLocaleString("en-US")}
                                 </strong>{" "}
                                 / month on a lease of {room.shortLeaseMaxMonths}{" "}
                                 {room.shortLeaseMaxMonths === 1 ? "month" : "months"} or less —{" "}

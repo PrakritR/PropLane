@@ -14,6 +14,7 @@ import {
   roomFlexibleRange,
   roomFlexibleSortAmount,
   roomPricingIsFlexible,
+  roomShortLeaseListingNote,
 } from "@/lib/room-pricing";
 
 const flexible = (over: Record<string, unknown> = {}) => ({
@@ -193,6 +194,18 @@ describe("rate card and short-lease surcharge", () => {
     expect(roomHeadlinePriceLabel(weekly)).toBe("$350/week");
     // 52/12 weeks, never 4 — four would understate it against every monthly room.
     expect(roomMonthlyEquivalent(weekly)).toBeCloseTo(1516.67, 1);
+    const pricing = resolveStayPricing({ room: weekly, submission: null, application: null });
+    expect(pricing.basis).toBe("weekly");
+    expect(pricing.weeklyRate).toBe(350);
+  });
+
+  it("surfaces a short-lease surcharge note on listings", () => {
+    expect(
+      roomShortLeaseListingNote({
+        shortLeaseSurchargeMonthly: "150",
+        shortLeaseMaxMonths: 3,
+      }),
+    ).toBe("+$150/mo on leases of 3 months or less");
   });
 
   it("falls back to monthly when a basis names a rate that was left blank", () => {

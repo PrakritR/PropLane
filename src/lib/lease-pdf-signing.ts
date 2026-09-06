@@ -52,7 +52,9 @@ function riderLines(ctx: LeaseGenerationContext): string[] {
   const rate =
     pricing.basis === "daily"
       ? pricing.dailyRate
-      : (billedMonthly && billedMonthly > 0 ? billedMonthly : pricing.monthlyRate);
+      : pricing.basis === "weekly"
+        ? pricing.weeklyRate
+        : (billedMonthly && billedMonthly > 0 ? billedMonthly : pricing.monthlyRate);
   const propertyName = property?.address?.trim() || ctx.submission?.address?.trim() || "Not set";
   const roomName = property?.unitLabel?.trim() || room?.name?.trim() || "Not set";
   const fees = [
@@ -68,8 +70,8 @@ function riderLines(ctx: LeaseGenerationContext): string[] {
     `Property: ${propertyName}`,
     `Room / unit: ${roomName}`,
     `Stay dates: ${application.leaseStart?.trim() || "Not set"} to ${application.leaseEnd?.trim() || "Not set"}`,
-    `Rent basis: ${pricing.basis === "daily" ? "Daily" : "Monthly"}`,
-    `${pricing.basis === "daily" ? "Daily rate" : "Monthly rent"}: ${riderMoney(rate)}`,
+    `Rent basis: ${pricing.basis === "daily" ? "Daily" : pricing.basis === "weekly" ? "Weekly" : "Monthly"}`,
+    `${pricing.basis === "daily" ? "Daily rate" : pricing.basis === "weekly" ? "Weekly rent" : "Monthly rent"}: ${riderMoney(rate)}`,
     `Security deposit: ${riderMoney(pricing.deposit)}`,
     ...fees,
   ];

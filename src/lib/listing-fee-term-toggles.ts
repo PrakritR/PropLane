@@ -12,11 +12,8 @@ import {
   removedStandardListingFeeRowSet,
   type ListingFeePresetId,
 } from "@/lib/listing-fees";
+import { listingRoomHasRent } from "@/lib/listing-wizard-validation";
 import { shortTermNightlyRate } from "@/lib/short-term-stay-pricing";
-
-function listingRoomHasRent(room: ManagerRoomSubmission): boolean {
-  return room.monthlyRent > 0 || (room.rentBasis === "daily" && (room.dailyRentPrice ?? 0) > 0);
-}
 
 /** Row ids in the unified Fees table — one toggle per row per term. */
 export type ListingFeeRowId =

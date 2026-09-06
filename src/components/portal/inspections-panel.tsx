@@ -22,6 +22,12 @@ import { inspectionRoomLabel, createInspectionSchema, type InspectionDetail, typ
 const kindLabel = (kind: InspectionKind) => kind === "move-in" ? "Move-in" : "Move-out";
 const statusLabel = (status: InspectionStatus) => status === "submitted" ? "Awaiting review" : status === "completed" ? "Completed" : "Draft";
 
+/** Hide the dev-only missing-table banner for managers; still show real partial-load notices. */
+function showInspectionLoadNotice(role: InspectionRole, notice: string): boolean {
+  if (role !== "manager") return true;
+  return !/not set up in this environment|resident_inspections.*missing/i.test(notice);
+}
+
 /**
  * A tenancy date is a WALL date (`2026-03-04`), so it is formatted from its parts. Building a
  * Date from the string parses it as UTC and prints the previous day west of Greenwich.
@@ -253,7 +259,9 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
         : undefined}
     />
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error}</p>}
-    {role !== "manager" && !error && data.notice && <p role="status" className="rounded-xl border border-border p-3 text-sm text-muted">{data.notice}</p>}
+    {!error && data.notice && showInspectionLoadNotice(role, data.notice) && (
+      <p role="status" className="rounded-xl border border-border p-3 text-sm text-muted">{data.notice}</p>
+    )}
     {loading ? <div role="status" aria-label="Loading inspections" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div> : <PortalRecordListSurface
       isEmpty={rows.length === 0}
       empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to create and review residency inspections." : kind === "move-in" ? "No one is moving in or living here yet. Approve an application and give it a property placement to start." : "No one is living here or has moved out yet."}</p>}

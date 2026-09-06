@@ -21,8 +21,10 @@ import { resolvedShortTermPlacementDeposit, type ListingFeePresetId } from "@/li
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
 import { formatRoomPriceAmount, resolveStayPricing, roomDailyRentPrice,
   roomPricingIsFlexible,
+  roomWeeklyRentPrice,
   tenancyPaysShortLeaseSurcharge,
   roomShortLeaseSurcharge,
+  weeklyRentForBillableDays,
 } from "@/lib/room-pricing";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import { utilitiesBillableMonthlyAmount } from "@/lib/listing-utilities-payment";
@@ -215,6 +217,12 @@ export type RecurringRentProfile = {
    * days × dailyRentPrice. Absent → the profile bills monthly exactly as before.
    */
   dailyRentPrice?: number;
+  /**
+   * Headline weekly rent rate (USD dollars) when the room is priced by the week.
+   * When set (> 0), each recurring rent charge bills billable-days ÷ 7 × weeklyRentPrice
+   * instead of the flat monthlyRent. Absent → the profile bills monthly exactly as before.
+   */
+  weeklyRentPrice?: number;
   /** Full monthly utilities/RUBS from listing or manager override — billed each month with rent. */
   monthlyUtilities?: number;
   /** Monthly custom fees (parking, storage, …) billed each recurring month alongside rent.
@@ -1317,6 +1325,8 @@ function firstMonthRentChargeForLeaseStart(
   dailyRentRate?: number,
   /** Headline daily rate when the room is priced by the day — bills EVERY first month (full or partial) per day. */
   dailyBasisRate?: number,
+  /** Headline weekly rate when the room is priced by the week — bills billable days ÷ 7 × rate. */
+  weeklyBasisRate?: number,
   /** Lease end, so a lease that starts and ends in one calendar month bills its true span once. */
   leaseEnd?: string,
 ): {
@@ -1347,6 +1357,20 @@ function firstMonthRentChargeForLeaseStart(
       proration,
     };
   }
+  if (weeklyBasisRate && weeklyBasisRate > 0) {
+    const days = proration.billableDays > 0 ? proration.billableDays : proration.daysInMonth;
+    if (!(days > 0)) return null;
+    const amount = weeklyRentForBillableDays(weeklyBasisRate, days);
+    const weeksLabel = Number((days / 7).toFixed(2));
+    return {
+      kind: proration.prorated ? "prorated_rent" : "first_month_rent",
+      amount,
+      title: proration.prorated
+        ? `${proratedRentNoun} (${weeksLabel} weeks × ${formatRoomPriceAmount(weeklyBasisRate)}/week)`
+        : `First month's rent (${weeksLabel} weeks × ${formatRoomPriceAmount(weeklyBasisRate)}/week)`,
+      proration,
+    };
+  }
   let amount: number;
   if (proration.prorated && prorateMethod === "daily_rate" && dailyRentRate && dailyRentRate > 0) {
     amount = Number((proration.billableDays * dailyRentRate).toFixed(2));
@@ -1373,6 +1397,8 @@ function lastMonthChargeForLeaseEnd(
   dailyRate?: number,
   /** Headline daily rate when the room is priced by the day — bills the partial last month per day. */
   dailyBasisRate?: number,
+  /** Headline weekly rate when the room is priced by the week — bills billable days ÷ 7 × rate. */
+  weeklyBasisRate?: number,
 ): {
   kind: HouseholdChargeKind;
   amount: number;
@@ -1381,6 +1407,16 @@ function lastMonthChargeForLeaseEnd(
 } | null {
   const proration = leaseEndProration(leaseEnd);
   if (!proration.prorated) return null;
+  if (weeklyBasisRate && weeklyBasisRate > 0 && chargeLabel === "rent") {
+    const amount = weeklyRentForBillableDays(weeklyBasisRate, proration.billableDays);
+    const weeksLabel = Number((proration.billableDays / 7).toFixed(2));
+    return {
+      kind: "prorated_last_month_rent",
+      amount,
+      title: `Prorated last month's rent (${weeksLabel} weeks × ${formatRoomPriceAmount(weeklyBasisRate)}/week)`,
+      dueDateLabel: proration.dueDateLabel,
+    };
+  }
   // A daily-priced room bills its partial last month per day regardless of prorateMethod.
   // The arithmetic lives in `proratedLastMonthAmount` so the lease document's "last month's
   // rent" line and this charge are one calculation, not two that can drift apart.
@@ -1495,36 +1531,25 @@ function selectedRoomRentAmount(row: DemoApplicantRow): number {
   const negotiated = residentNegotiatedMonthlyRent(row);
   if (negotiated > 0) return negotiated;
   if (row.manuallyAdded) return 0;
-  // One shared room lookup, so the rent this bills and the room the lease quotes cannot
-  // resolve differently. Bundle and entire-home pricing still outrank a single room.
   const { sub, room } = resolveRowSubmissionRoom(row);
   if (!sub) return 0;
+  const includedFees = monthlyFeesIncludedInRentTotal(sub);
   const bundleId = bundleIdForApplication(row.application);
   if (bundleId) {
     const totals = resolveBundleFinancialTotals(sub, bundleId);
-    if (totals && totals.monthlyRent > 0) return totals.monthlyRent;
+    if (totals && totals.monthlyRent > 0) {
+      return Number((totals.monthlyRent + includedFees).toFixed(2));
+    }
   }
   if (isEntireHomeListing(sub)) {
     const entireHomeRent = entireHomeMonthlyRentAmount(sub);
-    if (entireHomeRent > 0) return entireHomeRent;
+    if (entireHomeRent > 0) return Number((entireHomeRent + includedFees).toFixed(2));
   }
-  // A flexible-priced room advertises no billable figure (PRP-329). Its stored
-  // `monthlyRent` survives the switch to flexible pricing and is no longer shown to
-  // anyone, so billing it here would charge a rate the resident never agreed and the
-  // listing never quoted — the exact bypass `resolveStayPricing` refuses. Every
-  // negotiated path already returned above, so reaching this line with a flexible room
-  // means no agreed rent exists yet: bill nothing rather than invent one. Bundle and
-  // entire-home pricing above are unaffected, being household totals rather than this
-  // room's own advertised price.
   if (roomPricingIsFlexible(room)) return 0;
   const base = room?.monthlyRent && room.monthlyRent > 0 ? room.monthlyRent : 0;
   if (base <= 0) return 0;
-  // Everything the manager said is part of the monthly rent, resolved in ONE place so
-  // the listing quote, the lease document and this charge cannot disagree: the base
-  // rate, the short-lease surcharge when this tenancy is short, and any monthly fee
-  // the manager chose to fold in (which `monthlyCustomFees` correspondingly drops).
   const surcharge = tenancyPaysShortLeaseSurcharge(room, row.application) ? roomShortLeaseSurcharge(room) : 0;
-  return Number((base + surcharge + monthlyFeesIncludedInRentTotal(sub)).toFixed(2));
+  return Number((base + surcharge + includedFees).toFixed(2));
 }
 
 type BundleGroupChargeContext = {
@@ -2111,7 +2136,7 @@ function syncAllRecurringRentCharges(): boolean {
   backfillMonthlyUtilitiesOnRentProfiles();
   const held = new Set(readManagerApplicationRows().filter(row => row.migrationBillingHold).map(row => `${row.managerUserId}|${row.email?.trim().toLowerCase()}`));
   const profiles = readRentProfiles().filter(
-    (p) => !held.has(`${p.managerUserId}|${p.residentEmail.trim().toLowerCase()}`) && p.active && (p.monthlyRent > 0 || (p.dailyRentPrice ?? 0) > 0 || (p.monthlyUtilities ?? 0) > 0),
+    (p) => !held.has(`${p.managerUserId}|${p.residentEmail.trim().toLowerCase()}`) && p.active && (p.monthlyRent > 0 || (p.dailyRentPrice ?? 0) > 0 || (p.weeklyRentPrice ?? 0) > 0 || (p.monthlyUtilities ?? 0) > 0),
   );
   if (profiles.length === 0) return false;
 
@@ -2195,7 +2220,9 @@ function syncAllRecurringRentCharges(): boolean {
 
       const profileDailyRate =
         typeof profile.dailyRentPrice === "number" && profile.dailyRentPrice > 0 ? profile.dailyRentPrice : 0;
-      if ((profile.monthlyRent > 0 || profileDailyRate > 0) && !hasUpfrontLastRent) {
+      const profileWeeklyRate =
+        typeof profile.weeklyRentPrice === "number" && profile.weeklyRentPrice > 0 ? profile.weeklyRentPrice : 0;
+      if ((profile.monthlyRent > 0 || profileDailyRate > 0 || profileWeeklyRate > 0) && !hasUpfrontLastRent) {
         const chargeKey = `rent|${emailLower}|${profile.propertyId}|${rentMonth}`;
         const alreadyExists =
           activeExisting.some((c) => chargeBusinessKey(c) === chargeKey) ||
@@ -2207,13 +2234,17 @@ function syncAllRecurringRentCharges(): boolean {
           const householdAmount =
             profileDailyRate > 0
               ? Number((daysBilled * profileDailyRate).toFixed(2))
-              : Number((profile.monthlyRent * proratedFactor).toFixed(2));
+              : profileWeeklyRate > 0
+                ? weeklyRentForBillableDays(profileWeeklyRate, daysBilled)
+                : Number((profile.monthlyRent * proratedFactor).toFixed(2));
           const rawTitlePrefix =
             profileDailyRate > 0
               ? `${isPartialLastMonth ? "Prorated rent" : "Rent"} (${daysBilled} days × ${formatRoomPriceAmount(profileDailyRate)}/day)`
-              : isPartialLastMonth
-                ? "Prorated rent"
-                : "Rent";
+              : profileWeeklyRate > 0
+                ? `${isPartialLastMonth ? "Prorated rent" : "Rent"} (${Number((daysBilled / 7).toFixed(2))} weeks × ${formatRoomPriceAmount(profileWeeklyRate)}/week)`
+                : isPartialLastMonth
+                  ? "Prorated rent"
+                  : "Rent";
           const rentSplit = applyBundleGroupSplit(householdAmount, rawTitlePrefix, splitCtx);
           const amount = rentSplit.amount;
           const titlePrefix = rentSplit.title;
@@ -2414,6 +2445,12 @@ export function upsertRecurringRentProfile(input: {
    * omit the field entirely to leave whatever the profile already has.
    */
   dailyRentPrice?: number;
+  /**
+   * Headline weekly rate when the room is priced by the week. Pass an explicit `0`
+   * to CLEAR a previously weekly-priced profile; omit the field entirely to leave
+   * whatever the profile already has.
+   */
+  weeklyRentPrice?: number;
   monthlyUtilities?: number;
   /** Monthly custom fees to bill each recurring month. An explicit array (even []) is
    *  authoritative — [] clears prior fees; omitting the field inherits the existing set. */
@@ -2461,6 +2498,10 @@ export function upsertRecurringRentProfile(input: {
       input.dailyRentPrice !== undefined && Number.isFinite(input.dailyRentPrice)
         ? (input.dailyRentPrice > 0 ? Number(input.dailyRentPrice) : undefined)
         : existing?.dailyRentPrice,
+    weeklyRentPrice:
+      input.weeklyRentPrice !== undefined && Number.isFinite(input.weeklyRentPrice)
+        ? (input.weeklyRentPrice > 0 ? Number(input.weeklyRentPrice) : undefined)
+        : existing?.weeklyRentPrice,
     monthlyUtilities,
     monthlyFees,
     // `recordApprovedApplicationCharges` always passes all four (undefined when
@@ -3041,18 +3082,21 @@ function buildApprovedStandardChargeDrafts(
   const dailyUtilitiesRate = entireHome ? sub.entireHomeDailyUtilitiesRate : room?.dailyUtilitiesRate;
   const dailyBasisRate =
     residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomDailyRentPrice(room);
+  const weeklyBasisRate =
+    residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomWeeklyRentPrice(room);
   const endsInsideFirstMonth = intraMonthStaySpan(opts.leaseStart, opts.leaseEnd) !== null;
   const dailyUtilInRange =
     prorateMethod !== "daily_rate" || Boolean(dailyUtilitiesRate && dailyUtilitiesRate > 0);
 
   const rentAmount = selectedRoomRentAmount(row);
-  if (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0)) {
+  if (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (weeklyBasisRate && weeklyBasisRate > 0)) {
     const rentCharge = firstMonthRentChargeForLeaseStart(
       rentAmount,
       opts.leaseStart,
       prorateMethod,
       dailyRentRate,
       dailyBasisRate,
+      weeklyBasisRate,
       opts.leaseEnd,
     );
     if (rentCharge) pushDraft(rentCharge.kind, rentCharge.amount, rentCharge.title);
@@ -3077,8 +3121,8 @@ function buildApprovedStandardChargeDrafts(
   }
 
   const lastMonthRentCharge =
-    !endsInsideFirstMonth && (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0))
-      ? lastMonthChargeForLeaseEnd(rentAmount, opts.leaseEnd, "rent", prorateMethod, dailyRentRate, dailyBasisRate)
+    !endsInsideFirstMonth && (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (weeklyBasisRate && weeklyBasisRate > 0))
+      ? lastMonthChargeForLeaseEnd(rentAmount, opts.leaseEnd, "rent", prorateMethod, dailyRentRate, dailyBasisRate, weeklyBasisRate)
       : null;
   if (lastMonthRentCharge) {
     pushDraft(
@@ -3589,6 +3633,8 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
   // does over the room's listing monthly rent.
   const dailyBasisRate =
     residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomDailyRentPrice(room);
+  const weeklyBasisRate =
+    residentNegotiatedMonthlyRent(row) > 0 ? undefined : roomWeeklyRentPrice(room);
 
   // A lease that starts and ends in one calendar month is billed once, by the first-period
   // charges below; its last-month charges would re-bill the same days. Keyed on the calendar
@@ -3597,8 +3643,8 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
   const endsInsideFirstMonth = intraMonthStaySpan(leaseStart, leaseEnd) !== null;
 
   const rentAmount = selectedRoomRentAmount(row);
-  if (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0)) {
-    const rentCharge = firstMonthRentChargeForLeaseStart(rentAmount, leaseStart, prorateMethod, dailyRentRate, dailyBasisRate, leaseEnd);
+  if (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (weeklyBasisRate && weeklyBasisRate > 0)) {
+    const rentCharge = firstMonthRentChargeForLeaseStart(rentAmount, leaseStart, prorateMethod, dailyRentRate, dailyBasisRate, weeklyBasisRate, leaseEnd);
     if (rentCharge) pushCharge(rentCharge.kind, rentCharge.amount, rentCharge.title, true, moveInDue);
   }
 
@@ -3626,8 +3672,8 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
     }
   }
 
-  const lastMonthRentCharge = !endsInsideFirstMonth && (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0))
-    ? lastMonthChargeForLeaseEnd(rentAmount, leaseEnd, "rent", prorateMethod, dailyRentRate, dailyBasisRate)
+  const lastMonthRentCharge = !endsInsideFirstMonth && (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (weeklyBasisRate && weeklyBasisRate > 0))
+    ? lastMonthChargeForLeaseEnd(rentAmount, leaseEnd, "rent", prorateMethod, dailyRentRate, dailyBasisRate, weeklyBasisRate)
     : null;
   if (lastMonthRentCharge) {
     pushCharge(
@@ -3762,6 +3808,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
         // Always explicit: 0 when the room is monthly, so re-approving a room that was
         // switched daily -> monthly clears the old daily rate instead of inheriting it.
         dailyRentPrice: dailyBasisRate && dailyBasisRate > 0 ? dailyBasisRate : 0,
+        weeklyRentPrice: weeklyBasisRate && weeklyBasisRate > 0 ? weeklyBasisRate : 0,
         monthlyUtilities: utilities.amount > 0 ? Number(utilities.amount.toFixed(2)) : 0,
         // Always explicit (even []) so removing every monthly fee clears the stored set on
         // re-approval rather than inheriting stale fees.
