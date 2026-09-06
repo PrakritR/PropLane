@@ -476,6 +476,7 @@ export const escalateLeasingToManagerTool = defineWriteTool({
       tool_name: LEASING_ESCALATE_TOOL_NAME,
       input_summary: {
         prospectPhone: scope.prospectPhoneE164,
+        prospectEmail: scope.prospectEmail ?? null,
         summary: input.summary.slice(0, 200),
       },
       dedupe_key: dedupeKey,
@@ -492,25 +493,36 @@ export const escalateLeasingToManagerTool = defineWriteTool({
       return { ok: false, error: "Could not record the escalation." };
     }
 
+    /* Name the channel the prospect actually used. Telling a manager someone
+       "texted your work number ()" — with an empty phone — is worse than no
+       notice at all: it points them at the wrong place to reply. */
+    const emailedIn = scope.channel === "email";
+    const contact = emailedIn
+      ? scope.prospectEmail?.trim() || "an unknown address"
+      : scope.prospectPhoneE164;
     await notifyManagerFromAgent(ctx.db, {
       landlordId: ctx.landlordId,
-      subject: "Leasing text needs you",
+      subject: emailedIn ? "Leasing email needs you" : "Leasing text needs you",
       text: [
-        `A prospect texted your work number (${scope.prospectPhoneE164}):`,
+        emailedIn
+          ? `A prospect emailed your work address (${contact}):`
+          : `A prospect texted your work number (${contact}):`,
         "",
         input.summary,
         "",
-        "Open Communication → SMS to reply from your work number.",
+        emailedIn
+          ? "Open Communication to reply."
+          : "Open Communication → SMS to reply from your work number.",
       ].join("\n"),
       threadType: "leasing_sms_escalation",
-      url: "/portal/communication/sms",
+      url: emailedIn ? "/portal/communication" : "/portal/communication/sms",
       notify: { push: true, sms: true },
     });
     await ctx.db
       .from("agent_sessions")
       .update({ status: "escalated", updated_at: new Date().toISOString() })
       .eq("id", scope.sessionId);
-    track("leasing_sms_escalated", ctx.landlordId, { channel: "sms" });
+    track("leasing_sms_escalated", ctx.landlordId, { channel: emailedIn ? "email" : "sms" });
     return { ok: true, message: "The manager has been notified and will follow up." };
   },
 });

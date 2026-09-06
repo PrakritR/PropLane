@@ -4,6 +4,7 @@ import { PropertyPipelineAccountSync } from "@/components/portal/property-pipeli
 import { AxisAssistant } from "@/components/portal/axis-assistant";
 import { PortalAssistantDockRail } from "@/components/portal/portal-assistant-dock-rail";
 import { PortalDataPrefetch } from "@/components/portal/portal-data-prefetch";
+import { ManagerMessagingSetupBanner } from "@/components/portal/messaging-setup-banner";
 import { ManagerPlanBanner } from "@/components/portal/pro-plan-banner";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSessionKeepalive } from "@/components/portal/portal-session-keepalive";
@@ -68,6 +69,12 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
             {nav.showPlanBanner ? (
               <ManagerPlanBanner lapsedFromTrial={nav.planLapsedFromTrial} />
             ) : null}
+            {/* Same slot, every page: without a work number the listing has no
+                Text button and no page said why — only the property preview
+                tab carried the notice, and a manager who never opens that tab
+                never found out. It hides itself for a free account, which is
+                already showing the upgrade banner above. */}
+            <ManagerMessagingSetupBanner />
             <main id={PORTAL_MAIN_CONTENT_ID} tabIndex={-1} className={PORTAL_MAIN_CONTENT_CLASS}>
               <PortalHorizontalScrollRoot>
                 <div className={PORTAL_MAIN_CONTENT_INNER_CLASS}>
