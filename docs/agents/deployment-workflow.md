@@ -36,24 +36,21 @@ If Production deployments stay on an old commit:
 ## Ship path
 
 ```
-agent branch  →  main  →  staging  →  production
-     (review)    (dev DB,     (staging DB,   (live + TestFlight)
-                  you test)    dedicated QA)
+agent branch  →  prakrit (:3000)  →  main  →  staging  →  production
+  sandbox:open     ship:to-prakrit      (no-mistakes again)
+  + review path    + no-mistakes
 ```
 
 1. Land feature work on your agent / feature branch only.
-2. Merge to `main` after captain approval; verify on the `main` Preview and
-   localhost.
-3. **One command for steps 2–3:** `npm run ship:integrate -- --source cursor-1`
-   (or `prakrit`) merges `origin/<source>` into `main`, pushes, then
-   fast-forwards `staging`. GitHub Action: **Promote** with target `integrate`.
-4. Or run separately: `npm run ship:staging` (or **Promote** target `staging`).
-5. Dedicated QA tests the staging URL. Staging talks to
-   `xwszcafaontidfgznlxd`, never the live production project.
-6. Apply production Supabase migrations **before** pushing `production`.
-7. Fast-forward `staging` → `production` (`npm run ship:production` or the
-   **Promote** Action with target `production`).
-8. Confirm Vercel Production **and** iOS TestFlight succeeded.
+2. **Before handoff:** `npm run sandbox:open -- </route>` (mandatory for all agents).
+3. Captain promotes with **`npm run ship:to-prakrit -- --source <keeper>`**
+   (security review + no-mistakes, opens prakrit on the review route).
+4. Captain tests on `http://localhost:3000`, then
+   `bin/fm-proplane-promote-prakrit-to-main.sh --push-main` (also no-mistakes).
+5. Or merge to `main` directly: `npm run ship:integrate -- --source <branch>`
+   — **does not** run no-mistakes; prefer the prakrit ladder for gated promotion.
+6. `npm run ship:staging` then dedicated QA on staging URL.
+7. `npm run ship:production` after QA sign-off (live + TestFlight).
 
 ## Enforcement (do not weaken)
 

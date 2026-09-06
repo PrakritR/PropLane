@@ -501,6 +501,12 @@ The one hard stop is `production`: pushing it deploys the live site AND ships an
 iOS TestFlight build, so it is promoted only after dedicated QA signs off on
 `staging`.
 
+**Agent handoff (every pane):** before saying work is ready, run
+`npm run sandbox:open -- </route>` and include the printed Review URL.
+**Captain promote to prakrit:** `npm run ship:to-prakrit -- --source <keeper>`
+runs security review + no-mistakes, then opens `localhost:3000` on the route
+recorded in `.proplane-review-path`. Details: `docs/agents/sandbox-open-review.md`.
+
 # Branching & deployment (Vercel)
 
 The Vercel project (`axis-2`, connected to `PrakritR/AXIS-2` / `PrakritR/PropLane`)
