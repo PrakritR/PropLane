@@ -29,7 +29,7 @@ import { agentChatThreadTitleFromPrompts } from "@/lib/agent/chat-title";
  * Deliberately NOT sent back up as conversation history: the server re-derives
  * every turn, and the feedback route re-verifies ownership server-side.
  */
-export type ChatMessage = { role: "user" | "assistant"; content: string; traceId?: string };
+export type ChatMessage = { role: "user" | "assistant"; content: string; traceId?: string; attachmentContext?: string };
 
 export function visibleConversationMessages(messages: ChatMessage[]): ChatMessage[] {
   return messages.filter((message) => message.role === "user" || message.content.trim().length > 0);
@@ -65,6 +65,7 @@ type AssistantTransportData = {
   sessionId?: string | null;
   traceId?: string;
   archiveSaved?: boolean;
+  attachmentContext?: string;
 };
 
 /** Parse the SSE transport while retaining JSON compatibility for older routes. */
@@ -400,7 +401,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
           body: JSON.stringify({
-            messages: next,
+            messages: next.map(message => ({ ...message, content: message.attachmentContext ? `${message.attachmentContext}\n\n${message.content}` : message.content })),
             ...(activeThreadId ? { sessionId: activeThreadId } : {}),
             archive: multiThread,
             ...(requestContext?.contextHint?.trim() ? { contextHint: requestContext.contextHint.trim() } : {}),
@@ -433,7 +434,16 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
           // The stream can populate a provisional reply. Replacing it with the
           // completed transport payload guarantees that the archived thread and
           // local state agree, while retaining the optional Langfuse trace id.
-          const completed = completedAssistantTurnMessages(next, data.reply, data.traceId);
+          // The server may report what it read out of an attachment; stamp that on the user
+          // turn it belongs to. The reply itself still goes through
+          // completedAssistantTurnMessages, so an empty one is dropped rather than archived
+          // as a blank assistant bubble.
+          const withContext = data.attachmentContext
+            ? next.map((message, index) => index === next.length - 1
+              ? { ...message, attachmentContext: data.attachmentContext }
+              : message)
+            : next;
+          const completed = completedAssistantTurnMessages(withContext, data.reply, data.traceId);
           setMessages(completed);
           if (data.sessionId) {
             setActiveThreadId(data.sessionId);

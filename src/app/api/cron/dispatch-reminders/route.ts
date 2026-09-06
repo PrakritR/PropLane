@@ -21,6 +21,7 @@ import {
   sweepWorkOrderReminders,
 } from "@/lib/reminders/subjects/records.server";
 import { sweepTourReminders } from "@/lib/reminders/subjects/tours.server";
+import { sweepInspectionReminders } from "@/lib/reminders/subjects/inspections.server";
 import { sweepBookingReminders } from "@/lib/reminders/subjects/bookings.server";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -76,6 +77,7 @@ export async function GET(req: Request) {
       ["lease", sweepLeaseReminders],
       ["outgoing_payment", sweepOutgoingPaymentReminders],
       ["booking", sweepBookingReminders],
+      ["inspection", sweepInspectionReminders],
     ] as const) {
       try {
         swept += await sweep(db);

@@ -1,3 +1,4 @@
+import { attachPrivateInspectionSources } from "@/lib/inspections/attachment-intake.server";
 import { assistantContextHintFromRequest, withAssistantTaskContext } from "@/lib/agent/assistant-turn-context";
 import { NextResponse } from "next/server";
 import { resolveResidentAgentContext } from "@/lib/tools/resident-context";
@@ -83,6 +84,8 @@ export async function POST(req: Request) {
   const attached = applyChatAttachments(messages, body);
   if (!attached.ok) return NextResponse.json({ error: attached.error }, { status: 400 });
   messages = attached.messages;
+  try { messages = await attachPrivateInspectionSources(ctx.db, ctx.userId, messages); }
+  catch { return NextResponse.json({ error: "Could not save your photo. Please try again." }, { status: 503 }); }
 
   const sessionKind = body.archive === false ? MODAL_CHAT_SESSION_KIND : PORTAL_CHAT_SESSION_KIND;
   const sessionId = await ensureAgentSession(ctx, "resident", {
@@ -171,7 +174,7 @@ export async function POST(req: Request) {
     }
 
     const archiveSaved = await appendAgentMessages(ctx, "resident", sessionId, [
-      { role: "user", content: visibleUserText },
+      { role: "user", content: lastUserText(messages) },
       {
         role: "assistant",
         content: reply,
@@ -199,6 +202,7 @@ export async function POST(req: Request) {
     return assistantResponse(req, {
       reply,
       toolTrace: result.toolTrace,
+      ...(lastUserText(messages) !== visibleUserText && lastUserText(messages).startsWith("Private photo source references") ? { attachmentContext: lastUserText(messages).slice(0, lastUserText(messages).indexOf("\n\n")) } : {}),
       sessionId,
       ...(traceId ? { traceId } : {}),
       ...(sessionKind === PORTAL_CHAT_SESSION_KIND ? { archiveSaved } : {}),

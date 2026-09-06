@@ -129,6 +129,9 @@ export type ResidentChargeMessage = {
 };
 
 export type HouseholdCharge = {
+  migrationSourceId?: string;
+  sourceUtilityBillId?: string;
+  utilityAllocationId?: string;
   id: string;
   createdAt: string;
   applicationId?: string;
@@ -695,9 +698,9 @@ const PENDING_UPFRONT_MOVE_IN_KINDS = new Set<HouseholdChargeKind>([
 ]);
 
 function isPendingUpfrontMoveInCharge(
-  charge: Pick<HouseholdCharge, "kind" | "recurringRentProfileId" | "rentMonth">,
+  charge: Pick<HouseholdCharge, "kind" | "recurringRentProfileId" | "rentMonth" | "utilityAllocationId" | "migrationSourceId">,
 ): boolean {
-  if (charge.recurringRentProfileId) return false;
+  if (charge.utilityAllocationId || charge.migrationSourceId || charge.recurringRentProfileId) return false;
   if (charge.kind === "rent") return false;
   if (charge.kind === "utilities" && charge.rentMonth) return false;
   return (
@@ -707,9 +710,9 @@ function isPendingUpfrontMoveInCharge(
 }
 
 function upfrontApprovedChargeSlotKey(
-  charge: Pick<HouseholdCharge, "kind" | "applicationId" | "recurringRentProfileId" | "residentEmail" | "propertyId" | "rentMonth">,
+  charge: Pick<HouseholdCharge, "kind" | "applicationId" | "recurringRentProfileId" | "residentEmail" | "propertyId" | "rentMonth" | "utilityAllocationId" | "migrationSourceId">,
 ): string | null {
-  if (charge.recurringRentProfileId) return null;
+  if (charge.utilityAllocationId || charge.migrationSourceId || charge.recurringRentProfileId) return null;
   const email = charge.residentEmail.trim().toLowerCase();
   if (!email || !charge.propertyId) return null;
   if (charge.kind === "first_month_rent" || charge.kind === "prorated_rent") {
@@ -728,6 +731,7 @@ function upfrontApprovedChargeSlotKey(
 }
 
 function chargeBusinessKey(charge: HouseholdCharge): string {
+  if (charge.migrationSourceId || charge.utilityAllocationId) return `source_record|${charge.managerUserId}|${charge.id}`;
   if (charge.kind === "rent") {
     return `rent|${charge.residentEmail.trim().toLowerCase()}|${charge.propertyId}|${charge.rentMonth ?? ""}`;
   }
@@ -2085,8 +2089,9 @@ export function recordWorkOrderResidentCharge(input: {
 function syncAllRecurringRentCharges(): boolean {
   if (!isBrowser()) return false;
   backfillMonthlyUtilitiesOnRentProfiles();
+  const held = new Set(readManagerApplicationRows().filter(row => row.migrationBillingHold).map(row => `${row.managerUserId}|${row.email?.trim().toLowerCase()}`));
   const profiles = readRentProfiles().filter(
-    (p) => p.active && (p.monthlyRent > 0 || (p.dailyRentPrice ?? 0) > 0 || (p.monthlyUtilities ?? 0) > 0),
+    (p) => !held.has(`${p.managerUserId}|${p.residentEmail.trim().toLowerCase()}`) && p.active && (p.monthlyRent > 0 || (p.dailyRentPrice ?? 0) > 0 || (p.monthlyUtilities ?? 0) > 0),
   );
   if (profiles.length === 0) return false;
 
@@ -2336,6 +2341,7 @@ export function reconcileApprovedResidentPaymentSchedules(managerUserId: string 
   const existingCharges = readAll();
   const existingProfiles = readRentProfiles();
   const filteredCharges = existingCharges.filter((charge) => {
+    if (charge.migrationSourceId || charge.utilityAllocationId) return true;
     if (charge.managerUserId !== scope) return true;
     // Manager "Add payment" one-offs (hc_mgr_*) must survive even when the
     // resident isn't in the approved-current set (e.g. co-managed / catalog
@@ -2908,7 +2914,7 @@ function removeStalePendingUpfrontDuplicates(
   });
   const aliasIds = new Set(approvedChargeIdAliases(applicationId, kind));
   return rows.filter((charge) => {
-    if (charge.status !== "pending") return true;
+    if (charge.utilityAllocationId || charge.migrationSourceId || charge.status !== "pending") return true;
     if (charge.id === keepId) return true;
     if (aliasIds.has(charge.id) || (charge.applicationId === applicationId && charge.kind === kind)) {
       return false;
@@ -2924,7 +2930,7 @@ function patchPendingApprovedChargeAmount(applicationId: string, draft: Approved
   const rows = readAll();
   const matches = rows.filter(
     (charge) =>
-      charge.status === "pending" &&
+      !charge.utilityAllocationId && !charge.migrationSourceId && charge.status === "pending" &&
       charge.kind === draft.kind &&
       (aliasIds.has(charge.id) ||
         (charge.applicationId === applicationId && charge.kind === draft.kind)),
@@ -3246,6 +3252,7 @@ function monthlyCustomFees(sub: ManagerListingSubmissionV1 | null | undefined): 
 }
 
 export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerUserId: string | null, force = false): boolean {
+  if (row.migrationBillingHold) return false;
   if (!isBrowser()) return false;
   const residentEmail = row.email?.trim();
   if (!residentEmail || !residentEmail.includes("@")) return false;
@@ -3304,8 +3311,8 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
     }
     const hasExisting = readAll().some(
       (c) =>
-        (c.applicationId === applicationId && c.kind !== "application_fee" && c.status === "pending") ||
-        ((c.kind === "rent" || c.kind === "utilities") &&
+        (!c.utilityAllocationId && !c.migrationSourceId && c.applicationId === applicationId && c.kind !== "application_fee" && c.status === "pending") ||
+        (!c.utilityAllocationId && !c.migrationSourceId && (c.kind === "rent" || c.kind === "utilities") &&
           c.status === "pending" &&
           c.residentEmail.trim().toLowerCase() === emailLowerForFilter &&
           c.propertyId === propertyId),
@@ -3324,7 +3331,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
         moveInDue,
       });
       const pendingForApp = readAll().filter(
-        (c) => c.applicationId === applicationId && c.status === "pending" && c.kind !== "application_fee",
+        (c) => !c.utilityAllocationId && !c.migrationSourceId && c.applicationId === applicationId && c.status === "pending" && c.kind !== "application_fee",
       );
       const expectedKinds = new Set(drafts.map((draft) => draft.kind));
       const staleKind = pendingForApp.some((charge) => !expectedKinds.has(charge.kind));
@@ -3353,7 +3360,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
       })();
       const staleOrphanUpfront = readAll().some(
         (charge) =>
-          charge.status === "pending" &&
+          !charge.utilityAllocationId && !charge.migrationSourceId && charge.status === "pending" &&
           isPendingUpfrontMoveInCharge(charge) &&
           !isManagerAddedOneOffCharge(charge) &&
           charge.residentEmail.trim().toLowerCase() === emailLowerForFilter &&
@@ -3366,6 +3373,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
   // Preserve paid charges — only wipe pending ones so they can be regenerated with correct amounts.
   // Also wipe pending recurring rent/utilities for this resident+property so updated amounts are used.
   const rows = readAll().filter((charge) => {
+    if (charge.utilityAllocationId || charge.migrationSourceId) return true;
     if (charge.applicationId === applicationId && charge.kind !== "application_fee" && charge.kind !== "holding_deposit" && charge.status === "pending") return false;
     if (
       charge.status === "pending" &&

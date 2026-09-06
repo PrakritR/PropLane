@@ -222,6 +222,11 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     />
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error}</p>}
     {!error && data.notice && <p role="status" className="rounded-xl border border-border p-3 text-sm text-muted">{data.notice}</p>}
+    {!loading && residencies.filter(r => r.requiredKinds?.includes(kind) && !reports.some(report => report.application_id === r.id)).map(residency =>
+      <div key={residency.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-border p-4">
+        <p className="min-w-0 flex-1 text-sm">{kindLabel(kind)} inspection required · {residency.name} · {inspectionRoomLabel(residency.room)}</p>
+        <Button variant="outline" data-attr="inspection-required-start" onClick={() => { setApplication(residency.id); setBaseline(""); setCreateOpen(true); }}>Start inspection</Button>
+      </div>)}
     {loading ? <div role="status" aria-label="Loading inspections" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div> : <PortalRecordListSurface
       isEmpty={rows.length === 0}
       empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to create and review residency inspections." : kind === "move-in" ? "No one is moving in or living here yet. Approve an application and give it a property placement to start." : "No one is living here or has moved out yet."}</p>}

@@ -4674,6 +4674,17 @@ export function ManagerAddListingForm({
                         </Select>
                       </GridField>
                       <GridField>
+                        <FieldLabel>Room inspections</FieldLabel>
+                        <div className="space-y-3 py-2">
+                          {(["moveIn", "moveOut"] as const).map(kind => <label key={kind} className="flex items-center gap-3 text-sm">
+                            <input type="checkbox" className="h-4 w-4 accent-primary" checked={room[`${kind}InspectionRequired`] === true}
+                              data-attr={`listing-room-${kind === "moveIn" ? "move-in" : "move-out"}-inspection-required`}
+                              onChange={e => setRoom(i, { [`${kind}InspectionRequired`]: e.target.checked })} />
+                            Require {kind === "moveIn" ? "move-in" : "move-out"} inspection
+                          </label>)}
+                        </div>
+                      </GridField>
+                      <GridField>
                         <FieldLabel optional hint="Shown beside the rent so a prospect can see why one room costs more.">
                           Size (sq ft)
                         </FieldLabel>

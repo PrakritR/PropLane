@@ -15,6 +15,10 @@ export function reminderAnchorMatches(expected: unknown, current: unknown): bool
 
 /** Re-read only at send time so cancelled/completed/rescheduled subjects never emit stale facts. */
 export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRow): Promise<boolean> {
+  if (row.kind === "inspection" || row.kind === "inspection_manager") {
+    const { inspectionReminderIsCurrent } = await import("./subjects/inspections.server");
+    return inspectionReminderIsCurrent(db, row);
+  }
   const expectedAnchor = row.payload.anchorIso;
   // Backward compatibility for rows created before anchor snapshots shipped.
   if (!iso(expectedAnchor)) return true;

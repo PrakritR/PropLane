@@ -4,6 +4,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   readHouseholdCharges,
+  seedDemoHouseholdCharges,
+  type HouseholdCharge,
   reconcileApprovedResidentPaymentSchedules,
   recordApprovedApplicationCharges,
   removeResidentHouseholdPaymentData,
@@ -151,4 +153,29 @@ describe("resident lease billing sync", () => {
     const charges = readHouseholdCharges();
     expect(charges.some((c) => c.kind === "security_deposit")).toBe(true);
   });
+  it("retains source charges through ordinary reconciliation and forced regeneration", () => {
+    const row = residentRow("2026-09-01");
+    writeManagerApplicationRows([row]);
+    const charges: HouseholdCharge[] = ["bill-one", "bill-two", "history-one", "history-two"].map((id, i) => ({
+      id, applicationId: row.id, managerUserId: MANAGER_ID, residentEmail: EMAIL, residentName: row.name,
+      propertyId: PROPERTY_ID, propertyLabel: row.property, kind: i < 2 ? "utilities" : "rent",
+      title: id, createdAt: "2026-09-01T00:00:00Z", amountLabel: "$50.00", balanceLabel: "$50.00", status: "pending", blocksLeaseUntilPaid: false,
+      ...(i < 2 ? { utilityAllocationId: id, sourceUtilityBillId: id } : { migrationSourceId: id }),
+    }));
+    seedDemoHouseholdCharges(charges, []);
+    recordApprovedApplicationCharges(row, MANAGER_ID, false);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    reconcileApprovedResidentPaymentSchedules(MANAGER_ID, true);
+    for (const source of charges) expect(readHouseholdCharges().find(c => c.id === source.id)).toMatchObject(source);
+  });
+  it("holds new imported tenancies out of automatic billing without deleting their history", () => {
+    const row = { ...residentRow("2026-09-01"), migrationBillingHold: true };
+    writeManagerApplicationRows([row]);
+    const source: HouseholdCharge = { id: "imported-history", applicationId: row.id, managerUserId: MANAGER_ID, residentEmail: EMAIL, residentName: row.name, propertyId: PROPERTY_ID, propertyLabel: row.property, kind: "rent", title: "Opening balance", createdAt: "2026-09-01T00:00:00Z", amountLabel: "$50.00", balanceLabel: "$50.00", status: "pending", blocksLeaseUntilPaid: false, migrationSourceId: "source" };
+    seedDemoHouseholdCharges([source], []);
+    expect(recordApprovedApplicationCharges(row, MANAGER_ID, true)).toBe(false);
+    reconcileApprovedResidentPaymentSchedules(MANAGER_ID, true);
+    expect(readHouseholdCharges()).toEqual([source]);
+  });
+
 });

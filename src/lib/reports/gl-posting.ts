@@ -274,6 +274,20 @@ export type GlExpenseInput = {
   memo?: string | null;
 };
 
+/** Cash income without an associated receivable (e.g. reviewed historical property income). */
+export async function postGlManualIncomeEntry(db: SupabaseClient, input: GlPaymentInput): Promise<string | null> {
+  if (input.amountCents <= 0) return null;
+  return insertJournalEntry(db, {
+    managerUserId: input.managerUserId, propertyId: input.propertyId,
+    entryDate: input.entryDate, memo: input.description, sourceType: "manual", sourceId: input.sourceChargeId,
+    linkLedgerEntryId: input.linkLedgerEntryId,
+    lines: [
+      { accountCode: cashAccountForCategory(input.categoryCode), debitCents: input.amountCents, creditCents: 0, propertyId: input.propertyId },
+      { accountCode: input.categoryCode, debitCents: 0, creditCents: input.amountCents, propertyId: input.propertyId },
+    ],
+  });
+}
+
 export async function postGlExpenseEntry(db: SupabaseClient, input: GlExpenseInput): Promise<string | null> {
   if (input.amountCents <= 0) return null;
 

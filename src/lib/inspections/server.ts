@@ -15,6 +15,7 @@ import {
 } from "./model";
 
 import { createRoomInspectionDocument, inspectionRoomListing, resolveInspectionRoom } from "./room-template";
+import { roomInspectionRequirements } from "./requirements";
 
 export type InspectionActor = { role: "manager"; context: AgentContext } | { role: "resident"; context: ResidentAgentContext };
 const TABLE = "resident_inspections";
@@ -184,15 +185,28 @@ function residencyFromRecord(record: Record<string, unknown>): ResidencyView {
 export async function listInspectionResidencies(actor: InspectionActor): Promise<InspectionResidency[]> {
   const [scope, editScope] = await Promise.all([scopeFor(actor), scopeFor(actor, "edit")]);
   const records = await scopedRows(actor, "manager_application_records", scope, residencyColumns);
-  return records.flatMap(record => {
-    const residency = residencyFromRecord(record);
+  const visible = records.map(residencyFromRecord).filter(residency => residency.approved &&
+    residency.identity.property_id && residency.identity.resident_email && authorized(actor, scope, residency.identity));
+  const propertyIds = [...new Set(visible.map(r => r.identity.property_id))];
+  // Keyed on property AND owner: a residency's denormalized `property_id` can point
+  // at a row that has since changed owner, and requirements must never be read from
+  // another manager's listing. `sweepInspectionReminders` matches the same pair.
+  const properties = new Map<string, unknown>();
+  for (let offset = 0; offset < propertyIds.length; offset += 100) {
+    const { data, error } = await actor.context.db.from("manager_property_records")
+      .select("id,manager_user_id,rooms:property_data->listingSubmission->rooms,legacy_rooms:row_data->submission->rooms")
+      .in("id", propertyIds.slice(offset, offset + 100));
+    if (error) throw new InspectionError("Could not load room inspection requirements.", 500);
+    for (const property of data ?? []) properties.set(`${property.id}::${String(property.manager_user_id ?? "")}`, property.rooms ?? property.legacy_rooms);
+  }
+  return visible.map(residency => {
     const identity = residency.identity;
-    if (!residency.approved) return [];
-    if (!identity.property_id || !identity.resident_email || !authorized(actor, scope, identity)) return [];
-    return [{ id: residency.id, name: residency.name, property: residency.propertyLabel,
-      room: residency.roomLabel, moveInDate: residency.moveInDate, moveOutDate: residency.moveOutDate,
+    const rooms = properties.get(`${identity.property_id}::${identity.manager_user_id}`);
+    return { id: residency.id, name: residency.name, property: residency.propertyLabel,
+      room: residency.roomLabel, requiredKinds: roomInspectionRequirements(identity.property_id, residency.roomLabel, rooms),
+      moveInDate: residency.moveInDate, moveOutDate: residency.moveOutDate,
       occupancy: residencyOccupancy(residency.moveInDate, residency.moveOutDate),
-      canCreate: Boolean(residency.roomLabel && residency.roomLabel !== identity.property_id) && authorized(actor, editScope, identity) }];
+      canCreate: Boolean(residency.roomLabel && residency.roomLabel !== identity.property_id) && authorized(actor, editScope, identity) };
   });
 }
 
@@ -312,13 +326,14 @@ export async function inspectionDetail(actor: InspectionActor, id: string): Prom
     canEdit: authorized(actor, editScope, report) };
 }
 
-export async function addInspectionPhoto(actor: InspectionActor, id: string, itemId: string, revision: number, file: File) {
+export async function addInspectionPhoto(actor: InspectionActor, id: string, itemId: string, revision: number, file: File, sourceRef?: string) {
   const report = await getInspection(actor, id, "edit");
   if (report.status !== "draft" || report.revision !== revision) throw new InspectionError("Reload the current draft before adding photos.", 409);
   const document = structuredClone(report.document);
   const items = document.areas.flatMap(a => a.items);
   const item = items.find(i => i.id === itemId);
   if (!item) throw new InspectionError("Checklist item not found.");
+  if (sourceRef && item[actor.role].photos.some(p => p.sourceRef === sourceRef && p.uploadedBy === actor.context.userId)) return report;
   if (items.flatMap(i => [...i.manager.photos, ...i.resident.photos]).length >= 60) throw new InspectionError("This report has reached its 60-photo limit.");
   if (!file.size || file.size > 5 * 1024 * 1024) throw new InspectionError("Choose a photo smaller than 5 MB.");
   const source = Buffer.from(await file.arrayBuffer());
@@ -334,7 +349,7 @@ export async function addInspectionPhoto(actor: InspectionActor, id: string, ite
   const storage = actor.context.db.storage.from(INSPECTION_BUCKET);
   const { error } = await storage.upload(path, image, { contentType: "image/jpeg", cacheControl: "31536000", upsert: false });
   if (error) throw new InspectionError("Could not upload the photo.", 500);
-  item[actor.role].photos.push({ id: photoId, path, uploadedBy: actor.context.userId, uploadedAt: new Date().toISOString() });
+  item[actor.role].photos.push({ id: photoId, path, uploadedBy: actor.context.userId, uploadedAt: new Date().toISOString(), ...(sourceRef ? { sourceRef } : {}) });
   document.history.push({ action: "photo-added", role: actor.role, userId: actor.context.userId, at: new Date().toISOString() });
   try { return await updateInspection(actor, report, document); }
   catch (error) { await storage.remove([path]); throw error; }

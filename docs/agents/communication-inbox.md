@@ -223,6 +223,13 @@ conversations) plus the archive toggle. Invariants:
   `[A-Za-z0-9._-]` (Supabase key charset; also blocks `..`, separators, and
   `Content-Disposition` header injection). Ownership checks still read `path[0]`,
   and two-segment legacy paths still resolve.
+- **The bucket has a second writer that is not a message attachment.** Inspection
+  chat/MMS intake stores private photo sources here as
+  `<userId>/inspection-chat/<ownerId|portal>/<sha256>.jpg`; they are never listed
+  on a thread and are filed into a report only through the confirm-gated
+  `file_inspection_photo`. Ownership still reads `path[0]`. Rules live in
+  `docs/agents/inspections.md` — count this writer in when changing the bucket's
+  configuration below.
 - **Read the name from `?path=`, never the URL's last segment.** The serve URL
   percent-encodes the whole path, so splitting the URL yields the route name;
   that is why recipient-side chips were all labelled "inbox-attachments", and why

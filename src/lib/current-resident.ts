@@ -4,6 +4,7 @@ import { isInProgressApplicationRow } from "@/lib/rental-application/in-progress
 
 /** Pending (submitted) or active approved residents that should keep generated payment schedules. */
 export function shouldReconcileResidentPaymentSchedule(row: DemoApplicantRow, nowMs = Date.now()): boolean {
+  if (row.migrationBillingHold) return false;
   if (!row.email?.trim()) return false;
   if (row.bucket === "pending") return !isDraftApplicationRow(row);
   return isCurrentResidentApplicationRow(row, nowMs);

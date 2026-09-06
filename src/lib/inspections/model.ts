@@ -11,7 +11,7 @@ export function inspectionRoomLabel(value: string) {
 export type InspectionRole = "manager" | "resident";
 export type InspectionKind = "move-in" | "move-out";
 export type InspectionStatus = "draft" | "submitted" | "completed";
-export type InspectionPhoto = { id: string; path: string; uploadedBy: string; uploadedAt: string; url?: string };
+export type InspectionPhoto = { id: string; path: string; uploadedBy: string; uploadedAt: string; sourceRef?: string; url?: string };
 export type InspectionObservation = { condition: keyof typeof INSPECTION_CONDITIONS; notes: string; photos: InspectionPhoto[] };
 export type InspectionItem = { id: string; label: string; manager: InspectionObservation; resident: InspectionObservation };
 export type InspectionArea = { id: string; label: string; items: InspectionItem[] };
@@ -39,6 +39,8 @@ export type InspectionOccupancy = "upcoming" | "current" | "past";
 
 export type InspectionResidency = {
   id: string; name: string; property: string; room: string; canCreate: boolean;
+  /** Which inspections this room's own configuration requires (see ./requirements). */
+  requiredKinds?: InspectionKind[];
   /** ISO `YYYY-MM-DD`, or "" when the placement carries no date yet. */
   moveInDate: string;
   moveOutDate: string;
@@ -134,8 +136,9 @@ export function transitionInspection(report: InspectionRecord, role: InspectionR
   const document = structuredClone(report.document);
   let status = report.status;
   if (input.action === "submit") {
+    if (role !== "manager") throw new InspectionError("Only the manager can request confirmation. Your photos and notes are already saved.", 403);
     if (status !== "draft") throw new InspectionError("Only a draft can be submitted.", 409);
-    const meaningful = document.areas.flatMap(a => a.items).some(i => i[role].condition !== "unchecked" || i[role].notes.trim() || i[role].photos.length);
+    const meaningful = document.areas.flatMap(a => a.items).some(i => [i.resident, i.manager].some(o => o.condition !== "unchecked" || o.notes.trim() || o.photos.length));
     if (!meaningful) throw new InspectionError("Record at least one observation before submitting.");
     status = "submitted";
   } else if (input.action === "acknowledge") {

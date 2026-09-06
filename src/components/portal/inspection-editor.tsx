@@ -19,7 +19,7 @@ import { inspectionRoomLabel, INSPECTION_CONDITIONS, type InspectionDetail, type
 const observations = (detail: InspectionDetail, role: InspectionRole) => detail.report.document.areas.flatMap(a => a.items).map(i => ({ itemId: i.id, condition: i[role].condition, notes: i[role].notes }));
 type Action = "submit" | "acknowledge" | "complete" | "reopen";
 const actions: Record<Action, { label: string; explanation: string }> = {
-  submit: { label: "Submit for review", explanation: "This saves your observations and locks both sets of observations for review. The resident can acknowledge the saved report; the manager can reopen it if changes are needed." },
+  submit: { label: "Request confirmation", explanation: "This saves your observations and freezes both parties' photos and notes for the resident to review. You can request changes if anything needs updating." },
   acknowledge: { label: "Acknowledge review", explanation: "I have reviewed the manager and resident observations and photos in this report. This confirms review, not agreement with charges or responsibility for damage." },
   complete: { label: "Complete inspection", explanation: "This permanently locks the acknowledged report and its photos. A completed move-in report can be used as the baseline for move-out." },
   reopen: { label: "Reopen for changes", explanation: "Both parties can edit their observations again. The resident will need to review and acknowledge the revised report." },
@@ -132,9 +132,10 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     };
   }, [draftKey]);
   useEffect(() => {
-    if (!dirty && !pendingPhoto) return;
+    if (!dirty && !pendingPhoto && unsent.length === 0) return;
     const prevent = (event: BeforeUnloadEvent) => { if (!discardConfirmed.current) { event.preventDefault(); event.returnValue = ""; } };
     const guardLink = (event: MouseEvent) => {
+      if (!dirty && !pendingPhoto) return;
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const link = (event.target as Element | null)?.closest<HTMLAnchorElement>("a[href]");
       if (!link || link.target === "_blank" || link.hasAttribute("download") || link.href === window.location.href || link.getAttribute("href")?.startsWith("#")) return;
@@ -142,7 +143,7 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     };
     window.addEventListener("beforeunload", prevent); document.addEventListener("click", guardLink, true);
     return () => { window.removeEventListener("beforeunload", prevent); document.removeEventListener("click", guardLink, true); };
-  }, [dirty, pendingPhoto]);
+  }, [dirty, pendingPhoto, unsent]);
 
   const accept = useCallback((next: InspectionDetail) => { if (!live.current) return; setDetail(next); setSaved(JSON.stringify(observations(next, role))); onChanged(); }, [role, onChanged]);
   const run = useCallback(async (operation: () => Promise<void>) => {
@@ -233,12 +234,6 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     const current = await save();
     const next = await inspectionRequest<InspectionDetail>(role, `/${report.id}/status`, { method: "POST", body: JSON.stringify({ revision: current.report.revision, action: confirm }) });
     accept(next);
-    // The resident's explicit submit confirmation also acknowledges the same frozen report.
-    // If acknowledgment fails, the submitted record remains intact and the normal acknowledge action can retry.
-    if (confirm === "submit" && role === "resident") {
-      setConfirm(null);
-      accept(await inspectionRequest<InspectionDetail>(role, `/${report.id}/status`, { method: "POST", body: JSON.stringify({ revision: next.report.revision, action: "acknowledge" }) }));
-    }
     setNotice("Report updated."); setConfirm(null);
   });
   const hasObservation = (value: InspectionObservation) => value.photos.length > 0 || Boolean(value.notes.trim()) || value.condition !== "unchecked";
@@ -317,6 +312,13 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     : unsentPhotos.length > 0
       ? `${unsentLead} It is kept below under "Unsent notes and photos from this device" — save any photo to your device before discarding it.`
       : `${unsentLead} It is kept below under "Unsent notes and photos from this device".`;
+  // `frozenReason` describes the REPORT's state, which already implies the freeze for
+  // a submitted or completed report. A draft nobody may edit is read-only for the
+  // viewer rather than frozen, so it needs its own sentence instead of "no longer
+  // editable and can no longer be edited".
+  const readOnlyNotice = report.status === "draft"
+    ? "You have read-only access to this report."
+    : `This report is ${frozenReason} and can no longer be edited.`;
   const areaCount = (area: InspectionArea) => area.items.reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
   const backLabel = documentOpen || activeArea ? "Back to room sections" : "Back to inspections";
   const status = report.status === "completed" ? "Completed" : report.status === "submitted" ? "Awaiting review" : "Draft";
@@ -328,7 +330,9 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     {unsentRecoveryMessage && <p role="status" className="rounded-xl border border-border p-3 text-sm" data-attr="inspection-unsent-notice">{unsentRecoveryMessage}</p>}
     {pendingPhoto && <div className="flex items-center gap-4 rounded-xl border border-border p-3"><Image src={pendingPhoto.photo.previewUrl} unoptimized width={96} height={72} alt="Photo waiting to upload" className="ph-no-capture ph-no-record h-18 w-24 rounded-lg object-cover" /><p className="text-sm text-muted">{busy ? "Uploading photo…" : editable ? "This photo has not uploaded. Use Retry upload below." : "This photo has not uploaded and this report can no longer be edited."}</p></div>}
     {documentOpen ? renderDocument() : activeArea ? <div className="space-y-4 px-2">{activeArea.items.map(renderItem)}</div> : <div>
-      <p className="px-2 pb-4 text-sm text-muted">Open a section to add photos of the assigned room. Photos and notes update the document automatically.</p>
+      <p className="px-2 pb-4 text-sm text-muted">{editable
+        ? "Open a section to add photos of the assigned room. Photos and notes update the document automatically."
+        : `Open a section to read its photos and notes. ${readOnlyNotice}`}</p>
       {roomAreas.map(area => <div key={area.id} className={`flex min-h-24 items-center gap-4 border-b border-l-2 border-b-border px-3 py-5 ${selected.has(area.id) ? "border-l-primary bg-primary/5" : "border-l-transparent"}`} data-attr="inspection-section-row"><input type="checkbox" className="h-4 w-4 shrink-0 accent-primary" aria-label={`Select ${area.label}`} checked={selected.has(area.id)} onChange={e => setSelected(current => { const next = new Set(current); if (e.target.checked) next.add(area.id); else next.delete(area.id); return next; })} /><button className="min-w-0 flex-1 text-left" onClick={() => setActiveAreaId(area.id)} data-attr="inspection-area-open"><span className="flex items-center gap-2 text-base font-semibold">{area.label}<ChevronRight className="h-4 w-4 text-muted" /></span><span className="mt-1 block text-sm text-muted">{areaCount(area) ? `${areaCount(area)} photo${areaCount(area) === 1 ? "" : "s"} added` : "Photos and optional notes"}</span></button></div>)}
     </div>}
     {report.status === "submitted" && !report.document.residentAcknowledgment && <p className="px-2 text-sm text-muted">The resident needs to confirm review before the manager can approve.</p>}
@@ -359,13 +363,13 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
       {pendingPhoto && <>{editable && <Button variant="outline" disabled={busy} onClick={() => run(() => sendPhoto(pendingPhoto.itemId, pendingPhoto.photo))} data-attr="inspection-photo-retry">Retry upload</Button>}<Button variant="ghost" disabled={busy} onClick={() => { URL.revokeObjectURL(pendingPhoto.photo.previewUrl); setPendingPhoto(null); }} data-attr="inspection-photo-discard">Remove</Button></>}
       {error && dirty && editable && !pendingPhoto && <Button variant="outline" disabled={busy} onClick={() => run(async () => { await save(); })} data-attr="inspection-save-retry">Retry save</Button>}
       {error && <Button variant="ghost" disabled={busy} onClick={() => setConfirm("reload")} data-attr="inspection-conflict-review">Review latest</Button>}
-      {canEdit && editable && !pendingPhoto && <Button className="ml-auto" disabled={busy} onClick={() => setConfirm("submit")} aria-label="Submit for review" data-attr="inspection-submit"><span className="sm:hidden">Submit</span><span className="hidden sm:inline">Submit for review</span></Button>}
-      {canEdit && report.status === "submitted" && role === "resident" && !report.document.residentAcknowledgment && <Button className="ml-auto" disabled={busy} onClick={() => setConfirm("acknowledge")} data-attr="inspection-acknowledge">Confirm review</Button>}
-      {canEdit && report.status === "submitted" && role === "manager" && <><Button variant="outline" disabled={busy} onClick={() => setConfirm("reopen")} data-attr="inspection-reopen">Request changes</Button><Button className="ml-auto" disabled={busy || !report.document.residentAcknowledgment} onClick={() => setConfirm("complete")} aria-label="Approve inspection" data-attr="inspection-complete"><span className="sm:hidden">Approve</span><span className="hidden sm:inline">Approve inspection</span></Button></>}
+      {canEdit && editable && role === "manager" && !pendingPhoto && <Button className="ml-auto" disabled={busy} aria-label="Request confirmation" onClick={() => setConfirm("submit")} data-attr="inspection-submit"><span className="sm:hidden">Request</span><span className="hidden sm:inline">Request confirmation</span></Button>}
+      {canEdit && report.status === "submitted" && role === "resident" && !report.document.residentAcknowledgment && <Button className="ml-auto" disabled={busy} aria-label="Confirm review" onClick={() => setConfirm("acknowledge")} data-attr="inspection-acknowledge"><span className="sm:hidden">Confirm</span><span className="hidden sm:inline">Confirm review</span></Button>}
+      {canEdit && report.status === "submitted" && role === "manager" && <><Button variant="outline" disabled={busy} aria-label="Request changes" onClick={() => setConfirm("reopen")} data-attr="inspection-reopen"><span className="sm:hidden">Changes</span><span className="hidden sm:inline">Request changes</span></Button><Button className="ml-auto" disabled={busy || !report.document.residentAcknowledgment} onClick={() => setConfirm("complete")} aria-label="Approve inspection" data-attr="inspection-complete"><span className="sm:hidden">Approve</span><span className="hidden sm:inline">Approve inspection</span></Button></>}
     </PortalPageFooterActions>
     <Modal open={choosePhoto} onClose={() => { if (!busy) setChoosePhoto(false); }} dismissBlocked={busy} title="Add photos to a section" assistantStrip={false}><div className="space-y-2">{(activeArea ? [activeArea] : selected.size ? roomAreas.filter(area => selected.has(area.id)) : roomAreas).map(area => <div key={area.id}><h3 className="py-2 text-sm font-semibold">{area.label}</h3>{area.items.map(item => <Button key={item.id} variant="outline" className="mb-2 w-full justify-between" disabled={busy} onClick={() => upload(item.id)} data-attr="inspection-upload-section">{item.label}<Camera className="h-4 w-4" /></Button>)}</div>)}</div></Modal>
     <Modal open={confirm !== null} onClose={() => { if (!busy) setConfirm(null); }} dismissBlocked={busy} title={confirm === "leave" ? "Leave without saving?" : confirm === "reload" ? "Review the latest saved report?" : confirm === "complete" ? "Approve inspection" : confirm ? actions[confirm].label : "Review report"} assistantStrip={false} footer={<Button disabled={busy} onClick={confirmAction} data-attr="inspection-confirm">{confirm === "leave" ? "Discard and leave" : confirm === "reload" ? "Review latest" : confirm === "complete" ? "Approve inspection" : confirm ? actions[confirm].label : "Confirm"}</Button>}>
-      <p className="text-sm text-muted">{confirm === "leave" ? "Unsaved notes and pending uploads will be discarded. Saved photos and observations remain." : confirm === "reload" ? "Unsaved notes will be discarded. Your pending photo is kept: retry its upload if the latest report is still a draft, or save it to your device if it has since been submitted or completed." : confirm === "submit" && role === "resident" ? "I have reviewed the report, including both parties' notes and photos. Submit and acknowledge this saved report for manager review. This does not mean agreeing to charges or responsibility for damage." : confirm ? actions[confirm].explanation : ""}</p>
+      <p className="text-sm text-muted">{confirm === "leave" ? "Unsaved notes and pending uploads will be discarded. Saved photos and observations remain." : confirm === "reload" ? "Unsaved notes will be discarded. Your pending photo is kept: retry its upload if the latest report is still a draft, or save it to your device if it has since been submitted or completed." : confirm ? actions[confirm].explanation : ""}</p>
       {error && <p role="alert" className="mt-3 text-sm">{error}</p>}
     </Modal>
   </div>;

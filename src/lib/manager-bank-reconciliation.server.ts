@@ -112,6 +112,8 @@ export async function listBankStatements(
 }
 
 export type CreateBankStatementInput = {
+  sourceFileName?: string;
+  sourceFileSha256?: string;
   managerUserId: string;
   bankAccountId: string;
   statementDate: string;
@@ -132,6 +134,15 @@ export async function createBankStatement(
     .maybeSingle();
   if (accountError) throw new Error(accountError.message);
   if (!account) throw new Error("Bank account not found.");
+
+  if (input.sourceFileSha256) {
+    const { data: id, error } = await db.rpc("import_bank_statement_file", { p_owner: input.managerUserId, p_account: input.bankAccountId, p_date: input.statementDate, p_opening: input.openingBalanceCents, p_closing: input.closingBalanceCents, p_lines: input.lines ?? [], p_sha: input.sourceFileSha256, p_name: input.sourceFileName ?? "statement.csv" });
+    if (error || !id) throw new Error(error?.message ?? "Statement import failed");
+    const { data: statement, error: readError } = await db.from("manager_bank_statements").select(BANK_STATEMENT_SELECT).eq("id", id).eq("manager_user_id", input.managerUserId).single();
+    if (readError || !statement) throw new Error(readError?.message ?? "Imported statement could not be read");
+    const lines = await loadStatementLines(db, [String(id)]);
+    return mapBankStatementRow(statement, lines.get(String(id)) ?? []);
+  }
 
   const now = new Date().toISOString();
   const { data, error } = await db
@@ -175,7 +186,7 @@ export async function reconcileBankStatementLine(
   db: SupabaseClient,
   managerUserId: string,
   lineId: string,
-  patch: { matchedLedgerEntryId?: string | null; cleared?: boolean },
+  patch: { matchedLedgerEntryId?: string | null; matchedExpenseEntryId?: string | null; cleared?: boolean },
 ): Promise<BankStatementLine> {
   const { data: line, error: lineError } = await db
     .from("manager_bank_statement_lines")
@@ -194,9 +205,15 @@ export async function reconcileBankStatementLine(
   if (statementError) throw new Error(statementError.message);
   if (!statement) throw new Error("Statement line not found.");
 
+  if (patch.matchedLedgerEntryId && patch.matchedExpenseEntryId) throw new Error("Select one transaction to match.");
   const update: Record<string, unknown> = {};
   if (patch.matchedLedgerEntryId !== undefined) {
     update.matched_ledger_entry_id = patch.matchedLedgerEntryId || null;
+    if (patch.matchedLedgerEntryId) update.matched_expense_entry_id = null;
+  }
+  if (patch.matchedExpenseEntryId !== undefined) {
+    update.matched_expense_entry_id = patch.matchedExpenseEntryId || null;
+    if (patch.matchedExpenseEntryId) update.matched_ledger_entry_id = null;
   }
   if (patch.cleared !== undefined) update.cleared = patch.cleared;
   if (Object.keys(update).length === 0) throw new Error("Nothing to reconcile.");

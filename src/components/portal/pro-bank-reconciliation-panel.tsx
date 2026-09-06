@@ -17,6 +17,7 @@ import {
 } from "@/components/portal/portal-data-table";
 import { MANAGER_TABLE_TH } from "@/components/portal/portal-metrics";
 import { centsToUsd, dollarsToCents } from "@/lib/reports/money";
+import { parseStatementCsv } from "@/lib/statement-file-intake";
 import {
   BANK_ACCOUNT_TYPES,
   computeReconciliationSummary,
@@ -29,6 +30,8 @@ import {
 type AccountDraft = { name: string; accountType: BankAccountType; lastFour: string };
 
 type StatementDraft = {
+  sourceFileName?: string;
+  sourceFileSha256?: string;
   statementDate: string;
   openingBalance: string;
   closingBalance: string;
@@ -181,6 +184,8 @@ export const ManagerBankReconciliationPanel = forwardRef<
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        sourceFileName: statementDraft.sourceFileName,
+        sourceFileSha256: statementDraft.sourceFileSha256,
         bankAccountId: selectedAccountId,
         statementDate: statementDraft.statementDate,
         openingBalanceCents,
@@ -401,6 +406,23 @@ export const ManagerBankReconciliationPanel = forwardRef<
         }
       >
         <div className="space-y-3">
+          <label className="block text-sm font-medium">
+            Import statement CSV
+            <Input className="mt-1" type="file" accept=".csv,text/csv" data-attr="bank-statement-import-file" onChange={async e => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              try {
+                if (file.size > 2_000_000) throw new Error("Choose a CSV smaller than 2 MB.");
+                const text = await file.text();
+                const lines = parseStatementCsv(text);
+                const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+                const sha = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
+                setStatementDraft(d => ({ ...d, sourceFileName: file.name, sourceFileSha256: sha, lines: lines.map(line => ({ lineDate: line.lineDate, description: line.description, amount: (line.amountCents / 100).toFixed(2) })) }));
+                showToast(`Loaded ${lines.length} lines. Review dates, amounts and balances before saving.`);
+              } catch (error) { showToast(error instanceof Error ? error.message : "Could not read statement."); }
+            }} />
+            <span className="mt-1 block text-xs text-muted">CSV columns: Date, Description, Amount (negative for withdrawals), or Debit and Credit. Review replaces the draft lines; nothing is saved until you choose Save statement.</span>
+          </label>
           <div>
             <label className="text-xs font-semibold text-muted">Statement date</label>
             <Input

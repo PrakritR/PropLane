@@ -367,7 +367,8 @@ export const reconcileBankStatementLineTool = defineWriteTool({
   inputSchema: z
     .object({
       lineId: z.string().min(1),
-      matchedLedgerEntryId: z.string().nullable().optional(),
+      matchedLedgerEntryId: z.string().uuid().nullable().optional(),
+      matchedExpenseEntryId: z.string().uuid().nullable().optional(),
       cleared: z.boolean().optional(),
     })
     .strict(),
@@ -381,6 +382,7 @@ export const reconcileBankStatementLineTool = defineWriteTool({
         label: "Match to ledger entry",
         value: input.matchedLedgerEntryId ? input.matchedLedgerEntryId : "Leave unmatched",
       },
+      { label: "Match to expense", value: input.matchedExpenseEntryId || "Unchanged" },
       {
         label: "Cleared",
         value: input.cleared === undefined ? "Unchanged" : input.cleared ? "Yes" : "No",
@@ -395,6 +397,7 @@ export const reconcileBankStatementLineTool = defineWriteTool({
   handler: async (ctx: AgentContext, input) =>
     reconcileBankStatementLine(ctx.db, ctx.landlordId, input.lineId, {
       matchedLedgerEntryId: input.matchedLedgerEntryId,
+      matchedExpenseEntryId: input.matchedExpenseEntryId,
       cleared: input.cleared,
     }),
 });

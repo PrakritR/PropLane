@@ -559,6 +559,7 @@ describe("resident write tools: happy paths write audited, scoped rows", () => {
 
   it("request_lease_extension amends own lease with a lease+date dedupe key", async () => {
     const { ctx, mutations, tables } = seed();
+    (tables.portal_lease_pipeline_records[0].row_data as FakeRow).axisId = "APP-A";
     const exec = await executeWrite(requestLeaseExtensionTool, ctx, { newLeaseEnd: "2026-12-31" });
     expect(exec.ok).toBe(true);
 

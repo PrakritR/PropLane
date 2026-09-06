@@ -222,6 +222,15 @@ export function makeResidentToolCtx(
 ): FakeResidentSetup {
   const mutations: FakeMutation[] = [];
   const db = {
+    async rpc(name: string, args: FakeRow) {
+      if (name !== "commit_room_lease_extension") throw new Error(`Unexpected RPC ${name}`);
+      const lease = tables.portal_lease_pipeline_records?.find(r => r.id === args.p_lease_id && r.manager_user_id === args.p_owner);
+      const application = tables.manager_application_records?.find(r => r.id === args.p_application_id && r.manager_user_id === args.p_owner);
+      if (!lease || !application) return { error: { code: "40001" } };
+      lease.row_data = args.p_next_lease;
+      mutations.push({ table: "portal_lease_pipeline_records", kind: "update", values: { row_data: args.p_next_lease } });
+      return { error: null };
+    },
     from(table: string) {
       return new FakeResidentQuery(table, (tables[table] ??= []), mutations);
     },

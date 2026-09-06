@@ -1,3 +1,4 @@
+import { intakeResidentSmsPhotos } from "@/lib/inspections/attachment-intake.server";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import twilio from "twilio";
@@ -518,11 +519,37 @@ export async function POST(req: Request) {
       counterpartyRole: "resident",
       lastInboundAt: new Date().toISOString(),
     }).catch(() => ({ ok: false as const, error: "contact_upsert_failed" }));
+    // Photo intake is additive. Every failure inside it (unconfigured Twilio
+    // credentials, an oversized or unreadable media part, an unexpected redirect
+    // host) must degrade to text-only rather than abort the turn — otherwise the
+    // resident's message is never answered and Twilio retries the whole webhook.
+    let photoRefs: string[] = [];
+    let photoIntakeFailed = false;
+    try {
+      photoRefs = await intakeResidentSmsPhotos(db, {
+        userId: residentIdentity.ctx.userId,
+        ownerId: managerId,
+        messageSid,
+        params,
+      });
+    } catch (error) {
+      photoIntakeFailed = (Number(params.NumMedia) || 0) > 0;
+      console.error("twilio inbound resident photo intake failed", {
+        manager: managerId,
+        messageSid,
+        reason: error instanceof Error ? error.message : "unknown",
+      });
+    }
+    const photoPrefix = photoRefs.length
+      ? `Private inspection photo sources (not filed): ${photoRefs.join(", ")}. Ask which inspection/section if unclear; use file_inspection_photo with confirmation.\n`
+      : photoIntakeFailed
+        ? "The resident attached photos but they could not be received. Answer the text, say the photos did not come through, and ask them to resend or upload in the portal.\n"
+        : "";
     const turn = await runResidentSmsAgentTurn(db, {
       ctx: residentIdentity.ctx,
       ownerManagerUserId: managerId,
       residentPhoneE164: normalizeE164(fromPhone) ?? fromPhone,
-      inboundText: body,
+      inboundText: `${photoPrefix}${body}`,
       inboundMessageSid: messageSid,
     });
     if (turn) {

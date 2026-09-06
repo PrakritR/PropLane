@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 export type AssistantWirePayload = {
   reply: string;
+  attachmentContext?: string;
   toolTrace: { tool: string; ok: boolean }[];
   sessionId?: string | null;
   /** Portal archive persistence is confirmed before a streamed turn completes. */
@@ -32,6 +33,7 @@ export function assistantResponse(req: Request, payload: AssistantWirePayload): 
         encoder.encode(
           event("done", {
             toolTrace: payload.toolTrace,
+            ...(payload.attachmentContext ? { attachmentContext: payload.attachmentContext } : {}),
             sessionId: payload.sessionId ?? null,
             ...(payload.traceId ? { traceId: payload.traceId } : {}),
             ...(typeof payload.archiveSaved === "boolean" ? { archiveSaved: payload.archiveSaved } : {}),

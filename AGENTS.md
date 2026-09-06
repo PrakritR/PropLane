@@ -95,9 +95,10 @@ request, which may have started before a write that caller just made
 queued follow-up that begins only after the current run settles. Wired into
 property-pipeline, pro-relationships, household-charges, the dashboard's
 document-expiry counts, the resident ledger read
-(`src/lib/resident-ledger-client.ts`), and the inspection list
-(`src/lib/inspections/client.ts`). Each refresher is keyed on whatever makes
-two runs non-interchangeable — the viewer id where the fetch is per-user (a
+(`src/lib/resident-ledger-client.ts`), the inspection list
+(`src/lib/inspections/client.ts`), and the public room-occupancy read
+(`src/lib/manager-applications-storage.ts`). Each refresher is keyed on whatever
+makes two runs non-interchangeable — the viewer id where the fetch is per-user (a
 module-global cache would serve the previous manager's rows after an in-session
 account switch), `skipReconcile` for household charges (the resident path must
 not run the manager's reconcile), viewer id **plus the requested window** for
@@ -105,7 +106,8 @@ the resident ledger (Documents lets the resident pick a date range, so an
 identity-only key would serve another window's receipts for the whole TTL),
 viewer id **plus portal role and application id** for inspections (the same
 account can be a manager and a resident, and the two sides see different
-observations on the same report).
+observations on the same report), and NO key for public room occupancy, whose
+response is the same anonymous aggregate for every caller.
 
 A server sync dispatches its store event **tagged** (`serverSyncOriginatedEvent`
 / `isServerSyncOriginatedEvent` in `src/lib/property-pipeline-events.ts`),
@@ -1282,6 +1284,7 @@ below always apply; the files carry the full rationale, schemas, and gotchas.
 | Property drafts (add-property wizard) | `docs/agents/property-drafts.md` | A draft is `status: "draft"` on the existing record — never a parallel store and never `"unlisted"`. The draft's record id IS the eventual live listing id, so publishing re-upserts in place; a re-key writes BEFORE it deletes. The wizard is the only editor of a draft, and closing it saves. |
 | Tours, availability & slot math | `docs/agents/tours-scheduling.md` | A `slotKey` is WALL TIME pinned to Pacific — never construct a Date from it (UTC on Vercel silently double-books). `listOpenTourSlots` (`tour-availability.server.ts`) is the ONE answer to "what is open" (published or the 9-5 default − calendar-busy − already-booked, `live` only) and `createTourInquiry` (`tour-inquiry-create.server.ts`) the ONE way to file a request; the public routes and every tour tool call them, so nothing can offer a slot the public grid would not. Only a `kind: "tour"` planned event subtracts from availability. Approval-first tours PROPOSE through the existing confirm gate; they never auto-book or email. |
 | Move-in / move-out inspections | `docs/agents/inspections.md` | Every read and write is residency-scoped through `src/lib/inspections/server.ts` (manager ownership or an explicit `residents` co-manager grant; a resident matches on email + user id), `resident_inspections` and the `inspection-evidence` bucket are service-role-only, and a completed report is permanently locked — never add a path that reopens or rewrites one. |
+| Shared-room capacity (beds per room) | `docs/agents/shared-room-capacity.md` | A room holds ONE bed unless the manager set more; only an approved application reserves one, and the database migration — not the browser — arbitrates the last bed, so a placement write is confirmed by the server before charges, welcome mail or automation run (a refusal is a 409). The public occupancy endpoint publishes anonymous aggregate counts only, never an application id or resident. |
 | Group applications & lease bundles | `docs/agents/group-applications.md` | A group application is SEVERAL independent applications tied by a shared `AXISGRP-…` id — never one merged record. Each member keeps their own account, screening, and login; a group never blocks, and approvals stay per-member. |
 | Per-room rent basis (monthly vs daily) | `docs/agents/rent-basis.md` | `rentBasis` alone decides which rate is active, and daily NEVER wins unless the manager explicitly set it. Read prices through `src/lib/room-pricing.ts`, never `monthlyRent` directly. Do not conflate `rentBasis` with `prorateMethod` or `shortTermDailyCost`. |
 | Send listing modal (share to a prospect) | `docs/agents/send-listing-modal.md` | One listing → the listing page, several → a filtered browse link; the room selector shows only for exactly one property. The server re-authorizes EVERY requested id and rejects the whole send if any fails — never silently drops one. |

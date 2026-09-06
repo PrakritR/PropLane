@@ -1,5 +1,5 @@
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
-import { readManagerApplicationRows, writeManagerApplicationRows } from "@/lib/manager-applications-storage";
+import { normalizeApplicationAxisId, readManagerApplicationRows, writeManagerApplicationRows } from "@/lib/manager-applications-storage";
 import {
   recordApprovedApplicationCharges,
   recordSubmittedApplicationFeeCharge,
@@ -62,7 +62,7 @@ const UNREACHABLE_APPROVAL_MESSAGE =
 export type ApplicationBucketTransition = {
   row: DemoApplicantRow;
   welcomeSent: boolean;
-  /** Set when the transition did NOT take effect; local state has been rolled back. */
+  /** Set when the transition did NOT take effect; or its post-commit access setup needs retry. */
   blocked?: "withdrawn" | "error";
   message?: string;
   /** What the manager's enabled post-approval automation did, when any is on. */
@@ -75,14 +75,6 @@ type ResidentApprovalRefusal = {
   matchedBy?: unknown;
 };
 
-async function readApprovalRefusal(res: Response): Promise<ResidentApprovalRefusal> {
-  try {
-    return (await res.json()) as ResidentApprovalRefusal;
-  } catch {
-    return {};
-  }
-}
-
 /**
  * A 409 only proves THIS application is withdrawn when the server matched it by id.
  * Its email fallback can resolve a different application by the same applicant (the
@@ -92,46 +84,12 @@ async function readApprovalRefusal(res: Response): Promise<ResidentApprovalRefus
 function refusalConfirmsThisApplication(id: string, refusal: ResidentApprovalRefusal): boolean {
   if (refusal.matchedBy !== "id") return false;
   const blockedId = typeof refusal.blockedApplicationId === "string" ? refusal.blockedApplicationId.trim() : "";
-  return Boolean(blockedId) && blockedId.toUpperCase() === id.trim().toUpperCase();
-}
-
-/**
- * Restore the row's pre-transition bucket after the server refused the approval.
- * A CONFIRMED withdrawn refusal also stamps the local row: the server just told us
- * this record carries the stamp, and without it the row keeps rendering Approve, so
- * the manager can re-fire the whole round trip until the sync TTL catches up.
- */
-function rollbackApprovedTransition(
-  id: string,
-  previous: DemoApplicantRow,
-  userId: string | null,
-  opts: { stampWithdrawn: boolean },
-): void {
-  const withdrawnAt = opts.stampWithdrawn
-    ? previous.withdrawnAt || new Date().toISOString()
-    : previous.withdrawnAt;
-  const reverted = readManagerApplicationRows().map((r) =>
-    r.id === id
-      ? {
-          ...r,
-          bucket: previous.bucket,
-          stage: previous.stage,
-          managerUserId: previous.managerUserId,
-          withdrawnAt,
-        }
-      : r,
-  );
-  writeManagerApplicationRows(reverted);
-  try {
-    if (previous.bucket === "rejected") {
-      removeAllApplicationCharges(id, userId);
-    } else {
-      removeApprovedApplicationCharges(id, userId);
-      recordSubmittedApplicationFeeCharge(previous, userId);
-    }
-  } catch {
-    /* leave charges as-is if reconciliation fails; the bucket is already reverted */
-  }
+  if (!blockedId) return false;
+  // The server stores an id VARIANT (the normalized `PROPLANE-…` form) that need
+  // not be byte-identical to the id this client holds, so both sides are
+  // normalized before comparison — the same key the SQL side matches on.
+  const key = (value: string) => normalizeApplicationAxisId(value).toUpperCase();
+  return key(blockedId) === key(id);
 }
 
 /**
@@ -173,8 +131,24 @@ export async function transitionApplicationBucket(
         }
       : r,
   );
-  writeManagerApplicationRows(next);
   const updatedRow = next.find((r) => r.id === id) ?? row;
+  // Reserve the bed on the server BEFORE local publication, charges or lease sync.
+  if (nextBucket === "approved" && !isDemoModeActive()) {
+    try {
+      const response = await fetch("/api/manager-applications", {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "upsert", row: updatedRow }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (response.status === 409 && /withdrawn/i.test(String(result.error))) {
+        const confirmed = refusalConfirmsThisApplication(id, result);
+        if (confirmed) writeManagerApplicationRows(readManagerApplicationRows().map(r => r.id === id ? { ...r, withdrawnAt: r.withdrawnAt || new Date().toISOString() } : r), { serverConfirmed: true });
+        return { row, welcomeSent: false, blocked: confirmed ? "withdrawn" : "error", message: confirmed ? WITHDRAWN_APPROVAL_BLOCKED_MESSAGE : UNCONFIRMED_APPROVAL_MESSAGE };
+      }
+      if (!response.ok || result.ok !== true) return { row, welcomeSent: false, blocked: "error", message: result.error || "Approval could not be saved. Refresh and retry." };
+    } catch { return { row, welcomeSent: false, blocked: "error", message: UNREACHABLE_APPROVAL_MESSAGE }; }
+  }
+  writeManagerApplicationRows(readManagerApplicationRows().map(r => r.id === id ? updatedRow : r), { serverConfirmed: nextBucket === "approved" && !isDemoModeActive() });
 
   try {
     if (nextBucket === "approved") {
@@ -189,54 +163,15 @@ export async function transitionApplicationBucket(
     /* Keep approval flow moving even if charge reconciliation fails. */
   }
 
-  // The server is authoritative for an approval: it owns the withdrawal stamp and
-  // it is what actually writes `application_approved`. ANY non-2xx (409 withdrawn,
-  // 500 unverifiable, 401/403 session or permission) means the resident was never
-  // approved, and neither does a request that never got a response — so an
-  // optimistic local "approved" must not survive either.
-  //
-  // KNOWN LIMITATION (pre-existing, general to every approve — NOT specific to the
-  // withdrawn guard, tracked as a separate follow-up): the rollback below is
-  // client-side only. `writeManagerApplicationRows` above already fired the
-  // fire-and-forget `action: "replace"` mirror with this row as `approved`, and on
-  // the server `persistNormalizedRow` provisions the resident account for an
-  // approved row. So for a NON-withdrawn approve the account may already exist even
-  // though the local state reverts; the two writes are unordered.
-  if (nextBucket === "approved") {
-    let res: Response | null;
-    try {
-      res = await syncResidentApprovalStatus(row, nextBucket);
-    } catch {
-      rollbackApprovedTransition(id, row, opts.userId ?? null, { stampWithdrawn: false });
-      return { row, welcomeSent: false, blocked: "error", message: UNREACHABLE_APPROVAL_MESSAGE };
+  // The application is now authoritative. A profile-sync failure cannot revoke
+  // its committed placement or remove its charges; stop downstream notifications.
+  try {
+    const response = await syncResidentApprovalStatus(updatedRow, nextBucket);
+    if (nextBucket === "approved" && response && !response.ok) {
+      return { row: updatedRow, welcomeSent: false, blocked: "error", message: "Approval saved, but resident access could not be synchronized. Retry to finish setup." };
     }
-    if (res && !res.ok) {
-      const refusal = await readApprovalRefusal(res);
-      const serverMessage = typeof refusal.error === "string" && refusal.error.trim() ? refusal.error.trim() : "";
-      const confirmedWithdrawn = res.status === 409 && refusalConfirmsThisApplication(id, refusal);
-      const unconfirmedWithdrawn = res.status === 409 && !confirmedWithdrawn;
-      let message: string;
-      if (confirmedWithdrawn) {
-        message = serverMessage || WITHDRAWN_APPROVAL_BLOCKED_MESSAGE;
-      } else if (unconfirmedWithdrawn) {
-        message = UNCONFIRMED_APPROVAL_MESSAGE;
-      } else {
-        message = serverMessage || "Could not confirm this approval on the server. Nothing was changed.";
-      }
-      rollbackApprovedTransition(id, row, opts.userId ?? null, { stampWithdrawn: confirmedWithdrawn });
-      return {
-        row,
-        welcomeSent: false,
-        blocked: confirmedWithdrawn ? "withdrawn" : "error",
-        message,
-      };
-    }
-  } else {
-    try {
-      await syncResidentApprovalStatus(row, nextBucket);
-    } catch {
-      /* keep local workflow moving even if profile sync fails */
-    }
+  } catch {
+    if (nextBucket === "approved") return { row: updatedRow, welcomeSent: false, blocked: "error", message: "Approval saved, but resident access could not be synchronized. Retry to finish setup." };
   }
 
   let welcomeSent = false;
@@ -245,7 +180,7 @@ export async function transitionApplicationBucket(
     welcomeSent = welcome.status === "sent";
   }
 
-  // Post-approval automation runs ONLY here, after every rollback path above has been passed —
+  // Post-approval automation runs ONLY here, after the server has committed the placement —
   // so the server has confirmed the approval and the lease row exists. Firing it earlier could
   // generate and send a lease for an approval the server then refused.
   //

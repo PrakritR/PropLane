@@ -1,9 +1,10 @@
+import { resolveInspectionSource } from "@/lib/inspections/attachment-intake.server";
 import { z } from "zod";
 import type { AgentContext } from "../context";
 import type { ResidentAgentContext } from "../resident-context";
 import { defineTool, defineWriteTool } from "../registry";
 import { applyInspectionObservations, createInspectionSchema, saveInspectionSchema, transitionInspectionSchema, transitionInspection } from "@/lib/inspections/model";
-import { createInspection, getInspection, listInspectionResidencies, listInspections, prepareInspection, saveInspection, changeInspectionStatus, type InspectionActor } from "@/lib/inspections/server";
+import { addInspectionPhoto, createInspection, getInspection, listInspectionResidencies, listInspections, prepareInspection, saveInspection, changeInspectionStatus, type InspectionActor } from "@/lib/inspections/server";
 
 /** The same scoped operations as the UI; normal framework tracing and confirmation apply. */
 function inspectionTools<Ctx extends AgentContext | ResidentAgentContext>(actorFor: (ctx: Ctx) => InspectionActor) {
@@ -54,7 +55,7 @@ function inspectionTools<Ctx extends AgentContext | ResidentAgentContext>(actorF
   });
   const transition = defineWriteTool({
     name: "change_inspection_status", destructive: true,
-    description: "Submit an inspection for review, acknowledge as the resident, complete as the manager after acknowledgment, or reopen a submitted report. Completed reports are permanently locked. Acknowledgment confirms review, not liability.",
+    description: "Request resident confirmation as the manager, acknowledge as the resident, complete as the manager after acknowledgment, or reopen for changes. Residents never submit: their observations are saved immediately. Completed reports are permanently locked. Acknowledgment confirms review, not liability.",
     inputSchema: transitionInspectionSchema.extend({ id: z.string().uuid() }).strict(),
     preview: async (ctx: Ctx, input) => {
       const actor = actorFor(ctx); const report = await getInspection(actor, input.id, "edit"); const change = { revision: input.revision, action: input.action };
@@ -66,7 +67,29 @@ function inspectionTools<Ctx extends AgentContext | ResidentAgentContext>(actorF
     },
     handler: async (ctx: Ctx, input) => { const { id, ...change } = input; const report = await changeInspectionStatus(actorFor(ctx), id, change); return { reply: `Inspection updated: ${report.status}.`, resultSummary: { id, status: report.status } }; },
   });
-  return [list, get, create, save, transition];
+  const photo = defineWriteTool({
+    name: "file_inspection_photo",
+    description: "File a photo uploaded by this caller into their assigned-room inspection. sourceRef must come from a private photo source reference in the conversation. First use list_inspections/get_inspection to resolve the report and section. Ask the user whenever report, room, move-in/out type or section is unclear. This never changes a condition rating. Requires confirmation.",
+    inputSchema: z.object({ id: z.string().uuid(), revision: z.number().int().positive(), itemId: z.string().min(1).max(100), sourceRef: z.string().min(1).max(600) }).strict(),
+    preview: async (ctx: Ctx, input) => {
+      const actor = actorFor(ctx), report = await getInspection(actor, input.id, "edit");
+      const item = report.document.areas.flatMap(a => a.items).find(i => i.id === input.itemId);
+      if (!item || report.status !== "draft" || report.revision !== input.revision) throw new Error("Open the current draft and choose its section before filing.");
+      await resolveInspectionSource(actor, input.sourceRef);
+      return { kind: "file_inspection_photo", title: "File inspection photo", confirmLabel: "Add photo", fields: [
+        { label: "Resident", value: report.resident_name }, { label: "Room", value: report.room_label },
+        { label: "Report", value: `${report.kind} · ${report.inspection_date}` }, { label: "Section", value: item.label },
+        { label: "Contributor", value: actor.role },
+      ], warnings: ["The photo becomes part of this room's evidence. No condition or liability is inferred."] };
+    },
+    handler: async (ctx: Ctx, input) => {
+      const actor = actorFor(ctx);
+      const file = await resolveInspectionSource(actor, input.sourceRef);
+      const report = await addInspectionPhoto(actor, input.id, input.itemId, input.revision, file, input.sourceRef);
+      return { reply: "Photo added to the inspection document.", resultSummary: { id: report.id, revision: report.revision } };
+    },
+  });
+  return [list, get, create, save, transition, photo];
 }
 export const managerInspectionTools = inspectionTools((context: AgentContext) => ({ role: "manager", context }));
 export const residentInspectionTools = inspectionTools((context: ResidentAgentContext) => ({ role: "resident", context }));

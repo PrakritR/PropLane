@@ -4,12 +4,14 @@ import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import { primaryRoleWhenAddingResident } from "@/lib/auth/profile-primary-role";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
+import { randomBytes } from "node:crypto";
 
 export const AUTO_RESIDENT_PASSWORD = "123Password$";
 
 export async function provisionApprovedResidentAccount(
   supabase: SupabaseClient,
   row: DemoApplicantRow,
+  options?: { mode: "silent_migration" },
 ): Promise<{ ok: true; userId: string; created: boolean } | { ok: false; error: string }> {
   if (row.bucket !== "approved") return { ok: false, error: "Application is not approved." };
 
@@ -25,8 +27,8 @@ export async function provisionApprovedResidentAccount(
   if (!userId) {
     const { data, error } = await supabase.auth.admin.createUser({
       email,
-      password: AUTO_RESIDENT_PASSWORD,
-      email_confirm: true,
+      password: options?.mode === "silent_migration" ? randomBytes(32).toString("base64url") : AUTO_RESIDENT_PASSWORD,
+      email_confirm: options?.mode !== "silent_migration",
       user_metadata: {
         role: "resident",
         axis_id: axisId,
@@ -37,7 +39,7 @@ export async function provisionApprovedResidentAccount(
     if (!data.user?.id) return { ok: false, error: "Could not create resident auth user." };
     userId = data.user.id;
     created = true;
-  } else {
+  } else if (options?.mode !== "silent_migration") {
     const { data: existingAuth } = await supabase.auth.admin.getUserById(userId);
     const metadata = existingAuth.user?.user_metadata as Record<string, unknown> | undefined;
     await supabase.auth.admin.updateUserById(userId, {
@@ -50,7 +52,21 @@ export async function provisionApprovedResidentAccount(
     });
   }
 
-  const { data: existingProfile } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+  const { data: existingProfile, error: profileReadError } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+  if (profileReadError) return { ok: false, error: profileReadError.message };
+  if (options?.mode === "silent_migration") {
+    // Auth triggers may already have created a profile. Never rewrite a role,
+    // identity or manager relationship on an account imported by email.
+    if (!existingProfile) {
+      const { error } = await supabase.from("profiles").upsert({ id: userId, email, role: "resident", manager_id: axisId, full_name: fullName, application_approved: true }, { onConflict: "id", ignoreDuplicates: true });
+      if (error) return { ok: false, error: error.message };
+    } else {
+      const { error } = await supabase.from("profiles").update({ application_approved: true }).eq("id", userId);
+      if (error) return { ok: false, error: error.message };
+    }
+    await ensureProfileRoleRow(supabase, userId, "resident");
+    return { ok: true, userId, created };
+  }
   const { error: profileError } = await supabase.from("profiles").upsert(
     {
       id: userId,

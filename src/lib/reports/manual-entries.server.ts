@@ -43,6 +43,7 @@ export async function recordManualIncome(
   db: SupabaseClient,
   managerUserId: string,
   input: ManualIncomeInput,
+  options?: { id: string },
 ): Promise<ManualEntryResult> {
   const amountCents = Number(input.amountCents);
   if (!(amountCents > 0)) {
@@ -64,6 +65,7 @@ export async function recordManualIncome(
   const { data, error } = await db
     .from("ledger_entries")
     .insert({
+      ...(options ? { id: options.id } : {}),
       manager_user_id: managerUserId,
       resident_user_id: null,
       resident_email: residentEmail,
@@ -102,6 +104,7 @@ export async function recordManualExpense(
   db: SupabaseClient,
   managerUserId: string,
   input: ManualExpenseInput,
+  options?: { id: string },
 ): Promise<ManualEntryResult> {
   const amountCents = Number(input.amountCents);
   if (!(amountCents > 0)) {
@@ -124,6 +127,7 @@ export async function recordManualExpense(
   const { data, error } = await db
     .from("manager_expense_entries")
     .insert({
+      ...(options ? { id: options.id } : {}),
       manager_user_id: managerUserId,
       property_id: input.propertyId?.trim() || null,
       category_code: categoryCode,
