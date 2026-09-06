@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { ACCOUNT_PURGE_TABLES } from "@/lib/auth/account-purge-manifest";
 import {
   DELETE_ORDER,
   EMAIL_COLUMNS,
@@ -102,6 +103,16 @@ describe("delete order", () => {
 
   it("names each table once", () => {
     expect(new Set(DELETE_ORDER).size).toBe(DELETE_ORDER.length);
+  });
+
+  it("visits every table the in-app purge knows about", () => {
+    // The script only ever looks at tables named here, so a table added to the app's purge
+    // manifest but not to this list is silently skipped by the QA reset — the exact drift
+    // that left deleted accounts recoverable from leftover rows.
+    const missing = ACCOUNT_PURGE_TABLES.map((rule) => rule.table).filter(
+      (table) => !DELETE_ORDER.includes(table),
+    );
+    expect(missing, "add these to DELETE_ORDER").toEqual([]);
   });
 });
 
