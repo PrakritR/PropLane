@@ -1125,13 +1125,16 @@ function PaymentAutomationSettingsForm({
         viaEmail={draft.paymentReminderDeliverViaEmail !== false}
         viaSms={draft.paymentReminderDeliverViaSms === true}
         placeholders='Placeholders: {residentName}, {chargeTitle}, {balanceDue}, {dueDate}, {daysUntilDue}, {daysUntilDuePhrase}, {propertyLine}, {managerName}, {residentPortalLogin}'
-        onSave={(next) => {
+        onSave={({ subject, body, viaInbox, viaEmail, viaSms }) => {
           setDraft({
             ...draft,
             templates: {
               ...draft.templates,
-              preDue: { subject: next.subject, body: next.body },
+              preDue: { subject, body },
             },
+            paymentReminderDeliverViaInbox: viaInbox,
+            paymentReminderDeliverViaEmail: viaEmail,
+            paymentReminderDeliverViaSms: viaSms,
           });
         }}
       />
