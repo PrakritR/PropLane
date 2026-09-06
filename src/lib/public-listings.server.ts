@@ -175,6 +175,12 @@ const PUBLIC_ROOM_KEYS = [
   "pricingMode",
   "flexibleRentMin",
   "flexibleRentMax",
+  // The rate card a prospect is choosing between. `weeklyRentPrice` without
+  // `rentBasis` would never render, and the surcharge fields are what let a listing
+  // say "+$150 on a short lease" instead of surprising them at the agreement.
+  "weeklyRentPrice",
+  "shortLeaseSurchargeMonthly",
+  "shortLeaseMaxMonths",
 ] as const satisfies readonly (keyof ManagerRoomSubmission)[];
 
 const PUBLIC_BATHROOM_KEYS = [

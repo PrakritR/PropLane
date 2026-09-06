@@ -23,8 +23,14 @@ import { isIntraMonthStay, shortTermNightlyRate } from "@/lib/short-term-stay-pr
 /** Minimal shape needed to reason about a room's rent price. */
 export type RoomPricingLike = {
   monthlyRent?: number | null;
-  rentBasis?: "monthly" | "daily";
+  rentBasis?: "monthly" | "weekly" | "daily";
   dailyRentPrice?: number | null;
+  /** Headline weekly rate. A real quoted rate, never 7 x the daily one. */
+  weeklyRentPrice?: number | null;
+  /** Extra monthly rent on a SHORT tenancy, folded into the rent line. */
+  shortLeaseSurchargeMonthly?: string | null;
+  /** Months at or below which a tenancy is short. Absent means the surcharge never applies. */
+  shortLeaseMaxMonths?: number | null;
   /**
    * The room's OWN short-term nightly rate (the per-rent-row short-term set). Distinct from
    * {@link dailyRentPrice}, which is the room's headline daily BASIS for an ordinary tenancy.
@@ -67,20 +73,44 @@ export function roomDailyRentPrice(room: RoomPricingLike | null | undefined): nu
   return positiveNumber(room.dailyRentPrice);
 }
 
+/** The room's headline weekly price, or undefined when it is not weekly-priced. */
+export function roomWeeklyRentPrice(room: RoomPricingLike | null | undefined): number | undefined {
+  if (!room || room.rentBasis !== "weekly") return undefined;
+  return positiveNumber(room.weeklyRentPrice);
+}
+
+/** True only when the manager explicitly priced this room by the week. */
+export function roomIsWeeklyPriced(room: RoomPricingLike | null | undefined): boolean {
+  return roomWeeklyRentPrice(room) !== undefined;
+}
+
 /** True only when the manager explicitly priced this room by the day. */
 export function roomIsDailyPriced(room: RoomPricingLike | null | undefined): boolean {
   return roomDailyRentPrice(room) !== undefined;
 }
 
-/** "day" for a daily-priced room, otherwise "month" (the default). */
-export function roomPricePeriod(room: RoomPricingLike | null | undefined): "day" | "month" {
-  return roomIsDailyPriced(room) ? "day" : "month";
+/** "day" / "week" for an explicitly daily- or weekly-priced room, otherwise "month". */
+export function roomPricePeriod(room: RoomPricingLike | null | undefined): "day" | "week" | "month" {
+  if (roomIsDailyPriced(room)) return "day";
+  if (roomIsWeeklyPriced(room)) return "week";
+  return "month";
 }
 
-/** Short period suffix, e.g. "/day" or "/mo". */
-export function roomPricePeriodSuffix(room: RoomPricingLike | null | undefined): "/day" | "/mo" {
-  return roomIsDailyPriced(room) ? "/day" : "/mo";
+/** Short period suffix, e.g. "/day", "/week" or "/mo". */
+export function roomPricePeriodSuffix(
+  room: RoomPricingLike | null | undefined,
+): "/day" | "/week" | "/mo" {
+  const period = roomPricePeriod(room);
+  return period === "day" ? "/day" : period === "week" ? "/week" : "/mo";
 }
+
+/**
+ * Weeks used to convert a weekly rate to an approximate MONTHLY figure for sorting,
+ * budget filters and aggregate labels ONLY — never for a charge, which always bills
+ * real periods. 52/12: a month is not four weeks, and using 4 understates a weekly
+ * room by roughly 8% against every monthly room it is ranked beside.
+ */
+export const WEEKLY_RENT_MONTH_ESTIMATE_WEEKS = 52 / 12;
 
 /**
  * A single comparable monthly-equivalent number for sorting, budget filters, and
@@ -92,6 +122,8 @@ export function roomPricePeriodSuffix(room: RoomPricingLike | null | undefined):
 export function roomMonthlyEquivalent(room: RoomPricingLike | null | undefined): number {
   const daily = roomDailyRentPrice(room);
   if (daily !== undefined) return Number((daily * DAILY_RENT_MONTH_ESTIMATE_DAYS).toFixed(2));
+  const weekly = roomWeeklyRentPrice(room);
+  if (weekly !== undefined) return Number((weekly * WEEKLY_RENT_MONTH_ESTIMATE_WEEKS).toFixed(2));
   const monthly = positiveNumber(room?.monthlyRent);
   return monthly ?? 0;
 }
@@ -120,6 +152,8 @@ export function rentMonthlyEquivalent(
 export function roomHeadlineAmount(room: RoomPricingLike | null | undefined): number | null {
   const daily = roomDailyRentPrice(room);
   if (daily !== undefined) return daily;
+  const weekly = roomWeeklyRentPrice(room);
+  if (weekly !== undefined) return weekly;
   const monthly = positiveNumber(room?.monthlyRent);
   return monthly ?? null;
 }
@@ -205,6 +239,60 @@ export function roomFlexibleSortAmount(room: RoomPricingLike | null | undefined)
   return range.min ?? range.max;
 }
 
+/**
+ * Whole months a tenancy spans, or undefined when the dates cannot say.
+ * Rounds UP, so a 2-month-and-a-day lease is 3 months rather than 2: the threshold
+ * is the manager's "2-3 months", and a lease that runs past the window should fall
+ * OUT of the surcharge rather than sneak under it on a rounding artefact.
+ */
+export function tenancyWholeMonths(
+  leaseStart: string | null | undefined,
+  leaseEnd: string | null | undefined,
+): number | undefined {
+  const start = String(leaseStart ?? "").trim();
+  const end = String(leaseEnd ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) return undefined;
+  const a = new Date(`${start}T12:00:00Z`);
+  const b = new Date(`${end}T12:00:00Z`);
+  if (!Number.isFinite(a.getTime()) || !Number.isFinite(b.getTime()) || b < a) return undefined;
+  const months =
+    (b.getUTCFullYear() - a.getUTCFullYear()) * 12 + (b.getUTCMonth() - a.getUTCMonth());
+  return b.getUTCDate() >= a.getUTCDate() ? months + 1 : months;
+}
+
+/** The room's short-lease surcharge amount, or 0 when it has none. */
+export function roomShortLeaseSurcharge(room: RoomPricingLike | null | undefined): number {
+  const value = String(room?.shortLeaseSurchargeMonthly ?? "").trim();
+  if (!value) return 0;
+  const amount = parseMoneyAmount(value);
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
+/**
+ * Whether THIS tenancy pays the room's short-lease surcharge.
+ *
+ * Never on an explicit short-term/nightly stay: that is already priced by its own
+ * nightly rate, and charging a monthly short-lease surcharge on top would bill the
+ * same shortness twice. Undated leases do NOT get it either — a surcharge must be
+ * something the manager can point at a date range to justify, and guessing here
+ * would silently raise rent on every lease whose dates have not been filled in.
+ */
+export function tenancyPaysShortLeaseSurcharge(
+  room: RoomPricingLike | null | undefined,
+  application: { rentalType?: string | null; leaseStart?: string | null; leaseEnd?: string | null } | null | undefined,
+): boolean {
+  if (roomShortLeaseSurcharge(room) <= 0) return false;
+  const rentalType = application?.rentalType;
+  if (rentalType === "short_term" || rentalType === "airbnb") return false;
+  const months = tenancyWholeMonths(application?.leaseStart, application?.leaseEnd);
+  if (months === undefined) return false;
+  // No threshold means the manager never said what "short" is here, so nothing is
+  // short. Never guess a window — that would surcharge tenancies nobody agreed to.
+  const threshold = Number(room?.shortLeaseMaxMonths);
+  if (!Number.isInteger(threshold) || threshold < 1) return false;
+  return months <= threshold;
+}
+
 /** Whether a placement is a short stay (nightly) or a normal tenancy. */
 export type StayKind = "short" | "long";
 
@@ -219,6 +307,14 @@ export type StayPricing = {
   monthlyRate: number | undefined;
   deposit: number | undefined;
   source: "room" | "listing" | "application_override";
+  /**
+   * Short-lease surcharge already INCLUDED in {@link monthlyRate}, in dollars.
+   *
+   * The resident is quoted one honest number ("$1,150/mo"), and this says how much of
+   * it is the surcharge so the agreement can print "$1,000 rent + $150 short-lease
+   * surcharge" without a second charge appearing on the ledger. 0 when none applies.
+   */
+  shortLeaseSurcharge: number;
 };
 
 export type StayPricingInput = {
@@ -339,6 +435,7 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
         dailyRate: negotiatedNightly,
         monthlyRate: undefined,
         deposit,
+      shortLeaseSurcharge: 0,
         source: "application_override",
       };
     }
@@ -355,6 +452,9 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
       dailyRate,
       monthlyRate: undefined,
       deposit,
+      // A nightly stay is already priced for being short; a monthly short-lease
+      // surcharge on top would bill the same shortness twice.
+      shortLeaseSurcharge: 0,
       source: roomRate !== undefined ? "room" : "listing",
     };
   }
@@ -367,6 +467,7 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
       dailyRate: undefined,
       monthlyRate: negotiated,
       deposit,
+      shortLeaseSurcharge: 0,
       source: "application_override",
     };
   }
@@ -385,6 +486,7 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
       dailyRate: undefined,
       monthlyRate: undefined,
       deposit,
+      shortLeaseSurcharge: 0,
       source: "room",
     };
   }
@@ -404,16 +506,25 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
       dailyRate: roomDaily,
       monthlyRate: undefined,
       deposit,
+      shortLeaseSurcharge: 0,
       source: "room",
     };
   }
 
+  // The manager quotes "$1,000/mo, +$150 if the lease is short". The resident should see
+  // ONE number, so the surcharge is folded into the rate rather than arriving as a
+  // separate fee line, while `shortLeaseSurcharge` keeps the breakdown for the
+  // agreement. Folding rather than adding a charge is what keeps the ledger, the lease
+  // document and the listing quoting the same figure.
+  const baseMonthly = positiveNumber(room?.monthlyRent);
+  const surcharge = tenancyPaysShortLeaseSurcharge(room, app) ? roomShortLeaseSurcharge(room) : 0;
   return {
     stayKind: "long",
     basis: "monthly",
     dailyRate: undefined,
-    monthlyRate: positiveNumber(room?.monthlyRent),
+    monthlyRate: baseMonthly === undefined ? undefined : Number((baseMonthly + surcharge).toFixed(2)),
     deposit,
+    shortLeaseSurcharge: surcharge,
     source: "room",
   };
 }

@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { normalizeManagerListingSubmissionV1, normalizeFlexibleRentBound } from "@/lib/manager-listing-submission";
+import {
+  normalizeManagerListingSubmissionV1,
+  normalizeFlexibleRentBound,
+  normalizeShortLeaseMaxMonths,
+} from "@/lib/manager-listing-submission";
 import {
   resolveStayPricing,
+  roomHeadlinePriceLabel,
+  roomIsWeeklyPriced,
+  roomMonthlyEquivalent,
+  tenancyPaysShortLeaseSurcharge,
   roomAdvertisedPriceLabel,
   roomFlexibleRange,
   roomFlexibleSortAmount,
@@ -138,5 +146,87 @@ describe("PRP-329 flexible room pricing", () => {
       expect(roomFlexibleRange({ monthlyRent: 825 })).toBeNull();
       expect(roomFlexibleSortAmount({ monthlyRent: 825 })).toBeUndefined();
     });
+  });
+});
+
+describe("rate card and short-lease surcharge", () => {
+  const room = (over: Record<string, unknown> = {}) => ({
+    monthlyRent: 1000,
+    shortLeaseSurchargeMonthly: "150",
+    shortLeaseMaxMonths: 3,
+    ...over,
+  });
+  const lease = (start: string, end: string) => ({ leaseStart: start, leaseEnd: end });
+
+  it("quotes ONE number with the surcharge folded in, and keeps the breakdown", () => {
+    const p = resolveStayPricing({ room: room(), submission: null, application: lease("2026-10-01", "2026-12-31") });
+    expect(p.monthlyRate).toBe(1150);
+    expect(p.shortLeaseSurcharge).toBe(150);
+  });
+
+  it("does not surcharge a full-length tenancy", () => {
+    const p = resolveStayPricing({ room: room(), submission: null, application: lease("2026-10-01", "2027-09-30") });
+    expect(p.monthlyRate).toBe(1000);
+    expect(p.shortLeaseSurcharge).toBe(0);
+  });
+
+  it("applies at the threshold and not past it", () => {
+    expect(tenancyPaysShortLeaseSurcharge(room(), lease("2026-10-01", "2026-12-31"))).toBe(true);
+    expect(tenancyPaysShortLeaseSurcharge(room(), lease("2026-10-01", "2027-01-31"))).toBe(false);
+  });
+
+  // A nightly stay is already priced for being short.
+  it("never doubles up with an explicit short-term stay", () => {
+    expect(
+      tenancyPaysShortLeaseSurcharge(room(), { ...lease("2026-10-01", "2026-10-20"), rentalType: "short_term" }),
+    ).toBe(false);
+  });
+
+  // Guessing here would raise rent on every lease whose dates are not filled in.
+  it("never surcharges an undated lease", () => {
+    expect(tenancyPaysShortLeaseSurcharge(room(), {})).toBe(false);
+  });
+
+  it("treats a weekly rate as a real quoted rate, not the monthly one divided", () => {
+    const weekly = { monthlyRent: 1000, rentBasis: "weekly" as const, weeklyRentPrice: 350 };
+    expect(roomIsWeeklyPriced(weekly)).toBe(true);
+    expect(roomHeadlinePriceLabel(weekly)).toBe("$350/week");
+    // 52/12 weeks, never 4 — four would understate it against every monthly room.
+    expect(roomMonthlyEquivalent(weekly)).toBeCloseTo(1516.67, 1);
+  });
+
+  it("falls back to monthly when a basis names a rate that was left blank", () => {
+    const sub = normalizeManagerListingSubmissionV1({
+      v: 1,
+      bathrooms: [],
+      sharedSpaces: [],
+      rooms: [{ id: "r1", name: "R", monthlyRent: 1000, rentBasis: "weekly" }],
+    });
+    expect(sub.rooms[0]!.rentBasis).toBe("monthly");
+  });
+
+  // "Short" is 2 months to one manager and 6 to another, so the product does not get
+  // to pick. No window set means the surcharge simply never applies — the failure
+  // direction is always "charge less", never a window nobody agreed to.
+  it("invents no short-lease window of its own", () => {
+    expect(normalizeShortLeaseMaxMonths(undefined)).toBeUndefined();
+    expect(normalizeShortLeaseMaxMonths("")).toBeUndefined();
+    expect(normalizeShortLeaseMaxMonths(0)).toBeUndefined();
+    expect(normalizeShortLeaseMaxMonths("2")).toBe(2);
+    expect(normalizeShortLeaseMaxMonths(6)).toBe(6);
+  });
+
+  it("charges no surcharge when the manager never said what short means", () => {
+    const noWindow = { monthlyRent: 1000, shortLeaseSurchargeMonthly: "150" };
+    expect(tenancyPaysShortLeaseSurcharge(noWindow, lease("2026-10-01", "2026-12-31"))).toBe(false);
+    const p = resolveStayPricing({ room: noWindow, submission: null, application: lease("2026-10-01", "2026-12-31") });
+    expect(p.monthlyRate).toBe(1000);
+    expect(p.shortLeaseSurcharge).toBe(0);
+  });
+
+  it("honours whatever window the manager did set", () => {
+    const sixMonths = room({ shortLeaseMaxMonths: 6 });
+    expect(tenancyPaysShortLeaseSurcharge(sixMonths, lease("2026-10-01", "2027-03-31"))).toBe(true);
+    expect(tenancyPaysShortLeaseSurcharge(sixMonths, lease("2026-10-01", "2027-04-30"))).toBe(false);
   });
 });
