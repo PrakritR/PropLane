@@ -43,6 +43,8 @@ export type DepositDispositionDocument = {
   itemization: DepositDispositionLine[];
   totalWithheld: string;
   refundDue: string;
+  priorRefunds?: string;
+  evidenceReferences?: string[];
 };
 
 const DISPOSITION_FOOTER =
@@ -106,6 +108,17 @@ export async function buildDepositDispositionPdf(doc: DepositDispositionDocument
   reserve(cursor, 30 + 12);
   cursor.y = drawHighlightLine(cursor.page, cursor.theme, { label: "Refund due to resident", value: doc.refundDue, x: PDF_PAGE.margin, y: cursor.y, width: CONTENT_WIDTH });
   cursor.y -= 14;
+
+  if (doc.priorRefunds) line(cursor, `Previously refunded: ${doc.priorRefunds}`);
+  if (doc.evidenceReferences?.length) {
+    line(cursor, "Supporting evidence references", 11, true);
+    for (const reference of doc.evidenceReferences) {
+      const height = wrappedTextHeight(theme.regular, reference, 8.5, CONTENT_WIDTH);
+      reserve(cursor, height + 8);
+      drawWrappedText(cursor.page, reference, PDF_PAGE.margin, cursor.y, 8.5, theme.regular, CONTENT_WIDTH, PDF_COLORS.muted);
+      cursor.y -= height + 8;
+    }
+  }
 
   reserve(cursor, 10 + wrappedTextHeight(theme.regular, DISPOSITION_FOOTER, 8.5, CONTENT_WIDTH));
   cursor.y -= 10;

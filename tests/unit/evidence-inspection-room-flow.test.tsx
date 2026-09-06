@@ -93,27 +93,20 @@ it("resident: room sections, photo upload, autosave, document preview, submit + 
   expect(screen.getByText(/Resident acknowledgment pending/)).toBeTruthy();
   writeEvidenceSurface("inspection-03-document-preview", "Resident · generated document preview — Room 3 only, resident observations, acknowledgment + manager approval both pending.", 150);
 
-  // Submit is explicit and its confirmation also states the acknowledgment.
-  fireEvent.click(screen.getByRole("button", { name: "Back to room sections" }));
-  fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
-  const dialog = await screen.findByRole("dialog");
-  expect(dialog.textContent).toContain("Submit and acknowledge this saved report for manager review");
-  writeEvidenceSurface("inspection-04-submit-confirmation", "Resident · explicit submit confirmation — the same dialog acknowledges the frozen revision that is returned.", 150);
-
+  expect(screen.queryByRole("button", { name: "Submit for review" })).toBeNull();
+  cleanup();
   const submitted = structuredClone(withPhoto);
   submitted.report.status = "submitted"; submitted.report.revision = 4;
-  const acknowledged = structuredClone(submitted);
-  acknowledged.report.revision = 5;
-  acknowledged.report.document.residentAcknowledgment = { userId: "resident", at: "2026-09-05T11:00:00Z", revision: 4 };
-  request.mockResolvedValueOnce(submitted).mockResolvedValueOnce(acknowledged);
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Submit for review", selector: "[data-attr='inspection-confirm']" })); });
-  // Submit acknowledges the revision the server returned, not the one on screen.
-  expect(request.mock.calls.slice(-2).map(call => JSON.parse(call[2].body))).toEqual([
-    { revision: 3, action: "submit" }, { revision: 4, action: "acknowledge" },
-  ]);
-  expect(screen.getByText("Awaiting review")).toBeTruthy();
+  const acknowledged = structuredClone(submitted); acknowledged.report.revision = 5;
+  acknowledged.report.document.residentAcknowledgment = { userId: "resident", at: "2026-09-05T11:00:00Z" };
+  request.mockResolvedValueOnce(acknowledged);
+  render(<InspectionEditor initial={submitted} role="resident" userId="resident" onBack={() => {}} onChanged={() => {}} />);
+  fireEvent.click(screen.getByRole("button", { name: "Confirm review" }));
+  const dialog = await screen.findByRole("dialog");
+  expect(dialog.textContent).toContain("not agreement with charges");
+  await act(async () => { fireEvent.click(dialog.querySelector("[data-attr='inspection-confirm']")!); });
+  expect(JSON.parse(request.mock.calls.at(-1)![2].body)).toEqual({ revision: 4, action: "acknowledge" });
   expect(screen.queryByRole("button", { name: "Confirm review" })).toBeNull();
-  writeEvidenceSurface("inspection-05-submitted-acknowledged", "Resident · after submit — report is frozen at “Awaiting review”, acknowledgment already recorded, no editing controls.", 150);
   vi.unstubAllGlobals();
 });
 
@@ -169,4 +162,52 @@ it("move-out: the move-in baseline stays readable beside the new observations", 
   fireEvent.click(screen.getByText(/Move-in photos and notes · 2026-03-01/));
   expect(screen.getByText("Wall was clean at move-in.")).toBeTruthy();
   writeEvidenceSurface("inspection-08-move-out-baseline", "Resident · move-out on the same room — the completed move-in report is the baseline, readable inline beside the new observations.", 150);
+});
+
+it("only the manager can request confirmation; the resident confirms the frozen report", async () => {
+  // A draft the resident has already documented: photo + note saved automatically.
+  const draft = roomReport();
+  draft.document.areas[0]!.items[0]!.resident.notes = "Small scuff to the left of the door frame.";
+  draft.document.areas[0]!.items[0]!.resident.photos.push({
+    id: "photo-1", path: "private/room-3.jpg", url: PHOTO_URL, uploadedBy: "resident", uploadedAt: "2026-09-05T10:00:00Z",
+  });
+
+  // Resident side of the SAME draft: no submit affordance of any kind.
+  render(<InspectionEditor initial={{ report: structuredClone(draft), baseline: null, canEdit: true }} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+  for (const gone of ["Submit for review", "Request confirmation", "Submit", "Request"]) {
+    expect(screen.queryByRole("button", { name: gone })).toBeNull();
+  }
+  writeEvidenceSurface("inspection-04-resident-draft-no-submit", "Resident · draft with saved evidence — autosaved, and NO Submit/Request control anywhere in the pinned footer. Residents never submit.", 150);
+  cleanup();
+
+  // Manager side of the same draft: the only Request confirmation button in the product.
+  render(<InspectionEditor initial={{ report: structuredClone(draft), baseline: null, canEdit: true }} role="manager" userId="owner" onBack={vi.fn()} onChanged={vi.fn()} />);
+  expect(screen.getByRole("button", { name: "Request confirmation" })).toBeTruthy();
+  writeEvidenceSurface("inspection-05a-manager-request-confirmation", "Manager · same draft — “Request confirmation” is the manager-only control that freezes both parties' photos and notes for the resident to review.", 150);
+
+  fireEvent.click(screen.getByRole("button", { name: "Request confirmation" }));
+  const requestDialog = await screen.findByRole("dialog");
+  expect(requestDialog.textContent).toContain("freezes both parties' photos and notes for the resident to review");
+  writeEvidenceSurface("inspection-05b-manager-request-confirm-gate", "Manager · confirmation gate for Request confirmation — states exactly what freezing does before anything is written.", 150);
+
+  const submitted = structuredClone(draft);
+  submitted.status = "submitted"; submitted.revision = 2;
+  request.mockResolvedValueOnce({ report: submitted, baseline: null, canEdit: true });
+  await act(async () => { fireEvent.click(requestDialog.querySelector("[data-attr='inspection-confirm']")!); });
+  expect(JSON.parse(request.mock.calls.at(-1)![2].body)).toEqual({ revision: 1, action: "submit" });
+  cleanup();
+
+  // The resident now confirms review of that frozen revision — a separate, explicit action.
+  const acknowledged = structuredClone(submitted);
+  acknowledged.revision = 3;
+  acknowledged.document.residentAcknowledgment = { userId: "resident", at: "2026-09-05T11:00:00Z", revision: 2 };
+  request.mockResolvedValueOnce({ report: acknowledged, baseline: null, canEdit: true });
+  render(<InspectionEditor initial={{ report: structuredClone(submitted), baseline: null, canEdit: true }} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+  expect(screen.getByRole("button", { name: "Confirm review" })).toBeTruthy();
+  writeEvidenceSurface("inspection-05c-resident-confirm-review", "Resident · frozen report awaiting review — read-only, with the explicit “Confirm review” action (confirmation of review, not agreement with charges).", 150);
+  fireEvent.click(screen.getByRole("button", { name: "Confirm review" }));
+  const ackDialog = await screen.findByRole("dialog");
+  await act(async () => { fireEvent.click(ackDialog.querySelector("[data-attr='inspection-confirm']")!); });
+  expect(JSON.parse(request.mock.calls.at(-1)![2].body)).toEqual({ revision: 2, action: "acknowledge" });
+  expect(screen.queryByRole("button", { name: "Confirm review" })).toBeNull();
 });

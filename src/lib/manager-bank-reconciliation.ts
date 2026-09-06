@@ -23,6 +23,7 @@ export type BankStatementLine = {
   description: string;
   amountCents: number;
   matchedLedgerEntryId: string | null;
+  matchedExpenseEntryId?: string | null;
   cleared: boolean;
 };
 
@@ -41,7 +42,7 @@ export const BANK_ACCOUNT_SELECT =
 export const BANK_STATEMENT_SELECT =
   "id, bank_account_id, statement_date, opening_balance_cents, closing_balance_cents, reconciled_at";
 export const BANK_STATEMENT_LINE_SELECT =
-  "id, statement_id, line_date, description, amount_cents, matched_ledger_entry_id, cleared";
+  "id, statement_id, line_date, description, amount_cents, matched_ledger_entry_id, matched_expense_entry_id, cleared";
 
 export type ReconciliationSummary = {
   openingBalanceCents: number;
@@ -96,6 +97,7 @@ export function mapBankStatementLineRow(row: Record<string, unknown>): BankState
     description: String(row.description ?? ""),
     amountCents: Number(row.amount_cents),
     matchedLedgerEntryId: row.matched_ledger_entry_id ? String(row.matched_ledger_entry_id) : null,
+    matchedExpenseEntryId: row.matched_expense_entry_id ? String(row.matched_expense_entry_id) : null,
     cleared: Boolean(row.cleared),
   };
 }

@@ -27,6 +27,8 @@ export async function POST(req: Request) {
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
     const body = (await req.json()) as {
+      sourceFileName?: string;
+      sourceFileSha256?: string;
       bankAccountId?: string;
       statementDate?: string;
       openingBalanceCents?: number;
@@ -35,6 +37,8 @@ export async function POST(req: Request) {
     };
     const statement = await createBankStatement(auth.db, {
       managerUserId: auth.userId,
+      sourceFileName: typeof body.sourceFileName === "string" ? body.sourceFileName : undefined,
+      sourceFileSha256: typeof body.sourceFileSha256 === "string" ? body.sourceFileSha256 : undefined,
       bankAccountId: String(body.bankAccountId ?? "").trim(),
       statementDate: String(body.statementDate ?? new Date().toISOString().slice(0, 10)),
       openingBalanceCents: Number(body.openingBalanceCents ?? 0),

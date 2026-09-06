@@ -1,3 +1,6 @@
+import { createCoalescedRefresher } from "@/lib/coalesced-refresh";
+import { replacePublicRoomOccupancy } from "@/lib/public-room-occupancy-client";
+import type { PublicRoomOccupancy } from "@/lib/public-room-occupancy";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { RentalWizardFormState } from "@/lib/rental-application/types";
@@ -29,7 +32,7 @@ const MANAGER_APPLICATIONS_SYNC_TTL_MS = 15_000;
 let managerApplicationsLastSyncedAt = 0;
 let managerApplicationsSyncPromise: Promise<DemoApplicantRow[]> | null = null;
 let publicApprovedApplicationsLastSyncedAt = 0;
-let publicApprovedApplicationsSyncPromise: Promise<DemoApplicantRow[]> | null = null;
+
 let applicationsScopeGeneration = 0;
 let applicationWriteGeneration = 0;
 
@@ -40,7 +43,7 @@ function clearSensitiveApplicationCache() {
   managerApplicationsLastSyncedAt = 0;
   publicApprovedApplicationsLastSyncedAt = 0;
   managerApplicationsSyncPromise = null;
-  publicApprovedApplicationsSyncPromise = null;
+  replacePublicRoomOccupancy([]);
   if (changed) emit();
 }
 
@@ -388,6 +391,8 @@ function persistManagerApplicationsToSession(rows: DemoApplicantRow[], scopeUser
 }
 
 function emit() {
+  replacePublicRoomOccupancy([]);
+  publicApprovedApplicationsLastSyncedAt = 0;
   if (!canUseStorage()) return;
   window.dispatchEvent(new Event(MANAGER_APPLICATIONS_EVENT));
 }
@@ -790,34 +795,24 @@ export async function syncManagerApplicationsFromServer(opts?: {
   }
 }
 
+const publicOccupancyRefresh = createCoalescedRefresher(async (): Promise<DemoApplicantRow[]> => {
+  const generation = applicationsScopeGeneration;
+  try {
+    const res = await fetch("/api/public/approved-room-occupancy");
+    if (generation !== applicationsScopeGeneration) return [];
+    if (!res.ok) return readManagerApplicationRows();
+    const body = (await res.json()) as { rooms?: PublicRoomOccupancy[] };
+    if (generation !== applicationsScopeGeneration) return [];
+    replacePublicRoomOccupancy(Array.isArray(body.rooms) ? body.rooms : []);
+    publicApprovedApplicationsLastSyncedAt = Date.now();
+    return readManagerApplicationRows();
+  } catch { return readManagerApplicationRows(); }
+});
 export async function syncPublicApprovedApplicationsFromServer(opts?: { force?: boolean }): Promise<DemoApplicantRow[]> {
   if (!canUseStorage()) return [];
-  // Demo sandbox is browser-local: never merge server rows into the seed.
   if (isDemoModeActive()) return readManagerApplicationRows();
-  const generation = applicationsScopeGeneration;
-  const force = opts?.force === true;
-  if (!force && publicApprovedApplicationsSyncPromise) return publicApprovedApplicationsSyncPromise;
-  if (!force && publicApprovedApplicationsLastSyncedAt > 0 && Date.now() - publicApprovedApplicationsLastSyncedAt < MANAGER_APPLICATIONS_SYNC_TTL_MS) {
-    return readManagerApplicationRows();
-  }
-  try {
-    publicApprovedApplicationsSyncPromise = (async () => {
-      const res = await fetch("/api/public/approved-room-occupancy");
-      if (generation !== applicationsScopeGeneration) return [];
-      if (!res.ok) return readManagerApplicationRows();
-      const body = (await res.json()) as { rows?: DemoApplicantRow[] };
-      if (generation !== applicationsScopeGeneration) return [];
-      const rows = mergeApplicationRows(memoryRows, Array.isArray(body.rows) ? body.rows : []);
-      memoryRows = rows;
-      publicApprovedApplicationsLastSyncedAt = Date.now();
-      return rows;
-    })().catch(() => readManagerApplicationRows());
-    return await publicApprovedApplicationsSyncPromise;
-  } catch {
-    return readManagerApplicationRows();
-  } finally {
-    publicApprovedApplicationsSyncPromise = null;
-  }
+  if (!opts?.force && publicApprovedApplicationsLastSyncedAt > 0 && Date.now() - publicApprovedApplicationsLastSyncedAt < MANAGER_APPLICATIONS_SYNC_TTL_MS) return readManagerApplicationRows();
+  return publicOccupancyRefresh.run(opts?.force === true);
 }
 
 export function readManagerApplicationRows(fallback: DemoApplicantRow[] = EMPTY_FALLBACK): DemoApplicantRow[] {
@@ -839,7 +834,7 @@ export function readManagerApplicationRows(fallback: DemoApplicantRow[] = EMPTY_
   });
 }
 
-export function writeManagerApplicationRows(rows: DemoApplicantRow[]): void {
+export function writeManagerApplicationRows(rows: DemoApplicantRow[], opts?: { serverConfirmed?: boolean }): void {
   try {
     const normalizedRows = normalizeApplicationRows(rows);
     if (!applicationRowsChanged(memoryRows, normalizedRows)) return;
@@ -847,7 +842,7 @@ export function writeManagerApplicationRows(rows: DemoApplicantRow[]): void {
     persistManagerApplicationsToSession(normalizedRows, activeApplicationsScopeUserId);
     managerApplicationsLastSyncedAt = Date.now();
     emit();
-    mirrorApplicationsToServer(normalizedRows);
+    if (!opts?.serverConfirmed) mirrorApplicationsToServer(normalizedRows);
     void import("@/lib/lease-pipeline-storage").then(({ syncLeasePipelineFromApplications }) => {
       syncLeasePipelineFromApplications(activeApplicationsScopeUserId ?? null);
     });

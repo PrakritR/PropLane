@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { dollarsToCents } from "@/lib/reports/money";
 import { parseMoneyAmount } from "@/lib/parse-money";
-import { postGlDepositDisposition, postGlReclassifyDeposit } from "@/lib/reports/gl-posting";
+import { postGlReclassifyDeposit } from "@/lib/reports/gl-posting";
 
 export type SecurityDepositStatus =
   | "held"
@@ -16,6 +16,11 @@ export type SecurityDepositDispositionType = "full_refund" | "itemized_partial" 
 export type SecurityDepositItemizationLine = {
   label: string;
   amountCents: number;
+  kind?: "deduction" | "refund";
+  date?: string;
+  sourceId?: string;
+  journalId?: string;
+  evidence?: { inspectionId: string; baselineId: string | null; itemId: string; billId: string };
 };
 
 export type SecurityDepositLedgerRow = {
@@ -33,6 +38,7 @@ export type SecurityDepositLedgerRow = {
   status: SecurityDepositStatus;
   dispositionType: SecurityDepositDispositionType | null;
   dispositionDate: string | null;
+  dispositionJournalId?: string | null;
   itemization: SecurityDepositItemizationLine[];
 };
 
@@ -93,6 +99,7 @@ function mapDepositRow(row: Record<string, unknown>): SecurityDepositLedgerRow {
       ? (row.disposition_type as SecurityDepositDispositionType)
       : null,
     dispositionDate: row.disposition_date ? String(row.disposition_date).slice(0, 10) : null,
+    dispositionJournalId: row.disposition_journal_entry_id ? String(row.disposition_journal_entry_id) : null,
     itemization,
   };
 }
@@ -152,6 +159,15 @@ export async function receiveSecurityDeposit(
   }
 
   return String(data.id);
+}
+
+/** Reviewed historical transactions preserve their own dates and replay-safe GL source IDs. */
+export async function importSecurityDepositHistory(db: SupabaseClient, managerUserId: string, depositId: string, originalCents: number, lines: Array<SecurityDepositItemizationLine & { kind: "deduction" | "refund"; date: string; sourceId: string }>) {
+  const refund = lines.filter(l => l.kind === "refund").reduce((sum, l) => sum + l.amountCents, 0);
+  const withheld = lines.filter(l => l.kind === "deduction").reduce((sum, l) => sum + l.amountCents, 0);
+  const { data, error } = await db.rpc("commit_security_deposit_disposition", { p_owner: managerUserId, p_deposit: depositId, p_expected_held: originalCents, p_refund: refund, p_withhold: withheld, p_type: withheld ? "itemized_partial" : "full_refund", p_date: lines.map(l => l.date).sort().at(-1), p_itemization: lines, p_memo: "Reviewed historical deposit transactions", p_history: lines });
+  if (error || !data) throw new Error(error?.message ?? "Deposit history commit failed");
+  return mapDepositRow(data as Record<string, unknown>);
 }
 
 export async function listSecurityDeposits(
@@ -224,45 +240,13 @@ export async function disposeSecurityDeposit(
     throw new Error("Disposition amounts must be positive and not exceed amount held.");
   }
 
-  const dispositionDate = input.dispositionDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
-  const remainingHeld = deposit.amountHeldCents - total;
-
-  let status: SecurityDepositStatus = "refunded";
-  if (withholdCents > 0 && refundCents > 0) status = "partially_refunded";
-  else if (withholdCents > 0 && refundCents === 0) {
-    status = input.dispositionType === "full_withhold" ? "forfeited" : "applied_to_damages";
-  }
-  if (remainingHeld > 0) status = "partially_refunded";
-
-  const journalEntryId = await postGlDepositDisposition(db, {
-    managerUserId: input.managerUserId,
-    sourceId: `deposit-dispose:${deposit.id}:${dispositionDate}`,
-    entryDate: dispositionDate,
-    refundCents,
-    withholdCents,
-    propertyId: deposit.propertyId,
-    residentUserId: deposit.residentUserId,
-    memo: input.memo ?? `Deposit disposition — ${deposit.sourceChargeId}`,
+  const { data, error } = await db.rpc("commit_security_deposit_disposition", {
+    p_owner: input.managerUserId, p_deposit: input.depositId, p_expected_held: deposit.amountHeldCents,
+    p_refund: refundCents, p_withhold: withholdCents, p_type: input.dispositionType,
+    p_date: input.dispositionDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+    p_itemization: input.itemization ?? [], p_memo: input.memo ?? "Security deposit disposition", p_history: null,
   });
-
-  const now = new Date().toISOString();
-  const { data, error } = await db
-    .from("security_deposit_ledger")
-    .update({
-      amount_held_cents: remainingHeld,
-      status,
-      disposition_type: input.dispositionType,
-      disposition_date: dispositionDate,
-      itemization: input.itemization ?? [],
-      disposition_journal_entry_id: journalEntryId,
-      updated_at: now,
-    })
-    .eq("id", deposit.id)
-    .eq("manager_user_id", input.managerUserId)
-    .select("*")
-    .single();
-
-  if (error || !data) throw new Error(`Deposit disposition update failed: ${error?.message ?? "unknown"}`);
+  if (error || !data) throw new Error(error?.message ?? "Deposit disposition commit failed");
   return mapDepositRow(data as Record<string, unknown>);
 }
 

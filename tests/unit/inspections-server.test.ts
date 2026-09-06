@@ -114,4 +114,23 @@ describe("inspection ownership and write isolation", () => {
     await expect(removeInspectionPhoto(resident(), reports[0]!.id, "photo", 1)).rejects.toMatchObject({ status: 404 });
     expect(writes).toBe(0); expect(storage.remove).not.toHaveBeenCalled();
   });
+  it("files a private source once per contributor and section without bypassing stale revision checks", async () => {
+    const sharp = (await import("sharp")).default;
+    const bytes = await sharp({ create: { width: 2, height: 2, channels: 3, background: "white" } }).jpeg().toBuffer();
+    const file = new File([new Uint8Array(bytes)], "photo.jpg", { type: "image/jpeg" });
+    const sourceRef = "resident/inspection-chat/portal/source.jpg";
+    const actor = resident();
+    const id = reports[0]!.id;
+    storage.upload.mockResolvedValue({ error: null });
+    const first = await addInspectionPhoto(actor, id, "area-0-item-0", 1, file, sourceRef);
+    const repeat = await addInspectionPhoto(actor, id, "area-0-item-0", first.revision, file, sourceRef);
+    expect(repeat.revision).toBe(first.revision);
+    expect(repeat.document.areas[0]!.items[0]!.resident.photos).toHaveLength(1);
+    expect(repeat.document.areas[0]!.items[0]!.resident.photos[0]).toMatchObject({ sourceRef, uploadedBy: "resident" });
+    expect(repeat.document.areas[0]!.items[0]!.manager.photos).toHaveLength(0);
+    expect(storage.upload).toHaveBeenCalledTimes(1);
+    expect(writes).toBe(1);
+    await expect(addInspectionPhoto(actor, id, "area-0-item-0", 1, file, sourceRef)).rejects.toMatchObject({ status: 409 });
+    expect(storage.upload).toHaveBeenCalledTimes(1);
+  });
 });

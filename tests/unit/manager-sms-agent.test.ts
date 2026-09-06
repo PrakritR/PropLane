@@ -37,11 +37,13 @@ describe("buildManagerSmsRegistry — destructive tools stay portal-only", () =>
   it("names the known destructive tools, so a re-flagging is noticed", () => {
     const withheld = [...agentRegistry.keys()].filter((name) => !registry.has(name)).sort();
     expect(withheld).toEqual([
+      "allocate_utility_bill",
       "approve_and_pay_work_order",
       "cancel_calendar_event",
       "change_inspection_status",
       "delete_charge",
       "delete_promotion",
+      "dispose_inspection_deposit",
       "revoke_resident_access",
       "void_lease",
     ]);

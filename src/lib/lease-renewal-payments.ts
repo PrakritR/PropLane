@@ -14,7 +14,7 @@
  */
 import {
   readManagerApplicationRows,
-  upsertApplicationRowToServer,
+  normalizeApplicationAxisId,
   writeManagerApplicationRows,
 } from "@/lib/manager-applications-storage";
 import {
@@ -29,7 +29,7 @@ import {
 } from "@/lib/lease-pipeline-storage";
 import { renewalRentalTypeForTerm } from "@/lib/lease-renewal-terms";
 
-export function applySignedLeaseRenewal(leaseRowId: string, managerUserId: string | null): boolean {
+export async function applySignedLeaseRenewal(leaseRowId: string, managerUserId: string | null): Promise<boolean> {
   const leaseRow = readLeasePipeline(managerUserId ?? undefined).find((r) => r.id === leaseRowId);
   const renewal = leaseRow?.pendingRenewal;
   if (!leaseRow || !renewal) return false;
@@ -37,11 +37,10 @@ export function applySignedLeaseRenewal(leaseRowId: string, managerUserId: strin
 
   const residentEmail = leaseRow.residentEmail.trim().toLowerCase();
   const rows = readManagerApplicationRows();
-  const idx = rows.findIndex(
-    (r) =>
-      (leaseRow.axisId && r.id === leaseRow.axisId) ||
-      (r.email ?? "").trim().toLowerCase() === residentEmail,
-  );
+  const matches = rows.map((row, index) => ({ row, index })).filter(({ row }) => leaseRow.axisId
+    ? normalizeApplicationAxisId(row.id) === normalizeApplicationAxisId(leaseRow.axisId)
+    : (row.email ?? "").trim().toLowerCase() === residentEmail);
+  const idx = matches.length === 1 ? matches[0].index : -1;
 
   if (idx >= 0) {
     const existing = rows[idx]!;
@@ -69,8 +68,11 @@ export function applySignedLeaseRenewal(leaseRowId: string, managerUserId: strin
     };
     const next = [...rows];
     next[idx] = nextRow;
-    writeManagerApplicationRows(next);
-    upsertApplicationRowToServer(nextRow);
+    try {
+      const response = await fetch("/api/manager-applications", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "upsert", row: nextRow }) });
+      if (!response.ok || (await response.json()).ok !== true) return false;
+    } catch { return false; }
+    writeManagerApplicationRows(next, { serverConfirmed: true });
 
     const propertyId = nextRow.assignedPropertyId ?? nextRow.application?.propertyId ?? leaseRow.propertyId ?? "";
     if (
@@ -86,6 +88,7 @@ export function applySignedLeaseRenewal(leaseRowId: string, managerUserId: strin
     recordApprovedApplicationCharges(nextRow, managerUserId, true);
   }
 
+  if (idx < 0) return false;
   updateLeasePipelineRow(leaseRowId, { pendingRenewal: null }, managerUserId);
   return idx >= 0;
 }

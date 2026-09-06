@@ -154,6 +154,9 @@ export type ManagerRoomSubmission = {
    * is the opposite of this. See {@link normalizeRoomOccupancyCapacity}.
    */
   occupancyCapacity?: number;
+  /** Required evidence for this room; independent for arrival and departure. */
+  moveInInspectionRequired?: boolean;
+  moveOutInspectionRequired?: boolean;
 };
 
 /** Sidebar “Quick facts” rows on the public listing; when empty, facts are auto-derived from the submission. */
@@ -1206,6 +1209,8 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
       occupancyCapacity: normalizeRoomOccupancyCapacity(
         (legacyRoom as ManagerRoomSubmission & { occupancyCapacity?: unknown }).occupancyCapacity,
       ),
+      moveInInspectionRequired: legacyRoom.moveInInspectionRequired === true,
+      moveOutInspectionRequired: legacyRoom.moveOutInspectionRequired === true,
       manualUnavailableRanges: (() => {
         const raw = (legacyRoom as ManagerRoomSubmission & { manualUnavailableRanges?: unknown }).manualUnavailableRanges;
         if (!Array.isArray(raw)) return [];

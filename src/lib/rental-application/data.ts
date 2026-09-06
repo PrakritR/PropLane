@@ -1,3 +1,5 @@
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { readPublicRoomOccupancy } from "@/lib/public-room-occupancy-client";
 import { mockProperties } from "@/data/mock-properties";
 import type { ListingRichContent } from "@/data/listing-rich-content";
 import type { MockProperty } from "@/data/types";
@@ -124,10 +126,14 @@ export type RoomUnavailabilityWindow = {
 };
 
 function approvedOccupancyForRoom(roomChoiceValue: string, excludeApplicationId?: string | null): ApprovedRoomOccupancy[] {
+  const publicSpans = !isDemoModeActive() && !excludeApplicationId ? readPublicRoomOccupancy(roomChoiceValue) : undefined;
+  if (publicSpans) return publicSpans.flatMap((span, index) => Array.from({ length: span.count }, (_, bed) => ({
+    rowId: `public-capacity-${index}-${bed}`, leaseStart: parseFlexibleLocalDate(span.start)!, leaseEnd: parseFlexibleLocalDate(span.end),
+  })));
   const parsedTarget = parseRoomChoiceValue(roomChoiceValue);
   const normalizedTarget = roomChoiceValue.trim();
   return readManagerApplicationRows()
-    .filter((row) => row.bucket === "approved" && row.id !== excludeApplicationId)
+    .filter((row) => row.bucket === "approved" && !row.withdrawnAt && row.id !== excludeApplicationId)
     .map((row) => {
       const effective = effectiveApplicationForRow(row);
       const assignedChoice = row.assignedRoomChoice?.trim() || effective?.roomChoice1?.trim() || "";
@@ -162,7 +168,9 @@ function approvedOccupancyForRoom(roomChoiceValue: string, excludeApplicationId?
       const appEnd = parseFlexibleLocalDate(effective?.leaseEnd);
       // When no explicit start date exists but the resident has a definitive room assignment,
       // treat them as currently occupying from today with no known end date.
-      const leaseStart = manualStart ?? appStart ?? (row.assignedRoomChoice?.trim() ? startOfToday() : null);
+      const currentStart = manualStart ?? appStart ?? (row.assignedRoomChoice?.trim() ? startOfToday() : null);
+      const floor = parseFlexibleLocalDate(row.occupancyStartedOn);
+      const leaseStart = floor && currentStart && floor < currentStart ? floor : currentStart;
       const leaseEnd = manualEnd ?? appEnd;
 
       if (!leaseStart) return null;

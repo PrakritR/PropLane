@@ -52,6 +52,8 @@ const SUBJECT_DIRECTIONS: Record<ReminderSubjectKind, TimingDirection[]> = {
   outgoing_payment: ["before"],
   // A stay is prepared for, never chased after check-in has passed.
   booking: ["before"],
+  inspection: ["before", "after"],
+  inspection_manager: ["after"],
 };
 
 /** Multi-select dropdown. Closes on outside click and on Escape. */

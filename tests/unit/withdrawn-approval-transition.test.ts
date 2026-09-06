@@ -20,7 +20,11 @@ const recordSubmittedApplicationFeeCharge = vi.fn();
 const removeAllApplicationCharges = vi.fn();
 const removeApprovedApplicationCharges = vi.fn();
 
-vi.mock("@/lib/manager-applications-storage", () => ({
+vi.mock("@/lib/manager-applications-storage", async (importOriginal) => ({
+  // Spread the real module: only the two storage accessors need overriding, and a
+  // hand-listed mock silently breaks the moment the module gains an export this
+  // path calls (`normalizeApplicationAxisId` is one).
+  ...(await importOriginal<typeof import("@/lib/manager-applications-storage")>()),
   readManagerApplicationRows: () => ROWS,
   writeManagerApplicationRows: (rows: DemoApplicantRow[]) => {
     ROWS = rows;
@@ -88,9 +92,10 @@ describe("transitionApplicationBucket — a refused approval is rolled back, not
     // Stamped locally too, so the row reads "Withdrawn" and stops offering Approve
     // instead of inviting the same refused round trip until the sync TTL expires.
     expect(ROWS[0].withdrawnAt).toBeTruthy();
-    expect(removeApprovedApplicationCharges).toHaveBeenCalledWith("AXIS-9001", "mgr-1");
+    expect(removeApprovedApplicationCharges).not.toHaveBeenCalled();
+    expect(recordApprovedApplicationCharges).not.toHaveBeenCalled();
     // No welcome email may go out for an approval the server refused.
-    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual(["/api/portal/resident-approval"]);
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual(["/api/manager-applications"]);
   });
 
   it("rolls back WITHOUT stamping when the 409 came from another application (email fallback)", async () => {
@@ -115,9 +120,10 @@ describe("transitionApplicationBucket — a refused approval is rolled back, not
     expect(result?.message).toMatch(/refresh/i);
     expect(ROWS[0].bucket).toBe("pending");
     expect(ROWS[0].withdrawnAt).toBeFalsy();
-    expect(removeApprovedApplicationCharges).toHaveBeenCalledWith("AXIS-9001", "mgr-1");
+    expect(removeApprovedApplicationCharges).not.toHaveBeenCalled();
+    expect(recordApprovedApplicationCharges).not.toHaveBeenCalled();
     // Only the refusal itself goes out — no extra reads that could race the rollback.
-    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual(["/api/portal/resident-approval"]);
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual(["/api/manager-applications"]);
   });
 
   it("rolls back WITHOUT stamping when the 409 names a different id even via the id lookup", async () => {
@@ -142,9 +148,10 @@ describe("transitionApplicationBucket — a refused approval is rolled back, not
     expect(ROWS[0].bucket).toBe("pending");
     // A network error is not a withdrawal signal.
     expect(ROWS[0].withdrawnAt).toBeFalsy();
-    expect(removeApprovedApplicationCharges).toHaveBeenCalledWith("AXIS-9001", "mgr-1");
+    expect(removeApprovedApplicationCharges).not.toHaveBeenCalled();
+    expect(recordApprovedApplicationCharges).not.toHaveBeenCalled();
     // The welcome email must not claim an approval that never landed.
-    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual(["/api/portal/resident-approval"]);
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual(["/api/manager-applications"]);
   });
 
   it("rolls back on any other non-2xx refusal (e.g. 403) rather than reporting success", async () => {
@@ -156,8 +163,9 @@ describe("transitionApplicationBucket — a refused approval is rolled back, not
     expect(ROWS[0].bucket).toBe("pending");
     // A non-withdrawn refusal must not fabricate a withdrawal stamp.
     expect(ROWS[0].withdrawnAt).toBeFalsy();
-    expect(removeApprovedApplicationCharges).toHaveBeenCalledWith("AXIS-9001", "mgr-1");
-    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual(["/api/portal/resident-approval"]);
+    expect(removeApprovedApplicationCharges).not.toHaveBeenCalled();
+    expect(recordApprovedApplicationCharges).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual(["/api/manager-applications"]);
   });
 
   it("leaves the /demo walkthrough alone — no server sync, no rollback", async () => {

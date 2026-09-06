@@ -1,3 +1,4 @@
+import { normalizeInboxAttachmentUrls } from "@/lib/inbox-attachments.server";
 /**
  * The resident's assistant thread in Communication.
  *
@@ -46,12 +47,17 @@ export function residentAgentThreadId(residentUserId: string, _managerUserId?: s
  * else is the resident. Attribution is by the stored `from` name rather than by
  * position, because a thread can also carry system notices.
  */
-export function threadHistory(rowData: Record<string, unknown> | null | undefined): InboxTurnMessage[] {
+export function threadHistory(rowData: Record<string, unknown> | null | undefined, residentUserId?: string): InboxTurnMessage[] {
   const messages = Array.isArray(rowData?.messages) ? (rowData!.messages as unknown[]) : [];
   return messages
     .map((entry) => {
       const row = (entry ?? {}) as Record<string, unknown>;
-      const body = typeof row.body === "string" ? row.body : "";
+      let body = typeof row.body === "string" ? row.body : "";
+      if (residentUserId && row.from !== RESIDENT_AGENT_FROM_NAME && Array.isArray(row.attachments)) {
+        const urls = normalizeInboxAttachmentUrls(row.attachments.map(a => a && typeof a === "object" ? a.url : ""), residentUserId);
+        const refs = urls.map(url => new URL(url, "http://localhost").searchParams.get("path")).filter(path => path && /\.(jpg|jpeg|png|webp)$/i.test(path));
+        if (refs.length) body += `\nPrivate photo source references (not filed yet):\n${refs.join("\n")}\nAsk which inspection and section before proposing file_inspection_photo.`;
+      }
       const from = typeof row.from === "string" ? row.from : "";
       return {
         from: from === RESIDENT_AGENT_FROM_NAME ? ("manager" as const) : ("resident" as const),
@@ -171,7 +177,7 @@ export async function runResidentInboxAgentTurn(
   const managerUserId = managerUserIdFromAgentThreadId(target.threadId, residentUserId, rowData);
   if (!managerUserId) return { replied: false, reason: "thread_not_bound_to_manager" };
 
-  const history = threadHistory(rowData);
+  const history = threadHistory(rowData, residentUserId);
   // The incoming message is already committed to the thread by the caller, so
   // drop the trailing copy rather than sending it to the model twice.
   const priorHistory = history.slice(0, -1);
@@ -179,7 +185,7 @@ export async function runResidentInboxAgentTurn(
   const result = await autoRespondToResidentInboxMessage(db, {
     managerUserId,
     residentEmail,
-    incomingText,
+    incomingText: history.at(-1)?.body || incomingText,
     history: priorHistory,
     sessionId: target.threadId,
   });

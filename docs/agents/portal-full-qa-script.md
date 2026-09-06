@@ -184,7 +184,7 @@ For each section: **load URL → heading visible → no error toast → primary 
 ### 1.6b Inspections (`/portal/inspections/move-in`)
 
 - [ ] Move-in / Move-out tabs list reports; ADD creates one for the resident's assigned room
-- [ ] Report detail: photo upload, notes autosave, document preview, submit / request changes / complete
+- [ ] Report detail: photo upload, notes autosave, document preview, request confirmation / request changes / approve
 - [ ] A completed report is read-only everywhere
 
 ### 1.7 Payments (`/portal/payments`)
@@ -327,7 +327,7 @@ Sign in as **resident@test.proplane.local**. Nav **varies by stage** — see `sr
 
 - [ ] Move-in checklist / house info loads
 - [ ] Housemates tab: the four sharing opt-ins save; a peer who has not opted in stays redacted
-- [ ] Inspections tab (`/resident/move-in/inspections`): create, photo upload, autosave, submit + acknowledge
+- [ ] Inspections tab (`/resident/move-in/inspections`): create, photo upload, autosave, confirm review of a frozen report (no Submit — only the manager requests confirmation)
 
 ### 2.9 Documents (`/resident/documents/*`)
 

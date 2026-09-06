@@ -48,6 +48,8 @@ export type DispatchSummary = {
  * override the choices someone already made.
  */
 const CATEGORY_BY_KIND: Record<ReminderSubjectKind, NotificationCategory> = {
+  inspection: "leases",
+  inspection_manager: "leases",
   tour: "leases",
   task: "messages",
   service_order: "maintenance",

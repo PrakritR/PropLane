@@ -45,6 +45,8 @@ export const REMINDER_SUBJECT_KINDS = [
   "payment_manager",
   "outgoing_payment",
   "booking",
+  "inspection",
+  "inspection_manager",
 ] as const;
 
 export type ReminderSubjectKind = (typeof REMINDER_SUBJECT_KINDS)[number];
@@ -193,6 +195,8 @@ export type ReminderSubjectMeta = {
 };
 
 export const REMINDER_SUBJECT_META: Record<ReminderSubjectKind, ReminderSubjectMeta> = {
+  inspection: { kind: "inspection", label: "Required inspections", anchorLabel: "the move-in or move-out date", counterpartyLabel: "resident" },
+  inspection_manager: { kind: "inspection_manager", label: "Inspection review", anchorLabel: "the report was updated", counterpartyLabel: "resident" },
   tour: {
     kind: "tour",
     label: "Tours",
@@ -276,6 +280,8 @@ export const REMINDER_SUBJECT_META: Record<ReminderSubjectKind, ReminderSubjectM
  * field exists so adding one later is a delivery change, not a schema change.
  */
 export const DEFAULT_REMINDER_RULES: ReminderRules = {
+  inspection: { enabled: true, leadMinutes: [DAY], timings: ["before:1440", "after:1440", "after:10080"], audience: { manager: false, counterparty: true, team: false }, teamUserIds: [], inbox: true, email: true, sms: false },
+  inspection_manager: { enabled: true, leadMinutes: [15], timings: ["after:15", "after:1440"], audience: { manager: true, counterparty: false, team: false }, teamUserIds: [], inbox: true, email: true, sms: false },
   tour: {
     enabled: true,
     leadMinutes: [1 * DAY, 30 * MINUTE],

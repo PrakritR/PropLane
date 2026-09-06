@@ -28,7 +28,7 @@ export const API_KEY_PRODUCT_AREAS: readonly ApiKeyProductArea[] = [
     label: "Portfolio & residents",
     description: "Properties, listings, residents, documents, and your team.",
     readTools: ["list_properties", "get_property_details", "get_listing_creation_checklist", "get_listing_media_inventory", "list_residents", "list_inspections", "get_inspection", "list_documents", "list_co_managers"],
-    writeTools: ["create_property", "update_property", "update_room_rent", "update_property_lease_config", "copy_listing_photos", "share_property_link", "create_listing_draft", "update_listing_draft", "apply_listing_photos", "set_resident_approval", "send_resident_welcome", "revoke_resident_access", "record_move_out", "create_inspection", "save_inspection_observations", "change_inspection_status"],
+    writeTools: ["create_property", "update_property", "update_room_rent", "update_property_lease_config", "copy_listing_photos", "share_property_link", "create_listing_draft", "update_listing_draft", "apply_listing_photos", "set_resident_approval", "send_resident_welcome", "revoke_resident_access", "record_move_out", "create_inspection", "save_inspection_observations", "change_inspection_status", "file_inspection_photo"],
   },
   {
     id: "leasing",
@@ -69,8 +69,8 @@ export const API_KEY_PRODUCT_AREAS: readonly ApiKeyProductArea[] = [
     id: "financials",
     label: "Financials",
     description: "Reports, income, expenses, bills, budgets, and distributions.",
-    readTools: ["run_financial_report"],
-    writeTools: ["record_expense", "record_income", "create_manager_bill", "approve_manager_bill", "record_bill_payment", "create_manager_budget", "update_manager_budget", "dispose_security_deposit", "create_owner_distribution", "approve_owner_distribution", "reconcile_bank_statement_line"],
+    readTools: ["run_financial_report", "preview_utility_allocation", "review_inspection_deposit", "suggest_bank_statement_matches"],
+    writeTools: ["allocate_utility_bill", "dispose_inspection_deposit", "record_expense", "record_income", "create_manager_bill", "approve_manager_bill", "record_bill_payment", "create_manager_budget", "update_manager_budget", "dispose_security_deposit", "create_owner_distribution", "approve_owner_distribution", "reconcile_bank_statement_line"],
   },
   {
     id: "operations",

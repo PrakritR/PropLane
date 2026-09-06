@@ -1,3 +1,4 @@
+import { depositDispositionAmounts } from "@/lib/reports/deposit-disposition-amounts";
 import { NextResponse } from "next/server";
 import { buildDepositDispositionPdf, type DepositDispositionLine } from "@/lib/reports/export/formal/deposit-disposition-pdf";
 import { assertManagerFinancialsAccess, getReportsAuthContext } from "@/lib/reports/auth";
@@ -52,18 +53,9 @@ export async function GET(req: Request) {
     ]);
 
     const depositHeldCents = deposit.amountCents;
-    const itemizationSum = deposit.itemization.reduce((sum, item) => sum + Math.max(0, Math.round(item.amountCents)), 0);
-    const withheldCents =
-      deposit.dispositionType === "full_refund"
-        ? 0
-        : deposit.itemization.length > 0
-          ? itemizationSum
-          : deposit.dispositionType === "full_withhold"
-            ? depositHeldCents
-            : 0;
-    const refundCents = Math.max(0, depositHeldCents - withheldCents);
+    const { deductions, priorRefundCents: historicalRefunds, withheldCents, refundCents } = depositDispositionAmounts(deposit);
 
-    const itemization: DepositDispositionLine[] = deposit.itemization.map((item) => ({
+    const itemization: DepositDispositionLine[] = deductions.map((item) => ({
       label: item.label,
       amount: centsToUsd(Math.max(0, Math.round(item.amountCents))),
     }));
@@ -80,6 +72,8 @@ export async function GET(req: Request) {
       propertyLabel: display.propertyLabel(deposit.propertyId),
       unitLabel: deposit.unitLabel ?? "",
       depositReceivedDate: deposit.receivedDate,
+      evidenceReferences: deductions.filter(item => item.evidence).map(item => `Inspection ${item.evidence!.inspectionId}; item ${item.evidence!.itemId}; approved bill ${item.evidence!.billId}${item.evidence!.baselineId ? `; move-in baseline ${item.evidence!.baselineId}` : ""}`),
+      priorRefunds: historicalRefunds ? centsToUsd(historicalRefunds) : undefined,
       dispositionType: deposit.dispositionType ? DISPOSITION_LABELS[deposit.dispositionType] : "Pending",
       depositHeld: centsToUsd(depositHeldCents),
       itemization,

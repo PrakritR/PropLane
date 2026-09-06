@@ -31,6 +31,8 @@ export const REMINDER_SUBJECT_CO_MANAGER_MODULE: Record<ReminderSubjectKind, CoM
   // Bookings sit in the Operations group beside the calendar, and a co-manager
   // who can see the schedule is the one who can see the stays on it.
   booking: "calendar",
+  inspection: "residents",
+  inspection_manager: "residents",
 };
 
 /**

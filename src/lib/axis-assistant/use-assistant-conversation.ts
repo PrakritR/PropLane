@@ -24,7 +24,7 @@ import { agentChatThreadTitleFromPrompts } from "@/lib/agent/chat-title";
  * Deliberately NOT sent back up as conversation history: the server re-derives
  * every turn, and the feedback route re-verifies ownership server-side.
  */
-export type ChatMessage = { role: "user" | "assistant"; content: string; traceId?: string };
+export type ChatMessage = { role: "user" | "assistant"; content: string; traceId?: string; attachmentContext?: string };
 export type ToolTraceEntry = { tool: string; ok: boolean };
 export type AssistantChatThreadSummary = { id: string; title: string; updatedAt: string };
 
@@ -46,6 +46,7 @@ type AssistantTransportData = {
   sessionId?: string | null;
   traceId?: string;
   archiveSaved?: boolean;
+  attachmentContext?: string;
 };
 
 /** Parse the SSE transport while retaining JSON compatibility for older routes. */
@@ -374,7 +375,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
           body: JSON.stringify({
-            messages: next,
+            messages: next.map(message => ({ ...message, content: message.attachmentContext ? `${message.attachmentContext}\n\n${message.content}` : message.content })),
             ...(activeThreadId ? { sessionId: activeThreadId } : {}),
             archive: multiThread,
             ...(requestContext?.contextHint?.trim() ? { contextHint: requestContext.contextHint.trim() } : {}),
@@ -408,7 +409,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
           // completed transport payload guarantees that the archived thread and
           // local state agree, while retaining the optional Langfuse trace id.
           const completed = [
-            ...next,
+            ...next.map((message, index) => index === next.length - 1 && data.attachmentContext ? { ...message, attachmentContext: data.attachmentContext } : message),
             {
               role: "assistant" as const,
               content: data.reply ?? "",
