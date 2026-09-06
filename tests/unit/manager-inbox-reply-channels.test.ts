@@ -93,6 +93,35 @@ describe("manager inbox reply channels", () => {
     });
   });
 
+  it("ignores a directory row whose phone is not a string", () => {
+    expect(() =>
+      resolveManagerInboxSmsTarget(
+        { from: "+16504484183", email: "dana@example.com" },
+        [
+          {
+            phone: 16504484183 as unknown as string,
+            residentEmail: { value: "dana@example.com" } as unknown as string,
+            residentUserId: null,
+            conversationKey: null,
+          },
+        ],
+        true,
+      ),
+    ).not.toThrow();
+    expect(
+      resolveManagerInboxSmsTarget(
+        { from: "+16504484183", email: "dana@example.com" },
+        [
+          {
+            phone: 16504484183 as unknown as string,
+            residentEmail: { value: "dana@example.com" } as unknown as string,
+          },
+        ],
+        true,
+      ),
+    ).toMatchObject({ phone: "+16504484183" });
+  });
+
   it("keeps SMS unavailable when outbound is disabled", () => {
     expect(
       resolveManagerInboxSmsTarget(

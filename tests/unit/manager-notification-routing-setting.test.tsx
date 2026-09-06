@@ -97,6 +97,26 @@ describe("ManagerNotificationRoutingSetting", () => {
     expect(body.managerAttentionDigestCadence).toBe("weekly");
   });
 
+  it("ignores malformed API phone values without a trim error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo) =>
+        String(input).includes("messaging-number")
+          ? Response.json({
+              ...numberStatus,
+              number: { ...numberStatus.number!, phoneNumber: 18559168031 },
+              personalPhone: { ...numberStatus.personalPhone, phone: { e164: "+13175550123" } },
+            })
+          : Response.json({ settings: DEFAULT_MANAGER_AUTOMATION_SETTINGS }),
+      ),
+    );
+
+    render(<ManagerNotificationRoutingSetting />);
+
+    expect(await screen.findByText("Assistant fallback active")).toBeTruthy();
+    expect(screen.queryByText("Phone connection ready")).toBeNull();
+  });
+
   it("explains the Assistant fallback when work-number setup is incomplete", async () => {
     vi.stubGlobal(
       "fetch",

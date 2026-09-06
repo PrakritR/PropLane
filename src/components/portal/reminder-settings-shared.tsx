@@ -31,7 +31,6 @@ export function ReminderSendViaField({
   showProplaneChannel = false,
   smsAvailable = true,
   smsLabel,
-  footerNote,
   dataAttr = "reminder-send-via",
   disabled = false,
 }: {
@@ -42,7 +41,6 @@ export function ReminderSendViaField({
   showProplaneChannel?: boolean;
   smsAvailable?: boolean;
   smsLabel?: string;
-  footerNote?: string;
   dataAttr?: string;
   disabled?: boolean;
 }) {
@@ -96,7 +94,6 @@ export function ReminderSendViaField({
         emptyLabel="Choose channels…"
         dataAttr={dataAttr}
       />
-      {footerNote ? <p className="mt-1.5 text-xs text-muted">{footerNote}</p> : null}
     </div>
   );
 }
@@ -157,20 +154,40 @@ export function ReminderMessageUpdateModal({
   showProplaneChannel?: boolean;
   smsAvailable?: boolean;
   smsLabel?: string;
-  onSave: (next: { subject: string; body: string }) => void;
+  /**
+   * Channels come back with the message because the modal edits both. A caller
+   * that only stores the template can ignore them, but every current caller has
+   * per-rule channel state and persists them.
+   */
+  onSave: (next: {
+    subject: string;
+    body: string;
+    viaInbox: boolean;
+    viaEmail: boolean;
+    viaSms: boolean;
+  }) => void;
 }) {
   const [draftSubject, setDraftSubject] = useState(subject);
   const [draftBody, setDraftBody] = useState(body);
+  const [draftInbox, setDraftInbox] = useState(viaInbox !== false);
+  const [draftEmail, setDraftEmail] = useState(viaEmail !== false);
+  const [draftSms, setDraftSms] = useState(viaSms === true);
 
   useEffect(() => {
     if (!open) return;
     queueMicrotask(() => {
       setDraftSubject(subject);
       setDraftBody(body);
+      setDraftInbox(viaInbox !== false);
+      setDraftEmail(viaEmail !== false);
+      setDraftSms(viaSms === true);
     });
-  }, [open, subject, body]);
+  }, [open, subject, body, viaInbox, viaEmail, viaSms]);
 
-  const canSave = draftSubject.trim().length > 0 && draftBody.trim().length > 0;
+  // A message with every channel switched off would save cleanly and then never
+  // reach anybody, so it is refused here rather than failing silently at send.
+  const anyChannel = draftInbox || draftEmail || (draftSms && smsAvailable);
+  const canSave = draftSubject.trim().length > 0 && draftBody.trim().length > 0 && anyChannel;
 
   return (
     <Modal
@@ -189,7 +206,13 @@ export function ReminderMessageUpdateModal({
             data-attr="reminder-update-message-save"
             disabled={!canSave}
             onClick={() => {
-              onSave({ subject: draftSubject.trim(), body: draftBody.trim() });
+              onSave({
+                subject: draftSubject.trim(),
+                body: draftBody.trim(),
+                viaInbox: draftInbox,
+                viaEmail: draftEmail,
+                viaSms: draftSms && smsAvailable,
+              });
               onClose();
             }}
           >
@@ -212,14 +235,16 @@ export function ReminderMessageUpdateModal({
           />
           <ReminderSendViaField
             showProplaneChannel={showProplaneChannel}
-            viaInbox={viaInbox !== false}
-            viaEmail={viaEmail !== false}
-            viaSms={viaSms === true}
+            viaInbox={draftInbox}
+            viaEmail={draftEmail}
+            viaSms={draftSms}
             smsAvailable={smsAvailable}
             smsLabel={smsLabel}
-            disabled
-            footerNote="Change delivery channels in the settings above."
-            onChange={() => {}}
+            onChange={({ viaInbox: nextInbox, viaEmail: nextEmail, viaSms: nextSms }) => {
+              setDraftInbox(nextInbox !== false);
+              setDraftEmail(nextEmail);
+              setDraftSms(nextSms);
+            }}
             dataAttr="reminder-update-message-send-via"
           />
         </div>

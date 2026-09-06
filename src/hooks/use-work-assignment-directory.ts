@@ -9,6 +9,7 @@ import {
 } from "@/lib/manager-vendors-storage";
 import { readProRelationships, syncProRelationshipsFromServer } from "@/lib/pro-relationships";
 import { PRO_RELATIONSHIPS_EVENT } from "@/lib/property-pipeline-events";
+import { trimmedText } from "@/lib/trimmed-text";
 
 export type WorkAssignmentTeamMember = {
   userId: string;
@@ -62,16 +63,16 @@ export function useWorkAssignmentDirectory(opts?: {
     if (!userId || !enabled) return [];
     void relationshipTick;
     const members: WorkAssignmentTeamMember[] = [];
-    const selfLabel = opts?.managerName?.trim() || email?.trim() || "You";
+    const selfLabel = trimmedText(opts?.managerName) || trimmedText(email) || "You";
     members.push({ userId, name: selfLabel, email });
     const seen = new Set<string>([userId]);
     for (const rel of readProRelationships(userId)) {
-      const linkedId = rel.linkedUserId?.trim();
+      const linkedId = trimmedText(rel.linkedUserId);
       if (!linkedId || seen.has(linkedId)) continue;
       seen.add(linkedId);
       members.push({
         userId: linkedId,
-        name: rel.linkedDisplayName?.trim() || rel.linkedAxisId?.trim() || "Team member",
+        name: trimmedText(rel.linkedDisplayName) || trimmedText(rel.linkedAxisId) || "Team member",
       });
     }
     return members;

@@ -1,6 +1,7 @@
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { PRIMARY_AXIS_ADMIN_EMAIL, PRIMARY_AXIS_ADMIN_LABEL } from "@/data/inbox-scoped-directory";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
+import { trimmedText } from "@/lib/trimmed-text";
 
 export type CommunicationFilterRole = "resident" | "management" | "admin" | "vendor";
 
@@ -38,7 +39,7 @@ export function axisAdminFilterContact(): InboxScopedContact {
 }
 
 export function contactMatchesFilterRole(contact: InboxScopedContact, role: CommunicationFilterRole): boolean {
-  if (role === "admin") return contact.id === "axis-admin" || contact.email.toLowerCase() === PRIMARY_AXIS_ADMIN_EMAIL.toLowerCase();
+  if (role === "admin") return contact.id === "axis-admin" || trimmedText(contact.email).toLowerCase() === PRIMARY_AXIS_ADMIN_EMAIL.toLowerCase();
   if (role === "vendor") return contact.role === "vendor";
   if (role === "resident") return contact.role === "resident";
   return contact.role === "manager" && contact.id !== "axis-admin";
@@ -58,9 +59,9 @@ export function propertyOptionsFromFilterContacts(
   const byId = new Map<string, string>();
   for (const contact of contacts) {
     if (contact.role !== "resident") continue;
-    const id = contact.propertyId?.trim() || contact.propertyLabel?.trim();
+    const id = trimmedText(contact.propertyId) || trimmedText(contact.propertyLabel);
     if (!id) continue;
-    const label = contact.propertyLabel?.trim() || id;
+    const label = trimmedText(contact.propertyLabel) || id;
     if (!byId.has(id)) byId.set(id, label);
   }
   return [...byId.entries()]
@@ -69,8 +70,8 @@ export function propertyOptionsFromFilterContacts(
 }
 
 function emailMatchesContact(email: string | null | undefined, contact: InboxScopedContact): boolean {
-  const a = email?.trim().toLowerCase() ?? "";
-  const b = contact.email.trim().toLowerCase();
+  const a = trimmedText(email).toLowerCase();
+  const b = trimmedText(contact.email).toLowerCase();
   return Boolean(a && b && a === b);
 }
 
@@ -91,7 +92,7 @@ export function threadPassesCommunicationFilters(args: {
   if (!communicationFiltersActive(filters)) return true;
 
   const adminEmail = PRIMARY_AXIS_ADMIN_EMAIL.toLowerCase();
-  const counterparty = args.counterpartyEmail?.trim().toLowerCase() ?? "";
+  const counterparty = trimmedText(args.counterpartyEmail).toLowerCase();
 
   const matchedContacts = args.contacts.filter((c) => emailMatchesContact(counterparty, c));
   const isAdminThread = counterparty === adminEmail;
@@ -101,7 +102,7 @@ export function threadPassesCommunicationFilters(args: {
       (args.propertyId && filters.propertyIds.includes(args.propertyId)) ||
       (args.propertyLabel && filters.propertyIds.includes(args.propertyLabel)) ||
       matchedContacts.some((c) => {
-        const pid = c.propertyId?.trim() || c.propertyLabel?.trim();
+        const pid = trimmedText(c.propertyId) || trimmedText(c.propertyLabel);
         return pid ? filters.propertyIds.includes(pid) : false;
       });
     if (!propertyOk) return false;

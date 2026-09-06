@@ -1,6 +1,6 @@
 import { test, expect, type Page, type Locator } from "@playwright/test";
-import { signIn, mockStripeAllRoutes } from "../helpers/auth";
-import { E2E_ACCOUNTS } from "../fixtures";
+import path from "node:path";
+import { mockStripeAllRoutes } from "../helpers/auth";
 
 /**
  * Manager portal filter dropdown walkthrough.
@@ -50,29 +50,30 @@ async function exerciseFieldDropdown(page: Page, scope: Locator, fieldMatcher: R
   await page.waitForTimeout(200);
 }
 
-test.describe("Manager portal filter dropdowns (demo)", () => {
-  test("demo applications filter opens property menu below trigger", async ({ page }) => {
-    test.setTimeout(60_000);
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto("/demo", { waitUntil: "domcontentloaded" });
-    await page.locator('[data-attr="demo-nav-applications"]').click();
-    await expect(page.getByRole("heading", { name: /Applications/i })).toBeVisible({ timeout: 20_000 });
-    await openFilterPanel(page);
-    await exerciseFieldDropdown(
-      page,
-      page.locator('[data-slot="portal-filter-dropdown-panel"]'),
-      /Property/i,
-    );
-  });
-});
-
 test.describe("Manager portal filter dropdowns", () => {
   test.skip(process.env.E2E_TESTS_ENABLED !== "1", "Set E2E_TESTS_ENABLED=1 after npm run test:seed");
 
+  test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
+
   test.beforeEach(async ({ page }) => {
     await mockStripeAllRoutes(page);
-    await signIn(page, E2E_ACCOUNTS.manager.email, E2E_ACCOUNTS.manager.password, "/portal/dashboard");
-    await page.waitForURL(/\/portal\//, { timeout: 60_000 });
+  });
+
+  test("Applications filter panel stays right of the sidebar at 1440px", async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/portal/applications/pending", { waitUntil: "domcontentloaded" });
+    await openFilterPanel(page);
+    const sidebar = page.locator("aside").first();
+    await expect(sidebar).toBeVisible({ timeout: 20_000 });
+    const sidebarBox = await sidebar.boundingBox();
+    const panel = page.locator('[data-slot="portal-filter-dropdown-panel"]');
+    const panelBox = await panel.boundingBox();
+    expect(sidebarBox).toBeTruthy();
+    expect(panelBox).toBeTruthy();
+    if (sidebarBox && panelBox) {
+      expect(panelBox.x).toBeGreaterThanOrEqual(sidebarBox.x + sidebarBox.width - 2);
+    }
   });
 
   for (const section of FILTER_SECTIONS) {

@@ -468,7 +468,17 @@ async function sweepViewport(browser, viewport, routes, probeSource, discovered 
             // route — a trapped dialog is both a finding and a reason not to keep
             // clicking underneath one.
             const stillOpen = await page.locator(PANEL_SELECTOR).count().catch(() => 0);
-            if (stillOpen) {
+            // Escape not closing a panel is only a defect if there is no other way
+            // out. The portal filter sheet opts out of Escape and outside-click on
+            // purpose and offers a header X that works — so this check reported a
+            // deliberate design as a bug on 15 surfaces (PRP-386, since corrected).
+            const hasCloseControl = stillOpen
+              ? await page
+                  .locator(`${PANEL_SELECTOR} >> button[aria-label*="close" i], ${PANEL_SELECTOR} >> [data-attr*="close"]`)
+                  .count()
+                  .catch(() => 0)
+              : 0;
+            if (stillOpen && !hasCloseControl) {
               push({
                 check: "dialog-escape-ignored",
                 severity: "medium",

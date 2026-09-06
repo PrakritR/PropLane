@@ -1,4 +1,5 @@
 import { normalizeE164 } from "@/lib/phone-e164";
+import { trimmedText } from "@/lib/trimmed-text";
 
 /**
  * Channel availability + defaults for manager email-inbox replies (including AI
@@ -67,12 +68,12 @@ export function resolveManagerInboxSmsTarget(
   if (inboxThreadHasEmail(email)) {
     const byEmail = smsRecipients.find(
       (row) =>
-        row.residentEmail?.trim().toLowerCase() === email && Boolean(row.phone?.trim()),
+        trimmedText(row.residentEmail).toLowerCase() === email && Boolean(trimmedText(row.phone)),
     );
-    if (byEmail?.phone?.trim()) {
+    if (byEmail && trimmedText(byEmail.phone)) {
       return {
-        phone: byEmail.phone.trim(),
-        residentEmail: byEmail.residentEmail?.trim() || null,
+        phone: trimmedText(byEmail.phone),
+        residentEmail: trimmedText(byEmail.residentEmail) || null,
         residentUserId: byEmail.residentUserId ?? null,
         conversationKey: byEmail.conversationKey ?? null,
       };
@@ -83,14 +84,14 @@ export function resolveManagerInboxSmsTarget(
   if (!phoneHint) return null;
 
   const byPhone = smsRecipients.find((row) => {
-    const phone = row.phone?.trim();
+    const phone = trimmedText(row.phone);
     if (!phone) return false;
     return normalizeE164(phone) === phoneHint || samePhone(phone, phoneHint);
   });
-  if (byPhone?.phone?.trim()) {
+  if (byPhone && trimmedText(byPhone.phone)) {
     return {
-      phone: byPhone.phone.trim(),
-      residentEmail: byPhone.residentEmail?.trim() || null,
+      phone: trimmedText(byPhone.phone),
+      residentEmail: trimmedText(byPhone.residentEmail) || null,
       residentUserId: byPhone.residentUserId ?? null,
       conversationKey: byPhone.conversationKey ?? null,
     };

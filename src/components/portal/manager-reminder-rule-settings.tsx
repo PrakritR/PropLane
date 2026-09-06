@@ -325,7 +325,14 @@ export function ManagerReminderRuleSettingsPanel({
         viaEmail={rule.email}
         viaSms={rule.sms}
         placeholders={meta.placeholders}
-        onSave={(next) => patchRule({ template: next })}
+        onSave={({ subject, body, viaInbox, viaEmail, viaSms }) =>
+          patchRule({
+            template: { subject, body },
+            inbox: viaInbox,
+            email: viaEmail,
+            sms: viaSms,
+          })
+        }
       />
     </>
   );

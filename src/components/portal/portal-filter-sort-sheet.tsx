@@ -221,7 +221,7 @@ export function PortalFilterSortSheet({
   /** Keep portal popovers inside the page content instead of covering an adjacent rail. */
   constrainDropdownToTitleBand = true,
   /** Pin the desktop dropdown's left edge to the trigger (command-strip filters on the left). */
-  dropdownAlign = "end",
+  dropdownAlign = "start",
   commandStripTrigger = false,
   open: controlledOpen,
   defaultOpen = false,
