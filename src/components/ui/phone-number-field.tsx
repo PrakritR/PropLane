@@ -26,8 +26,10 @@ export function PhoneNumberField({
   disabled = false,
   placeholder,
   autoComplete = "tel",
+  name,
   dataAttr,
   className = "",
+  inputClassName = "",
 }: {
   id?: string;
   value: unknown;
@@ -35,8 +37,10 @@ export function PhoneNumberField({
   disabled?: boolean;
   placeholder?: string;
   autoComplete?: string;
+  name?: string;
   dataAttr?: string;
   className?: string;
+  inputClassName?: string;
 }) {
   const parsed = useMemo(() => parsePhoneFieldValue(value), [value]);
   const [iso, setIso] = useState(parsed.iso);
@@ -82,6 +86,7 @@ export function PhoneNumberField({
       />
       <Input
         id={id}
+        name={name}
         type="tel"
         inputMode="numeric"
         autoComplete={autoComplete}
@@ -90,7 +95,7 @@ export function PhoneNumberField({
         placeholder={numberPlaceholder}
         value={display}
         disabled={disabled}
-        className="min-w-0 flex-1 rounded-l-none"
+        className={`min-w-0 flex-1 rounded-l-none ${inputClassName}`.trim()}
         data-attr={id ? `${id}-number` : "phone-number"}
         onChange={(event) => emit(iso, event.target.value)}
       />

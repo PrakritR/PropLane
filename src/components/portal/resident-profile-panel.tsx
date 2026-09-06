@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Lock, MessageSquareText, Settings2, SlidersHorizontal, Smartphone, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalChangePasswordPanel } from "@/components/portal/portal-change-password-panel";
@@ -243,12 +244,10 @@ export function ResidentProfilePanel() {
                 <label className="text-sm font-medium text-foreground" htmlFor="resident-pf-phone">
                   Phone
                 </label>
-                <Input
+                <PhoneNumberField
                   id="resident-pf-phone"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  inputMode="tel"
-                  autoComplete="tel"
+                  onChange={setPhone}
                 />
               </div>
               <div className="space-y-2">

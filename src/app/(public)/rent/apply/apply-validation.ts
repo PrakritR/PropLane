@@ -1,4 +1,5 @@
 import { GROUP_ID_PREFIX, LEGACY_GROUP_ID_PREFIX } from "@/lib/rental-application/application-groups";
+import { normalizeE164 } from "@/lib/phone-e164";
 
 /** US state / territory postal abbreviations used for rental address validation */
 export const US_STATE_ABBREVS = new Set([
@@ -37,9 +38,13 @@ export function validateSsn(ssn: string): { ok: true } | { ok: false; message: s
 }
 
 export function validatePhone10(phone: string): { ok: true } | { ok: false; message: string } {
-  const d = digitsOnly(phone);
-  if (d.length !== 10) return { ok: false, message: "Phone number must be 10 digits." };
-  return { ok: true };
+  if (normalizeE164(phone)) return { ok: true };
+  return { ok: false, message: "Enter a valid phone number." };
+}
+
+/** Optional phone fields: blank is fine; a partial number is not. */
+export function isBlankOrCompletePhone(phone: string): boolean {
+  return !phone.trim() || Boolean(normalizeE164(phone));
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

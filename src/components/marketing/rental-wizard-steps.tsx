@@ -4,6 +4,7 @@ import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 import { type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { DateField } from "@/components/ui/date-field";
 import { PropertySearchPicker } from "@/components/marketing/property-search-picker";
 import { CosignerInviteCallout } from "@/components/marketing/cosigner-invite-callout";
@@ -1119,15 +1120,11 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               <Label htmlFor="phone" required>
                 Phone number
               </Label>
-              <Input
+              <PhoneNumberField
                 id="phone"
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
                 value={form.phone}
-                onChange={(e) => p.setPhone(e.target.value)}
-                placeholder="(###) ###-####"
-                className={errors.phone ? "border-red-400 ring-2 ring-red-100" : ""}
+                onChange={p.setPhone}
+                inputClassName={errors.phone ? "border-red-400 ring-2 ring-red-100" : ""}
               />
               <FieldError msg={errors.phone} />
             </div>
@@ -1361,13 +1358,11 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             <Label htmlFor="currentLandlordPhone" optional>
               Current landlord phone
             </Label>
-            <Input
+            <PhoneNumberField
               id="currentLandlordPhone"
-              type="tel"
               value={form.currentLandlordPhone}
-              onChange={(e) => p.setLandlordPhone(e.target.value)}
-              placeholder="(###) ###-####"
-              className={errors.currentLandlordPhone ? "border-red-400 ring-2 ring-red-100" : ""}
+              onChange={p.setLandlordPhone}
+              inputClassName={errors.currentLandlordPhone ? "border-red-400 ring-2 ring-red-100" : ""}
             />
             <FieldError msg={errors.currentLandlordPhone} />
           </div>
@@ -1493,13 +1488,11 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                 <Label htmlFor="prevLandlordPhone" optional>
                   Previous landlord phone
                 </Label>
-                <Input
+                <PhoneNumberField
                   id="prevLandlordPhone"
-                  type="tel"
                   value={form.prevLandlordPhone}
-                  onChange={(e) => p.setPrevLandlordPhone(e.target.value)}
-                  placeholder="(###) ###-####"
-                  className={errors.prevLandlordPhone ? "border-red-400 ring-2 ring-red-100" : ""}
+                  onChange={p.setPrevLandlordPhone}
+                  inputClassName={errors.prevLandlordPhone ? "border-red-400 ring-2 ring-red-100" : ""}
                 />
                 <FieldError msg={errors.prevLandlordPhone} />
               </div>
@@ -1600,14 +1593,12 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               <Label htmlFor="supervisorPhone" optional>
                 Supervisor phone
               </Label>
-              <Input
+              <PhoneNumberField
                 id="supervisorPhone"
-                type="tel"
                 value={form.supervisorPhone}
                 disabled={form.notEmployed}
-                onChange={(e) => p.setSupervisorPhone(e.target.value)}
-                placeholder="(###) ###-####"
-                className={errors.supervisorPhone ? "border-red-400 ring-2 ring-red-100" : ""}
+                onChange={p.setSupervisorPhone}
+                inputClassName={errors.supervisorPhone ? "border-red-400 ring-2 ring-red-100" : ""}
               />
               <FieldError msg={errors.supervisorPhone} />
             </div>
@@ -1749,13 +1740,11 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               <Label htmlFor="ref1Phone" required>
                 Phone
               </Label>
-              <Input
+              <PhoneNumberField
                 id="ref1Phone"
-                type="tel"
                 value={form.ref1Phone}
-                onChange={(e) => p.setRef1Phone(e.target.value)}
-                placeholder="(###) ###-####"
-                className={errors.ref1Phone ? "border-red-400 ring-2 ring-red-100" : ""}
+                onChange={p.setRef1Phone}
+                inputClassName={errors.ref1Phone ? "border-red-400 ring-2 ring-red-100" : ""}
               />
               <FieldError msg={errors.ref1Phone} />
             </div>
@@ -1785,13 +1774,11 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               <Label htmlFor="ref2Phone" optional>
                 Phone
               </Label>
-              <Input
+              <PhoneNumberField
                 id="ref2Phone"
-                type="tel"
                 value={form.ref2Phone}
-                onChange={(e) => p.setRef2Phone(e.target.value)}
-                placeholder="(###) ###-####"
-                className={errors.ref2Phone ? "border-red-400 ring-2 ring-red-100" : ""}
+                onChange={p.setRef2Phone}
+                inputClassName={errors.ref2Phone ? "border-red-400 ring-2 ring-red-100" : ""}
               />
               <FieldError msg={errors.ref2Phone} />
             </div>

@@ -21,7 +21,7 @@ import {
   applicationConfigForVariant,
 } from "@/lib/rental-application/application-field-catalog";
 import { getPropertyById } from "@/lib/rental-application/data";
-import { maskPhoneInput, maskSsnInput } from "@/lib/rental-application/masks";
+import { maskSsnInput } from "@/lib/rental-application/masks";
 import {
   computeLeaseEndDate,
   normalizeIsoDateInput,
@@ -151,7 +151,7 @@ export function ResidentApplicationEditor({ row, residentEmail, onCancel, onSave
   );
 
   const setPhoneMasked = useCallback((key: keyof RentalWizardFormState, next: string) => {
-    setForm((f) => ({ ...f, [key]: maskPhoneInput(String(f[key] ?? ""), next), email: residentEmail }));
+    setForm((f) => ({ ...f, [key]: next, email: residentEmail }));
     setErrors((e) => ({ ...e, [key]: "" }));
   }, [residentEmail]);
 

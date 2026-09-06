@@ -2,6 +2,7 @@
 
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 
 /**
  * The one set of account-creation fields, shared by resident, vendor and
@@ -63,14 +64,12 @@ export function SignupFieldStack({
         onChange={(e) => onChange({ email: e.target.value })}
         disabled={disabled || emailDisabled}
       />
-      <Input
-        type="tel"
-        inputMode="tel"
-        autoComplete="tel"
+      <PhoneNumberField
         placeholder={phonePlaceholder}
         value={values.phone}
-        onChange={(e) => onChange({ phone: e.target.value })}
+        onChange={(phone) => onChange({ phone })}
         disabled={disabled}
+        dataAttr="signup-phone"
       />
       <PasswordInput
         autoComplete="new-password"

@@ -11,6 +11,7 @@ import {
 } from "@/lib/demo-admin-scheduling";
 import { canNavigateToWizardStep, nextWizardMaxReached } from "@/lib/wizard-step-nav";
 import { Select } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import {
   PARTNER_MEETING_STEP_FIELD_ORDER,
   scrollToFirstWizardFieldError,
@@ -518,7 +519,7 @@ export function PartnerMeetingScheduler({ showToast }: { showToast: (m: string) 
               </Field>
             </div>
             <Field label="Phone" fieldKey="phone">
-              <input type="tel" placeholder="(206) 555-0100" className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} />
+              <PhoneNumberField value={phone} onChange={setPhone} dataAttr="partner-meeting-phone" />
             </Field>
             <Field label="Notes (optional)">
               <textarea
