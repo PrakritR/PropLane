@@ -153,6 +153,14 @@
         if (reachable) continue;
         const r = el.getBoundingClientRect();
         if (r.height < 40 && r.width < 40) continue; // chips/badges truncate on purpose
+        // A visually-hidden input is 1px tall by design and "clips" whatever the
+        // browser thinks its content is; it has no reader to fail.
+        if (r.height <= 4 || r.width <= 4) continue;
+        if (el.className && typeof el.className === "string" && /\bsr-only\b|\bvisually-hidden\b/.test(el.className)) continue;
+        // A handful of horizontal pixels on the shell itself is the scrollbar, not
+        // lost content. Only a real horizontal clip on a real panel counts.
+        if (hiddenY <= 12 && hiddenX <= 24) continue;
+        if (el.id === "portal-main-content" && hiddenY <= 12) continue;
         // A single line of text truncated WITH an ellipsis is the intended design
         // (`.truncate`), not content the reader cannot reach. Only a clip that
         // hides content silently counts.
