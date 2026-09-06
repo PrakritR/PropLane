@@ -525,6 +525,21 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["user_id"] },
   },
   {
+    table: "resident_inspections",
+    phase: 2,
+    // `manager_user_id` is a plain FK with no delete action, so these rows must go before the
+    // auth user does or `deleteProfileAndAuthUser` fails on the constraint.
+    manager: { ids: ["manager_user_id"] },
+    resident: { ids: ["resident_user_id"], emails: ["resident_email"] },
+  },
+  {
+    table: "resident_housemate_sharing",
+    phase: 2,
+    manager: { ids: ["user_id"] },
+    resident: { ids: ["user_id"] },
+    vendor: { ids: ["user_id"] },
+  },
+  {
     table: "manager_expense_entries",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
@@ -647,6 +662,9 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
   sms_delivery_events: "Child of sms_outbox (cascades); carries no account column.",
   sms_provider_events: "Raw provider webhook log; carries no account column.",
   sms_segment_usage: "Aggregate billing counters; carries no account column.",
+  rate_limit_buckets: "Hashed request counters keyed by bucket, with no account column and a short reset window.",
+  application_document_storage_aliases:
+    "Child of manager_application_records (cascades); keyed on the storage path, not an account.",
 };
 
 /**

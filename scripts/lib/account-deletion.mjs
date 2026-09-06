@@ -159,6 +159,8 @@ export const DELETE_ORDER = [
   "sms_outbox",
   "mcp_oauth_authorization_codes",
   "mcp_oauth_tokens",
+  "resident_inspections",
+  "resident_housemate_sharing",
   "manager_expense_entries",
   "audit_log",
   // 3. foreign-key parents: journals, work orders, documents, properties
