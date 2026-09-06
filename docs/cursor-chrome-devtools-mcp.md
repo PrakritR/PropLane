@@ -67,7 +67,7 @@ window you already have open (same cookies / signed-in portal):
 | --- | --- |
 | `cursor-1` keeper (this pane) | `http://localhost:3010` |
 | `prakrit` integration | `http://localhost:3000` |
-| Vercel staging (`main`) | Vercel Preview URL for `main` |
+| Deployed QA | See [staging custom domain](database-environments.md#staging-custom-domain-namecheap--vercel) |
 | Production | `https://prop-lane.space` (read-only debugging only) |
 
 Prefer **`/portal`** with a seeded test manager (`manager@test.proplane.local` after

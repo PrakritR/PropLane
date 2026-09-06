@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Fail closed when a non-production Vercel pull still points at the live
 // production Supabase project. Used by the backup Vercel Deploy workflow
-// after `vercel pull` for main / staging.
+// after the staging `vercel pull`; environment ownership is documented in
+// docs/database-environments.md.
 const prodRef = (process.env.AXIS_PROD_SUPABASE_REF || "").trim();
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 if (!prodRef) {
