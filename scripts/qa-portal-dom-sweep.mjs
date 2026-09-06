@@ -204,6 +204,7 @@ async function sweepViewport(browser, viewport, routes, probeSource) {
   await dismissDevOverlay(page).catch(() => {});
 
   const findings = [];
+  let rowsSeen = 0;
   for (const route of routes) {
     process.stdout.write(`  ${viewport.name} ${route.label} … `);
     const consoleErrors = [];
@@ -340,6 +341,15 @@ async function sweepViewport(browser, viewport, routes, probeSource) {
         }
       }
 
+      // How much data was actually on the page. A portal with no rows produces
+      // clean pages, empty states and disabled primary CTAs — all of which look
+      // exactly like defects, and none of which are. Tonight the whole dev
+      // portfolio vanished mid-sweep and the pass reported "clean" the whole way
+      // down; that must never read as good news again.
+      rowsSeen += await page
+        .evaluate(() => document.querySelectorAll('[class*="-row"], tbody tr, [role="row"], [role="listitem"], li[data-attr]').length)
+        .catch(() => 0);
+
       const top = await page.evaluate(() => globalThis.__tmProbe?.());
       // Sticky chrome only collides once the page is scrolled — the floating bulk
       // bar meeting the phone tab bar is invisible from the top of the page.
@@ -413,6 +423,7 @@ async function sweepViewport(browser, viewport, routes, probeSource) {
   }
 
   await context.close();
+  findings.rowsSeen = rowsSeen;
   return findings;
 }
 
@@ -429,10 +440,13 @@ async function main() {
   const browser = await chromium.launch({ headless: !flag("headed") });
   const all = [];
   const faults = [];
+  let totalRowsSeen = 0;
   try {
     for (const viewport of SELECTED_VIEWPORTS) {
       try {
-        all.push(...(await sweepViewport(browser, viewport, routes, probeSource)));
+        const viewportFindings = await sweepViewport(browser, viewport, routes, probeSource);
+        totalRowsSeen += viewportFindings.rowsSeen ?? 0;
+        all.push(...viewportFindings);
       } catch (err) {
         if (!(err instanceof HarnessFault)) throw err;
         // Keep whatever the other viewports can still measure; report the fault
@@ -469,6 +483,12 @@ async function main() {
   writeFileSync(join(RUN_DIR, "all-findings.json"), JSON.stringify(all, null, 2));
   writeFileSync(LEDGER_PATH, JSON.stringify(ledger, null, 2));
 
+  if (totalRowsSeen === 0) {
+    console.log(`\nTHIS PORTAL HAD NO DATA. Not one row on any route, at any viewport.`);
+    console.log(`  A clean result here is not evidence of anything — an empty portal renders empty`);
+    console.log(`  states and greys out its primary actions, which reads as defects either way.`);
+    console.log(`  Seed it (npm run test:seed) and sweep again before believing this run.`);
+  }
   if (degraded.length) {
     const routes = [...new Set(degraded.map((f) => f.route ?? f.path))];
     console.log(`\n${degraded.length} finding(s) on ${routes.length} route(s) were measured while the app refused the session (401/403) and are NOT offered for filing:`);
