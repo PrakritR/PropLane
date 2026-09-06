@@ -274,7 +274,29 @@ async function sweepViewport(browser, viewport, routes, probeSource, discovered 
       // Portal panels hydrate and then sync. Measuring before that settles reports
       // layout no person ever sees, which is how a sweep manufactures phantom bugs.
       await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
-      await page.waitForTimeout(1200);
+      // Wait for the layout to STOP MOVING, not merely for the network to go quiet.
+      // These panels hydrate, then sync, then reflow — and a measurement taken
+      // mid-reflow reports a row sitting under the command bar that is 84px clear
+      // a second later. That produced a finding I could not reproduce by hand,
+      // which is the most expensive kind: it survives every consistency check the
+      // sweep has, because the sweep was consistently early.
+      let lastFingerprint = "";
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const fingerprint = await page
+          .evaluate(() => {
+            const sample = [...document.querySelectorAll("main *")].slice(0, 40);
+            return `${document.documentElement.scrollHeight}|${sample
+              .map((n) => {
+                const r = n.getBoundingClientRect();
+                return `${Math.round(r.x)},${Math.round(r.y)}`;
+              })
+              .join(";")}`;
+          })
+          .catch(() => "");
+        if (fingerprint && fingerprint === lastFingerprint) break;
+        lastFingerprint = fingerprint;
+        await page.waitForTimeout(400);
+      }
 
       const landed = new URL(page.url()).pathname;
       // A bounce to sign-in mid-sweep is almost never a routing bug — it is the
