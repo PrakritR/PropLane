@@ -5,7 +5,8 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadBlobFile } from "@/lib/portal-document-download";
 import type { InspectionResidency, InspectionRole, InspectionSummary } from "./model";
 
-export type InspectionList = { reports: InspectionSummary[]; residencies: InspectionResidency[] };
+/** `notice` carries the half of the load that failed, so the half that worked still renders. */
+export type InspectionList = { reports: InspectionSummary[]; residencies: InspectionResidency[]; notice?: string };
 export const INSPECTIONS_CHANGED = "proplane-inspections-changed";
 export function inspectionUrl(role: InspectionRole, path = "") {
   return `/api/inspections${path}?portal=${role}`;

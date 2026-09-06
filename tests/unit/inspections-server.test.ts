@@ -9,13 +9,15 @@ vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 vi.mock("@/lib/tools/audit", () => ({ writeAuditLog: vi.fn(async () => ({ recorded: true })), updateAuditResult: vi.fn() }));
 vi.mock("@/lib/auth/manager-application-access", () => ({ managerOwnedPropertyIdSet: async (_db: unknown, userId: string) => new Set(userId === "owner" ? ["home"] : []) }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({ linkedOwnerScopeForModule: async (_db: unknown, userId: string, _module: string, level: string) => ({ owners: new Set(), propertyIds: new Set(userId === "co-manager" && level === "read" ? ["home"] : []) }) }));
-import { addInspectionPhoto, getInspection, listInspections, prepareInspection, removeInspectionPhoto, saveInspection, type InspectionActor } from "@/lib/inspections/server";
+import { addInspectionPhoto, getInspection, listInspectionResidencies, listInspections, prepareInspection, removeInspectionPhoto, saveInspection, type InspectionActor } from "@/lib/inspections/server";
 
 // Executable filtering + revision compare-and-swap, rather than canned query results.
 let reports: InspectionRecord[];
 let applications: Record<string, unknown>[];
 let writes: number;
 let properties: Record<string, unknown>[];
+/** Table name → the PostgREST error every read of it should return. */
+let readErrors: Record<string, { code?: string; message: string }>;
 const storage = { upload: vi.fn(), remove: vi.fn(), createSignedUrls: vi.fn() };
 const db = { storage: { from: () => storage }, from(table: string) {
   const filters: ((row: Record<string, unknown>) => boolean)[] = [];
@@ -23,6 +25,8 @@ const db = { storage: { from: () => storage }, from(table: string) {
   let from = 0; let to = Infinity;
   const rows = () => table === "resident_inspections" ? reports : table === "manager_application_records" ? applications : properties;
   const run = () => {
+    const failure = readErrors[table];
+    if (failure) return { data: null as unknown as Record<string, unknown>[], error: failure };
     const matched = rows().filter(row => filters.every(f => f(row as unknown as Record<string, unknown>))).slice(from, to + 1);
     if (patch) { for (const row of matched) Object.assign(row, patch); writes += matched.length; }
     return { data: structuredClone(matched), error: null };
@@ -38,7 +42,7 @@ const db = { storage: { from: () => storage }, from(table: string) {
 } };
 const manager = (userId = "owner"): InspectionActor => ({ role: "manager", context: { userId, landlordId: userId, db } as unknown as AgentContext });
 const resident = (userId = "resident", email = "resident@example.test"): InspectionActor => ({ role: "resident", context: { userId, landlordId: userId, email, phase: "approved", db } as unknown as ResidentAgentContext });
-beforeEach(() => { vi.clearAllMocks(); writes = 0; properties = [{ id: "home", manager_user_id: "owner" }]; reports = [reportFixture()]; applications = [{ id: "AXIS-TEST", manager_user_id: "owner", property_id: "home", resident_email: "resident@example.test", app_bucket: "approved", app_name: "Resident", app_resident_user_id: "resident", app_property_id: "home", app_room_choice: "Room 1" }]; });
+beforeEach(() => { vi.clearAllMocks(); writes = 0; readErrors = {}; properties = [{ id: "home", manager_user_id: "owner" }]; reports = [reportFixture()]; applications = [{ id: "AXIS-TEST", manager_user_id: "owner", property_id: "home", resident_email: "resident@example.test", app_bucket: "approved", app_name: "Resident", app_resident_user_id: "resident", app_property_id: "home", app_room_choice: "Room 1" }]; });
 
 describe("inspection ownership and write isolation", () => {
   it("hides another landlord's report and another resident's evidence", async () => {
@@ -113,5 +117,51 @@ describe("inspection ownership and write isolation", () => {
     reports[0]!.document.areas[0]!.items[0]!.manager.photos.push({ id: "photo", path: "private", uploadedBy: "owner", uploadedAt: "2026-09-05" });
     await expect(removeInspectionPhoto(resident(), reports[0]!.id, "photo", 1)).rejects.toMatchObject({ status: 404 });
     expect(writes).toBe(0); expect(storage.remove).not.toHaveBeenCalled();
+  });
+});
+
+describe("residency roster", () => {
+  it("reports the tenancy dates and where the resident sits on the timeline", async () => {
+    applications[0]!.app_manual_move_in = "2026-08-01";
+    applications[0]!.app_manual_move_out = "2027-07-31";
+
+    const [residency] = await listInspectionResidencies(manager());
+
+    expect(residency).toMatchObject({ id: "AXIS-TEST", moveInDate: "2026-08-01", moveOutDate: "2027-07-31" });
+    // Occupancy is resolved against the real today, so only assert it is one of the three.
+    expect(["upcoming", "current", "past"]).toContain(residency!.occupancy);
+  });
+
+  it("prefers the manager's own date over the one the applicant typed", async () => {
+    applications[0]!.app_lease_start = "2026-08-01";
+    applications[0]!.app_manual_move_in = "2026-09-15";
+
+    expect((await listInspectionResidencies(manager()))[0]!.moveInDate).toBe("2026-09-15");
+  });
+
+  it("leaves the dates blank rather than guessing when the application has none", async () => {
+    const [residency] = await listInspectionResidencies(manager());
+
+    expect(residency).toMatchObject({ moveInDate: "", moveOutDate: "", occupancy: "upcoming" });
+  });
+});
+
+describe("unreadable tables", () => {
+  it("names the missing table and the migrations instead of asking for a retry", async () => {
+    // Migrations do not ride along with a deploy, so the code can ship before the table
+    // exists. "Please try again" sent managers round a loop no retry could break.
+    readErrors.resident_inspections = { code: "PGRST205", message: "Could not find the table 'public.resident_inspections' in the schema cache" };
+
+    await expect(listInspections(manager())).rejects.toMatchObject({
+      status: 503,
+      message: expect.stringContaining("resident_inspections"),
+    });
+    await expect(listInspections(manager())).rejects.toThrow(/migrations/);
+  });
+
+  it("keeps the retry wording for an ordinary read failure", async () => {
+    readErrors.resident_inspections = { code: "57014", message: "canceling statement due to statement timeout" };
+
+    await expect(listInspections(manager())).rejects.toMatchObject({ status: 500, message: expect.stringContaining("try again") });
   });
 });

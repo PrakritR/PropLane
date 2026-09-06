@@ -15,10 +15,112 @@ import { InspectionEditor } from "@/components/portal/inspection-editor";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadInspection, inspectionRequest, loadInspectionList, INSPECTIONS_CHANGED, type InspectionList } from "@/lib/inspections/client";
-import { inspectionRoomLabel, createInspectionSchema, type InspectionDetail, type InspectionKind, type InspectionRole, type InspectionStatus } from "@/lib/inspections/model";
+import { inspectionRoomLabel, createInspectionSchema, type InspectionDetail, type InspectionKind, type InspectionResidency, type InspectionRole, type InspectionStatus, type InspectionSummary } from "@/lib/inspections/model";
 
 const kindLabel = (kind: InspectionKind) => kind === "move-in" ? "Move-in" : "Move-out";
 const statusLabel = (status: InspectionStatus) => status === "submitted" ? "Awaiting review" : status === "completed" ? "Completed" : "Draft";
+
+/**
+ * A tenancy date is a WALL date (`2026-03-04`), so it is formatted from its parts. Building a
+ * Date from the string parses it as UTC and prints the previous day west of Greenwich.
+ */
+function tenancyDate(iso: string): string {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso.trim());
+  if (!parts) return "";
+  const date = new Date(Number(parts[1]), Number(parts[2]) - 1, Number(parts[3]));
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+/**
+ * One line per PERSON, not per filed report. A manager with residents and no reports yet was
+ * shown an empty page telling them an approved resident was needed — while nine approved
+ * residents sat one tab away. The roster is the list; a report, when one exists, rides on the
+ * row it belongs to.
+ */
+type InspectionRow = {
+  key: string;
+  name: string;
+  subtitle: string;
+  preview: string;
+  badge: { label: string; tone: "success" | "warning" | "neutral" };
+  report?: InspectionSummary;
+  residency?: InspectionResidency;
+  /** Ascending sort within a tab: the date that tab is about, blanks last. */
+  sortKey: string;
+};
+
+const occupancyBadge = {
+  upcoming: { label: "Moving in", tone: "warning" as const },
+  current: { label: "Living here", tone: "success" as const },
+  past: { label: "Moved out", tone: "neutral" as const },
+};
+
+/** Which occupancy states belong on each tab. A past resident no longer needs a move-in. */
+const TAB_OCCUPANCY: Record<InspectionKind, InspectionResidency["occupancy"][]> = {
+  "move-in": ["upcoming", "current"],
+  "move-out": ["current", "past"],
+};
+
+export function buildInspectionRows(kind: InspectionKind, residencies: InspectionResidency[], reports: InspectionSummary[]): InspectionRow[] {
+  const onTab = residencies.filter(residency => TAB_OCCUPANCY[kind].includes(residency.occupancy));
+  const byId = new Map(onTab.map(residency => [residency.id, residency]));
+  const forKind = reports.filter(report => report.kind === kind);
+
+  const tenancyLine = (residency: InspectionResidency | undefined): string => {
+    if (!residency) return "";
+    const moveIn = tenancyDate(residency.moveInDate);
+    const moveOut = tenancyDate(residency.moveOutDate);
+    if (kind === "move-in") {
+      if (residency.occupancy === "upcoming") return moveIn ? `Moves in ${moveIn}` : "Move-in date not set";
+      return moveIn ? `Moved in ${moveIn}` : "Living here";
+    }
+    return moveOut ? `Moves out ${moveOut}` : "Move-out date not set";
+  };
+  const reportBadge = (report: InspectionSummary) => ({
+    label: statusLabel(report.status),
+    tone: report.status === "completed" ? "success" as const : report.status === "submitted" ? "warning" as const : "neutral" as const,
+  });
+
+  // One row per FILED report, so an earlier completed report never becomes unreachable just
+  // because a newer one exists — plus one roster row for every resident who has none yet. A
+  // report whose residency is gone (withdrawn, reassigned) still gets its row: evidence must
+  // not disappear because the application row moved on.
+  const rows: InspectionRow[] = forKind.map(report => {
+    const residency = byId.get(report.application_id);
+    const filed = `${kindLabel(kind)} inspection ${tenancyDate(report.inspection_date) || report.inspection_date}`;
+    const tenancy = tenancyLine(residency);
+    return {
+      key: `report:${report.id}`,
+      name: residency?.name || report.resident_name,
+      subtitle: `${residency?.property || report.property_label}${(residency?.room || report.room_label) ? ` · ${inspectionRoomLabel(residency?.room || report.room_label)}` : ""}`,
+      preview: tenancy ? `${tenancy} · ${filed}` : filed,
+      badge: reportBadge(report),
+      report,
+      residency,
+      sortKey: (residency && (kind === "move-in" ? residency.moveInDate : residency.moveOutDate)) || report.inspection_date || "9999-12-31",
+    };
+  });
+
+  const withReport = new Set(forKind.map(report => report.application_id));
+  for (const residency of onTab) {
+    if (withReport.has(residency.id)) continue;
+    rows.push({
+      key: `residency:${residency.id}`,
+      name: residency.name,
+      subtitle: `${residency.property}${residency.room ? ` · ${inspectionRoomLabel(residency.room)}` : ""}`,
+      preview: `${tenancyLine(residency)} · No ${kindLabel(kind).toLowerCase()} inspection yet`,
+      badge: occupancyBadge[residency.occupancy],
+      residency,
+      sortKey: (kind === "move-in" ? residency.moveInDate : residency.moveOutDate) || "9999-12-31",
+    });
+  }
+
+  // Tenancy date, then the person, then their reports oldest-first — two reports for one
+  // resident read as a history rather than an arbitrary pair.
+  return rows.sort((a, b) => a.sortKey.localeCompare(b.sortKey) || a.name.localeCompare(b.name)
+    || (a.report?.inspection_date ?? "").localeCompare(b.report?.inspection_date ?? "") || a.key.localeCompare(b.key));
+}
 
 export function ManagerInspectionsPage({ kind = "move-in", reportId, basePath = "/portal" }: { kind?: InspectionKind; reportId?: string; basePath?: string }) {
   if (reportId) return <InspectionsPanel role="manager" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} />;
@@ -96,7 +198,12 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   };
   const residencies = data.residencies.filter(r => (!applicationId || r.id === applicationId) && r.canCreate);
   const candidates = data.reports.filter(r => r.application_id === application && r.kind === "move-in" && r.status === "completed" && r.inspection_date <= date);
-  const reports = data.reports.filter(r => r.kind === kind);
+  const visible = data.residencies.filter(r => !applicationId || r.id === applicationId);
+  const rowsFor = (which: InspectionKind) => buildInspectionRows(which, visible, data.reports);
+  const rows = rowsFor(kind);
+  const startInspection = (residency: InspectionResidency) => {
+    setApplication(residency.id); setBaseline(""); setCreateOpen(true);
+  };
   const create = () => run(async () => {
     const parsed = createInspectionSchema.safeParse({ applicationId: application, kind, inspectionDate: date, baselineId: kind === "move-out" && baseline ? baseline : null });
     if (!parsed.success) throw new Error(parsed.error.issues[0]?.message || "Check the inspection details.");
@@ -110,17 +217,23 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   if (reportId) return <div className="space-y-3 p-4">{error ? <p role="alert">{error}</p> : <p role="status">Loading inspection…</p>}<Button variant="outline" onClick={() => router.push(`${routeBase}/${kind}`)} data-attr="inspection-list-back">Back to inspections</Button></div>;
   return <div className="min-w-0 space-y-3" data-attr="inspections-panel">
     <PortalListControlStack variant="command" stickyDestinations={false} destinationAriaLabel="Inspection type" activeDestinationId={kind}
-      destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: data.reports.filter(r => r.kind === id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
-      destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: data.reports.filter(r => r.kind === id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
+      destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
+      destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
     />
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error}</p>}
+    {!error && data.notice && <p role="status" className="rounded-xl border border-border p-3 text-sm text-muted">{data.notice}</p>}
     {loading ? <div role="status" aria-label="Loading inspections" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div> : <PortalRecordListSurface
-      isEmpty={reports.length === 0}
-      empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to create and review residency inspections." : `No ${kindLabel(kind).toLowerCase()} inspections yet.${residencies.length ? " Add an inspection to start documenting condition." : " An approved resident with a property placement is needed to start."}`}</p>}
+      isEmpty={rows.length === 0}
+      empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to create and review residency inspections." : kind === "move-in" ? "No one is moving in or living here yet. Approve an application and give it a property placement to start." : "No one is living here or has moved out yet."}</p>}
       add={residencies.length ? { ariaLabel: `Add ${kindLabel(kind).toLowerCase()} inspection`, onClick: () => { setApplication(applicationId ?? residencies[0]?.id ?? ""); setBaseline(""); setCreateOpen(true); }, dataAttr: "inspection-add" } : undefined}
       bulkCount={selected.size}
       bulkActions={<PortalSectionActionRow variant="header"><Button variant="outline" disabled={busy} onClick={() => run(async () => { for (const id of selected) await downloadInspection(role, id); })} data-attr="inspection-bulk-download">Download PDF{selected.size > 1 ? "s" : ""}</Button>{selected.size === 1 && <Button disabled={busy} onClick={() => open([...selected][0]!)} data-attr="inspection-bulk-open">View inspection</Button>}</PortalSectionActionRow>}
-    >{reports.map(report => <PortalPersonRecordRow key={report.id} name={report.resident_name} subtitle={`${report.property_label}${report.room_label ? ` · ${inspectionRoomLabel(report.room_label)}` : ""}`} preview={`${kindLabel(report.kind)} inspection · ${report.inspection_date}`} trailing={<Badge tone={report.status === "completed" ? "success" : report.status === "submitted" ? "warning" : "neutral"}>{statusLabel(report.status)}</Badge>} checked={selected.has(report.id)} onSelectedChange={checked => setSelected(current => { const next = new Set(current); if (checked) next.add(report.id); else next.delete(report.id); return next; })} onOpen={() => { void open(report.id); }} dataAttr="inspection-row" />)}</PortalRecordListSurface>}
+    >{rows.map(row => <PortalPersonRecordRow key={row.key} name={row.name} subtitle={row.subtitle} preview={row.preview} trailing={<Badge tone={row.badge.tone}>{row.badge.label}</Badge>}
+      // Only a filed report can be selected: the bulk actions download and open PDFs.
+      checked={row.report ? selected.has(row.report.id) : undefined}
+      onSelectedChange={row.report ? (checked => setSelected(current => { const next = new Set(current); const id = row.report!.id; if (checked) next.add(id); else next.delete(id); return next; })) : undefined}
+      onOpen={() => { if (row.report) { void open(row.report.id); } else if (row.residency?.canCreate) startInspection(row.residency); }}
+      dataAttr="inspection-row" />)}</PortalRecordListSurface>}
     <Modal open={createOpen} onClose={() => { if (!busy) setCreateOpen(false); }} dismissBlocked={busy} title={`New ${kindLabel(kind).toLowerCase()} inspection`} assistantStrip={false} footer={<Button onClick={create} disabled={busy || !application || !date} data-attr="inspection-create">Create inspection</Button>}>
       <div className="space-y-4">
         <label className="block space-y-1 text-sm">Resident and placement<Select aria-label="Resident and placement" value={application} disabled={Boolean(applicationId)} onChange={e => { setApplication(e.target.value); setBaseline(""); }} data-attr="inspection-residency">{residencies.map(r => <option key={r.id} value={r.id}>{r.name} · {r.property}{r.room ? ` · ${inspectionRoomLabel(r.room)}` : ""}</option>)}</Select></label>
