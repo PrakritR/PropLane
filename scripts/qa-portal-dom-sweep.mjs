@@ -52,6 +52,7 @@ const flag = (name) => process.argv.includes(`--${name}`);
 
 const BASE = (arg("base", process.env.PLAYWRIGHT_BASE_URL || "http://localhost:3000")).replace(/\/$/, "");
 const ROLE = arg("role", "manager");
+const ACCOUNT = arg("account", null);
 const ROUTE_FILTER = (arg("routes", "") || "").split(",").map((s) => s.trim()).filter(Boolean);
 const IGNORE_LEDGER = flag("all");
 const OUT_ROOT = resolve(arg("out", join(REPO_ROOT, ".testmanager")));
@@ -180,7 +181,9 @@ const AUTH_DIR = join(OUT_ROOT, "auth");
 const AUTH_MAX_AGE_MS = 40 * 60_000;
 
 function storedSessionPath(role) {
-  return join(AUTH_DIR, `${role}.json`);
+  // Keyed on the ACCOUNT, not the role — two accounts sharing one session file is
+  // how a sweep signs in as one manager and measures the other one's portal.
+  return join(AUTH_DIR, `${ACCOUNT ?? role}.json`);
 }
 
 function freshStoredSession(role) {
@@ -191,11 +194,15 @@ function freshStoredSession(role) {
 }
 
 async function sweepViewport(browser, viewport, routes, probeSource, discovered = new Set()) {
-  const account = QA_ACCOUNTS[ROLE];
-  if (!account?.email) throw new Error(`No QA account for role "${ROLE}"`);
+  // The role decides which portal and route table to sweep; ACCOUNT decides which
+  // login to sweep it as. They are usually the same, but not always: tonight the
+  // seeded portfolio ended up on `manager2` while `manager` owned nothing, and a
+  // sweep of an empty portal measures nothing worth reporting (PRP-345).
+  const account = QA_ACCOUNTS[ACCOUNT] ?? QA_ACCOUNTS[ROLE];
+  if (!account?.email) throw new Error(`No QA account for "${ACCOUNT ?? ROLE}"`);
   const home = ACCOUNT_HOME[ROLE];
 
-  const stored = freshStoredSession(ROLE);
+  const stored = freshStoredSession(ACCOUNT ?? ROLE);
   const context = await browser.newContext({
     ...(viewport.device ?? {}),
     viewport: { width: viewport.width, height: viewport.height },
