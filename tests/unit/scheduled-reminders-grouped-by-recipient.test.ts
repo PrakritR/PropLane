@@ -106,7 +106,7 @@ describe("payment bucket order", () => {
     const { readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
     const src = readFileSync(join(process.cwd(), "src/components/portal/pro-residents.tsx"), "utf8");
-    expect(src).toContain("items={PAYMENT_BUCKETS.map((id) => ({");
+    expect(src).toMatch(/PAYMENT_BUCKETS\.map\(\(id\) => \(\{/);
     expect(src).not.toContain('["overdue", "pending", "paid"]');
   });
 

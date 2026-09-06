@@ -79,10 +79,10 @@ export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetail
 
 /** Routed detail tabs for manager resident profile (Appendix C2). */
 export const RESIDENT_DETAIL_TABS = [
+  "tours",
   "application",
   "background-check",
   "lease",
-  "tours",
   "payments",
   "services",
   "inspections",

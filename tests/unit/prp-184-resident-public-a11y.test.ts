@@ -112,7 +112,9 @@ describe("PRP-184 #4 — scroll regions are keyboard-reachable", () => {
     expect(inboxDemo).toContain('className="lp-ibx-thread-body" tabIndex={0} role="region"');
   });
 
-  it("makes the resident-detail services table scroll region tabbable", () => {
-    expect(flat(residents)).toMatch(/overflow-x-auto`\}\s*tabIndex=\{0\}\s*role="region"/);
+  it("resident detail services uses the list surface instead of a hand-rolled table", () => {
+    expect(flat(residents)).toContain("PortalRecordListSurface");
+    expect(flat(residents)).toContain("PortalServiceRecordRow");
+    expect(flat(residents)).not.toMatch(/Services table/);
   });
 });
