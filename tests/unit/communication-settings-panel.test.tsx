@@ -78,6 +78,18 @@ describe("CommunicationSettingsPanel work number", () => {
     expect(showToast).not.toHaveBeenCalled();
   });
 
+  it("keeps a JSON-number work number so the current account still sees it", async () => {
+    stubPanelFetches({
+      ...readyNumber,
+      number: { ...readyNumber.number!, phoneNumber: 18559168031 as unknown as string },
+    });
+    render(<CommunicationSettingsPanel />);
+
+    expect(
+      await screen.findByRole("button", { name: "Copy work number +1 (855) 916-8031" }),
+    ).toBeTruthy();
+  });
+
   it("shows the assigned work number even when SMS is not a default channel", async () => {
     stubPanelFetches(readyNumber);
     render(<CommunicationSettingsPanel />);

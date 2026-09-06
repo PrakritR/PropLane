@@ -1,6 +1,6 @@
 /** Client-safe types for manager Communication → SMS. */
 
-import { formatSmsPhoneLabel } from "@/lib/phone-e164";
+import { coercePhoneInput, formatSmsPhoneLabel, normalizeE164 } from "@/lib/phone-e164";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 import { trimmedText } from "@/lib/trimmed-text";
 
@@ -198,7 +198,7 @@ export function normalizeManagerSmsConversationsPayload(
   const residents = Array.isArray(payload?.residents)
     ? payload.residents.map((resident) => ({
         residentUserId: resident?.residentUserId ?? null,
-        residentEmail: resident?.residentEmail ?? null,
+        residentEmail: trimmedText(resident?.residentEmail) || null,
         name:
           trimmedText(resident?.name) ||
           trimmedText(resident?.phone) ||
@@ -206,8 +206,8 @@ export function normalizeManagerSmsConversationsPayload(
           "Resident",
         directoryName: trimmedText(resident?.directoryName) || null,
         savedContactName: trimmedText(resident?.savedContactName) || null,
-        phone: resident?.phone ?? null,
-        propertyLabel: resident?.propertyLabel ?? null,
+        phone: normalizeE164(resident?.phone) ?? (coercePhoneInput(resident?.phone) || null),
+        propertyLabel: trimmedText(resident?.propertyLabel) || null,
         tenancyStatus: resident?.tenancyStatus === "applicant" ? ("applicant" as const) : ("resident" as const),
         counterpartyRole: resident?.counterpartyRole,
         conversationKey: resident?.conversationKey,
@@ -219,8 +219,9 @@ export function normalizeManagerSmsConversationsPayload(
       }))
     : [];
   return {
-    workNumber: payload?.workNumber ?? null,
-    personalPhone: payload?.personalPhone ?? null,
+    workNumber: normalizeE164(payload?.workNumber) ?? (coercePhoneInput(payload?.workNumber) || null),
+    personalPhone:
+      normalizeE164(payload?.personalPhone) ?? (coercePhoneInput(payload?.personalPhone) || null),
     phoneVerified: Boolean(payload?.phoneVerified),
     forwardInbound: payload?.forwardInbound !== false,
     smsConfigured: Boolean(payload?.smsConfigured),

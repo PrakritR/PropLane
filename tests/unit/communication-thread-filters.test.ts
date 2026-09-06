@@ -41,7 +41,9 @@ describe("communication thread filters survive non-string contact fields", () =>
       propertyLabel: { street: "Brooklyn" } as unknown as string,
     });
     expect(() => propertyOptionsFromFilterContacts([malformed])).not.toThrow();
-    expect(propertyOptionsFromFilterContacts([malformed])).toEqual([]);
+    expect(propertyOptionsFromFilterContacts([malformed])).toEqual([
+      { value: "5257", label: "5257" },
+    ]);
     expect(() =>
       threadPassesCommunicationFilters({
         filters: { ...EMPTY_COMMUNICATION_THREAD_FILTERS, propertyIds: ["5257"] },
