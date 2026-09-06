@@ -21,8 +21,9 @@ export function PortalInviteChoiceStep({
   children,
 }: {
   inviteTitle?: string;
-  inviteDescription: string;
-  onCreateInviteLink: () => void;
+  inviteDescription?: string;
+  /** Omitted where no redeemable link exists for this relationship — the card is then not drawn at all. */
+  onCreateInviteLink?: (() => void) | null;
   inviteLinkDataAttr?: string;
   inviteDisabled?: boolean;
   secondaryTitle: string;
@@ -32,6 +33,25 @@ export function PortalInviteChoiceStep({
   children: ReactNode;
 }) {
   const SecondaryIcon = secondaryIcon === "person" ? UserRound : UserRound;
+
+  if (!onCreateInviteLink) {
+    return (
+      <div className="rounded-2xl border border-border bg-card p-4">
+        <div className="flex items-start gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent text-muted">
+            <SecondaryIcon className="h-4 w-4" aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1 space-y-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">{secondaryTitle}</p>
+              <p className="mt-0.5 text-sm text-muted">{secondaryDescription}</p>
+            </div>
+            {children}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

@@ -68,13 +68,9 @@ import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-sessio
 
 export const HOUSEHOLD_CHARGES_EVENT = "axis:household-charges";
 
-/** Default holding deposit for new listings when the manager leaves the field blank. */
-export const DEFAULT_HOLDING_DEPOSIT_LABEL = "$100";
-
+/** An unset holding deposit is not a charge. */
 export function normalizeHoldingDepositLabel(raw: string | undefined | null): string {
-  const trimmed = (raw ?? "").trim();
-  if (!trimmed) return DEFAULT_HOLDING_DEPOSIT_LABEL;
-  return trimmed;
+  return (raw ?? "").trim();
 }
 
 function withPaymentReference(charge: HouseholdCharge): HouseholdCharge {

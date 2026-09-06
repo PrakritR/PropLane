@@ -1,6 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo } from "react";
+import { ResidentHousemateSharing } from "@/components/portal/resident-housemate-sharing";
+import { InspectionsPanel } from "@/components/portal/inspections-panel";
 import { ResidentMoveInMediaGallery } from "@/components/portal/move-in-media-fields";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -45,7 +48,7 @@ function PlacementTabContent({ resolved }: { resolved: ResidentMoveInResolved })
 
 function HousemateRow({ mate }: { mate: ResidentMoveInHousemate }) {
   return (
-    <li className="flex flex-wrap items-start justify-between gap-2 py-3 first:pt-0 last:pb-0">
+    <li className="ph-no-capture ph-no-record flex flex-wrap items-start justify-between gap-2 py-3 first:pt-0 last:pb-0">
       <div>
         <p className="text-sm font-semibold text-foreground">{mate.name}</p>
         <p className="mt-0.5 text-xs text-muted">{mate.roomLabel}</p>
@@ -59,9 +62,9 @@ function HousemateRow({ mate }: { mate: ResidentMoveInHousemate }) {
             {mate.phone}
           </a>
         ) : (
-          <span>No phone on file</span>
+          <span>{mate.email ? "Phone not shared" : "Contact details not shared"}</span>
         )}
-        <p className="mt-0.5 text-xs">{mate.email}</p>
+        {mate.email ? <p className="mt-0.5 text-xs">{mate.email}</p> : null}
       </div>
     </li>
   );
@@ -97,8 +100,8 @@ function HousematesTabContent({ resolved }: { resolved: ResidentMoveInResolved }
               : `Sharing your room (${roommates.length}).`}
           </p>
           <ul className="divide-y divide-border/50">
-            {roommates.map((mate) => (
-              <HousemateRow key={mate.email} mate={mate} />
+            {roommates.map((mate, index) => (
+              <HousemateRow key={mate.id ?? `housemate-${index}`} mate={mate} />
             ))}
           </ul>
         </section>
@@ -107,12 +110,12 @@ function HousematesTabContent({ resolved }: { resolved: ResidentMoveInResolved }
       {others.length > 0 ? (
         <section data-attr="move-in-housemates">
           {roommates.length > 0 ? (
-            <h3 className="text-sm font-semibold text-foreground">Other housemates</h3>
+            <h3 className="text-sm font-semibold text-foreground">Housemates</h3>
           ) : null}
-          <p className="mb-3 mt-0.5 text-sm text-muted">Other residents in your household.</p>
+          <p className="mb-3 mt-0.5 text-sm text-muted">Residents in your household. Personal details appear only when a resident chooses to share them.</p>
           <ul className="divide-y divide-border/50">
-            {others.map((mate) => (
-              <HousemateRow key={mate.email} mate={mate} />
+            {others.map((mate, index) => (
+              <HousemateRow key={mate.id ?? `housemate-${index}`} mate={mate} />
             ))}
           </ul>
         </section>
@@ -221,30 +224,59 @@ function InstructionsTabContent({ resolved }: { resolved: ResidentMoveInResolved
   );
 }
 
+function InspectionsTabLink({ basePath }: { basePath: string }) {
+  return (
+    <div className={PORTAL_LIST_PAGE_BODY}>
+      <h2 className="text-base font-semibold text-foreground">Inspections</h2>
+      <p className="mt-1 text-sm text-muted">
+        Record the condition of your room and upload move-in or move-out photos.
+      </p>
+      <Link
+        href={residentMoveInHref(basePath, "inspections")}
+        className="mt-3 inline-flex text-sm font-semibold text-primary hover:underline"
+        data-attr="resident-move-in-inspections-link"
+      >
+        Open inspections
+      </Link>
+    </div>
+  );
+}
+
 function ResidentMoveInTabContent({
   activeTab,
+  basePath,
   resolved,
 }: {
   activeTab: ResidentMoveInTabId;
+  basePath: string;
   resolved: ResidentMoveInResolved;
 }) {
   switch (activeTab) {
     case "placement":
       return <PlacementTabContent resolved={resolved} />;
     case "housemates":
-      return <HousematesTabContent resolved={resolved} />;
+      return <><ResidentHousemateSharing /><HousematesTabContent resolved={resolved} /></>;
     case "info":
       return <InfoTabContent resolved={resolved} />;
     case "amenities":
       return <AmenitiesTabContent resolved={resolved} />;
     case "instructions":
-      return <InstructionsTabContent resolved={resolved} />;
+      return (
+        <div className="space-y-6">
+          <InstructionsTabContent resolved={resolved} />
+          <section aria-label="Move-in and move-out inspections">
+            <InspectionsTabLink basePath={basePath} />
+          </section>
+        </div>
+      );
+    case "inspections":
+      return <InspectionsPanel role="resident" />;
     default:
       return <PlacementTabContent resolved={resolved} />;
   }
 }
 
-/** House details — routed sub-tabs (placement, housemates, info, amenities, move-in). */
+/** My home — routed sub-tabs (placement, housemates, info, amenities, move-in). */
 export function ResidentMoveInShell({
   basePath = "/resident",
   resolved,
@@ -284,7 +316,7 @@ export function ResidentMoveInShell({
       {locked ? (
         <>
           <p className={PORTAL_INLINE_UNLOCK_NOTICE_CLASS}>
-            <span className="font-semibold">Available once your lease is signed.</span> House details unlock after
+            <span className="font-semibold">Available once your lease is signed.</span> My home unlocks after
             both you and your property manager have signed the lease.
           </p>
           <PortalDataTableEmpty message="Unlocks after both signatures are complete." icon="lease" />
@@ -306,11 +338,11 @@ export function ResidentMoveInShell({
             stickyDestinations={false}
             destinations={destinations}
             activeDestinationId={tabId}
-            destinationAriaLabel="House details"
+            destinationAriaLabel="My home"
             destinationItemLayout="equal"
             destinationDenseEqualRow
           />
-          <ResidentMoveInTabContent activeTab={tabId} resolved={resolved} />
+          <ResidentMoveInTabContent activeTab={tabId} basePath={basePath} resolved={resolved} />
         </>
       )}
     </div>

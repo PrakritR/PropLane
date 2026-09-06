@@ -1,12 +1,22 @@
-# Manual payment detection (Zelle / Venmo)
+# Manual payment detection (Zelle / Venmo) — RETIRED, code intact
 
-How PropLane decides a Zelle or Venmo charge is **paid** from the manager's
-own payment-notification emails, and the setup a manager and resident each do.
+> **Not reachable in the product today.** Zelle and Venmo were retired as
+> resident payment rails: residents pay through PropLane/Stripe only, the
+> manager settings normalize both channels off, and Payment setup no longer
+> offers **Link Zelle** / **Link Venmo**. See
+> [`resident-payments.md`](resident-payments.md) § "A resident pays through
+> PropLane only". Gmail receipt matching is additionally gated by
+> `GMAIL_PAYMENTS_ENABLED` (`src/lib/gmail-payments/enabled.ts`, `false`), whose
+> header comment carries the OAuth restricted-scope reason; the connect routes
+> and the `GmailPaymentAutoTrackPanel` both refuse while it is off.
+>
+> Nothing below was deleted — the parsers, the matcher, the cron and the stored
+> connections are all still there, so turning the rails back on is a settings
+> and flag change rather than a rebuild. Read the rest of this file as the
+> architecture reference for that code, not as a description of live behaviour.
 
-The in-product setup UI is the source of truth managers actually use:
-**Payments → Payment setup → Link Zelle / Link Venmo**
-(`src/components/portal/pro-payment-setup-modal.tsx`). This doc is the
-architecture reference behind it; keep the two in sync.
+How PropLane decided a Zelle or Venmo charge was **paid** from the manager's
+own payment-notification emails, and the setup a manager and resident each did.
 
 ## The two detection paths
 

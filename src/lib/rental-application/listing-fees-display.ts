@@ -135,19 +135,18 @@ export function computeLeasePaymentAtSigning(
   if (!sub?.v) return legacyFallback();
   const n = normalizeManagerListingSubmissionV1(sub);
   const includes = n.paymentAtSigningIncludes ?? [];
-  if (!includes.length) return legacyFallback();
 
   let sum = 0;
   if (includes.includes("security_deposit")) sum += amounts.securityDeposit;
   if (includes.includes("move_in_fee")) sum += amounts.moveInFee;
   if (includes.includes("first_month_rent")) {
     const rent =
-      amounts.proratedRent != null && amounts.proratedRent > 0 ? amounts.proratedRent : amounts.monthlyRent;
+      amounts.proratedRent != null && amounts.proratedRent >= 0 ? amounts.proratedRent : amounts.monthlyRent;
     sum += rent;
   }
   if (includes.includes("first_month_utilities")) {
     const util =
-      amounts.proratedUtilities != null && amounts.proratedUtilities > 0
+      amounts.proratedUtilities != null && amounts.proratedUtilities >= 0
         ? amounts.proratedUtilities
         : amounts.monthlyUtilities;
     sum += util;

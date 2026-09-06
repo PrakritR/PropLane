@@ -10,6 +10,8 @@ import {
   type ResidentMoveInHousemate,
   type ResidentMoveInResolved,
 } from "@/lib/resident-move-in-resolve";
+import { isCurrentResidentApplicationRow } from "@/lib/current-resident";
+import { parseHousemateSharing, sharedHousemateDetails } from "@/lib/resident-housemate-sharing";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export { resolveResidentMoveInFromApplications, type ResidentMoveInResolved, type ResidentMoveInHousemate };
@@ -39,15 +41,39 @@ function canonicalRoomIdFromAppRow(row: DemoApplicantRow): string {
   return idx >= 0 ? choice.slice(idx + sep.length).trim() : "";
 }
 
-function roomLabelFromAppRow(row: DemoApplicantRow): string {
+/**
+ * `roomNames` maps a listing room id to its display name. Without it a structured
+ * `propertyId::roomId` choice with no piped label falls through as the raw id, and
+ * a housemate who opted into sharing their room reads as "home::room-3".
+ */
+function roomLabelFromAppRow(row: DemoApplicantRow, roomNames?: Map<string, string>): string {
   const manual = row.manualResidentDetails?.roomNumber?.trim() || "";
   const assigned = row.assignedRoomChoice?.trim() || row.application?.roomChoice1?.trim() || "";
   if (manual) return manual;
+  const named = roomNames?.get(canonicalRoomIdFromAppRow(row));
+  if (named) return named;
   if (assigned) {
     const parts = assigned.split("|");
-    return parts[parts.length - 1]?.trim() || assigned;
+    const last = parts[parts.length - 1]?.trim() || assigned;
+    return last.includes("::") ? last.slice(last.indexOf("::") + 2).trim() || last : last;
   }
   return "Room TBD";
+}
+
+/** Listing room id → display name, from either the live or the legacy submission shape. */
+function listingRoomNames(record: { property_data?: unknown; row_data?: unknown } | null): Map<string, string> {
+  const rooms =
+    asObject(asObject(record?.property_data)?.listingSubmission)?.rooms ??
+    asObject(asObject(record?.row_data)?.submission)?.rooms;
+  const names = new Map<string, string>();
+  if (!Array.isArray(rooms)) return names;
+  for (const entry of rooms) {
+    const room = asObject(entry);
+    const id = String(room?.id ?? "").trim();
+    const name = String(room?.name ?? "").trim();
+    if (id && name) names.set(id, name);
+  }
+  return names;
 }
 
 function propertyIdFromAppRow(row: DemoApplicantRow): string {
@@ -65,18 +91,43 @@ async function loadHousematesForProperty(
   propertyId: string,
   managerUserId: string | null | undefined,
   self: { roomId: string; roomLabel: string },
+  roomNames: Map<string, string>,
 ): Promise<ResidentMoveInHousemate[]> {
-  if (!propertyId) return [];
+  if (!propertyId || !managerUserId) return [];
 
-  let query = db.from("manager_application_records").select("resident_email, row_data");
-  if (managerUserId) query = query.eq("manager_user_id", managerUserId);
-  const { data: apps } = await query;
+  // Scoped to this property and paged: an unfiltered read stopped at Supabase's
+  // 1,000-row ceiling, so a manager with a large application history silently lost
+  // housemates. Every path `propertyIdFromAppRow` reads is queried, scalar columns
+  // AND the `row_data` copies, because an older row can carry the placement only in
+  // JSON while the scalar column is null or stale.
+  const rows = new Map<string, { resident_email: string | null; row_data: unknown }>();
+  const placementColumns = [
+    "property_id",
+    "assigned_property_id",
+    "row_data->>assignedPropertyId",
+    "row_data->>propertyId",
+    "row_data->application->>propertyId",
+  ] as const;
+  for (const column of placementColumns) {
+    for (let offset = 0; ; offset += 500) {
+      const { data, error } = await db
+        .from("manager_application_records")
+        .select("id, resident_email, row_data")
+        .eq("manager_user_id", managerUserId)
+        .eq(column, propertyId)
+        .order("id")
+        .range(offset, offset + 499);
+      if (error) return [];
+      for (const row of data ?? []) rows.set(String((row as { id: unknown }).id), row);
+      if ((data ?? []).length < 500) break;
+    }
+  }
 
   const peers: Array<{ email: string; name: string; roomLabel: string; roomId: string }> = [];
   const seen = new Set<string>();
-  for (const row of apps ?? []) {
+  for (const row of rows.values()) {
     const rowData = asObject(row.row_data) as unknown as DemoApplicantRow | null;
-    if (!rowData || rowData.bucket !== "approved") continue;
+    if (!rowData || !isCurrentResidentApplicationRow(rowData) || rowData.withdrawnAt) continue;
     if (propertyIdFromAppRow(rowData) !== propertyId) continue;
     const email = String(row.resident_email ?? rowData.email ?? "")
       .trim()
@@ -85,8 +136,8 @@ async function loadHousematesForProperty(
     seen.add(email);
     peers.push({
       email,
-      name: String(rowData.name ?? "").trim() || email,
-      roomLabel: roomLabelFromAppRow(rowData),
+      name: String(rowData.name ?? "").trim() || "Housemate",
+      roomLabel: roomLabelFromAppRow(rowData, roomNames),
       roomId: canonicalRoomIdFromAppRow(rowData),
     });
   }
@@ -95,45 +146,42 @@ async function loadHousematesForProperty(
 
   const { data: profiles } = await db
     .from("profiles")
-    .select("email, phone, full_name")
+    .select("id, email, phone, full_name")
     .in(
       "email",
       peers.map((p) => p.email),
     );
 
-  const phoneByEmail = new Map<string, string | null>();
-  const nameByEmail = new Map<string, string>();
-  for (const profile of profiles ?? []) {
-    const email = String(profile.email ?? "")
-      .trim()
-      .toLowerCase();
-    if (!email) continue;
-    phoneByEmail.set(email, formatPhoneDisplay(profile.phone as string | null));
-    const fullName = String(profile.full_name ?? "").trim();
-    if (fullName) nameByEmail.set(email, fullName);
-  }
-
-  return peers
-    .map((peer) => ({
-      name: nameByEmail.get(peer.email) || peer.name,
-      email: peer.email,
-      roomLabel: peer.roomLabel,
-      phone: phoneByEmail.get(peer.email) ?? null,
-      isRoommate: isRoommatePlacement(self, { roomId: peer.roomId, roomLabel: peer.roomLabel }),
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  const profileByEmail = new Map((profiles ?? []).map(profile => [String(profile.email ?? "").trim().toLowerCase(), profile]));
+  const ids = (profiles ?? []).map(profile => String(profile.id ?? "")).filter(Boolean);
+  const { data: preferenceRows, error: preferenceError } = ids.length
+    ? await db.from("resident_housemate_sharing").select("user_id, preferences").in("user_id", ids)
+    : { data: [], error: null };
+  // A missing preference or unavailable preference lookup never grants disclosure.
+  const preferencesById = new Map((preferenceError ? [] : preferenceRows ?? []).map(row => [String(row.user_id), parseHousemateSharing(row.preferences)]));
+  return peers.map((peer, index) => {
+    const profile = profileByEmail.get(peer.email);
+    const sharing = parseHousemateSharing(preferencesById.get(String(profile?.id ?? "")));
+    return {
+      id: `housemate-${index}`,
+      ...sharedHousemateDetails({ name: String(profile?.full_name ?? "").trim() || peer.name, email: peer.email,
+        phone: formatPhoneDisplay(profile?.phone as string | null), roomLabel: peer.roomLabel }, sharing),
+      isRoommate: sharing.shareRoom && isRoommatePlacement(self, { roomId: peer.roomId, roomLabel: peer.roomLabel }),
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 }
 
-export async function loadResidentMoveInForEmail(email: string): Promise<ResidentMoveInResolved | null> {
+export async function loadResidentMoveInForEmail(email: string, options?: { db?: ReturnType<typeof createSupabaseServiceRoleClient>; managerUserId?: string }): Promise<ResidentMoveInResolved | null> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return null;
 
-  const db = createSupabaseServiceRoleClient();
-  const { data: records } = await db
+  const db = options?.db ?? createSupabaseServiceRoleClient();
+  let applicationQuery = db
     .from("manager_application_records")
     .select("row_data, updated_at, manager_user_id")
-    .eq("resident_email", normalizedEmail)
-    .order("updated_at", { ascending: false });
+    .eq("resident_email", normalizedEmail);
+  if (options?.managerUserId) applicationQuery = applicationQuery.eq("manager_user_id", options.managerUserId);
+  const { data: records } = await applicationQuery.order("updated_at", { ascending: false });
 
   const applications = (records ?? [])
     .map((record) => asObject(record.row_data))
@@ -141,7 +189,9 @@ export async function loadResidentMoveInForEmail(email: string): Promise<Residen
     .map((row) => row as unknown as DemoApplicantRow)
     .map((row) => ({ ...row, email: row.email?.trim().toLowerCase() || normalizedEmail }));
 
-  const bestRow = resolveBestResidentRow(normalizedEmail, applications);
+  const currentApplications = applications.filter(row => isCurrentResidentApplicationRow(row) && !row.withdrawnAt);
+  const homeApplications = currentApplications.length ? currentApplications : applications;
+  const bestRow = resolveBestResidentRow(normalizedEmail, homeApplications);
   if (!bestRow) return null;
 
   const propertyId = propertyIdFromAppRow(bestRow);
@@ -154,7 +204,7 @@ export async function loadResidentMoveInForEmail(email: string): Promise<Residen
     ).trim() || null;
 
   if (!propertyId) {
-    return resolveResidentMoveInFromApplications(normalizedEmail, applications, {});
+    return resolveResidentMoveInFromApplications(normalizedEmail, homeApplications, {});
   }
 
   const { data: propertyRecord } = await db
@@ -163,15 +213,17 @@ export async function loadResidentMoveInForEmail(email: string): Promise<Residen
     .eq("id", propertyId)
     .maybeSingle();
 
+  const roomNames = listingRoomNames(propertyRecord as { property_data?: unknown; row_data?: unknown } | null);
   const property = propertyRecord ? propertyFromRecord(propertyRecord) : undefined;
-  const resolved = resolveResidentMoveInFromApplications(normalizedEmail, applications, {
+  const resolved = resolveResidentMoveInFromApplications(normalizedEmail, homeApplications, {
     [propertyId]: property,
   });
   if (!resolved) return null;
 
+  if (!isCurrentResidentApplicationRow(bestRow)) return { ...resolved, housemates: [] };
   const housemates = await loadHousematesForProperty(db, normalizedEmail, propertyId, managerUserId, {
     roomId: canonicalRoomIdFromAppRow(bestRow),
-    roomLabel: roomLabelFromAppRow(bestRow),
-  });
+    roomLabel: roomLabelFromAppRow(bestRow, roomNames),
+  }, roomNames);
   return { ...resolved, housemates };
 }

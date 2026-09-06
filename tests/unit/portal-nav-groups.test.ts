@@ -114,7 +114,7 @@ describe("groupNavItems", () => {
     const operations = result.find((g) => g.id === "operations");
     expect(operations?.items.map((i) => i.section)).toEqual(["tasks", "calendar", "bookings", "communication"]);
     const tenancy = result.find((g) => g.id === "tenancy");
-    expect(tenancy?.items.map((i) => i.section)).toEqual(["residents", "payments", "services"]);
+    expect(tenancy?.items.map((i) => i.section)).toEqual(["residents", "inspections", "payments", "services"]);
     const finances = result.find((g) => g.id === "finances");
     expect(finances?.items.map((i) => i.section)).toEqual(["financials", "documents"]);
     // profile was filtered out of `items` above (pro's sidebar otherwise surfaces it)

@@ -94,14 +94,18 @@ request, which may have started before a write that caller just made
 (save-then-refresh is a real pattern here), so mid-flight callers share one
 queued follow-up that begins only after the current run settles. Wired into
 property-pipeline, pro-relationships, household-charges, the dashboard's
-document-expiry counts, and the resident ledger read
-(`src/lib/resident-ledger-client.ts`). Each refresher is keyed on whatever makes
+document-expiry counts, the resident ledger read
+(`src/lib/resident-ledger-client.ts`), and the inspection list
+(`src/lib/inspections/client.ts`). Each refresher is keyed on whatever makes
 two runs non-interchangeable — the viewer id where the fetch is per-user (a
 module-global cache would serve the previous manager's rows after an in-session
 account switch), `skipReconcile` for household charges (the resident path must
 not run the manager's reconcile), viewer id **plus the requested window** for
 the resident ledger (Documents lets the resident pick a date range, so an
-identity-only key would serve another window's receipts for the whole TTL).
+identity-only key would serve another window's receipts for the whole TTL),
+viewer id **plus portal role and application id** for inspections (the same
+account can be a manager and a resident, and the two sides see different
+observations on the same report).
 
 A server sync dispatches its store event **tagged** (`serverSyncOriginatedEvent`
 / `isServerSyncOriginatedEvent` in `src/lib/property-pipeline-events.ts`),
@@ -833,8 +837,10 @@ A locked row must never be a live link to a path the server then redirects home
 read by every surface — sidebar, mobile strip, phone bottom bar, and the route
 guard. **Application approved unlocks Lease + Payments; a fully-signed lease
 unlocks Services** (Documents unlocks alongside Lease + Payments at approval;
-House details is deliberately not on that ladder and stays locked until the
-lease is signed).
+My home — the `move-in` section — is deliberately not on that ladder and stays
+locked until the lease is signed, though its nav row is now VISIBLE and
+padlocked at every stage rather than hidden: `RESIDENT_NAV_HIDDEN_UNTIL_UNLOCKED`
+is empty. See [`docs/agents/resident-my-home.md`](docs/agents/resident-my-home.md).
 
 - `STAGE_UNLOCKED_SECTIONS` decides what is reachable; `RESIDENT_BOTTOM_NAV_PRIMARY`
   decides the four phone tabs. **Every section in the second must be unlocked in
@@ -1218,6 +1224,7 @@ below always apply; the files carry the full rationale, schemas, and gotchas.
 
 | Area | Read first | Never violate |
 | --- | --- | --- |
+| Resident My home & housemate privacy | `docs/agents/resident-my-home.md` | Peer details are redacted server-side by independent opt-ins; missing preferences disclose nothing. Only current residents share a household; writes use the authenticated resident identity. |
 | Vendor portal (roles, bids, Connect payouts) | `docs/agents/vendor-portal.md` | Vendor reads scope by `vendor_user_id = auth.uid()`; writes go through service-role routes; an accepted bid's `amount_cents` is the immutable payout anchor. |
 | Financials (ledger, GL, deposits, AP, NSF) | `docs/agents/financials.md` | Every charge/payment write MUST call `syncLedgerChargeEntry`/`syncLedgerPaymentEntry` + GL posting next to the DB write — the ledger is write-through only, never read-time backfill. `security_deposit` books to liability, not income. |
 | Vendor invoicing (Phase 4) | `docs/agents/vendor-invoicing.md` | Invoice totals recomputed server-side from line items; vendor tools live in `vendorAgentRegistry`, never the manager registry. |
@@ -1240,6 +1247,7 @@ below always apply; the files carry the full rationale, schemas, and gotchas.
 | Property ownership & the records route | `docs/agents/property-ownership.md` | `POST /api/property-records` never MOVES an owned row from the request body — ownership changes only via `transferPropertyOwnership`. A DELETE of a missing row is 404, refused before owner resolution, never a create. Only Properties reads ownership, so drift is nearly invisible — diff the two sources before touching either. |
 | Property drafts (add-property wizard) | `docs/agents/property-drafts.md` | A draft is `status: "draft"` on the existing record — never a parallel store and never `"unlisted"`. The draft's record id IS the eventual live listing id, so publishing re-upserts in place; a re-key writes BEFORE it deletes. The wizard is the only editor of a draft, and closing it saves. |
 | Tours, availability & slot math | `docs/agents/tours-scheduling.md` | A `slotKey` is WALL TIME pinned to Pacific — never construct a Date from it (UTC on Vercel silently double-books). `listOpenTourSlots` (`tour-availability.server.ts`) is the ONE answer to "what is open" (published or the 9-5 default − calendar-busy − already-booked, `live` only) and `createTourInquiry` (`tour-inquiry-create.server.ts`) the ONE way to file a request; the public routes and every tour tool call them, so nothing can offer a slot the public grid would not. Only a `kind: "tour"` planned event subtracts from availability. Approval-first tours PROPOSE through the existing confirm gate; they never auto-book or email. |
+| Move-in / move-out inspections | `docs/agents/inspections.md` | Every read and write is residency-scoped through `src/lib/inspections/server.ts` (manager ownership or an explicit `residents` co-manager grant; a resident matches on email + user id), `resident_inspections` and the `inspection-evidence` bucket are service-role-only, and a completed report is permanently locked — never add a path that reopens or rewrites one. |
 | Group applications & lease bundles | `docs/agents/group-applications.md` | A group application is SEVERAL independent applications tied by a shared `AXISGRP-…` id — never one merged record. Each member keeps their own account, screening, and login; a group never blocks, and approvals stay per-member. |
 | Per-room rent basis (monthly vs daily) | `docs/agents/rent-basis.md` | `rentBasis` alone decides which rate is active, and daily NEVER wins unless the manager explicitly set it. Read prices through `src/lib/room-pricing.ts`, never `monthlyRent` directly. Do not conflate `rentBasis` with `prorateMethod` or `shortTermDailyCost`. |
 | Send listing modal (share to a prospect) | `docs/agents/send-listing-modal.md` | One listing → the listing page, several → a filtered browse link; the room selector shows only for exactly one property. The server re-authorizes EVERY requested id and rejects the whole send if any fails — never silently drops one. |
@@ -1345,198 +1353,21 @@ either.
 
 # Plan entitlements: the displayed plan and the enforced plan are one value
 
-`MANAGER_PLAN_TIERS` (`src/data/manager-plan-tiers.ts`) is the advertised copy;
-`src/lib/manager-access.ts` is the enforcement model. Two rules, both learned the
-hard way (audit F-SET-1: Settings read "CURRENT PLAN Free · 1 property listing"
-on an account with five listings and no paywall anywhere).
-
-- **`resolveEffectiveManagerSkuTier` is the ONLY plan a quota may read.**
-  `manager_purchases.tier` is `null` for an ordinary account that signed up and
-  never reached pricing (`provisionPendingManagerAccount` inserts `tier: null`),
-  and `maxPropertiesForManagerTier(null)` means *uncapped* — so the raw column
-  reported "Free" to `getManagerSubscriptionTier` and "no limit" to the property
-  cap for the same row. No committed SKU and no live Stripe/Apple grant behind
-  it → Free. `GET /api/manager/subscription` exposes it as `effectiveTier` and
-  derives `propertyLimit` / `accountLinkLimit` from it;
-  `getEffectiveManagerSkuTier` is the server-side twin, and it returns a RESULT
-  — an unreadable plan and "no committed SKU" both produce zero purchase rows,
-  so collapsing them would enforce Free on a transient DB error and refuse a
-  paying Business manager their sixth listing. Callers fail closed on
-  `ok: false`. **That rule has to reach BOTH halves or it is worse than not
-  having it**, because the client caches what the route says: a plan the server
-  could not read is reported as `planUnknown: true` with `effectiveTier`,
-  `propertyLimit` and `accountLinkLimit` all `null` and `isFree: false`, so
-  Properties draws no limit banner and pre-refuses nothing — the client stops
-  pre-judging and the server gate, which already 500s on that path, decides.
-  `manager-subscription-client.ts` does NOT cache an unknown read, or one
-  transient error would freeze a Business manager at "reached your plan limit of
-  1 property" for the whole session. **It caches BOTH values and they
-  are not interchangeable**: `loadManagerEffectivePlanTierClient`
-  (`effectiveTier`) is for the property-limit pre-checks only, because the
-  server re-resolves that same value; every other client gate mirroring a server
-  check that still reads `null` as legacy full access wants the raw
-  `loadManagerSubscriptionTierClient`. Screenings is why — caching
-  `effectiveTier` for everyone paywalled a panel `orderScreeningForApplication`
-  still serves.
-- **The property cap is enforced server-side, not in the wizard.**
-  `assertManagerPropertyListingQuota`
-  (`src/lib/manager-property-quota.server.ts`) runs on every
-  `POST /api/property-records` upsert AND in the two assistant write tools that
-  put a record into a slot without passing through that route —
-  `create_property` (inserts `pending`) and `update_property` (sets `live`).
-  Otherwise a manager at their cap could ask the agent for the listing the
-  portal's disabled "+ Add property" and its Relist button both refuse. The
-  other tool-layer writers of `manager_property_records` are deliberately
-  ungated and say so in a comment: `copy_listing_photos`,
-  `update_property_lease_config` and `apply_listing_photos` patch only
-  `row_data`/`property_data`, and `upsertManagerListingDraft` always writes
-  `draft`. Any NEW writer that can move a record into a listing slot needs the
-  same call. The client checks are courtesy
-  pre-checks so a manager hears it before their photos upload; every layer
-  prints the same sentence from `managerPropertyLimitMessage`, and the route's
-  403 body (`MANAGER_PROPERTY_LIMIT_ERROR_CODE`) travels back through
-  `upsertPropertyRecordToServer`'s `onError(message, code)` into the wizard
-  toast — a refusal must never degrade to "Could not submit listing."
-  `mirrorLocalPropertyPipelineToServer` sends its writes SEQUENTIALLY for the
-  same reason: fired concurrently, N creates each read the slot count before any
-  of them lands, so the cap would be racy on the path most likely to send
-  several at once. It reports the first refusal once per run, never per row —
-  and it has exactly ONE owner (`ManagerProperties`; the properties panel it
-  renders deliberately does not mirror, or every load doubled the writes and
-  toasted twice). The mirror keys on the `code`, never on "the body had an
-  error": it is background work the manager never initiated, so a 500's raw
-  Postgres text stays silent. Only a caller the manager is waiting on — the
-  wizard — shows the server's message verbatim.
-- **It gates the TRANSITION INTO a listing slot, never the state of being over
-  the cap.** `LISTING_SLOT_PROPERTY_STATUSES` (`persisted-property-records.ts`)
-  is `pending`/`live`/`review` — derived from `propertyRowsToSnapshot`, which is
-  what the portal itself counts, so drafts and unlisted rows are free. A row
-  already in a slot is never re-charged, which is what lets a seeded or
-  downgraded over-limit portfolio keep editing, unlisting, relisting-in-place
-  and deleting. **Block creation; never delete or hide a manager's records.** A
-  failed slot count — or a plan that cannot be read — is a 500, never "zero
-  used" and never the Free cap.
-- **Relist transitions ONE record in place, and must never pair its upsert with
-  a delete of the same id.** Every unlisted row comes from
-  `unlistManagerListing` via `mockToAdminRow(removed, listingId)`, so
-  `adminRefId === listingId` and the upsert `listAdminRow` mirrors already
-  carries that id. `listAdminRow` used to follow it with a fire-and-forget
-  `deleteMirroredPropertyRecord` at that same id, which only looked harmless
-  while every upsert was accepted and the next mirror re-created the row. A
-  refusal the viewer-scoped client pre-check cannot predict — an owner at their
-  cap behind a co-managed listing, or a plan the server could not read — would
-  otherwise let the delete land alone and take
-  `clearHousingAccessForDeletedProperty` with it. Coverage:
-  `tests/unit/manager-relist-in-place.test.ts`.
-- **Section entitlements are a separate, page-level gate** and deliberately
-  unchanged here: `managerSectionAllowedForTier` + `subscriptionGated` in
-  `render-portal-section.tsx` paywall Residents/Leases/Services/Communication
-  for a committed Free plan, but an account with NO `manager_purchases` row
-  still resolves to `null` in `getManagerSubscriptionTier` (legacy full access).
-  Locking those sections would make existing records unreachable, so it is a
-  product decision, not a bug to quietly fix. Their API routes are also ungated
-  — a free manager can still read/write residents, leases and inbox rows over
-  HTTP. Known gap, deliberately not closed alongside the property cap.
-- Coverage: `tests/unit/manager-effective-plan-tier.test.ts`,
-  `property-records-plan-property-limit.test.ts`,
-  `property-listing-slot-statuses.test.ts`,
-  `manager-listing-publish-limit-feedback.test.ts`,
-  `manager-subscription-tier-client.test.ts`,
-  `manager-subscription-route-unknown-plan.test.ts`,
-  `manager-relist-in-place.test.ts`,
-  `tools/property-resident-writes.test.ts`.
+The full rule — `resolveEffectiveManagerSkuTier` as the ONLY plan a quota may
+read (including a lapsed signup trial), the server-side property cap, what
+counts as a listing slot, and the deliberately separate section paywall — lives
+in [`docs/agents/plan-entitlements.md`](docs/agents/plan-entitlements.md). Read
+it before touching plan gating; do not re-copy it here.
 
 # Property drafts (save add-property progress)
 
-A manager can save an in-progress "add property" wizard and finish it later. This
-is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
-(`src/lib/persisted-property-records.ts`) — **NOT** a parallel drafts store, and
-**NOT** `"unlisted"` (which means a previously-live listing the manager took
-*down*; a draft has never been published). Key invariants:
-
-- **Drafts never reach a prospect surface.** They have `status = "draft"` (never
-  `"live"`) and no `property_data`, so `getPublicListings()`
-  (`src/lib/public-listings.server.ts`, filters `status = "live"`) and the browse
-  /search components exclude them with zero extra code. The record's RLS
-  `select_own` policy keeps a draft private to its owner; co-managers never see
-  another manager's drafts (they carry no linked-property grant).
-- **Storage = the existing side-bucket pattern.** A draft is an `AdminPropertyRow`
-  (carrying the full `submission` for resume) in a new `drafts` side bucket
-  (`PropertyPipelineSnapshot`, `SideBuckets`, `AdminPropertyBucketIndex` 5). Save
-  /publish/delete live in `demo-admin-property-inventory.ts`
-  (`saveManagerPropertyDraftToServer` / `publishManagerPropertyDraftToServer` /
-  `deleteManagerPropertyDraft`).
-- **The draft's record id IS the eventual live `mgr-…` listing id.** Publishing
-  (final "Submit listing") re-upserts the SAME id `draft → live` and drops it
-  from the drafts bucket — no orphaned duplicate. A brand-new wizard that was
-  closed mid-way also publishes-in-place via the remembered id (`draftIdRef`
-  in `manager-add-listing-form.tsx`), never a second row.
-- **That id is therefore a permanent public URL, so it is never minted from a
-  blank name.** A save made before the manager typed a property name gets a
-  neutral `mgr-listing-<rand>` id flagged `draftIdProvisional`, never a
-  blank-slug `mgr---<rand>`. The first later save *in the same wizard session*
-  re-keys it to the real `mgr-<building>-<unit>-<rand>` id — **write before
-  delete**: the re-keyed row is upserted first and only then is the superseded
-  row deleted, so a failed save can never leave the draft with *no* server
-  record. If that delete fails the stale row deliberately stays visible in the
-  Drafts list so the manager can remove it; a short-lived duplicate draft is the
-  only tolerated intermediate state, never a missing one. A **resumed** draft
-  keeps its id (`allowIdUpgrade: false`) — re-keying it would change the drafts
-  table row key and unmount the open editor. Publishing is always in place, so
-  the one-record invariant holds either way. Unnamed drafts render as "Untitled
-  draft" in the list.
-- **Closing the wizard also saves — there is no "Save draft" button.** Every
-  close affordance (footer Close, header ✕, backdrop click) routes through
-  `closeWizard` in `manager-add-listing-form.tsx`, which flushes any unsaved
-  edits as a draft and only then calls `onClose`. While the wizard stays open,
-  **background autosave** debounces (`LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS` in
-  `manager-listing-draft-autosave.ts`) and persists in-progress work to Drafts
-  without closing. Two guards make implicit save safe to leave: an UNTOUCHED
-  wizard closes without writing anything (the baseline fingerprint captured on
-  first render, `manager-listing-draft-autosave.ts`, compares the whole
-  submission rather than an allowlist of fields, so a field added to the wizard
-  tomorrow is covered), and every EDIT mode (pending / live listing /
-  request-change / `preview` scope) is excluded, because those rows are already
-  persisted elsewhere and drafting one would fork it. A failed draft write leaves
-  the wizard OPEN with the work intact rather than closing on a lie. Coverage:
-  `tests/unit/listing-wizard-draft-autosave.test.tsx` drives the real component
-  through the real save path.
-- **Draft saving is unvalidated** (partial-friendly, on every step) and does NOT
-  count toward the plan property limit; **publishing** runs full validation +
-  the limit gate like any new listing — so the wizard's `skuTier`/`skuLoaded`
-  come from the one `/api/manager/subscription` load in `manager-properties.tsx`
-  (a null tier reads as "no limit", so Continue editing waits for `skuLoaded`).
-  Saving also persists the wizard position (`draftStepIndex` /
-  `draftMaxStepReached`) so resuming reopens on the saved step with the earlier
-  chips unlocked. The list surface is the "Drafts" stage in `MANAGER_STAGES`
-  (`manager-house-properties-panel.tsx`) with Continue editing / Delete draft.
-  Migration: `…_manager_property_records_draft_status.sql` adds `'draft'` to the
-  status CHECK.
-- **The wizard is the only editor of a draft.** The drafts row (bucket 5) hides
-  every detail panel that persists through `houseSaveTarget` (House details,
-  Application questions, Lease) — a draft is absent from the extras catalog, so
-  those panels would resolve to `{mode: "listing"}` and their save would mirror
-  the record `status: "live"`. **Unlisted rows (bucket 3) hide the same three
-  panels for the same reason**: `unlistManagerListing` calls
-  `removeExtraListing`, so an unlisted listing is likewise absent from the live
-  catalog and saving one used to silently re-list it. Relist it to edit it.
-  `updateExtraListingFromSubmission` refuses an id it cannot find in the live
-  catalog (searching every owner's key, so co-managed listings still save),
-  which is the backstop for that whole class of "edit a non-live row into the
-  public catalog" bug.
-- **Deleting a draft reclaims its uploads.** `deleteManagerPropertyDraft` is
-  async: it awaits the server delete and reports success only when the row is
-  really gone (a failed delete leaves the draft visible instead of letting it
-  reappear on the next sync), then removes the submission's `listing-photos`
-  objects via `deleteSubmissionMediaObjects`
-  (`src/lib/listing-media-storage.ts`). **A record does not own its uploads
-  exclusively** — an object's URL lives on the submission, so the two draft rows
-  a partially-failed re-key leaves behind reference the *same* bucket objects.
-  `deleteSubmissionMediaObjects` therefore takes every surviving submission
-  (`survivingSubmissions`: the other side-bucket rows, the live catalog and the
-  pending queue) and skips any path still referenced; deleting the leftover
-  duplicate must never strip the surviving draft's photos. Draft *count* is
-  deliberately uncapped.
+A draft is `status: "draft"` on the existing property record — never a parallel
+store and never `"unlisted"` — its record id IS the eventual live listing id, and
+closing the wizard saves. The full model (autosave, re-keying write-before-delete,
+which panels a draft or unlisted row hides, and how a draft's uploads are
+reclaimed) lives in
+[`docs/agents/property-drafts.md`](docs/agents/property-drafts.md). Read it
+before touching draft persistence; do not re-copy it here.
 
 ## Group applications & lease bundles (independent accounts)
 

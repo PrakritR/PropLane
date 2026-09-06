@@ -75,7 +75,7 @@ describe("portal nav order contracts", () => {
 describe("pro portal nav grouping (leasing → tenancy → operations → marketing → team → finances → account)", () => {
   const sections = sectionIds(proPortal.sections);
   const leasingBlock = ["properties", "tours", "applications", "background-checks", "leases"];
-  const tenancyBlock = ["residents", "payments", "services"];
+  const tenancyBlock = ["residents", "inspections", "payments", "services"];
   const operationsBlock = ["tasks", "calendar", "bookings", "communication"];
   const financesBlock = ["financials", "documents"];
 
@@ -104,7 +104,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
   });
 
   it("free operational sections precede the finances block", () => {
-    expect(sections.slice(0, 15)).toEqual([
+    expect(sections.slice(0, 16)).toEqual([
       "dashboard",
       "properties",
       "tours",
@@ -112,6 +112,7 @@ describe("pro portal nav grouping (leasing → tenancy → operations → market
       "background-checks",
       "leases",
       "residents",
+      "inspections",
       "payments",
       "services",
       "tasks",

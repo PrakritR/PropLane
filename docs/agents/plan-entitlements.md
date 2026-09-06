@@ -22,7 +22,19 @@ on an account with five listings and no paywall anywhere).
   — an unreadable plan and "no committed SKU" both produce zero purchase rows,
   so collapsing them would enforce Free on a transient DB error and refuse a
   paying Business manager their sixth listing. Callers fail closed on
-  `ok: false`. **That rule has to reach BOTH halves or it is worse than not
+  `ok: false`. **A LAPSED signup trial resolves to Free here too**, so pass
+  `billing` and `paidAt` alongside `tier` (`getEffectiveManagerSkuTier` reads
+  both off the purchase row). The row keeps `tier: pro|business,
+  billing: trial` forever — the 14-day trial expires by DATE and nothing
+  rewrites it — so reading `tier` alone kept the Pro property cap and the Pro
+  communication allowance for the rest of the account's life while the sidebar
+  correctly said Free. The plan the product ENFORCES has to equal the plan it
+  DISPLAYS. Only the signup trial is expired here: a live Stripe subscription or
+  Apple grant is authoritative and is never run through date math, and waiver /
+  admin / portal grants have their own authorization rules. Omitting `billing`
+  and `paidAt` keeps the older behaviour for a caller with no billing row to
+  read. Coverage: `tests/unit/manager-trial-expiry-quota.test.ts`.
+  **That rule has to reach BOTH halves or it is worse than not
   having it**, because the client caches what the route says: a plan the server
   could not read is reported as `planUnknown: true` with `effectiveTier`,
   `propertyLimit` and `accountLinkLimit` all `null` and `isFree: false`, so
@@ -104,4 +116,5 @@ on an account with five listings and no paywall anywhere).
   `manager-subscription-tier-client.test.ts`,
   `manager-subscription-route-unknown-plan.test.ts`,
   `manager-relist-in-place.test.ts`,
+  `manager-trial-expiry-quota.test.ts`,
   `tools/property-resident-writes.test.ts`.

@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useMemo, useSyncExternalStore } from "react";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
+import { ManagerInspectionsPage } from "@/components/portal/inspections-panel";
 import { ResidentMoveInShell } from "@/components/portal/resident-move-in-view";
 import { readExtraListingsForUser } from "@/lib/demo-property-pipeline";
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
@@ -148,6 +149,8 @@ export function DemoSectionRenderer({
         return <PortalCalendar portal="manager" initialUserId={managerUserId} />;
       case "applications":
         return <ManagerApplications />;
+      case "inspections":
+        return <ManagerInspectionsPage kind={tabId === "move-out" ? "move-out" : "move-in"} basePath={basePath} />;
       case "residents":
         return <ManagerResidents tabId="current" />;
       case "leases":

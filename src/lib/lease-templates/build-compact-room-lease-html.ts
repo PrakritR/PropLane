@@ -19,10 +19,19 @@ export type CompactRoomLeaseInput = {
   monthlyRentDisplay: string;
   utilitiesDisplay: string;
   secDep: string;
+  securityDepositDue?: number;
+  securityDepositReceived?: number;
+  moveInFeeReceived?: number;
+  holdingDeposit?: { amount: number; amountDue: number; received?: number };
+  holdingDepositHtml?: string;
   moveInFee: string;
+  moveInFeeDue?: number;
+  otherSigningCost?: { label: string; amount: number; amountDue?: number; received?: number };
   paySigning: string;
   paySigningNum: number;
   firstPartialMonthPayment: number;
+  firstPeriodRentDue?: number;
+  firstPeriodUtilitiesDue?: number;
   proratedRentAmount?: number;
   proratedUtilitiesAmount?: number;
   /** "September 2026" — the calendar month the first-period proration covers. */
@@ -42,12 +51,15 @@ export type CompactRoomLeaseInput = {
   lastMonthDaysLabel?: string;
   /** The ledger's own due date for the last-month charges, e.g. "By Nov 24, 2027". */
   lastMonthDueDateLabel?: string;
-  billableOneTimeCustomFees: ReadonlyArray<{ label?: string; amount?: string }>;
+  billableOneTimeCustomFees: ReadonlyArray<{ label?: string; amount?: string; amountDue?: number; received?: number }>;
   billableMonthlyCustomFees: ReadonlyArray<{ label?: string; amount?: string }>;
   /** Preset one-time fees (application, holding deposit, etc.) not due at signing. */
   supplementalOneTimeLeaseFees?: ReadonlyArray<{ label?: string; amount?: string }>;
   paymentAtSigningIncludes?: readonly string[];
   paymentMethod: string;
+  monthlyDueDay: string;
+  lateFeeHtml: string;
+  petPolicy: string;
   sub: ManagerListingSubmissionV1 | undefined;
   specificRoom: { floor?: string; name?: string } | undefined;
   bathroomArrangement: string;
@@ -93,8 +105,8 @@ function compactPremisesAccessParagraph(
   const bath = bathroomArrangement.trim();
   if (bath.includes("assigned to this room")) {
     bathroomClause = "use only the bathroom assigned to their room";
-  } else if (bath.includes("shared with") || bath.includes("shared by")) {
-    bathroomClause = "use only bathroom on their floor";
+  } else if (bath) {
+    bathroomClause = `bathroom access as follows: ${escapeHtml(bath)}`;
   }
   return `Resident shall have ${floorClause}, ${bathroomClause}, and shared, non-exclusive use of the kitchen, living areas, laundry facilities, hallways, and other designated common areas together with other residents.`;
 }
@@ -126,13 +138,18 @@ function utilitiesIncludedBullets(
       return `<ul>${items.join("")}</ul>`;
     }
   }
-  return `<ul>
-  <li>Electricity</li>
-  <li>Water</li>
-  <li>Sewer</li>
-  <li>Garbage</li>
-  <li>Wi-Fi Internet</li>
-</ul>`;
+  return "";
+}
+
+/** Cleared receipts must cover the WHOLE stated obligation before a line may read "paid". */
+export function clearedInFull(received: number | undefined, obligation: number | undefined): boolean {
+  if (received == null || obligation == null) return false;
+  return received + 0.005 >= obligation;
+}
+
+function settledSuffix(nothingDue: boolean, received: number | undefined, obligation: number | undefined): string {
+  if (!nothingDue) return "";
+  return clearedInFull(received, obligation) ? " — paid" : " — no payment due";
 }
 
 function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
@@ -147,8 +164,6 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
     proratedRentAmount = 0,
     proratedUtilitiesAmount = 0,
     billableOneTimeCustomFees,
-    billableMonthlyCustomFees,
-    supplementalOneTimeLeaseFees,
     paySigning,
     paymentAtSigningIncludes,
   } = input;
@@ -156,7 +171,7 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
     return "<p>Move-in payment details are filled when a resident is placed at this property.</p>";
   }
   const includes = new Set(paymentAtSigningIncludes ?? []);
-  const useIncludesFilter = includes.size > 0;
+  const useIncludesFilter = paymentAtSigningIncludes != null;
   const lastMonthLine = Boolean(input.lastMonthLabel?.trim());
   const scheduleLines: string[] = [];
   const signingLines: string[] = [];
@@ -175,18 +190,32 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
         ? `Prorated term rent: <strong>${fmtUsd(proratedRentAmount)}</strong>`
         : `Prorated first month&apos;s rent: <strong>${fmtUsd(proratedRentAmount)}</strong>`,
     );
-    if (!useIncludesFilter || includes.has("first_month_rent")) {
+    if ((!useIncludesFilter || includes.has("first_month_rent")) && (input.firstPeriodRentDue ?? proratedRentAmount) > 0) {
       pushSigning(
         termProration
-          ? `<strong>${fmtUsd(proratedRentAmount)}</strong> prorated term rent`
-          : `<strong>${fmtUsd(proratedRentAmount)}</strong> prorated first month&apos;s rent`,
+          ? `<strong>${fmtUsd(input.firstPeriodRentDue ?? proratedRentAmount)}</strong> prorated term rent`
+          : `<strong>${fmtUsd(input.firstPeriodRentDue ?? proratedRentAmount)}</strong> prorated first month&apos;s rent`,
       );
     }
   }
   if (proratedUtilitiesAmount > 0) {
     pushSchedule(`Prorated utilities: <strong>${fmtUsd(proratedUtilitiesAmount)}</strong>`);
-    if (!useIncludesFilter || includes.has("first_month_utilities")) {
-      pushSigning(`<strong>${fmtUsd(proratedUtilitiesAmount)}</strong> prorated utilities`);
+    if ((!useIncludesFilter || includes.has("first_month_utilities")) && (input.firstPeriodUtilitiesDue ?? proratedUtilitiesAmount) > 0) {
+      pushSigning(`<strong>${fmtUsd(input.firstPeriodUtilitiesDue ?? proratedUtilitiesAmount)}</strong> prorated utilities`);
+    }
+  }
+  // When the lease starts on the first, the selected first-month amounts are
+  // full monthly charges, not prorations. They still need signing line items.
+  if (firstPartialMonthPayment <= 0 && proratedRentAmount <= 0 && proratedUtilitiesAmount <= 0) {
+    const rent = parseAmount(input.monthlyRentDisplay) ?? 0;
+    const utilities = parseAmount(input.utilitiesDisplay) ?? 0;
+    if (includes.has("first_month_rent") && rent > 0) {
+      pushSchedule(`First month&apos;s rent: <strong>${fmtUsd(rent)}</strong>`);
+      if ((input.firstPeriodRentDue ?? rent) > 0) pushSigning(`<strong>${fmtUsd(input.firstPeriodRentDue ?? rent)}</strong> first month&apos;s rent`);
+    }
+    if (includes.has("first_month_utilities") && utilities > 0) {
+      pushSchedule(`First month&apos;s utilities: <strong>${fmtUsd(utilities)}</strong>`);
+      if ((input.firstPeriodUtilitiesDue ?? utilities) > 0) pushSigning(`<strong>${fmtUsd(input.firstPeriodUtilitiesDue ?? utilities)}</strong> first month&apos;s utilities`);
     }
   }
   if (
@@ -233,25 +262,36 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
 
   const secDepNum = parseAmount(secDep);
   if (secDepNum != null && secDepNum > 0) {
-    pushSchedule(`Security deposit: <strong>${secDep}</strong>`);
+    pushSchedule(`Security deposit: <strong>${secDep}</strong>${settledSuffix(input.securityDepositDue === 0 && !(input.holdingDeposit?.amountDue), input.securityDepositReceived, secDepNum)}`);
     if (!useIncludesFilter || includes.has("security_deposit")) {
-      pushSigning(`<strong>${secDep}</strong> security deposit`);
+      const due = input.securityDepositDue ?? secDepNum;
+      if (due > 0) pushSigning(`<strong>${fmtUsd(due)}</strong> security deposit${input.holdingDeposit ? " balance" : ""}`);
+      if ((input.holdingDeposit?.amountDue ?? 0) > 0) {
+        pushSigning(`<strong>${fmtUsd(input.holdingDeposit!.amountDue)}</strong> outstanding holding deposit (part of the security deposit)`);
+      }
     }
   }
   const moveInNum = parseAmount(moveInFee);
   if (moveInNum != null && moveInNum > 0) {
-    pushSchedule(`Move-in fee (non-refundable): <strong>${moveInFee}</strong>`);
+    pushSchedule(`Move-in fee (non-refundable): <strong>${moveInFee}</strong>${settledSuffix(input.moveInFeeDue === 0, input.moveInFeeReceived, moveInNum)}`);
     if (!useIncludesFilter || includes.has("move_in_fee")) {
-      pushSigning(`<strong>${moveInFee}</strong> move-in fee (non-refundable)`);
+      const due = input.moveInFeeDue ?? moveInNum;
+      if (due > 0) pushSigning(`<strong>${fmtUsd(due)}</strong> move-in fee (non-refundable)`);
     }
   }
   for (const fee of billableOneTimeCustomFees) {
     const amount = parseAmount(fee.amount);
     if (amount != null && amount > 0) {
       const label = escapeHtml(fee.label?.trim() || "custom fee");
-      pushSchedule(`${label}: <strong>${fmtUsd(amount)}</strong>`);
-      pushSigning(`<strong>${fmtUsd(amount)}</strong> ${label}`);
+      const due = fee.amountDue ?? amount;
+      pushSchedule(`${label}: <strong>${fmtUsd(amount)}</strong>${settledSuffix(due === 0, fee.received, amount)}`);
+      if (due > 0) pushSigning(`<strong>${fmtUsd(due)}</strong> ${label}`);
     }
+  }
+  if (input.otherSigningCost && input.otherSigningCost.amount > 0) {
+    const { label, amount, amountDue = amount, received } = input.otherSigningCost;
+    pushSchedule(`${escapeHtml(label)} (one-time): <strong>${fmtUsd(amount)}</strong>${settledSuffix(amountDue === 0, received, amount)}`);
+    if (amountDue > 0) pushSigning(`<strong>${fmtUsd(amountDue)}</strong> ${escapeHtml(label)} (one-time)`);
   }
 
   if (!scheduleLines.length && paySigningNum <= 0) {
@@ -269,13 +309,18 @@ function moveInPaymentSummaryHtml(input: CompactRoomLeaseInput): string {
     paySigningNum > 0
       ? `<p style="margin:0.75rem 0 0">Total payment due at signing: <strong>${paySigning}</strong></p>`
       : "";
-  return `${schedule}${signingDetail}${total}`;
+  const received = input.securityDepositReceived != null || input.moveInFeeReceived != null
+    ? (input.securityDepositReceived ?? 0) + (input.moveInFeeReceived ?? 0)
+    : 0;
+  const receivedLine = received > 0
+    ? `<p>Already received toward the security deposit and move-in fee: <strong>${fmtUsd(received)}</strong>. These payments are excluded from the amount still due at signing.</p>`
+    : "";
+  return `${schedule}${input.holdingDepositHtml ?? ""}${receivedLine}${signingDetail}${total || (input.securityDepositDue != null ? "<p>No additional payment is due at signing.</p>" : "")}`;
 }
 
 function defaultHouseRulesBullets(): string {
   return `<ul>
   <li>Keep the room clean and sanitary.</li>
-  <li>Use only the bathroom on your floor.</li>
   <li>Clean shared spaces after use.</li>
   <li>Respect the privacy of other residents.</li>
   <li>Maintain reasonable noise levels.</li>
@@ -348,8 +393,8 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
   const houseRulesBlock = houseRules
     ? `<p>${houseRules}</p><p>No smoking, vaping, illegal drugs, or unauthorized pets are permitted inside the property.</p>`
     : defaultHouseRulesBullets();
-  const quietHours = longTermQuietHours || "10 PM – 8 AM";
-  const disputeVenue = sub?.longTermDisputeVenue?.trim() || "King County, Washington";
+  const quietHours = longTermQuietHours;
+  const disputeVenue = sub?.longTermDisputeVenue?.trim();
   const monthlyCustomFeeLines = input.billableMonthlyCustomFees
     .map((fee) => {
       const amount = input.parseAmount(fee.amount);
@@ -505,7 +550,9 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
   ${totalMonthlyDisplay ? `<p style="margin:0.2rem 0"><strong>Total Monthly Housing Cost:</strong> ${totalMonthlyDisplay}</p>` : ""}
   ${summaryHeading("Fees &amp; deposit")}
   <p style="margin:0.2rem 0"><strong>Security Deposit:</strong> ${secDep}</p>
-  <p style="margin:0.2rem 0"><strong>Move-in Fee:</strong> ${moveInFee}</p>
+  ${(input.parseAmount(moveInFee) ?? 0) > 0 ? `<p style="margin:0.2rem 0"><strong>Move-in Fee:</strong> ${moveInFee}</p>` : ""}
+  ${input.holdingDepositHtml ?? ""}
+  ${input.otherSigningCost ? summaryLine(escapeHtml(input.otherSigningCost.label), `${fmtUsd(input.otherSigningCost.amount)} (one-time)`) : ""}
   ${supplementalOneTimeSummaryLines}
   ${oneTimeCustomFeeSummaryLines}
   ${summaryHeading("Initial payment")}
@@ -549,8 +596,8 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
 <p>At the end of the lease term this Agreement <strong>continues as a month-to-month tenancy</strong> on the same terms, unless either party gives written notice to end it ${monthToMonthNotice}. All other terms of this Agreement remain in effect during the month-to-month period.${monthToMonthSurchargeClause}</p>
 ${earlyTerminationBlock(input)}`
       : `<p>This is a fixed-term lease beginning <strong>${leaseStart}</strong>, and ending <strong>${leaseEnd}</strong>.</p>
-<p>This Agreement automatically terminates at the end of the lease term and does not convert to a month-to-month tenancy unless both parties agree in writing.</p>
-<p>Resident agrees to vacate the Premises no later than <strong>12:00 PM</strong> on the final day of the lease term.${holdoverClause}</p>
+<p>This Agreement <strong>does not automatically continue as a month-to-month tenancy</strong> after the end of the lease term. Ending, renewing or not renewing the tenancy is subject to applicable federal, state and local law, including any renewal-offer, just-cause and notice requirements that apply to the Premises, and nothing in this Section waives a right applicable law gives either party.</p>
+${config.renewalOfferParagraph ? `<p>${escapeHtml(config.renewalOfferParagraph)}</p>\n` : ""}<p>Unless the tenancy is renewed or continued as required by applicable law or by written agreement of the parties, Resident agrees to vacate the Premises by the end of the final day of the lease term.${holdoverClause}</p>
 ${earlyTerminationBlock(input)}`;
 
   return `
@@ -588,13 +635,18 @@ ${supplementalOneTimeFeeLines}
 ${prorationLine}
 ${lastMonthProrationLine}
 <p>${paymentInstruction}</p>
+<p>Monthly rent and utilities are due on the <strong>${input.monthlyDueDay}</strong> of each month.</p>
+${input.lateFeeHtml}
 <p>Failure to pay rent, utilities, fees, or other charges when due may constitute a default under this Agreement and applicable Washington law.</p>
 
 <h2>4. Move-In Payment Summary</h2>
 ${moveInPaymentSummaryHtml(input)}
 
 <h2>5. Security Deposit</h2>
-<p>Resident shall pay a refundable security deposit of <strong>${secDep}</strong>.</p>
+<p>The total refundable security deposit is <strong>${secDep}</strong>; the payment summary states the amount due at signing.</p>
+${input.holdingDepositHtml ?? ""}
+<p>The deposit shall be held in a trust account in a bank, savings and loan association, or licensed escrow agent located in Washington. Landlord shall provide written notice of the name and address of the institution holding the deposit, in accordance with RCW 59.18.270.</p>
+<p>A written move-in condition checklist, signed and dated by Landlord and Resident with a copy provided to Resident, is required before collecting a security deposit under RCW 59.18.260.</p>
 <p>The security deposit secures Resident&apos;s performance of this Agreement and may be used for lawful deductions including:</p>
 <ul>
   <li>Unpaid rent</li>
@@ -613,6 +665,8 @@ ${input.utilitiesBreakdown ?? ""}
 ${input.utilitiesEstimateSentence ? `<p>${input.utilitiesEstimateSentence}</p>` : ""}
 ${utilitiesBullets}
 <p>Utilities are provided for ordinary residential use only. Excessive or abusive usage may result in additional charges if permitted by law.</p>
+<p>Resident remains responsible for cleaning shared spaces after personal use and properly disposing of trash, recycling, and food waste, including when common-area cleaning is provided. Any additional cleaning charges must reflect responsibility for the condition and comply with applicable law.</p>
+<p>Resident shall cooperate with scheduled cleaning services when provided. Access to the private room remains subject to the notice and entry requirements in this Agreement and applicable law.</p>
 
 <h2>7. Occupancy</h2>
 <p>Only <strong>${tenantName}</strong> may occupy the Premises.</p>
@@ -644,7 +698,7 @@ ${houseRulesBlock}
 <p>Landlord and authorized representatives may access shared/common areas at any time for purposes including maintenance, inspections, cleaning, repairs, safety checks, or management of the property. Residents do not have exclusive possession of shared areas.</p>
 
 <h2>12. Pets and Smoking</h2>
-<p>No pets are permitted without prior written approval.</p>
+<p>${input.petPolicy}</p>
 <p>Smoking, vaping, or use of tobacco or cannabis products is prohibited inside the residence.</p>
 
 <h2>13. Subletting or Assignment</h2>
@@ -676,7 +730,7 @@ ${houseRulesBlock}
 
 <h2>18. Governing Law</h2>
 <p>This Agreement shall be governed by the laws of the State of Washington, including the Washington Residential Landlord-Tenant Act (RCW Chapter 59.18).</p>
-<p>Any legal proceeding arising from this Agreement shall be brought in the appropriate court located in ${escapeHtml(disputeVenue)}, unless otherwise required by law.</p>
+${disputeVenue ? `<p>Any legal proceeding arising from this Agreement shall be brought in the appropriate court located in ${escapeHtml(disputeVenue)}, unless otherwise required by law.</p>` : ""}
 
 <h2>19. Entire Agreement</h2>
 <p>This Agreement contains the entire agreement between Landlord and Resident and supersedes all prior discussions or understandings relating to the Premises.</p>
@@ -687,7 +741,7 @@ ${houseRulesBlock}
 
 <div class="addendum page-break">
 <h2>Addendum A — Move-In Condition Report</h2>
-<p>Resident and Landlord agree to complete and sign this report within 5 days of move-in. Resident may document any pre-existing damage and return it to Landlord by email. Absent a completed report, the room shall be deemed to be in clean, undamaged condition at move-in.</p>
+<p>Landlord and Resident shall document the condition of the Premises, including existing damage, in a completed checklist at the beginning of the tenancy. Both parties shall sign and date the completed report, and Resident shall receive a copy. A blank or missing report does not establish that the Premises were undamaged.</p>
 <table>
   <tr><th>Area / item</th><th>Condition at move-in</th><th>Notes</th></tr>
   <tr><td>Room walls / paint</td><td>&nbsp;</td><td>&nbsp;</td></tr>
@@ -701,12 +755,13 @@ ${houseRulesBlock}
   <tr><td>Common area general</td><td>&nbsp;</td><td>&nbsp;</td></tr>
   <tr><td>Other / notes</td><td colspan="2">&nbsp;</td></tr>
 </table>
-<p>When you sign this Agreement in the PropLane portal, those electronic signatures apply to this checklist as well. No separate signature lines are required on this page.</p>
+<p>Signing this Agreement does not certify blank condition entries or a report completed later. The completed condition report requires both parties&apos; signatures and dates.</p>
+<p>Landlord signature: ____________________ Date: __________<br/>Resident signature: ____________________ Date: __________</p>
 </div>
 
 <div class="addendum">
 <h2>Addendum B — Bed Bug Disclosure</h2>
-<p>Landlord discloses that, to Landlord&apos;s knowledge as of the date of this Agreement, there is no known active bed bug infestation in the unit or building. Resident shall inspect the room upon move-in and report any signs of bed bugs immediately. If an infestation is discovered during the tenancy, Resident shall notify Landlord in writing within 24 hours and cooperate with any required inspection or treatment. Resident shall not introduce second-hand mattresses, upholstered furniture, or bedding without prior written approval. Resident is responsible for infestation caused by Resident&apos;s belongings or guests.</p>
+<p>Landlord shall provide any property-specific pest disclosures required by applicable law. Resident shall inspect the room upon move-in and report any signs of bed bugs immediately. If an infestation is discovered during the tenancy, Resident shall notify Landlord in writing within 24 hours and cooperate with any required inspection or treatment. Resident shall not introduce second-hand mattresses, upholstered furniture, or bedding without prior written approval. Resident is responsible for infestation caused by Resident&apos;s belongings or guests.</p>
 </div>
 
 <div class="addendum">
@@ -729,9 +784,9 @@ ${houseRulesBlock}
 
 <div class="addendum">
 <h2>Addendum E — House Rules Enforcement</h2>
-<p><strong>Noise &amp; nuisance:</strong> Quiet hours are strictly enforced (${quietHours}). Violations will result in a written warning for the first offense, a <strong>$50</strong> fine for the second offense, and potential termination proceedings for subsequent violations.</p>
+<p><strong>Noise &amp; nuisance:</strong> ${quietHours ? `Quiet hours are strictly enforced (${quietHours}). ` : ""}Resident shall avoid unreasonable noise and disturbance. Violations are addressed through written notice and remedies permitted by applicable law.</p>
 <p><strong>Guest violations:</strong> Unauthorized overnight guests beyond policy limits will result in a written warning. Repeated violations are grounds for a 10-day cure notice.</p>
-<p><strong>Cleaning violations:</strong> If common areas are left unsanitary and the responsible resident does not remedy within 24 hours of notice, Landlord may arrange cleaning at Resident&apos;s expense (<strong>$50</strong> minimum).</p>
+<p><strong>Cleaning violations:</strong> Resident shall address unsanitary conditions for which Resident is responsible. Any cleaning charge must reflect actual, documented costs and comply with applicable law.</p>
 <p><strong>Dispute resolution:</strong> Residents are encouraged to resolve disputes between themselves first. If unresolved, bring concerns to Landlord in writing. Landlord&apos;s reasonable determination of house-rule disputes shall be final subject to applicable law.</p>
 <p><strong>Three-strike policy:</strong> Three documented written warnings in any 12-month period for the same or similar violations may constitute grounds for lease termination with appropriate statutory notice.</p>
 </div>

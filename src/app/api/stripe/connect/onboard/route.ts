@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { resolveAppOrigin } from "@/lib/app-url";
 import { assertCoManagerBankAccountAccess } from "@/lib/auth/co-manager-bank-account-access";
-import { resolveStripePayoutContext } from "@/lib/auth/manager-stripe-payout-access.server";
+import {
+  resolveStripePayoutContext,
+  stripePayoutContextError,
+} from "@/lib/auth/manager-stripe-payout-access.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe, stripeConnectRedirectOriginError } from "@/lib/stripe";
@@ -31,7 +34,10 @@ export async function POST(req: Request) {
     const service = createSupabaseServiceRoleClient();
     const payout = await resolveStripePayoutContext(service, user.id);
     if (!payout.payoutOwnerUserId) {
-      return NextResponse.json({ error: "Could not resolve payout account." }, { status: 500 });
+      return NextResponse.json(
+        { error: stripePayoutContextError(payout.unresolvedReason) },
+        { status: payout.unresolvedReason === "ambiguous_owner" ? 409 : 500 },
+      );
     }
     const access = await assertCoManagerBankAccountAccess(
       service,
@@ -65,7 +71,7 @@ export async function POST(req: Request) {
 
     try {
       const stripe = getStripe();
-      const accountId = await ensureManagerConnectAccountId(stripe, supabase, {
+      const accountId = await ensureManagerConnectAccountId(stripe, service, {
         userId: payoutOwnerId,
         email: ownerProfile?.email ?? user.email ?? undefined,
       });

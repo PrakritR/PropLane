@@ -55,6 +55,7 @@ function pickFromWeb(): Promise<CapturedPhoto | null> {
     input.type = "file";
     input.accept = "image/*";
     input.capture = "environment";
+    input.oncancel = () => resolve(null);
     input.onchange = () => {
       const file = input.files?.[0];
       if (!file) return resolve(null);

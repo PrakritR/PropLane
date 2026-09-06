@@ -157,14 +157,20 @@ export function ManagerPaymentSetupModal({
         message?: string;
         canEditBankAccount?: boolean;
         isCoManagerForPayout?: boolean;
+        error?: string;
       };
-      setCanEditBankAccount(body.canEditBankAccount !== false);
-      setIsCoManagerForPayout(body.isCoManagerForPayout === true);
       if (!res.ok) {
+        // A refused status answers `{ error }` alone, so the optional fields are
+        // absent — reading them first would leave bank editing enabled and throw
+        // away the only sentence that says why it cannot work.
+        setCanEditBankAccount(false);
+        setIsCoManagerForPayout(body.isCoManagerForPayout === true);
         setStripeState("unknown");
-        setStripeIssue("Couldn't check your Stripe status. Try again.");
+        setStripeIssue(body.error ?? "Couldn't check your Stripe status. Try again.");
         return;
       }
+      setCanEditBankAccount(body.canEditBankAccount !== false);
+      setIsCoManagerForPayout(body.isCoManagerForPayout === true);
       const nextState = stripeSetupStateFromStatus(body);
       setStripeState(nextState);
       setStripeIssue(

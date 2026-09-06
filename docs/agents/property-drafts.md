@@ -77,10 +77,20 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   panels for the same reason**: `unlistManagerListing` calls
   `removeExtraListing`, so an unlisted listing is likewise absent from the live
   catalog and saving one used to silently re-list it. Relist it to edit it.
-  `updateExtraListingFromSubmission` refuses an id it cannot find in the live
-  catalog (searching every owner's key, so co-managed listings still save),
-  which is the backstop for that whole class of "edit a non-live row into the
-  public catalog" bug.
+  `updateExtraListingFromSubmission` (the local-store path) refuses an id it
+  cannot find in the live catalog (searching every owner's key, so co-managed
+  listings still save), which is the backstop for that whole class of "edit a
+  non-live row into the public catalog" bug.
+  **Its server twin is deliberately NOT a pure mirror of that rule.**
+  `updateExtraListingFromSubmissionOnServer` — what
+  `persistManagerListingSubmissionOnServer` calls for a `listing` save — upserts
+  a `status: "live"` record when the id is in NO owner's local catalog, because a
+  co-manager's browser legitimately has never loaded the owner's listing into
+  that store. `resolvePropertySaveTargetById` is what keeps that narrow: an id
+  reaches the `listing` mode only from a local catalog entry or from
+  `collectLinkedPropertyIds(managerUserId)` — an accepted co-manager link — so an
+  arbitrary id still resolves to no save target at all, and the route's own
+  ownership and plan-quota gates still run on the upsert.
 - **Deleting a draft reclaims its uploads.** `deleteManagerPropertyDraft` is
   async: it awaits the server delete and reports success only when the row is
   really gone (a failed delete leaves the draft visible instead of letting it

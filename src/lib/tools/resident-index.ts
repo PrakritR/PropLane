@@ -4,6 +4,8 @@
  * per-request by phase/tier so the assistant's capabilities always equal the
  * resident portal's.
  */
+import { getHousematesTool, getHousemateSharingTool, updateHousemateSharingTool } from "./domains/resident/housemate-sharing";
+import { residentInspectionTools } from "./domains/inspections";
 import { buildRegistry, type ToolDefinition, type ToolRegistry } from "./registry";
 import type { ResidentAgentContext } from "./resident-context";
 import { residentSectionAllowedForManagerTier } from "@/lib/manager-access";
@@ -36,6 +38,10 @@ import {
 type ResidentTool = ToolDefinition<any, any, ResidentAgentContext>;
 
 const ALL_RESIDENT_TOOLS: ResidentTool[] = [
+  ...residentInspectionTools,
+  getHousematesTool,
+  getHousemateSharingTool,
+  updateHousemateSharingTool,
   // Balance / charges / payment methods
   getMyBalanceTool,
   listMyChargesTool,

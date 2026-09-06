@@ -18,6 +18,7 @@ export const proPortal: PortalDefinition = {
       label: "Residents",
       tabs: [{ id: "current", label: "Residents" }],
     },
+    { section: "inspections", label: "Inspections", tabs: [{ id: "move-in", label: "Move-in" }, { id: "move-out", label: "Move-out" }] },
     {
       section: "payments",
       label: "Payments",
@@ -101,6 +102,7 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Background checks", path: "/portal/background-checks/pending_review" },
   { label: "Leases", path: "/portal/leases" },
   { label: "Residents", path: "/portal/residents/current" },
+  { label: "Inspections", path: "/portal/inspections/move-in" },
   { label: "Payments (incoming)", path: "/portal/payments/incoming/pending" },
   { label: "Payments (outgoing)", path: "/portal/payments/outgoing/pending" },
   { label: "Services", path: "/portal/services/requests" },

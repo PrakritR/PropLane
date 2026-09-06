@@ -77,8 +77,8 @@ export function residentSectionLockedForStage(section: string, stage: ResidentPo
   return !residentSectionUnlockedForStage(section, stage);
 }
 
-/** Resident sections that stay out of nav until unlocked — no inert padlock row. */
-const RESIDENT_NAV_HIDDEN_UNTIL_UNLOCKED = new Set(["move-in"]);
+/** Keep My home discoverable; existing stage locks protect house access details. */
+const RESIDENT_NAV_HIDDEN_UNTIL_UNLOCKED = new Set<string>();
 
 export function residentNavSectionVisibleInNav(section: string, stage: ResidentPortalNavStage): boolean {
   if (RESIDENT_NAV_HIDDEN_UNTIL_UNLOCKED.has(section) && residentSectionLockedForStage(section, stage)) {

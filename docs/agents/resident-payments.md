@@ -10,16 +10,32 @@ absorbs" model):
 
 | Manager plan | Who pays the service fee |
 | --- | --- |
-| **Free** | The **resident** — added on top of what they pay. Always. |
-| **Pro** | The **manager chooses** — resident or manager. Default **resident**. |
-| **Business** | The **manager chooses** — resident, manager, or PropLane. Defaults to **PropLane** for existing Business accounts (migrated on first Payment setup open). |
+| **Free** | The **resident** — added on top of what they pay — unless a server-validated payment waiver applies (below). |
+| **Pro** | The **manager chooses** — resident, manager, or PropLane. Plan default **PropLane**. |
+| **Business** | The **manager chooses** — resident, manager, or PropLane. Plan default **PropLane**. |
 
 `proplane` (PropLane absorbing Stripe's cost so neither party is charged) is a
-**Business** entitlement. Arriving from a manager- or property-writable field on
-Free or Pro it is discarded and read as `resident`, because the settings UI never
-offers it there — honouring it would let a manager stop paying fees by writing
-one word into their own record. Staff can still direct it at PropLane on any
-plan; see the override below.
+**paid-plan** capability, and it is also the plan DEFAULT on a paid plan (the
+AXI-149 rule: a manager who pays for the product does not additionally hand
+Stripe's cost to their residents). It is a default, not a floor — an explicit
+`resident` or `manager` choice on the account or on one property is kept.
+Arriving from a manager- or property-writable field on **Free** it is discarded
+and read as `resident`, because honouring it would let a manager stop paying
+fees by writing one word into their own record. Staff can still direct it at
+PropLane on any plan; see the override below.
+
+**The one exception on Free is a server-validated waiver.**
+`resolveServiceFeePayerFor` takes `waiverGranted`, and a granted waiver makes a
+Free account resolve as if it were Pro, so PropLane-absorbed fees become
+selectable and honoured. Two independent sources satisfy it
+(`resolveAccountOrListingWaiverGranted`): the account's own
+`manager_purchases.promo_code` grant (`isWaiverGrantedManagerPurchase`, surfaced
+to the client as `paymentWaiverGranted` on `GET /api/manager/subscription` and
+cached by `loadManagerPaymentWaiverGrantedClient`), and a per-listing
+`serviceFeeWaiverCode` typed on the listing wizard's Pricing step, which must
+equal `LISTING_PAYMENT_WAIVER_CODE` (`FREE100`). Storing `proplane` on a listing
+without that code is not persisted — `persistListingServiceFeePayer` falls back
+to `resident` rather than saving an absorb the code does not back.
 
 **The money still lands in the manager's own connected account.** Every resident
 payment stays a Connect **destination charge** on the PLATFORM account
@@ -29,9 +45,9 @@ moves, via `application_fee_amount`:
 
 | Fee payer | Resident charged | `application_fee_amount` | Manager receives | PropLane net |
 | --- | --- | --- | --- | --- |
-| resident (Free, Pro-resident) | subtotal + fee | fee | subtotal | ≈ 0 |
-| manager (Pro-manager) | subtotal | fee | subtotal − fee | ≈ 0 |
-| proplane (Business) | subtotal | omitted | subtotal | − Stripe's fee |
+| resident (Free, or an explicit paid-plan choice) | subtotal + fee | fee | subtotal | ≈ 0 |
+| manager (explicit paid-plan choice) | subtotal | fee | subtotal − fee | ≈ 0 |
+| proplane (paid-plan default, or Free + waiver) | subtotal | omitted | subtotal | − Stripe's fee |
 
 `src/lib/payment-policy.ts` is the single source of truth:
 - `residentProcessingFeeCents(subtotal, method)` — Stripe's cost (ACH 0.8% cap
@@ -39,12 +55,16 @@ moves, via `application_fee_amount`:
 - `resolveServiceFeePayer(tier, proChoice)` — the plan rule above. `tier` is the
   normalized SKU tier (`normalizeManagerSkuTier(...) ?? "free"`), so a
   legacy/unknown tier resolves to `resident`.
-- `resolveServiceFeePayerFor({ tier, adminOverride, propertyChoice, managerChoice })`
+- `resolveServiceFeePayerFor({ tier, adminOverride, propertyChoice, managerChoice, waiverGranted })`
   — the ONE resolver the money paths call. Precedence, most specific first:
   **staff override → the property's own Pricing setting → the manager's account
-  default → `resident`**. Steps 2-4 stay subject to the plan rule above; the
-  staff override deliberately ignores it, because staff absorbing a free-tier
-  manager's fees is the whole point of that control.
+  default → the plan default**. Steps 2-4 stay subject to the plan rule above;
+  the staff override deliberately ignores it, because staff absorbing a
+  free-tier manager's fees is the whole point of that control.
+  `managerCanSelectProplaneServiceFee(tier, waiverGranted)` /
+  `managerCanSelectManagerAbsorbServiceFee(tier)` are the same rule for the
+  Payment setup UI, so what the modal offers cannot drift from what checkout
+  honours.
 - `residentServiceFeeBreakdown(subtotal, method, feePayer)` — how the fee lands
   (resident total, retained `application_fee_amount`, manager payout). The
   checkout builder and every disclosure derive from this, holding the invariant
@@ -251,6 +271,34 @@ automatically ignores it. `async_payment_succeeded` → paid;
 Alternate flat-cents rails (Plaid Transfer / Dwolla / Moov, ~$0.25/transfer)
 only beat Stripe above ~1,000 payments/month once monthly minimums are counted
 — re-evaluate at that scale, not before.
+
+## A resident pays through PropLane only — Zelle and Venmo are retired
+
+`ResidentAcceptedPaymentMethod` is `"ach" | "card"`, and
+`acceptedPaymentMethodsForListing` keeps only those two whatever a stored
+listing still lists, so a legacy `acceptedPaymentMethods` array cannot put a
+retired rail back in front of a resident. `isPayableHouseholdCharge` is
+PropLane/Stripe ACH alone, and `residentManualChannelsForCharges` /
+`availableManualChannelsForCharges` return an empty list — the resident panel's
+manual-channel branch is therefore unreachable rather than deleted.
+`residentPaymentMethodsSummary` says either "PropLane payments — bank (ACH),
+card (Apple Pay), or Link" or, when the manager has not finished setup, to ask
+the manager to finish it; it never advertises a channel the product no longer
+accepts.
+
+The manager side is normalized to match rather than trusted:
+`normalizeManagerManualPaymentSettings` forces `zellePaymentsEnabled` /
+`venmoPaymentsEnabled` off and their contacts empty, and
+`applyManagerManualPaymentsToListings` clears the per-charge
+`zelleContactSnapshot` / `venmoContactSnapshot`. Payment setup no longer offers
+Link Zelle / Link Venmo. `normalizeManagerListingSubmissionV1` does the same for
+the listing copy so a lease clause cannot promise a retired channel — see
+[`lease-generation.md`](lease-generation.md) § "Payment instructions read the
+NORMALIZED listing".
+
+The receipt-matching pipeline behind those channels still exists but is
+switched off in one place; it is documented in
+[`manual-payment-detection.md`](manual-payment-detection.md).
 
 # Resident Payments section: Charges-only (§9.3, post-financials-merge)
 

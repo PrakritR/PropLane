@@ -38,6 +38,14 @@ const INBOX_TOOLS = [
 ];
 
 const UNGATED_TOOLS = [
+  "get_housemates",
+  "get_housemate_sharing",
+  "update_housemate_sharing",
+  "list_inspections",
+  "get_inspection",
+  "create_inspection",
+  "save_inspection_observations",
+  "change_inspection_status",
   // Tours are on no tier gate and no stage gate: touring is exactly what a
   // pre-approval resident does, and the availability grid it reads is the same
   // one the public website shows anonymously.

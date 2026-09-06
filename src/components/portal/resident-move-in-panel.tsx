@@ -19,7 +19,7 @@ export async function ResidentMoveInPanel({
   const resolved = email ? await loadResidentMoveInForEmail(email) : null;
 
   return (
-    <ManagerPortalPageShell title="House details" hideTitleOnMobileNav compactFilterRow>
+    <ManagerPortalPageShell title="My home" hideTitleOnMobileNav compactFilterRow>
       <ResidentMoveInShell
         basePath={basePath}
         resolved={resolved}
