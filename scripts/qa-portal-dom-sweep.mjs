@@ -387,6 +387,21 @@ async function sweepViewport(browser, viewport, routes, probeSource) {
       page.off("response", onResponse);
     }
 
+    // A degraded session does not always bounce to /auth/sign-in. It can leave the
+    // shell rendering as signed-in while every data call 401s, so the page shows
+    // "Listed 0" and empty panels — and a sweep then measures the layout of an
+    // empty portal and reports it as defects. If the app itself refused the
+    // session on this route, the route's findings are marked and kept OUT of the
+    // file used for filing; they stay in all-findings.json as evidence.
+    const appOrigin = new URL(BASE).origin;
+    const sessionRefused = badResponses.some(
+      (r) => r.url.startsWith(appOrigin) && (r.status === 401 || r.status === 403),
+    );
+    if (sessionRefused) {
+      for (const f of local) f.degraded = true;
+      console.log("(session refused by the app here — findings marked unreliable)");
+    }
+
     if (local.length) {
       mkdirSync(RUN_DIR, { recursive: true });
       const shot = join(RUN_DIR, `${viewport.name}-${route.path.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "")}.png`);
@@ -433,7 +448,11 @@ async function main() {
   const ledger = loadLedger();
   const now = new Date().toISOString();
   const novel = [];
+  const degraded = all.filter((f) => f.degraded);
   for (const f of all) {
+    // Never offer a finding for filing that was measured while the app was
+    // refusing the session — an empty portal's layout is not the product's layout.
+    if (f.degraded) continue;
     const seen = ledger[f.key];
     if (seen) {
       seen.lastSeen = now;
@@ -450,6 +469,12 @@ async function main() {
   writeFileSync(join(RUN_DIR, "all-findings.json"), JSON.stringify(all, null, 2));
   writeFileSync(LEDGER_PATH, JSON.stringify(ledger, null, 2));
 
+  if (degraded.length) {
+    const routes = [...new Set(degraded.map((f) => f.route ?? f.path))];
+    console.log(`\n${degraded.length} finding(s) on ${routes.length} route(s) were measured while the app refused the session (401/403) and are NOT offered for filing:`);
+    console.log(`  ${routes.join(", ")}`);
+    console.log(`  They are in all-findings.json. Re-run those routes with a good session before believing them.`);
+  }
   const bySeverity = (list, s) => list.filter((f) => f.severity === s).length;
   console.log(`\n${all.length} finding(s) measured, ${novel.length} not seen before`);
   console.log(`  high ${bySeverity(novel, "high")} · medium ${bySeverity(novel, "medium")} · low ${bySeverity(novel, "low")}`);
