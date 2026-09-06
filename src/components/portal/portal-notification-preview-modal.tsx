@@ -14,6 +14,7 @@ import {
   type ManagerDeliverViaKind,
 } from "@/lib/manager-communication-deliver-via";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
+import { trimmedText } from "@/lib/trimmed-text";
 import {
   defaultPortalMessageScheduleAt,
   PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS,
@@ -212,7 +213,7 @@ export function PortalNotificationPreviewModal({
       .then((status) => {
         if (!active || !status) return;
         setSmsSetup({
-          phone: status.number?.phoneNumber?.trim() || null,
+          phone: trimmedText(status.number?.phoneNumber) || null,
           canSend: status.canSend,
         });
       })

@@ -3,10 +3,7 @@ import { PRIMARY_AXIS_ADMIN_EMAIL, PRIMARY_AXIS_ADMIN_LABEL } from "@/data/inbox
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { readOwnActiveManagerVendorRows, isVendorCategorySettingsRow } from "@/lib/manager-vendors-storage";
 import { readProRelationships } from "@/lib/pro-relationships";
-
-function trimmedText(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
-}
+import { trimmedText } from "@/lib/trimmed-text";
 
 /** Merge contact lists by email — first occurrence wins. */
 export function mergeInboxScopedContacts(...lists: InboxScopedContact[][]): InboxScopedContact[] {

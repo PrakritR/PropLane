@@ -77,4 +77,11 @@ describe("work number card on the signup step", () => {
       shouldOfferWorkNumberSetup({ workspaceRole: "primary", number: { phoneNumber: "  " } }),
     ).toBe(false);
   });
+
+  it.each([123, {}, [], true])("ignores a malformed phoneNumber (%j) without a trim error", (phoneNumber) => {
+    const status = { number: { phoneNumber: phoneNumber as unknown as string } };
+    expect(() => workNumberOnboardingPhone(status)).not.toThrow();
+    expect(workNumberOnboardingPhone(status)).toBe("");
+    expect(shouldOfferWorkNumberSetup({ workspaceRole: "primary", ...status })).toBe(false);
+  });
 });

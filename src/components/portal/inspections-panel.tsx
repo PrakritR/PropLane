@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input, Select } from "@/components/ui/input";
@@ -222,8 +223,15 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const visible = data.residencies.filter(r => !applicationId || r.id === applicationId);
   const rowsFor = (which: InspectionKind) => buildInspectionRows(which, visible, data.reports);
   const rows = rowsFor(kind);
-  const selectedReports = rows.filter(row => selected.has(row.key) && row.report).map(row => row.report!);
+  const selectedRows = rows.filter(row => selected.has(row.key));
+  const selectedReports = selectedRows.filter(row => row.report).map(row => row.report!);
   const reviewable = selectedReports.filter(report => report.status === "submitted");
+  const openSelectedRow = () => {
+    const row = selectedRows[0];
+    if (!row) return;
+    if (row.report) void open(row.report.id);
+    else if (row.residency?.canCreate) startInspection(row.residency);
+  };
   const startInspection = (residency: InspectionResidency) => {
     setApplication(residency.id); setBaseline(""); setCreateOpen(true);
   };
@@ -273,7 +281,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
         ) : null}
       </div>
     ) : (
-    <PortalListControlStack variant="command" stickyDestinations={false} destinationAriaLabel="Inspection type" activeDestinationId={kind}
+    <PortalListControlStack variant="command" destinationAriaLabel="Inspection type" activeDestinationId={kind}
       destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
       destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
       actions={role === "manager" && !isDemoModeActive()
@@ -282,15 +290,15 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     />
     )}
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error}</p>}
-    {!error && data.notice && <p role="status" className="rounded-xl border border-border p-3 text-sm text-muted">{data.notice}</p>}
+    {role !== "manager" && !error && data.notice && <p role="status" className="rounded-xl border border-border p-3 text-sm text-muted">{data.notice}</p>}
     {loading ? <div role="status" aria-label="Loading inspections" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div> : <PortalRecordListSurface
       isEmpty={rows.length === 0}
       empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to create and review residency inspections." : kind === "move-in" ? "No one is moving in or living here yet. Approve an application and give it a property placement to start." : "No one is living here or has moved out yet."}</p>}
-      add={residencies.length ? { ariaLabel: `Add ${kindLabel(kind).toLowerCase()} inspection`, onClick: () => { setApplication(applicationId ?? residencies[0]?.id ?? ""); setBaseline(""); setCreateOpen(true); }, dataAttr: "inspection-add" } : undefined}
+      add={residencies.length ? { ariaLabel: `Add ${kindLabel(kind).toLowerCase()} inspection`, icon: ClipboardCheck, onClick: () => { setApplication(applicationId ?? residencies[0]?.id ?? ""); setBaseline(""); setCreateOpen(true); }, dataAttr: "inspection-add" } : undefined}
       bulkCount={selected.size}
       bulkActions={<PortalSectionActionRow variant="header">
         <Button variant="outline" disabled={busy || selectedReports.length === 0} onClick={() => run(async () => { for (const report of selectedReports) await downloadInspection(role, report.id); })} data-attr="inspection-bulk-download">Download</Button>
-        <Button variant="outline" disabled={busy || selectedReports.length !== 1} onClick={() => open(selectedReports[0]!.id)} data-attr="inspection-bulk-open">View</Button>
+        <Button variant="outline" disabled={busy || selectedRows.length !== 1 || (!selectedRows[0]!.report && !selectedRows[0]!.residency?.canCreate)} onClick={openSelectedRow} data-attr="inspection-bulk-open">View</Button>
         {role === "manager" && <Button disabled={busy || reviewable.length === 0} onClick={() => markReviewed(reviewable)} data-attr="inspection-bulk-review">Mark reviewed</Button>}
       </PortalSectionActionRow>}
     >{rows.map(row => <PortalPersonRecordRow key={row.key} name={row.name} subtitle={row.subtitle} preview={row.preview} trailing={<Badge tone={row.badge.tone}>{row.badge.label}</Badge>}

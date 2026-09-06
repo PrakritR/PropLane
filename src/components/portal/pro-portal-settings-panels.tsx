@@ -814,10 +814,13 @@ export function TourSettingsPanel({
         viaSms={automation.tourReminderDeliverViaSms === true}
         smsLabel="SMS (when guest opted in)"
         placeholders={TOUR_PLACEHOLDERS}
-        onSave={(next) => {
+        onSave={({ subject, body, viaInbox, viaEmail, viaSms }) => {
           setAutomation((prev) => ({
             ...prev,
-            templates: { ...prev.templates, tourReminder: next },
+            templates: { ...prev.templates, tourReminder: { subject, body } },
+            tourReminderDeliverViaInbox: viaInbox,
+            tourReminderDeliverViaEmail: viaEmail,
+            tourReminderDeliverViaSms: viaSms,
           }));
         }}
       />

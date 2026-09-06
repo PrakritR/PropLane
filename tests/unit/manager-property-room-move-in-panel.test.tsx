@@ -117,4 +117,55 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
     expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
     expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
   });
+
+  /**
+   * A whole-home listing has no room rows, but the house itself is still a
+   * selectable row — Edit and Share live in the bulk bar, so without the tick box
+   * those actions were unreachable on an entire-home property.
+   */
+  it("gives the whole-house row a checkbox on an entire-home listing", () => {
+    const sub = createDefaultListingSubmission();
+    sub.listingPlaceCategoryId = "entire_home";
+
+    render(
+      <ManagerPropertyRoomMoveInPanel
+        sub={sub}
+        saveTarget={{ mode: "listing", saveId: "mgr-test" }}
+        managerUserId="mgr-1"
+        canEdit
+        onUpdated={() => {}}
+        showToast={() => {}}
+      />,
+    );
+
+    const checkbox = screen.getByLabelText("Select the whole house");
+    expect((checkbox as HTMLInputElement).checked).toBe(false);
+    // No bulk bar until something is selected.
+    expect(screen.queryByRole("button", { name: /^Share$/ })).toBeNull();
+
+    fireEvent.click(checkbox);
+
+    expect((checkbox as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("button", { name: /^Edit$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Share$/ })).toBeTruthy();
+  });
+
+  it("omits the whole-house checkbox when the manager cannot edit", () => {
+    const sub = createDefaultListingSubmission();
+    sub.listingPlaceCategoryId = "entire_home";
+
+    render(
+      <ManagerPropertyRoomMoveInPanel
+        sub={sub}
+        saveTarget={{ mode: "listing", saveId: "mgr-test" }}
+        managerUserId="mgr-1"
+        canEdit={false}
+        onUpdated={() => {}}
+        showToast={() => {}}
+      />,
+    );
+
+    expect(screen.queryByLabelText("Select the whole house")).toBeNull();
+    expect(screen.getByText(/The whole house/i)).toBeTruthy();
+  });
 });
