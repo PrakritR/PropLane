@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerTaskList } from "@/components/portal/pro-task-list";
+import { updateManagerTask } from "@/lib/manager-tasks";
 
 const { pathnameRef } = vi.hoisted(() => ({
   pathnameRef: { current: "/portal/tasks" },
@@ -123,6 +124,22 @@ describe("ManagerTaskList", () => {
     render(<ManagerTaskList tabId="completed" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByText("Replace filter")).toBeInTheDocument();
+    });
+  });
+
+  it("shows bulk actions when a task row is selected", async () => {
+    tasks.push(makeTask());
+    render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
+    await waitFor(() => {
+      expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: /Select Fix the porch light/i }));
+    expect(screen.getByRole("button", { name: "Mark done" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mark done" }));
+    await waitFor(() => {
+      expect(updateManagerTask).toHaveBeenCalledWith("mgr-1", "task-1", { completed: true });
     });
   });
 });

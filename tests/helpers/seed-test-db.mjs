@@ -808,6 +808,13 @@ try {
       SEED_VENDOR_USER_ID: vendorUserId,
       SEED_RESIDENT_AXIS_ID: residentAxisId,
       SEED_MANAGER_EMAIL: managerEmail,
+      // These seed scripts are SERVER code, and they now reach the security lane's
+      // `import "server-only"` modules transitively. That package exports a no-op
+      // under the `react-server` condition and a module that THROWS under `default`,
+      // so plain tsx picked the throwing one and the whole canonical portfolio step
+      // died with "cannot be imported from a Client Component". Next applies this
+      // condition for us in the app; a bare Node run has to say so itself.
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --conditions=react-server`.trim(),
     },
     stdio: "inherit",
   });
@@ -1370,6 +1377,13 @@ try {
       ...process.env,
       SEED_MANAGER_USER_ID: managerUserId,
       SEED_MANAGER_EMAIL: managerEmail,
+      // These seed scripts are SERVER code, and they now reach the security lane's
+      // `import "server-only"` modules transitively. That package exports a no-op
+      // under the `react-server` condition and a module that THROWS under `default`,
+      // so plain tsx picked the throwing one and the whole canonical portfolio step
+      // died with "cannot be imported from a Client Component". Next applies this
+      // condition for us in the app; a bare Node run has to say so itself.
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --conditions=react-server`.trim(),
     },
     stdio: "inherit",
   });

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PaymentAutomationSettingsHandle } from "@/components/portal/payment-schedule-ui";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -279,7 +279,13 @@ export function ProPortalSettingsModal({
           : "Portal settings"
       }
       panelClassName="max-w-lg p-3 sm:p-4"
-      scrollableContent={!inlineFooter}
+      footer={
+        inlineFooter ? (
+          <ModalFooter>
+            <SettingsPanelModalSaveButton {...inlineFooter} />
+          </ModalFooter>
+        ) : undefined
+      }
     >
       {/* A scoped dialog is already ON its one section, so a switcher would only offer the manager
           a way to wander out of it. */}
@@ -390,12 +396,6 @@ export function ProPortalSettingsModal({
 
       {open && tab === "communication" ? (
         <CommunicationSettingsPanel onFooterReady={setPanelFooter} />
-      ) : null}
-
-      {inlineFooter ? (
-        <div className="mt-4 flex justify-end border-t border-border pt-3">
-          <SettingsPanelModalSaveButton {...inlineFooter} />
-        </div>
       ) : null}
     </Modal>
   );

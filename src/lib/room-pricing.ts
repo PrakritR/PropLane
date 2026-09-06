@@ -39,6 +39,14 @@ export type RoomPricingLike = {
    */
   securityDeposit?: string | null;
   shortTermDeposit?: string | null;
+  /**
+   * "flexible" means the room advertises NO billable price — the rent is agreed with
+   * each resident (PRP-329). Absent or "fixed" is the long-standing behaviour.
+   */
+  pricingMode?: "fixed" | "flexible";
+  /** Advertised guidance bounds for a flexible room. Never a charge. */
+  flexibleRentMin?: number | null;
+  flexibleRentMax?: number | null;
 };
 
 /**
@@ -135,6 +143,66 @@ export function roomHeadlinePriceLabel(
   const amount = roomHeadlineAmount(room);
   if (amount === null) return fallback;
   return `${formatRoomPriceAmount(amount)}${roomPricePeriodSuffix(room)}`;
+}
+
+/** Whether this room's rent is negotiated per resident rather than advertised as one figure. */
+export function roomPricingIsFlexible(room: RoomPricingLike | null | undefined): boolean {
+  return room?.pricingMode === "flexible";
+}
+
+/**
+ * The advertised guidance range for a flexible room, or null when it advertises no
+ * numbers at all. A single bound is a legitimate range ("from $600"); normalization
+ * has already dropped a maximum below the minimum.
+ */
+export function roomFlexibleRange(
+  room: RoomPricingLike | null | undefined,
+): { min?: number; max?: number } | null {
+  if (!roomPricingIsFlexible(room)) return null;
+  const min = positiveNumber(room?.flexibleRentMin);
+  const max = positiveNumber(room?.flexibleRentMax);
+  if (min === undefined && max === undefined) return null;
+  return { min, max };
+}
+
+/**
+ * What a PROSPECT is shown for this room.
+ *
+ * Deliberately never returns a bare number for a flexible room: the range is guidance
+ * the manager may agree an exception to, and a naked "$600" would read as the price.
+ * With no bounds at all it says so in words rather than inventing $0 — PRP-329 acceptance 2.
+ */
+export function roomAdvertisedPriceLabel(
+  room: RoomPricingLike | null | undefined,
+  fallback = "—",
+): string {
+  if (!roomPricingIsFlexible(room)) return roomHeadlinePriceLabel(room, fallback);
+  const suffix = roomPricePeriodSuffix(room);
+  const range = roomFlexibleRange(room);
+  if (!range) return "Flexible pricing · Contact manager to discuss pricing";
+  const { min, max } = range;
+  const span =
+    min !== undefined && max !== undefined
+      ? `${formatRoomPriceAmount(min)}\u2013${formatRoomPriceAmount(max)}`
+      : min !== undefined
+        ? `From ${formatRoomPriceAmount(min)}`
+        : `Up to ${formatRoomPriceAmount(max as number)}`;
+  return `${span}${suffix} · Flexible pricing`;
+}
+
+/**
+ * The comparable figure a flexible room sorts and budget-filters on, or undefined when
+ * it advertises no bounds.
+ *
+ * The MINIMUM, never a midpoint: a midpoint is a number the manager never wrote, and a
+ * prospect filtering "under $700" should still be shown a $600-$900 room they may well
+ * be able to agree. An unpriced flexible room returns undefined so callers can decide
+ * to show-but-not-rank it rather than sorting it as free.
+ */
+export function roomFlexibleSortAmount(room: RoomPricingLike | null | undefined): number | undefined {
+  const range = roomFlexibleRange(room);
+  if (!range) return undefined;
+  return range.min ?? range.max;
 }
 
 /** Whether a placement is a short stay (nightly) or a normal tenancy. */
@@ -300,6 +368,24 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
       monthlyRate: negotiated,
       deposit,
       source: "application_override",
+    };
+  }
+
+  // A flexible room reaching here has NO agreed rent for this resident: every
+  // negotiated path above (manager override, signed/renewed rent) already returned.
+  // Falling through to the room's own monthly OR daily figure would bill a figure the public listing stopped
+  // showing the moment the manager switched to flexible pricing — a stale hidden
+  // fixed value, which PRP-329 acceptance 3 names explicitly. Undefined instead, so
+  // the caller must obtain an agreed amount before a lease or charge exists. The
+  // deposit still resolves: it is agreed separately and is not the negotiated rent.
+  if (roomPricingIsFlexible(room)) {
+    return {
+      stayKind: "long",
+      basis: "monthly",
+      dailyRate: undefined,
+      monthlyRate: undefined,
+      deposit,
+      source: "room",
     };
   }
 

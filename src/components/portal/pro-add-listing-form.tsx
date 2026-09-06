@@ -108,6 +108,7 @@ import {
   type ManagerRoomSubmission,
   type ManagerSharedSpaceSubmission,
   type PaymentAtSigningOptionId,
+  normalizeFlexibleRentBound,
 } from "@/lib/manager-listing-submission";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { applyListingFeeContextDefaults } from "@/lib/listing-fee-defaults";
@@ -4672,6 +4673,69 @@ export function ManagerAddListingForm({
                             </option>
                           ))}
                         </Select>
+                      </GridField>
+                      <GridField>
+                        <FieldLabel hint="Flexible pricing agrees a price with each resident. Any range you give is guidance shown to prospects — it is never billed.">
+                          Pricing
+                        </FieldLabel>
+                        <Select
+                          aria-label={`Pricing mode for ${room.name || `room ${i + 1}`}`}
+                          className={selectInputCls}
+                          data-attr="listing-room-pricing-mode"
+                          value={room.pricingMode === "flexible" ? "flexible" : "fixed"}
+                          onChange={(e) =>
+                            setRoom(i, {
+                              pricingMode: e.target.value === "flexible" ? "flexible" : "fixed",
+                              // Switching back to a fixed price DROPS the advertised range
+                              // rather than leaving it stored and invisible, so it can never
+                              // reappear later as a quote the manager believes they removed.
+                              ...(e.target.value === "flexible"
+                                ? {}
+                                : { flexibleRentMin: undefined, flexibleRentMax: undefined }),
+                            })
+                          }
+                        >
+                          <option value="fixed">Fixed price</option>
+                          <option value="flexible">Flexible pricing</option>
+                        </Select>
+                        {room.pricingMode === "flexible" ? (
+                          <div className="mt-3 space-y-2">
+                            <p className="text-xs text-muted">
+                              Agree a price with each resident. Leave both boxes empty to show no
+                              numbers at all.
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                inputMode="decimal"
+                                aria-label={`Advertised minimum rent for ${room.name || `room ${i + 1}`}`}
+                                data-attr="listing-room-flexible-min"
+                                placeholder="Min (optional)"
+                                value={room.flexibleRentMin ?? ""}
+                                onChange={(e) =>
+                                  setRoom(i, { flexibleRentMin: normalizeFlexibleRentBound(e.target.value) })
+                                }
+                              />
+                              <span className="text-xs text-muted">to</span>
+                              <Input
+                                inputMode="decimal"
+                                aria-label={`Advertised maximum rent for ${room.name || `room ${i + 1}`}`}
+                                data-attr="listing-room-flexible-max"
+                                placeholder="Max (optional)"
+                                value={room.flexibleRentMax ?? ""}
+                                onChange={(e) =>
+                                  setRoom(i, { flexibleRentMax: normalizeFlexibleRentBound(e.target.value) })
+                                }
+                              />
+                            </div>
+                            {room.flexibleRentMin !== undefined &&
+                            room.flexibleRentMax !== undefined &&
+                            room.flexibleRentMax < room.flexibleRentMin ? (
+                              <p className="text-xs text-danger" role="alert">
+                                The maximum is below the minimum, so no range will be shown.
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </GridField>
                       <GridField>
                         <FieldLabel>Room inspections</FieldLabel>
