@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
-import { signInAsManager, signInAsResident, mockStripeAllRoutes } from "../helpers/auth";
+import path from "node:path";
+import { mockStripeAllRoutes } from "../helpers/auth";
 import { pathToUrlRegExp } from "../helpers/url-match";
 import { MANAGER_PORTAL_SMOKE_PATHS } from "@/lib/portals/pro";
 import { RESIDENT_PORTAL_SMOKE_PATHS } from "@/lib/portals/resident-sections";
@@ -28,7 +29,10 @@ async function gotoTolerantly(page: import("@playwright/test").Page, path: strin
 test.describe("Mobile portal layout", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
+  test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
+
   test.beforeEach(async ({ page }) => {
+    await mockStripeAllRoutes(page);
     await page.setViewportSize(MOBILE_VIEWPORT);
     await page.addInitScript(() => {
       document.documentElement.setAttribute("data-native", "ios");
@@ -36,9 +40,6 @@ test.describe("Mobile portal layout", () => {
   });
 
   test("manager smoke paths render headings without page-level horizontal overflow", async ({ page }) => {
-    await mockStripeAllRoutes(page);
-    await signInAsManager(page);
-
     for (const { path } of MANAGER_PORTAL_SMOKE_PATHS) {
       await gotoTolerantly(page, path);
       await expect(page).toHaveURL(pathToUrlRegExp(path));
@@ -53,8 +54,6 @@ test.describe("Mobile portal layout", () => {
   });
 
   test("portal main content reserves bottom inset on native", async ({ page }) => {
-    await mockStripeAllRoutes(page);
-    await signInAsManager(page);
     await page.goto("/portal/dashboard");
     await expect(page.locator("#portal-main-content")).toBeVisible();
 
@@ -71,7 +70,10 @@ test.describe("Mobile portal layout", () => {
 test.describe("Mobile resident portal layout", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
+  test.use({ storageState: path.join(__dirname, "../.auth/resident.json") });
+
   test.beforeEach(async ({ page }) => {
+    await mockStripeAllRoutes(page);
     await page.setViewportSize(MOBILE_VIEWPORT);
     await page.addInitScript(() => {
       document.documentElement.setAttribute("data-native", "ios");
@@ -89,9 +91,6 @@ test.describe("Mobile resident portal layout", () => {
    * does not overflow is the part that holds.
    */
   test("resident smoke paths render without page-level horizontal overflow", async ({ page }) => {
-    await mockStripeAllRoutes(page);
-    await signInAsResident(page);
-
     const overflowing: string[] = [];
     for (const { path } of RESIDENT_PORTAL_SMOKE_PATHS) {
       await gotoTolerantly(page, path);
@@ -112,8 +111,6 @@ test.describe("Mobile resident portal layout", () => {
   });
 
   test("resident bottom nav renders every tab within the viewport", async ({ page }) => {
-    await mockStripeAllRoutes(page);
-    await signInAsResident(page);
     await page.goto("/resident/dashboard", { waitUntil: "domcontentloaded", timeout: 45_000 });
 
     // The bar IS the navigation on a phone, and it renders after hydration — so it must be

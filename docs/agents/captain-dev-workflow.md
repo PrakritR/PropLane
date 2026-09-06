@@ -58,7 +58,7 @@ Manual enrich + poll:
 
 1. `npx -y lavish-axi playbook plan` (and `comparison` / `diagram` if needed).
 2. **Images:** `--image` on `workflow:plan` or `lavish:plan` (stored in `assets/`).
-3. `npx -y lavish-axi poll <plan.html>` — wait for annotations.
+3. `npm run lavish:poll` — **mandatory** on every agent turn while `.lavish/active-session.json` exists.
 4. **Stop** until captain says **approved — build**.
 
 ### Share with a friend
