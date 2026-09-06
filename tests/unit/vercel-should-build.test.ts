@@ -31,4 +31,3 @@ describe("vercel-should-build.sh", () => {
     expect(ignoreExit("unknown")).toBe(0);
   });
 });
-
