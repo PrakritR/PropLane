@@ -20,7 +20,7 @@ describe("room inspection scope", () => {
     const a = createRoomInspectionDocument(resolveInspectionRoom("property", "property::a", "", sub));
     const b = createRoomInspectionDocument(resolveInspectionRoom("property", "property::b", "", sub));
     expect(a.roomScope).toEqual({ assignment: "property::a", label: "Room 15A" });
-    expect(a.areas.map(a => a.label)).toEqual(["Room overview", "Walls, ceiling & floor", "Windows & blinds", "Door, lock & closet", "Lights & outlets"]);
+    expect(a.areas.map(a => a.label)).toEqual(["Room overview", "Walls, ceiling & floor", "Windows & blinds", "Door, lock & closet", "Lights & outlets", "Other"]);
     expect(b.areas.map(a => a.label)).toContain("Furniture");
     expect(b.areas.map(a => a.label)).toContain("Private bathroom");
     expect(b.areas.some(a => /kitchen|yard|hall|laundry|parking/i.test(a.label))).toBe(false);
@@ -35,7 +35,7 @@ describe("room inspection scope", () => {
   it("supports an explicit manual room without inventing room features or condition", () => {
     const doc = createRoomInspectionDocument(resolveInspectionRoom("property", "", "Room 8"));
     expect(doc.roomScope?.label).toBe("Room 8");
-    expect(doc.areas).toHaveLength(5);
+    expect(doc.areas).toHaveLength(6);
     expect(doc.areas.every(a => a.items[0].resident.condition === "unchecked" && !a.items[0].resident.photos.length)).toBe(true);
     doc.areas[0].items[0].resident.notes = "A small mark";
     expect(doc.areas[0].items[0].manager.notes).toBe("");
