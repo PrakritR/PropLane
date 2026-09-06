@@ -864,10 +864,10 @@ manager's active work number to their personal phone (falling back to Assistant
 until both phone legs are ready), and `both` sends both copies.
 
 `/api/cron/dispatch-reminders` runs every five minutes. Tour, manager-assigned
-task, service-order, and work-order sweeps enqueue manager-role copies alongside
-counterparty reminders. The dispatcher never self-sends those rows through the
-ordinary inbox transport; it renders the snapshotted payload and hands the
-result to `notifyManagerFromAgent`. Lifecycle task metadata maps lease/tour
+task, service-order, work-order, and inspection sweeps enqueue manager-role
+copies alongside counterparty reminders. The dispatcher never self-sends those
+rows through the ordinary inbox transport; it renders the snapshotted payload
+and hands the result to `notifyManagerFromAgent`. Lifecycle task metadata maps lease/tour
 actions to `leasing`, application review to `applications`, work-order tasks to
 `maintenance`, and rent collection to `payment_reminders`, so the topic-level
 phone choices remain effective. A resident-signature transition also produces

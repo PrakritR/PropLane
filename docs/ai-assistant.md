@@ -180,6 +180,15 @@ into the `create_property` write tool, whose confirm card shows every
 extracted field for human verification before a draft (never live) listing is
 created.
 
+Outside a listing-draft or promotion context, a chat image is retained privately
+instead of entering that listing-photo enrichment: manager and resident turns
+alike store it in the private inbox-attachments bucket and hand the model only a
+source reference, which `file_inspection_photo` can turn into inspection evidence
+after the usual preview/confirm. The reference survives clarification turns
+because the route returns `attachmentContext` on the SSE `done` event and the
+shared conversation hook replays it. Details in
+[`docs/agents/inspections.md`](agents/inspections.md).
+
 ## Observability & analytics (build requirement)
 
 - **Langfuse** (`src/lib/observability/langfuse.ts`): one `axis-agent-turn`
@@ -289,8 +298,9 @@ W, `create_owner_distribution` W, `approve_owner_distribution` W,
 `decide_service_request` W), inspections (`list_inspections` R,
 `get_inspection` R, `create_inspection` W, `save_inspection_observations` W,
 `change_inspection_status` W destructive — completion is irreversible, so manager
-SMS withholds it automatically; see
-[`docs/agents/inspections.md`](agents/inspections.md)).
+SMS withholds it automatically; `file_inspection_photo` W — files a photo the
+caller already uploaded in chat into their own report section, never a condition
+rating; see [`docs/agents/inspections.md`](agents/inspections.md)).
 
 ### Resident (`src/lib/tools/resident-index.ts`)
 
@@ -301,8 +311,8 @@ Reads: `get_my_balance`, `list_my_charges`, `get_my_lease`,
 `list_my_shared_documents`, `list_open_tour_slots`, `list_inspections`,
 `get_inspection`. Writes:
 `create_inspection`, `save_inspection_observations`,
-`change_inspection_status` (the same shared inspection service the manager uses,
-scoped to this resident's own residency),
+`change_inspection_status`, `file_inspection_photo` (the same shared inspection
+service the manager uses, scoped to this resident's own residency),
 `create_service_request`, `add_service_request_note`,
 `report_maintenance_issue`, `send_message_to_manager`, `report_manual_payment`,
 `request_lease_extension`, `schedule_message`, `cancel_scheduled_message`,

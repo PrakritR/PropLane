@@ -163,3 +163,51 @@ it("move-out: the move-in baseline stays readable beside the new observations", 
   expect(screen.getByText("Wall was clean at move-in.")).toBeTruthy();
   writeEvidenceSurface("inspection-08-move-out-baseline", "Resident · move-out on the same room — the completed move-in report is the baseline, readable inline beside the new observations.", 150);
 });
+
+it("only the manager can request confirmation; the resident confirms the frozen report", async () => {
+  // A draft the resident has already documented: photo + note saved automatically.
+  const draft = roomReport();
+  draft.document.areas[0]!.items[0]!.resident.notes = "Small scuff to the left of the door frame.";
+  draft.document.areas[0]!.items[0]!.resident.photos.push({
+    id: "photo-1", path: "private/room-3.jpg", url: PHOTO_URL, uploadedBy: "resident", uploadedAt: "2026-09-05T10:00:00Z",
+  });
+
+  // Resident side of the SAME draft: no submit affordance of any kind.
+  render(<InspectionEditor initial={{ report: structuredClone(draft), baseline: null, canEdit: true }} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+  for (const gone of ["Submit for review", "Request confirmation", "Submit", "Request"]) {
+    expect(screen.queryByRole("button", { name: gone })).toBeNull();
+  }
+  writeEvidenceSurface("inspection-04-resident-draft-no-submit", "Resident · draft with saved evidence — autosaved, and NO Submit/Request control anywhere in the pinned footer. Residents never submit.", 150);
+  cleanup();
+
+  // Manager side of the same draft: the only Request confirmation button in the product.
+  render(<InspectionEditor initial={{ report: structuredClone(draft), baseline: null, canEdit: true }} role="manager" userId="owner" onBack={vi.fn()} onChanged={vi.fn()} />);
+  expect(screen.getByRole("button", { name: "Request confirmation" })).toBeTruthy();
+  writeEvidenceSurface("inspection-05a-manager-request-confirmation", "Manager · same draft — “Request confirmation” is the manager-only control that freezes both parties' photos and notes for the resident to review.", 150);
+
+  fireEvent.click(screen.getByRole("button", { name: "Request confirmation" }));
+  const requestDialog = await screen.findByRole("dialog");
+  expect(requestDialog.textContent).toContain("freezes both parties' photos and notes for the resident to review");
+  writeEvidenceSurface("inspection-05b-manager-request-confirm-gate", "Manager · confirmation gate for Request confirmation — states exactly what freezing does before anything is written.", 150);
+
+  const submitted = structuredClone(draft);
+  submitted.status = "submitted"; submitted.revision = 2;
+  request.mockResolvedValueOnce({ report: submitted, baseline: null, canEdit: true });
+  await act(async () => { fireEvent.click(requestDialog.querySelector("[data-attr='inspection-confirm']")!); });
+  expect(JSON.parse(request.mock.calls.at(-1)![2].body)).toEqual({ revision: 1, action: "submit" });
+  cleanup();
+
+  // The resident now confirms review of that frozen revision — a separate, explicit action.
+  const acknowledged = structuredClone(submitted);
+  acknowledged.revision = 3;
+  acknowledged.document.residentAcknowledgment = { userId: "resident", at: "2026-09-05T11:00:00Z", revision: 2 };
+  request.mockResolvedValueOnce({ report: acknowledged, baseline: null, canEdit: true });
+  render(<InspectionEditor initial={{ report: structuredClone(submitted), baseline: null, canEdit: true }} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+  expect(screen.getByRole("button", { name: "Confirm review" })).toBeTruthy();
+  writeEvidenceSurface("inspection-05c-resident-confirm-review", "Resident · frozen report awaiting review — read-only, with the explicit “Confirm review” action (confirmation of review, not agreement with charges).", 150);
+  fireEvent.click(screen.getByRole("button", { name: "Confirm review" }));
+  const ackDialog = await screen.findByRole("dialog");
+  await act(async () => { fireEvent.click(ackDialog.querySelector("[data-attr='inspection-confirm']")!); });
+  expect(JSON.parse(request.mock.calls.at(-1)![2].body)).toEqual({ revision: 2, action: "acknowledge" });
+  expect(screen.queryByRole("button", { name: "Confirm review" })).toBeNull();
+});
