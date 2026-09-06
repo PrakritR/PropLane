@@ -146,7 +146,7 @@ async function main() {
   Poll:    npm run lavish:poll
 
 Captain: annotate in Lavish or reply **approved — build** when ready.
-Agent:   run **npm run lavish:poll** before ending turn; do NOT write product code until approval.`);
+Agent:   run **npm run lavish:poll** (and **npm run lavish:listen** after open) before ending turn; do NOT write product code until approval.`);
 }
 
 main().catch((e) => {

@@ -19,7 +19,11 @@ import {
 } from "@/lib/manager-listing-submission";
 import { resolvedShortTermPlacementDeposit, type ListingFeePresetId } from "@/lib/listing-fees";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
-import { formatRoomPriceAmount, resolveStayPricing, roomDailyRentPrice } from "@/lib/room-pricing";
+import { formatRoomPriceAmount, resolveStayPricing, roomDailyRentPrice,
+  roomPricingIsFlexible,
+  tenancyPaysShortLeaseSurcharge,
+  roomShortLeaseSurcharge,
+} from "@/lib/room-pricing";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import { utilitiesBillableMonthlyAmount } from "@/lib/listing-utilities-payment";
 import { paymentSnapshotsFromListing } from "@/lib/household-charge-payment-eligibility";
@@ -1504,7 +1508,23 @@ function selectedRoomRentAmount(row: DemoApplicantRow): number {
     const entireHomeRent = entireHomeMonthlyRentAmount(sub);
     if (entireHomeRent > 0) return entireHomeRent;
   }
-  return room?.monthlyRent && room.monthlyRent > 0 ? room.monthlyRent : 0;
+  // A flexible-priced room advertises no billable figure (PRP-329). Its stored
+  // `monthlyRent` survives the switch to flexible pricing and is no longer shown to
+  // anyone, so billing it here would charge a rate the resident never agreed and the
+  // listing never quoted — the exact bypass `resolveStayPricing` refuses. Every
+  // negotiated path already returned above, so reaching this line with a flexible room
+  // means no agreed rent exists yet: bill nothing rather than invent one. Bundle and
+  // entire-home pricing above are unaffected, being household totals rather than this
+  // room's own advertised price.
+  if (roomPricingIsFlexible(room)) return 0;
+  const base = room?.monthlyRent && room.monthlyRent > 0 ? room.monthlyRent : 0;
+  if (base <= 0) return 0;
+  // Everything the manager said is part of the monthly rent, resolved in ONE place so
+  // the listing quote, the lease document and this charge cannot disagree: the base
+  // rate, the short-lease surcharge when this tenancy is short, and any monthly fee
+  // the manager chose to fold in (which `monthlyCustomFees` correspondingly drops).
+  const surcharge = tenancyPaysShortLeaseSurcharge(room, row.application) ? roomShortLeaseSurcharge(room) : 0;
+  return Number((base + surcharge + monthlyFeesIncludedInRentTotal(sub)).toFixed(2));
 }
 
 type BundleGroupChargeContext = {
@@ -3241,9 +3261,32 @@ function syncPendingApprovedChargesFromListing(
 
 /** Monthly custom fees (default cadence) resolved to a stable {id,label,amount} for the
  *  recurring rent profile — only positive amounts bill. */
+/**
+ * Monthly custom fees the manager chose to bill INSIDE the rent line.
+ *
+ * They are still real, disclosed amounts — they just arrive as part of rent rather
+ * than as their own charge, which is what "rent includes parking and utilities"
+ * means. Kept in one place so the fee list and the rent line can never both count
+ * the same fee: whatever appears here is removed from `monthlyCustomFees`.
+ */
+function monthlyFeesIncludedInRent(sub: ManagerListingSubmissionV1 | null | undefined): { id: string; label: string; amount: number }[] {
+  return genuinelyCustomFees(sub)
+    .filter((fee) => fee.frequency !== "one-time" && fee.includeInRent === true)
+    .map((fee) => ({ id: fee.id, label: fee.label?.trim() || "Included in rent", amount: parseMoneyAmount(fee.amount ?? "") }))
+    .filter((fee) => fee.amount > 0);
+}
+
+/** Total monthly fees folded into rent, in dollars. */
+export function monthlyFeesIncludedInRentTotal(sub: ManagerListingSubmissionV1 | null | undefined): number {
+  return Number(monthlyFeesIncludedInRent(sub).reduce((sum, fee) => sum + fee.amount, 0).toFixed(2));
+}
+
 function monthlyCustomFees(sub: ManagerListingSubmissionV1 | null | undefined): { id: string; label: string; amount: number }[] {
   return [
     ...genuinelyCustomFees(sub)
+      // A fee folded into rent must NOT also bill separately — that is the one way
+      // this feature could overcharge, so the exclusion lives next to the inclusion.
+      .filter((fee) => fee.includeInRent !== true)
       .filter((fee) => fee.frequency !== "one-time")
       .map((fee) => ({ id: fee.id, label: fee.label?.trim() || "Custom fee", amount: parseMoneyAmount(fee.amount ?? "") }))
       .filter((fee) => fee.amount > 0),

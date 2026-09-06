@@ -140,7 +140,7 @@ export type ManagerRoomSubmission = {
    * active. Daily NEVER overrides monthly unless the manager explicitly sets
    * rentBasis = "daily", so no existing (monthly) room is affected.
    */
-  rentBasis?: "monthly" | "daily";
+  rentBasis?: "monthly" | "weekly" | "daily";
   /** Headline daily rent rate (USD dollars) used when rentBasis is "daily". */
   dailyRentPrice?: number;
   /**
@@ -154,6 +154,52 @@ export type ManagerRoomSubmission = {
    * is the opposite of this. See {@link normalizeRoomOccupancyCapacity}.
    */
   occupancyCapacity?: number;
+  /**
+   * Whether this room advertises ONE price or is negotiated per resident (PRP-329,
+   * Marc's sober-living model, where residents pay according to what they can afford).
+   *
+   * Absent or "fixed" → the room behaves exactly as it always has: {@link monthlyRent}
+   * (or {@link dailyRentPrice}) is both the advertised figure and the billed one.
+   *
+   * "flexible" → there is NO advertised billable price. The optional
+   * {@link flexibleRentMin}/{@link flexibleRentMax} are GUIDANCE shown to prospects,
+   * never a charge: `resolveStayPricing` refuses to bill a flexible room until the
+   * manager sets that resident's agreed rent, rather than falling back to a stale
+   * `monthlyRent` the public listing is no longer showing. This is a different axis
+   * from {@link rentBasis} (monthly vs daily billing) — a flexible room can be either.
+   */
+  /**
+   * Headline WEEKLY rate (USD dollars), used when {@link rentBasis} is "weekly".
+   *
+   * The third rung of the rate card a manager actually quotes — "$55/day, $350/week,
+   * $1000/month". It is a real rate, not a derived one: a week is deliberately NOT
+   * 7 × the daily price, because the whole reason to quote a weekly rate is that it
+   * is cheaper than seven days.
+   */
+  weeklyRentPrice?: number;
+  /**
+   * Extra monthly rent charged when the tenancy is SHORT — the "+$150 for a short
+   * lease" a manager quotes beside the $1000 monthly rate.
+   *
+   * This replaces the old flat short-term lease fee. A fee is a one-time line the
+   * resident sees separately and forgets; a surcharge is what the manager actually
+   * means — the monthly rent is simply higher for a short stay. It is folded into the
+   * rent so the resident sees one honest number, with the breakdown kept on the
+   * agreement rather than as a second charge.
+   */
+  shortLeaseSurchargeMonthly?: string;
+  /**
+   * A tenancy at or below this many months counts as SHORT for
+   * {@link shortLeaseSurchargeMonthly}. Absent reads as 3 — the interns-and-similar
+   * window managers describe as "2-3 months". Never applies to an explicit
+   * short-term/nightly stay, which is priced by its own nightly rate instead.
+   */
+  shortLeaseMaxMonths?: number;
+  pricingMode?: "fixed" | "flexible";
+  /** Optional advertised floor for a flexible room (USD dollars). Guidance only, never billed. */
+  flexibleRentMin?: number;
+  /** Optional advertised ceiling for a flexible room (USD dollars). Guidance only, never billed. */
+  flexibleRentMax?: number;
   /** Required evidence for this room; independent for arrival and departure. */
   moveInInspectionRequired?: boolean;
   moveOutInspectionRequired?: boolean;
@@ -181,6 +227,16 @@ export type ManagerCustomFeeRow = {
    * means the fee does not apply to short-term stays.
    */
   shortTermAmount?: string;
+  /**
+   * Bill this monthly fee INSIDE the rent line instead of as its own charge.
+   *
+   * Managers who quote "rent includes utilities and parking" want one number on the
+   * listing and one charge on the ledger. The fee is still recorded on the agreement
+   * so the resident can see what the rent covers — it just does not arrive as a
+   * separate line they have to pay separately. One-time fees ignore this: there is no
+   * recurring rent line for them to fold into.
+   */
+  includeInRent?: boolean;
 };
 
 /** Rows for the public “Bundles & leasing” table (optional — defaults are generated from rooms). */
@@ -1200,15 +1256,61 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
       // else (including absent) normalizes to monthly so existing rooms are untouched.
       rentBasis: (() => {
         const v = (legacyRoom as ManagerRoomSubmission).rentBasis;
-        const price = (legacyRoom as ManagerRoomSubmission).dailyRentPrice;
-        const priceN = typeof price === "number" ? price : typeof price === "string" ? parseFloat(price) : NaN;
-        return v === "daily" && Number.isFinite(priceN) && priceN > 0 ? "daily" : "monthly";
+        const positive = (raw: unknown) => {
+          const n = typeof raw === "number" ? raw : typeof raw === "string" ? parseFloat(raw) : NaN;
+          return Number.isFinite(n) && n > 0;
+        };
+        // A basis is honoured only when the rate it names actually exists. Otherwise a
+        // room saved as "weekly" with an empty weekly box would advertise and bill
+        // NOTHING; falling back to monthly keeps the room priced as it always was.
+        if (v === "daily" && positive((legacyRoom as ManagerRoomSubmission).dailyRentPrice)) return "daily";
+        if (v === "weekly" && positive((legacyRoom as ManagerRoomSubmission).weeklyRentPrice)) return "weekly";
+        return "monthly";
       })(),
       // Fails closed to 1: an unreadable capacity can only ever under-sell a room,
       // never invent beds the manager did not configure.
       occupancyCapacity: normalizeRoomOccupancyCapacity(
         (legacyRoom as ManagerRoomSubmission & { occupancyCapacity?: unknown }).occupancyCapacity,
       ),
+      weeklyRentPrice: (() => {
+        const v = (legacyRoom as ManagerRoomSubmission & { weeklyRentPrice?: unknown }).weeklyRentPrice;
+        const n = typeof v === "number" ? v : typeof v === "string" ? parseFloat(v) : NaN;
+        return Number.isFinite(n) && n > 0 ? n : undefined;
+      })(),
+      shortLeaseSurchargeMonthly:
+        typeof (legacyRoom as ManagerRoomSubmission & { shortLeaseSurchargeMonthly?: unknown })
+          .shortLeaseSurchargeMonthly === "string"
+          ? (legacyRoom as ManagerRoomSubmission).shortLeaseSurchargeMonthly
+          : undefined,
+      // Absent or unreadable reads as 3 months, never 0 — a 0 would make EVERY lease
+      // short and silently surcharge a two-year tenancy.
+      shortLeaseMaxMonths: normalizeShortLeaseMaxMonths(
+        (legacyRoom as ManagerRoomSubmission & { shortLeaseMaxMonths?: unknown }).shortLeaseMaxMonths,
+      ),
+      // Fails closed to "fixed": an unreadable mode must never silently REMOVE a
+      // room's advertised price, which is what a prospect is deciding on.
+      pricingMode:
+        (legacyRoom as ManagerRoomSubmission & { pricingMode?: unknown }).pricingMode === "flexible"
+          ? "flexible"
+          : "fixed",
+      // A bound is kept only if it is a positive finite number; a blank one stays
+      // undefined so the label reads "Contact manager" rather than "$0".
+      flexibleRentMin: normalizeFlexibleRentBound(
+        (legacyRoom as ManagerRoomSubmission & { flexibleRentMin?: unknown }).flexibleRentMin,
+      ),
+      // A maximum below the minimum is not a range anyone can act on, so it is
+      // dropped rather than shown reversed or silently swapped — the manager's own
+      // numbers are never reinterpreted into a different quote.
+      flexibleRentMax: (() => {
+        const min = normalizeFlexibleRentBound(
+          (legacyRoom as ManagerRoomSubmission & { flexibleRentMin?: unknown }).flexibleRentMin,
+        );
+        const max = normalizeFlexibleRentBound(
+          (legacyRoom as ManagerRoomSubmission & { flexibleRentMax?: unknown }).flexibleRentMax,
+        );
+        if (max === undefined) return undefined;
+        return min !== undefined && max < min ? undefined : max;
+      })(),
       moveInInspectionRequired: legacyRoom.moveInInspectionRequired === true,
       moveOutInspectionRequired: legacyRoom.moveOutInspectionRequired === true,
       manualUnavailableRanges: (() => {
@@ -1783,6 +1885,34 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
  * "0 sq ft" on a public listing, asserting a fact about the room nobody
  * supplied. Same "unknown is not zero" rule the disclosure trigger fields use.
  */
+/**
+ * One advertised bound of a flexible room's range, in USD dollars.
+ *
+ * Blank, unparseable, negative and zero all read as "no bound". Zero is excluded
+ * deliberately: a $0 floor renders as "$0-$900", which reads as a free room rather
+ * than as an unset minimum, and PRP-329 requires clearing a bound to produce the
+ * unpriced label instead of a fabricated figure.
+ */
+/**
+ * Months at or below which a tenancy counts as SHORT for the surcharge, or undefined
+ * when the manager has not said.
+ *
+ * There is deliberately NO default. "Short" is not a number this product gets to
+ * decide — it is 2 months to one manager and 6 to another — and inventing one would
+ * silently surcharge tenancies nobody agreed to surcharge. Undefined means the
+ * surcharge does not apply at all, so the failure direction is always "charge less".
+ * Zero is rejected for the same reason: it would make every lease short.
+ */
+export function normalizeShortLeaseMaxMonths(raw: unknown): number | undefined {
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? parseInt(String(raw), 10) : NaN;
+  return Number.isInteger(n) && n >= 1 && n <= 120 ? n : undefined;
+}
+
+export function normalizeFlexibleRentBound(raw: unknown): number | undefined {
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? parseFloat(raw.replace(/[$,]/g, "")) : NaN;
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : undefined;
+}
+
 export function normalizeRoomSizeSqft(raw: unknown): number | undefined {
   const n =
     typeof raw === "number"
