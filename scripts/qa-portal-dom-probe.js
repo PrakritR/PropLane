@@ -41,7 +41,21 @@
     return (el?.innerText || el?.textContent || "").trim().replace(/\s+/g, " ").slice(0, 80);
   }
 
+  // The Next dev overlay (`nextjs-portal`, its error toasts and route indicator)
+  // is not the product. It re-mounts on every navigation, so dismissing it once
+  // before a sweep does not hold, and left in it reports itself as the thing
+  // covering every control on the page.
+  function isDevChrome(el) {
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      const tag = n.tagName.toLowerCase();
+      if (tag === "nextjs-portal" || tag.startsWith("nextjs-")) return true;
+      if (n.id && /^(nextjs|__next-build-watcher|__next-dev)/.test(n.id)) return true;
+    }
+    return false;
+  }
+
   function visible(el) {
+    if (isDevChrome(el)) return false;
     const s = getComputedStyle(el);
     if (s.display === "none" || s.visibility === "hidden" || Number(s.opacity) === 0) return false;
     const r = el.getBoundingClientRect();
@@ -161,6 +175,7 @@
         const cy = Math.round(r.top + r.height / 2);
         const hit = document.elementFromPoint(cx, cy);
         if (!hit || hit === el || el.contains(hit) || hit.contains(el)) continue;
+        if (isDevChrome(hit)) continue;
         const s = getComputedStyle(hit);
         const blockerFixed = (function () {
           let n = hit;
@@ -172,6 +187,23 @@
           return null;
         })();
         if (!blockerFixed && s.pointerEvents === "none") continue;
+        // A fixed bar is not "covering" its OWN links. elementFromPoint lands on an
+        // inner wrapper of the bar, which neither contains nor is contained by the
+        // link, so the naive check missed it and every bottom-nav item reported
+        // itself as unreachable — 119 findings that were all one false rule.
+        if (blockerFixed && blockerFixed.contains(el)) continue;
+        // Same shape one level out: if the control's own nearest fixed/sticky
+        // ancestor IS the blocker, they travel together and never collide.
+        const elFixedAncestor = (function () {
+          let n = el.parentElement;
+          while (n && n !== document.body) {
+            const ps = getComputedStyle(n).position;
+            if (ps === "fixed" || ps === "sticky") return n;
+            n = n.parentElement;
+          }
+          return null;
+        })();
+        if (blockerFixed && elFixedAncestor === blockerFixed) continue;
         out.push({
           check: "obscured-control",
           severity: blockerFixed ? "high" : "medium",
@@ -189,7 +221,11 @@
       const seen = new Map();
       for (const el of Array.from(document.querySelectorAll('button, a[href], [role="button"]'))) {
         if (!visible(el)) continue;
-        if (el.closest('li, tr, [data-portal-record-row], [role="row"], [role="listitem"]')) continue;
+        // Repeated controls inside repeated rows are the LIST, not a duplicated
+        // header action. The row markup here is divs with a `*-row` class rather
+        // than <li>/<tr>, so a tag-only exclusion let one list report its own 15
+        // rows as 15 duplicate controls.
+        if (el.closest('li, tr, [role="row"], [role="listitem"], [data-portal-record-row], [class*="-row"], [class*="-card"], [class*="row-"]')) continue;
         const name = accName(el);
         if (!name || name.length < 3) continue;
         const key = name.toLowerCase();
@@ -232,7 +268,12 @@
       for (const el of Array.from(document.querySelectorAll(INTERACTIVE))) {
         if (!visible(el)) continue;
         const r = el.getBoundingClientRect();
-        if (r.width >= 24 && r.height >= 24) continue;
+        // BOTH dimensions must be short. A 57×23 chart tick is not a mis-sized tap
+        // target, and reporting every one of them buries the genuine 12×12 icon
+        // button. A 1px box is the visually-hidden skip link, which is the correct
+        // pattern rather than a defect.
+        if (r.width >= 24 || r.height >= 24) continue;
+        if (r.width <= 2 || r.height <= 2) continue;
         if (r.bottom < 0 || r.top > vh) continue;
         out.push({
           check: "tiny-tap-target",

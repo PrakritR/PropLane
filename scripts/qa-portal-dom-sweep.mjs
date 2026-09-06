@@ -33,7 +33,7 @@
  * sign-in refused), which is the only state that needs a person.
  */
 import { chromium, devices } from "playwright";
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
@@ -120,6 +120,10 @@ function loadLedger() {
   }
 }
 
+// The sweep's own failures are kept in a separate class from the product's, so a
+// crashed server can never be filed as a defect in the pages it never reached.
+class HarnessFault extends Error {}
+
 function keyOf(f) {
   const anchor = f.detail?.el ?? f.detail?.culprits?.[0]?.el ?? f.summary.slice(0, 60);
   return createHash("sha1").update([f.role, f.path, f.viewport, f.check, anchor].join("|")).digest("hex").slice(0, 12);
@@ -142,18 +146,53 @@ const RUNTIME_CHECKS = new Set([
   "broken-image",
 ]);
 
+// Sessions are SAVED and REUSED across viewports and runs. Every sign-in costs a
+// call to Supabase auth, and the dev/test project rate-limits token refresh — a
+// 429 there logs the sweep out mid-run and every route after it bounces to
+// sign-in. A night of passes that each signed in twice is what produced that 429;
+// one stored session per role, refreshed when it stops working, does not.
+const AUTH_DIR = join(OUT_ROOT, "auth");
+const AUTH_MAX_AGE_MS = 40 * 60_000;
+
+function storedSessionPath(role) {
+  return join(AUTH_DIR, `${role}.json`);
+}
+
+function freshStoredSession(role) {
+  const file = storedSessionPath(role);
+  if (!existsSync(file)) return null;
+  const age = Date.now() - statSync(file).mtimeMs;
+  return age < AUTH_MAX_AGE_MS ? file : null;
+}
+
 async function sweepViewport(browser, viewport, routes, probeSource) {
+  const account = QA_ACCOUNTS[ROLE];
+  if (!account?.email) throw new Error(`No QA account for role "${ROLE}"`);
+  const home = ACCOUNT_HOME[ROLE];
+
+  const stored = freshStoredSession(ROLE);
   const context = await browser.newContext({
     ...(viewport.device ?? {}),
     viewport: { width: viewport.width, height: viewport.height },
     baseURL: BASE,
+    ...(stored ? { storageState: stored } : {}),
   });
   await context.addInitScript({ content: probeSource });
   const page = await context.newPage();
 
-  const account = QA_ACCOUNTS[ROLE];
-  if (!account?.email) throw new Error(`No QA account for role "${ROLE}"`);
-  await signInToPortal(page, { ...account, role: ROLE, home: ACCOUNT_HOME[ROLE] }, BASE);
+  // A stored session is trusted only after it PROVES it still works — an expired
+  // one that is merely present would silently sweep 23 sign-in pages.
+  let authed = false;
+  if (stored) {
+    await page.goto(`${BASE}${home}`, { waitUntil: "domcontentloaded", timeout: 60_000 }).catch(() => {});
+    authed = !new URL(page.url()).pathname.includes("/auth/");
+    console.log(authed ? "  (reused stored session)" : "  (stored session expired)");
+  }
+  if (!authed) {
+    await signInToPortal(page, { ...account, role: ROLE, home }, BASE);
+    mkdirSync(AUTH_DIR, { recursive: true });
+    await context.storageState({ path: storedSessionPath(ROLE) });
+  }
   await dismissDevOverlay(page).catch(() => {});
 
   const findings = [];
@@ -205,13 +244,31 @@ async function sweepViewport(browser, viewport, routes, probeSource) {
       await page.waitForTimeout(1200);
 
       const landed = new URL(page.url()).pathname;
-      if (landed !== route.path) {
+      // A bounce to sign-in mid-sweep is almost never a routing bug — it is the
+      // session dying under the sweep (the dev/test Supabase project rate-limits
+      // token refresh when several lanes hammer it, and a 429 there logs everyone
+      // out). One re-sign-in tells the two apart: if the route renders afterwards,
+      // the session was the problem and nothing is filed; if it bounces again, the
+      // route really does refuse this account and that IS the finding.
+      if (landed.includes("/auth/sign-in")) {
+        console.log("(session lost — re-authenticating)");
+        await signInToPortal(page, { ...account, role: ROLE, home: ACCOUNT_HOME[ROLE] }, BASE);
+        mkdirSync(AUTH_DIR, { recursive: true });
+        await page.context().storageState({ path: storedSessionPath(ROLE) }).catch(() => {});
+        await page.goto(`${BASE}${route.path}`, { waitUntil: "domcontentloaded", timeout: 60_000 });
+        await page.waitForTimeout(1500);
+        if (new URL(page.url()).pathname.includes("/auth/sign-in")) {
+          throw new HarnessFault(`session cannot be re-established (bounced from ${route.path} to sign-in twice)`);
+        }
+      }
+      const settled = new URL(page.url()).pathname;
+      if (settled !== route.path && !settled.includes("/auth/sign-in")) {
         push({
           check: "route-redirect",
-          severity: landed.includes("sign-in") || landed === "/" ? "high" : "medium",
-          summary: `${route.path} landed on ${landed} instead of rendering`,
+          severity: settled === "/" ? "high" : "medium",
+          summary: `${route.path} landed on ${settled} instead of rendering`,
           finalUrl: page.url(),
-          detail: { requested: route.path, landed },
+          detail: { requested: route.path, landed: settled },
         });
       }
       if (response && response.status() >= 400) {
@@ -246,6 +303,18 @@ async function sweepViewport(browser, viewport, routes, probeSource) {
         });
       }
     } catch (err) {
+      // A dead server or a dead session is ONE fault, not one bug per remaining
+      // route. Emitting a finding per route is how an unattended run turns a
+      // crashed dev server into forty tickets nobody can act on, so the pass stops
+      // here and says what actually happened.
+      if (err instanceof HarnessFault || /ERR_CONNECTION_REFUSED|ERR_CONNECTION_RESET|Target page.*closed|browser has been closed/i.test(String(err.message))) {
+        page.off("console", onConsole);
+        page.off("pageerror", onPageError);
+        page.off("response", onResponse);
+        throw new HarnessFault(
+          `${err instanceof HarnessFault ? err.message : `server unreachable at ${BASE}`} — stopped at ${route.path} after ${findings.length} finding(s)`,
+        );
+      }
       push({
         check: "sweep-error",
         severity: "high",
@@ -284,9 +353,18 @@ async function main() {
 
   const browser = await chromium.launch({ headless: !flag("headed") });
   const all = [];
+  const faults = [];
   try {
     for (const viewport of SELECTED_VIEWPORTS) {
-      all.push(...(await sweepViewport(browser, viewport, routes, probeSource)));
+      try {
+        all.push(...(await sweepViewport(browser, viewport, routes, probeSource)));
+      } catch (err) {
+        if (!(err instanceof HarnessFault)) throw err;
+        // Keep whatever the other viewports can still measure; report the fault
+        // loudly at the end so it is never mistaken for a clean pass.
+        console.log(`\n  !! ${viewport.name} pass aborted — ${err.message}`);
+        faults.push(`${viewport.name}: ${err.message}`);
+      }
     }
   } finally {
     await browser.close();
@@ -318,10 +396,18 @@ async function main() {
   for (const f of novel.filter((x) => x.severity === "high").slice(0, 12)) {
     console.log(`  HIGH ${f.path} [${f.viewportClass}] ${f.summary.slice(0, 110)}`);
   }
+  if (faults.length) {
+    console.log(`\nHARNESS FAULTS — these are the sweep failing, NOT product defects. Do not file them:`);
+    for (const f of faults) console.log(`  !! ${f}`);
+    console.log(`  Fix the environment and re-run; the routes after the fault were never measured.`);
+  }
   console.log(`\nNew findings : ${join(RUN_DIR, "findings.json")}`);
   console.log(`Ledger       : ${LEDGER_PATH}`);
   console.log(`Read them, delete the rows you do not agree with, then file:`);
   console.log(`  node scripts/qa-file-findings-to-linear.mjs ${join(RUN_DIR, "findings.json")}`);
 }
 
-await main();
+await main().catch((err) => {
+  console.error(`\nSweep could not run: ${err.message}`);
+  process.exit(1);
+});
