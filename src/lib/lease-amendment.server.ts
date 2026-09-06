@@ -202,17 +202,22 @@ export async function checkMoveOutAvailabilityForLease(
 
   // Approved placements reserve beds even before either lease signature exists.
   // Exclude this application only: the same resident may have another stay.
-  void excludeResidentEmail;
-  const peers: { placement: RoomOccupancyPlacement; start: string; end: string | null }[] = [];
+  const peers: { id: string; placement: RoomOccupancyPlacement; start: string; end: string | null }[] = [];
   // Same key `room_placement_application_key` matches on in SQL: a raw comparison
   // misses a legacy id form, and for a lease with no `axisId` it compares against
   // the literal "UNDEFINED" — which counts the resident's own placement as a
   // roommate and reports a capacity-1 room as full.
   const selfKey = normalizeApplicationAxisId(asString(leaseRow.axisId)).toUpperCase();
+  // Without an `axisId` there is no id to match on, so the resident's own placement
+  // is identified by owner + property + room + email — and only when exactly ONE
+  // such placement exists. Several same-email stays in one room are ambiguous, and
+  // dropping them all would hand the resident a bed somebody else holds.
+  const selfEmail = (asString(excludeResidentEmail) || asString(leaseRow.residentEmail)).toLowerCase();
+  const emailSelfCandidates = new Set<string>();
   const owner = String(leaseRecord.manager_user_id ?? leaseRow.managerUserId ?? "");
   for (let offset = 0; ; offset += 500) {
     const { data: applications, error } = await db.from("manager_application_records")
-      .select("id,row_data,occupancy_start").eq("manager_user_id", owner).eq("row_data->>bucket", "approved")
+      .select("id,row_data,occupancy_start,resident_email").eq("manager_user_id", owner).eq("row_data->>bucket", "approved")
       .order("id").range(offset, offset + 499);
     if (error) return { ok: false, direction, reason: "Could not verify room availability. Please try again." };
     for (const rec of applications ?? []) {
@@ -232,10 +237,13 @@ export async function checkMoveOutAvailabilityForLease(
       };
       const startDate = parse(start);
       if (!startDate) return { ok: false, direction, reason: "A placement has an invalid date. Update it before extending this lease." };
-      for (let bed = 0; bed < (choice === propertyId ? roomCapacity : 1); bed++) peers.push({ placement: { id: `${rec.id}:${bed}`, start: startDate, end: end ? parse(end) : null }, start, end: end || null });
+      if (!selfKey && selfEmail && asString(rec.resident_email).toLowerCase() === selfEmail) emailSelfCandidates.add(String(rec.id));
+      for (let bed = 0; bed < (choice === propertyId ? roomCapacity : 1); bed++) peers.push({ id: String(rec.id), placement: { id: `${rec.id}:${bed}`, start: startDate, end: end ? parse(end) : null }, start, end: end || null });
     }
     if ((applications ?? []).length < 500) break;
   }
+  const selfRecordId = !selfKey && emailSelfCandidates.size === 1 ? [...emailSelfCandidates][0] : null;
+  const roommates = selfRecordId ? peers.filter((peer) => peer.id !== selfRecordId) : peers;
 
   const windowStart = ymdToLocalDate(extensionStart);
   const windowEnd = ymdToLocalDate(newLeaseEnd);
@@ -245,14 +253,14 @@ export async function checkMoveOutAvailabilityForLease(
   // room refuses only once its peers alone reach capacity.
   const occupancy = evaluateRoomOccupancy({
     capacity: roomCapacity,
-    placements: peers.map((peer) => peer.placement),
+    placements: roommates.map((peer) => peer.placement),
     windowStart,
     windowEnd,
   });
   if (occupancy.hasRoom) return { ok: true, direction };
 
   if (audience === "manager") {
-    const blocker = peers
+    const blocker = roommates
       .filter((peer) => rangesOverlap(extensionStart, newLeaseEnd, peer.start, peer.end || "9999-12-31"))
       .sort((a, b) => a.start.localeCompare(b.start))[0];
     if (blocker) {

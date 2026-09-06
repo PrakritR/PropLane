@@ -198,3 +198,38 @@ describe("non-extension directions are untouched", () => {
     expect(result).toEqual({ ok: true, direction: "same" });
   });
 });
+
+/**
+ * `axisId` is optional on a lease row, and `/api/resident/check-move-out-availability`
+ * finds the lease by `resident_email` without ever requiring one. With no id to
+ * match on, the resident's OWN approved placement was counted as a roommate and a
+ * capacity-1 room answered "no bed available" for their own extension.
+ */
+describe("a lease with no axisId still excludes its own placement", () => {
+  const OPEN_ENDED = { email: "me@example.com", roomId: "r1", leaseStart: "2026-01-01", leaseEnd: null } as const;
+
+  it("resolves self by owner + property + room + email when exactly one matches", async () => {
+    const mine = signedLease(OPEN_ENDED);
+    const result = await checkMoveOutAvailabilityForLease(fakeDb({ peers: [mine] }), MINE, RECORD, "2026-09-30");
+    expect(result.ok).toBe(true);
+  });
+
+  it("excludes nothing when several same-email stays share the room", async () => {
+    const peers = [signedLease(OPEN_ENDED), signedLease(OPEN_ENDED)];
+    const result = await checkMoveOutAvailabilityForLease(fakeDb({ peers }), MINE, RECORD, "2026-09-30");
+    expect(result.ok).toBe(false);
+  });
+
+  it("never excludes a genuine roommate on the strength of the fallback", async () => {
+    const peer = signedLease({ email: "peer@example.com", roomId: "r1", leaseStart: "2026-01-01", leaseEnd: null });
+    const result = await checkMoveOutAvailabilityForLease(fakeDb({ peers: [peer] }), MINE, RECORD, "2026-09-30");
+    expect(result.ok).toBe(false);
+  });
+
+  it("prefers the id match when the lease does carry an axisId", async () => {
+    const mine = { ...MINE, axisId: "rec-0" } as LeasePipelineRow;
+    const stranger = signedLease({ email: "peer@example.com", roomId: "r1", leaseStart: "2026-01-01", leaseEnd: null });
+    const result = await checkMoveOutAvailabilityForLease(fakeDb({ peers: [stranger] }), mine, RECORD, "2026-09-30");
+    expect(result.ok).toBe(true);
+  });
+});

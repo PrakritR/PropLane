@@ -312,6 +312,13 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     : unsentPhotos.length > 0
       ? `${unsentLead} It is kept below under "Unsent notes and photos from this device" — save any photo to your device before discarding it.`
       : `${unsentLead} It is kept below under "Unsent notes and photos from this device".`;
+  // `frozenReason` describes the REPORT's state, which already implies the freeze for
+  // a submitted or completed report. A draft nobody may edit is read-only for the
+  // viewer rather than frozen, so it needs its own sentence instead of "no longer
+  // editable and can no longer be edited".
+  const readOnlyNotice = report.status === "draft"
+    ? "You have read-only access to this report."
+    : `This report is ${frozenReason} and can no longer be edited.`;
   const areaCount = (area: InspectionArea) => area.items.reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
   const backLabel = documentOpen || activeArea ? "Back to room sections" : "Back to inspections";
   const status = report.status === "completed" ? "Completed" : report.status === "submitted" ? "Awaiting review" : "Draft";
@@ -325,7 +332,7 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     {documentOpen ? renderDocument() : activeArea ? <div className="space-y-4 px-2">{activeArea.items.map(renderItem)}</div> : <div>
       <p className="px-2 pb-4 text-sm text-muted">{editable
         ? "Open a section to add photos of the assigned room. Photos and notes update the document automatically."
-        : `Open a section to read its photos and notes. This report is ${frozenReason} and can no longer be edited.`}</p>
+        : `Open a section to read its photos and notes. ${readOnlyNotice}`}</p>
       {roomAreas.map(area => <div key={area.id} className={`flex min-h-24 items-center gap-4 border-b border-l-2 border-b-border px-3 py-5 ${selected.has(area.id) ? "border-l-primary bg-primary/5" : "border-l-transparent"}`} data-attr="inspection-section-row"><input type="checkbox" className="h-4 w-4 shrink-0 accent-primary" aria-label={`Select ${area.label}`} checked={selected.has(area.id)} onChange={e => setSelected(current => { const next = new Set(current); if (e.target.checked) next.add(area.id); else next.delete(area.id); return next; })} /><button className="min-w-0 flex-1 text-left" onClick={() => setActiveAreaId(area.id)} data-attr="inspection-area-open"><span className="flex items-center gap-2 text-base font-semibold">{area.label}<ChevronRight className="h-4 w-4 text-muted" /></span><span className="mt-1 block text-sm text-muted">{areaCount(area) ? `${areaCount(area)} photo${areaCount(area) === 1 ? "" : "s"} added` : "Photos and optional notes"}</span></button></div>)}
     </div>}
     {report.status === "submitted" && !report.document.residentAcknowledgment && <p className="px-2 text-sm text-muted">The resident needs to confirm review before the manager can approve.</p>}

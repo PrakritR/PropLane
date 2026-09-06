@@ -314,3 +314,27 @@ it("does not take the recovery bucket with a discard-and-leave", async () => {
   expect(screen.getByText("Never sent")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Discard unsent notes" }));
 });
+
+/**
+ * The sections list tells the reader what they can do with THIS report. It used to
+ * invite photos on a report nobody can edit, and the first correction produced
+ * "no longer editable and can no longer be edited" for a read-only draft.
+ */
+it("states the real read-only reason instead of inviting photos on a frozen report", () => {
+  render(<InspectionEditor initial={detail} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+  expect(screen.getByText(/Open a section to add photos of the assigned room/)).toBeTruthy();
+  cleanup();
+
+  const completed = structuredClone(detail);
+  completed.report.status = "completed";
+  render(<InspectionEditor initial={completed} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+  expect(screen.getByText(/Open a section to read its photos and notes\. This report is completed and can no longer be edited\./)).toBeTruthy();
+  expect(screen.queryByText(/add photos of the assigned room/)).toBeNull();
+  cleanup();
+
+  const readOnlyDraft = structuredClone(detail);
+  readOnlyDraft.canEdit = false;
+  render(<InspectionEditor initial={readOnlyDraft} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+  expect(screen.getByText(/Open a section to read its photos and notes\. You have read-only access to this report\./)).toBeTruthy();
+  expect(screen.queryByText(/no longer editable and can no longer be edited/)).toBeNull();
+});
