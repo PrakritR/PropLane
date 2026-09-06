@@ -549,7 +549,7 @@ export function ManagerLeasesPipelinePanel({
       // BOTH parties have signed — the manager countersigns last, so this is
       // the moment the renewed lease becomes the billing source of truth.
       const renewalApplied = fullySigned && signingRow.pendingRenewal
-        ? applySignedLeaseRenewal(signingRow.id, managerUserId ?? null)
+        ? await applySignedLeaseRenewal(signingRow.id, managerUserId ?? null)
         : false;
       showToast(
         renewalApplied

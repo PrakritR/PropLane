@@ -32,6 +32,8 @@ export const demoOwnerPropertyCards: { name: string; units: string; access: stri
 export type ManagerApplicationBucket = "pending" | "approved" | "rejected";
 
 export type DemoApplicantRow = {
+  /** Server-owned continuous occupancy floor, independent of renewal billing dates. */
+  occupancyStartedOn?: string;
   id: string;
   name: string;
   property: string;

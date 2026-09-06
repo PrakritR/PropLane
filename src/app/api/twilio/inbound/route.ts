@@ -1,3 +1,4 @@
+import { intakeResidentSmsPhotos } from "@/lib/inspections/attachment-intake.server";
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import twilio from "twilio";
@@ -518,11 +519,12 @@ export async function POST(req: Request) {
       counterpartyRole: "resident",
       lastInboundAt: new Date().toISOString(),
     }).catch(() => ({ ok: false as const, error: "contact_upsert_failed" }));
+    const photoRefs = await intakeResidentSmsPhotos(db, { userId: residentIdentity.ctx.userId, ownerId: managerId, messageSid, params });
     const turn = await runResidentSmsAgentTurn(db, {
       ctx: residentIdentity.ctx,
       ownerManagerUserId: managerId,
       residentPhoneE164: normalizeE164(fromPhone) ?? fromPhone,
-      inboundText: body,
+      inboundText: photoRefs.length ? `Private inspection photo sources (not filed): ${photoRefs.join(", ")}. Ask which inspection/section if unclear; use file_inspection_photo with confirmation.\n${body}` : body,
       inboundMessageSid: messageSid,
     });
     if (turn) {

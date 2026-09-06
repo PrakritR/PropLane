@@ -21,8 +21,8 @@ Manager and resident observations are separate. Saves accept only condition/note
 ## Review lifecycle
 
 1. Either party creates a **Draft**, uploads photos and optionally records notes, saved automatically. Unchecked is different from Good or Not applicable.
-2. **Submit for review** requires at least one observation from the submitting party and freezes both sides for review.
-3. The resident explicitly **acknowledges review** of the saved revision. Resident submission includes that acknowledgment in the confirmation, then sends submit and acknowledge in sequence using the returned revision. A failed acknowledgment remains retryable; manager submission still requires subsequent resident review. This is not agreement with charges or liability.
+2. Only the manager can **Request confirmation**, once either party has saved evidence. This freezes the saved revision for review; residents never submit.
+3. The resident explicitly **confirms review** of that saved revision. Confirmation is a separate action and remains retryable. It is not agreement with charges or liability.
 4. The manager **completes** the acknowledged report. Completion is permanent and allows a move-in report to serve as a baseline.
 5. A manager may **reopen a submitted report**, clearing acknowledgment so the revised report must be reviewed again. A completed report cannot be reopened.
 
@@ -34,7 +34,7 @@ Uploads use `useNativeCamera`; PDF downloads use `downloadBlobFile`, giving Capa
 
 ## Assistant and observability
 
-Both role registries expose `list_inspections`, `get_inspection`, `create_inspection`, `save_inspection_observations`, and `change_inspection_status`. Writes use `defineWriteTool`, full previews, server revalidation, and the existing confirmation/audit pipeline. Notes are explicitly untrusted data. Status changes are marked destructive because completion is irreversible, so manager SMS automatically withholds that tool. No new inline writes or assistant surface exist; existing Langfuse tracing covers the new tools. File uploads remain an interactive portal operation.
+Both role registries expose `list_inspections`, `get_inspection`, `create_inspection`, `save_inspection_observations`, `change_inspection_status`, and `file_inspection_photo`. Writes use `defineWriteTool`, full previews, server revalidation, and the existing confirmation/audit pipeline. Notes are explicitly untrusted data. Status changes are marked destructive because completion is irreversible, so manager SMS automatically withholds that tool. No new inline writes or assistant surface exist; existing Langfuse tracing covers the new tools. Portal chat photos are retained in the private inbox bucket, and verified resident MMS accepts bounded Twilio media with credential-free CDN redirects. Inbox assistant threads expose only the sender’s structured attachment references. The photo-filing tool rechecks ownership, report revision and section, requires a preview/confirmation, and deduplicates the same source on the same contributor/section. Chat retains source context across clarification turns, including temporary conversations. An image never sets a condition rating.
 
 PostHog outcomes are `inspection_created`, `inspection_submitted`, and `inspection_completed` (ids/enums only). Controls use `data-attr`; notes are excluded from autocapture.
 
@@ -43,3 +43,9 @@ PostHog outcomes are `inspection_created`, `inspection_submitted`, and `inspecti
 Focused tests: `tests/unit/inspections-{model,server,client}.test.ts`, `inspection-room-template.test.ts`, `inspection-editor-autosave.test.tsx`, `inspection-pdf-export.test.ts`, and `inspection-evidence-privacy.test.tsx`. They cover lifecycle, acknowledgment invalidation, ownership, co-manager read-only grants, resident isolation, baseline compatibility, conflicting writes, invalid uploads, and scoped/coalesced caching. Portal/native navigation, MCP scope and resident registry tests cover the integration.
 
 Apply `supabase/migrations/20260905193000_resident_inspections.sql` before deploying the feature to a new environment. The development database has the migration; staging and production follow their normal release process.
+
+## Requirements and reminders
+
+Each listing room has independent move-in and move-out inspection requirements, off by default. The inspection panel shows missing required reports for the caller's authorized residencies. The existing reminder engine sends resident reminders around the move date and manager reminders when a draft has evidence or the resident confirms review. Queue keys include date/room versions; delivery rechecks ownership, current placement, dates, completion and revision. Disabling a requirement, moving rooms or completing the report cancels stale notices. Both new reminder kinds use the shared automation settings and inbox/email channels.
+
+Apply `20260906060000_inspection_reminder_kinds.sql` before enabling those reminders. The migration is applied to dev/test; staging and production require the normal release ladder. Additional coverage: `inspection-reminders`, `inspection-attachment-intake`, `assistant-inspection-photo-clarification`, and `resident-inbox-agent` unit suites.

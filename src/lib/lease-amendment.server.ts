@@ -1,4 +1,3 @@
-import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import { formatPacificDate } from "@/lib/pacific-time";
 import { buildAiGeneratedLeaseHtml, leaseContextFromApplication } from "@/lib/generated-lease";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -129,7 +128,7 @@ function ymdToLocalDate(value: string): Date | null {
 export async function checkMoveOutAvailabilityForLease(
   db: SupabaseClient,
   leaseRow: LeasePipelineRow,
-  leaseRecord: { property_id?: string | null },
+  leaseRecord: { property_id?: string | null; manager_user_id?: string | null },
   newLeaseEnd: string,
   excludeResidentEmail?: string,
   audience: MoveOutAvailabilityAudience = "resident",
@@ -171,6 +170,7 @@ export async function checkMoveOutAvailabilityForLease(
     .maybeSingle();
 
   let roomCapacity = 1;
+  let roomName = "";
   if (propRecord) {
     const pd = asObject(propRecord.property_data);
     if (pd?.listingSubmission) {
@@ -180,6 +180,7 @@ export async function checkMoveOutAvailabilityForLease(
         const room = norm.rooms.find((r) => r.id === roomId);
         if (room) {
           roomCapacity = normalizeRoomOccupancyCapacity(room.occupancyCapacity);
+          roomName = room.name.trim().toLowerCase();
           // A manager-set block closes the room outright, whatever its capacity,
           // and is the manager's OWN data — safe to describe to either audience.
           const blocked = (room.manualUnavailableRanges ?? []).find((range: ManagerRoomUnavailableRange) =>
@@ -198,35 +199,36 @@ export async function checkMoveOutAvailabilityForLease(
     }
   }
 
-  const email = excludeResidentEmail?.trim().toLowerCase() ?? leaseRow.residentEmail.trim().toLowerCase();
-  const { data: otherLeases } = await db
-    .from("portal_lease_pipeline_records")
-    .select("id, row_data, resident_email")
-    .eq("property_id", propertyId)
-    .neq("resident_email", email)
-    .order("updated_at", { ascending: false });
-
-  // Peers are reduced to anonymous date intervals immediately. Their names, rent
-  // and lease documents are in row_data and must not travel any further than this
-  // loop — under per-bed rentals a roommate reaches this code path routinely.
+  // Approved placements reserve beds even before either lease signature exists.
+  // Exclude this application only: the same resident may have another stay.
+  void excludeResidentEmail;
   const peers: { placement: RoomOccupancyPlacement; start: string; end: string | null }[] = [];
-  for (const rec of otherLeases ?? []) {
-    const row = asObject(rec.row_data) as unknown as LeasePipelineRow | null;
-    if (!row || !hasBothLeaseSignatures(row) || row.status === "Voided") continue;
-    const otherRoomChoice = row.roomChoice ?? row.application?.roomChoice1 ?? "";
-    const otherSepIdx = otherRoomChoice.indexOf(sep);
-    const otherRoomId = otherSepIdx >= 0 ? otherRoomChoice.slice(otherSepIdx + sep.length) : null;
-    if (otherRoomId !== roomId) continue;
-    const otherStart = asString(row.application?.leaseStart);
-    const otherEnd = asString(row.application?.leaseEnd);
-    if (!otherStart) continue;
-    const startDate = ymdToLocalDate(otherStart);
-    if (!startDate) continue;
-    peers.push({
-      placement: { id: String(rec.id ?? otherStart), start: startDate, end: otherEnd ? ymdToLocalDate(otherEnd) : null },
-      start: otherStart,
-      end: otherEnd || null,
-    });
+  const owner = String(leaseRecord.manager_user_id ?? leaseRow.managerUserId ?? "");
+  for (let offset = 0; ; offset += 500) {
+    const { data: applications, error } = await db.from("manager_application_records")
+      .select("id,row_data,occupancy_start").eq("manager_user_id", owner).eq("row_data->>bucket", "approved")
+      .order("id").range(offset, offset + 499);
+    if (error) return { ok: false, direction, reason: "Could not verify room availability. Please try again." };
+    for (const rec of applications ?? []) {
+      const row = asObject(rec.row_data);
+      if (!row || row.withdrawnAt || String(rec.id).toUpperCase() === String(leaseRow.axisId).toUpperCase()) continue;
+      const app = asObject(row.application) ?? {}, manual = asObject(row.manualResidentDetails) ?? {};
+      const assignedProperty = asString(row.assignedPropertyId) || asString(row.propertyId) || asString(app.propertyId);
+      if (assignedProperty !== propertyId) continue;
+      const choice = asString(row.assignedRoomChoice) || asString(app.roomChoice1);
+      if (choice !== (leaseRow.roomChoice ?? leaseRow.application?.roomChoice1) && choice !== propertyId && choice !== roomId && !(roomName && !choice.includes("::") && String(manual.roomNumber || choice).trim().toLowerCase() === roomName)) continue;
+      const currentPlacementStart = asString(manual.moveInDate) || asString(app.leaseStart) || new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date());
+      const start = rec.occupancy_start && rec.occupancy_start < currentPlacementStart ? rec.occupancy_start : currentPlacementStart;
+      const end = asString(manual.moveOutDate) || asString(app.leaseEnd);
+      const parse = (value: string) => {
+        const parts = value.includes("/") ? value.split("/").map(Number) : null;
+        return parts ? new Date(parts[2], parts[0] - 1, parts[1]) : ymdToLocalDate(value);
+      };
+      const startDate = parse(start);
+      if (!startDate) return { ok: false, direction, reason: "A placement has an invalid date. Update it before extending this lease." };
+      for (let bed = 0; bed < (choice === propertyId ? roomCapacity : 1); bed++) peers.push({ placement: { id: `${rec.id}:${bed}`, start: startDate, end: end ? parse(end) : null }, start, end: end || null });
+    }
+    if ((applications ?? []).length < 500) break;
   }
 
   const windowStart = ymdToLocalDate(extensionStart);
@@ -269,37 +271,9 @@ export async function checkMoveOutAvailabilityForLease(
   };
 }
 
-async function syncApplicationLeaseDates(
-  db: SupabaseClient,
-  axisId: string | null | undefined,
-  newLeaseEnd: string,
-  iso: string,
-  managerUserId: string,
-): Promise<void> {
-  const id = axisId?.trim();
-  if (!id || !managerUserId) return;
-  const { data: appRecord } = await db.from("manager_application_records").select("id, manager_user_id, row_data").eq("id", id).eq("manager_user_id", managerUserId).maybeSingle();
-  if (!appRecord?.row_data || typeof appRecord.row_data !== "object") return;
-  const rowData = appRecord.row_data as Record<string, unknown>;
-  const application = asObject(rowData.application) ?? {};
-  const manual = asObject(rowData.manualResidentDetails) ?? {};
-  await db
-    .from("manager_application_records")
-    .update({
-      row_data: sealApplicantRow({
-        ...rowData,
-        application: { ...application, leaseEnd: newLeaseEnd },
-        manualResidentDetails: { ...manual, moveOutDate: newLeaseEnd },
-      }, id, managerUserId),
-      updated_at: iso,
-    })
-    .eq("id", id)
-    .eq("manager_user_id", managerUserId);
-}
-
 export async function regenerateLeaseHtmlForApplication(
   db: SupabaseClient,
-  leaseRecord: { property_id?: string | null },
+  leaseRecord: { property_id?: string | null; manager_user_id?: string | null },
   leaseRow: LeasePipelineRow,
   updatedApplication: NonNullable<LeasePipelineRow["application"]>,
 ): Promise<{ html: string; executedJurisdiction: string | null; templateVersion: string | null } | null> {
@@ -392,19 +366,15 @@ export async function amendLeaseMoveOutDate(
       : {}),
   };
 
-  const { error: upsertError } = await db.from("portal_lease_pipeline_records").upsert({
-    id: leaseRecord.id,
-    manager_user_id: leaseRecord.manager_user_id,
-    resident_user_id: leaseRow.residentUserId ?? null,
-    resident_email: leaseRow.residentEmail.trim().toLowerCase(),
-    property_id: leaseRecord.property_id ?? null,
-    status: "manager",
-    row_data: updatedRow,
-    updated_at: iso,
+  const ownerId = String(leaseRecord.manager_user_id ?? leaseRow.managerUserId ?? "");
+  const { data: applicationRecord, error: applicationError } = await db.from("manager_application_records")
+    .select("id,row_data").eq("id", leaseRow.axisId).eq("manager_user_id", ownerId).maybeSingle();
+  if (applicationError || !applicationRecord) return { ok: false, error: "The residency could not be loaded. Refresh before changing dates." };
+  const { error: commitError } = await db.rpc("commit_room_lease_extension", {
+    p_owner: ownerId, p_application_id: applicationRecord.id, p_expected_application: applicationRecord.row_data,
+    p_lease_id: leaseRecord.id, p_expected_lease: leaseRecord.row_data, p_next_lease: updatedRow, p_end: newLeaseEnd,
   });
-  if (upsertError) return { ok: false, error: upsertError.message };
-
-  await syncApplicationLeaseDates(db, leaseRow.axisId, newLeaseEnd, iso, String(leaseRecord.manager_user_id ?? leaseRow.managerUserId ?? ""));
+  if (commitError) return { ok: false, error: commitError.code === "P4001" ? "No bed is available in this room for the requested dates." : "The lease changed or could not be saved. Refresh and retry." };
 
   try {
     const propertyId = leaseRecord.property_id ?? leaseRow.propertyId ?? "";
@@ -425,7 +395,7 @@ export async function amendLeaseMoveOutDate(
           if (sub.v === 1) {
             const norm = normalizeManagerListingSubmissionV1(sub);
             const updatedRooms = norm.rooms.map((r) =>
-              r.id === roomId
+              (r.id === roomId && (r.occupancyCapacity ?? 1) === 1)
                 ? { ...r, moveInAvailableDate: newLeaseEnd, availability: formatAvailabilityLabel(newLeaseEnd) }
                 : r,
             );

@@ -93,27 +93,20 @@ it("resident: room sections, photo upload, autosave, document preview, submit + 
   expect(screen.getByText(/Resident acknowledgment pending/)).toBeTruthy();
   writeEvidenceSurface("inspection-03-document-preview", "Resident · generated document preview — Room 3 only, resident observations, acknowledgment + manager approval both pending.", 150);
 
-  // Submit is explicit and its confirmation also states the acknowledgment.
-  fireEvent.click(screen.getByRole("button", { name: "Back to room sections" }));
-  fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
-  const dialog = await screen.findByRole("dialog");
-  expect(dialog.textContent).toContain("Submit and acknowledge this saved report for manager review");
-  writeEvidenceSurface("inspection-04-submit-confirmation", "Resident · explicit submit confirmation — the same dialog acknowledges the frozen revision that is returned.", 150);
-
+  expect(screen.queryByRole("button", { name: "Submit for review" })).toBeNull();
+  cleanup();
   const submitted = structuredClone(withPhoto);
   submitted.report.status = "submitted"; submitted.report.revision = 4;
-  const acknowledged = structuredClone(submitted);
-  acknowledged.report.revision = 5;
-  acknowledged.report.document.residentAcknowledgment = { userId: "resident", at: "2026-09-05T11:00:00Z", revision: 4 };
-  request.mockResolvedValueOnce(submitted).mockResolvedValueOnce(acknowledged);
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Submit for review", selector: "[data-attr='inspection-confirm']" })); });
-  // Submit acknowledges the revision the server returned, not the one on screen.
-  expect(request.mock.calls.slice(-2).map(call => JSON.parse(call[2].body))).toEqual([
-    { revision: 3, action: "submit" }, { revision: 4, action: "acknowledge" },
-  ]);
-  expect(screen.getByText("Awaiting review")).toBeTruthy();
+  const acknowledged = structuredClone(submitted); acknowledged.report.revision = 5;
+  acknowledged.report.document.residentAcknowledgment = { userId: "resident", at: "2026-09-05T11:00:00Z" };
+  request.mockResolvedValueOnce(acknowledged);
+  render(<InspectionEditor initial={submitted} role="resident" userId="resident" onBack={() => {}} onChanged={() => {}} />);
+  fireEvent.click(screen.getByRole("button", { name: "Confirm review" }));
+  const dialog = await screen.findByRole("dialog");
+  expect(dialog.textContent).toContain("not agreement with charges");
+  await act(async () => { fireEvent.click(dialog.querySelector("[data-attr='inspection-confirm']")!); });
+  expect(JSON.parse(request.mock.calls.at(-1)![2].body)).toEqual({ revision: 4, action: "acknowledge" });
   expect(screen.queryByRole("button", { name: "Confirm review" })).toBeNull();
-  writeEvidenceSurface("inspection-05-submitted-acknowledged", "Resident · after submit — report is frozen at “Awaiting review”, acknowledgment already recorded, no editing controls.", 150);
   vi.unstubAllGlobals();
 });
 

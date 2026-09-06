@@ -114,6 +114,11 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: data.reports.filter(r => r.kind === id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
     />
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error}</p>}
+    {!loading && residencies.filter(r => r.requiredKinds?.includes(kind) && !reports.some(report => report.application_id === r.id)).map(residency =>
+      <div key={residency.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-border p-4">
+        <p className="min-w-0 flex-1 text-sm">{kindLabel(kind)} inspection required · {residency.name} · {inspectionRoomLabel(residency.room)}</p>
+        <Button variant="outline" data-attr="inspection-required-start" onClick={() => { setApplication(residency.id); setBaseline(""); setCreateOpen(true); }}>Start inspection</Button>
+      </div>)}
     {loading ? <div role="status" aria-label="Loading inspections" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div> : <PortalRecordListSurface
       isEmpty={reports.length === 0}
       empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to create and review residency inspections." : `No ${kindLabel(kind).toLowerCase()} inspections yet.${residencies.length ? " Add an inspection to start documenting condition." : " An approved resident with a property placement is needed to start."}`}</p>}

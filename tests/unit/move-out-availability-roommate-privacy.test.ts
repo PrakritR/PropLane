@@ -50,9 +50,10 @@ function fakeDb(opts: { capacity?: number; peers: LeasePipelineRow[]; blocked?: 
       chain.select = self;
       chain.eq = self;
       chain.neq = self;
-      chain.order = () =>
+      chain.order = self;
+      chain.range = () =>
         Promise.resolve({
-          data: opts.peers.map((row, i) => ({ id: `rec-${i}`, row_data: row, resident_email: row.residentEmail })),
+          data: opts.peers.map((row, i) => ({ id: `rec-${i}`, row_data: { ...row, bucket: "approved", assignedRoomChoice: row.roomChoice }, resident_email: row.residentEmail })),
         });
       chain.maybeSingle = () =>
         Promise.resolve({

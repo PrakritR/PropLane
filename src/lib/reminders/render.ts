@@ -70,6 +70,8 @@ export function leadPhrase(leadMinutes: number): string {
 }
 
 const SUBJECT_NOUN: Record<ReminderSubjectKind, string> = {
+  inspection: "room inspection",
+  inspection_manager: "inspection review",
   tour: "tour",
   task: "task",
   service_order: "service visit",

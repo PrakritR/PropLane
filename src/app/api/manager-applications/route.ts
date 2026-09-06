@@ -150,7 +150,7 @@ async function persistNormalizedRow(
     const { error: upsertError } = await db
       .from("manager_application_records")
       .upsert(values, { onConflict: "id" });
-    if (upsertError) throw new Error(`Could not persist the application: ${upsertError.message}`);
+    if (upsertError) throw Object.assign(new Error(`Could not persist the application: ${upsertError.message}`), { code: upsertError.code });
   }
   if (row.bucket === "approved") {
     try {
@@ -445,7 +445,7 @@ async function fetchApplicationsForManagerUser(
   // doesn't" gap. Property ownership (not the frozen attribution stamp) is the
   // source of truth for who should see the row.
   const propertyScopedIds = new Set<string>([...ownedPropertyIds, ...appIds, ...resIds]);
-  const select = "id, row_data, updated_at, manager_user_id, resident_email, property_id, assigned_property_id";
+  const select = "id, row_data, occupancy_start, updated_at, manager_user_id, resident_email, property_id, assigned_property_id";
 
   const { data: ownedRows, error: ownedError } = await db
     .from("manager_application_records")
@@ -582,7 +582,7 @@ export async function GET(req: Request) {
     if (selfScope || (!admin && role === "resident")) {
       const result = await db
         .from("manager_application_records")
-        .select("id, row_data, resident_email, manager_user_id, property_id, assigned_property_id, updated_at")
+        .select("id, row_data, occupancy_start, resident_email, manager_user_id, property_id, assigned_property_id, updated_at")
         .eq("resident_email", email)
         .order("updated_at", { ascending: false })
         .limit(500);
@@ -598,7 +598,7 @@ export async function GET(req: Request) {
     } else if (admin) {
       const result = await db
         .from("manager_application_records")
-        .select("id, row_data, resident_email, manager_user_id, property_id, assigned_property_id, updated_at")
+        .select("id, row_data, occupancy_start, resident_email, manager_user_id, property_id, assigned_property_id, updated_at")
         .order("updated_at", { ascending: false })
         .limit(500);
       data = result.data;
@@ -633,6 +633,7 @@ export async function GET(req: Request) {
           row = { ...row, id: record.id };
         }
       }
+      row.occupancyStartedOn = (record as { occupancy_start?: string }).occupancy_start || undefined;
       return { row, recordEmail };
     }));
     for (const result of normalizedRows) {
@@ -1141,6 +1142,8 @@ export async function POST(req: Request) {
     return NextResponse.json(residentSelfWrite ? { ok: true, row: prepareApplicantIdentityWrite(row, null, row.id) } : { ok: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to save application.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const code = e && typeof e === "object" && "code" in e ? String(e.code) : "";
+    const status = ["P4001", "40001", "40P01"].includes(code) ? 409 : code === "23514" ? 422 : 500;
+    return NextResponse.json({ error: message, ...(code === "P4001" ? { blocked: "capacity" } : {}) }, { status });
   }
 }

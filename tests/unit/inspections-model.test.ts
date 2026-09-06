@@ -36,6 +36,12 @@ describe("inspection evidence and workflow", () => {
   it("requires an actual observation before submitting", () => {
     expect(() => transitionInspection(reportFixture(), "manager", "owner", { revision: 1, action: "submit" })).toThrow(/at least one/);
   });
+  it("lets the manager request confirmation of resident-only evidence and refuses resident submission", () => {
+    const report = reportFixture();
+    report.document.areas[0]!.items[0]!.resident.notes = "Scuff beside the door";
+    expect(() => transitionInspection(report, "resident", "resident", { revision: 1, action: "submit" })).toThrow(/Only the manager/);
+    expect(transitionInspection(report, "manager", "owner", { revision: 1, action: "submit" }).status).toBe("submitted");
+  });
   it("requires resident review before completion and permanently seals completion", () => {
     let report = reportFixture();
     report.document = applyInspectionObservations(report, "manager", patch);

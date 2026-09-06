@@ -72,16 +72,19 @@ it("retains a failed photo upload and retries the same file without asking for a
   expect(screen.queryByAltText("Photo waiting to upload")).toBeNull();
 });
 
-it("submits and acknowledges only after resident confirmation and uses the returned revision", async () => {
-  detail.report.document.areas[0]!.items[0]!.resident.notes = "Reviewed photos";
-  const submitted = structuredClone(detail); submitted.report.status = "submitted"; submitted.report.revision = 2;
-  const acknowledged = structuredClone(submitted); acknowledged.report.revision = 3; acknowledged.report.document.residentAcknowledgment = { userId: "resident", at: "2026-09-05", revision: 2 };
-  request.mockResolvedValueOnce(submitted).mockResolvedValueOnce(acknowledged); mount();
-  fireEvent.click(screen.getByRole("button", { name: "Submit for review" }));
+it("resident has no submit step and confirms only a manager-frozen revision", async () => {
+  mount();
+  expect(screen.queryByRole("button", { name: "Submit for review" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Request confirmation" })).toBeNull();
+  cleanup();
+  detail.report.status = "submitted"; detail.report.revision = 2;
+  const acknowledged = structuredClone(detail); acknowledged.report.revision = 3;
+  acknowledged.report.document.residentAcknowledgment = { userId: "resident", at: "2026-09-05" };
+  request.mockResolvedValueOnce(acknowledged); mount();
+  fireEvent.click(screen.getByRole("button", { name: "Confirm review" }));
   expect(request).not.toHaveBeenCalled();
   await act(async () => { fireEvent.click(screen.getByRole("dialog").querySelector("button")!); });
-  expect(request.mock.calls.map(call => JSON.parse(call[2].body))).toEqual([{ revision: 1, action: "submit" }, { revision: 2, action: "acknowledge" }]);
-  expect(screen.queryByRole("button", { name: "Confirm review" })).toBeNull();
+  expect(request.mock.calls.map(call => JSON.parse(call[2].body))).toEqual([{ revision: 2, action: "acknowledge" }]);
 });
 
 it("restores unsaved notes after a history-style unmount without silently overwriting a newer revision", async () => {

@@ -423,6 +423,10 @@ export const REMINDER_SUBJECT_SETTINGS_META: Partial<
   payment_manager: PAYMENT_MANAGER_META,
   outgoing_payment: OUTGOING_PAYMENT_META,
   booking: BOOKING_META,
+  inspection: { ...BOOKING_META, directions: ["before", "after"], timingLabel: "Remind around the move date", notifyCounterpartyLabel: "Resident", recipientPreview: "Resident",
+    defaultTemplate: { subject: "Required room inspection", body: "Hi {recipientName},\n\nYour room requires a condition report. Open PropLane to add photos and notes for your assigned room.\n\n{url}" } },
+  inspection_manager: { ...BOOKING_META, directions: ["after"], timingLabel: "Remind after the report changes", notifyCounterpartyLabel: "Resident",
+    defaultTemplate: { subject: "Room inspection ready for review", body: "Hi {recipientName},\n\nA room inspection has saved evidence waiting for your review. Open the report to request resident confirmation or approve the confirmed report.\n\n{url}" } },
 };
 
 export function reminderSubjectSettingsMeta(kind: ReminderSubjectKind): ReminderSubjectSettingsMeta | null {

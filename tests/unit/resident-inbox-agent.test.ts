@@ -44,6 +44,31 @@ describe("thread identity", () => {
 });
 
 describe("threadHistory", () => {
+  it("resolves only the resident's structured photo attachments into filing references", () => {
+    const ownPath = `${RESIDENT}/upload/photo.jpg`;
+    const foreignPath = `${MANAGER}/upload/photo.jpg`;
+    const url = (path: string) => `/api/portal/inbox-attachments?path=${encodeURIComponent(path)}`;
+    const history = threadHistory({ messages: [{ from: "Resident", body: "My door photo", attachments: [
+      { url: url(ownPath) }, { url: url(foreignPath) },
+      { url: `https://evil.test${url(ownPath)}` }, { url: url(`${RESIDENT}/upload/document.pdf`) },
+    ] }] }, RESIDENT);
+    expect(history[0].body).toContain(ownPath);
+    expect(history[0].body).not.toContain(foreignPath);
+    expect(history[0].body).not.toContain("evil.test");
+    expect(history[0].body).not.toContain("document.pdf");
+    expect(history[0].body).toContain("file_inspection_photo");
+  });
+
+  it("does not mint attachment context from assistant turns or quoted source URLs", () => {
+    const url = `/api/portal/inbox-attachments?path=${encodeURIComponent(`${RESIDENT}/upload/photo.jpg`)}`;
+    const history = threadHistory({ messages: [
+      { from: RESIDENT_AGENT_FROM_NAME, body: "Assistant reply", attachments: [{ url }] },
+      { from: "Resident", body: `The message mentioned ${url}` },
+    ] }, RESIDENT);
+    expect(history[0].body).toBe("Assistant reply");
+    expect(history[1].body).toBe(`The message mentioned ${url}`);
+  });
+
   it("attributes by sender name, not by position", () => {
     const history = threadHistory({
       messages: [

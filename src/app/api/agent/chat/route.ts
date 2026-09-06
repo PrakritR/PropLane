@@ -1,3 +1,4 @@
+import { attachPrivateInspectionSources } from "@/lib/inspections/attachment-intake.server";
 import { NextResponse } from "next/server";
 import { resolveAgentContext } from "@/lib/tools/context";
 import { agentRegistry, MANAGER_INLINE_WRITE_TOOLS } from "@/lib/tools";
@@ -97,7 +98,9 @@ export async function POST(req: Request) {
     const listingDraft = isListingDraftAssistantContext(contextHint);
     const promotion = isPromotionAssistantContext(contextHint);
     try {
-      messages = await enrichManagerChatImageAttachments(ctx.db, ctx.landlordId, messages, {
+      messages = !listingDraft && !promotion
+        ? await attachPrivateInspectionSources(ctx.db, ctx.userId, messages)
+        : await enrichManagerChatImageAttachments(ctx.db, ctx.landlordId, messages, {
         requireSuccessfulUpload: listingDraft,
         purpose: promotion ? "promotion" : "listing",
         contextHint,
@@ -213,7 +216,7 @@ export async function POST(req: Request) {
     }
 
     const archiveSaved = await appendAgentMessages(ctx, "manager", sessionId, [
-      { role: "user", content: visibleUserText },
+      { role: "user", content: lastUserText(messages) },
       {
         role: "assistant",
         content: reply,
@@ -243,6 +246,7 @@ export async function POST(req: Request) {
     return assistantResponse(req, {
       reply,
       toolTrace: result.toolTrace,
+      ...(lastUserText(messages) !== visibleUserText && lastUserText(messages).startsWith("Private photo source references") ? { attachmentContext: lastUserText(messages).slice(0, lastUserText(messages).indexOf("\n\n")) } : {}),
       sessionId,
       ...(traceId ? { traceId } : {}),
       ...(sessionKind === PORTAL_CHAT_SESSION_KIND ? { archiveSaved } : {}),

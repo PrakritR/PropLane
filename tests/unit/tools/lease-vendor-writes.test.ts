@@ -99,8 +99,21 @@ class FakeQuery {
 }
 
 function makeCtx(tables: Record<string, Row[]>) {
+  tables.manager_application_records ??= (tables.portal_lease_pipeline_records ?? []).map(record => {
+    const lease = record.row_data as Row;
+    lease.axisId ??= `APP-${lease.id}`;
+    return { id: lease.axisId, manager_user_id: record.manager_user_id, row_data: { bucket: "approved", propertyId: record.property_id, assignedRoomChoice: lease.roomChoice, application: lease.application } };
+  });
   const store: Store = { tables };
   const db = {
+    async rpc(name: string, args: Row) {
+      if (name !== "commit_room_lease_extension") throw new Error(`Unexpected RPC ${name}`);
+      const lease = tables.portal_lease_pipeline_records?.find(r => r.id === args.p_lease_id && r.manager_user_id === args.p_owner);
+      const application = tables.manager_application_records?.find(r => r.id === args.p_application_id && r.manager_user_id === args.p_owner);
+      if (!lease || !application) return { error: { code: "40001" } };
+      lease.row_data = args.p_next_lease;
+      return { error: null };
+    },
     from(table: string) {
       return {
         select: () => new FakeQuery(table, store),

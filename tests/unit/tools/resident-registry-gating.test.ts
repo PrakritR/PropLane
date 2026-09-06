@@ -45,6 +45,7 @@ const UNGATED_TOOLS = [
   "get_inspection",
   "create_inspection",
   "save_inspection_observations",
+  "file_inspection_photo",
   "change_inspection_status",
   // Tours are on no tier gate and no stage gate: touring is exactly what a
   // pre-approval resident does, and the availability grid it reads is the same
