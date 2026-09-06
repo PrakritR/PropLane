@@ -289,6 +289,19 @@ export function weeklyRentForBillableDays(weeklyRate: number, billableDays: numb
   return Number(((billableDays / 7) * weeklyRate).toFixed(2));
 }
 
+/** Weekly headline rate with any short-lease surcharge folded in (lease + ledger parity). */
+export function weeklyRentWithFoldedShortLeaseSurcharge(
+  room: RoomPricingLike | null | undefined,
+  application: { rentalType?: string | null; leaseStart?: string | null; leaseEnd?: string | null } | null | undefined,
+  baseWeekly?: number,
+): number | undefined {
+  const weekly = baseWeekly ?? roomWeeklyRentPrice(room);
+  if (weekly === undefined) return undefined;
+  const surcharge = tenancyPaysShortLeaseSurcharge(room, application) ? roomShortLeaseSurcharge(room) : 0;
+  const weeklySurcharge = surcharge > 0 ? Number(((surcharge * 12) / 52).toFixed(2)) : 0;
+  return Number((weekly + weeklySurcharge).toFixed(2));
+}
+
 /**
  * Whether THIS tenancy pays the room's short-lease surcharge.
  *
@@ -541,13 +554,12 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
   const roomWeekly = roomWeeklyRentPrice(room);
   if (roomWeekly !== undefined) {
     const surcharge = tenancyPaysShortLeaseSurcharge(room, app) ? roomShortLeaseSurcharge(room) : 0;
-    const weeklySurcharge =
-      surcharge > 0 ? Number(((surcharge * 12) / 52).toFixed(2)) : 0;
+    const foldedWeekly = weeklyRentWithFoldedShortLeaseSurcharge(room, app, roomWeekly)!;
     return {
       stayKind: "long",
       basis: "weekly",
       dailyRate: undefined,
-      weeklyRate: Number((roomWeekly + weeklySurcharge).toFixed(2)),
+      weeklyRate: foldedWeekly,
       monthlyRate: undefined,
       deposit,
       shortLeaseSurcharge: surcharge,

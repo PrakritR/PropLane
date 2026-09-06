@@ -25,6 +25,7 @@ import { formatRoomPriceAmount, resolveStayPricing, roomDailyRentPrice,
   tenancyPaysShortLeaseSurcharge,
   roomShortLeaseSurcharge,
   weeklyRentForBillableDays,
+  weeklyRentWithFoldedShortLeaseSurcharge,
 } from "@/lib/room-pricing";
 import { resolveSubmissionRoom } from "@/lib/listing-room-resolution";
 import { utilitiesBillableMonthlyAmount } from "@/lib/listing-utilities-payment";
@@ -687,6 +688,57 @@ function backfillMonthlyUtilitiesOnRentProfiles(): void {
     return {
       ...p,
       monthlyUtilities: Number(u.amount.toFixed(2)),
+      updatedAt: new Date().toISOString(),
+    };
+  });
+  if (!changed) return;
+  const normalized = dedupeRecurringRentProfiles(next);
+  memoryRentProfiles = normalized;
+  persistHouseholdStateToSession();
+  mirrorRentProfiles(normalized);
+}
+
+/** Repairs profiles that stored full monthly rent alongside a daily/weekly basis rate. */
+function backfillBasisBillingRentOnProfiles(): void {
+  if (!isBrowser()) return;
+  const apps = readManagerApplicationRows().filter((a) => a.bucket === "approved" && a.email?.trim());
+  if (apps.length === 0) return;
+  const profiles = readRentProfiles();
+  let changed = false;
+  const next = profiles.map((p) => {
+    if (!p.active) return p;
+    const hasDaily = (p.dailyRentPrice ?? 0) > 0;
+    const hasWeekly = (p.weeklyRentPrice ?? 0) > 0;
+    if (!hasDaily && !hasWeekly) return p;
+
+    const email = p.residentEmail.trim().toLowerCase();
+    const propId = p.propertyId.trim();
+    const app = apps.find(
+      (a) => a.email!.trim().toLowerCase() === email && applicationPropertyIdForCharges(a) === propId,
+    );
+    if (!app) return p;
+
+    const { sub, room } = resolveRowSubmissionRoom(app);
+    const dailyBasis =
+      residentNegotiatedMonthlyRent(app) > 0 ? undefined : roomDailyRentPrice(room);
+    const weeklyBase =
+      residentNegotiatedMonthlyRent(app) > 0 ? undefined : roomWeeklyRentPrice(room);
+    if (!dailyBasis && !weeklyBase) return p;
+
+    const monthlyFoldIn = monthlyRentFoldInForBasisBilling(app, sub, room, dailyBasis, weeklyBase);
+    const foldedWeekly =
+      weeklyBase && weeklyBase > 0
+        ? weeklyRentWithFoldedShortLeaseSurcharge(room, app.application, weeklyBase)
+        : undefined;
+    const nextMonthly = monthlyFoldIn;
+    const nextWeekly = foldedWeekly && foldedWeekly > 0 ? foldedWeekly : p.weeklyRentPrice;
+
+    if (p.monthlyRent === nextMonthly && (p.weeklyRentPrice ?? 0) === (nextWeekly ?? 0)) return p;
+    changed = true;
+    return {
+      ...p,
+      monthlyRent: nextMonthly,
+      weeklyRentPrice: nextWeekly,
       updatedAt: new Date().toISOString(),
     };
   });
@@ -2141,6 +2193,7 @@ export function recordWorkOrderResidentCharge(input: {
 function syncAllRecurringRentCharges(): boolean {
   if (!isBrowser()) return false;
   backfillMonthlyUtilitiesOnRentProfiles();
+  backfillBasisBillingRentOnProfiles();
   const held = new Set(readManagerApplicationRows().filter(row => row.migrationBillingHold).map(row => `${row.managerUserId}|${row.email?.trim().toLowerCase()}`));
   const profiles = readRentProfiles().filter(
     (p) => !held.has(`${p.managerUserId}|${p.residentEmail.trim().toLowerCase()}`) && p.active && (p.monthlyRent > 0 || (p.dailyRentPrice ?? 0) > 0 || (p.weeklyRentPrice ?? 0) > 0 || (p.monthlyUtilities ?? 0) > 0),
@@ -3097,16 +3150,20 @@ function buildApprovedStandardChargeDrafts(
   const dailyUtilInRange =
     prorateMethod !== "daily_rate" || Boolean(dailyUtilitiesRate && dailyUtilitiesRate > 0);
   const monthlyFoldIn = monthlyRentFoldInForBasisBilling(row, sub, room, dailyBasisRate, weeklyBasisRate);
+  const billedWeeklyBasisRate =
+    weeklyBasisRate && weeklyBasisRate > 0
+      ? weeklyRentWithFoldedShortLeaseSurcharge(room, row.application, weeklyBasisRate)
+      : undefined;
 
   const rentAmount = selectedRoomRentAmount(row);
-  if (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (weeklyBasisRate && weeklyBasisRate > 0)) {
+  if (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (billedWeeklyBasisRate && billedWeeklyBasisRate > 0)) {
     const rentCharge = firstMonthRentChargeForLeaseStart(
       rentAmount,
       opts.leaseStart,
       prorateMethod,
       dailyRentRate,
       dailyBasisRate,
-      weeklyBasisRate,
+      billedWeeklyBasisRate,
       monthlyFoldIn,
       opts.leaseEnd,
     );
@@ -3132,8 +3189,8 @@ function buildApprovedStandardChargeDrafts(
   }
 
   const lastMonthRentCharge =
-    !endsInsideFirstMonth && (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (weeklyBasisRate && weeklyBasisRate > 0))
-      ? lastMonthChargeForLeaseEnd(rentAmount, opts.leaseEnd, "rent", prorateMethod, dailyRentRate, dailyBasisRate, weeklyBasisRate, monthlyFoldIn)
+    !endsInsideFirstMonth && (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (billedWeeklyBasisRate && billedWeeklyBasisRate > 0))
+      ? lastMonthChargeForLeaseEnd(rentAmount, opts.leaseEnd, "rent", prorateMethod, dailyRentRate, dailyBasisRate, billedWeeklyBasisRate, monthlyFoldIn)
       : null;
   if (lastMonthRentCharge) {
     pushDraft(
@@ -3336,7 +3393,11 @@ export function monthlyFeesIncludedInRentTotal(sub: ManagerListingSubmissionV1 |
   return Number(monthlyFeesIncludedInRent(sub).reduce((sum, fee) => sum + fee.amount, 0).toFixed(2));
 }
 
-/** Surcharge + fees folded into rent, billed monthly atop a daily/weekly basis rate. */
+/**
+ * Monthly fold-in billed atop a daily/weekly basis rate: surcharge + fees for daily
+ * rooms (surcharge stays monthly); fees only for weekly (surcharge is folded into
+ * the weekly rate so lease and ledger quote one figure).
+ */
 function monthlyRentFoldInForBasisBilling(
   row: DemoApplicantRow,
   sub: ManagerListingSubmissionV1 | null | undefined,
@@ -3344,9 +3405,26 @@ function monthlyRentFoldInForBasisBilling(
   dailyBasisRate?: number,
   weeklyBasisRate?: number,
 ): number {
-  if (!(dailyBasisRate && dailyBasisRate > 0) && !(weeklyBasisRate && weeklyBasisRate > 0)) return 0;
-  const surcharge = tenancyPaysShortLeaseSurcharge(room, row.application) ? roomShortLeaseSurcharge(room) : 0;
-  return Number((surcharge + monthlyFeesIncludedInRentTotal(sub)).toFixed(2));
+  const fees = monthlyFeesIncludedInRentTotal(sub);
+  if (dailyBasisRate && dailyBasisRate > 0) {
+    const surcharge = tenancyPaysShortLeaseSurcharge(room, row.application) ? roomShortLeaseSurcharge(room) : 0;
+    return Number((surcharge + fees).toFixed(2));
+  }
+  if (weeklyBasisRate && weeklyBasisRate > 0) return fees;
+  return 0;
+}
+
+/** Stored on the recurring profile: fold-in only when billing by day/week, else full rent. */
+function recurringProfileStoredMonthlyRent(
+  rentAmount: number,
+  monthlyFoldIn: number,
+  dailyBasisRate?: number,
+  weeklyBasisRate?: number,
+): number {
+  if ((dailyBasisRate && dailyBasisRate > 0) || (weeklyBasisRate && weeklyBasisRate > 0)) {
+    return monthlyFoldIn;
+  }
+  return rentAmount > 0 ? rentAmount : 0;
 }
 
 function monthlyCustomFees(sub: ManagerListingSubmissionV1 | null | undefined): { id: string; label: string; amount: number }[] {
@@ -3667,15 +3745,19 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
   const endsInsideFirstMonth = intraMonthStaySpan(leaseStart, leaseEnd) !== null;
 
   const monthlyFoldIn = monthlyRentFoldInForBasisBilling(row, sub, room, dailyBasisRate, weeklyBasisRate);
+  const billedWeeklyBasisRate =
+    weeklyBasisRate && weeklyBasisRate > 0
+      ? weeklyRentWithFoldedShortLeaseSurcharge(room, row.application, weeklyBasisRate)
+      : undefined;
   const rentAmount = selectedRoomRentAmount(row);
-  if (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (weeklyBasisRate && weeklyBasisRate > 0)) {
+  if (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (billedWeeklyBasisRate && billedWeeklyBasisRate > 0)) {
     const rentCharge = firstMonthRentChargeForLeaseStart(
       rentAmount,
       leaseStart,
       prorateMethod,
       dailyRentRate,
       dailyBasisRate,
-      weeklyBasisRate,
+      billedWeeklyBasisRate,
       monthlyFoldIn,
       leaseEnd,
     );
@@ -3706,8 +3788,8 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
     }
   }
 
-  const lastMonthRentCharge = !endsInsideFirstMonth && (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (weeklyBasisRate && weeklyBasisRate > 0))
-    ? lastMonthChargeForLeaseEnd(rentAmount, leaseEnd, "rent", prorateMethod, dailyRentRate, dailyBasisRate, weeklyBasisRate, monthlyFoldIn)
+  const lastMonthRentCharge = !endsInsideFirstMonth && (rentAmount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (billedWeeklyBasisRate && billedWeeklyBasisRate > 0))
+    ? lastMonthChargeForLeaseEnd(rentAmount, leaseEnd, "rent", prorateMethod, dailyRentRate, dailyBasisRate, billedWeeklyBasisRate, monthlyFoldIn)
     : null;
   if (lastMonthRentCharge) {
     pushCharge(
@@ -3821,7 +3903,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
     rentalType: row.application?.rentalType,
   });
   let computedStartMonth: string | undefined;
-  if (leaseStart && (rentAmount > 0 || utilities.amount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (weeklyBasisRate && weeklyBasisRate > 0) || monthlyFeeSet.length > 0)) {
+  if (leaseStart && (rentAmount > 0 || utilities.amount > 0 || (dailyBasisRate && dailyBasisRate > 0) || (billedWeeklyBasisRate && billedWeeklyBasisRate > 0) || monthlyFeeSet.length > 0)) {
     const [leaseYearRaw, leaseMonthRaw] = leaseStart.split("-").map(Number);
     if (leaseYearRaw && leaseMonthRaw) {
       computedStartMonth = firstRecurringMonthAfterLeaseStart(leaseStart);
@@ -3838,11 +3920,16 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
         propertyLabel,
         roomLabel,
         managerUserId: effectiveManagerUserId,
-        monthlyRent: rentAmount > 0 ? rentAmount : monthlyFoldIn,
+        monthlyRent: recurringProfileStoredMonthlyRent(
+          rentAmount,
+          monthlyFoldIn,
+          dailyBasisRate,
+          weeklyBasisRate,
+        ),
         // Always explicit: 0 when the room is monthly, so re-approving a room that was
         // switched daily -> monthly clears the old daily rate instead of inheriting it.
         dailyRentPrice: dailyBasisRate && dailyBasisRate > 0 ? dailyBasisRate : 0,
-        weeklyRentPrice: weeklyBasisRate && weeklyBasisRate > 0 ? weeklyBasisRate : 0,
+        weeklyRentPrice: billedWeeklyBasisRate && billedWeeklyBasisRate > 0 ? billedWeeklyBasisRate : 0,
         monthlyUtilities: utilities.amount > 0 ? Number(utilities.amount.toFixed(2)) : 0,
         // Always explicit (even []) so removing every monthly fee clears the stored set on
         // re-approval rather than inheriting stale fees.
