@@ -25,12 +25,42 @@ npm run workflow:plan -- --ticket PRP-### --title "..." --summary "..."
 Reply with:
 
 1. **PRP-###** + Linear URL
-2. Path to `plan.html` + `npx -y lavish-axi poll …` command
+2. Path to `plan.html` + poll command (below)
 3. **"Waiting for approved — build"** — do not implement yet
+
+## Lavish poll contract (mandatory — fixes "agent not listening")
+
+Lavish only delivers captain annotations when an agent is **actively polling**.
+If you open or edit a plan and end your turn without polling, Lavish shows
+*"Your agent is not listening"* and feedback sits queued until something polls.
+
+**After every Lavish open, plan edit, or enrich** — same turn, before replying:
+
+```bash
+npm run lavish:poll -- --plan .lavish/plans/PRP-###-slug/plan.html
+```
+
+Equivalent: `npx -y lavish-axi poll <plan.html>`
+
+**Rules:**
+
+1. **Poll is not optional** after `workflow:plan`, `lavish-axi <plan.html>`, or
+   rewriting `plan.html`. Start the poll and let it run; do not skip because the
+   captain "might reply in chat."
+2. **If the captain messages while a plan is open** (including Lavish's
+   "not listening" warning), your **first action** is re-run `lavish:poll` to
+   drain queued feedback — then apply it.
+3. **After applying poll feedback**, re-poll with agent reply:
+   `npx -y lavish-axi poll <plan.html> --agent-reply "<what you changed>"`
+4. **Cursor timeout:** if the shell backgrounds the poll, tell the captain you are
+   listening and **re-run poll at the start of the next turn** until feedback is
+   delivered or the session ends. Queued prompts are not lost.
+5. Chat **approved — build** still counts as approval; Lavish poll is for
+   annotations and visual review, not a hard block on reading chat.
 
 ## While waiting
 
-- `npx -y lavish-axi poll <plan.html>` — apply Lavish annotations
+- `npm run lavish:poll -- --plan <plan.html>` — apply Lavish annotations
 - Enrich plan HTML (scope, approach, risks, test plan, UI mock sections)
 - For UI work: read `docs/agents/ui-change-checklist.md` and link it in the plan
 
@@ -45,3 +75,4 @@ Skip plan only when captain says **`skip plan`** (hotfix).
 - Write feature code before plan approval
 - Scaffold Lavish without a **PRP-###** ticket id
 - Skip ticket phase (unless `no ticket`)
+- End a turn after Lavish work without starting `lavish:poll`

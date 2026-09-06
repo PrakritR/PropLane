@@ -143,7 +143,9 @@ async function main() {
   Poll:    npx -y lavish-axi poll ${planPath}
 
 Captain: annotate in Lavish or reply **approved — build** when ready.
-Agent:   do NOT write product code until approval.`);
+Agent:   do NOT write product code until approval.
+Agent:   MUST run poll before ending turn (Lavish shows "not listening" otherwise):
+         npm run lavish:poll -- --plan ${planPath}`);
 }
 
 main().catch((e) => {

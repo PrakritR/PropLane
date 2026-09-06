@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { BulkActionBar } from "@/components/ui/bulk-action-bar";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
@@ -24,7 +26,13 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { ManagerTaskFormModal } from "@/components/portal/pro-task-form-modal";
 import { ManagerTaskFilterFields } from "@/components/portal/pro-task-filter-fields";
 import { ManagerCommunicationComposeModal } from "@/components/portal/pro-communication-compose-modal";
+import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
+import {
+  PortalAdaptiveActionRow,
+  type PortalAdaptiveAction,
+} from "@/components/portal/portal-adaptive-action-row";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import type { ManagerComposePrefill } from "@/lib/manager-compose-prefill";
 import { formatRangeLabel, syncScheduleRecordsFromServer } from "@/lib/demo-admin-scheduling";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
@@ -39,10 +47,12 @@ import {
   type ManagerTaskListFilterId,
   type ManagerTaskListSortId,
 } from "@/lib/manager-task-display";
+import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import {
   MANAGER_TASKS_EVENT,
   MANAGER_TASK_PRIORITY_LABELS,
   MANAGER_TASK_URGENCY_LABELS,
+  deleteManagerTask,
   fetchManagerTasks,
   inferManagerTaskUrgency,
   updateManagerTask,
@@ -199,7 +209,9 @@ export function ManagerTaskList({
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(DEFAULT_PORTAL_LIST_GROUP_MODE);
   const [listFilter, setListFilter] = useState<ManagerTaskListFilterId>("all");
   const [sortId, setSortId] = useState<ManagerTaskListSortId>("due_soonest");
-  const [completingTaskIds, setCompletingTaskIds] = useState<Set<string>>(() => new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(tabId);
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(userId),
@@ -385,23 +397,155 @@ export function ManagerTaskList({
     setAddOpen(true);
   }
 
-  async function toggleTaskCompleted(task: ManagerTask, completed: boolean) {
-    if (!userId || completingTaskIds.has(task.id)) return;
-    setCompletingTaskIds((prev) => new Set(prev).add(task.id));
+  const selectedTaskIds = useMemo(
+    () => [...selectedIds].filter((id) => !id.startsWith("service-")),
+    [selectedIds],
+  );
+
+  const editSelectedTask = useCallback(() => {
+    const taskId = selectedTaskIds[0];
+    if (!taskId) return;
+    const task = tasks.find((row) => row.id === taskId);
+    if (!task) return;
+    clearSelection();
+    beginEdit(task);
+  }, [clearSelection, selectedTaskIds, tasks]);
+
+  const bulkSetCompleted = useCallback(
+    async (completed: boolean) => {
+      if (!userId || selectedTaskIds.length === 0 || bulkBusy) return;
+      setBulkBusy(true);
+      try {
+        for (const taskId of selectedTaskIds) {
+          await updateManagerTask(userId, taskId, { completed });
+        }
+        setTasks((prev) =>
+          prev.map((row) =>
+            selectedTaskIds.includes(row.id) ? { ...row, completed } : row,
+          ),
+        );
+        showToast(
+          completed
+            ? selectedTaskIds.length === 1
+              ? "Task completed."
+              : `${selectedTaskIds.length} tasks completed.`
+            : selectedTaskIds.length === 1
+              ? "Task reopened."
+              : `${selectedTaskIds.length} tasks reopened.`,
+        );
+        clearSelection();
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not update tasks.");
+      } finally {
+        setBulkBusy(false);
+      }
+    },
+    [bulkBusy, clearSelection, selectedTaskIds, showToast, userId],
+  );
+
+  const bulkDeleteTasks = useCallback(async () => {
+    if (!userId || selectedTaskIds.length === 0 || bulkBusy) return;
+    setBulkBusy(true);
     try {
-      await updateManagerTask(userId, task.id, { completed });
-      setTasks((prev) => prev.map((row) => (row.id === task.id ? { ...row, completed } : row)));
-      showToast(completed ? "Task completed." : "Task reopened.");
+      for (const taskId of selectedTaskIds) {
+        await deleteManagerTask(userId, taskId);
+      }
+      setTasks((prev) => prev.filter((row) => !selectedTaskIds.includes(row.id)));
+      showToast(
+        selectedTaskIds.length === 1
+          ? "Task deleted."
+          : `${selectedTaskIds.length} tasks deleted.`,
+      );
+      clearSelection();
+      setDeleteConfirmOpen(false);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not update task.");
+      showToast(e instanceof Error ? e.message : "Could not delete tasks.");
     } finally {
-      setCompletingTaskIds((prev) => {
-        const next = new Set(prev);
-        next.delete(task.id);
-        return next;
+      setBulkBusy(false);
+    }
+  }, [bulkBusy, clearSelection, selectedTaskIds, showToast, userId]);
+
+  const bulkSelectionActions = useMemo((): PortalAdaptiveAction[] => {
+    const actions: PortalAdaptiveAction[] = [];
+
+    if (selectedTaskIds.length === 1) {
+      actions.push({
+        id: "edit",
+        node: (
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_BULK_BAR_BTN}
+            data-attr="manager-tasks-bulk-edit"
+            disabled={bulkBusy}
+            onClick={editSelectedTask}
+          >
+            Edit
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="manager-tasks-bulk-edit" onSelect={editSelectedTask}>
+            Edit
+          </DropdownMenuItem>
+        ),
       });
     }
-  }
+
+    actions.push({
+      id: "delete",
+      node: (
+        <Button
+          type="button"
+          variant="outline"
+          className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+          data-attr="manager-tasks-bulk-delete"
+          disabled={bulkBusy}
+          onClick={() => setDeleteConfirmOpen(true)}
+        >
+          Delete
+        </Button>
+      ),
+      menuItem: (
+        <DropdownMenuItem
+          data-attr="manager-tasks-bulk-delete"
+          className="text-danger focus:text-danger"
+          onSelect={() => setDeleteConfirmOpen(true)}
+        >
+          Delete
+        </DropdownMenuItem>
+      ),
+    });
+
+    const completeLabel = tabId === "completed" ? "Reopen" : "Mark done";
+    const completeHandler = () => {
+      void bulkSetCompleted(tabId !== "completed");
+    };
+    actions.push({
+      id: "complete",
+      node: (
+        <Button
+          type="button"
+          variant="primary"
+          className={PORTAL_BULK_BAR_BTN}
+          data-attr={tabId === "completed" ? "manager-tasks-bulk-reopen" : "manager-tasks-bulk-mark-done"}
+          disabled={bulkBusy}
+          onClick={completeHandler}
+        >
+          {completeLabel}
+        </Button>
+      ),
+      menuItem: (
+        <DropdownMenuItem
+          data-attr={tabId === "completed" ? "manager-tasks-bulk-reopen" : "manager-tasks-bulk-mark-done"}
+          onSelect={completeHandler}
+        >
+          {completeLabel}
+        </DropdownMenuItem>
+      ),
+    });
+
+    return actions;
+  }, [bulkBusy, bulkSetCompleted, editSelectedTask, selectedTaskIds.length, tabId]);
 
   const taskListColumns = [
     { id: "task", header: "Task", cell: (row: TaskListRow) => (row.kind === "task" ? row.task.title : row.request.offerName) },
@@ -421,10 +565,8 @@ export function ManagerTaskList({
             primary: task.title,
             meta: taskRowMetaLine(task) || undefined,
             trailing: taskRowTrailing(task),
-            selected: task.completed,
-            onSelectedChange: (checked) => {
-              void toggleTaskCompleted(task, checked);
-            },
+            selected: selectedIds.has(task.id),
+            onSelectedChange: () => toggleSelected(task.id),
             onClick: () => beginEdit(task),
           };
         }
@@ -575,11 +717,13 @@ export function ManagerTaskList({
           onClose={() => {
             setAddOpen(false);
             setEditingId(null);
+            clearSelection();
           }}
           managerUserId={userId}
           editingId={editingId}
           propertyTick={propertyTick}
           onSaved={async (prefill) => {
+            clearSelection();
             await refresh();
             showToast(editingId ? "Task updated." : "Task saved.");
             if (prefill) {
@@ -588,6 +732,31 @@ export function ManagerTaskList({
             }
           }}
         />
+      ) : null}
+
+      <ConfirmDeleteModal
+        open={deleteConfirmOpen}
+        title={selectedTaskIds.length === 1 ? "Delete task?" : `Delete ${selectedTaskIds.length} tasks?`}
+        description={
+          selectedTaskIds.length === 1
+            ? "This task will be removed from your list and calendar."
+            : `${selectedTaskIds.length} tasks will be removed from your list and calendar.`
+        }
+        confirmLabel="Delete"
+        busy={bulkBusy}
+        dataAttr="manager-tasks-bulk-delete-confirm"
+        onClose={() => {
+          if (!bulkBusy) setDeleteConfirmOpen(false);
+        }}
+        onConfirm={() => {
+          void bulkDeleteTasks();
+        }}
+      />
+
+      {selectedTaskIds.length > 0 ? (
+        <BulkActionBar count={selectedTaskIds.length} hideCount variant="payments">
+          <PortalAdaptiveActionRow actions={bulkSelectionActions} />
+        </BulkActionBar>
       ) : null}
 
       <ManagerCommunicationComposeModal
