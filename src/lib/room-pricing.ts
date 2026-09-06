@@ -150,6 +150,23 @@ export function rentMonthlyEquivalent(
 }
 
 /**
+ * Monthly-equivalent for a recurring rent profile, including fold-in surcharge/fees
+ * billed atop a daily/weekly basis rate.
+ */
+export function rentProfileMonthlyEquivalent(
+  monthlyRent: number | null | undefined,
+  dailyRentPrice: number | null | undefined,
+  weeklyRentPrice?: number | null | undefined,
+): number {
+  const basisEquivalent = rentMonthlyEquivalent(monthlyRent, dailyRentPrice, weeklyRentPrice);
+  const hasBasis = (dailyRentPrice ?? 0) > 0 || (weeklyRentPrice ?? 0) > 0;
+  if (!hasBasis) return basisEquivalent;
+  const foldIn = monthlyRent ?? 0;
+  if (!(foldIn > 0) || (basisEquivalent > 0 && foldIn >= basisEquivalent * 0.5)) return basisEquivalent;
+  return Number((basisEquivalent + foldIn).toFixed(2));
+}
+
+/**
  * The headline numeric a card/detail should display (the daily price for daily
  * rooms, the monthly rent otherwise), or null when nothing is priced.
  */
