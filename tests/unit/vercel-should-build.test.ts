@@ -16,9 +16,8 @@ function ignoreExit(ref: string): number {
 }
 
 describe("vercel-should-build.sh", () => {
-  it("builds main, staging, and production", () => {
+  it("builds staging and production", () => {
     // Vercel ignoreCommand: exit 1 = proceed with the build.
-    expect(ignoreExit("main")).toBe(1);
     expect(ignoreExit("staging")).toBe(1);
     expect(ignoreExit("production")).toBe(1);
   });
@@ -29,3 +28,6 @@ describe("vercel-should-build.sh", () => {
     expect(ignoreExit("prakrit")).toBe(0);
   });
 });
+    expect(ignoreExit("main")).toBe(0);
+    expect(ignoreExit("")).toBe(0);
+    expect(ignoreExit("unknown")).toBe(0);

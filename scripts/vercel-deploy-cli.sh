@@ -15,7 +15,7 @@
 #
 # GitHub backup (recommended): add repo secrets VERCEL_TOKEN, VERCEL_ORG_ID,
 # VERCEL_PROJECT_ID from .vercel/project.json so .github/workflows/vercel-deploy.yml
-# deploys on every push to main / staging / production.
+# deploys on every push to staging / production. main uses localhost.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -33,9 +33,12 @@ done
 case "$TARGET" in
   production) GIT_BRANCH=production; VERCEL_ENV=production; PROD_FLAG=(--prod) ;;
   staging) GIT_BRANCH=staging; VERCEL_ENV=preview; PROD_FLAG=() ;;
-  main) GIT_BRANCH=main; VERCEL_ENV=preview; PROD_FLAG=() ;;
+  main)
+    echo "error: main uses localhost; promote to staging for a deployed QA preview" >&2
+    exit 2
+    ;;
   *)
-    echo "usage: $0 [production|staging|main] [--dry-run]" >&2
+    echo "usage: $0 [production|staging] [--dry-run]" >&2
     exit 2
     ;;
 esac
@@ -72,7 +75,7 @@ if [[ "$VERCEL_ENV" = "production" ]]; then
   vercel build --prod
   vercel deploy --prebuilt --prod
 else
-  vercel pull --yes --environment=preview
+  vercel pull --yes --environment=preview --git-branch=staging
   vercel build
   vercel deploy --prebuilt
 fi

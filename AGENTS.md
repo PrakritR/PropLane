@@ -517,7 +517,7 @@ Details: `docs/agents/sandbox-open-review.md`.
 # Branching & deployment (Vercel)
 
 The Vercel project (`axis-2`, connected to `PrakritR/AXIS-2` / `PrakritR/PropLane`)
-builds **only** `main`, `staging`, and `production`
+builds **only** `staging` and `production`. `main` is tested on localhost
 (`vercel.json` → `git.deploymentEnabled`, plus `scripts/vercel-should-build.sh`).
 Every other branch is skipped. Feature and agent branches are the messy layer
 (their names do not belong in this file). There is no long-lived `dev`
@@ -525,7 +525,7 @@ integration branch.
 
 ```
 feature / agent branch  →  main  →  staging  →  production
-     (no deploy)         preview    QA preview    live + TestFlight
+     (no deploy)         localhost  QA preview    live + TestFlight
                          dev DB     staging DB    live production DB
                          developers dedicated QA  no experiments
 ```
@@ -533,7 +533,7 @@ feature / agent branch  →  main  →  staging  →  production
 | Branch | Role | Database | Vercel | Who tests |
 | --- | --- | --- | --- | --- |
 | feature / agent | messy work | local + shared **dev/test** (`emstjswhotsnyksqhqyf`) | no deploy | the author |
-| **`main`** | consolidation | shared **dev/test** | Preview | developers |
+| **`main`** | consolidation | shared **dev/test** | No deploy; localhost | developers |
 | **`staging`** | QA candidate, ff of `main` | staging project `xwszcafaontidfgznlxd` (never the live production project) | Preview, git-branch-scoped env | dedicated QA |
 | **`production`** | live site | live production (`qahnczmilgptcedaqype`) | Production | nobody experiments here |
 
@@ -588,7 +588,7 @@ known-good commit and push, or use Vercel's **Instant Rollback**. Full checklist
 
 **Captain-owned setup (cannot be done from the repo alone)**
 
-1. Optional hostname `staging.prop-lane.space`.
+1. QA hostname `staging-prop-lane.space` (also `staging.prop-lane.space`), both assigned to `staging`.
 2. GitHub Environments `preview` / `staging` / `production` protection rules
    (needs repo admin).
 3. Branch protection on `main`, `staging`, and `production` (needs repo admin).

@@ -1,7 +1,7 @@
 # Deployment workflow (all agents)
 
-**`production` deploys the live site; `staging` is QA; `main` is developer
-preview.** Every agent must follow this ladder. See `AGENTS.md` § Branching &
+**`production` deploys the live site; `staging` is QA; `main` is tested on
+localhost.** Every agent must follow this ladder. See `AGENTS.md` § Branching &
 deployment for the contract.
 
 ## Branch ladder
@@ -9,7 +9,7 @@ deployment for the contract.
 | Branch | Role | Database | Vercel | CI |
 | --- | --- | --- | --- | --- |
 | `claude-*`, `cursor-*`, feature branches | Per-agent / per-change sandbox | shared dev/test | No deploy | PR: unit + lint + build |
-| `main` | Consolidation. Developers verify here. | shared dev/test | **Preview** | unit, lint, build, integration, e2e smoke |
+| `main` | Consolidation. Developers verify on localhost. | shared dev/test | **No deploy** | unit, lint, build, integration, e2e smoke |
 | `staging` | QA candidate. Fast-forward of `main`. | staging project `xwszcafaontidfgznlxd` (never live production) | **Preview** (branch-scoped env) | same as `main` |
 | `production` | Live site + TestFlight | live production | **Production** | TestFlight workflow |
 
@@ -59,9 +59,10 @@ agent branch  →  prakrit (:3000)  →  main  →  staging  →  production
 ## Enforcement (do not weaken)
 
 1. **Vercel project** `axis-2` → Production branch = **`production`**.
-2. **`vercel.json`** `git.deploymentEnabled`: only `main`, `staging`, and
-   `production` are `true`.
-3. **`scripts/vercel-should-build.sh`**: builds only those three refs.
+2. **`vercel.json`** `git.deploymentEnabled`: only `staging` and
+   `production` are `true`; `main` and `**` are `false`.
+3. **`scripts/vercel-should-build.sh`**: builds only those two refs.
+   The GitHub deploy workflow and CLI helper also exclude `main`.
 4. **`assertNonProdDatabase()`**: the `staging` git branch may not use the live
    production Supabase project, even if `VERCEL_ENV=production`.
 5. **`scripts/promote-main-to-production.sh`**: retired; exits 1.

@@ -1,5 +1,5 @@
-# Deploy to Vercel on every push to main (dev Preview), staging (QA Preview),
-# or production (live). Backup when the Vercel Git webhook misses a push.
+# Deploy to Vercel on pushes to staging (QA Preview) or production (live).
+# main is tested on localhost. Backup when the Vercel Git webhook misses a push.
 # If VERCEL_TOKEN is unset, this workflow skips cleanly — native Vercel Git
 # integration still deploys.
 #
@@ -11,7 +11,7 @@ name: Vercel Deploy
 
 on:
   push:
-    branches: [main, staging, production]
+    branches: [staging, production]
   workflow_dispatch:
 
 concurrency:
@@ -102,4 +102,5 @@ jobs:
       - name: Vercel Git deploy only
         run: |
           echo "::notice::VERCEL_TOKEN is not set — skipping CLI deploy job."
-          echo "main/staging → Vercel Preview and production → prop-lane.space still deploy via the Vercel Git integration."
+          echo "staging → staging-prop-lane.space and production → prop-lane.space still deploy via the Vercel Git integration. main uses localhost."
+    if: ${{ github.ref_name == 'staging' || github.ref_name == 'production' }}

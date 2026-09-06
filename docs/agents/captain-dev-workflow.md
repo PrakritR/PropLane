@@ -127,7 +127,7 @@ npm run ship:production   # ff staging → production after QA sign-off
 Or use the GitHub Action **Promote** (`workflow_dispatch`). Do not use
 `bin/fm-proplane-promote-to-prakrit.sh` — `prakrit` is retired.
 
-Captain verifies the `main` Preview (developers) and the `staging` URL (QA)
+Captain verifies `main` on localhost (developers) and the `staging` URL (QA)
 before a live ship.
 
 ---
