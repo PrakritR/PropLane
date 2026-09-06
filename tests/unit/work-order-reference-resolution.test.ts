@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -95,10 +95,18 @@ describe("role-scoped work-order reference loaders", () => {
 });
 
 describe("work-order human reference migration", () => {
-  const sql = readFileSync(
-    join(process.cwd(), "supabase/migrations/20260904120000_work_order_human_references.sql"),
-    "utf8",
-  ).toLowerCase();
+  // Resolved by NAME, never by version prefix. This migration has already been
+  // renumbered once (it shared 20260904120000 with manager_assistant_emails,
+  // which meant Supabase recorded the version and skipped this file forever —
+  // see tests/unit/migration-versions-unique.test.ts). Pinning the prefix here
+  // makes a legitimate renumber look like a broken invariant.
+  const migrationsDir = join(process.cwd(), "supabase/migrations");
+  const migrationFile = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith("_work_order_human_references.sql"))
+    .sort()
+    .at(-1);
+  if (!migrationFile) throw new Error("work_order_human_references migration is missing");
+  const sql = readFileSync(join(migrationsDir, migrationFile), "utf8").toLowerCase();
 
   it("keeps the primary key and enforces per-manager uniqueness", () => {
     expect(sql).not.toContain("drop column id");
