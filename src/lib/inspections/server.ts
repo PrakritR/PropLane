@@ -148,21 +148,23 @@ export async function listInspectionResidencies(actor: InspectionActor): Promise
   const visible = records.map(residencyFromRecord).filter(residency => residency.approved &&
     residency.identity.property_id && residency.identity.resident_email && authorized(actor, scope, residency.identity));
   const propertyIds = [...new Set(visible.map(r => r.identity.property_id))];
+  // Keyed on property AND owner: a residency's denormalized `property_id` can point
+  // at a row that has since changed owner, and requirements must never be read from
+  // another manager's listing. `sweepInspectionReminders` matches the same pair.
   const properties = new Map<string, unknown>();
   for (let offset = 0; offset < propertyIds.length; offset += 100) {
     const { data, error } = await actor.context.db.from("manager_property_records")
-      .select("id,rooms:property_data->listingSubmission->rooms,legacy_rooms:row_data->submission->rooms")
+      .select("id,manager_user_id,rooms:property_data->listingSubmission->rooms,legacy_rooms:row_data->submission->rooms")
       .in("id", propertyIds.slice(offset, offset + 100));
     if (error) throw new InspectionError("Could not load room inspection requirements.", 500);
-    for (const property of data ?? []) properties.set(property.id, property.rooms ?? property.legacy_rooms);
+    for (const property of data ?? []) properties.set(`${property.id}::${String(property.manager_user_id ?? "")}`, property.rooms ?? property.legacy_rooms);
   }
-  return visible.flatMap(residency => {
+  return visible.map(residency => {
     const identity = residency.identity;
-    if (!residency.approved) return [];
-    if (!identity.property_id || !identity.resident_email || !authorized(actor, scope, identity)) return [];
-    return [{ id: residency.id, name: residency.name, property: residency.propertyLabel,
-      room: residency.roomLabel, requiredKinds: roomInspectionRequirements(identity.property_id, residency.roomLabel, properties.get(identity.property_id)),
-      canCreate: Boolean(residency.roomLabel && residency.roomLabel !== identity.property_id) && authorized(actor, editScope, identity) }];
+    const rooms = properties.get(`${identity.property_id}::${identity.manager_user_id}`);
+    return { id: residency.id, name: residency.name, property: residency.propertyLabel,
+      room: residency.roomLabel, requiredKinds: roomInspectionRequirements(identity.property_id, residency.roomLabel, rooms),
+      canCreate: Boolean(residency.roomLabel && residency.roomLabel !== identity.property_id) && authorized(actor, editScope, identity) };
   });
 }
 

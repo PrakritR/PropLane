@@ -20,7 +20,11 @@ const recordSubmittedApplicationFeeCharge = vi.fn();
 const removeAllApplicationCharges = vi.fn();
 const removeApprovedApplicationCharges = vi.fn();
 
-vi.mock("@/lib/manager-applications-storage", () => ({
+vi.mock("@/lib/manager-applications-storage", async (importOriginal) => ({
+  // Spread the real module: only the two storage accessors need overriding, and a
+  // hand-listed mock silently breaks the moment the module gains an export this
+  // path calls (`normalizeApplicationAxisId` is one).
+  ...(await importOriginal<typeof import("@/lib/manager-applications-storage")>()),
   readManagerApplicationRows: () => ROWS,
   writeManagerApplicationRows: (rows: DemoApplicantRow[]) => {
     ROWS = rows;

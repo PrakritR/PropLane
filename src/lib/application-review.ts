@@ -1,5 +1,5 @@
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
-import { readManagerApplicationRows, writeManagerApplicationRows } from "@/lib/manager-applications-storage";
+import { normalizeApplicationAxisId, readManagerApplicationRows, writeManagerApplicationRows } from "@/lib/manager-applications-storage";
 import {
   recordApprovedApplicationCharges,
   recordSubmittedApplicationFeeCharge,
@@ -84,7 +84,12 @@ type ResidentApprovalRefusal = {
 function refusalConfirmsThisApplication(id: string, refusal: ResidentApprovalRefusal): boolean {
   if (refusal.matchedBy !== "id") return false;
   const blockedId = typeof refusal.blockedApplicationId === "string" ? refusal.blockedApplicationId.trim() : "";
-  return Boolean(blockedId) && blockedId.toUpperCase() === id.trim().toUpperCase();
+  if (!blockedId) return false;
+  // The server stores an id VARIANT (the normalized `PROPLANE-…` form) that need
+  // not be byte-identical to the id this client holds, so both sides are
+  // normalized before comparison — the same key the SQL side matches on.
+  const key = (value: string) => normalizeApplicationAxisId(value).toUpperCase();
+  return key(blockedId) === key(id);
 }
 
 /**

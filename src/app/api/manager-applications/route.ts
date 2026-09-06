@@ -1063,8 +1063,17 @@ export async function POST(req: Request) {
       authorizedWriteRecord = storedLoad.record;
       const guarded = anchorServerOwnedWithdrawal(row, storedLoad.record);
       if (guarded.blockedApproval) {
+        // The refusal names the record it matched and how, in the same shape
+        // `/api/portal/resident-approval` uses, so the client can only stamp
+        // `withdrawnAt` locally when the id lookup — never an email fallback —
+        // is what matched. This lookup is by id only.
         return NextResponse.json(
-          { error: "This application was withdrawn by the applicant and can no longer be approved." },
+          {
+            error: "This application was withdrawn by the applicant and can no longer be approved.",
+            blocked: "withdrawn",
+            blockedApplicationId: String(storedLoad.record?.id ?? "").trim() || null,
+            matchedBy: "id",
+          },
           { status: 409 },
         );
       }

@@ -1,6 +1,7 @@
 import { formatPacificDate } from "@/lib/pacific-time";
 import { buildAiGeneratedLeaseHtml, leaseContextFromApplication } from "@/lib/generated-lease";
 import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import {
   evaluateRoomOccupancy,
   normalizeRoomOccupancyCapacity,
@@ -203,6 +204,11 @@ export async function checkMoveOutAvailabilityForLease(
   // Exclude this application only: the same resident may have another stay.
   void excludeResidentEmail;
   const peers: { placement: RoomOccupancyPlacement; start: string; end: string | null }[] = [];
+  // Same key `room_placement_application_key` matches on in SQL: a raw comparison
+  // misses a legacy id form, and for a lease with no `axisId` it compares against
+  // the literal "UNDEFINED" — which counts the resident's own placement as a
+  // roommate and reports a capacity-1 room as full.
+  const selfKey = normalizeApplicationAxisId(asString(leaseRow.axisId)).toUpperCase();
   const owner = String(leaseRecord.manager_user_id ?? leaseRow.managerUserId ?? "");
   for (let offset = 0; ; offset += 500) {
     const { data: applications, error } = await db.from("manager_application_records")
@@ -211,7 +217,7 @@ export async function checkMoveOutAvailabilityForLease(
     if (error) return { ok: false, direction, reason: "Could not verify room availability. Please try again." };
     for (const rec of applications ?? []) {
       const row = asObject(rec.row_data);
-      if (!row || row.withdrawnAt || String(rec.id).toUpperCase() === String(leaseRow.axisId).toUpperCase()) continue;
+      if (!row || row.withdrawnAt || (selfKey && normalizeApplicationAxisId(String(rec.id)).toUpperCase() === selfKey)) continue;
       const app = asObject(row.application) ?? {}, manual = asObject(row.manualResidentDetails) ?? {};
       const assignedProperty = asString(row.assignedPropertyId) || asString(row.propertyId) || asString(app.propertyId);
       if (assignedProperty !== propertyId) continue;
