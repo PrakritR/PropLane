@@ -503,9 +503,10 @@ iOS TestFlight build, so it is promoted only after dedicated QA signs off on
 
 **Agent handoff (every pane):** before saying work is ready, run
 `npm run sandbox:open -- </route>` and include the printed Review URL.
-**Captain promote to prakrit:** `npm run ship:to-prakrit -- --source <keeper>`
-runs security review + no-mistakes, then opens `localhost:3000` on the route
-recorded in `.proplane-review-path`. Details: `docs/agents/sandbox-open-review.md`.
+**Captain integration (not agents):** `npm run ship:to-prakrit -- --source <keeper>`
+runs security review + no-mistakes before updating the captain integration
+branch, then opens `localhost:3000` on `.proplane-review-path`.
+Details: `docs/agents/sandbox-open-review.md`.
 
 # Branching & deployment (Vercel)
 
@@ -530,8 +531,11 @@ feature / agent branch  →  main  →  staging  →  production
 | **`staging`** | QA candidate, ff of `main` | staging project `xwszcafaontidfgznlxd` (never the live production project) | Preview, git-branch-scoped env | dedicated QA |
 | **`production`** | live site | live production (`qahnczmilgptcedaqype`) | Production | nobody experiments here |
 
-~~`prakrit`~~ is retired. Do not merge new work into it. `bin/fm-proplane-promote-*`
-scripts that name `prakrit` are stale.
+**`prakrit` is captain integration only** — agents land on their keeper branch,
+never merge to `prakrit` themselves. Captain uses `npm run ship:to-prakrit` /
+`bin/fm-proplane-promote-to-prakrit.sh` (security review + no-mistakes) to fold
+keeper work into integration before `main`. Agents must not treat `prakrit` as
+their landing branch.
 
 **`production` is the live site.** It deploys to `prop-lane.space` /
 `www.prop-lane.space`, the legacy `axis-seattle-housing.com` /

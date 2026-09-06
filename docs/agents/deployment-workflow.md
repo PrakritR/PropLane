@@ -13,8 +13,9 @@ deployment for the contract.
 | `staging` | QA candidate. Fast-forward of `main`. | staging project `xwszcafaontidfgznlxd` (never live production) | **Preview** (branch-scoped env) | same as `main` |
 | `production` | Live site + TestFlight | live production | **Production** | TestFlight workflow |
 
-`prakrit` is retired — do not merge new work into it. There is no long-lived
-`dev` branch; feature and agent branches are the messy layer.
+`prakrit` is retired — agents do not land there. Captain integration uses
+`npm run ship:to-prakrit`. There is no long-lived `dev` branch; feature and
+agent branches are the messy layer.
 
 ## Vercel: `axis-2` is PropLane production
 
@@ -49,8 +50,11 @@ agent branch  →  prakrit (:3000)  →  main  →  staging  →  production
    `bin/fm-proplane-promote-prakrit-to-main.sh --push-main` (also no-mistakes).
 5. Or merge to `main` directly: `npm run ship:integrate -- --source <branch>`
    — **does not** run no-mistakes; prefer the prakrit ladder for gated promotion.
-6. `npm run ship:staging` then dedicated QA on staging URL.
-7. `npm run ship:production` after QA sign-off (live + TestFlight).
+6. `npm run ship:staging` then dedicated QA on staging URL. Staging uses project
+   `xwszcafaontidfgznlxd`, never the live production Supabase project.
+7. Apply production Supabase migrations **before** pushing `production`.
+8. `npm run ship:production` after QA sign-off (live + TestFlight).
+9. Confirm Vercel Production **and** iOS TestFlight succeeded.
 
 ## Enforcement (do not weaken)
 

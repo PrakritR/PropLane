@@ -36,7 +36,8 @@ Options:
 - `npm run sandbox:open -- --port 3011 /portal/tasks` — override port
 
 Port resolution: `--port` → `PROPPLANE_SANDBOX_PORT` → `.env.local`
-`NEXT_PUBLIC_APP_URL` → `local-agent-branch.mdc` → `3010`.
+`NEXT_PUBLIC_APP_URL` → optional gitignored `.cursor/rules/local-agent-branch.mdc`
+(per-pane, may be absent) → `3010`.
 
 ## Promote sandbox → prakrit (captain / firstmate only)
 

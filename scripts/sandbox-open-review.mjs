@@ -17,8 +17,7 @@ import { spawnSync } from "node:child_process";
 const raw = process.argv.slice(2);
 let printOnly = false;
 let portOverride = "";
-const routes = [];
-
+let route = "/";
 for (let i = 0; i < raw.length; i++) {
   const arg = raw[i];
   if (arg === "--help" || arg === "-h") {
@@ -43,16 +42,14 @@ for (let i = 0; i < raw.length; i++) {
     continue;
   }
   if (arg.startsWith("/")) {
-    routes.push(arg);
+    if (route !== "/") {
+      console.error("Only one route path is allowed");
+      process.exit(1);
+    }
+    route = arg.trim();
     continue;
   }
   console.error(`Unknown argument: ${arg}`);
-  process.exit(1);
-}
-
-const route = routes[0]?.trim() || "/";
-if (!route.startsWith("/")) {
-  console.error("Route must start with / (e.g. /portal/tasks)");
   process.exit(1);
 }
 
@@ -88,12 +85,12 @@ try {
 }
 
 function serverUp() {
-  const res = spawnSync("curl", ["-fsS", "-o", "/dev/null", "-w", "%{http_code}", `http://localhost:${port}/`], {
+  const res = spawnSync("curl", ["-sS", "-o", "/dev/null", "-w", "%{http_code}", `http://localhost:${port}/`], {
     encoding: "utf8",
     timeout: 5000,
   });
   const code = (res.stdout || "").trim();
-  return res.status === 0 && code && code !== "000";
+  return res.status === 0 && /^\d{3}$/.test(code) && code !== "000";
 }
 
 function openBrowser(target) {

@@ -11,7 +11,6 @@
 #   npm run ship:to-prakrit -- --source cursor-1 --validate-only
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 FM_BIN="${FM_BIN:-$HOME/firstmate/bin}"
 PROMOTE="$FM_BIN/fm-proplane-promote-to-prakrit.sh"
 
@@ -45,4 +44,7 @@ if [ -z "$SOURCE" ]; then
   exit 2
 fi
 
-exec "$PROMOTE" "$SOURCE" "${EXTRA[@]}"
+if [ ${#EXTRA[@]} -gt 0 ]; then
+  exec "$PROMOTE" "$SOURCE" "${EXTRA[@]}"
+fi
+exec "$PROMOTE" "$SOURCE"
