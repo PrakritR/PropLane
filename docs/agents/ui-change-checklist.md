@@ -99,6 +99,7 @@ bulk-bar half.
 ## Test before handoff
 
 - Happy path on **this pane's sandbox port** (3010 / 3011 / 3012 — not `/demo` alone)
+- **`npm run sandbox:open -- </route>`** — opens the captain's browser on the fixed feature (`docs/agents/sandbox-open-review.md`)
 - Mobile width (~390px) for any portal chrome or list change
 - `npm run test:unit` for touched area
 

@@ -53,8 +53,23 @@ async function handle(req: NextRequest, context: RouteContext) {
     if (path.length > 2) throw new InspectionError("Not found.", 404);
     if (req.method === "GET") {
       if (!id) {
-        const [reports, residencies] = await Promise.all([listInspections(actor, req.nextUrl.searchParams.get("applicationId") ?? undefined), listInspectionResidencies(actor)]);
-        return json({ reports, residencies });
+        // The two halves are independent, so one must not blank the other: with the reports
+        // table missing the page used to show nothing at all, hiding the residency roster that
+        // was perfectly readable. Settle both, return what worked, and report what did not.
+        const [reports, residencies] = await Promise.allSettled([
+          listInspections(actor, req.nextUrl.searchParams.get("applicationId") ?? undefined),
+          listInspectionResidencies(actor),
+        ]);
+        if (reports.status === "rejected" && residencies.status === "rejected") throw reports.reason;
+        const failure = [reports, residencies].find(result => result.status === "rejected");
+        const notice = failure?.status === "rejected"
+          ? (failure.reason instanceof InspectionError ? failure.reason.message : "Some inspection data could not be loaded.")
+          : undefined;
+        return json({
+          reports: reports.status === "fulfilled" ? reports.value : [],
+          residencies: residencies.status === "fulfilled" ? residencies.value : [],
+          ...(notice ? { notice } : {}),
+        });
       }
       if (path[1] === "pdf") {
         const bytes = await inspectionPdf(actor, id);

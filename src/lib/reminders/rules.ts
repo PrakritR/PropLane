@@ -280,7 +280,9 @@ export const REMINDER_SUBJECT_META: Record<ReminderSubjectKind, ReminderSubjectM
  * field exists so adding one later is a delivery change, not a schema change.
  */
 export const DEFAULT_REMINDER_RULES: ReminderRules = {
-  inspection: { enabled: true, leadMinutes: [DAY], timings: ["before:1440", "after:1440", "after:10080"], audience: { manager: false, counterparty: true, team: false }, teamUserIds: [], inbox: true, email: true, sms: false },
+  // BOTH sides by default: a move-in or move-out condition report is somebody's job on the
+  // day, and if only the resident is reminded nobody in the office knows it was missed.
+  inspection: { enabled: true, leadMinutes: [DAY], timings: ["before:1440", "after:1440", "after:10080"], audience: { manager: true, counterparty: true, team: false }, teamUserIds: [], inbox: true, email: true, sms: false },
   inspection_manager: { enabled: true, leadMinutes: [15], timings: ["after:15", "after:1440"], audience: { manager: true, counterparty: false, team: false }, teamUserIds: [], inbox: true, email: true, sms: false },
   tour: {
     enabled: true,

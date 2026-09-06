@@ -47,6 +47,13 @@ describe("normalizePostAuthPath", () => {
     expect(normalizePostAuthPath("/resident/dashboard")).toBe("/resident/dashboard");
   });
 
+  it("keeps a co-manager invite return path for any role", () => {
+    const next = "/auth/co-manager-invite?token=abc";
+    expect(isUnsafeRedirectPath(next)).toBe(false);
+    expect(normalizePostAuthPath(next, "manager")).toBe(next);
+    expect(normalizePostAuthPath(next, "resident")).toBe(next);
+  });
+
   it("rejects open redirects", () => {
     expect(normalizePostAuthPath("//evil.com")).toBe("/auth/continue");
     expect(normalizePostAuthPath("//evil.com", "manager")).toBe("/portal/dashboard");

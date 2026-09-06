@@ -173,6 +173,24 @@ describe("co-manager invite property scope", () => {
       expect(res.status).toBe(403);
     });
 
+    it("still rejects an open invite that names an unowned property", async () => {
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(sessionClientFor(INVITER));
+      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(serviceClient([OWNED]));
+
+      const res = await createAccountLink(
+        jsonRequest("http://localhost/api/pro/account-links", {
+          method: "POST",
+          body: {
+            assignedPropertyIds: [VICTIM],
+            propertyCoManagerPermissions: {},
+          },
+        }),
+      );
+      const { status, data } = await parseJsonResponse<{ error?: string }>(res);
+      expect(status).toBe(403);
+      expect(data.error).toContain(VICTIM);
+    });
+
     it("lets a fully-owned list past the ownership gate", async () => {
       vi.mocked(createSupabaseServerClient).mockResolvedValue(sessionClientFor(INVITER));
       vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(serviceClient([OWNED]));
@@ -270,6 +288,22 @@ describe("co-manager invite property scope", () => {
 
       const res = await patchAccountLink(
         jsonRequest("http://localhost/api/pro/account-links/link-1", { method: "PATCH", body: { action: "accept" } }),
+        { params },
+      );
+      expect(res.status).toBe(200);
+    });
+
+    it("lets the inviter clear every house on a pending invite", async () => {
+      vi.mocked(createSupabaseServerClient).mockResolvedValue(sessionClientFor(INVITER));
+      vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
+        serviceClient([OWNED], pendingInvite([OWNED])),
+      );
+
+      const res = await patchAccountLink(
+        jsonRequest("http://localhost/api/pro/account-links/link-1", {
+          method: "PATCH",
+          body: { assignedPropertyIds: [] },
+        }),
         { params },
       );
       expect(res.status).toBe(200);

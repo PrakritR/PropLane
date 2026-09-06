@@ -421,3 +421,67 @@ export function ServiceRemindersSettingsBundle({
     </div>
   );
 }
+
+const INSPECTION_REMINDER_TYPES = [
+  {
+    value: "due" as const,
+    label: "Move-in & move-out inspections",
+    description: "Remind around the move date that a condition report is due. One control covers both moves.",
+  },
+  {
+    value: "review" as const,
+    label: "My review alerts",
+    description: "Notify you when a report has evidence waiting for your review.",
+  },
+];
+
+/**
+ * Inspection reminders.
+ *
+ * The due reminder is deliberately BOTH-audience: a condition report is somebody's job on the
+ * day, and reminding only the resident means nobody in the office learns it was missed. The
+ * review alert is manager-side only — there is nothing for a resident to review.
+ */
+export function InspectionRemindersSettingsBundle({
+  teamMembers,
+  dueFormRef,
+  reviewFormRef,
+}: {
+  teamMembers: WorkAssignmentTeamMember[];
+  dueFormRef?: Ref<ManagerReminderRuleSettingsHandle>;
+  reviewFormRef?: Ref<ManagerReminderRuleSettingsHandle>;
+}) {
+  const [type, setType] = useState<"due" | "review">("due");
+  const dueRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+  const reviewRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+  const dueBundle = useBundledReminderSave([dueRef]);
+  const reviewBundle = useBundledReminderSave([reviewRef]);
+
+  useImperativeHandle(dueFormRef, () => dueBundle, [dueBundle]);
+  useImperativeHandle(reviewFormRef, () => reviewBundle, [reviewBundle]);
+
+  return (
+    <div className="space-y-4">
+      <ReminderTypePicker
+        value={type}
+        options={INSPECTION_REMINDER_TYPES}
+        onChange={setType}
+        dataAttr="inspection-reminder-type"
+      />
+      <HiddenReminderRulePanel
+        hidden={type !== "due"}
+        kind="inspection"
+        audienceMode="both"
+        teamMembers={teamMembers}
+        formRef={dueRef}
+      />
+      <HiddenReminderRulePanel
+        hidden={type !== "review"}
+        kind="inspection_manager"
+        audienceMode="manager"
+        teamMembers={teamMembers}
+        formRef={reviewRef}
+      />
+    </div>
+  );
+}

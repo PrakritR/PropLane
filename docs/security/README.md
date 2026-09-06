@@ -1,89 +1,60 @@
 # Security hardening and encryption rollout
 
-**Status: implementation committed and integrated with current main; staging release execution is in progress. Application encryption is not deployed yet.**
-Original baseline: `f44f23a4`; integrated main: `932f29d1`. Work remains isolated in `security/hardening-20260905`. This is a prioritized engineering review using Trail of Bits open-source tooling and methodology, not a paid Trail of Bits audit or a penetration test. Follow the existing [ship gate](../ship-gate.md); this document records security-specific dependencies, not a replacement release process. The user explicitly excluded no-mistakes from this run; validation continues directly. [Current staging execution evidence](2026-09-05-staging-rollout.md).
+**Status: production encryption is live; existing covered data has been migrated and verified. Strict-read configuration is enabled and the production redeploy is READY. Administrator MFA is prepared but not deployed or enrolled.**
 
-## Priority and completion criteria
+Updated September 5, 2026 (execution continued September 6 UTC). Initial security release: `944e9e0b8c55a8a1c1c6faceabdaf04515acb046`. This candidate passed deployed staging QA before promotion. Another workstream subsequently advanced production to `108b6533`; strict-mode staging QA passed on that revision and the READY production strict redeploy preserves it. The user explicitly excluded no-mistakes; direct reviews and validation were used.
 
-| Order | Work | Current status / completion evidence still needed |
+## Current priorities
+
+| Priority | Completed | Remaining |
 | --- | --- | --- |
-| 1 | Fix known vulnerable dependencies and exposed browser/server defaults | Local dependency audit has zero findings. Baseline CSP/framing/content-type headers, verified direct Postgres TLS, lease disclosure sanitization, strict TIN authentication tags and workflow shell-input fixes are implemented. A production build passed after browser/server boundary and route-signature corrections; localhost browser checks confirmed mobile sign-in, headers and unauthenticated denial. Final candidate and staging QA remain release gates. CSP deliberately does not restrict scripts yet. |
-| 2 | Make abuse limits work across Vercel instances | Migration applied and history recorded in dev and staging. Each hosted database passed a real 12-connection probe: 3 allowed, 9 rejected; browser grants/RPC access denied. Application callers and webhook outage handling are implemented locally; deployed HTTP/provider retry and sustained-load QA remain. |
-| 3 | Provision separate encryption keys and encrypt integration credentials | Separate key rings and active IDs provisioned as sensitive Vercel Preview variables scoped to `main` and `staging`, with verified macOS Keychain recovery copies. Calendar encryption is implemented. Deploy compatible code before backfilling **both** token locations, verify zero plaintext, then enable strict reads. No production keys or existing-data backfills have been applied. |
-| 4 | Encrypt applicant identity fields and remove residual copies | Canonical applicant SSN/DOB/license and co-signer masked SSN/DOB/license encryption, authorized readers/writers and backfills are implemented. Hosted dry-run rehearsals passed in dev/staging; existing records are unchanged. Applicant persistent browser mirrors are removed locally, with account-change/late-response/queued-write protection. Lease snapshots, generated exports and backups remain separate copies to cover. |
-| 5 | Protect document contents against storage-export theft | Application upload/download encryption and legacy aliases/backfill are implemented; both document migrations are applied in dev/staging. A synthetic hosted dev probe verified encrypted replacement, authorized roundtrip, stable aliases, browser-role denial and cleanup. Existing customer objects are unchanged. CDN copies can outlive origin deletion. Manager/vendor/inbox/lease document byte paths remain outside this implementation. |
-| 6 | Verify operational controls and test independently | Bounded production inspection confirmed private buckets and RLS on five tables, but found excess browser privileges, disabled direct database SSL enforcement and no verified MFA factors on the 23 application accounts. Privilege corrections and SSL enforcement are applied in dev/staging only. Cross-account tests, privileged MFA, key recovery, backup restore, telemetry privacy and an authenticated multi-role penetration test remain. |
+| **1. Production encryption** | Separate production key; compatible application deployed; five security migrations verified; 24 calendar tokens in 19 rows, 39 applicant identity fields in 14 rows, and 12 application documents migrated. Post-migration inventories report zero plaintext fields and zero legacy document candidates/cleanup pending; all 12 stored document envelopes authenticate. | Strict-mode staging QA passed; all four strict flags configured true and production redeploy READY. Independent organizational key recovery and rotation remain priority 4. |
+| **2. Production access hardening** | Direct PostgreSQL SSL enforcement enabled and verified after reconnect. Sensitive application/co-signer/calendar tables deny direct browser access; alias/limiter tables and RPCs have restricted grants. New browser headers and shared database-backed rate limiting are deployed. Staging checks verify owner access and unrelated-manager/anonymous denials for the covered application/document paths. | Review and stage the prepared administrator MFA change, then have administrators enroll and verify recovery before enforcement. Provider-account MFA, wider multi-role authorization testing and sustained/provider-retry load checks remain. |
+| **3. Remaining sensitive copies** | Applicant persistent browser mirrors removed in the deployed code. A scoped follow-up inventory is documented. | Lease snapshots, generated PDFs/exports, other document categories, free-text answers, retained backups, AI traces/eval datasets, and actual PostHog replay/masking/retention settings. |
+| **4. Recovery and independent validation** | Encrypted migration archives were authenticated before writes; local Keychain recovery copies were verified. Dependency audit: zero findings at the reviewed revision; source/review reports retained. | Independently controlled key escrow/KMS, provider-backup verification, isolated database-plus-object restore, rotation drill and authenticated independent penetration testing. |
 
-Release validation, coverage of residual copies and operational controls remain substantial work. This implementation does not establish that all customer data is protected against a database export, compromised application or privileged account.
+The encrypted identity scope is canonical applicant SSN/date of birth/license and co-signer masked SSN/date of birth/license. Production currently has zero co-signer submissions, so co-signer encryption was exercised with synthetic staging fixtures. The document scope is application-uploaded documents. This does not mean every database field, lease snapshot, document category, export or historical copy has application-level encryption.
 
-All 31 external GitHub Action references are now pinned locally to verified upstream commit SHAs, with weekly Dependabot maintenance configured. The workflows have not been deployed/run from this branch.
+## Verified production controls
 
-## What is already known about production
+- Production `qahnczmilgptcedaqype` has a separate versioned AES-256-GCM keyring in server secrets, separate from the database and nonproduction keys. No master key is exposed through public environment variables.
+- Five migrations are installed with exact source/history and boundary verification: shared rate limits, document envelopes, document aliases, browser privilege restrictions and atomic application-record normalization. Profile row privileges were preserved while dangerous table-level grants were removed.
+- Direct database SSL enforcement is enabled; the operator reconnect verified TLS certificates. Website HTTPS/HSTS and new CSP headers were observed live; sign-in returns 200 and unauthenticated application access returns 401. CSP deliberately does not restrict scripts yet.
+- The two inspected document buckets are private. RLS was confirmed on five inspected tables; this is a bounded check, not universal policy certification.
+- Separate encrypted pre-migration archives cover four selected tables and, for the document migration, the 12 original objects. These are bounded migration backups, not a tested full production restore system.
+- Initial application MFA enrollment was 0/23 accounts, including 0/1 explicit-role administrator. The prepared MFA commit `83f88b8c` is retained on local branch `security/admin-mfa-20260905`; it is not deployed or claimed as an active control.
 
-- Public `https://prop-lane.space` uses HTTPS and returns HSTS. Its observed response before these changes lacked the new browser headers.
-- Supabase states that customer data is encrypted at rest with AES-256 and in transit with TLS: [provider security](https://supabase.com/security). This is provider assurance, not an independent inspection of our storage or a PropLane certification.
-- Read-only `supabase ssl-enforcement get --project-ref qahnczmilgptcedaqype --experimental` reported direct database SSL enforcement **disabled**. HTTPS API traffic still uses TLS. Enabling enforcement may briefly restart the database: [official enforcement documentation](https://supabase.com/docs/guides/platform/ssl-enforcement). No production setting was changed.
-- The [bounded production inspection](2026-09-05-production-control-verification.md) confirmed the two document buckets are private and RLS is enabled on five inspected tables. It did not validate policy expressions, storage object policies or end-to-end cross-account access. Application MFA enrollment was 0/23 accounts, including 0/1 explicit-role admin; provider/organization MFA was not inspected.
-- Production application-key provisioning, TIN key configuration and backup restore remain unverified. Missing variables in a local shell do not prove that production variables are missing.
+[Production execution evidence](2026-09-05-production-rollout.md) contains aggregate counts and deployment state. [Customer wording](customer-security-wording.md) limits claims to supported scope.
 
 ## Encryption design and limits
 
-Infrastructure encryption protects storage media. A database query or logical export can still return readable values. The additional field layer encrypts selected values before database storage and holds the key separately in the application's server secret store. A database-only attacker lacking that key cannot decrypt those fields. A compromised application runtime with decryption access can; this is not end-to-end encryption or zero knowledge.
+Supabase states that stored customer data is encrypted at rest with AES-256: [provider security](https://supabase.com/security). Infrastructure encryption protects storage media; a logical database export can still reveal unencrypted values.
 
-`DATA_ENCRYPTION_KEYS_JSON` maps key IDs to cryptographically random 32-byte keys encoded as base64; `DATA_ENCRYPTION_ACTIVE_KEY_ID` selects new writes. Never put these in `NEXT_PUBLIC_*`, a database table, source control, build logs or a chat. Use separate keys for dev, staging and production. The implemented adapter uses server environment secrets; a dedicated KMS with independently controlled decrypt permissions is the preferred subsequent key-management boundary and is not yet integrated. Key loss without a recoverable key backup loses access to ciphertext.
+The additional application layer encrypts designated values before storage and binds ciphertext to its purpose/record context. A database/storage copy without the server key cannot decrypt the covered ciphertext. A compromised application runtime or authorized account may still access decrypted data. This is not end-to-end encryption or zero knowledge.
 
-For rotation, retain old keys for reads, select a new active ID, re-encrypt existing records, verify migration, then retire the old key only after accounting for backups and recovery requirements. Existing TIN ciphertext still uses its legacy key format; strict tag checks are improved, but versioned rotation and record binding remain separate work.
+`DATA_ENCRYPTION_KEYS_JSON` maps key IDs to random 32-byte keys; `DATA_ENCRYPTION_ACTIVE_KEY_ID` selects new writes. Keep these out of source, logs, browser configuration and database tables. Current server secrets plus a local Keychain copy are not independent organizational recovery or a dedicated KMS.
 
-Calendar plaintext reads are temporarily allowed for migration; new credential writes always require encryption. After the backfill, set `DATA_ENCRYPTION_REQUIRE_ENCRYPTED_READS=true`. Do not enable it before migration. A lost-key/corrupt-record disconnect can erase credentials through the existing authenticated DELETE route without decrypting. The current error UI does not expose that recovery path; operator-assisted recovery is required.
+Rotation must preserve historical keys for live ciphertext and retained backups until migration/retention permits retirement. Existing TIN encryption uses a separate legacy key format and needs its own recovery/rotation work. Old plaintext backups and CDN copies require retention/expiry verification even after live origin cleanup.
 
-## Staged rollout dependencies
+## Validation and operational limits
 
-1. **Done for dev/staging:** recovered CLI-managed ephemeral database access with verified TLS, provisioned the CA in branch-scoped Vercel settings, enabled database SSL enforcement in both nonproduction projects and verified reconnects. The old local static password is not repaired or used. A bundled public CA is available in `scripts/security/supabase-prod-ca-2021.crt`; its name identifies the provider certificate, not a production credential.
-2. **Done for dev/staging:** applied all five security migrations, including atomic application-ID normalization, (shared limiter, document envelope bucket settings, private document aliases, sensitive-table browser privileges) with history verification. Checked browser/service-role permissions and concurrent quota behavior. The app fails closed if the limiter RPC is absent; production still requires schema prerequisites before dependent code.
-3. **Keys provisioned for dev/staging:** branch-scoped `main` database URL/anon/service settings explicitly select dev; staging's URL was verified as the staging project. Encryption rings are separate per environment and not stored in the database. Exercise OAuth connect/refresh/sync/disconnect with synthetic accounts after compatible code deploys.
-4. **Dry-run rehearsals passed; apply pending:** after compatible readers/writers are deployed, backfill calendar credentials, canonical applicant/co-signer identity and application documents. Check stale `row_data.google_calendar` even when the dedicated column exists. Verify zero plaintext and no pending rotation, then enable each strict-read flag and test again. The synthetic document probe observed a cached old plaintext response after origin deletion; verify cache expiration/purge before claiming legacy plaintext removal.
-5. Run staging browser/native QA: login/reset, lease PDF and attachment previews, camera uploads, calendar flows, and abuse/error paths. Verify security headers on HTML and stricter attachment responses. Measure limiter database load and behavior under actual parallel connections.
-6. Only after dedicated staging QA signs off, promote through the existing `main → staging → production` ladder. Production keys and schema prerequisites come first, compatible code next, then existing-data backfill and strict-read cutover. This patch's backfill deliberately refuses production writes; prepare/review the production procedure with QA evidence instead of bypassing that guard.
+- Integrated unit suite: **1,144 files / 7,569 tests passed**; production webpack build, TypeScript and 368 static pages passed. Changed-file lint: zero errors, 16 existing hook warnings. Dependency audit: zero findings.
+- Main CI at test-only follow-up `9184d14e` passed all jobs after one browser-smoke rerun. The follow-up synchronizes the existing PDF loading test; production application code remains the reviewed `944e9e0b`.
+- Hosted staging QA exercised real upload components and deployed HTTP paths in Chromium and mobile WebKit: 15 MB PDF, image replacement/reload, retry, authorized byte roundtrip, encrypted storage, corrupt-object denial, cross-account denials and co-signer identity encryption. Synthetic fixtures were cleaned up. This was focused component/HTTP QA; full wizard resume, physical camera/Capacitor, live Google OAuth and every portal role were not certified.
+- Dev/staging shared-limit probes used 12 independent connections each: 3 allowed, 9 rejected. Production sustained load/provider retry behavior still needs validation.
+- New production operators passed 20 schema tests and 9 focused backup/backfill tests; the schema installer was checked against actual hosted catalogs. Security subagents completed bounded reviews, then exhausted the account usage allowance; the final MFA follow-up review did not complete and was not retried.
+- Trail of Bits open-source rules/methodology were used in our review. This is **not a paid Trail of Bits audit, penetration test or certification**. Graph refresh tooling was unavailable; it is not reported as passed.
 
-## Remaining execution order
+## Maintenance and next steps
 
-1. Complete final candidate validation and land on `main`. Integration with `932f29d1`, a production build and restoration of `staging` are complete. The restored staging baseline CI passed; it does not validate the unreleased encryption candidate. Finish the legacy application-ID/document-alias fix and its tests before landing. Never skip staging or force-push.
-2. Deploy compatible code to dev/staging, exercise synthetic multi-role browser/native flows, apply the rehearsed legacy backfills, verify cache cleanup and enable strict reads. Do not exercise outbound integrations against copied customer records.
-3. Cover identity copies in lease snapshots and generated documents before making a broad database-export protection claim. Review remaining private document categories, custom/free-text answers and retained backups separately.
-4. After dedicated QA, provision production keys and schema, deploy compatible code, run a reviewed production backfill, then enforce encrypted reads. Enable production direct database SSL enforcement in a maintenance window after checking every direct client.
-5. Enroll/enforce administrator MFA, verify provider-account MFA, test organizational key recovery/rotation and backup restores. Replace local recovery dependence with managed key access and a documented recovery process.
-6. Resolve AI trace/replay/retention exposure and verify PostHog project masking/settings; run authenticated cross-account testing and an independent penetration test. Update customer claims only from completed production evidence.
+Use the fixed-target production operators in `scripts/security/production-schema.mjs` and `production-backfills.ts`; default behavior is read-only. Apply requires exact production confirmation and an absolute private encrypted-backup directory. Serialize ephemeral database-login operations. Keep private runtime/key files and migration archives out of Git and logs.
 
-### Backfill commands
+The four strict flags are `DATA_ENCRYPTION_REQUIRE_ENCRYPTED_READS`, `APPLICANT_IDENTITY_REQUIRE_ENCRYPTED_READS`, `COSIGNER_IDENTITY_REQUIRE_ENCRYPTED_READS`, and `DATA_ENCRYPTION_REQUIRE_ENCRYPTED_DOCUMENT_READS`. Enable only after zero-plaintext backfills and compatible-reader verification; environment updates require a deployment.
 
-Load the correct environment through the established secret-loading mechanism; do not paste secrets into a shell command. The npm script supplies the React server condition required by `server-only`:
+The lowest-cost maintainable next step is the existing shared MFA gate, followed by one shared sensitive-copy/encrypted-artifact policy and a bounded recovery drill. Do not build a second authentication or encryption framework. See the [prepared MFA rollout](2026-09-05-admin-mfa-rollout.md) and [recovery readiness and copy inventory](2026-09-05-recovery-readiness.md).
 
-```sh
-npm run security:calendar-backfill           # dry-run, counts only
-npm run security:calendar-backfill -- --apply # dev/staging only
-npm run security:cosigner-backfill
-npm run security:backfill-applicant-identities
-npm run security:document-backfill
-```
+## Evidence
 
-These default to dry-run; `--apply` is restricted to dev/staging. `SECURITY_DATABASE_CLI_LOGIN=1` obtains short-lived credentials through the authenticated Supabase CLI with explicit nonproduction target checks and verified TLS. Never print the CLI credential output. Calendar/identity applies use row-locking transactions; document replacement uses per-object transactions and verifies uploaded ciphertext before committing aliases and deleting originals. See each implementation report for recovery semantics. Take a recoverable backup first and schedule locked migrations for a quiet window. Old plaintext backups remain a retention/access-control issue after live rows are encrypted.
-
-Strict-read flags, enabled only after their corresponding successful backfill: `DATA_ENCRYPTION_REQUIRE_ENCRYPTED_READS`, `COSIGNER_IDENTITY_REQUIRE_ENCRYPTED_READS`, `APPLICANT_IDENTITY_REQUIRE_ENCRYPTED_READS`, and `DATA_ENCRYPTION_REQUIRE_ENCRYPTED_DOCUMENT_READS`. All remain disabled for rollout compatibility.
-
-## Review and evidence
-
-- [Baseline data review](2026-09-05-data-security-review.md)
-- [Differential security review](2026-09-05-differential-review.md)
-- [Bugbot review](2026-09-05-bugbot-review.md)
-- [Static analysis](2026-09-05-static-analysis.md)
-- [Nonproduction execution evidence](2026-09-05-nonproduction-execution.md)
-- [Action pinning and telemetry privacy review](2026-09-05-actions-and-telemetry-review.md)
-- [Application document encryption](2026-09-05-application-document-encryption.md)
-- [Applicant and co-signer encryption boundaries](2026-09-05-applicant-identity-boundaries.md)
-- [Production control verification](2026-09-05-production-control-verification.md)
-- [Current staging execution](2026-09-05-staging-rollout.md)
-- [Customer wording and claim gates](customer-security-wording.md)
-
-The integrated full unit run passed **1,144 files / 7,569 tests** on Node 22 with three workers, with standalone TypeScript and changed-file lint passing and zero dependency-audit vulnerabilities. The final resumed production-mode webpack build passed compilation, TypeScript and all 368 static pages after the normalization correction. Hosted dev/staging limiter probes passed using 12 independent connections each. Calendar/applicant/co-signer hosted dry runs succeeded, and the synthetic dev document probe verified roundtrip/alias behavior and fixture cleanup. These checks do not replace deployed browser/native QA, external integration tests or a penetration test.
-
-Earlier builds failed from local disk/heap limits. After clearing the regenerable npm cache, using a 3,072 MB heap and disabling the optional local webpack cache, the build exposed and then passed the corrected browser/server boundaries and API signature; all 368 static pages generated successfully. Remote `staging` was absent again at resume and must be recreated through the promotion script. Its local-shell environment warnings did not establish production outages. The [dangling release-wrapper reference was reconciled](2026-09-05-release-gate-reconciliation.md), preserving actual independent review and Critical/High blockers. No-mistakes was cancelled at the user's direction and is not reported as passed. Graph refresh remains unavailable with current tooling. No production migration, backfill, key provisioning or deployment occurred.
+- [Baseline review](2026-09-05-data-security-review.md), [differential review](2026-09-05-differential-review.md), [Bugbot review](2026-09-05-bugbot-review.md), [static analysis](2026-09-05-static-analysis.md)
+- [Production controls](2026-09-05-production-control-verification.md), [staging execution](2026-09-05-staging-rollout.md), [staging QA evidence](2026-09-05-staging-security-qa.json), [dedicated release review](2026-09-05-dedicated-release-review.md)
+- [Document encryption](2026-09-05-application-document-encryption.md), [identity boundaries](2026-09-05-applicant-identity-boundaries.md), [telemetry review](2026-09-05-actions-and-telemetry-review.md)

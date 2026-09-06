@@ -15,6 +15,19 @@ describe("finance list chrome", () => {
     expect(source).not.toContain("lg:flex-row lg:items-start");
   });
 
+  it("reloads after an assistant expense or income confirm", () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/components/portal/pro-finances-panel.tsx"),
+      "utf8",
+    );
+    expect(source).toContain("FINANCES_ASSISTANT_UPDATED_EVENT");
+    // The shared transport refreshes the store once; the page only reloads its report.
+    const transport = readFileSync(join(process.cwd(), "src/lib/axis-assistant/use-assistant-conversation.ts"), "utf8");
+    expect(transport).toContain("syncManagerOutgoingExpensesFromServer(true)");
+    expect(source).not.toContain("syncManagerOutgoingExpensesFromServer(true)");
+    expect(source).toContain("void loadTable()");
+  });
+
   it("orders transaction tabs before reports", () => {
     const source = readFileSync(
       join(process.cwd(), "src/components/portal/pro-finances-panel.tsx"),

@@ -507,6 +507,13 @@ The one hard stop is `production`: pushing it deploys the live site AND ships an
 iOS TestFlight build, so it is promoted only after dedicated QA signs off on
 `staging`.
 
+**Agent handoff (every pane):** before saying work is ready, run
+`npm run sandbox:open -- </route>` and include the printed Review URL.
+**Captain integration (not agents):** `npm run ship:to-prakrit -- --source <keeper>`
+runs security review + no-mistakes before updating the captain integration
+branch, then opens `localhost:3000` on `.proplane-review-path`.
+Details: `docs/agents/sandbox-open-review.md`.
+
 # Branching & deployment (Vercel)
 
 The Vercel project (`axis-2`, connected to `PrakritR/AXIS-2` / `PrakritR/PropLane`)
@@ -530,8 +537,11 @@ feature / agent branch  →  main  →  staging  →  production
 | **`staging`** | QA candidate, ff of `main` | staging project `xwszcafaontidfgznlxd` (never the live production project) | Preview, git-branch-scoped env | dedicated QA |
 | **`production`** | live site | live production (`qahnczmilgptcedaqype`) | Production | nobody experiments here |
 
-~~`prakrit`~~ is retired. Do not merge new work into it. `bin/fm-proplane-promote-*`
-scripts that name `prakrit` are stale.
+**`prakrit` is captain integration only** — agents land on their keeper branch,
+never merge to `prakrit` themselves. Captain uses `npm run ship:to-prakrit` /
+`bin/fm-proplane-promote-to-prakrit.sh` (security review + no-mistakes) to fold
+keeper work into integration before `main`. Agents must not treat `prakrit` as
+their landing branch.
 
 **`production` is the live site.** It deploys to `prop-lane.space` /
 `www.prop-lane.space`, the legacy `axis-seattle-housing.com` /
@@ -711,6 +721,40 @@ are deliberately NOT in that list and stay visible as their own CI jobs:
 `integration` needs the live dev/test Supabase project and repo secrets a fork PR
 never gets, and `e2e` is skipped on pull requests entirely — depending on either
 would block merges on infrastructure rather than on code.
+
+# Deleting an account must leave the email reusable
+
+A delete is only done when the address can sign up again onto a genuinely empty account. Two
+halves have to agree, and both failed silently before:
+
+- **The server purge is a MANIFEST, not a hand-written list of deletes.**
+  `src/lib/auth/account-purge-manifest.ts` names every `public` table and which columns tie a
+  row to a manager, resident, or vendor — `ids`/`emails` delete the row, `detachIds`/
+  `detachEmails` null a pointer on somebody else's record (a manager's vendor directory entry,
+  an audit trail's actor), `phase` orders children before FK parents.
+  `purge-portal-account-data.ts` just runs it. **A new table must be classified there or given
+  a reason in `ACCOUNT_PURGE_RETAINED`** — `tests/unit/account-purge-coverage.test.ts` parses
+  `supabase/migrations/*.sql` (renames included: `work_order_events` is now `action_events`)
+  and fails on anything unclassified. The old inline list named ~30 of 100+ tables, so bank
+  accounts, budgets, expenses, API keys, SMS logs, calendar links, invite links, tour links
+  and agent history all outlived a "permanent" delete. `scripts/delete-account.mjs`'s
+  `DELETE_ORDER` only visits tables it names, so it is held to the same manifest by
+  `tests/unit/account-deletion-plan.test.ts`.
+- **Deleting the last portal deletes the LOGIN.** `removePortalAccess` read only
+  `profile_roles`, so an account whose role lives on the legacy `profiles.role` column
+  answered `no_role`: the data went, the auth user and profile stayed, and the address could
+  never be reused. It now merges the legacy role in, and `deleteOwnPortalAccount` deletes the
+  profile and auth user itself whenever no role remains — never report an account deleted
+  while its login survives.
+- **The server cannot reach localStorage.** Portal panels mirror local copies back
+  (`mirrorLocalPropertyPipelineToServer` and friends), so a delete that leaves them behind
+  re-uploads the account on the next sign-in. `PortalDeleteAccountButton` calls
+  `clearPortalBrowserCache()` on success only — never on a refusal. Coverage:
+  `tests/unit/portal-delete-account-clears-local-data.test.tsx`,
+  `tests/unit/account-delete-leaves-nothing.test.ts`.
+
+Financial/GL rows the manager still owns, Stripe's own records, and the shared `admin` support
+inbox are deliberately retained; everything else goes.
 
 # The PostgREST surface is public — RLS row predicates are not a column gate
 

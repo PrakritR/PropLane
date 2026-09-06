@@ -65,6 +65,8 @@
     "lavish:workflow": "npx -y lavish-axi docs/lavish/captain-workflow.html",
     "posthog:verify": "node --env-file=.env.local --env-file-if-exists=.env scripts/posthog-verify-setup.mjs",
     "sandbox:pin": "node scripts/pin-sandbox-port.mjs",
+    "sandbox:open": "node scripts/sandbox-open-review.mjs",
+    "ship:to-prakrit": "bash scripts/ship-to-prakrit.sh",
     "seed:dev-account": "npx tsx scripts/seed-dev-manager-portfolio.ts",
     "admin:sync-account": "node scripts/ensure-admin-account.mjs",
     "admin:set-manager-plan": "node scripts/set-manager-plan.mjs",

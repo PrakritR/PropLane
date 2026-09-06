@@ -9,7 +9,7 @@ import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import {
   applyInspectionObservations, createInspectionSchema,
-  InspectionError, transitionInspection,
+  InspectionError, residencyOccupancy, transitionInspection,
   type InspectionDetail, type InspectionDocument, type InspectionRecord,
   type InspectionResidency, type InspectionSummary,
 } from "./model";
@@ -76,6 +76,26 @@ export async function getInspection(actor: InspectionActor, id: string, level: "
   return data as InspectionRecord;
 }
 
+/**
+ * A table this environment has never had is a DEPLOYMENT gap, not something the manager can
+ * retry away: migrations do not ride along with a deploy, so the code can ship weeks before
+ * the table exists. Saying "please try again" there sent managers round a loop forever, so
+ * name the real problem instead. Any other read failure keeps the retry wording.
+ */
+function tableReadError(table: string, error: { code?: string; message?: string }): InspectionError {
+  const code = error.code ?? "";
+  const message = (error.message ?? "").toLowerCase();
+  const missing = code === "PGRST205" || code === "42P01" ||
+    message.includes("schema cache") || (message.includes("relation") && message.includes("does not exist"));
+  if (missing) {
+    return new InspectionError(
+      `Inspections are not set up in this environment yet — the "${table}" table is missing. Apply the pending database migrations to enable them.`,
+      503,
+    );
+  }
+  return new InspectionError("Could not load inspection records. Please try again.", 500);
+}
+
 /** Each query is scoped before it runs, and paginated to avoid Supabase's 1,000-row ceiling. */
 async function scopedRows(actor: InspectionActor, table: string, scope: Scope, columns = "*", id?: string) {
   const filters: { column: string; values: string[] }[] = actor.role === "resident"
@@ -89,7 +109,7 @@ async function scopedRows(actor: InspectionActor, table: string, scope: Scope, c
         let query = actor.context.db.from(table).select(columns).in(filter.column, filter.values.slice(chunk, chunk + 100));
         if (id) query = query.eq("id", id);
         const { data, error } = await query.order("id").range(offset, offset + 499);
-        if (error) throw new InspectionError("Could not load inspection records. Please try again.", 500);
+        if (error) throw tableReadError(table, error);
         for (const row of data ?? []) {
           const value = row as unknown as Record<string, unknown>;
           rows.set(String(value.id), value);
@@ -108,7 +128,14 @@ const residencyColumns = "id,manager_user_id,property_id,assigned_property_id,re
   + "app_name:row_data->>name,app_property:row_data->>property,"
   + "app_property_id:row_data->>propertyId,app_assigned_property_id:row_data->>assignedPropertyId,"
   + "app_resident_user_id:row_data->>residentUserId,app_room_choice:row_data->>assignedRoomChoice,"
-  + "app_manual_room:row_data->manualResidentDetails->>roomNumber";
+  + "app_manual_room:row_data->manualResidentDetails->>roomNumber,"
+  // Tenancy dates, in the same precedence the rest of the product reads them
+  // (see resolveResidentMoveInFromApplications): a manually entered date is the
+  // manager's own correction and outranks the date the applicant typed.
+  + "app_manual_move_in:row_data->manualResidentDetails->>moveInDate,"
+  + "app_manual_move_out:row_data->manualResidentDetails->>moveOutDate,"
+  + "app_lease_start:row_data->application->>leaseStart,"
+  + "app_lease_end:row_data->application->>leaseEnd";
 
 type ResidencyView = {
   id: string;
@@ -117,8 +144,19 @@ type ResidencyView = {
   propertyLabel: string;
   roomLabel: string;
   manualRoom: string;
+  moveInDate: string;
+  moveOutDate: string;
   identity: { manager_user_id: string; property_id: string; resident_email: string; resident_user_id: string | null };
 };
+
+/** Applications store dates in several shapes; only a plain `YYYY-MM-DD` is safe to compare. */
+function isoDate(value: string): string {
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const parsed = new Date(trimmed);
+  if (!trimmed || Number.isNaN(parsed.getTime())) return "";
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+}
 
 function residencyFromRecord(record: Record<string, unknown>): ResidencyView {
   const text = (alias: string): string => {
@@ -132,6 +170,8 @@ function residencyFromRecord(record: Record<string, unknown>): ResidencyView {
     propertyLabel: text("app_property") || "Property",
     roomLabel: text("app_room_choice") || text("app_manual_room") || "",
     manualRoom: text("app_manual_room"),
+    moveInDate: isoDate(text("app_manual_move_in")) || isoDate(text("app_lease_start")),
+    moveOutDate: isoDate(text("app_manual_move_out")) || isoDate(text("app_lease_end")),
     identity: {
       manager_user_id: text("manager_user_id"),
       property_id: text("assigned_property_id") || text("app_assigned_property_id")
@@ -164,6 +204,8 @@ export async function listInspectionResidencies(actor: InspectionActor): Promise
     const rooms = properties.get(`${identity.property_id}::${identity.manager_user_id}`);
     return { id: residency.id, name: residency.name, property: residency.propertyLabel,
       room: residency.roomLabel, requiredKinds: roomInspectionRequirements(identity.property_id, residency.roomLabel, rooms),
+      moveInDate: residency.moveInDate, moveOutDate: residency.moveOutDate,
+      occupancy: residencyOccupancy(residency.moveInDate, residency.moveOutDate),
       canCreate: Boolean(residency.roomLabel && residency.roomLabel !== identity.property_id) && authorized(actor, editScope, identity) };
   });
 }

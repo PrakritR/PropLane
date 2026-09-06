@@ -3446,16 +3446,18 @@ html[data-native] [data-listing-subnav] {
 /* One width contract for page chat and dialog chat. Reserve the rail before
    centering/sizing the editor, so narrow and wide dialogs both move left. */
 :root {
-  --portal-assistant-rail-width: clamp(18rem, 22vw, 20rem);
+  --portal-assistant-rail-width: clamp(21rem, 26vw, 23rem);
   --portal-assistant-panel-gap: 1rem;
 }
 
 @media (min-width: 768px) {
   [role="dialog"][data-modal-assistant-open] > [data-modal-assistant-workspace] {
-    padding-right: calc(var(--portal-assistant-rail-width) + 2 * var(--portal-assistant-panel-gap));
-  }
-  [role="dialog"][data-modal-assistant-open] > [data-modal-assistant-workspace][data-full-screen="true"] {
-    padding-right: calc(var(--portal-assistant-rail-width) + var(--portal-assistant-panel-gap));
+    /* Reserve actual canvas width before sizing the editor. Padding alone can
+       be defeated by a full-screen editor's viewport-width utilities. */
+    flex: 0 0 calc(100% - var(--portal-assistant-rail-width));
+    width: calc(100% - var(--portal-assistant-rail-width));
+    max-width: calc(100% - var(--portal-assistant-rail-width));
+    padding: var(--portal-assistant-panel-gap);
   }
   /* Retained custom dialog shells use their original max-width. A real margin
      reserves rail space; padding inside the editor made its form look squeezed
@@ -3509,6 +3511,16 @@ html[data-native] [data-listing-subnav] {
   @media (min-width: 768px) {
     [role="dialog"][data-modal-assistant-open]:not(:has(> [data-modal-assistant-workspace])) {
       width: calc(100vw - var(--portal-assistant-rail-width) - 3 * var(--portal-assistant-panel-gap)) !important;
+    }
+  }
+}
+
+/* Full-page editors also fit the remaining canvas when chat is requested. */
+@layer base {
+  @media (min-width: 768px) {
+    [role="dialog"][data-modal-assistant-open] > [data-modal-assistant-workspace][data-full-screen="true"] > :first-child {
+      width: 100% !important;
+      max-width: 100% !important;
     }
   }
 }

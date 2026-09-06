@@ -34,7 +34,12 @@ async function openPromotionSection(page: Page) {
   // The demo ships both a desktop sidebar and a mobile section strip; only one
   // is visible at a given viewport.
   await page.locator('[data-attr="demo-nav-promotion"]:visible').first().click();
-  await expect(page.getByRole("heading", { name: "Promotion", exact: true })).toBeVisible();
+  if ((page.viewportSize()?.width ?? 1280) >= 768) {
+    await expect(page.getByRole("heading", { name: "Promotion", exact: true })).toBeVisible();
+  }
+  // The mobile panel omits the desktop title band; its list and primary
+  // action identify the active section at every breakpoint.
+  await expect(page.locator('[data-attr="promotion-content-direct"]')).toBeVisible();
   await expect(page.locator('[data-attr="promotion-new"]')).toBeVisible();
   // Land on the top of the panel so screenshots frame the header actions.
   await page.evaluate(() => {
@@ -91,8 +96,8 @@ for (const viewport of [
         path: `${SHOT_DIR}/${viewport.name}-04-new-modal-text.png`,
       });
 
-      // Cancel still closes it.
-      await dialog.getByRole("button", { name: "Cancel" }).click();
+      // The shared modal header closes the form.
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
       await expect(page.getByRole("dialog")).toHaveCount(0);
     });
 
@@ -144,7 +149,7 @@ for (const viewport of [
     test("creates a text promotion straight from the type dropdown", async ({ page }) => {
       const frame = await openPromotionSection(page);
       const list = page.locator('[data-attr="promotion-content-direct"]');
-      const beforeCount = await list.locator('[data-attr="promotion-row"]').count();
+      const beforeCount = await list.getByRole("checkbox").count();
 
       await page.locator('[data-attr="promotion-new"]').click();
       const dialog = page.getByRole("dialog");
@@ -163,9 +168,13 @@ for (const viewport of [
       }
       await dialog.locator('[data-attr="promotion-text-generate-submit"]').click();
 
-      // Modal closes on success and the new text asset lands in the unified list.
+      // Success replaces the composer with the generated asset preview.
+      const preview = page.getByRole("dialog");
+      await expect(preview.getByRole("heading", { name: /^View · / })).toBeVisible();
+      await expect(preview.getByRole("button", { name: "Copy text", exact: true })).toBeVisible();
+      await preview.getByRole("button", { name: "Close", exact: true }).click();
       await expect(page.getByRole("dialog")).toHaveCount(0);
-      await expect(list.locator('[data-attr="promotion-row"]')).toHaveCount(beforeCount + 1);
+      await expect(list.getByRole("checkbox")).toHaveCount(beforeCount + 1);
       await frame.screenshot({
         path: `${SHOT_DIR}/${viewport.name}-07-text-promotion-created.png`,
       });

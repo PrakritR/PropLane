@@ -16,6 +16,11 @@ export type AccountLinkInviteDto = {
   inviteeAxisId: string;
   inviterDisplayName: string | null;
   inviteeDisplayName: string | null;
+  /**
+   * Pending shareable link that nobody has claimed yet (`invitee_user_id` is
+   * null). The list row is "Invite link" until she joins.
+   */
+  openInvite?: boolean;
   /** For the signed-in user: the other workspace’s Axis ID and label. */
   linkedAxisId: string;
   linkedDisplayName: string | null;

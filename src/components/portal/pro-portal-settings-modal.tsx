@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PaymentAutomationSettingsHandle } from "@/components/portal/payment-schedule-ui";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -16,6 +16,7 @@ import {
   PaymentsSettingsPanel,
   ResidentSettingsPanel,
   BookingsSettingsPanel,
+  InspectionsSettingsPanel,
   ServicesSettingsPanel,
   SettingsPanelModalSaveButton,
   TaskSettingsPanel,
@@ -40,6 +41,7 @@ export type ManagerPortalSettingsTab =
   | "services"
   | "communication"
   | "bookings"
+  | "inspections"
   | "automation";
 
 const TABS: { id: ManagerPortalSettingsTab; label: string }[] = [
@@ -56,6 +58,7 @@ const TABS: { id: ManagerPortalSettingsTab; label: string }[] = [
   { id: "services", label: "Services" },
   { id: "communication", label: "Communication" },
   { id: "bookings", label: "Bookings" },
+  { id: "inspections", label: "Inspections" },
   { id: "automation", label: "Automation" },
 ];
 
@@ -208,6 +211,8 @@ export function ProPortalSettingsModal({
   const outgoingPaymentReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
   const workOrderReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
   const serviceOrderReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+  const inspectionDueReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+  const inspectionReviewReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
   const bookingReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
   /**
    * Every autosaving panel is mounted only while ITS tab is selected, so a tab
@@ -225,6 +230,8 @@ export function ProPortalSettingsModal({
     void outgoingPaymentReminderFormRef.current?.saveIfDirty();
     void workOrderReminderFormRef.current?.saveIfDirty();
     void serviceOrderReminderFormRef.current?.saveIfDirty();
+    void inspectionDueReminderFormRef.current?.saveIfDirty();
+    void inspectionReviewReminderFormRef.current?.saveIfDirty();
     void bookingReminderFormRef.current?.saveIfDirty();
   }, []);
 
@@ -272,7 +279,13 @@ export function ProPortalSettingsModal({
           : "Portal settings"
       }
       panelClassName="max-w-lg p-3 sm:p-4"
-      scrollableContent={!inlineFooter}
+      footer={
+        inlineFooter ? (
+          <ModalFooter>
+            <SettingsPanelModalSaveButton {...inlineFooter} />
+          </ModalFooter>
+        ) : undefined
+      }
     >
       {/* A scoped dialog is already ON its one section, so a switcher would only offer the manager
           a way to wander out of it. */}
@@ -364,6 +377,15 @@ export function ProPortalSettingsModal({
         />
       ) : null}
 
+      {open && tab === "inspections" ? (
+        <InspectionsSettingsPanel
+          teamMembers={teamMembers}
+          onFooterReady={setPanelFooter}
+          dueReminderFormRef={inspectionDueReminderFormRef}
+          reviewReminderFormRef={inspectionReviewReminderFormRef}
+        />
+      ) : null}
+
       {open && tab === "bookings" ? (
         <BookingsSettingsPanel
           teamMembers={teamMembers}
@@ -374,12 +396,6 @@ export function ProPortalSettingsModal({
 
       {open && tab === "communication" ? (
         <CommunicationSettingsPanel onFooterReady={setPanelFooter} />
-      ) : null}
-
-      {inlineFooter ? (
-        <div className="mt-4 flex justify-end border-t border-border pt-3">
-          <SettingsPanelModalSaveButton {...inlineFooter} />
-        </div>
       ) : null}
     </Modal>
   );
