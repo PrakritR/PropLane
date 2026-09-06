@@ -51,7 +51,7 @@ export function createRoomInspectionDocument(room: InspectionRoom): InspectionDo
   const sections: Array<[string, string]> = [
     ["room-overview", "Room overview"], ["room-surfaces", "Walls, ceiling & floor"],
     ["room-windows", "Windows & blinds"], ["room-access", "Door, lock & closet"],
-    ["room-electrical", "Lights & outlets"],
+    ["room-electrical", "Lights & outlets"], ["room-other", "Other"],
   ];
   if (room.furnished) sections.push(["room-furniture", "Furniture"]);
   if (room.privateBathroom) sections.push(["room-bathroom", "Private bathroom"]);

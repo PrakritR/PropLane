@@ -47,7 +47,7 @@ it("resident: room sections, photo upload, autosave, document preview, submit + 
   // Only the resident's assigned room — no common areas, no other rooms.
   expect(detail.report.document.areas.map(a => a.label)).toEqual([
     "Room overview", "Walls, ceiling & floor", "Windows & blinds", "Door, lock & closet",
-    "Lights & outlets", "Furniture", "Private bathroom",
+    "Lights & outlets", "Other", "Furniture", "Private bathroom",
   ]);
 
   render(<InspectionEditor initial={detail} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
@@ -55,7 +55,7 @@ it("resident: room sections, photo upload, autosave, document preview, submit + 
   for (const gone of [/^Refresh$/, /^Reload$/, /^Save$/, /^Search$/]) {
     expect(screen.queryByRole("button", { name: gone })).toBeNull();
   }
-  expect(screen.getAllByRole("checkbox")).toHaveLength(7);
+  expect(screen.getAllByRole("checkbox")).toHaveLength(8);
   writeEvidenceSurface("inspection-01-room-sections", "Resident · Inspections · assigned room sections only, each row a checkbox that opens one section. Pinned bottom actions.", 150);
 
   fireEvent.click(screen.getByRole("button", { name: /Room overview/ }));
@@ -82,12 +82,13 @@ it("resident: room sections, photo upload, autosave, document preview, submit + 
   });
   request.mockResolvedValueOnce(withPhoto);
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Upload photos" })); });
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Choose from files" })); });
   await screen.findByText("Photo added. Your document is up to date.");
   expect(screen.getByAltText("Room overview evidence")).toBeTruthy();
   writeEvidenceSurface("inspection-02-section-photo-note", "Resident · one open section · photo uploaded from the picker, optional note autosaved (“Saved automatically.” / “Photo added.”). No Good/liability inferred from the photo.", 150);
 
   // The document preview is deterministic: exactly what was saved.
-  fireEvent.click(screen.getByRole("button", { name: "View document" }));
+  fireEvent.click(screen.getByRole("button", { name: "View" }));
   expect(screen.getByText("ROOM CONDITION REPORT")).toBeTruthy();
   expect(screen.getByText("Small scuff to the left of the door frame.")).toBeTruthy();
   expect(screen.getByText(/Resident acknowledgment pending/)).toBeTruthy();
