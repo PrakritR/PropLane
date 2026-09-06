@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.target }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -49,7 +49,9 @@ jobs:
 
       - name: Integrate source → main → staging
         if: ${{ inputs.target == 'integrate' }}
-        run: bash scripts/integrate-source-to-main-and-staging.sh --source "${{ inputs.source }}"
+        env:
+          SOURCE_BRANCH: ${{ inputs.source }}
+        run: bash scripts/integrate-source-to-main-and-staging.sh --source "$SOURCE_BRANCH"
 
       - name: Promote main → staging
         if: ${{ inputs.target == 'staging' }}

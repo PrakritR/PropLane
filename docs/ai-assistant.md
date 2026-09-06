@@ -286,7 +286,11 @@ W, `create_owner_distribution` W, `approve_owner_distribution` W,
 (`list_promotions` R, `create_promotion` W, `update_promotion` W,
 `delete_promotion` W destructive), team (`list_co_managers` R), documents
 (`list_documents` R), services (`list_service_requests` R,
-`decide_service_request` W).
+`decide_service_request` W), inspections (`list_inspections` R,
+`get_inspection` R, `create_inspection` W, `save_inspection_observations` W,
+`change_inspection_status` W destructive — completion is irreversible, so manager
+SMS withholds it automatically; see
+[`docs/agents/inspections.md`](agents/inspections.md)).
 
 ### Resident (`src/lib/tools/resident-index.ts`)
 
@@ -294,7 +298,11 @@ Reads: `get_my_balance`, `list_my_charges`, `get_my_lease`,
 `get_my_application_status`, `list_my_service_requests`,
 `list_my_work_orders`, `get_move_in_info`, `list_my_inbox_threads`,
 `get_my_payment_methods`, `get_my_scheduled_messages`,
-`list_my_shared_documents`, `list_open_tour_slots`. Writes:
+`list_my_shared_documents`, `list_open_tour_slots`, `list_inspections`,
+`get_inspection`. Writes:
+`create_inspection`, `save_inspection_observations`,
+`change_inspection_status` (the same shared inspection service the manager uses,
+scoped to this resident's own residency),
 `create_service_request`, `add_service_request_note`,
 `report_maintenance_issue`, `send_message_to_manager`, `report_manual_payment`,
 `request_lease_extension`, `schedule_message`, `cancel_scheduled_message`,
@@ -388,3 +396,5 @@ claimed on `user_id` + status `proposed`, 15-minute default expiry) and
 The archive/preferences extension is
 `20260804120000_agent_chat_archive_preferences.sql` (`agent_sessions.title`,
 the partial `portal_chat` archive index, and `agent_user_preferences`).
+
+Resident **My home** sharing tools (`get_housemates`, `get_housemate_sharing`, `update_housemate_sharing`) use server-redacted, current-residency-scoped data and the existing write-confirm gate. See [resident My home](agents/resident-my-home.md).

@@ -160,3 +160,52 @@ only to that owner's assigned houses (`delegated`) and never includes the
 co-manager's personally owned houses. Identity is
 `resolveManagerSmsInboundIdentity` — details in
 [`sms-system.md`](sms-system.md#a-manager-texting-a-work-number-gets-the-ai).
+
+**Shareable invite links are co-manager only.** `mintInviteLink` / `redeemInviteLink`
+(`src/lib/invite-links/invite-links.server.ts`) both refuse any `kind` other than
+`manager`, and the redeem refusal happens **before** a use is spent. A redemption can
+only ever produce an `account_link_invites` row — a table whose `tab_kind` CHECK admits
+`'manager'` alone — so a "vendor" link had no honest destination: it fell through to the
+same insert, carrying the link's `assigned_property_ids` and `property_permissions`, with
+neither side's Pro/Business plan checked (the gate was `kind === "manager"`-guarded). The
+vendor add flow therefore offers only the email invite; `PortalInviteChoiceStep` draws no
+invite-link card when a surface passes no `onCreateInviteLink`. Vendors join through
+`sendVendorInvite`, which binds a token to one directory row and one address.
+
+That insert also has to set `tab_kind: "manager"` explicitly — the column is `not null`
+with no default, so omitting it made every first redemption a 23502 that had already
+burned the link's only use. A failed insert now hands the use back and removes the
+redemption row it recorded. Coverage: `tests/unit/invite-link-redeem-behavior.test.ts`
+drives the real function; the grep-based `invite-link-security.test.ts` could not see it.
+
+**`bankAccount` is a module like any other, but it is scoped to the OWNER, not to
+a property.** It is a `CO_MANAGER_PERMISSION_OPTIONS` entry granted per property
+like the rest, yet a Connect account belongs to the owner's profile rather than
+to one listing, so `coManagerCanEditOwnerBankAccount` asks only whether the
+co-manager holds `bankAccount` at `edit` on **any** property assigned by that
+owner. `assertCoManagerBankAccountAccess`
+(`src/lib/auth/co-manager-bank-account-access.ts`) is the route-level wrapper:
+acting on your own account is always allowed, `read` is always allowed, and only
+an `edit` against someone else's account consults the grant.
+
+**Payouts never guess an owner.** `resolveStripePayoutContext`
+(`src/lib/auth/manager-stripe-payout-access.server.ts`) decides whose
+`stripe_connect_account_id` `/api/stripe/connect/{status,onboard}` acts on, so every
+uncertain answer is a refusal rather than a default: a failed property-count or
+link read returns `unresolvedReason: "lookup_failed"` (it used to read as "owns
+nothing", which re-classified an owner as somebody's co-manager mid-outage), and a
+co-manager accepted by TWO owners returns `"ambiguous_owner"` instead of the first row
+of an unordered query. A manager with no listings and no accepted link still resolves to
+their OWN account, so a brand-new account can onboard. Clearing a stale Connect id on
+the status route needs `canEditBankAccount`, because it rewrites the owner's profile. So does
+`ensureConnectAccountTransfersRequested`: despite sitting in a GET handler it PATCHes the
+Connect account whenever the transfers capability has never been requested, so a read-only
+co-manager loading the payments page was mutating the owner's Stripe account. That caller
+now reports on the account `retrieveManagerConnectAccountOrNull` already returned.
+
+A refused status answers `{ error }` and nothing else, so the client reads that body only
+AFTER the `!res.ok` guard: reading `canEditBankAccount` first resolved `undefined !== false`
+to `true` and left the bank control enabled while discarding the only sentence that says
+why it cannot work. Coverage: `tests/unit/manager-stripe-payout-context.test.ts`,
+`tests/unit/manager-payment-setup-refusal.test.tsx`,
+`tests/unit/stripe-connect-status-readonly.test.ts`.

@@ -1,3 +1,4 @@
+import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import { z } from "zod";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
@@ -230,12 +231,12 @@ export const updateApplicationBucketTool = defineWriteTool({
     const { error } = await ctx.db
       .from("manager_application_records")
       .update({
-        row_data: {
+        row_data: sealApplicantRow({
           ...rowData,
           bucket,
           stage: stageLabelForApplicationBucket(bucket),
           ...(bucket === "approved" ? { managerUserId: r.managerUserId ?? ctx.landlordId } : {}),
-        },
+        }, rec.id, ctx.landlordId),
         updated_at: new Date().toISOString(),
       })
       .eq("id", rec.id)

@@ -9,6 +9,7 @@
  * vendor registries to their own scoped context types, so a manager tool cannot
  * even typecheck into a resident registry.
  */
+import { managerInspectionTools } from "./domains/inspections";
 import { buildRegistry, type ToolRegistry } from "./registry";
 import type { AgentContext } from "./context";
 import {
@@ -139,6 +140,7 @@ import {
 } from "./domains/leasing-sms";
 
 export const agentRegistry = buildRegistry([
+  ...managerInspectionTools,
   // Cross-domain entity search — the model's first stop for loose names
   findRecordsTool,
   // Reads

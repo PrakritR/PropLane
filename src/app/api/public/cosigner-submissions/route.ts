@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { sealCosignerIdentity } from "@/lib/security/cosigner-identity";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { applicationLinkBlock } from "@/lib/rental-application/application-link-eligibility";
@@ -22,7 +23,7 @@ function stripSensitiveForStorage(sub: CosignerSubmission): CosignerSubmission {
 
 export async function POST(req: Request) {
   try {
-    if (!rateLimit(`cosigner-submission:${clientIpFrom(req)}`, 10, 60_000).ok) {
+    if (!(await rateLimit(`cosigner-submission:${clientIpFrom(req)}`, 10, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please try again later." }, { status: 429 });
     }
 
@@ -55,8 +56,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: blocked.message }, { status: 403 });
     }
 
+    // Alias lookup must link to the actual persisted parent primary key.
+    const resolvedSignerAppId = String(appRow.id);
     const submission: CosignerSubmission = {
-      signerAppId,
+      signerAppId: resolvedSignerAppId,
       signerFullName: String(body.signerFullName ?? "").trim(),
       fullName: String(body.fullName).trim(),
       email: String(body.email).trim().toLowerCase(),
@@ -87,12 +90,13 @@ export async function POST(req: Request) {
     };
 
     const id = makeCosignerId();
-    const stored = stripSensitiveForStorage(submission);
     const managerUserId = appRow.manager_user_id as string | null;
+    if (!managerUserId) return NextResponse.json({ error: "Application has no assigned manager." }, { status: 400 });
+    const stored = sealCosignerIdentity(stripSensitiveForStorage(submission), id, managerUserId);
 
     const { error } = await db.from("cosigner_submission_records").insert({
       id,
-      signer_app_id: signerAppId,
+      signer_app_id: resolvedSignerAppId,
       manager_user_id: managerUserId,
       row_data: stored,
       updated_at: new Date().toISOString(),
@@ -102,7 +106,7 @@ export async function POST(req: Request) {
     const appData = appRow.row_data as { name?: string; property?: string } | null;
     void notifyManagerCosignerSubmitted({
       managerUserId,
-      signerAppId,
+      signerAppId: resolvedSignerAppId,
       primaryApplicantName: appData?.name,
       propertyTitle: appData?.property,
       cosignerName: submission.fullName,

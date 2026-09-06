@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 /** Read-only check that a primary application id can link a co-signer form. */
 export async function GET(req: Request) {
   try {
-    if (!rateLimit(`cosigner-signer-link:${clientIpFrom(req)}`, 60, 60_000).ok) {
+    if (!(await rateLimit(`cosigner-signer-link:${clientIpFrom(req)}`, 60, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     }
 

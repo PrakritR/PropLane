@@ -65,7 +65,7 @@ type GrantStatement = {
 };
 
 /** Parses a GRANT/REVOKE into the pieces both the replay and the revoke-present checks need. */
-function parseGrantStatement(sql: string): GrantStatement | null {
+function parseGrantStatement(sql: string, privileges: readonly string[] = WRITE_PRIVILEGES): GrantStatement | null {
   const m = /^(grant|revoke)\s+(.+?)\s+(?:on|ON)\s+(.+?)\s+(?:to|TO|from|FROM)\s+(.+)$/i.exec(sql);
   if (!m) return null;
   const [, verbRaw, privsRaw, targetRaw, granteesRaw] = m;
@@ -78,7 +78,7 @@ function parseGrantStatement(sql: string): GrantStatement | null {
 
   return {
     verb: verbRaw.toLowerCase() as "grant" | "revoke",
-    writes: WRITE_PRIVILEGES.filter((p) => privs.includes(p) || /\ball\b/i.test(privsRaw)),
+    writes: privileges.filter((p) => privs.includes(p) || /\ball\b/i.test(privsRaw)),
     grantees: granteesRaw.toLowerCase().split(/\s*,\s*/).map((g) => g.trim().replace(/[";]/g, "")),
     targetsTable: (table) => targetsAllTables || target === table || targetNames.includes(table),
   };
@@ -218,6 +218,36 @@ describe("credential-table grant surface", () => {
         );
       }
       expect(livePoliciesFor(table).size, `${table} must have no client-readable or writable RLS policy`).toBe(0);
+    });
+  }
+});
+
+describe("sensitive-table browser least privilege", () => {
+  const tablePrivileges = ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"] as const;
+  const serverTables = ["manager_application_records", "cosigner_submission_records", "manager_automation_settings"];
+  for (const table of ["profiles", "profile_roles", ...serverTables]) {
+    it(`${table} closes platform-default grants without regranting them later`, () => {
+      const forbidden = serverTables.includes(table) ? tablePrivileges : ["TRUNCATE", "REFERENCES", "TRIGGER"];
+      // Start with Supabase's observed platform defaults, including PUBLIC
+      // inheritance: a missing REVOKE must fail even without a repo GRANT.
+      const held = new Map(["anon", "authenticated", "public"].map((role) => [role, new Set(forbidden)]));
+      for (const { sql } of STATEMENTS) {
+        const stmt = parseGrantStatement(sql, forbidden);
+        if (!stmt?.targetsTable(table)) continue;
+        for (const [role, privileges] of held) {
+          if (!stmt.grantees.includes(role)) continue;
+          for (const privilege of stmt.writes) {
+            if (stmt.verb === "grant") privileges.add(privilege);
+            else privileges.delete(privilege);
+          }
+        }
+      }
+      for (const [role, privileges] of held) {
+        expect([...privileges], `${role} must retain no forbidden table privilege on ${table}`).toEqual([]);
+      }
+      if (serverTables.includes(table)) {
+        expect(livePoliciesFor(table).size, `${table} remains accessible only through authorized server routes`).toBe(0);
+      }
     });
   }
 });

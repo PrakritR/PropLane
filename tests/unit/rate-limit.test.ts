@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 
 describe("rate-limit", () => {
-  it("allows requests within limit", () => {
+  it("allows requests within limit", async () => {
     const key = `test-${Date.now()}`;
-    expect(rateLimit(key, 2, 60_000).ok).toBe(true);
-    expect(rateLimit(key, 2, 60_000).ok).toBe(true);
-    expect(rateLimit(key, 2, 60_000).ok).toBe(false);
+    expect((await rateLimit(key, 2, 60_000)).ok).toBe(true);
+    expect((await rateLimit(key, 2, 60_000)).ok).toBe(true);
+    expect((await rateLimit(key, 2, 60_000)).ok).toBe(false);
   });
 
   // This asserted the FIRST hop, which is the caller-supplied end of the chain —

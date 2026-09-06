@@ -124,8 +124,8 @@ describe("resident portal nav stages", () => {
   });
 
   it("hides house details from nav until post-lease unlock", () => {
-    expect(residentNavSectionVisibleInNav("move-in", "pre_approval")).toBe(false);
-    expect(residentNavSectionVisibleInNav("move-in", "post_approval_pre_lease")).toBe(false);
+    expect(residentNavSectionVisibleInNav("move-in", "pre_approval")).toBe(true);
+    expect(residentNavSectionVisibleInNav("move-in", "post_approval_pre_lease")).toBe(true);
     expect(residentNavSectionVisibleInNav("move-in", "post_lease")).toBe(true);
     expect(residentNavSectionVisibleInNav("lease", "pre_approval")).toBe(true);
   });

@@ -85,6 +85,7 @@ export const RESIDENT_DETAIL_TABS = [
   "tours",
   "payments",
   "services",
+  "inspections",
   "communication",
 ] as const;
 
@@ -97,6 +98,7 @@ export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
   tours: "Tours",
   payments: "Payments",
   services: "Services",
+  inspections: "Inspections",
   communication: "Communication",
 };
 
@@ -108,6 +110,7 @@ export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, strin
   tours: "Tours",
   payments: "Pay",
   services: "Svc",
+  inspections: "Inspect",
   communication: "Comms",
 };
 
@@ -648,6 +651,7 @@ export const RESIDENT_MOVE_IN_TABS = [
   "info",
   "amenities",
   "instructions",
+  "inspections",
 ] as const;
 export type ResidentMoveInTabId = (typeof RESIDENT_MOVE_IN_TABS)[number];
 
@@ -657,6 +661,7 @@ export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = 
   info: "Info & rules",
   amenities: "Amenities",
   instructions: "Move-in",
+  inspections: "Inspections",
 };
 
 /** Compact labels for house-details sub-tabs on phone-width layouts. */
@@ -666,6 +671,7 @@ export const RESIDENT_MOVE_IN_TAB_SHORT_LABELS: Record<ResidentMoveInTabId, stri
   info: "Rules",
   amenities: "Amenity",
   instructions: "Move-in",
+  inspections: "Inspections",
 };
 
 export function parseResidentMoveInTab(raw: string | undefined | null): ResidentMoveInTabId {

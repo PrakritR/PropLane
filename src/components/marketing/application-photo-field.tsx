@@ -16,6 +16,11 @@ import {
 } from "@/lib/rental-application/application-photos";
 import type { ApplicationPhotoAttachment, ApplicationPhotoSlot } from "@/lib/rental-application/types";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import {
+  APPLICATION_DOCUMENT_STORAGE_MIME,
+  encryptApplicationDocumentUpload,
+  type ApplicationDocumentUploadEncryption,
+} from "@/lib/security/application-document-format";
 
 const DISPLAYABLE_IMAGE_MIME = new Set(["image/jpeg", "image/png", "image/webp"]);
 
@@ -74,6 +79,7 @@ async function uploadApplicationPhoto(params: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "sign",
+        encryptionVersion: 1,
         applicationId: params.applicationId,
         slot: params.slot,
         fileName: prepared.fileName,
@@ -87,14 +93,19 @@ async function uploadApplicationPhoto(params: {
       token?: string;
       fileName?: string;
       error?: string;
+      encryption?: ApplicationDocumentUploadEncryption;
     };
-    if (!res.ok || !json.path || !json.token) {
+    if (!res.ok || !json.path || !json.token || !json.encryption) {
       return { ok: false, error: json.error || "Upload failed. Please try again." };
     }
+    // Keep the one-object key only in this upload's memory. Only ciphertext goes
+    // to Storage and only display/path metadata goes to autosave or callbacks.
+    const encrypted = await encryptApplicationDocumentUpload(prepared.blob, json.path, json.encryption);
+    delete json.encryption;
     const supabase = createSupabaseBrowserClient();
     const { error: uploadError } = await supabase.storage
       .from(APPLICATION_DOCUMENTS_BUCKET)
-      .uploadToSignedUrl(json.path, json.token, prepared.blob, { contentType: validated.mime });
+      .uploadToSignedUrl(json.path, json.token, encrypted, { contentType: APPLICATION_DOCUMENT_STORAGE_MIME });
     if (uploadError) return { ok: false, error: "Upload failed. Please try again." };
     return {
       ok: true,

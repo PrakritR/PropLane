@@ -379,7 +379,7 @@ export type ManagerListingSubmissionV1 = {
   removedStandardListingFeeRows?: string[];
   /**
    * Refundable deposit securing the application; credited toward the security
-   * deposit on approval (defaults to $100 when blank). Billed under Payments
+   * deposit on approval (blank means no holding deposit). Billed under Payments
    * after approval — never collected during the application. Not a recurring
    * charge — see `holding_deposit` household charge kind.
    */
@@ -424,9 +424,9 @@ export type ManagerListingSubmissionV1 = {
    * term instead of terminating.
    *
    * This changes what the lease document promises, so it is opt-in and defaults
-   * to false: the standard clause says the agreement "automatically terminates
-   * at the end of the lease term and does not convert to a month-to-month
-   * tenancy", and a listing must positively choose the other behaviour before
+   * to false: the standard clause says the agreement "does not automatically
+   * continue as a month-to-month tenancy" after the term ends, and a listing
+   * must positively choose the other behaviour before
    * the document may say otherwise. Absent means the existing promise, never a
    * guess.
    */
@@ -1094,16 +1094,11 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
   const fallbackUtil = legacy.utilitiesMonthly?.trim() ?? "";
 
   let paymentAtSigningIncludes = sub.paymentAtSigningIncludes;
-  if (!Array.isArray(paymentAtSigningIncludes) || paymentAtSigningIncludes.length === 0) {
-    paymentAtSigningIncludes = legacy.paymentAtSigning?.trim()
-      ? (["security_deposit", "move_in_fee"] as PaymentAtSigningOptionId[])
-      : (["security_deposit", "move_in_fee"] as PaymentAtSigningOptionId[]);
+  if (!Array.isArray(paymentAtSigningIncludes)) {
+    paymentAtSigningIncludes = ["security_deposit", "move_in_fee"];
   } else {
     const allowed = new Set(PAYMENT_AT_SIGNING_OPTIONS.map((o) => o.id));
     paymentAtSigningIncludes = paymentAtSigningIncludes.filter((id): id is PaymentAtSigningOptionId => allowed.has(id));
-    if (paymentAtSigningIncludes.length === 0) {
-      paymentAtSigningIncludes = ["security_deposit", "move_in_fee"];
-    }
   }
 
   const rooms: ManagerRoomSubmission[] = sub.rooms.map((r) => {
@@ -1660,6 +1655,13 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
       (sub as { propertyApplicationTemplatesExplicit?: unknown }).propertyApplicationTemplatesExplicit === true
         ? true
         : undefined,
+    // Retired product-wide, and the normalized submission is what every reader
+    // (including the generated lease) is entitled to trust. The stored contacts
+    // survive so nothing is lost if the channels ever return; the flags do not,
+    // because `...sub` above would otherwise carry a legacy `true` straight into
+    // a lease clause promising a channel the portal no longer accepts.
+    zellePaymentsEnabled: zelleEnabled,
+    venmoPaymentsEnabled: venmoEnabled,
     applicationFeeStripeEnabled,
     applicationFeeZelleEnabled,
     applicationFeeVenmoEnabled,
@@ -2251,7 +2253,7 @@ export function createDefaultListingSubmission(): ManagerListingSubmissionV1 {
     shortTermDeposit: "",
     shortTermApplicationFee: "",
     applicationFee: "",
-    holdingDeposit: "$100",
+    holdingDeposit: "",
     holdingDepositTiming: "after_approval",
     securityDeposit: "",
     moveInFee: "",
@@ -2283,9 +2285,6 @@ export function createDefaultListingSubmission(): ManagerListingSubmissionV1 {
     lateFeeEnabled: true,
     lateFeeGraceDays: 5,
     lateFeeAmount: "50",
-    longTermBreakLeaseFee: "900",
-    longTermLeaseUpFeePercent: 100,
-    longTermHoldoverDailyRate: "45",
     axisPaymentsEnabled: true,
     rooms: [{ ...emptyRoom(0), name: "", availability: "" }],
     bathrooms: [],

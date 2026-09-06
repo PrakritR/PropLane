@@ -7,8 +7,9 @@ const mocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   inboundLogSelects: 0,
   receiptUpdates: [] as Record<string, unknown>[],
-  receipt: { status: "processing" } as Record<string, unknown>,
-  rateLimit: vi.fn(() => ({ ok: true })),
+  receipt: { status: "processing" } as Record<string, unknown> | null,
+  ownedNumber: true,
+  rateLimit: vi.fn((): { ok: boolean; unavailable?: true } => ({ ok: true })),
   detectSelfReply: vi.fn(async () => null),
   resolveManagerCtx: vi.fn(),
   runManagerTurn: vi.fn(),
@@ -64,7 +65,7 @@ function makeDb() {
         limit: () =>
           table === "manager_sms_numbers"
             ? Promise.resolve({
-                data: [
+                data: mocks.ownedNumber ? [
                   {
                     manager_user_id: "11111111-1111-4111-8111-111111111111",
                     messaging_service_sid: "MG11111111111111111111111111111111",
@@ -72,7 +73,7 @@ function makeDb() {
                     grace_expires_at: null,
                     updated_at: "2026-08-25T00:00:00.000Z",
                   },
-                ],
+                ] : [],
                 error: null,
               })
             : Promise.resolve({ data: [], error: null }),
@@ -122,6 +123,7 @@ beforeEach(() => {
   mocks.inboundLogSelects = 0;
   mocks.receiptUpdates = [];
   mocks.receipt = { status: "processing" };
+  mocks.ownedNumber = true;
   mocks.rateLimit.mockReturnValue({ ok: true });
   mocks.detectSelfReply.mockResolvedValue(null);
   mocks.resolveManagerCtx.mockReset();
@@ -140,6 +142,44 @@ beforeEach(() => {
 });
 
 describe("managed Twilio inbound retry", () => {
+  it.each([
+    ["legacy relay", "0", true],
+    ["unknown work number", "1", false],
+    ["new managed message", "1", true],
+  ] as const)("preserves provider retries on limiter outage for %s", async (_, runtime, ownedNumber) => {
+    vi.stubEnv("SMS_RUNTIME_ENABLED", runtime);
+    mocks.ownedNumber = ownedNumber;
+    mocks.receipt = null;
+    mocks.rateLimit.mockReturnValue({ ok: false, unavailable: true });
+
+    const response = await POST(inboundRequest());
+
+    expect(response.status).toBe(503);
+    expect(mocks.rateLimit).toHaveBeenCalledOnce();
+    expect(mocks.handleInbound).not.toHaveBeenCalled();
+    expect(mocks.relayInbound).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["legacy relay", "0", true],
+    ["unknown work number", "1", false],
+    ["new managed message", "1", true],
+  ] as const)("acknowledges confirmed exhaustion for %s", async (_, runtime, ownedNumber) => {
+    vi.stubEnv("SMS_RUNTIME_ENABLED", runtime);
+    mocks.ownedNumber = ownedNumber;
+    mocks.receipt = null;
+    mocks.rateLimit.mockReturnValue({ ok: false });
+
+    const response = await POST(inboundRequest());
+
+    expect(response.status).toBe(200);
+    expect(mocks.rateLimit).toHaveBeenCalledOnce();
+    expect(mocks.handleInbound).not.toHaveBeenCalled();
+    expect(mocks.relayInbound).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
   it("reclaims a retryable receipt even when the durable message log already exists", async () => {
     mocks.handleInbound.mockImplementationOnce(async (args: {
       onPreparedReply: (prepared: Record<string, unknown>) => Promise<boolean>;

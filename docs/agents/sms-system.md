@@ -179,11 +179,14 @@ manager loading their OWN tab may provision on demand. Guarded by
 Carriers do not allow sending SMS *from* a personal number — do not fake it.
 - Manager-facing operational alerts use one preference-aware router
   (`manager-notification-routing.server.ts`). Settings → Preferences stores a
-  destination of `assistant` (default), `personal_number`, or `both`, plus
-  topic-level SMS switches for messages, maintenance, payment reminders,
-  applications, and leasing. The default falls back to PropLane Assistant until
-  the manager has both an eligible work number and a personal phone; it switches
-  to the manager-cell connection automatically once both are ready. New
+  destination of `assistant`, `personal_number`, or `both` (**`both` is the
+  default**), plus topic-level SMS switches for messages, maintenance, payment
+  reminders, applications, and leasing. `both` as the default is not a way to
+  text someone who never asked: `resolveManagerNotificationRoute` still requires
+  `smsReady` — the topic enabled, a verified personal cell that has not replied
+  STOP and still has inbound forwarding on, and an active work number to send
+  from — so it falls back to PropLane Assistant until all of those hold and
+  switches to the manager-cell connection automatically once they do. New
   manager-alert call sites must use this router instead of sending directly.
 - Outbound manager-owned traffic enters `owner-sms-dispatcher.server.ts`; the
   sender, campaign/service identity, consent, entitlement, segment budget, and

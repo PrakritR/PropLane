@@ -258,9 +258,19 @@ Preview deployment — verify there and on localhost before promoting.
 
 Before pushing:
 
-1. `bin/fm-proplane-security-review.sh` — blocks Critical/High (report under `state/`)
+1. Run both mandatory branch-change reviews from [Reviews](#reviews):
+   `security-review` and `bugbot`. Retain dated reports under `docs/security/`
+   identifying the reviewed base/head (and any uncommitted diff), findings,
+   severity and resolution evidence. Re-review affected changes after fixes.
+   **Unresolved Critical or High findings block landing.**
 2. `no-mistakes axi run --skip=push,pr,ci` (review, test, document, lint)
 3. `npm run test:unit`
+
+The former `bin/fm-proplane-security-review.sh` command was a dangling reference
+from the retired promotion workflow; no implementation was found in the repository
+or reachable history. Removing that command is **not a passed script or a waiver
+of the Critical/High gate**. The required reviews and their retained evidence
+provide the review gate. See the [reconciliation evidence](security/2026-09-05-release-gate-reconciliation.md).
 
 Never open a GitHub PR unless the captain explicitly asks. Never push `fm/*`
 branches.

@@ -1,8 +1,13 @@
+import "server-only";
+import { openApplicantRow, sealApplicantRow } from "@/lib/security/applicant-identity";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
-import { formatProplaneIdForDisplay, proplaneIdLookupVariants } from "@/lib/manager-id";
+import { proplaneIdLookupVariants } from "@/lib/manager-id";
 import type { SupabaseClient } from "@supabase/supabase-js";
+
+// Keep existing server imports compatible while browser callers use the URL-only module.
+export { residentSetupIdFromUrlParams, buildResidentSetupHref, residentSetupAccountUrl } from "./resident-setup-links";
 
 /** Default lifetime for resident account-setup links emailed after apply / approval. */
 export const RESIDENT_SETUP_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -26,27 +31,6 @@ function hashesEqual(a: string, b: string): boolean {
   }
 }
 
-
-export function residentSetupIdFromUrlParams(params: { get(name: string): string | null }): string {
-  const proplane = params.get("proplane_id")?.trim() ?? "";
-  if (proplane) return normalizeApplicationAxisId(proplane);
-  const legacy = params.get("axis_id")?.trim() ?? "";
-  return legacy ? normalizeApplicationAxisId(legacy) : "";
-}
-
-export function buildResidentSetupHref(token: string, axisId: string): string {
-  const id = formatProplaneIdForDisplay(normalizeApplicationAxisId(axisId));
-  const params = new URLSearchParams({
-    token: token.trim(),
-    proplane_id: id,
-  });
-  return `/auth/resident-setup?${params.toString()}`;
-}
-
-export function residentSetupAccountUrl(origin: string, token: string, axisId: string): string {
-  const base = origin.replace(/\/$/, "") || "https://prop-lane.space";
-  return `${base}${buildResidentSetupHref(token, axisId)}`;
-}
 
 export function isResidentSetupTokenValid(row: Pick<DemoApplicantRow, "setupTokenHash" | "setupTokenExpiresAt" | "setupTokenConsumedAt">, token: string): boolean {
   const trimmed = token.trim();
@@ -150,8 +134,9 @@ export async function findApplicationForResidentSetup(
     return { ok: false, status: 400, error: "This application is missing an email address." };
   }
 
+  match = openApplicantRow(match, matchedRecord.id);
   const managerFromDb = String(matchedRecord.manager_user_id ?? "").trim();
-  if (managerFromDb && !match.managerUserId) {
+  if (managerFromDb) {
     match = { ...match, managerUserId: managerFromDb };
   }
 
@@ -188,7 +173,7 @@ export async function relinkResidentSetupApplicationEmail(
       resident_email: email,
       property_id: relinked.propertyId || relinked.application?.propertyId || null,
       assigned_property_id: relinked.assignedPropertyId || null,
-      row_data: relinked,
+      row_data: sealApplicantRow(relinked, relinked.id, relinked.managerUserId),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "id" },
@@ -209,7 +194,7 @@ export async function consumeResidentSetupTokenOnApplication(
       resident_email: consumed.email?.trim().toLowerCase() || null,
       property_id: consumed.propertyId || consumed.application?.propertyId || null,
       assigned_property_id: consumed.assignedPropertyId || null,
-      row_data: consumed,
+      row_data: sealApplicantRow(consumed, consumed.id, consumed.managerUserId),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "id" },
@@ -248,7 +233,7 @@ export async function ensureResidentSetupTokenForApplication(
   const record = data?.[0];
   if (!record?.row_data) return { ok: false, error: "Application not found." };
 
-  const raw = record.row_data as DemoApplicantRow;
+  const raw = openApplicantRow(record.row_data, record.id);
   const row: DemoApplicantRow = {
     ...raw,
     id: normalizeApplicationAxisId(typeof raw.id === "string" ? raw.id : record.id),
@@ -270,7 +255,7 @@ export async function ensureResidentSetupTokenForApplication(
       resident_email: email,
       property_id: withToken.propertyId || record.property_id || null,
       assigned_property_id: withToken.assignedPropertyId || record.assigned_property_id || null,
-      row_data: withToken,
+      row_data: sealApplicantRow(withToken, withToken.id, withToken.managerUserId || record.manager_user_id),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "id" },

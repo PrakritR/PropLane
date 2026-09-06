@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 /** Read-only check that an organizer application id can link a joining roommate. */
 export async function GET(req: Request) {
   try {
-    if (!rateLimit(`group-application-link:${clientIpFrom(req)}`, 60, 60_000).ok) {
+    if (!(await rateLimit(`group-application-link:${clientIpFrom(req)}`, 60, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     }
 

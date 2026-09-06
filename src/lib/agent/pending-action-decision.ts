@@ -29,17 +29,17 @@ import { formatAgentChatUserError } from "@/lib/agent/assistant-turn-error";
 import { scoreActionApproval, traceAgentAction } from "@/lib/observability/langfuse";
 
 /** Authenticated dismissals have their own capacity so chat quota cannot strand drafts. */
-export function agentChatRateLimitResponse(
+export async function agentChatRateLimitResponse(
   body: Record<string, unknown>,
   userId: string,
   portal: AgentPortal,
-): NextResponse | null {
+): Promise<NextResponse | null> {
   const prefix = portal === "manager" ? "agent-chat" : `${portal}-chat`;
   const pureDenial = Object.keys(body).length === 1 &&
     typeof body.denyActionId === "string" && body.denyActionId.trim().length > 0;
   const allowed = pureDenial
-    ? rateLimit(`${prefix}:deny:${userId}`, 60, 60_000)
-    : rateLimit(`${prefix}:${userId}`, 20, portal === "manager" ? 60_000 : 300_000);
+    ? await rateLimit(`${prefix}:deny:${userId}`, 60, 60_000)
+    : await rateLimit(`${prefix}:${userId}`, 20, portal === "manager" ? 60_000 : 300_000);
   return allowed.ok ? null : NextResponse.json(
     { error: "You're sending messages a little fast — please wait a moment and try again." },
     { status: 429 },

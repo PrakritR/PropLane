@@ -113,7 +113,7 @@ import {
   syncPublicApprovedApplicationsFromServer,
   upsertApplicationRowToServerAwait,
 } from "@/lib/manager-applications-storage";
-import { residentSetupIdFromUrlParams } from "@/lib/auth/resident-setup-token";
+import { residentSetupIdFromUrlParams } from "@/lib/auth/resident-setup-links";
 import { RentalWizardStepBody } from "./rental-wizard-steps";
 import { ManagerLinkGate } from "@/components/marketing/manager-link-gate";
 import { ApplicationUnavailableContactManager } from "@/components/marketing/application-unavailable-contact-manager";

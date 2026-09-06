@@ -134,6 +134,8 @@ describe("path containment + upload validation", () => {
     const otherPath = buildApplicationPhotoPath("PROPLANE-OTHER", "idFront", "jpg");
     expect(isPathInApplicationFolder(otherPath, "PROPLANE-ABC123")).toBe(false);
     expect(isPathInApplicationFolder("application/../secrets/x.jpg", "PROPLANE-ABC123")).toBe(false);
+    expect(isPathInApplicationFolder("application/PROPLANE-ABC123/../PROPLANE-OTHER/x.jpg", "PROPLANE-ABC123")).toBe(false);
+    expect(isPathInApplicationFolder("application/PROPLANE-ABC123/%2e%2e%2fsecret.jpg", "PROPLANE-ABC123")).toBe(false);
   });
 
   it("enforces the MIME allowlist per slot (ID photos are images only)", () => {

@@ -7,6 +7,8 @@ import { normalizeManagerListingSubmissionV1, isEntireHomeListing } from "@/lib/
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
 
 export type ResidentMoveInHousemate = {
+  /** Opaque display key; never use a hidden email as a client-side identifier. */
+  id?: string;
   name: string;
   email: string;
   roomLabel: string;
@@ -102,7 +104,7 @@ function firstNonEmpty(...values: Array<string | null | undefined>): string | nu
 }
 
 export function resolveBestResidentRow(email: string, applications: DemoApplicantRow[]): DemoApplicantRow | null {
-  const matches = applications.filter((a) => a.email?.trim().toLowerCase() === email && a.bucket === "approved");
+  const matches = applications.filter((a) => a.email?.trim().toLowerCase() === email && a.bucket === "approved" && !a.withdrawnAt);
   if (matches.length === 0) return null;
   return [...matches].sort((a, b) => {
     const aAssigned = Number(Boolean(a.assignedPropertyId?.trim() || a.propertyId?.trim()));

@@ -212,30 +212,30 @@ describe("chat quota and pending-action cancellation", () => {
   it.each(["manager", "resident", "vendor"] as const)("allows %s denial after chat quota is exhausted while confirmations remain limited", async (portal) => {
     const actor = { ...ctx, userId: `quota-${portal}` };
     for (let index = 0; index < 20; index += 1) {
-      expect(agentChatRateLimitResponse({ messages: [{ role: "user", content: "Hi" }] }, actor.userId, portal)).toBeNull();
+      expect((await agentChatRateLimitResponse({ messages: [{ role: "user", content: "Hi" }] }, actor.userId, portal))).toBeNull();
     }
-    expect(agentChatRateLimitResponse({ messages: [] }, actor.userId, portal)?.status).toBe(429);
-    expect(agentChatRateLimitResponse({ confirmActionId: "action" }, actor.userId, portal)?.status).toBe(429);
-    expect(agentChatRateLimitResponse({ denyActionId: "action", confirmActionId: "action" }, actor.userId, portal)?.status).toBe(429);
-    expect(agentChatRateLimitResponse({ denyActionId: "action", messages: [] }, actor.userId, portal)?.status).toBe(429);
-    expect(agentChatRateLimitResponse({ denyActionId: " " }, actor.userId, portal)?.status).toBe(429);
+    expect((await agentChatRateLimitResponse({ messages: [] }, actor.userId, portal))?.status).toBe(429);
+    expect((await agentChatRateLimitResponse({ confirmActionId: "action" }, actor.userId, portal))?.status).toBe(429);
+    expect((await agentChatRateLimitResponse({ denyActionId: "action", confirmActionId: "action" }, actor.userId, portal))?.status).toBe(429);
+    expect((await agentChatRateLimitResponse({ denyActionId: "action", messages: [] }, actor.userId, portal))?.status).toBe(429);
+    expect((await agentChatRateLimitResponse({ denyActionId: " " }, actor.userId, portal))?.status).toBe(429);
 
     peekPendingActionPortal.mockResolvedValue({ state: "found", portal, toolName: "send_message" });
     denyPendingAction.mockResolvedValue({ toolName: "send_message", portal, proposalTraceId: null });
     const body = { denyActionId: "action" };
-    expect(agentChatRateLimitResponse(body, actor.userId, portal)).toBeNull();
+    expect((await agentChatRateLimitResponse(body, actor.userId, portal))).toBeNull();
     const response = await handlePendingActionDecision({ body, ctx: actor, registry, portal });
     expect(response?.status).toBe(200);
     expect(denyPendingAction).toHaveBeenCalledWith(actor, "action");
     expect(runConfirmedPendingActionForPortal).not.toHaveBeenCalled();
   });
 
-  it("bounds cancellation independently without consuming chat capacity", () => {
+  it("bounds cancellation independently without consuming chat capacity", async () => {
     const userId = "denial-capacity";
     for (let index = 0; index < 60; index += 1) {
-      expect(agentChatRateLimitResponse({ denyActionId: "action" }, userId, "manager")).toBeNull();
+      expect((await agentChatRateLimitResponse({ denyActionId: "action" }, userId, "manager"))).toBeNull();
     }
-    expect(agentChatRateLimitResponse({ denyActionId: "action" }, userId, "manager")?.status).toBe(429);
-    expect(agentChatRateLimitResponse({ confirmActionId: "action" }, userId, "manager")).toBeNull();
+    expect((await agentChatRateLimitResponse({ denyActionId: "action" }, userId, "manager"))?.status).toBe(429);
+    expect((await agentChatRateLimitResponse({ confirmActionId: "action" }, userId, "manager"))).toBeNull();
   });
 });

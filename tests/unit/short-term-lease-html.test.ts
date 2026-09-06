@@ -54,7 +54,7 @@ describe("short-term lease payment section", () => {
     expect(html).toContain("$225.00 per day");
     expect(html).toContain("Total rent for stay");
     expect(html).toContain("$900.00");
-    expect(html).toContain("Move-in fee");
+    expect(html).not.toContain("Move-in fee");
     expect(html).toContain("Deposit");
     expect(html).toContain("4 night");
   });

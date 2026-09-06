@@ -69,7 +69,7 @@ export async function POST(req: Request) {
     body = {};
   }
 
-  const limited = agentChatRateLimitResponse(body, ctx.userId, "manager");
+  const limited = await agentChatRateLimitResponse(body, ctx.userId, "manager");
   if (limited) return limited;
 
   // Confirm / deny of an earlier proposal: the body carries ONLY the action id.

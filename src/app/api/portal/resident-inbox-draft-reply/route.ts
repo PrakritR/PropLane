@@ -117,8 +117,8 @@ export async function POST(req: Request) {
     }
 
     if (
-      !rateLimit(`resident-inbox-draft:user:${scope.user.id}`, 40, 60_000).ok ||
-      !rateLimit(`resident-inbox-draft:ip:${clientIpFrom(req)}`, 80, 60_000).ok
+      !(await rateLimit(`resident-inbox-draft:user:${scope.user.id}`, 40, 60_000)).ok ||
+      !(await rateLimit(`resident-inbox-draft:ip:${clientIpFrom(req)}`, 80, 60_000)).ok
     ) {
       return NextResponse.json({ ok: false, error: "Too many draft requests." }, { status: 429 });
     }

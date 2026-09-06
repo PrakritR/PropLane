@@ -1,3 +1,7 @@
+import { randomBytes } from "node:crypto";
+import { sealApplicantRow } from "@/lib/security/applicant-identity";
+import { sealCosignerIdentity } from "@/lib/security/cosigner-identity";
+import { buildApplicationPdf } from "@/lib/manager-application-pdf";
 /**
  * Route-level regression: `GET /api/manager-applications/[id]/pdf` for a
  * MULTI-ROLE account.
@@ -11,7 +15,7 @@
  * Applicant identity is the record's `resident_email`, regardless of primary
  * role — the same email-ownership key the list and the withdraw guard use.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const APPLICANT_EMAIL = "ogambik2@gmail.com";
 const APP_ID = "PROPLANE-625089C2";
@@ -19,6 +23,7 @@ const APP_ID = "PROPLANE-625089C2";
 const getUser = vi.fn();
 let PROFILE: { email: string } | null = null;
 let RECORDS: Record<string, unknown>[] = [];
+let COSIGNERS: Record<string, unknown>[] = [];
 const managerCanAccessApplicationRecord = vi.fn(async () => false);
 
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: vi.fn(async () => false) }));
@@ -46,7 +51,7 @@ function makeDb() {
         or: () => builder,
         eq: () => builder,
         in: () => builder,
-        order: () => Promise.resolve({ data: [], error: null }),
+        order: () => Promise.resolve({ data: table === "cosigner_submission_records" ? COSIGNERS : [], error: null }),
         limit() {
           if (table === "manager_application_records") return Promise.resolve({ data: RECORDS, error: null });
           return Promise.resolve({ data: [], error: null });
@@ -69,6 +74,9 @@ async function fetchPdf(id: string) {
 }
 
 beforeEach(() => {
+  COSIGNERS = [];
+  vi.stubEnv("DATA_ENCRYPTION_ACTIVE_KEY_ID", "test");
+  vi.stubEnv("DATA_ENCRYPTION_KEYS_JSON", JSON.stringify({ test: randomBytes(32).toString("base64") }));
   vi.clearAllMocks();
   managerCanAccessApplicationRecord.mockResolvedValue(false);
   // The multi-role reality: this login manages property elsewhere (primary role
@@ -120,4 +128,13 @@ describe("GET /api/manager-applications/[id]/pdf — multi-role applicant", () =
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("application/pdf");
   });
+});
+
+afterEach(() => vi.unstubAllEnvs());
+
+it("opens applicant and co-signer identity for the authorized PDF renderer", async () => {
+  RECORDS[0].row_data = sealApplicantRow({ ...(RECORDS[0].row_data as object), application: { dateOfBirth: "1980-01-02", ssn: "123-45-6789", driversLicense: "TEST-ID" } }, APP_ID, "some-other-manager");
+  COSIGNERS = [{ id: "cosigner-test", row_data: sealCosignerIdentity({ dob: "1970-03-04", ssn: "987-65-4321", dlNumber: "CO-ID" } as never, "cosigner-test", "some-other-manager") }];
+  expect((await fetchPdf(APP_ID)).status).toBe(200);
+  expect(buildApplicationPdf).toHaveBeenCalledWith(expect.objectContaining({ application: expect.objectContaining({ dateOfBirth: "1980-01-02", ssn: "123-45-6789" }) }), expect.objectContaining({ cosignerSubmissions: [expect.objectContaining({ dob: "1970-03-04", ssn: "***-**-4321" })] }));
 });

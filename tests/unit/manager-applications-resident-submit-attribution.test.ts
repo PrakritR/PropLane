@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 /**
  * Route-level regression for the reported bug and its authorization half:
  * `POST /api/manager-applications` as a signed-in RESIDENT.
@@ -9,7 +10,7 @@
  *
  * Set RESIDENT_SUBMIT_TRANSCRIPT to dump the request/response transcript.
  */
-import { beforeEach, afterAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, afterAll, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import type { DemoApplicantRow } from "@/data/demo-portal";
@@ -158,6 +159,8 @@ async function submit(row: DemoApplicantRow) {
 }
 
 beforeEach(() => {
+  vi.stubEnv("DATA_ENCRYPTION_ACTIVE_KEY_ID", "test");
+  vi.stubEnv("DATA_ENCRYPTION_KEYS_JSON", JSON.stringify({ test: randomBytes(32).toString("base64") }));
   vi.clearAllMocks();
   PROFILE = { role: "resident", email: "maya.alvarez@example.com" };
   getUser.mockResolvedValue({
@@ -291,3 +294,5 @@ describe("POST /api/manager-applications — resident submit attribution", () =>
     expect(UPSERTS[0].manager_user_id).toBe(OWNER);
   });
 });
+
+afterEach(() => vi.unstubAllEnvs());

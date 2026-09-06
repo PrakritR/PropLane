@@ -1,5 +1,6 @@
+import { openApplicantRow } from "@/lib/security/applicant-identity";
 import { NextResponse } from "next/server";
-import type { DemoApplicantRow } from "@/data/demo-portal";
+import { openCosignerIdentity } from "@/lib/security/cosigner-identity";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { managerCanAccessApplicationRecord } from "@/lib/auth/manager-application-access";
@@ -84,7 +85,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     }
     if (!allowed) return NextResponse.json({ error: "Not authorized for this application." }, { status: 403 });
 
-    const row = record.row_data as DemoApplicantRow;
+    const row = openApplicantRow(record.row_data, record.id);
     const url = new URL(req.url);
     const roomLabel = url.searchParams.get("roomLabel")?.trim() || undefined;
     // Inline disposition lets the manager UI embed the PDF in a preview frame instead of downloading it.
@@ -93,11 +94,11 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     const signerIds = [...new Set([...ids, ...ids.map((v) => v.toUpperCase())])];
     const { data: cosignerRows } = await db
       .from("cosigner_submission_records")
-      .select("row_data, created_at")
+      .select("id, row_data, created_at")
       .in("signer_app_id", signerIds)
       .order("created_at", { ascending: true });
     const cosignerSubmissions = (cosignerRows ?? [])
-      .map((r) => r.row_data)
+      .map((r) => r.row_data ? openCosignerIdentity(r.row_data, String(r.id)) : null)
       .filter(Boolean) as CosignerSubmission[];
 
     const groupMembers = await loadApplicationGroupMembersForDocument(db, row, {

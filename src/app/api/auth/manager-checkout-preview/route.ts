@@ -35,7 +35,7 @@ async function previewFromPurchaseRow(sessionId: string) {
  */
 export async function GET(req: Request) {
   try {
-    if (!rateLimit(`checkout-preview:${clientIpFrom(req)}`, 10, 60_000).ok) {
+    if (!(await rateLimit(`checkout-preview:${clientIpFrom(req)}`, 10, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     }
 

@@ -25,7 +25,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
  */
 export async function POST(req: Request) {
   try {
-    if (!rateLimit(`resident-setup-link:${clientIpFrom(req)}`, 5, 60_000).ok) {
+    if (!(await rateLimit(`resident-setup-link:${clientIpFrom(req)}`, 5, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     }
 

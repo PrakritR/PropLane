@@ -150,8 +150,8 @@ export async function POST(req: Request) {
     if (!scope) return NextResponse.json({ ok: false, error: "Unauthorized." }, { status: 401 });
 
     if (
-      !rateLimit(`inbox-draft:user:${scope.user.id}`, 40, 60_000).ok ||
-      !rateLimit(`inbox-draft:ip:${clientIpFrom(req)}`, 80, 60_000).ok
+      !(await rateLimit(`inbox-draft:user:${scope.user.id}`, 40, 60_000)).ok ||
+      !(await rateLimit(`inbox-draft:ip:${clientIpFrom(req)}`, 80, 60_000)).ok
     ) {
       return NextResponse.json({ ok: false, error: "Too many draft requests." }, { status: 429 });
     }

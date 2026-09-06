@@ -1,4 +1,5 @@
 import { LEASE_AI_REVIEW_DISCLAIMER } from "@/lib/lease-templates/types";
+import { sanitizeLeaseDocumentHtml } from "@/lib/lease-document-sanitizer";
 
 /** Disclosure review blocks belong outside the lease body in the property editor. */
 export function stripDisclosureReviewFromLeaseHtml(html: string): string {
@@ -8,7 +9,9 @@ export function stripDisclosureReviewFromLeaseHtml(html: string): string {
 export function extractDisclosureReviewFromLeaseHtml(html: string): string | null {
   const match = html.match(/<aside class="disclosure-review"[^>]*>([\s\S]*?)<\/aside>/i);
   if (!match?.[1]?.trim()) return null;
-  return match[1].trim();
+  // Overrides may come from stored/uploaded lease HTML. This fragment is
+  // rendered outside the sandboxed document iframe in the portal itself.
+  return sanitizeLeaseDocumentHtml(match[1].trim());
 }
 
 const PLACEHOLDER_RE = /\[(?:Resident|Placement|LANDLORD)[^\]]*\]/i;

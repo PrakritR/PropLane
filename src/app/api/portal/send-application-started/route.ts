@@ -1,3 +1,4 @@
+import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import { NextResponse } from "next/server";
 import {
   APPLICATION_STARTED_EMAIL_SUBJECT,
@@ -33,7 +34,7 @@ function appOrigin(): string {
 /** Guest started an application — send resume + resident setup links once per application. */
 export async function POST(req: Request) {
   try {
-    if (!rateLimit(`send-application-started:${clientIpFrom(req)}`, 12, 60_000).ok) {
+    if (!(await rateLimit(`send-application-started:${clientIpFrom(req)}`, 12, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     }
 
@@ -134,7 +135,7 @@ export async function POST(req: Request) {
     const nextRow: DemoApplicantRow = { ...row, startedSetupEmailSentAt: sentAt };
     await db
       .from("manager_application_records")
-      .update({ row_data: nextRow, updated_at: sentAt })
+      .update({ row_data: sealApplicantRow(nextRow, match.id, row.managerUserId), updated_at: sentAt })
       .eq("id", match.id);
 
     return NextResponse.json({ ok: true, id: payload.id ?? null, setupHref: buildResidentSetupHref(ensured.token, ensured.axisId) });

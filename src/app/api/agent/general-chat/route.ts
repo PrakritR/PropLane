@@ -26,7 +26,7 @@ export const runtime = "nodejs";
  */
 export async function POST(req: Request) {
   const ip = clientIpFrom(req);
-  if (!rateLimit(`general-chat:${ip}`, 12, 60_000).ok) {
+  if (!(await rateLimit(`general-chat:${ip}`, 12, 60_000)).ok) {
     return NextResponse.json(
       { error: "You're sending messages a little fast — please wait a moment and try again." },
       { status: 429 },

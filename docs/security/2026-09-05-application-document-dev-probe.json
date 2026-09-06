@@ -1,0 +1,20 @@
+{
+  "devOnly": true,
+  "tlsVerified": true,
+  "reusedTestManager": true,
+  "createdSyntheticUser": false,
+  "syntheticApplications": 1,
+  "syntheticOriginalObjects": 1,
+  "migrationSucceeded": true,
+  "ciphertextRoundtrip": true,
+  "noPlaintextInCiphertext": true,
+  "stableOriginalReference": true,
+  "originalRemoved": true,
+  "immediateOriginalDownloadDenied": false,
+  "authoritativeOriginalMetadataAbsent": true,
+  "cacheBustedOriginalDownloadDenied": true,
+  "anonymousAliasReadDenied": true,
+  "objectCleanupConfirmed": true,
+  "applicationCleanupConfirmed": true,
+  "createdUserCleanupConfirmed": true
+}

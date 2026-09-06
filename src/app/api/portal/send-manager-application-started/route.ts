@@ -1,3 +1,4 @@
+import { sealApplicantRow } from "@/lib/security/applicant-identity";
 import { NextResponse } from "next/server";
 import {
   APPLICATION_STARTED_EMAIL_SUBJECT,
@@ -160,7 +161,7 @@ export async function POST(req: Request) {
     const nextRow: DemoApplicantRow = { ...row, startedSetupEmailSentAt: sentAt };
     await svc
       .from("manager_application_records")
-      .update({ row_data: nextRow, updated_at: sentAt })
+      .update({ row_data: sealApplicantRow(nextRow, record.id, row.managerUserId), updated_at: sentAt })
       .eq("id", record.id);
 
     track("manager_application_started_email_sent", user.id, { has_property: Boolean(row.propertyId) });

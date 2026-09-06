@@ -27,6 +27,6 @@ describe("assistant email eligibility copy", () => {
   it("returns actionable errors after reconciliation fails", () => {
     expect(
       assistantEmailEligibilityError("paid", { eligible: false, reason: "plan_unreadable" }),
-    ).toContain("Check eligibility");
+    ).toContain("Reload the page");
   });
 });

@@ -60,8 +60,8 @@ export async function POST(req: Request) {
   // in-memory, so on Vercel concurrent requests land on separate instances with fresh
   // buckets and the per-address cap can be multiplied. Blast radius is unwanted mail
   // and burnt Resend quota; the fix belongs in the shared limiter, not here.
-  const ipOk = rateLimit(`password-reset:ip:${clientIpFrom(req)}`, 10, 10 * 60_000).ok;
-  const emailOk = rateLimit(`password-reset:email:${email}`, 3, 10 * 60_000).ok;
+  const ipOk = (await rateLimit(`password-reset:ip:${clientIpFrom(req)}`, 10, 10 * 60_000)).ok;
+  const emailOk = (await rateLimit(`password-reset:email:${email}`, 3, 10 * 60_000)).ok;
   if (!ipOk || !emailOk) {
     return NextResponse.json(GENERIC_OK);
   }

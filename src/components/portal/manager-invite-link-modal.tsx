@@ -46,20 +46,17 @@ export function ManagerInviteLinkModal({
   open,
   onClose,
   propertyOptions,
-  kind = "manager",
   renderPermissionsEditor,
 }: {
   open: boolean;
   onClose: () => void;
   propertyOptions: CheckboxMultiSelectOption[];
-  kind?: InviteLinkKind;
-  /** Co-manager links only — vendor links do not carry per-module grants. */
+  /** Every link is a co-manager link — `redeemInviteLink` refuses any other kind. */
   renderPermissionsEditor?: (
     value: CoManagerPermissions,
     onChange: (next: CoManagerPermissions) => void,
   ) => React.ReactNode;
 }) {
-  const isManagerLink = kind === "manager";
   const { showToast } = useAppUi();
   const [selectedPropIds, setSelectedPropIds] = useState<string[]>([]);
   const [permissions, setPermissions] = useState<PropertyCoManagerPermissions>({});
@@ -75,7 +72,7 @@ export function ManagerInviteLinkModal({
       const res = await fetch("/api/pro/invite-links", { credentials: "include", cache: "no-store" });
       if (!res.ok) return;
       const body = (await res.json()) as { links?: ExistingLink[] };
-      setLinks((body.links ?? []).filter((link) => link.kind === kind));
+      setLinks((body.links ?? []).filter((link) => link.kind === "manager"));
     } catch {
       /* the list is a convenience; a failed load must not block minting */
     }
@@ -84,7 +81,7 @@ export function ManagerInviteLinkModal({
   useEffect(() => {
     if (!open) return;
     void loadLinks();
-  }, [loadLinks, open, kind]);
+  }, [loadLinks, open]);
 
   const setPropertySelection = (next: string[]) => {
     setSelectedPropIds(next);
@@ -108,7 +105,7 @@ export function ManagerInviteLinkModal({
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          kind,
+          kind: "manager",
           label: label.trim() || undefined,
           assignedPropertyIds: selectedPropIds,
           propertyPermissions: permissions,
@@ -163,19 +160,15 @@ export function ManagerInviteLinkModal({
     setMintedUrl(null);
   };
 
-  const mintDisabled = isManagerLink ? selectedPropIds.length === 0 : false;
+  const mintDisabled = selectedPropIds.length === 0;
 
   return (
     <Modal
       open={open}
-      title={isManagerLink ? "Create an invite link" : "Create a vendor invite link"}
-      description={
-        isManagerLink
-          ? "Anyone who opens this link joins with exactly the access you set here."
-          : "Anyone who opens this link can join your vendor directory on PropLane."
-      }
-      assistantContext={isManagerLink ? "Co-manager invite link" : "Vendor invite link"}
-      assistantStorageScopeKey={isManagerLink ? "Co-manager invite link" : "Vendor invite link"}
+      title="Create an invite link"
+      description="Anyone who opens this link joins with exactly the access you set here."
+      assistantContext="Co-manager invite link"
+      assistantStorageScopeKey="Co-manager invite link"
       onClose={() => {
         reset();
         onClose();
@@ -227,11 +220,7 @@ export function ManagerInviteLinkModal({
           <>
             <div>
               <CheckboxMultiSelect
-                label={
-                  isManagerLink
-                    ? "Properties this link grants access to"
-                    : "Properties (optional)"
-                }
+                label="Properties this link grants access to"
                 labelClassName="text-xs font-semibold uppercase tracking-wide text-muted"
                 options={propertyOptions}
                 selected={selectedPropIds}
@@ -242,7 +231,7 @@ export function ManagerInviteLinkModal({
               />
             </div>
 
-            {isManagerLink && renderPermissionsEditor
+            {renderPermissionsEditor
               ? selectedPropIds.map((pid) => (
                   <div key={pid} className="rounded-xl border border-border bg-accent/25 p-4">
                     <p className="text-sm font-semibold text-foreground">

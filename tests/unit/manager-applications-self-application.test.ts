@@ -1,3 +1,5 @@
+import { openApplicantRow, sealApplicantRow } from "@/lib/security/applicant-identity";
+import { randomBytes } from "node:crypto";
 /**
  * Route-level coverage for the SELF-APPLICATION write path:
  * `POST /api/manager-applications` as a signed-in NON-resident (a manager who
@@ -16,13 +18,15 @@
  * Also covers `GET ?scope=self` — the email-scoped read the public apply flow
  * uses to resume a signed-in user's own draft regardless of their primary role.
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
 const getUser = vi.fn();
+const normalizationRpc = vi.fn();
+let afterApplicationRead: (() => void) | null = null;
 let PROFILE: { role: string; email: string } | null = null;
 let PROPERTY_RECORDS: Record<string, { manager_user_id: string | null; status?: string | null; property_data: unknown }> = {};
-let STORED_ROWS: { id: string; row_data: DemoApplicantRow; manager_user_id?: string | null; resident_email?: string | null }[] = [];
+let STORED_ROWS: { id: string; row_data: DemoApplicantRow; manager_user_id?: string | null; resident_email?: string | null; property_id?: string | null; assigned_property_id?: string | null }[] = [];
 let UPSERTS: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow }[] = [];
 let INSERTS: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow }[] = [];
 let UPDATES: { id: string; manager_user_id: string | null; row_data: DemoApplicantRow }[] = [];
@@ -49,6 +53,7 @@ type WriteValues = { id: string; manager_user_id: string | null; row_data: DemoA
 /** Chainable Supabase stub covering the select/update/insert/upsert shapes the route uses. */
 function makeDb() {
   return {
+    rpc: normalizationRpc,
     from(table: string) {
       const state: { op: "select" | "update" | "insert" | "upsert"; ids: string[] | null; eq: Record<string, string>; values: WriteValues | null } = {
         op: "select",
@@ -56,8 +61,9 @@ function makeDb() {
         eq: {},
         values: null,
       };
+      let selectedColumns = "*";
       const builder: Record<string, unknown> = {
-        select: () => builder,
+        select: (columns = "*") => { selectedColumns = columns; return builder; },
         update(values: WriteValues) {
           state.op = "update";
           state.values = values;
@@ -112,7 +118,13 @@ function makeDb() {
             if (updatable.length > 0 && state.values) UPDATES.push(state.values);
             return Promise.resolve({ data: updatable.map((r) => ({ id: r.id })), error: null }).then(resolve);
           }
-          return Promise.resolve({ data: matches, error: null }).then(resolve);
+          const after = afterApplicationRead;
+          afterApplicationRead = null;
+          after?.();
+          const projected = selectedColumns === "*" ? matches : matches.map((row) => Object.fromEntries(
+            selectedColumns.split(",").map((column) => column.trim()).map((column) => [column, (row as unknown as Record<string, unknown>)[column]]),
+          ));
+          return Promise.resolve({ data: projected, error: null }).then(resolve);
         },
       };
       return builder;
@@ -153,7 +165,11 @@ async function upsert(row: DemoApplicantRow) {
 }
 
 beforeEach(() => {
+  vi.stubEnv("DATA_ENCRYPTION_ACTIVE_KEY_ID", "test");
+  vi.stubEnv("DATA_ENCRYPTION_KEYS_JSON", JSON.stringify({ test: randomBytes(32).toString("base64") }));
   vi.clearAllMocks();
+  normalizationRpc.mockReset().mockResolvedValue({ error: null });
+  afterApplicationRead = null;
   PROFILE = { role: "manager", email: CALLER_EMAIL };
   getUser.mockResolvedValue({
     data: { user: { id: CALLER, email: CALLER_EMAIL, user_metadata: {} } },
@@ -312,4 +328,116 @@ describe("GET /api/manager-applications resident email gate", () => {
     expect(res.status).toBe(200);
     expect(body.rows).toEqual([]);
   });
+});
+
+afterEach(() => vi.unstubAllEnvs());
+
+
+describe("protected applicant route boundaries", () => {
+  it("persists encrypted identity and returns decoded self row with no crypto metadata", async () => {
+    const source = inProgressRow({ managerUserId: LISTING_OWNER });
+    source.application = { ...source.application, ssn: "123-45-6789", dateOfBirth: "1980-01-02", driversLicense: "LICENSE-TEST" } as DemoApplicantRow["application"];
+    STORED_ROWS = [{ id: source.id, manager_user_id: LISTING_OWNER, resident_email: CALLER_EMAIL, row_data: sealApplicantRow(source, source.id, LISTING_OWNER) }];
+    const partial = inProgressRow({ detail: "changed" });
+    const res = await upsert(partial);
+    expect(res.status).toBe(200);
+    expect(UPDATES).toHaveLength(1);
+    expect(UPDATES[0].row_data.application).not.toHaveProperty("ssn");
+    expect(openApplicantRow(UPDATES[0].row_data, source.id).application?.ssn).toBe("123-45-6789");
+    const responseRow = res.body.row as DemoApplicantRow;
+    expect(responseRow.application?.dateOfBirth).toBe("1980-01-02");
+    expect(responseRow).not.toHaveProperty("_applicantIdentity");
+  });
+  it("rejects a resident claiming another applicant's stored id before opening identity", async () => {
+    PROFILE = { role: "resident", email: CALLER_EMAIL };
+    const victim = inProgressRow({ email: OTHER_APPLICANT_EMAIL, managerUserId: LISTING_OWNER });
+    victim.application = { ...victim.application, ssn: "123-45-6789" } as DemoApplicantRow["application"];
+    STORED_ROWS = [{ id: victim.id, manager_user_id: LISTING_OWNER, resident_email: OTHER_APPLICANT_EMAIL, row_data: sealApplicantRow(victim, victim.id, LISTING_OWNER) }];
+    vi.stubEnv("DATA_ENCRYPTION_KEYS_JSON", "");
+    const res = await upsert(inProgressRow());
+    expect(res.status).toBe(403);
+    expect(UPDATES).toHaveLength(0);
+    expect(UPSERTS).toHaveLength(0);
+  });
+});
+
+
+describe("GET normalizes legacy application IDs without losing protected documents", () => {
+  function legacyRecord() {
+    const row = inProgressRow({ id: "abc123", managerUserId: LISTING_OWNER });
+    row.application = { ...row.application, ssn: "123-45-6789", idPhotoFront: { path: "application/PROPLANE-ABC123/legacy.pdf" } } as DemoApplicantRow["application"];
+    return { id: row.id, manager_user_id: LISTING_OWNER, resident_email: CALLER_EMAIL, row_data: sealApplicantRow(row, row.id, LISTING_OWNER) };
+  }
+  it("uses one atomic normalization RPC and returns the successfully rekeyed ID", async () => {
+    const record = legacyRecord();
+    STORED_ROWS = [record];
+    const { GET } = await import("@/app/api/manager-applications/route");
+    const response = await GET(new Request("http://localhost/api/manager-applications?scope=self"));
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.rows[0].id).toBe("PROPLANE-ABC123");
+    expect(body.rows[0].application.ssn).toBe("123-45-6789");
+    const [name, args] = normalizationRpc.mock.calls[0];
+    expect(name).toBe("normalize_application_record_id");
+    expect(args.p_old_id).toBe("abc123");
+    expect(args.p_expected.row_data).toEqual(record.row_data);
+    expect(args.p_next.row_data.application.idPhotoFront.path).toBe("application/PROPLANE-ABC123/legacy.pdf");
+    expect(args.p_next.row_data.application).not.toHaveProperty("ssn");
+    expect(openApplicantRow(args.p_next.row_data, "PROPLANE-ABC123").application?.ssn).toBe("123-45-6789");
+    expect(UPSERTS).toHaveLength(0);
+    expect(INSERTS).toHaveLength(0);
+  });
+  it("keeps the exact original ID after transaction rejection instead of a dangling or foreign canonical ID", async () => {
+    const record = legacyRecord();
+    STORED_ROWS = [record, { id: "PROPLANE-ABC123", manager_user_id: "foreign-manager", resident_email: OTHER_APPLICANT_EMAIL, row_data: inProgressRow({ id: "PROPLANE-ABC123", email: OTHER_APPLICANT_EMAIL }) }];
+    normalizationRpc.mockResolvedValue({ error: { message: "occupied target" } });
+    const { GET } = await import("@/app/api/manager-applications/route");
+    const response = await GET(new Request("http://localhost/api/manager-applications?scope=self"));
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.rows).toHaveLength(1);
+    expect(body.rows[0].id).toBe("abc123");
+    expect(STORED_ROWS[0]).toEqual(record);
+    expect(UPSERTS).toHaveLength(0);
+    expect(INSERTS).toHaveLength(0);
+  });
+});
+
+
+it("POST retains the originally authorized snapshot when a transfer occurs before the later consent read", async () => {
+  PROFILE = { role: "resident", email: CALLER_EMAIL };
+  const original = inProgressRow({ id: "abc123", stage: "Submitted", managerUserId: LISTING_OWNER });
+  original.application = { ...original.application, ssn: "123-45-6789" } as DemoApplicantRow["application"];
+  const stored = { id: "abc123", manager_user_id: LISTING_OWNER, resident_email: CALLER_EMAIL, row_data: sealApplicantRow(original, "abc123", LISTING_OWNER) };
+  STORED_ROWS = [stored];
+  afterApplicationRead = () => {
+    STORED_ROWS = [{ ...stored, manager_user_id: "new-foreign-owner", resident_email: OTHER_APPLICANT_EMAIL,
+      row_data: { ...stored.row_data, managerUserId: "new-foreign-owner", email: OTHER_APPLICANT_EMAIL } }];
+  };
+  normalizationRpc.mockImplementation(async (_name, args) => ({ error: args.p_expected.manager_user_id !== STORED_ROWS[0].manager_user_id ? { message: "source changed" } : null }));
+  const response = await upsert(original);
+  expect(response.status).toBe(500);
+  expect(normalizationRpc).toHaveBeenCalledOnce();
+  const expected = normalizationRpc.mock.calls[0][1].p_expected;
+  expect(expected.manager_user_id).toBe(LISTING_OWNER);
+  expect(expected.resident_email).toBe(CALLER_EMAIL);
+  expect(expected.row_data).toEqual(stored.row_data);
+  expect(STORED_ROWS[0].manager_user_id).toBe("new-foreign-owner");
+  expect(UPSERTS).toHaveLength(0);
+  expect(INSERTS).toHaveLength(0);
+});
+
+
+it("POST normalizes an owned resident application with the full selected ownership snapshot", async () => {
+  PROFILE = { role: "resident", email: CALLER_EMAIL };
+  const original = inProgressRow({ id: "abc123", stage: "Submitted", managerUserId: LISTING_OWNER });
+  original.application = { ...original.application, ssn: "123-45-6789" } as DemoApplicantRow["application"];
+  STORED_ROWS = [{ id: "abc123", manager_user_id: LISTING_OWNER, resident_email: CALLER_EMAIL, property_id: LISTING,
+    assigned_property_id: null, row_data: sealApplicantRow(original, "abc123", LISTING_OWNER) }];
+  const response = await upsert(original);
+  expect(response.status).toBe(200);
+  const args = normalizationRpc.mock.calls[0][1];
+  expect(args.p_expected).toMatchObject({ manager_user_id: LISTING_OWNER, resident_email: CALLER_EMAIL, property_id: LISTING, assigned_property_id: null });
+  expect(args.p_next.manager_user_id).toBe(LISTING_OWNER);
+  expect(openApplicantRow(args.p_next.row_data, "PROPLANE-ABC123").application?.ssn).toBe("123-45-6789");
 });

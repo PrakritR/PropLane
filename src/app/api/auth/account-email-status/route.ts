@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   try {
-    if (!rateLimit(`account-email-status:${clientIpFrom(req)}`, 20, 60_000).ok) {
+    if (!(await rateLimit(`account-email-status:${clientIpFrom(req)}`, 20, 60_000)).ok) {
       return NextResponse.json({ error: "Too many requests. Please slow down." }, { status: 429 });
     }
 

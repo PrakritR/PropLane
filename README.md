@@ -14,11 +14,11 @@ Property management software for listing units, screening applicants, signing le
 
 ### Manager workspace (`/portal`)
 
-Properties, tour scheduling, rental applications, resident & lease management, household charges, Stripe Connect payouts, work orders & vendors, inbox, documents & tax reporting, co-managers, and subscription billing (Free / Pro / Business).
+Properties, tour scheduling, rental applications, resident & lease management, move-in / move-out inspections, household charges, Stripe Connect payouts, work orders & vendors, inbox, documents & tax reporting, co-managers, and subscription billing (Free / Pro / Business).
 
 ### Resident portal (`/resident`)
 
-Rent & utility payments (card incl. Apple Pay / Google Pay, ACH, Link via Stripe Connect), move-in checklist, services & work orders, inbox, lease & receipts. Full workspace unlocks after lease approval.
+Rent & utility payments (card incl. Apple Pay / Google Pay, ACH, Link via Stripe Connect), My home (house info & rules, opt-in housemate sharing, move-in / move-out inspections), services & work orders, inbox, lease & receipts. Full workspace unlocks after lease approval.
 
 ### Platform capabilities
 

@@ -94,6 +94,29 @@ function mockDb(seed: Rec[], profile: { email: string; role: string }, appSeed: 
         };
         return builder;
       }
+      if (table !== "portal_service_request_records") {
+        // Every OTHER table this route touches on its way out — the
+        // `action_events` write behind the transition notification, for one.
+        // Falling those through to the branch below recorded them in `upserts`,
+        // which quietly turned an ownership assertion into a write-COUNT
+        // assertion: the first legitimate new side effect made
+        // `expect(upserts).toHaveLength(1)` fail and the two assertions that
+        // actually check the stamped owner never ran at all.
+        const other: Record<string, unknown> = {
+          select: () => other,
+          insert: async () => ({ data: null, error: null }),
+          upsert: async () => ({ data: null, error: null }),
+          update: () => other,
+          delete: () => other,
+          eq: () => other,
+          in: () => other,
+          order: () => other,
+          limit: async () => ({ data: [], error: null }),
+          maybeSingle: async () => ({ data: null, error: null }),
+          single: async () => ({ data: null, error: null }),
+        };
+        return other;
+      }
       // portal_service_request_records
       return {
         select() {

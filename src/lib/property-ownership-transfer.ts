@@ -11,7 +11,7 @@ import {
   notifyPromotedToMainManager,
 } from "@/lib/co-manager-notification.server";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { asStringArray } from "@/app/api/pro/account-links/route";
+import { asStringArray } from "@/lib/account-link-invite-row";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 

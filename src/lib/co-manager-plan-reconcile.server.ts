@@ -1,4 +1,4 @@
-import type { InviteRow } from "@/app/api/pro/account-links/route";
+import type { InviteRow } from "@/lib/account-link-invite-row";
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import { normalizeManagerSkuTier } from "@/lib/manager-access";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";

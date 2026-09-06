@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { AlertCircle, CheckCircle2, MessageSquareText } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import {
   PortalSettingsField,
@@ -212,9 +212,7 @@ export function ManagerMessagingSettingsPanel({
     null,
   );
   const [loading, setLoading] = useState(true);
-  const [pendingAction, setPendingAction] = useState<
-    "request" | "refresh" | null
-  >(null);
+  const [pendingAction, setPendingAction] = useState<"request" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [areaCode, setAreaCode] = useState("");
   const [announceOpen, setAnnounceOpen] = useState(false);
@@ -304,9 +302,9 @@ export function ManagerMessagingSettingsPanel({
   );
 
   const postAction = useCallback(
-    async (action: "request_number" | "refresh_eligibility") => {
+    async (action: "request_number") => {
       setError(null);
-      setPendingAction(action === "request_number" ? "request" : "refresh");
+      setPendingAction("request");
       try {
         const res = await fetch(ENDPOINT, {
           method: "POST",
@@ -355,11 +353,7 @@ export function ManagerMessagingSettingsPanel({
               : "Messaging number assigned. Carrier registration may still be finishing.",
           );
         } else {
-          showToast(
-            action === "refresh_eligibility"
-              ? "Messaging eligibility refreshed."
-              : "Messaging number request received.",
-          );
+          showToast("Messaging number request received.");
         }
       } catch {
         setError("Network error. Check your connection and try again.");
@@ -454,6 +448,48 @@ export function ManagerMessagingSettingsPanel({
     showToast(copied ? "Work number copied." : "Could not copy work number.");
   }, [showToast, statusPhoneNumber]);
 
+  /**
+   * Settle an unverified plan by itself, instead of behind a button.
+   *
+   * Reading the billing source needs no human judgement, so asking the manager
+   * to find and press "Check eligibility" only ever left the answer unread —
+   * and a brand-new account, which has no `sms_manager_entitlements` row and so
+   * reads back as `plan_unreadable`, is exactly the account that saw it.
+   *
+   * This cannot become a billing ping. The server's gate keys on the ABSENCE of
+   * the stored row and writes one on every resolved outcome, so the first
+   * successful reconcile closes it permanently; the ref keeps it to one attempt
+   * per mount even when the read itself keeps failing. Every LATER plan change
+   * arrives on its own through the Stripe and RevenueCat webhooks, which
+   * reconcile the same entitlement.
+   */
+  const settleAttemptedRef = useRef(false);
+  const entitlementUnverified = status ? entitlementIsUnverified(status) : false;
+  useEffect(() => {
+    if (!entitlementUnverified || settleAttemptedRef.current) return;
+    settleAttemptedRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(ENDPOINT, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "refresh_eligibility" }),
+        });
+        if (!res.ok) return;
+        const body = (await res.json().catch(() => ({}))) as unknown;
+        if (!cancelled && isMessagingNumberStatus(body)) setStatus(body);
+      } catch {
+        // A plan we could not read is already the state on screen; surfacing a
+        // network error for work the manager never asked for would only add noise.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [entitlementUnverified]);
+
   if (loading && !status) {
     return (
       <PortalSettingsSection
@@ -528,12 +564,6 @@ export function ManagerMessagingSettingsPanel({
   const failureDiagnostic = managerMessagingSenderPoolDiagnostic(
     status.number?.lastError,
   );
-  // An unchecked plan must stay actionable before a number exists - otherwise
-  // the one account that sees "not checked yet" (a new one, with no number) is
-  // the one account with no control that resolves it.
-  const canRefreshEligibility =
-    !status.entitlement.eligible &&
-    (Boolean(phoneNumber) || unverifiedEntitlement);
   const requestPending = numberInProgress;
 
   return (
@@ -661,21 +691,6 @@ export function ManagerMessagingSettingsPanel({
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
               <p>{error}</p>
             </div>
-          ) : null}
-
-          {canRefreshEligibility ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={pendingAction !== null}
-              aria-busy={pendingAction === "refresh"}
-              onClick={() => postAction("refresh_eligibility")}
-              data-attr="messaging-eligibility-refresh"
-            >
-              {pendingAction === "refresh"
-                ? "Checking…"
-                : "Check eligibility"}
-            </Button>
           ) : null}
 
           {/* They said yes during setup but cannot act on it yet — usually a

@@ -1,3 +1,4 @@
+import { ManagerInspectionsPage } from "@/components/portal/inspections-panel";
 import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { AdminDashboard } from "@/components/portal/admin-dashboard";
 import { ManagerDashboard } from "@/components/portal/pro-dashboard";
@@ -62,7 +63,7 @@ import { getEffectiveSessionForPortal, getEffectiveUserIdForPortal } from "@/lib
 import { getServerSessionProfile } from "@/lib/auth/server-profile";
 import { managerSectionAllowedForTier, residentSectionAllowedForManagerTier } from "@/lib/manager-access";
 import { getManagerPortalNavSubscriptionTier, getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
-import { loadResidentLeaseSignedStatus, loadResidentPortalAccessState, residentPortalHomePath } from "@/lib/resident-portal-access";
+import { loadResidentPortalAccessState, residentPortalHomePath } from "@/lib/resident-portal-access";
 import { isResidentPathAllowedForAccess } from "@/lib/resident-portal-nav";
 import { findSection, getPortalDefinition } from "@/lib/portals";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -593,6 +594,14 @@ export async function renderPortalSection(
       if (legacyPath) {
         redirect(`${def.basePath}/${legacyPath}`);
       }
+    }
+
+    if (section === "inspections") {
+      if (!tabParts?.length) redirect(`${def.basePath}/inspections/move-in`);
+      const inspectionKind = tabParts[0];
+      if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || tabParts.length > 2) notFound();
+      if (tabParts[1] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[1])) notFound();
+      return subscriptionGated(<ManagerInspectionsPage kind={inspectionKind} reportId={tabParts[1]} basePath={def.basePath} />, kind, "inspections", managerOwnerSubscriptionTier);
     }
 
     if (section === "residents") {
@@ -1278,10 +1287,10 @@ export async function renderPortalSection(
   if (kind === "resident" && section === "move-in") {
     const moveInEmail = residentCtx?.profile?.email ?? residentCtx?.user?.email ?? null;
     const allowedTabs = meta.tabs.map((t) => t.id);
-    const leaseSigned = moveInEmail ? await loadResidentLeaseSignedStatus(moveInEmail) : false;
-    if (!leaseSigned) {
+    // Use the same entitlement as navigation, including attested off-platform tenancies.
+    if (!residentAccess?.leaseAccessUnlocked) {
       return (
-        <ManagerPortalPageShell title="House details" hideTitleOnMobileNav>
+        <ManagerPortalPageShell title="My home" hideTitleOnMobileNav>
           <ResidentMoveInShell
             basePath={def.basePath}
             resolved={null}
