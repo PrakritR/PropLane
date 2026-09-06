@@ -16,6 +16,7 @@ import {
   PaymentsSettingsPanel,
   ResidentSettingsPanel,
   BookingsSettingsPanel,
+  InspectionsSettingsPanel,
   ServicesSettingsPanel,
   SettingsPanelModalSaveButton,
   TaskSettingsPanel,
@@ -40,6 +41,7 @@ export type ManagerPortalSettingsTab =
   | "services"
   | "communication"
   | "bookings"
+  | "inspections"
   | "automation";
 
 const TABS: { id: ManagerPortalSettingsTab; label: string }[] = [
@@ -56,6 +58,7 @@ const TABS: { id: ManagerPortalSettingsTab; label: string }[] = [
   { id: "services", label: "Services" },
   { id: "communication", label: "Communication" },
   { id: "bookings", label: "Bookings" },
+  { id: "inspections", label: "Inspections" },
   { id: "automation", label: "Automation" },
 ];
 
@@ -208,6 +211,8 @@ export function ProPortalSettingsModal({
   const outgoingPaymentReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
   const workOrderReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
   const serviceOrderReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+  const inspectionDueReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
+  const inspectionReviewReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
   const bookingReminderFormRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
   /**
    * Every autosaving panel is mounted only while ITS tab is selected, so a tab
@@ -225,6 +230,8 @@ export function ProPortalSettingsModal({
     void outgoingPaymentReminderFormRef.current?.saveIfDirty();
     void workOrderReminderFormRef.current?.saveIfDirty();
     void serviceOrderReminderFormRef.current?.saveIfDirty();
+    void inspectionDueReminderFormRef.current?.saveIfDirty();
+    void inspectionReviewReminderFormRef.current?.saveIfDirty();
     void bookingReminderFormRef.current?.saveIfDirty();
   }, []);
 
@@ -361,6 +368,15 @@ export function ProPortalSettingsModal({
           onFooterReady={setPanelFooter}
           workOrderReminderFormRef={workOrderReminderFormRef}
           serviceOrderReminderFormRef={serviceOrderReminderFormRef}
+        />
+      ) : null}
+
+      {open && tab === "inspections" ? (
+        <InspectionsSettingsPanel
+          teamMembers={teamMembers}
+          onFooterReady={setPanelFooter}
+          dueReminderFormRef={inspectionDueReminderFormRef}
+          reviewReminderFormRef={inspectionReviewReminderFormRef}
         />
       ) : null}
 

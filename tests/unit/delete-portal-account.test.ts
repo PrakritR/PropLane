@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const {
   purgeResidentPortalData,
   purgeManagerPortalData,
+  purgeVendorPortalData,
   findAuthUserIdByEmail,
   removePortalAccess,
   getStripe,
@@ -10,6 +11,7 @@ const {
 } = vi.hoisted(() => ({
   purgeResidentPortalData: vi.fn(),
   purgeManagerPortalData: vi.fn(),
+  purgeVendorPortalData: vi.fn(),
   findAuthUserIdByEmail: vi.fn(),
   removePortalAccess: vi.fn(),
   getStripe: vi.fn(),
@@ -19,6 +21,7 @@ const {
 vi.mock("@/lib/auth/purge-portal-account-data", () => ({
   purgeResidentPortalData,
   purgeManagerPortalData,
+  purgeVendorPortalData,
 }));
 
 vi.mock("@/lib/auth/find-auth-user-id-by-email", () => ({
@@ -309,13 +312,63 @@ describe("delete-portal-account", () => {
     expect(result).toEqual({ ok: true, mode: "deleted_auth_user" });
   });
 
+  it("deletes the login when self-delete leaves no role behind", async () => {
+    // The portal role is gone by the time the result is computed, but the helper that
+    // removed it did not delete the auth user. Reporting success here would free the
+    // portal and strand the login, so the same email could never be registered again.
+    removePortalAccess.mockResolvedValue({ ok: true, mode: "revoked_role", remainingRoles: [] });
+    const deleteUser = vi.fn(async () => ({ error: null }));
+    let profilesRead = 0;
+    const db = {
+      from: (table: string) => {
+        if (table === "profiles") {
+          return {
+            select: () => ({
+              eq: () => ({
+                maybeSingle: async () => {
+                  profilesRead += 1;
+                  // The role is gone from the second read on: removePortalAccess revoked it.
+                  return {
+                    data: { id: "left-over", role: profilesRead > 1 ? null : "manager", email: "left@test.com" },
+                  };
+                },
+              }),
+            }),
+            delete: () => ({ eq: async () => ({ error: null }) }),
+          };
+        }
+        if (table === "profile_roles") {
+          return {
+            select: () => ({ eq: async () => ({ data: [] }) }),
+            delete: () => ({ eq: async () => ({ error: null }) }),
+          };
+        }
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
+          update: () => ({ eq: async () => ({ error: null }) }),
+          delete: () => ({ eq: async () => ({ error: null }) }),
+        };
+      },
+      auth: { admin: { deleteUser } },
+    };
+
+    const result = await deleteOwnPortalAccount(db as never, "left-over", "manager");
+
+    expect(deleteUser).toHaveBeenCalledWith("left-over");
+    expect(result).toEqual({
+      ok: true,
+      mode: "deleted_auth_user",
+      signedOut: true,
+      redirectTo: "/auth/sign-in?deleted=1",
+    });
+  });
+
   it("self-delete cancels the active Stripe subscription, cleans vendor data, and deletes the auth user", async () => {
     const cancel = vi.fn(async () => ({}));
     getStripe.mockReturnValue({ subscriptions: { cancel } });
     isAdminManagedManagerPurchase.mockReturnValue(false);
 
     const deleteUser = vi.fn(async () => ({ error: null }));
-    const vendorUpdate = vi.fn(() => ({ eq: async () => ({ error: null }) }));
     const db = {
       from: (table: string) => {
         if (table === "manager_purchases") {
@@ -338,9 +391,8 @@ describe("delete-portal-account", () => {
         if (table === "profile_roles") {
           return { delete: () => ({ eq: async () => ({ error: null }) }) };
         }
-        // Vendor tables: support both update().eq() and delete().eq().
         return {
-          update: vendorUpdate,
+          update: () => ({ eq: async () => ({ error: null }) }),
           delete: () => ({ eq: async () => ({ error: null }) }),
         };
       },
@@ -350,7 +402,7 @@ describe("delete-portal-account", () => {
     const result = await deleteOwnAccount(db as never, "user-self");
 
     expect(cancel).toHaveBeenCalledWith("sub_123");
-    expect(vendorUpdate).toHaveBeenCalledWith({ vendor_user_id: null });
+    expect(purgeVendorPortalData).toHaveBeenCalledWith(db, { userId: "user-self", email: "me@test.com" });
     expect(purgeManagerPortalData).toHaveBeenCalledWith(db, "user-self");
     expect(deleteUser).toHaveBeenCalledWith("user-self");
     expect(result).toEqual({ ok: true, mode: "deleted_auth_user" });

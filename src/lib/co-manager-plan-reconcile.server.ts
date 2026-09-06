@@ -58,6 +58,13 @@ export async function disconnectCoManagerLinksForPlanDowngrade(userId: string): 
 
   let disconnected = 0;
   for (const row of (data ?? []) as InviteRow[]) {
+    // Open-link invitees inherit the owner's eligibility. They may stay Free,
+    // but the grant must still end when the owner positively downgrades.
+    if (row.invitee_plan_inherited && row.invitee_user_id === uid && row.inviter_user_id !== uid) {
+      const ownerSku = await getManagerPurchaseSku(row.inviter_user_id);
+      const ownerTier = normalizeManagerSkuTier(ownerSku.tier);
+      if (ownerSku.readFailed || ownerTier == null || managerPlanAllowsCoManagerInvites({ tier: ownerTier })) continue;
+    }
     await revokeInviteRow(svc, row);
     disconnected += 1;
   }

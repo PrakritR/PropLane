@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ExpenseRowMenu } from "@/components/portal/expense-row-menu";
 import { Input, Select } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { useShallowTabId } from "@/components/ui/tabs";
@@ -66,6 +67,12 @@ import {
   collectLinkedPropertyIdsForModule,
 } from "@/lib/manager-portfolio-access";
 import {
+  FINANCES_ASSISTANT_UPDATED_EVENT,
+  expandDateFilterToInclude,
+  type FinancesAssistantUpdatedDetail,
+} from "@/lib/finances-assistant-events";
+import { pacificCalendarDateYmd } from "@/lib/pacific-time";
+import {
   MANAGER_OUTGOING_PAYMENTS_EVENT,
   readManagerOutgoingExpenses,
   syncManagerOutgoingExpensesFromServer,
@@ -86,7 +93,16 @@ import {
   syncManagerVendorsFromServer,
 } from "@/lib/manager-vendors-storage";
 
-const HIDDEN_FINANCE_COLS = new Set(["scheduleERef", "id", "workOrderId", "taxDeductible"]);
+const HIDDEN_FINANCE_COLS = new Set([
+  "scheduleERef",
+  "id",
+  "workOrderId",
+  "taxDeductible",
+  "categoryCode",
+  "vendorId",
+  "propertyId",
+  "amountCents",
+]);
 
 function emptyRowFilters(): FinanceRowFilterState {
   return { resident: "", type: "", category: "", vendor: "" };
@@ -162,6 +178,7 @@ function compareRows(a: ReportRow, b: ReportRow, key: string, dir: "asc" | "desc
   return dir === "asc" ? cmp : -cmp;
 }
 
+
 /**
  * Transaction entries in a sortable sheet (Income / Expenses). Accounting
  * REPORTS (trial balance, GL, etc.) use the same table with totals intact.
@@ -172,6 +189,8 @@ function FinancesDataTable({
   sortDir,
   onHeaderSort,
   onTaxStatusChange,
+  onEditExpense,
+  onDeleteExpense,
   showTotals = true,
 }: {
   report: ReportResult;
@@ -179,6 +198,8 @@ function FinancesDataTable({
   sortDir: "asc" | "desc";
   onHeaderSort: (key: string) => void;
   onTaxStatusChange?: (expenseId: string, deductible: boolean) => void;
+  onEditExpense?: (row: ReportRow) => void;
+  onDeleteExpense?: (row: ReportRow) => void;
   showTotals?: boolean;
 }) {
   const visibleCols = useMemo(
@@ -195,6 +216,9 @@ function FinancesDataTable({
     return null;
   }
 
+  const canActOnRow = Boolean(onEditExpense || onDeleteExpense);
+  const amountColumn = visibleCols.find((col) => col.key === "amount");
+
   const renderCellValue = (col: ReportColumn, row: ReportRow) =>
     col.key === "taxStatus" && onTaxStatusChange && row.id ? (
       <ExpenseTaxStatusToggle
@@ -202,6 +226,8 @@ function FinancesDataTable({
         deductible={row.taxDeductible !== false}
         onChange={(next) => onTaxStatusChange(String(row.id), next)}
       />
+    ) : col.key === "memo" ? (
+      <span className="line-clamp-2 break-words">{formatCellValue(col, row[col.key])}</span>
     ) : (
       formatCellValue(col, row[col.key])
     );
@@ -211,8 +237,19 @@ function FinancesDataTable({
       <div className="space-y-2 lg:hidden">
         {sortedRows.map((row, idx) => (
           <div key={`${row.id ?? idx}-${idx}`} className={PORTAL_MOBILE_CARD_CLASS}>
+            {amountColumn || canActOnRow ? <div className="mb-1 flex items-start justify-between gap-2">
+              {amountColumn ? <p className="min-w-0 text-sm font-medium text-foreground">
+                {formatCellValue(amountColumn, row.amount)}
+              </p> : null}
+              {canActOnRow ? (
+                <ExpenseRowMenu
+                  onEdit={onEditExpense ? () => onEditExpense(row) : undefined}
+                  onDelete={onDeleteExpense ? () => onDeleteExpense(row) : undefined}
+                />
+              ) : null}
+            </div> : null}
             <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-              {visibleCols.map((col) => (
+              {visibleCols.filter((col) => col.key !== "amount").map((col) => (
                 <div key={col.key} className={cn("min-w-0", col.key === "taxStatus" && "col-span-2")}>
                   <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted/70">{col.label}</p>
                   <div
@@ -270,6 +307,7 @@ function FinancesDataTable({
                   </button>
                 </th>
               ))}
+              {canActOnRow ? <th className={`${MANAGER_TABLE_TH} w-12 p-0`}><span className="sr-only">Actions</span></th> : null}
             </tr>
           </thead>
           <tbody>
@@ -280,11 +318,21 @@ function FinancesDataTable({
                     key={col.key}
                     className={`${PORTAL_TABLE_TD} ${cellAlign(col)} ${
                       col.key === "amount" ? "font-medium text-foreground" : ""
-                    } ${col.key === "property" || col.key === "resident" ? "font-medium text-foreground" : ""}`}
+                    } ${col.key === "property" || col.key === "resident" ? "font-medium text-foreground" : ""} ${
+                      col.key === "taxStatus" ? "whitespace-nowrap" : ""
+                    }`}
                   >
                     {renderCellValue(col, row)}
                   </td>
                 ))}
+                {canActOnRow ? (
+                  <td className={`${PORTAL_TABLE_TD} w-12 text-right`}>
+                    <ExpenseRowMenu
+                      onEdit={onEditExpense ? () => onEditExpense(row) : undefined}
+                      onDelete={onDeleteExpense ? () => onDeleteExpense(row) : undefined}
+                    />
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>
@@ -296,6 +344,7 @@ function FinancesDataTable({
                     {formatCellValue(col, report.totals![col.key])}
                   </td>
                 ))}
+                {canActOnRow ? <td className={PORTAL_TABLE_TD} /> : null}
               </tr>
             </tfoot>
           ) : null}
@@ -373,18 +422,19 @@ const DEFAULT_SORT: Record<string, { key: string; dir: "asc" | "desc" }> = {
 };
 
 function defaultFilters(): ReportFilterState {
-  const now = new Date();
-  const yearStart = new Date(now.getFullYear(), 0, 1);
+  const today = pacificCalendarDateYmd();
+  const year = today.slice(0, 4);
   return {
     propertyId: "",
-    from: yearStart.toISOString().slice(0, 10),
-    to: now.toISOString().slice(0, 10),
+    from: `${year}-01-01`,
+    to: today,
     daysAhead: "90",
-    taxYear: String(now.getFullYear() - 1),
+    taxYear: String(Number(year) - 1),
   };
 }
 
 type ExpenseDraft = {
+  id?: string;
   categoryCode: string;
   amount: string;
   expenseDate: string;
@@ -395,6 +445,19 @@ type ExpenseDraft = {
   // Once the manager touches the tax field, category changes stop re-suggesting it.
   taxTouched: boolean;
 };
+
+function blankExpenseDraft(propertyId = ""): ExpenseDraft {
+  return {
+    categoryCode: "maintenance",
+    amount: "",
+    expenseDate: pacificCalendarDateYmd(),
+    memo: "",
+    vendorId: "",
+    propertyId,
+    taxDeductible: isCategoryDeductible("maintenance"),
+    taxTouched: false,
+  };
+}
 
 const EXPENSE_CATEGORIES = SYSTEM_CHART_ACCOUNTS.filter((a) => a.accountType === "expense");
 const INCOME_CATEGORIES = SYSTEM_CHART_ACCOUNTS.filter((a) => a.accountType === "income");
@@ -521,20 +584,12 @@ export function ManagerFinancesPanel({
   const bankReconciliationRef = useRef<ManagerBankReconciliationPanelHandle>(null);
   const ownerDistributionsRef = useRef<ManagerOwnerDistributionsPanelHandle>(null);
   const [canAddBankStatement, setCanAddBankStatement] = useState(false);
-  const [expenseDraft, setExpenseDraft] = useState<ExpenseDraft>({
-    categoryCode: "maintenance",
-    amount: "",
-    expenseDate: new Date().toISOString().slice(0, 10),
-    memo: "",
-    vendorId: "",
-    propertyId: "",
-    taxDeductible: isCategoryDeductible("maintenance"),
-    taxTouched: false,
-  });
+  const [expenseDraft, setExpenseDraft] = useState<ExpenseDraft>(blankExpenseDraft);
+  const [expenseToDelete, setExpenseToDelete] = useState<ReportRow | null>(null);
   const [incomeDraft, setIncomeDraft] = useState<IncomeDraft>({
     categoryCode: "other_income",
     amount: "",
-    postedDate: new Date().toISOString().slice(0, 10),
+    postedDate: pacificCalendarDateYmd(),
     description: "",
     propertyId: "",
   });
@@ -652,6 +707,24 @@ export function ManagerFinancesPanel({
     return () => window.clearTimeout(timer);
   }, [loadTable, ready, tabId]);
 
+  useEffect(() => {
+    if (!ready) return;
+    const onAssistantUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<FinancesAssistantUpdatedDetail>).detail;
+      if (!detail || (detail.tool !== "record_expense" && detail.tool !== "record_income")) return;
+      setExpenseModal(false);
+      setIncomeModal(false);
+      if (detail.postedDate) {
+        setFilters((current) => ({ ...current, ...expandDateFilterToInclude(current, detail.postedDate!) }));
+      } else {
+        void loadTable();
+      }
+
+    };
+    window.addEventListener(FINANCES_ASSISTANT_UPDATED_EVENT, onAssistantUpdated);
+    return () => window.removeEventListener(FINANCES_ASSISTANT_UPDATED_EVENT, onAssistantUpdated);
+  }, [loadTable, ready]);
+
   async function saveIncome() {
     const amountCents = Math.round(Number.parseFloat(incomeDraft.amount.replace(/[^0-9.]/g, "")) * 100);
     if (!(amountCents > 0)) {
@@ -695,10 +768,12 @@ export function ManagerFinancesPanel({
       setExpenseModal(false);
       return;
     }
+    const editingId = expenseDraft.id?.trim();
     const res = await fetch("/api/expenses", {
-      method: "POST",
+      method: editingId ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        ...(editingId ? { id: editingId } : {}),
         categoryCode: expenseDraft.categoryCode,
         amountCents,
         expenseDate: expenseDraft.expenseDate,
@@ -713,8 +788,30 @@ export function ManagerFinancesPanel({
       showToast(data.error ?? "Failed to save expense.");
       return;
     }
-    showToast("Expense saved.");
+    showToast(editingId ? "Expense updated." : "Expense saved.");
     setExpenseModal(false);
+    if (expenseDraft.expenseDate) {
+      setFilters((current) => ({ ...current, ...expandDateFilterToInclude(current, expenseDraft.expenseDate) }));
+    }
+    void loadTable();
+  }
+
+  async function deleteExpense(row: ReportRow) {
+    const id = String(row.id ?? "").trim();
+    if (!id) return;
+    if (isDemoModeActive()) {
+      showToast("Expense deletes are simulated in this demo.");
+      setExpenseToDelete(null);
+      return;
+    }
+    const res = await fetch(`/api/expenses?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      showToast((data as { error?: string }).error ?? "Failed to delete expense.");
+      return;
+    }
+    showToast("Expense deleted.");
+    setExpenseToDelete(null);
     void loadTable();
   }
 
@@ -872,7 +969,7 @@ export function ManagerFinancesPanel({
     setIncomeDraft({
       categoryCode: "other_income",
       amount: "",
-      postedDate: new Date().toISOString().slice(0, 10),
+      postedDate: pacificCalendarDateYmd(),
       description: "",
       propertyId: filters.propertyId,
     });
@@ -880,15 +977,22 @@ export function ManagerFinancesPanel({
   }
 
   function openAddExpense() {
+    setExpenseDraft(blankExpenseDraft(filters.propertyId));
+    setExpenseModal(true);
+  }
+
+  function openEditExpense(row: ReportRow) {
+    const amountCents = Number(row.amountCents);
     setExpenseDraft({
-      categoryCode: "maintenance",
-      amount: "",
-      expenseDate: new Date().toISOString().slice(0, 10),
-      memo: "",
-      vendorId: "",
-      propertyId: filters.propertyId,
-      taxDeductible: isCategoryDeductible("maintenance"),
-      taxTouched: false,
+      id: String(row.id ?? ""),
+      categoryCode: String(row.categoryCode || "maintenance"),
+      amount: Number.isFinite(amountCents) && amountCents > 0 ? (amountCents / 100).toFixed(2) : String(row.amount ?? "").replace(/[^0-9.]/g, ""),
+      expenseDate: String(row.date ?? "").slice(0, 10) || pacificCalendarDateYmd(),
+      memo: String(row.memo ?? ""),
+      vendorId: String(row.vendorId ?? ""),
+      propertyId: String(row.propertyId ?? ""),
+      taxDeductible: row.taxDeductible !== false,
+      taxTouched: true,
     });
     setExpenseModal(true);
   }
@@ -1028,6 +1132,8 @@ export function ManagerFinancesPanel({
                   onTaxStatusChange={
                     tabId === "expenses" ? (id, d) => void updateExpenseTaxStatus(id, d) : undefined
                   }
+                  onEditExpense={tabId === "expenses" ? openEditExpense : undefined}
+                  onDeleteExpense={tabId === "expenses" ? (row) => setExpenseToDelete(row) : undefined}
                 />
               ) : null}
             </PortalRecordListSurface>
@@ -1049,6 +1155,8 @@ export function ManagerFinancesPanel({
                   sortDir={sortDir}
                   onHeaderSort={onHeaderSort}
                   onTaxStatusChange={tabId === "expenses" ? (id, d) => void updateExpenseTaxStatus(id, d) : undefined}
+                  onEditExpense={tabId === "expenses" ? openEditExpense : undefined}
+                  onDeleteExpense={tabId === "expenses" ? (row) => setExpenseToDelete(row) : undefined}
                 />
             )}
           </div>
@@ -1066,11 +1174,11 @@ export function ManagerFinancesPanel({
       <Modal
         open={expenseModal}
         onClose={() => setExpenseModal(false)}
-        title="Add expense"
+        title={expenseDraft.id ? "Edit expense" : "Add expense"}
         footer={
           <ModalFooter>
             <Button variant="primary" onClick={() => saveExpense()}>
-              Save expense
+              {expenseDraft.id ? "Save changes" : "Save expense"}
             </Button>
           </ModalFooter>
         }
@@ -1154,6 +1262,28 @@ export function ManagerFinancesPanel({
             <Input value={expenseDraft.memo} onChange={(e) => setExpenseDraft({ ...expenseDraft, memo: e.target.value })} />
           </label>
         </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(expenseToDelete)}
+        onClose={() => setExpenseToDelete(null)}
+        title="Delete expense"
+        footer={
+          <ModalFooter>
+            <Button variant="outline" onClick={() => setExpenseToDelete(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={() => expenseToDelete && deleteExpense(expenseToDelete)}>
+              Delete
+            </Button>
+          </ModalFooter>
+        }
+      >
+        <p className="text-sm text-muted">
+          Delete {expenseToDelete?.amount ? `${String(expenseToDelete.amount)} ` : ""}
+          {expenseToDelete?.category ? `${String(expenseToDelete.category)} ` : ""}
+          expense? This cannot be undone.
+        </p>
       </Modal>
 
       <Modal

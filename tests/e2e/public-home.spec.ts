@@ -11,7 +11,10 @@ test.describe("Public home", () => {
   test("FAQ post-it board renders every note ahead of the closing CTA", async ({ page }) => {
     await page.goto("/");
 
-    const faq = page.locator("section.lp-faq");
+    // React streams a hidden S:1 copy before hydration installs the page.
+    // The accessible region excludes that transport copy while still failing
+    // if the rendered page contains duplicate FAQ sections.
+    const faq = page.getByRole("region", { name: "Questions, answered", exact: true });
     await expect(faq).toBeVisible();
     await expect(faq.getByRole("heading", { name: /questions, answered/i })).toBeVisible();
 
@@ -34,7 +37,7 @@ test.describe("Public home", () => {
 
     // The board sits between the ops banner and the closing CTA.
     const ctaTop = await page
-      .locator("section.lp-end")
+      .getByRole("region", { name: "Get started", exact: true })
       .evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
     const faqBottom = await faq.evaluate((el) => el.getBoundingClientRect().bottom + window.scrollY);
     expect(faqBottom).toBeLessThanOrEqual(ctaTop);
@@ -42,7 +45,7 @@ test.describe("Public home", () => {
 
   test("sticky notes rest tilted and straighten on hover", async ({ page }) => {
     await page.goto("/");
-    const note = page.locator(".lp-note").nth(1);
+    const note = page.getByRole("region", { name: "Questions, answered", exact: true }).locator(".lp-note").nth(1);
     await note.scrollIntoViewIfNeeded();
 
     const resting = await note.evaluate((el) => getComputedStyle(el).transform);
@@ -59,7 +62,7 @@ test.describe("Public home", () => {
     const context = await browser.newContext({ reducedMotion: "reduce" });
     const page = await context.newPage();
     await page.goto("/");
-    const note = page.locator(".lp-note").nth(1);
+    const note = page.getByRole("region", { name: "Questions, answered", exact: true }).locator(".lp-note").nth(1);
     await note.scrollIntoViewIfNeeded();
 
     const resting = await note.evaluate((el) => getComputedStyle(el).transform);
@@ -76,12 +79,13 @@ test.describe("Public home", () => {
     const page = await context.newPage();
     await page.goto("/");
 
-    const board = page.locator(".lp-faq-board");
+    const faq = page.getByRole("region", { name: "Questions, answered", exact: true });
+    const board = faq.locator(".lp-faq-board");
     await board.scrollIntoViewIfNeeded();
     const columns = await board.evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
     expect(columns).toBe(1);
 
-    const overflowing = await page
+    const overflowing = await faq
       .locator(".lp-note")
       .evaluateAll((els) => els.filter((el) => el.getBoundingClientRect().right > window.innerWidth + 1).length);
     expect(overflowing).toBe(0);

@@ -30,7 +30,40 @@ export type InspectionRecord = {
   inspection_date: string; baseline_id: string | null; revision: number;
   document: InspectionDocument; created_at: string; updated_at: string;
 };
-export type InspectionResidency = { id: string; name: string; property: string; room: string; canCreate: boolean; requiredKinds?: InspectionKind[] };
+/**
+ * Where a residency sits on the move-in / move-out timeline. The Inspections page is a roster
+ * of people first and a list of filed reports second — a manager with residents but no reports
+ * yet must still see who is due to move in and who is living there now.
+ */
+export type InspectionOccupancy = "upcoming" | "current" | "past";
+
+export type InspectionResidency = {
+  id: string; name: string; property: string; room: string; canCreate: boolean;
+  /** Which inspections this room's own configuration requires (see ./requirements). */
+  requiredKinds?: InspectionKind[];
+  /** ISO `YYYY-MM-DD`, or "" when the placement carries no date yet. */
+  moveInDate: string;
+  moveOutDate: string;
+  occupancy: InspectionOccupancy;
+};
+
+/** Today in the viewer's own day, as `YYYY-MM-DD`. Inspection dates are wall dates, not instants. */
+export function inspectionToday(now = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * A residency with no move-in date is UPCOMING, never current: an approved applicant whose
+ * dates are still blank has not moved in, and calling them current would file them under
+ * move-out. A move-out date strictly before today is the only thing that makes one past, so a
+ * lease ending today still counts as living there.
+ */
+export function residencyOccupancy(moveInDate: string, moveOutDate: string, today = inspectionToday()): InspectionOccupancy {
+  const movedOut = moveOutDate && moveOutDate < today;
+  if (movedOut) return "past";
+  if (!moveInDate || moveInDate > today) return "upcoming";
+  return "current";
+}
 export type InspectionDetail = { report: InspectionRecord; baseline: InspectionRecord | null; canEdit: boolean };
 export type InspectionSummary = Omit<InspectionRecord, "document" | "resident_email" | "resident_user_id">;
 

@@ -139,18 +139,17 @@ export function ModalAssistantStrip({
       aria-label="PropLane Assistant"
       style={{ bottom: keyboardInset }}
       data-attr="modal-assistant-rail"
-      className="pointer-events-auto fixed inset-y-0 right-0 z-[72] flex w-full min-w-0 flex-col border-l border-border bg-background p-4 pt-[max(1rem,var(--native-safe-top,0px))] pb-[max(1rem,var(--native-safe-bottom,0px))] md:w-[var(--portal-assistant-rail-width)]"
+      className="pointer-events-auto fixed inset-y-0 right-0 z-[72] flex w-full min-w-0 flex-col border-l border-border bg-background p-3 pt-[max(0.75rem,var(--native-safe-top,0px))] pb-[max(0.75rem,var(--native-safe-bottom,0px))] md:w-[var(--portal-assistant-rail-width)]"
     >
       {detached ? <p className="mb-3 text-sm text-muted" role="status">Editor closed. Start a new conversation below.</p> : null}
       <AssistantDockPanel
         managerName={config.managerName}
         endpoint={config.endpoint}
         contextHint={contextHint}
-        compact
         pinnedComposer
         onCollapse={() => toggle(false)}
         composerHint={editHint?.trim()}
-        className="min-h-0 flex-1 max-h-none"
+        className="min-h-0 flex-1"
       />
     </aside>
   ) : null;

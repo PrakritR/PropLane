@@ -6,6 +6,7 @@ import posthog from "posthog-js";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
+import { clearPortalBrowserCache } from "@/lib/auth/clear-portal-browser-cache";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import type { PortalKind } from "@/lib/portal-types";
 
@@ -96,6 +97,12 @@ export function PortalDeleteAccountButton({
       } catch {
         /* analytics reset is best-effort */
       }
+
+      // The portal keeps local mirrors of properties, applications, leases, charges and
+      // inbox threads, and several panels push them back to the server on the next sign-in
+      // (mirrorLocalPropertyPipelineToServer and friends). Leaving them behind is how a
+      // deleted account reappears — including under the same email on a fresh signup.
+      clearPortalBrowserCache();
 
       if (body.signedOut) {
         try {

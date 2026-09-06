@@ -13,6 +13,8 @@ function mockDeleteChain() {
   return {
     select: vi.fn().mockReturnThis(),
     delete: vi.fn().mockReturnThis(),
+    // Detach writes (null a pointer on somebody else's row) go through update().
+    update: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
     neq: vi.fn().mockReturnThis(),
     in: vi.fn().mockReturnThis(),

@@ -6,6 +6,7 @@ import {
   readManagerOutgoingExpenses,
   syncManagerOutgoingExpensesFromServer,
 } from "@/lib/manager-outgoing-payments";
+import { setPortalSessionViewer } from "@/lib/auth/portal-session-gate";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
@@ -15,6 +16,12 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
   isDemoModeActive: vi.fn(() => false),
 }));
+
+beforeEach(() => {
+  setPortalSessionViewer(null);
+  window.sessionStorage.clear();
+  setPortalSessionViewer("manager-a");
+});
 
 describe("buildManagerOutgoingPaymentRows", () => {
   it("includes pending vendor work orders and paid expenses", () => {
@@ -111,7 +118,7 @@ describe("deleteManagerOutgoingExpense", () => {
 
   it("removes a locally cached expense", async () => {
     window.sessionStorage.setItem(
-      "axis:manager-outgoing-expenses:v1",
+      "axis:manager-outgoing-expenses:v1:manager-a",
       JSON.stringify([
         {
           id: "exp-local",
@@ -154,5 +161,72 @@ describe("deleteManagerOutgoingExpense", () => {
     expect(readManagerOutgoingExpenses().some((row) => row.id === "demo-exp-6")).toBe(false);
 
     vi.mocked(isDemoModeActive).mockReturnValue(false);
+  });
+});
+
+describe("post-write expense refresh", () => {
+  it("queues one fresh request after an older in-flight read", async () => {
+    let resolveOld!: (value: Response) => void;
+    const old = new Promise<Response>((resolve) => { resolveOld = resolve; });
+    const fetchMock = vi.fn().mockReturnValueOnce(old).mockResolvedValueOnce({
+      ok: true, json: async () => ({ expenses: [{ id: "new-expense" }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const beforeWrite = syncManagerOutgoingExpensesFromServer(true);
+      const afterWrite = syncManagerOutgoingExpensesFromServer(true);
+      const concurrent = syncManagerOutgoingExpensesFromServer(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      resolveOld({ ok: true, json: async () => ({ expenses: [] }) } as Response);
+      await beforeWrite;
+      expect(await afterWrite).toEqual([{ id: "new-expense" }]);
+      expect(await concurrent).toEqual([{ id: "new-expense" }]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+
+describe("expense viewer isolation", () => {
+  it("keeps an old in-flight response and queued refresh out of the next account", async () => {
+    let finishOld!: (value: Response) => void;
+    const fetchMock = vi.fn()
+      .mockReturnValueOnce(new Promise<Response>((resolve) => { finishOld = resolve; }))
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ expenses: [{ id: "b" }] }) });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const old = syncManagerOutgoingExpensesFromServer(true);
+      const queued = syncManagerOutgoingExpensesFromServer(true);
+      setPortalSessionViewer("manager-b");
+      expect(readManagerOutgoingExpenses()).toEqual([]);
+      expect(await syncManagerOutgoingExpensesFromServer()).toEqual([{ id: "b" }]);
+      finishOld({ ok: true, json: async () => ({ expenses: [{ id: "a" }] }) } as Response);
+      expect(await old).toEqual([]);
+      expect(await queued).toEqual([]);
+      expect(readManagerOutgoingExpenses()).toEqual([{ id: "b" }]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("does not share a fresh TTL or session snapshot between viewers", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ expenses: [{ id: "a" }] }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ expenses: [{ id: "b" }] }) });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await syncManagerOutgoingExpensesFromServer();
+      await syncManagerOutgoingExpensesFromServer();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      setPortalSessionViewer("manager-b");
+      expect(readManagerOutgoingExpenses()).toEqual([]);
+      await syncManagerOutgoingExpensesFromServer();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(readManagerOutgoingExpenses()).toEqual([{ id: "b" }]);
+      setPortalSessionViewer(null);
+      expect(readManagerOutgoingExpenses()).toEqual([]);
+      expect(await syncManagerOutgoingExpensesFromServer(true)).toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally { vi.unstubAllGlobals(); }
   });
 });

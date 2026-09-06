@@ -133,18 +133,19 @@ describe("minting a link", () => {
     expect(MODAL).toContain('method: "DELETE"');
   });
 
-  it("is reachable from the team panel AND from the Link account dialog", () => {
-    expect(PANEL).toContain("ManagerInviteLinkModal");
+  it("opens the same open-link flow from the toolbar and ADD row", () => {
     expect(PANEL).toContain('data-attr="co-manager-invite-link-open"');
-    expect(PANEL).toContain("PortalInviteChoiceStep");
-    expect(PANEL).toContain('inviteLinkDataAttr="link-account-invite-link"');
-    expect(PANEL).not.toContain("it is on their PropLane Settings page");
+    expect(PANEL.match(/onClick=\{openLinkModal\}/g)).toHaveLength(2);
+    expect(PANEL).toContain('data-attr="co-manager-copy-open-invite"');
+    expect(PANEL).toContain("createOpenInviteLink");
   });
 
-  it("closes the Link account dialog rather than stacking the two", () => {
-    const trigger = PANEL.slice(PANEL.indexOf('onCreateInviteLink={() => {'));
-    expect(trigger.slice(0, 320)).toContain("closeLinkModal()");
-    expect(trigger.slice(0, 320)).toContain("setInviteLinkModalOpen(true)");
+  it("switches to PropLane ID inside the same dialog instead of stacking dialogs", () => {
+    expect(PANEL).toContain('setLinkModalMode("axis")');
+    expect(PANEL).toContain('setLinkModalMode("link")');
+    expect(PANEL).toContain('open={linkModalOpen}');
+    expect(PANEL).not.toContain("inviteLinkModalOpen");
+    expect(PANEL).not.toContain("ManagerInviteLinkModal");
   });
 });
 

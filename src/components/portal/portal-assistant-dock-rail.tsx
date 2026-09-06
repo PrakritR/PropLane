@@ -60,7 +60,7 @@ export function PortalAssistantDockRail({
     <aside
       className={cn(
         "portal-assistant-dock-rail relative hidden h-full min-h-0 shrink-0 self-stretch flex-col overflow-hidden border-l border-border/70 bg-background lg:flex",
-        collapsed ? "w-[58px]" : "w-[21rem] p-3 xl:w-[23rem]",
+        collapsed ? "w-[58px]" : "w-[var(--portal-assistant-rail-width)] p-3",
       )}
       aria-label="PropLane Assistant"
       data-attr="portal-assistant-dock-rail"

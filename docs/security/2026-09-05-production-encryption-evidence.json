@@ -1,0 +1,144 @@
+{
+  "productionProject": "qahnczmilgptcedaqype",
+  "initialRelease": "944e9e0b8c55a8a1c1c6faceabdaf04515acb046",
+  "currentReleaseAdvancedByOtherWorkstream": "108b6533d11c30173fab0ea2f2b5009c8bb89b8c",
+  "backfills": {
+    "calendar": {
+      "apply": {
+        "mode": "apply",
+        "scannedRows": 21,
+        "changedRows": 19,
+        "plaintextFields": 24,
+        "backup": {
+          "sha256": "758b0c0396c9b6d752fdd914477800dcc1569ee0dcc0edad30d0057ad85b4189",
+          "verified": true
+        }
+      },
+      "after": {
+        "mode": "dry-run",
+        "scannedRows": 21,
+        "changedRows": 0,
+        "plaintextFields": 0,
+        "backup": null
+      }
+    },
+    "applicant": {
+      "apply": {
+        "mode": "apply",
+        "scannedRows": 24,
+        "changedRows": 14,
+        "plaintextFields": 39,
+        "backup": {
+          "sha256": "e1663f755e00dd554960081dfdf88cf8ebd8db74a955f513486a5002d24d42b9",
+          "verified": true
+        }
+      },
+      "after": {
+        "mode": "dry-run",
+        "scannedRows": 24,
+        "changedRows": 0,
+        "plaintextFields": 0,
+        "backup": null
+      }
+    },
+    "cosigner": {
+      "apply": {
+        "mode": "apply",
+        "scannedRows": 0,
+        "changedRows": 0,
+        "plaintextFields": 0,
+        "backup": {
+          "sha256": "e6e369966c0d64fa7dddddb7f60eba8a9a70feb84949765f7f7a971bcda76fac",
+          "verified": true
+        }
+      },
+      "after": {
+        "mode": "dry-run",
+        "scannedRows": 0,
+        "changedRows": 0,
+        "plaintextFields": 0,
+        "backup": null
+      }
+    },
+    "document": {
+      "apply": {
+        "mode": "apply",
+        "applications": 24,
+        "candidates": 0,
+        "migrated": 12,
+        "cleanupPending": 0,
+        "protectedObjects": 0,
+        "applicationDeleted": 0,
+        "backup": {
+          "sha256": "a859b2f3891744c4ec53cd5d11af72823fb1e3293a04da3e10622610f91f5076",
+          "verified": true
+        }
+      },
+      "after": {
+        "mode": "dry-run",
+        "applications": 24,
+        "candidates": 0,
+        "migrated": 0,
+        "cleanupPending": 0,
+        "protectedObjects": 12,
+        "applicationDeleted": 0,
+        "backup": null
+      }
+    }
+  },
+  "strictReads": {
+    "status": "configured true; production redeploy READY",
+    "deployment": "dpl_EPC5MjAjdtJS2Bw5mzxgDYM7tZsz",
+    "sha": "108b6533d11c30173fab0ea2f2b5009c8bb89b8c",
+    "canonicalAlias": "prop-lane.space",
+    "stagingPlaintextRejectionPassed": true,
+    "productionSyntheticMutationPerformed": false,
+    "valueReadback": "redacted by Vercel sensitive-variable type",
+    "configuredFlags": [
+      "DATA_ENCRYPTION_REQUIRE_ENCRYPTED_READS",
+      "APPLICANT_IDENTITY_REQUIRE_ENCRYPTED_READS",
+      "COSIGNER_IDENTITY_REQUIRE_ENCRYPTED_READS",
+      "DATA_ENCRYPTION_REQUIRE_ENCRYPTED_DOCUMENT_READS"
+    ]
+  },
+  "verification": [
+    {
+      "kind": "applicant",
+      "archiveAuthenticated": true,
+      "objectsVerified": 0,
+      "legacyChecked": 0,
+      "legacyReadable": 0,
+      "unexpectedErrors": 0
+    },
+    {
+      "kind": "calendar",
+      "archiveAuthenticated": true,
+      "objectsVerified": 0,
+      "legacyChecked": 0,
+      "legacyReadable": 0,
+      "unexpectedErrors": 0
+    },
+    {
+      "kind": "cosigner",
+      "archiveAuthenticated": true,
+      "objectsVerified": 0,
+      "legacyChecked": 0,
+      "legacyReadable": 0,
+      "unexpectedErrors": 0
+    },
+    {
+      "kind": "document",
+      "archiveAuthenticated": true,
+      "objectsVerified": 12,
+      "legacyChecked": 12,
+      "legacyReadable": 0,
+      "unexpectedErrors": 0
+    }
+  ],
+  "finalHealth": {
+    "signInStatus": 200,
+    "unauthenticatedApplicationsStatus": 401,
+    "csp": true,
+    "hsts": true
+  }
+}

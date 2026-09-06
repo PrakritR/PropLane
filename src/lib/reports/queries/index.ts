@@ -390,13 +390,17 @@ export async function queryExpenses(
       id: e.id,
       date: e.expense_date,
       category: chartAccountLabel(e.category_code),
+      categoryCode: e.category_code,
       scheduleERef: chartAccountScheduleE(e.category_code)?.ref ?? "Sch. E, Line 19",
       taxStatus: expenseTaxStatusLabel(taxDeductible),
       taxDeductible,
       amount: centsToUsd(Number(e.amount_cents)),
+      amountCents: Number(e.amount_cents),
       vendor: display.vendorLabel(e.vendor_id),
+      vendorId: e.vendor_id ?? "",
       memo: e.memo ?? "",
       property: display.propertyLabel(e.property_id),
+      propertyId: e.property_id ?? "",
       workOrderId: e.source_work_order_id ?? "",
     };
   });

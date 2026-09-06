@@ -1,6 +1,10 @@
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import { portalDashboardPath } from "@/lib/auth/portal-roles";
-import { purgeManagerPortalData, purgeResidentPortalData } from "@/lib/auth/purge-portal-account-data";
+import {
+  purgeManagerPortalData,
+  purgeResidentPortalData,
+  purgeVendorPortalData,
+} from "@/lib/auth/purge-portal-account-data";
 import { closeRelayThreadsForUser } from "@/lib/sms-relay.server";
 import { removePortalAccess, type PortalRole } from "@/lib/auth/remove-portal-access";
 import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
@@ -204,6 +208,7 @@ async function purgeAndDeletePortalAccount(db: ServiceDb, userId: string) {
   const email = await profileEmail(db, trimmedId);
   await purgeManagerPortalData(db, trimmedId);
   await purgeResidentPortalData(db, { email, userId: trimmedId });
+  await purgeVendorPortalData(db, { userId: trimmedId, email });
   await deleteProfileAndAuthUser(db, trimmedId);
 
   return { ok: true as const, mode: "deleted_auth_user" as const };
@@ -242,24 +247,13 @@ export async function deleteOwnAccount(db: ServiceDb, userId: string) {
   await cancelActiveManagerSubscription(db, trimmedId);
 
   // Vendor account data is keyed by vendor_user_id (not manager_user_id), so it is
-  // not covered by the manager/resident purges. Disassociate the manager-owned
-  // directory / work-order references (they belong to the manager) and delete the
-  // vendor-owned rows. Awaiting a PostgREST query resolves with { error } rather
-  // than throwing, so a missing table is simply ignored here.
-  await db.from("manager_vendor_records").update({ vendor_user_id: null }).eq("vendor_user_id", trimmedId);
-  await db.from("portal_work_order_records").update({ vendor_user_id: null }).eq("vendor_user_id", trimmedId);
-  await db.from("vendor_tax_profiles").delete().eq("vendor_user_id", trimmedId);
-  await db.from("work_order_bids").delete().eq("vendor_user_id", trimmedId);
-  await db.from("vendor_invoices").delete().eq("vendor_user_id", trimmedId);
-  await db.from("vendor_payouts").delete().eq("vendor_user_id", trimmedId);
+  // not covered by the manager/resident purges.
+  await purgeVendorPortalData(db, { userId: trimmedId, email: await profileEmail(db, trimmedId) });
 
   // SMS relay participation holds the user's real cell in active bindings
   // (no FK cascade covers counterparty rows) — close those threads so a
-  // deleted user's number stops routing. Personal verification/push rows are
-  // likewise not covered by the manager/resident purges.
+  // deleted user's number stops routing.
   await closeRelayThreadsForUser(db, trimmedId).catch(() => undefined);
-  await db.from("phone_verifications").delete().eq("user_id", trimmedId);
-  await db.from("device_push_tokens").delete().eq("user_id", trimmedId);
 
   return purgeAndDeletePortalAccount(db, trimmedId);
 }
@@ -344,7 +338,12 @@ export async function deleteOwnPortalAccount(
 
   const rolesAfter = await normalizedRolesForUser(db, trimmedId);
   if (rolesAfter.length === 0) {
-    return { ok: true, mode, signedOut: true, redirectTo: "/auth/sign-in?deleted=1" };
+    // Nothing is left to sign in as, so the login itself must go — otherwise the route
+    // reports the account deleted while the auth user (and its email) survives, and the
+    // address cannot be registered again. Reached when the role bookkeeping did not name
+    // a role `removePortalAccess` could remove.
+    await deleteProfileAndAuthUser(db, trimmedId);
+    return { ok: true, mode: "deleted_auth_user", signedOut: true, redirectTo: "/auth/sign-in?deleted=1" };
   }
 
   return {
@@ -363,12 +362,7 @@ export async function deleteVendorAccount(db: ServiceDb, vendorUserId: string) {
   const trimmedId = vendorUserId.trim();
   if (!trimmedId) throw new Error("User id is required.");
 
-  await db.from("manager_vendor_records").update({ vendor_user_id: null }).eq("vendor_user_id", trimmedId);
-  await db.from("portal_work_order_records").update({ vendor_user_id: null }).eq("vendor_user_id", trimmedId);
-  await db.from("vendor_tax_profiles").delete().eq("vendor_user_id", trimmedId);
-  await db.from("work_order_bids").delete().eq("vendor_user_id", trimmedId);
-  await db.from("vendor_invoices").delete().eq("vendor_user_id", trimmedId);
-  await db.from("vendor_payouts").delete().eq("vendor_user_id", trimmedId);
+  await purgeVendorPortalData(db, { userId: trimmedId, email: await profileEmail(db, trimmedId) });
 
   const result = await removePortalAccess(db, trimmedId, "vendor");
   return { ok: true as const, mode: result.mode };

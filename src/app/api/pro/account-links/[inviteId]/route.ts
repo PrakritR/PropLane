@@ -107,12 +107,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       return NextResponse.json({ ok: true, invite: serializeInvite(updated as InviteRow, user.id) });
     }
 
-    /** After accept: both workspaces can edit the payout split; only the inviter changes property scope or co-manager permissions. */
+    /** Inviter can edit houses/permissions on pending or accepted links; invitee may only edit payout after accept. */
     if (!actionNorm && (patchProps || patchPay || patchPerms)) {
-      if (invite.status !== "accepted") {
-        return NextResponse.json({ error: "Only accepted links can be updated this way." }, { status: 409 });
+      if (invite.status !== "accepted" && invite.status !== "pending") {
+        return NextResponse.json({ error: "Only pending or accepted links can be updated this way." }, { status: 409 });
       }
-      if (invite.inviter_user_id !== user.id && invite.invitee_user_id !== user.id) {
+      if (invite.status === "pending" && invite.inviter_user_id !== user.id) {
+        return NextResponse.json({ error: "Only the primary manager can change a pending invite." }, { status: 403 });
+      }
+      if (invite.status === "accepted" && invite.inviter_user_id !== user.id && invite.invitee_user_id !== user.id) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
       if (patchPerms && invite.inviter_user_id !== user.id) {
@@ -126,9 +129,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
       }
 
       const nextAssigned = patchProps ? asStringArray(body?.assignedPropertyIds) : asStringArray(invite.assigned_property_ids);
-      if (patchProps && nextAssigned.length === 0) {
-        return NextResponse.json({ error: "Keep at least one property in this link." }, { status: 400 });
-      }
       // …and only over properties the inviter actually owns.
       if (patchProps) {
         const ownership = await findPropertyIdsNotOwnedByManager(svc, invite.inviter_user_id, nextAssigned);
@@ -183,7 +183,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
           property_co_manager_permissions: nextPropertyPerms,
         })
         .eq("id", id)
-        .eq("status", "accepted")
+        .eq("status", invite.status)
         .select("*")
         .maybeSingle();
 
@@ -354,7 +354,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ inviteId: str
             "Your co-manager";
           await notifyCoManagerInviteAccepted({
             inviterUserId: invite.inviter_user_id,
-            inviteeUserId: invite.invitee_user_id,
+            inviteeUserId: user.id,
             inviteeName,
           });
         } catch (error) {

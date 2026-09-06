@@ -194,10 +194,11 @@ export function AssistantSuggestionChips({
 }) {
   return (
     <div
-      className={
-        className ??
-        "grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-center"
-      }
+      // An odd chip count leaves the last one alone in a two-column row; give it
+      // the whole row so its label cannot wrap inside a fixed-height chip.
+      className={`[&>*:last-child:nth-child(odd)]:col-span-2 ${
+        className ?? "grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-center"
+      }`}
     >
       {ASSISTANT_SUGGESTIONS.map((s) => (
         <button

@@ -3,10 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
-import { ManagerInviteLinkModal } from "@/components/portal/manager-invite-link-modal";
-import { PortalInviteChoiceStep } from "@/components/portal/portal-invite-choice-step";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
-import { DataList } from "@/components/ui/data-list";
 import { Modal } from "@/components/ui/modal";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
@@ -219,7 +216,11 @@ export function teamInvitePendingExpiryLabel(expiresAt: string | null | undefine
 
 function teamInviteStatusLabel(inv: AccountLinkInviteDto): string {
   if (inv.status === "pending") {
-    const base = inv.direction === "incoming" ? "Needs approval" : "Invite sent";
+    const base = inv.direction === "incoming"
+      ? "Needs approval"
+      : inv.openInvite
+        ? "Waiting to join"
+        : "Invite sent";
     const expiry = teamInvitePendingExpiryLabel(inv.expiresAt);
     return expiry ? `${base} · ${expiry}` : base;
   }
@@ -697,7 +698,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       seedAccountLinksCache(invites, data.migrationRequired);
       setInviteDrafts((prev) => {
         const next = { ...prev };
-        for (const inv of invites.filter((i) => i.status === "accepted")) {
+        for (const inv of invites.filter((i) => i.status === "accepted" || i.status === "pending")) {
           if (!saveTimersRef.current[inv.id]) {
             next[inv.id] = inviteDraftFromRemote(inv);
           }
@@ -827,24 +828,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     return propertyChoices(userId);
   }, [userId, localTick]);
 
-  const ownedProperties = useMemo(() => {
-    void localTick;
-    const live = readExtraListingsForUser(userId).map((p) => ({
-      id: p.id,
-      label: safePropertyOptionLabel([`${p.buildingName} · ${p.unitLabel || "Unit"}`, p.buildingName, p.address], p.id),
-      address: p.address,
-    }));
-    const pending = readPendingManagerPropertiesForUser(userId).map((r) => {
-      const joined = `${r.buildingName} · ${r.unitLabel} (pending)`;
-      return {
-        id: r.id,
-        label: safePropertyOptionLabel([joined, r.buildingName, r.address], r.id),
-        address: r.address,
-      };
-    });
-    return disambiguatePropertyOptionLabels([...live, ...pending]);
-  }, [userId, localTick]);
-
   // Properties this manager co-manages via an incoming account link (e.g. Brooklyn
   // when Ambika granted access). Shown under "You" so the panel matches Properties.
   const coManagedProperties = useMemo(() => {
@@ -877,11 +860,10 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     [teamPropertyLabelById],
   );
 
-  const managedPropertyCount = ownedProperties.length + coManagedProperties.length;
-
   const [axisInput, setAxisInput] = useState("");
   const [linkModalOpen, setLinkModalOpen] = useState(false);
-  const [inviteLinkModalOpen, setInviteLinkModalOpen] = useState(false);
+  const [linkModalMode, setLinkModalMode] = useState<"link" | "axis">("link");
+
   const [linkInvitePreview, setLinkInvitePreview] = useState<LinkInvitePreview | null>(null);
   const [linkInviteBusy, setLinkInviteBusy] = useState(false);
   const [teamRemovePreview, setTeamRemovePreview] = useState<TeamRemovePreviewItem[] | null>(null);
@@ -1004,8 +986,26 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
             : null;
 
   const copyInviteAcceptLink = useCallback(
-    async (inviteId: string) => {
-      const url = teamMemberDetailHref(portalBase, inviteId);
+    async (inviteId: string, opts?: { openInvite?: boolean; inviteUrl?: string }) => {
+      let url = opts?.inviteUrl?.trim() || "";
+      if (!url && opts?.openInvite) {
+        try {
+          const res = await fetch(`/api/pro/account-links/${encodeURIComponent(inviteId)}/link`, {
+            method: "POST",
+            credentials: "include",
+          });
+          const data = (await res.json()) as { inviteUrl?: string; error?: string };
+          if (!res.ok || !data.inviteUrl) {
+            showToast(data.error ?? "Could not copy the invite link.");
+            return;
+          }
+          url = data.inviteUrl;
+        } catch {
+          showToast("Could not copy the invite link.");
+          return;
+        }
+      }
+      if (!url) url = teamMemberDetailHref(portalBase, inviteId);
       try {
         await navigator.clipboard.writeText(url);
         showToast("Invite link copied.");
@@ -1016,24 +1016,30 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     [portalBase, showToast],
   );
 
-  const renderInviteAcceptLinkCard = (inviteId: string) => {
-    const url = teamMemberDetailHref(portalBase, inviteId);
+  const renderInviteAcceptLinkCard = (invite: AccountLinkInviteDto) => {
+    const url = invite.openInvite
+      ? "Shareable join link - copy to reveal a fresh URL"
+      : teamMemberDetailHref(portalBase, invite.id);
     return (
       <div
         className="rounded-2xl border border-primary/20 bg-primary/[0.04] px-4 py-3"
         data-attr="co-manager-invite-link-card"
       >
         <p className="text-xs font-semibold uppercase tracking-wide text-muted">Invite link</p>
-        <p className="mt-1 break-all font-mono text-xs text-foreground">{url}</p>
+        {invite.openInvite ? null : (
+          <p className="mt-1 break-all font-mono text-xs text-foreground">{url}</p>
+        )}
         <p className="mt-2 text-xs leading-relaxed text-muted">
-          Share this link with the co-manager. When they sign in and open it, they can accept the invite.
+          {invite.openInvite
+            ? "Share this link. She signs in or creates an account, then joins. Copying issues a fresh link; the previous one stops working."
+            : "Share this link with the co-manager. When they sign in and open it, they can accept the invite."}
         </p>
         <Button
           type="button"
           variant="outline"
           className="mt-3 h-9 min-h-0 rounded-full px-4 text-[13px]"
           data-attr="co-manager-copy-invite-link"
-          onClick={() => void copyInviteAcceptLink(inviteId)}
+          onClick={() => void copyInviteAcceptLink(invite.id, { openInvite: invite.openInvite })}
         >
           Copy invite link
         </Button>
@@ -1094,6 +1100,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     setSelectedProps({});
     setPropertyPermissionsDraft({});
     setInviteeAtCap(false);
+    setLinkModalMode("link");
   };
 
   /** Return to the Axis-ID step, keeping the typed id so it can be re-verified. */
@@ -1153,6 +1160,69 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     });
   };
 
+  const createOpenInviteLink = async () => {
+    if (skuTier != null && !managerPlanAllowsCoManagerInvites(skuTier)) {
+      showToast("Upgrade to Pro or Business before linking co-managers.");
+      return;
+    }
+    const hasOpenPending = remoteInvites.some(
+      (inv) => inv.status === "pending" && inv.openInvite && inv.direction === "outgoing",
+    );
+    if (linkCap != null && atLinkCap && !hasOpenPending) {
+      showToast(`${tierShort ?? "Your plan"}: ${linkCap} link${linkCap === 1 ? "" : "s"} max.`);
+      return;
+    }
+    const ids = Object.entries(selectedProps)
+      .filter(([, v]) => v)
+      .map(([k]) => k);
+    const payout = 15;
+    const propertyCoManagerPermissions = normalizePropertyCoManagerPermissions(propertyPermissionsDraft, ids);
+    setLinkInviteBusy(true);
+    try {
+      const res = await fetch("/api/pro/account-links", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tabKind: "manager",
+          assignedPropertyIds: ids,
+          payoutPercentForManager: payout,
+          propertyCoManagerPermissions,
+          skipInviteNotification: true,
+        }),
+      });
+      const data = (await res.json()) as {
+        error?: string;
+        inviteUrl?: string;
+        invite?: { id?: string };
+      };
+      if (!res.ok) {
+        showToast(data.error ?? "Could not create invite link.");
+        return;
+      }
+      await loadRemoteInvites();
+      if (data.inviteUrl) {
+        try {
+          await navigator.clipboard.writeText(data.inviteUrl);
+          showToast(
+            ids.length === 0
+              ? "Invite link copied. Assign houses after she joins, or add them on this invite."
+              : "Invite link copied. Share it so she can join.",
+          );
+        } catch {
+          showToast("Invite created. Copy the link from the pending invite.");
+        }
+      } else {
+        showToast("Invite created.");
+      }
+      closeLinkModal();
+    } catch {
+      showToast("Network error.");
+    } finally {
+      setLinkInviteBusy(false);
+    }
+  };
+
   const saveNewLink = () => {
     if (skuTier != null && !managerPlanAllowsCoManagerInvites(skuTier)) {
       showToast("Upgrade to Pro or Business before linking co-managers.");
@@ -1169,10 +1239,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     const ids = Object.entries(selectedProps)
       .filter(([, v]) => v)
       .map(([k]) => k);
-    if (ids.length === 0) {
-      showToast("Select at least one property for this invite.");
-      return;
-    }
     const propertyLabels = ids.map((id) => teamPropertyLabel(id));
     setLinkInvitePreview({
       subject: coManagerInviteSubject(managerDisplayName),
@@ -1196,10 +1262,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     const ids = Object.entries(selectedProps)
       .filter(([, v]) => v)
       .map(([k]) => k);
-    if (ids.length === 0) {
-      showToast("Select at least one property for this invite.");
-      return;
-    }
 
     const payout = 15;
     const propertyCoManagerPermissions = normalizePropertyCoManagerPermissions(propertyPermissionsDraft, ids);
@@ -1422,10 +1484,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     draft: InviteDraft,
     remote: boolean,
   ) => {
-    if (nextAssigned.length === 0) {
-      showToast("Keep at least one property in this link.");
-      return;
-    }
     const nextPerms = normalizePropertyCoManagerPermissions(
       {
         ...draft.propertyCoManagerPermissions,
@@ -2244,11 +2302,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     />
   );
 
-  /*
-    The dashed ADD row already covers "link an account by PropLane ID", so the
-    toolbar deliberately carries the OTHER door rather than the same one twice:
-    minting a shareable link, for when you do not have their ID.
-  */
+  // Both entry points use the same open-link flow, with PropLane ID as an option.
   const teamLinkButton = (
     <Button
       type="button"
@@ -2256,7 +2310,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       className={PORTAL_HEADER_ACTION_BTN}
       disabled={linkAccountBlocked}
       data-attr="co-manager-invite-link-open"
-      onClick={() => setInviteLinkModalOpen(true)}
+      onClick={openLinkModal}
     >
       Invite link
     </Button>
@@ -2269,7 +2323,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       <div className="space-y-4" data-attr="team-member-property-access">
         <TeamMemberContactCard entry={entry} />
         {inv.status === "pending" && inv.direction === "outgoing"
-          ? renderInviteAcceptLinkCard(inv.id)
+          ? renderInviteAcceptLinkCard(inv)
           : null}
         {!readOnly ? (
           <AddPropertyToCoManager
@@ -2359,107 +2413,104 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
 
   const teamModals = (
     <>
-        <ManagerInviteLinkModal
-          open={inviteLinkModalOpen}
-          onClose={() => setInviteLinkModalOpen(false)}
-          propertyOptions={linkInvitePropertySelectOptions}
-          renderPermissionsEditor={(value, onChange) => (
-            <CoManagerPermissionsEditor value={value} onChange={onChange} variant="readWrite" />
-          )}
-        />
-
         <Modal
           open={linkModalOpen}
-          title={draftAxisId ? "Assign properties & permissions" : "Link account"}
+          title={
+            linkModalMode === "axis"
+              ? draftAxisId
+                ? "Send invite"
+                : "Find account"
+              : "Add co-manager"
+          }
           assistantContext="Link account"
           assistantStorageScopeKey="Link account"
+
           onClose={closeLinkModal}
-          panelClassName={draftAxisId ? "max-w-2xl" : undefined}
+          panelClassName="max-w-2xl"
           footer={
-            draftAxisId ? (
+            linkModalMode === "axis" ? (
               <div className="flex w-full items-center justify-between gap-2">
-                <Button type="button" variant="outline" className="rounded-full" onClick={backToLookup}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full"
+                  onClick={() => {
+                    backToLookup();
+                    setLinkModalMode("link");
+                  }}
+                >
                   Back
                 </Button>
-                <Button
-                  type="button"
-                  variant="primary"
-                  className="rounded-full"
-                  disabled={linkAccountBlocked}
-                  onClick={() => saveNewLink()}
-                >
-                  {useRemote ? "Send invite" : "Save link (local)"}
-                </Button>
+                {draftAxisId ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    className="rounded-full"
+                    disabled={linkAccountBlocked}
+                    onClick={() => saveNewLink()}
+                  >
+                    {useRemote ? "Send invite" : "Save link (local)"}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    className="rounded-full"
+                    loading={lookupBusy}
+                    disabled={lookupBusy || linkAccountBlocked}
+                    onClick={() => void submitLinkAccount()}
+                  >
+                    {lookupBusy ? "Checking…" : "Continue"}
+                  </Button>
+                )}
               </div>
             ) : (
-              <div className="flex w-full justify-end">
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full"
+                  disabled={linkAccountBlocked}
+                  onClick={() => setLinkModalMode("axis")}
+                  data-attr="co-manager-use-proplane-id"
+                >
+                  She already has a PropLane ID
+                </Button>
                 <Button
                   type="button"
                   variant="primary"
                   className="rounded-full"
-                  loading={lookupBusy}
-                  disabled={lookupBusy || linkAccountBlocked}
-                  onClick={() => void submitLinkAccount()}
+                  loading={linkInviteBusy}
+                  disabled={linkAccountBlocked || linkInviteBusy || !useRemote}
+                  onClick={() => void createOpenInviteLink()}
+                  data-attr="co-manager-copy-open-invite"
                 >
-                  {lookupBusy ? "Checking…" : "Continue"}
+                  Copy invite link
                 </Button>
               </div>
             )
           }
         >
-          <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-border pb-4 text-xs text-muted">
-            <span className={draftAxisId ? "" : "font-semibold text-foreground"}>1. Find account</span>
-            <span aria-hidden className="text-muted/60">
-              →
-            </span>
-            <span className={draftAxisId ? "font-semibold text-foreground" : ""}>2. Properties &amp; access</span>
-          </div>
-          {!draftAxisId ? (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void submitLinkAccount();
-              }}
-              className="space-y-4"
-            >
-              <PortalInviteChoiceStep
-                inviteDescription="Create a shareable link to invite your team member. It's the fastest and easiest way to link an account."
-                inviteLinkDataAttr="link-account-invite-link"
-                inviteDisabled={linkAccountBlocked}
-                secondaryTitle={`Link with ${AXIS_ID_LABEL}`}
-                secondaryDescription={`Enter the account's ${AXIS_ID_LABEL} to link directly.`}
-                onCreateInviteLink={() => {
-                  closeLinkModal();
-                  setInviteLinkModalOpen(true);
-                }}
-              >
-                <label className="block text-xs font-semibold text-muted">
-                  {AXIS_ID_LABEL}
-                  <Input
-                    type="text"
-                    value={axisInput}
-                    onChange={(e) => setAxisInput(e.target.value)}
-                    placeholder="e.g. PROPLANE-1A2B3C4D"
-                    autoFocus
-                    className="mt-1 font-mono"
-                  />
-                </label>
-              </PortalInviteChoiceStep>
-            </form>
-          ) : (
+          {linkModalMode === "link" || draftAxisId ? (
+
             <div className="space-y-5">
-              <div className="rounded-2xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
-                <p className="text-sm text-foreground">
-                  Linking with{" "}
-                  <span className="font-semibold">{draftName}</span>
+              {linkModalMode === "link" ? (
+                <p className="text-sm text-muted">
+                  Copy a link she can open to join. Pick houses now, or skip and assign them after she joins.
                 </p>
-                <p className="mt-0.5 font-mono text-xs text-muted">
-                  <span className="font-sans font-semibold uppercase tracking-wide text-[10px] text-muted">
-                    PropLane ID{" "}
-                  </span>
-                  {formatProplaneIdForDisplay(draftAxisId)}
-                </p>
-              </div>
+              ) : (
+                <div className="rounded-2xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
+                  <p className="text-sm text-foreground">
+                    Linking with <span className="font-semibold">{draftName}</span>
+                  </p>
+                  <p className="mt-0.5 font-mono text-xs text-muted">
+                    <span className="font-sans font-semibold uppercase tracking-wide text-[10px] text-muted">
+                      PropLane ID{" "}
+                    </span>
+                    {formatProplaneIdForDisplay(draftAxisId ?? "")}
+                  </p>
+                </div>
+              )}
 
               {inviteeAtCap ? (
                 <p className="rounded-xl portal-banner-danger px-4 py-3 text-xs font-medium text-[var(--status-overdue-fg)]">
@@ -2469,10 +2520,10 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
 
               <div>
                 {propertyOptions.length === 0 ? (
-                  <p className="text-sm text-muted">No properties yet. Add listings under Properties first.</p>
+                  <p className="text-sm text-muted">No properties yet. You can still send a link and assign houses later.</p>
                 ) : (
                   <CheckboxMultiSelect
-                    label="Assigned properties"
+                    label="Assigned properties (optional)"
                     labelClassName="text-xs font-semibold uppercase tracking-wide text-muted"
                     options={linkInvitePropertySelectOptions}
                     selected={selectedPropIds}
@@ -2503,6 +2554,31 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
                 </div>
               ) : null}
             </div>
+          ) : (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void submitLinkAccount();
+              }}
+              className="space-y-4"
+            >
+              <div className="rounded-2xl border border-border bg-accent/20 p-4">
+                <label className="block text-xs font-semibold text-muted">
+                  {AXIS_ID_LABEL}
+                  <Input
+                    type="text"
+                    value={axisInput}
+                    onChange={(e) => setAxisInput(e.target.value)}
+                    placeholder="e.g. PROPLANE-1A2B3C4D"
+                    autoFocus
+                    className="mt-1 font-mono"
+                  />
+                </label>
+                <p className="mt-3 text-xs leading-relaxed text-muted">
+                  Enter her {AXIS_ID_LABEL}. You can still send a shareable link after the invite is created.
+                </p>
+              </div>
+            </form>
           )}
         </Modal>
 

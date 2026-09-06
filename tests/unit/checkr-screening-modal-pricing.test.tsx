@@ -24,7 +24,8 @@ vi.mock("@/lib/screening/screening-test-mode", () => ({
 vi.mock("@/lib/analytics/track-client", () => ({
   track: () => undefined,
 }));
-vi.mock("@/lib/manager-applications-storage", () => ({
+vi.mock("@/lib/manager-applications-storage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/manager-applications-storage")>()),
   replaceManagerApplicationRowInCache: () => undefined,
 }));
 

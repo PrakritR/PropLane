@@ -3,16 +3,25 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { useAssistantConversation } from "@/lib/axis-assistant/use-assistant-conversation";
 import { loadAssistantChatMessages } from "@/lib/axis-assistant/assistant-chat-storage";
+import { FINANCES_ASSISTANT_UPDATED_EVENT } from "@/lib/finances-assistant-events";
 
 function setup(kind = "send_message", confirmStatus = 200) {
-  const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("/api/expenses")) {
+      return new Response(JSON.stringify({ expenses: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     const body = JSON.parse(String(init?.body ?? "{}"));
     const confirmation = Boolean(body.confirmActionId);
     return new Response(JSON.stringify(confirmation
       ? confirmStatus === 200 ? { reply: "Message sent." } : { error: "Try again." }
-      : { reply: "Review the message.", pendingAction: { id: "proposal-1", preview: {
+      : { reply: kind.startsWith("record_") ? "" : "Review the message.", pendingAction: { id: "proposal-1", preview: {
         kind, title: "Send message", confirmLabel: "Send", fields: [
           { label: "To", value: "Resident" }, { label: "Message", value: "Hello" },
+          ...(kind === "record_expense" || kind === "record_income" ? [{ label: "Date", value: "2024-09-04" }] : []),
         ],
       } } }), { status: confirmation ? confirmStatus : 200, headers: { "Content-Type": "application/json" } });
   });
@@ -21,7 +30,7 @@ function setup(kind = "send_message", confirmStatus = 200) {
   return { ...hook, fetchMock };
 }
 
-afterEach(() => { cleanup(); localStorage.clear(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); localStorage.clear(); sessionStorage.clear(); vi.unstubAllGlobals(); });
 
 describe("assistant internal context and typed send", () => {
   it("keeps task context outside visible and persisted messages, retaining authored context-like text", async () => {
@@ -82,6 +91,30 @@ describe("assistant internal context and typed send", () => {
     await act(async () => { await result.current.send("send"); });
     expect(result.current.pendingAction?.id).toBe("proposal-1");
     expect(result.current.error).toBe("Try again.");
+  });
+
+  it.each(["record_expense", "record_income"] as const)("notifies Finances after confirming %s", async (kind) => {
+    const seen: Array<{ tool?: string; postedDate?: string }> = [];
+    const onUpdated = (event: Event) => {
+      seen.push((event as CustomEvent<{ tool?: string; postedDate?: string }>).detail ?? {});
+    };
+    window.addEventListener(FINANCES_ASSISTANT_UPDATED_EVENT, onUpdated);
+    const { result } = setup(kind);
+    await act(async () => { await result.current.send("add an expense"); });
+    expect(result.current.messages.filter((message) => message.role === "assistant")).toEqual([]);
+    await act(async () => { await result.current.resolvePendingAction("confirm"); });
+    window.removeEventListener(FINANCES_ASSISTANT_UPDATED_EVENT, onUpdated);
+    expect(seen).toEqual([{ tool: kind, postedDate: "2024-09-04" }]);
+  });
+
+  it("does not notify Finances after a denied expense", async () => {
+    const onUpdated = vi.fn();
+    window.addEventListener(FINANCES_ASSISTANT_UPDATED_EVENT, onUpdated);
+    const { result } = setup("record_expense");
+    await act(async () => { await result.current.send("add an expense"); });
+    await act(async () => { await result.current.resolvePendingAction("deny"); });
+    window.removeEventListener(FINANCES_ASSISTANT_UPDATED_EVENT, onUpdated);
+    expect(onUpdated).not.toHaveBeenCalled();
   });
 
   it("coalesces duplicate immediate sends before React renders loading state", async () => {
