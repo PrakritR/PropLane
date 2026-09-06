@@ -21,6 +21,7 @@ describe("normalizeE164", () => {
     expect(normalizeE164("call me")).toBeNull();
     expect(normalizeE164("+0123456789")).toBeNull();
     expect(normalizeE164("+123")).toBeNull();
+    expect(normalizeE164("+1206555")).toBeNull();
     expect(normalizeE164("+1234567890123456")).toBeNull();
     expect(normalizeE164("555-1234")).toBeNull();
   });

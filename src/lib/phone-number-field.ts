@@ -126,3 +126,11 @@ export function parsePhoneFieldValue(value: unknown): ParsedPhoneField {
 
   return { iso: DEFAULT_PHONE_COUNTRY_ISO, nationalDigits: digits.slice(0, 10) };
 }
+
+/** True when the value is a full number for its country, not a mid-entry E.164. */
+export function isCompletePhoneNumber(value: unknown): boolean {
+  const raw = coercePhoneInput(value);
+  if (!raw || !normalizeE164(raw)) return false;
+  const parsed = parsePhoneFieldValue(raw);
+  return parsed.nationalDigits.length === phoneCountryByIso(parsed.iso).nationalLength;
+}

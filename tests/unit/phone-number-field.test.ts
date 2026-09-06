@@ -3,6 +3,7 @@ import {
   composePhoneE164,
   DEFAULT_PHONE_COUNTRY_ISO,
   formatNationalPhoneDigits,
+  isCompletePhoneNumber,
   parsePhoneFieldValue,
 } from "@/lib/phone-number-field";
 import { coercePhoneInput, normalizeE164 } from "@/lib/phone-e164";
@@ -39,5 +40,12 @@ describe("phone number field model", () => {
     expect(composePhoneE164("US", "2065550123")).toBe("+12065550123");
     expect(composePhoneE164("GB", "2079460958")).toBe("+442079460958");
     expect(typeof composePhoneE164("US", "206")).toBe("string");
+  });
+
+  it("rejects mid-entry +1 numbers as incomplete", () => {
+    expect(isCompletePhoneNumber("+1206555")).toBe(false);
+    expect(isCompletePhoneNumber("+12065550123")).toBe(true);
+    expect(isCompletePhoneNumber("+44207946")).toBe(false);
+    expect(isCompletePhoneNumber("+442079460958")).toBe(true);
   });
 });

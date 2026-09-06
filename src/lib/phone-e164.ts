@@ -18,7 +18,12 @@ export function normalizeE164(phone: unknown): string | null {
   // digits keep the US default so existing 10/11-digit data still works.
   if (trimmed.startsWith("+")) {
     const digits = trimmed.slice(1).replace(/\D/g, "");
-    return /^[1-9]\d{6,14}$/.test(digits) ? `+${digits}` : null;
+    if (!/^[1-9]\d{6,14}$/.test(digits)) return null;
+    // NANP country code 1 is always 10 national digits. PhoneNumberField emits
+    // +1… while the user is still typing, so a 7-digit "+1206555" must not
+    // count as a deliverable number.
+    if (digits.startsWith("1") && digits.length !== 11) return null;
+    return `+${digits}`;
   }
   const digits = trimmed.replace(/\D/g, "");
   if (digits.length === 10) return `+1${digits}`;
