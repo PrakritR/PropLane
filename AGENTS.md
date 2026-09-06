@@ -3,6 +3,8 @@
 
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 
+<!-- END:nextjs-agent-rules -->
+
 This project is building Axis Housing. A platform for users that are property managers to manage their platform effectively.
 Currently as we code there are two things to keep in mind for how we want to code. 
 ## Monitoring & Observability
@@ -311,7 +313,6 @@ charges. Do not add one until that logic moves server-side.
   loop; avoid heavy agent frameworks.
 - New site features should expose their capabilities as tools so the agent
   inherits them automatically.
-<!-- END:nextjs-agent-rules -->
 
 ## Web + native (Capacitor)
 
