@@ -29,10 +29,10 @@ describe("PRP-186: the hub signup form collects a phone", () => {
     expect(form).not.toContain('type="tel"');
 
     const stack = read(STACK);
-    const telIdx = stack.indexOf('type="tel"');
-    expect(telIdx).toBeGreaterThan(-1);
+    const phoneIdx = stack.indexOf("<PhoneNumberField");
+    expect(phoneIdx).toBeGreaterThan(-1);
     // Nothing between the fragment open and the phone input may branch on it.
-    const before = stack.slice(stack.indexOf("return (\n    <>"), telIdx);
+    const before = stack.slice(stack.indexOf("return (\n    <>"), phoneIdx);
     expect(before).not.toContain("?");
   });
 

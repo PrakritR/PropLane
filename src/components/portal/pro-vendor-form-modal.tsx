@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { Modal, ModalFooter, MODAL_FIELD_LABEL_CLASS, PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS, PORTAL_MODAL_FORM_GRID_CLASS } from "@/components/ui/modal";
 import { PortalInviteChoiceStep } from "@/components/portal/portal-invite-choice-step";
 import {
@@ -109,13 +110,10 @@ export function ManagerVendorFormFields({
         <label className={MODAL_FIELD_LABEL_CLASS} htmlFor={`${idPrefix}-phone`}>
           Phone
         </label>
-        <Input
+        <PhoneNumberField
           id={`${idPrefix}-phone`}
-          type="tel"
           value={draft.phone}
-          onChange={(e) => onPatch({ phone: e.target.value })}
-          placeholder="(206) 555-0100"
-          autoComplete="tel"
+          onChange={(phone) => onPatch({ phone })}
         />
       </div>
       <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>

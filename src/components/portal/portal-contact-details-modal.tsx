@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import { coercePhoneInput, normalizeE164 } from "@/lib/phone-e164";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 
 export type PortalContactDetailsValues = {
@@ -49,7 +51,7 @@ export function PortalContactDetailsModal({
   useEffect(() => {
     if (!open) return;
     setName(initial.name);
-    setPhone(initial.phone);
+    setPhone(coercePhoneInput(initial.phone));
     setEmail(initial.email);
     setLocalError(null);
     // Seeding is intentionally keyed on the open transition: re-seeding on every
@@ -59,7 +61,7 @@ export function PortalContactDetailsModal({
 
   const submit = () => {
     const nextName = name.trim();
-    const nextPhone = phone.trim();
+    const nextPhone = normalizeE164(phone);
     const nextEmail = email.trim().toLowerCase();
     if (nextName.length > 80) {
       setLocalError("Enter a contact name up to 80 characters.");
@@ -130,15 +132,12 @@ export function PortalContactDetailsModal({
         >
           Phone number
         </label>
-        <Input
+        <PhoneNumberField
           id={`${formId}-phone`}
-          type="tel"
           value={phone}
-          onChange={(event) => setPhone(event.target.value)}
+          onChange={setPhone}
           autoComplete="off"
-          spellCheck={false}
-          placeholder="+1 (206) 555-0123"
-          data-attr="contact-details-phone"
+          dataAttr="contact-details-phone"
         />
 
         <label

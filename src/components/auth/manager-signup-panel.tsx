@@ -9,6 +9,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { track } from "@/lib/analytics/track-client";
 import { MANAGER_PLAN_TIERS, type ManagerPlanTierDefinition, type PlanTierId } from "@/data/manager-plan-tiers";
 import {
@@ -286,13 +287,12 @@ export function ManagerSignupPanel({
               if (e.key === "Enter") void createManager();
             }}
           />
-          <Input
-            type="tel"
-            autoComplete="tel"
+          <PhoneNumberField
             placeholder="Phone (optional)"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            onChange={setPhone}
             disabled={locked}
+            dataAttr="manager-signup-phone"
           />
           {isPaid ? (
             <Input

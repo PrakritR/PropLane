@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import { normalizeE164 } from "@/lib/phone-e164";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 
 const FORM_ID = "manager-sms-contact-form";
@@ -36,7 +38,7 @@ export function ManagerSmsContactModal({
 
   const submit = async () => {
     const name = displayName.trim();
-    const number = phone.trim();
+    const number = normalizeE164(phone);
     if (!name || name.length > 80) {
       setError("Enter a contact name up to 80 characters.");
       return;
@@ -148,20 +150,18 @@ export function ManagerSmsContactModal({
             data-attr="sms-contact-create-name"
           />
         </label>
-        <label className="block space-y-1.5 text-sm font-medium text-foreground">
-          <span>Phone number</span>
-          <Input
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
+        <div className="space-y-1.5">
+          <label htmlFor="sms-contact-create-phone" className="block text-sm font-medium text-foreground">
+            Phone number
+          </label>
+          <PhoneNumberField
+            id="sms-contact-create-phone"
             value={phone}
-            onChange={(event) => setPhone(event.target.value)}
-            placeholder="+1 206 555 0123"
+            onChange={setPhone}
             disabled={saving}
-            aria-describedby="sms-contact-consent-note"
-            data-attr="sms-contact-create-phone"
+            dataAttr="sms-contact-create-phone"
           />
-        </label>
+        </div>
         <p id="sms-contact-consent-note" className="text-xs leading-relaxed text-muted">
           Saving a contact does not opt them into texts. PropLane will only send after the person has provided valid SMS consent.
         </p>
