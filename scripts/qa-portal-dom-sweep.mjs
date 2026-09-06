@@ -495,7 +495,14 @@ async function sweepViewport(browser, viewport, routes, probeSource, discovered 
         window.scrollTo(0, document.documentElement.scrollHeight);
       });
       await page.waitForTimeout(600);
-      const bottom = await page.evaluate(() => globalThis.__tmProbe?.());
+      // The scrolled pass does NOT re-run obscured-control. Scrolling a list makes
+      // its own header row slide under the page's sticky header — which is what
+      // scrolling IS, not a defect — and reporting it produced 56 findings blaming
+      // `header.hidden.h-14` for covering the very tab chips the user just scrolled
+      // past. "Covered" is only meaningful where the page rests: if a control is
+      // unreachable as the page presents itself, that is a bug; if it is under
+      // chrome because you scrolled it there, that is a scrollbar.
+      const bottom = await page.evaluate(() => globalThis.__tmProbe?.({ skip: ["obscured-control", "duplicate-control", "tiny-tap-target"] }));
       for (const pass of [top, bottom]) for (const f of pass?.findings ?? []) push(f);
 
       for (const e of pageErrors.slice(0, 5)) {
