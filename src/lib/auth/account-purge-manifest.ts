@@ -242,6 +242,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { detachIds: ["matched_sender_user_id"] },
   },
   {
+    table: "property_utility_allocations",
+    phase: 1,
+    // `bill_id` is a plain FK onto manager_bills (phase 3) and `manager_user_id` a plain FK
+    // onto auth.users, so these rows have to clear before either parent goes.
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "manager_assistant_email_inbound",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
@@ -523,6 +530,12 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["user_id"] },
     resident: { ids: ["user_id"] },
     vendor: { ids: ["user_id"] },
+  },
+  {
+    table: "sales_migration_records",
+    phase: 2,
+    // Plain FK onto auth.users, same as resident_inspections: clear before the login goes.
+    manager: { ids: ["manager_user_id"] },
   },
   {
     table: "resident_inspections",

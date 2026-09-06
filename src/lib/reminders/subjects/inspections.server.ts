@@ -66,16 +66,19 @@ export async function sweepInspectionReminders(db: SupabaseClient, now = new Dat
       const property = properties.data?.find(p => p.id === propertyId(row) && p.manager_user_id === row.manager_user_id);
       const config = settings.get(row.manager_user_id);
       if (!property || !config) continue;
+      const manager = managers.get(row.manager_user_id);
       const reports = reportsResult.filter(r => r.application_id === row.id && sameRoom(r as InspectionRecord, row, property.rooms ?? property.legacy_rooms)) as InspectionRecord[];
       for (const kind of roomInspectionRequirements(property.id, assignment(row), property.rooms ?? property.legacy_rooms)) {
         const anchorIso = inspectionDueDate(row, kind);
         if (!anchorIso || reports.some(r => r.kind === kind && r.status === "completed")) continue;
         queued += await materializeReminders(db, { managerUserId: row.manager_user_id, kind: "inspection", subjectId: `${row.id}:${kind}:${createHash("sha256").update(`${anchorIso}:${canonicalAssignment(row, property.rooms ?? property.legacy_rooms)}`).digest("hex").slice(0, 20)}`, anchorIso,
-          recipients: [{ email: row.resident_email, role: "counterparty" }],
+          // Both sides. The rule's audience decides who actually receives it, but the
+          // manager has to be OFFERED here or "remind me too" is unreachable from Settings.
+          recipients: [{ email: row.resident_email, role: "counterparty" },
+            ...(manager ? [{ email: manager.email, userId: row.manager_user_id, role: "manager" as const }] : [])],
           payload: { applicationId: row.id, inspectionKind: kind, roomAssignment: assignment(row), title: `Required ${kind} inspection`, url: `${origin}/resident/move-in/inspections` },
         }, config, now);
       }
-      const manager = managers.get(row.manager_user_id);
       for (const report of reports) {
         if (!manager || report.status === "completed" || !hasEvidence(report) || (report.status === "submitted" && !report.document.residentAcknowledgment)) continue;
         queued += await materializeReminders(db, { managerUserId: row.manager_user_id, kind: "inspection_manager", subjectId: `${report.id}:${report.revision}`, anchorIso: report.updated_at,

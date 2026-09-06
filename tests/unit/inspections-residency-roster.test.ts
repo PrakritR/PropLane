@@ -120,4 +120,24 @@ describe("buildInspectionRows", () => {
 
     expect(rows[0]!.preview).toContain("Mar 4, 2026");
   });
+
+  it("marks a row whose room configuration requires the inspection", () => {
+    // prakrit's requirement signal used to be a banner ABOVE the list, which drew the same
+    // resident twice. It belongs on their row.
+    const rows = buildInspectionRows("move-in", [
+      residency({ id: "app-1", moveInDate: "2026-10-01", occupancy: "upcoming", requiredKinds: ["move-in"] }),
+    ], []);
+
+    expect(rows[0]!.badge.label).toBe("Inspection required");
+    expect(rows[0]!.preview).toContain("Move-in inspection required");
+  });
+
+  it("leaves a row unmarked when the room requires the other kind only", () => {
+    const rows = buildInspectionRows("move-in", [
+      residency({ id: "app-1", moveInDate: "2026-10-01", occupancy: "upcoming", requiredKinds: ["move-out"] }),
+    ], []);
+
+    expect(rows[0]!.badge.label).toBe("Moving in");
+    expect(rows[0]!.preview).toContain("No move-in inspection yet");
+  });
 });

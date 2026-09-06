@@ -56,6 +56,7 @@ import {
   IncomingPaymentRemindersSettingsBundle,
   LeaseRemindersSettingsBundle,
   OutgoingPaymentRemindersSettingsBundle,
+  InspectionRemindersSettingsBundle,
   ServiceRemindersSettingsBundle,
 } from "@/components/portal/reminder-settings-bundles";
 import { ReminderTypePicker } from "@/components/portal/reminder-type-picker";
@@ -484,6 +485,32 @@ export function ServicesSettingsPanel({
  * Manager-side only, so no counterparty switch: an imported channel booking
  * carries no guest contact. See the note at the top of `lib/reminders/rules.ts`.
  */
+/**
+ * Inspections settings. Reminders are the whole panel: a move-in or move-out condition report
+ * has no other per-manager preference to hold, and the reminder is what stops one being missed.
+ */
+export function InspectionsSettingsPanel({
+  teamMembers,
+  onFooterReady,
+  dueReminderFormRef,
+  reviewReminderFormRef,
+}: {
+  teamMembers: WorkAssignmentTeamMember[];
+  onFooterReady?: (footer: ManagerSettingsPanelFooter | null) => void;
+  dueReminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
+  reviewReminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
+}) {
+  useReportSettingsPanelFooter(onFooterReady, null);
+
+  return (
+    <InspectionRemindersSettingsBundle
+      teamMembers={teamMembers}
+      dueFormRef={dueReminderFormRef}
+      reviewFormRef={reviewReminderFormRef}
+    />
+  );
+}
+
 export function BookingsSettingsPanel({
   teamMembers,
   onFooterReady,

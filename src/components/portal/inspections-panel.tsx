@@ -12,6 +12,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { InspectionEditor } from "@/components/portal/inspection-editor";
+import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadInspection, inspectionRequest, loadInspectionList, INSPECTIONS_CHANGED, type InspectionList } from "@/lib/inspections/client";
@@ -105,12 +106,15 @@ export function buildInspectionRows(kind: InspectionKind, residencies: Inspectio
   const withReport = new Set(forKind.map(report => report.application_id));
   for (const residency of onTab) {
     if (withReport.has(residency.id)) continue;
+    // A room whose own configuration requires this inspection says so on the person's row.
+    // A separate "required" banner above the list drew the same resident twice.
+    const required = residency.requiredKinds?.includes(kind) ?? false;
     rows.push({
       key: `residency:${residency.id}`,
       name: residency.name,
       subtitle: `${residency.property}${residency.room ? ` · ${inspectionRoomLabel(residency.room)}` : ""}`,
-      preview: `${tenancyLine(residency)} · No ${kindLabel(kind).toLowerCase()} inspection yet`,
-      badge: occupancyBadge[residency.occupancy],
+      preview: `${tenancyLine(residency)} · ${required ? `${kindLabel(kind)} inspection required` : `No ${kindLabel(kind).toLowerCase()} inspection yet`}`,
+      badge: required ? { label: "Inspection required", tone: "warning" as const } : occupancyBadge[residency.occupancy],
       residency,
       sortKey: (kind === "move-in" ? residency.moveInDate : residency.moveOutDate) || "9999-12-31",
     });
@@ -152,6 +156,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const [date, setDate] = useState(() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`; });
   const [baseline, setBaseline] = useState("");
   const [busy, setBusy] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const working = useRef(false);
   const requestVersion = useRef(0);
   const live = useRef(true);
@@ -192,6 +197,20 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     if (routeBase) { router.push(`${routeBase}/${kind}/${id}`); return; }
     setDetail(await inspectionRequest<InspectionDetail>(role, `/${id}`)); setSelected(new Set());
   });
+  /**
+   * Manager sign-off on a submitted report. The transition is the model's `complete`, which
+   * refuses a report the resident has not acknowledged — the refusal is shown rather than
+   * swallowed, so "reviewed" can never mean "nobody confirmed it".
+   */
+  const markReviewed = (reports: InspectionSummary[]) => run(async () => {
+    for (const report of reports) {
+      await inspectionRequest(role, `/${report.id}/status`, {
+        method: "POST", body: JSON.stringify({ revision: report.revision, action: "complete" }),
+      });
+    }
+    setSelected(new Set());
+    await refresh(true);
+  });
   const changeKind = (next: InspectionKind) => {
     setSelected(new Set()); setKind(next); setBaseline("");
     if (routeBase) router.push(`${routeBase}/${next}`);
@@ -201,6 +220,8 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const visible = data.residencies.filter(r => !applicationId || r.id === applicationId);
   const rowsFor = (which: InspectionKind) => buildInspectionRows(which, visible, data.reports);
   const rows = rowsFor(kind);
+  const selectedReports = rows.filter(row => selected.has(row.key) && row.report).map(row => row.report!);
+  const reviewable = selectedReports.filter(report => report.status === "submitted");
   const startInspection = (residency: InspectionResidency) => {
     setApplication(residency.id); setBaseline(""); setCreateOpen(true);
   };
@@ -219,26 +240,28 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     <PortalListControlStack variant="command" stickyDestinations={false} destinationAriaLabel="Inspection type" activeDestinationId={kind}
       destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
       destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
+      actions={role === "manager" && !isDemoModeActive()
+        ? <Button type="button" variant="outline" data-attr="inspections-settings-open" onClick={() => setSettingsOpen(true)}>Settings</Button>
+        : undefined}
     />
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error}</p>}
     {!error && data.notice && <p role="status" className="rounded-xl border border-border p-3 text-sm text-muted">{data.notice}</p>}
-    {!loading && residencies.filter(r => r.requiredKinds?.includes(kind) && !reports.some(report => report.application_id === r.id)).map(residency =>
-      <div key={residency.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-border p-4">
-        <p className="min-w-0 flex-1 text-sm">{kindLabel(kind)} inspection required · {residency.name} · {inspectionRoomLabel(residency.room)}</p>
-        <Button variant="outline" data-attr="inspection-required-start" onClick={() => { setApplication(residency.id); setBaseline(""); setCreateOpen(true); }}>Start inspection</Button>
-      </div>)}
     {loading ? <div role="status" aria-label="Loading inspections" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div> : <PortalRecordListSurface
       isEmpty={rows.length === 0}
       empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to create and review residency inspections." : kind === "move-in" ? "No one is moving in or living here yet. Approve an application and give it a property placement to start." : "No one is living here or has moved out yet."}</p>}
       add={residencies.length ? { ariaLabel: `Add ${kindLabel(kind).toLowerCase()} inspection`, onClick: () => { setApplication(applicationId ?? residencies[0]?.id ?? ""); setBaseline(""); setCreateOpen(true); }, dataAttr: "inspection-add" } : undefined}
       bulkCount={selected.size}
-      bulkActions={<PortalSectionActionRow variant="header"><Button variant="outline" disabled={busy} onClick={() => run(async () => { for (const id of selected) await downloadInspection(role, id); })} data-attr="inspection-bulk-download">Download PDF{selected.size > 1 ? "s" : ""}</Button>{selected.size === 1 && <Button disabled={busy} onClick={() => open([...selected][0]!)} data-attr="inspection-bulk-open">View inspection</Button>}</PortalSectionActionRow>}
+      bulkActions={<PortalSectionActionRow variant="header">
+        <Button variant="outline" disabled={busy || selectedReports.length === 0} onClick={() => run(async () => { for (const report of selectedReports) await downloadInspection(role, report.id); })} data-attr="inspection-bulk-download">Download</Button>
+        <Button variant="outline" disabled={busy || selectedReports.length !== 1} onClick={() => open(selectedReports[0]!.id)} data-attr="inspection-bulk-open">View</Button>
+        {role === "manager" && <Button disabled={busy || reviewable.length === 0} onClick={() => markReviewed(reviewable)} data-attr="inspection-bulk-review">Mark reviewed</Button>}
+      </PortalSectionActionRow>}
     >{rows.map(row => <PortalPersonRecordRow key={row.key} name={row.name} subtitle={row.subtitle} preview={row.preview} trailing={<Badge tone={row.badge.tone}>{row.badge.label}</Badge>}
-      // Only a filed report can be selected: the bulk actions download and open PDFs.
-      checked={row.report ? selected.has(row.report.id) : undefined}
-      onSelectedChange={row.report ? (checked => setSelected(current => { const next = new Set(current); const id = row.report!.id; if (checked) next.add(id); else next.delete(id); return next; })) : undefined}
+      checked={selected.has(row.key)}
+      onSelectedChange={checked => setSelected(current => { const next = new Set(current); if (checked) next.add(row.key); else next.delete(row.key); return next; })}
       onOpen={() => { if (row.report) { void open(row.report.id); } else if (row.residency?.canCreate) startInspection(row.residency); }}
       dataAttr="inspection-row" />)}</PortalRecordListSurface>}
+    {role === "manager" && <ProPortalSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab="inspections" scoped />}
     <Modal open={createOpen} onClose={() => { if (!busy) setCreateOpen(false); }} dismissBlocked={busy} title={`New ${kindLabel(kind).toLowerCase()} inspection`} assistantStrip={false} footer={<Button onClick={create} disabled={busy || !application || !date} data-attr="inspection-create">Create inspection</Button>}>
       <div className="space-y-4">
         <label className="block space-y-1 text-sm">Resident and placement<Select aria-label="Resident and placement" value={application} disabled={Boolean(applicationId)} onChange={e => { setApplication(e.target.value); setBaseline(""); }} data-attr="inspection-residency">{residencies.map(r => <option key={r.id} value={r.id}>{r.name} · {r.property}{r.room ? ` · ${inspectionRoomLabel(r.room)}` : ""}</option>)}</Select></label>

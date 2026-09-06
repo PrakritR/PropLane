@@ -109,6 +109,7 @@ export const DELETE_ORDER = [
   "sms_consent_events",
   "sms_provisioning_operations",
   "inbound_sms_log",
+  "property_utility_allocations",
   "manager_assistant_email_inbound",
   // 2. the account's own rows
   "manager_property_access",
@@ -159,6 +160,7 @@ export const DELETE_ORDER = [
   "sms_outbox",
   "mcp_oauth_authorization_codes",
   "mcp_oauth_tokens",
+  "sales_migration_records",
   "resident_inspections",
   "resident_housemate_sharing",
   "manager_expense_entries",
