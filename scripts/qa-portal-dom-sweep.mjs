@@ -59,6 +59,13 @@ const LEDGER_PATH = join(OUT_ROOT, "ledger.json");
 const RUN_ID = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
 const RUN_DIR = join(OUT_ROOT, "runs", `${ROLE}-${RUN_ID}`);
 
+// Off by default: it multiplies a pass's wall clock, and an overnight loop wants
+// the cheap geometric sweep on every rotation with this on the deeper ones.
+const ACTIONABILITY = flag("actionability");
+const ACTIONABILITY_TIMEOUT = Number(arg("actionability-timeout", "1500"));
+const ACTIONABILITY_LIMIT = Number(arg("actionability-limit", "45"));
+const ACTIONABLE_SELECTOR = 'button:visible, a[href]:visible, [role="button"]:visible, input:visible, select:visible, textarea:visible';
+
 const VIEWPORTS = {
   desktop: { name: "desktop", width: 1280, height: 900, device: null },
   tablet: { name: "tablet", width: 820, height: 1100, device: null },
@@ -134,6 +141,7 @@ function keyOf(f) {
 // (it errored, it 500'd, you cannot reach the content) is runtime; a measurement
 // that a person still has to judge is ui.
 const RUNTIME_CHECKS = new Set([
+  "unclickable-control",
   "page-error",
   "console-error",
   "request-failed",
@@ -285,6 +293,45 @@ async function sweepViewport(browser, viewport, routes, probeSource) {
         });
       }
 
+      // Actionability pass. Measuring geometry finds a control that LOOKS covered;
+      // this asks Playwright the question a person asks — can I click it? `trial:
+      // true` runs the full actionability check (visible, stable, enabled, receives
+      // the event) and then does NOT click, so a sweep can interrogate a whole
+      // portal without changing a single row. This is what caught the admin search
+      // box that a sibling span had swallowed.
+      if (ACTIONABILITY) {
+        const handles = await page.locator(ACTIONABLE_SELECTOR).all();
+        let checked = 0;
+        for (const handle of handles) {
+          if (checked >= ACTIONABILITY_LIMIT) break;
+          let name = "";
+          try {
+            if (!(await handle.isVisible())) continue;
+            // A skip link is 1px and off-screen until it is focused — it is not a
+            // control anyone clicks, and reporting it fires once per page for the
+            // whole portal. Same for anything parked outside the viewport.
+            const box = await handle.boundingBox();
+            if (!box || box.width <= 4 || box.height <= 4) continue;
+            if (box.x + box.width < 0 || box.y + box.height < 0) continue;
+            if (await handle.getAttribute("aria-hidden") === "true") continue;
+            name = ((await handle.getAttribute("aria-label")) || (await handle.innerText().catch(() => "")) || (await handle.getAttribute("data-attr")) || "").trim().replace(/\s+/g, " ").slice(0, 60);
+            checked += 1;
+            await handle.click({ trial: true, timeout: ACTIONABILITY_TIMEOUT });
+          } catch (err) {
+            const message = String(err.message).split("\n")[0];
+            // A control that scrolled out from under us, or a page that navigated
+            // mid-pass, is the sweep's problem and not the product's.
+            if (/not attached|Element is not attached|Execution context was destroyed|navigation/i.test(message)) continue;
+            push({
+              check: "unclickable-control",
+              severity: "high",
+              summary: `"${name || "(unnamed control)"}" cannot be clicked: ${message.replace(/^locator\.click: /, "").slice(0, 120)}`,
+              detail: { name, error: message.slice(0, 220) },
+            });
+          }
+        }
+      }
+
       const top = await page.evaluate(() => globalThis.__tmProbe?.());
       // Sticky chrome only collides once the page is scrolled — the floating bulk
       // bar meeting the phone tab bar is invisible from the top of the page.
@@ -354,7 +401,7 @@ async function main() {
   if (!SELECTED_VIEWPORTS.length) throw new Error(`--viewports matched none of: ${Object.keys(VIEWPORTS).join(", ")}`);
 
   const probeSource = readFileSync(join(__dirname, "qa-portal-dom-probe.js"), "utf8");
-  console.log(`portal DOM sweep · ${ROLE} · ${BASE} · ${routes.length} routes × ${SELECTED_VIEWPORTS.length} viewports`);
+  console.log(`portal DOM sweep · ${ROLE} · ${BASE} · ${routes.length} routes × ${SELECTED_VIEWPORTS.length} viewports${ACTIONABILITY ? " · actionability on" : ""}`);
 
   const browser = await chromium.launch({ headless: !flag("headed") });
   const all = [];
