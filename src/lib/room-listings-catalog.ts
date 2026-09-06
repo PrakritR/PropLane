@@ -13,6 +13,9 @@ import {
   roomHeadlinePriceLabel,
   roomIsDailyPriced,
   roomMonthlyEquivalent,
+  roomPricingIsFlexible,
+  roomAdvertisedPriceLabel,
+  roomFlexibleSortAmount,
 } from "@/lib/room-pricing";
 
 export type RoomListingSlide = {
@@ -288,13 +291,21 @@ function browseRoomEntries(
   if (property.listingSubmission?.v === 1) {
     const sub = normalizeManagerListingSubmissionV1(property.listingSubmission);
     const submissionRooms = sub.rooms
-      .filter((r) => r.name.trim() || r.monthlyRent > 0)
+      // A flexible room is a real, listable room even with no numbers on it —
+      // dropping it because `monthlyRent` is 0 would hide the whole sober-living
+      // model from browse (PRP-329 acceptance 6).
+      .filter((r) => r.name.trim() || r.monthlyRent > 0 || roomPricingIsFlexible(r))
       .map((r, index) => ({
         ...r,
         name: r.name.trim() || `Room ${index + 1}`,
       }));
     if (submissionRooms.length > 0) {
-      const rents = submissionRooms.map((r) => r.monthlyRent).filter((n) => n > 0);
+      // "From" uses a flexible room's advertised MINIMUM where it has one, and skips
+      // it entirely where it does not — never 0, which would advertise the whole
+      // property as free off the back of one unpriced room.
+      const rents = submissionRooms
+        .map((r) => (roomPricingIsFlexible(r) ? roomFlexibleSortAmount(r) : r.monthlyRent))
+        .filter((n): n is number => typeof n === "number" && n > 0);
       const from = rents.length ? Math.min(...rents) : parseMonthlyRent(property.rentLabel) ?? 0;
       const floor: ListingFloorCard = {
         cardKey: `${property.id}-listed-rooms`,
@@ -309,14 +320,26 @@ function browseRoomEntries(
           name: r.name,
           detail: r.utilitiesEstimate?.trim() ? `Utilities · ${r.utilitiesEstimate.trim()}` : "Listed by manager",
           utilitiesEstimate: r.utilitiesEstimate?.trim() || undefined,
-          price: roomIsDailyPriced(r)
-            ? roomHeadlinePriceLabel(r)
-            : r.monthlyRent > 0
-              ? `$${r.monthlyRent}/mo`
-              : property.rentLabel || "—",
+          price: roomPricingIsFlexible(r)
+            ? roomAdvertisedPriceLabel(r)
+            : roomIsDailyPriced(r)
+              ? roomHeadlinePriceLabel(r)
+              : r.monthlyRent > 0
+                ? `$${r.monthlyRent}/mo`
+                : property.rentLabel || "—",
           pricePeriod: roomIsDailyPriced(r) ? "day" : "month",
-          priceMonthlyEquivalent: roomIsDailyPriced(r) ? roomMonthlyEquivalent(r) : undefined,
-          priceHeadlineAmount: roomHeadlineAmount(r) ?? undefined,
+          // A flexible room ranks and budget-filters on its advertised minimum, so a
+          // prospect searching "under $700" still sees a $600-$900 room they may be
+          // able to agree. With no bounds it stays undefined — shown, but never
+          // sorted or filtered as if it were free.
+          priceMonthlyEquivalent: roomPricingIsFlexible(r)
+            ? roomFlexibleSortAmount(r)
+            : roomIsDailyPriced(r)
+              ? roomMonthlyEquivalent(r)
+              : undefined,
+          priceHeadlineAmount: roomPricingIsFlexible(r)
+            ? roomFlexibleSortAmount(r)
+            : (roomHeadlineAmount(r) ?? undefined),
           availability: "Available now",
           modal: BROWSE_ROOM_MODAL_STUB,
         };

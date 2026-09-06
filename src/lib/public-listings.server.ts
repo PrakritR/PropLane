@@ -168,6 +168,13 @@ const PUBLIC_ROOM_KEYS = [
   "dailyRentPrice",
   // A prospect must be able to see "1 of 2 beds available" on a shared room.
   "occupancyCapacity",
+  // PRP-329. Without these three the public payload silently keeps showing a
+  // flexible room's stale `monthlyRent` as if it were the price. The AFFORDABILITY
+  // RATIONALE behind flexible pricing is deliberately NOT projected — no sober-living
+  // status, no resident means, no negotiated amount ever reaches a prospect.
+  "pricingMode",
+  "flexibleRentMin",
+  "flexibleRentMax",
 ] as const satisfies readonly (keyof ManagerRoomSubmission)[];
 
 const PUBLIC_BATHROOM_KEYS = [
