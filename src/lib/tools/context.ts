@@ -62,6 +62,15 @@ export type VendorAgentScope = {
 export type LeasingSmsAgentScope = {
   sessionId: string;
   prospectPhoneE164: string;
+  /**
+   * The prospect's email when they wrote in by mail instead of text. Exactly one
+   * of this and `prospectPhoneE164` carries a real value — an email prospect has
+   * no phone to prefill or to name in an escalation, and writing an address into
+   * a field called `prospectPhoneE164` would silently poison both.
+   */
+  prospectEmail?: string | null;
+  /** How the prospect reached us. Absent means SMS, which is the original path. */
+  channel?: "sms" | "email";
   workNumber: string | null;
   /**
    * True on the shared Claw line (`+12053690702`), where a single number fronts
