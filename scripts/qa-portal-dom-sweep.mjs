@@ -262,7 +262,12 @@ async function sweepViewport(browser, viewport, routes, probeSource) {
         }
       }
       const settled = new URL(page.url()).pathname;
-      if (settled !== route.path && !settled.includes("/auth/sign-in")) {
+      // A section that redirects to its own default tab (/portal/leases ->
+      // /portal/leases/manager) has resolved correctly; the registry just names the
+      // section rather than the tab. Only a landing OUTSIDE the requested path is a
+      // routing finding.
+      const isDefaultTab = settled.startsWith(route.path.replace(/\/$/, "") + "/");
+      if (settled !== route.path && !isDefaultTab && !settled.includes("/auth/sign-in")) {
         push({
           check: "route-redirect",
           severity: settled === "/" ? "high" : "medium",

@@ -153,6 +153,11 @@
         if (reachable) continue;
         const r = el.getBoundingClientRect();
         if (r.height < 40 && r.width < 40) continue; // chips/badges truncate on purpose
+        // A single line of text truncated WITH an ellipsis is the intended design
+        // (`.truncate`), not content the reader cannot reach. Only a clip that
+        // hides content silently counts.
+        const st = getComputedStyle(el);
+        if (hiddenX > 0 && hiddenY <= 12 && (st.textOverflow === "ellipsis" || st.whiteSpace === "nowrap") && r.height < 40) continue;
         out.push({
           check: "unreachable-overflow",
           severity: hiddenY > 60 || hiddenX > 60 ? "high" : "medium",
@@ -170,6 +175,11 @@
       for (const el of Array.from(document.querySelectorAll(INTERACTIVE))) {
         if (!visible(el)) continue;
         const r = el.getBoundingClientRect();
+        // A visually-hidden input (the sr-only file/checkbox behind a styled label)
+        // is SUPPOSED to sit under its own chrome — the label is what you click.
+        // Reporting it says every well-built custom control is broken.
+        if (r.width <= 4 || r.height <= 4) continue;
+        if (el.className && typeof el.className === "string" && /\bsr-only\b|\bvisually-hidden\b/.test(el.className)) continue;
         if (r.top < 0 || r.bottom > vh || r.left < 0 || r.right > vw) continue;
         const cx = Math.round(r.left + r.width / 2);
         const cy = Math.round(r.top + r.height / 2);
