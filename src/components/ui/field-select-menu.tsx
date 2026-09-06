@@ -122,6 +122,25 @@ export function fieldSelectHostTopInsetPx(host: HTMLElement): number {
   }, 0);
 }
 
+/**
+ * The visible box a portaled menu must stay inside.
+ *
+ * Usually that is the portal host itself. A `Modal` is the exception: its dialog content
+ * is a full-bleed `pointer-events-none fixed inset-0` wrapper and the opaque card sits
+ * INSIDE it, so the menu is portaled to the wrapper (the card is `overflow-hidden` and
+ * would clip it) while every bound has to come from the card. Derived from the TRIGGER,
+ * not by querying the host, so nested or stacked dialogs each measure their own card.
+ */
+export function fieldSelectMenuBoundsElement(
+  trigger: HTMLElement,
+  portalHost: HTMLElement,
+): HTMLElement {
+  if (portalHost === document.body) return portalHost;
+  const card = trigger.closest<HTMLElement>(".modal-panel");
+  if (!card || card === portalHost || !portalHost.contains(card)) return portalHost;
+  return card;
+}
+
 export function fieldSelectMenuZIndex(portalHost: HTMLElement): number {
   if (portalHost === document.body) return 10000;
   if (portalHost.matches('[data-slot="vaul-bottom-sheet"]')) return 100;
@@ -282,31 +301,53 @@ export function computeFieldSelectMenuRectInHost(
      * on a phone, where there is no Escape key, that can leave the sheet undismissable.
      */
     topInsetPx?: number;
+    /**
+     * The box the menu must stay inside, when that is NOT the element it is portaled
+     * into. A dialog portals its menus into a full-bleed `fixed inset-0` wrapper so the
+     * card's own `overflow-hidden` cannot clip them — which means the portal host is the
+     * whole VIEWPORT and "containment" against it contains nothing. Measuring the wrapper
+     * put the menu on the dimmed page below the card, and its short-host fallback pinned
+     * it to the bottom of the screen, detached from the trigger it belongs to.
+     *
+     * Coordinates stay relative to `host` (the offset parent); only the BOUNDS come from
+     * here. Omit when the host is the visible box.
+     */
+    boundsRect?: DOMRect;
   },
 ): FieldSelectMenuRect {
   const hostRect = host.getBoundingClientRect();
+  /* Bounds decide where the menu may go; `hostRect` still decides what the returned
+     `top`/`left` are measured FROM, because that is what the menu is positioned in. */
+  const bounds = options?.boundsRect ?? hostRect;
   const rect = button.getBoundingClientRect();
   const gap = 4;
   const hostPadding = options?.hostPaddingPx ?? 12;
-  const maxMenuWidth = Math.max(120, hostRect.width - hostPadding * 2);
+  const maxMenuWidth = Math.max(120, bounds.width - hostPadding * 2);
   const minWidth = options?.minWidth ?? 0;
   const matchTriggerWidth = options?.matchTriggerWidth ?? false;
   const width = matchTriggerWidth
     ? rect.width
     : Math.min(Math.max(minWidth, rect.width), maxMenuWidth);
 
+  const boundsLeftInHost = bounds.left - hostRect.left;
+  const boundsTopInHost = bounds.top - hostRect.top;
+  const boundsBottomInHost = bounds.bottom - hostRect.top;
+
   let left = rect.left - hostRect.left;
   if (!matchTriggerWidth) {
-    left = Math.min(Math.max(hostPadding, left), hostRect.width - width - hostPadding);
+    left = Math.min(
+      Math.max(boundsLeftInHost + hostPadding, left),
+      boundsLeftInHost + bounds.width - width - hostPadding,
+    );
   }
 
   /* The host's fixed chrome is NOT free space — placing a menu over it hides the sheet's
      own close control, and a phone has no Escape key to fall back on. Every placement
      below starts at `safeTop`, never at the host's top edge. */
   const topInset = options?.topInsetPx ?? 0;
-  const safeTop = topInset + gap;
-  const spaceAbove = rect.top - hostRect.top - topInset - gap;
-  const hostSpaceBelow = hostRect.bottom - rect.bottom - gap;
+  const safeTop = boundsTopInHost + topInset + gap;
+  const spaceAbove = rect.top - bounds.top - topInset - gap;
+  const hostSpaceBelow = bounds.bottom - rect.bottom - gap;
   const triggerTopInHost = rect.top - hostRect.top;
   const triggerBottomInHost = rect.bottom - hostRect.top;
   const preferOpenDown = options?.preferOpenDown ?? false;
@@ -316,7 +357,7 @@ export function computeFieldSelectMenuRectInHost(
   /* Desktop filter panel: always open DOWN and size to the viewport below the trigger.
      The menu may paint past the panel's bottom edge — that is intentional. */
   if (preferOpenDown && inFilterDropdownPanel) {
-    const bottomBound = options?.bottomBoundPx ?? hostRect.bottom;
+    const bottomBound = options?.bottomBoundPx ?? bounds.bottom;
     const spaceBelow = bottomBound - rect.bottom - gap;
     const top = triggerBottomInHost + gap;
     const maxHeight = Math.min(
@@ -329,14 +370,23 @@ export function computeFieldSelectMenuRectInHost(
   }
 
   if (preferOpenDown && strictHostContainment) {
-    const hostMetricsReady = hostRect.height > 0 && rect.height > 0;
+    const hostMetricsReady = bounds.height > 0 && rect.height > 0;
     if (hostMetricsReady) {
-      const hostBottom = hostRect.height - gap;
+      const hostBottom = boundsBottomInHost - gap;
       let top = Math.max(safeTop, triggerBottomInHost + gap);
       let maxHeight = Math.min(contentPx, hostBottom - top);
 
       if (maxHeight < FIELD_SELECT_MENU_ITEM_HEIGHT_PX + 12) {
-        maxHeight = Math.min(contentPx, hostRect.height - topInset - gap * 2);
+        /* Not enough room below the trigger inside the box: open UP against it
+           instead. Falling straight to the bottom-pin below detaches the menu from
+           its trigger, which is what a manager reads as "the dropdown opened in the
+           wrong place". Pin only when neither side has room. */
+        const upMaxHeight = Math.min(contentPx, Math.max(0, spaceAbove));
+        if (upMaxHeight >= FIELD_SELECT_MENU_ITEM_HEIGHT_PX + 12) {
+          const upTop = Math.max(safeTop, triggerTopInHost - upMaxHeight - gap);
+          return { top: upTop, left, width, maxHeight: upMaxHeight, position: "absolute" };
+        }
+        maxHeight = Math.min(contentPx, bounds.height - topInset - gap * 2);
         top = Math.max(safeTop, hostBottom - maxHeight);
       }
 
@@ -353,19 +403,19 @@ export function computeFieldSelectMenuRectInHost(
    * that box. That can overlap the trigger by the shortfall, which is the lesser cost: the
    * alternative is a menu hanging off the sheet, or one crushed below five rows.
    */
-  const hostCanContainMenu = hostRect.height - topInset - gap * 2 >= contentPx;
+  const hostCanContainMenu = bounds.height - topInset - gap * 2 >= contentPx;
   if (hostCanContainMenu) {
     const openUpInside = resolveOpenUp(hostSpaceBelow, spaceAbove, contentPx, preferOpenDown);
     const anchored = openUpInside
       ? triggerTopInHost - contentPx - gap
       : triggerBottomInHost + gap;
-    const top = Math.min(Math.max(safeTop, anchored), hostRect.height - contentPx - gap);
+    const top = Math.min(Math.max(safeTop, anchored), boundsBottomInHost - contentPx - gap);
     return { top, left, width, maxHeight: contentPx, position: "absolute" };
   }
 
   /* Host too short to hold the menu at all (a one-field sheet). Showing all five rows
      outranks staying inside, so fall back to the viewport bound when one was offered. */
-  const bottomBound = options?.bottomBoundPx ?? hostRect.bottom;
+  const bottomBound = options?.bottomBoundPx ?? bounds.bottom;
   const spaceBelow = bottomBound - rect.bottom - gap;
   const openUp = resolveOpenUp(spaceBelow, spaceAbove, contentPx, preferOpenDown);
   const maxHeight = Math.min(
@@ -545,15 +595,24 @@ export function useFieldSelectMenu({
                 : undefined,
             })
           : useHostAnchoredMenu
-            ? computeFieldSelectMenuRectInHost(button, contentPx, portalHost, {
-                minWidth: minMenuWidth,
-                preferOpenDown: preferOpenDown || inVaulSheet || inModalDialog,
-                matchTriggerWidth: matchTriggerWidth || inVaulSheet || inModalDialog,
-                hostPaddingPx: inVaulSheet ? 0 : undefined,
-                topInsetPx: fieldSelectHostTopInsetPx(portalHost),
-                strictHostContainment: inVaulSheet || inModalDialog,
-                bottomBoundPx: window.innerHeight - 12,
-              })
+            ? (() => {
+                /* A dialog portals into a full-bleed `fixed inset-0` wrapper (so the card's
+                   own `overflow-hidden` cannot clip the menu), which makes the portal host
+                   the whole VIEWPORT. Measure the card the manager can actually see, or
+                   containment contains nothing and the menu lands on the dimmed page. */
+                const boundsEl = fieldSelectMenuBoundsElement(button, portalHost);
+                return computeFieldSelectMenuRectInHost(button, contentPx, portalHost, {
+                  minWidth: minMenuWidth,
+                  preferOpenDown: preferOpenDown || inVaulSheet || inModalDialog,
+                  matchTriggerWidth: matchTriggerWidth || inVaulSheet || inModalDialog,
+                  hostPaddingPx: inVaulSheet ? 0 : undefined,
+                  topInsetPx: fieldSelectHostTopInsetPx(boundsEl),
+                  strictHostContainment: inVaulSheet || inModalDialog,
+                  bottomBoundPx: window.innerHeight - 12,
+                  boundsRect:
+                    boundsEl === portalHost ? undefined : boundsEl.getBoundingClientRect(),
+                });
+              })()
             : computeFieldSelectMenuRect(button, contentPx, portalHost, {
                 minWidth: minMenuWidth,
                 preferOpenDown,
