@@ -109,7 +109,8 @@
     "security:cosigner-backfill": "tsx --conditions=react-server scripts/security/backfill-cosigner-identities.ts",
     "security:prepare-database": "node scripts/security/prepare-nonproduction-database.mjs",
     "security:document-backfill": "tsx --conditions=react-server scripts/security/backfill-application-documents.ts",
-    "security:backfill-applicant-identities": "tsx --conditions=react-server scripts/security/backfill-applicant-identities.ts"
+    "security:backfill-applicant-identities": "tsx --conditions=react-server scripts/security/backfill-applicant-identities.ts",
+    "qa:dom-sweep": "node scripts/qa-portal-dom-sweep.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",

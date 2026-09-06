@@ -120,3 +120,7 @@ graphify-out/
 
 # Production → staging dump snapshots (PII). Never commit.
 .staging-prod-sync/
+
+# Portal DOM sweep output — screenshots, per-run findings, and the durable
+# finding ledger that stops an overnight loop re-filing what it already reported.
+.testmanager/
