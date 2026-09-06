@@ -7,10 +7,7 @@ const PROTECTED_PREFIXES = ["/portal", "/pro", "/manager", "/owner", "/resident"
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
-  if (
-    process.env.NEXT_PUBLIC_AXIS_PUBLIC_DEMO_ENABLED === "false" &&
-    (path === "/demo" || path.startsWith("/demo/"))
-  ) {
+  if (path === "/demo" || path.startsWith("/demo/")) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);

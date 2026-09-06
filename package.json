@@ -63,6 +63,7 @@
     "workflow:plan": "node scripts/workflow-plan.mjs",
     "lavish:plan": "node scripts/lavish-plan.mjs",
     "lavish:poll": "node scripts/lavish-poll.mjs",
+    "lavish:listen": "node scripts/lavish-listen.mjs",
     "lavish:workflow": "npx -y lavish-axi docs/lavish/captain-workflow.html",
     "posthog:verify": "node --env-file=.env.local --env-file-if-exists=.env scripts/posthog-verify-setup.mjs",
     "sandbox:pin": "node scripts/pin-sandbox-port.mjs",

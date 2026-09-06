@@ -5,7 +5,7 @@ import { BOOK_DEMO_HREF } from "@/lib/marketing/public-contact";
 export const metadata: Metadata = {
   title: "Docs",
   description:
-    "Product documentation for PropLane: getting started, the three portals, applications, leases and e-signature, rent, maintenance, double-entry accounting, the AI assistant, documents, and the live demo.",
+    "Product documentation for PropLane: getting started, the three portals, applications, leases and e-signature, rent, maintenance, double-entry accounting, the AI assistant, and documents.",
 };
 
 /**
@@ -48,7 +48,7 @@ const NAV_GROUPS: NavGroup[] = [
     links: [
       { id: "ai-assistant", label: "The AI assistant" },
       { id: "team", label: "Team & co-managers" },
-      { id: "demo", label: "The live demo" },
+      { id: "trial", label: "Free trial" },
     ],
   },
 ];
@@ -162,15 +162,23 @@ export default function DocsPage() {
               14-day trial with no card, and 20% off when billed annually.
             </p>
             <p className="text-[14px]">
-              Prefer to look before you sign up? Open the{" "}
+              Prefer to look before you sign up?{" "}
               <Link
-                href="/demo"
-                data-attr="docs-getting-started-demo"
+                href="/auth/create-account"
+                data-attr="docs-getting-started-signup"
                 className="text-primary underline-offset-2 hover:underline"
               >
-                live demo
+                Start a free trial
               </Link>
-              , the real product in a sandbox you can click through, no account needed.
+              {" "}— 14 days, no card required — or{" "}
+              <Link
+                href={BOOK_DEMO_HREF}
+                data-attr="docs-getting-started-book-demo"
+                className="text-primary underline-offset-2 hover:underline"
+              >
+                book a walkthrough
+              </Link>
+              .
             </p>
           </DocSection>
 
@@ -376,16 +384,11 @@ export default function DocsPage() {
             </p>
           </DocSection>
 
-          <DocSection id="demo" kicker="Platform" title="The live demo">
+          <DocSection id="trial" kicker="Platform" title="Free trial">
             <p>
-              Not ready to sign up? The live demo runs the real product in a sandbox you can click
-              through with no account. Open all three portals (manager, resident, and vendor) and
-              click through applications, leases, rent, and services at <Chip>/demo</Chip>.
-            </p>
-            <p>
-              Anything you change in the demo is sandboxed to your browser and reset on refresh, so
-              you can&rsquo;t break anything. When you&rsquo;re ready, create an account and set up
-              your own portfolio in minutes.
+              Create a manager account to explore the full product on your own portfolio. The
+              14-day trial needs no card; when you are ready, pick Free, Pro, or Business and
+              invite residents, vendors, and co-managers.
             </p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <Link

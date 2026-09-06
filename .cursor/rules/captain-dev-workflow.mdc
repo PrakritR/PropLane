@@ -40,7 +40,7 @@ npm run linear:export -- --ticket PRP-### --out .lavish/plans/PRP-###-slug/ticke
 
 Optional public Lavish URL: `npx -y lavish-axi share <plan.html>`
 
-Poll: `npx -y lavish-axi poll .lavish/plans/PRP-###-…/plan.html`
+Poll: `npm run lavish:poll` (mandatory every turn while `.lavish/active-session.json` exists)
 
 UI work: follow `docs/agents/ui-change-checklist.md`
 

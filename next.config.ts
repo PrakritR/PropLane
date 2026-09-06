@@ -104,6 +104,8 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       { source: "/auth/login", destination: "/auth/sign-in", permanent: false },
+      { source: "/demo", destination: "/", permanent: false },
+      { source: "/demo/:path*", destination: "/", permanent: false },
       { source: "/browse", destination: "/rent/browse", permanent: false },
       // `/rent/browse` is a single page — there is NO `/rent/browse/[…]` route,
       // so keeping the sub-path here sent every /browse/<anything> link to a

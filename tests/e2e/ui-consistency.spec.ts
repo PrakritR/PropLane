@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { signInAsManager } from "../helpers/auth";
+import path from "node:path";
 
 const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
 
@@ -9,11 +9,14 @@ test.describe("UI consistency — portal shell", () => {
     await expect(page.getByPlaceholder("Email")).toBeVisible();
     await expect(page.getByRole("button", { name: /^sign in$/i })).toBeVisible();
   });
+});
 
+test.describe("UI consistency — authenticated portal shell", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
+  test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
+
   test("portal layout exposes skip link and main landmark", async ({ page }) => {
-    await signInAsManager(page);
     await page.goto("/portal/dashboard");
     await expect(page.getByRole("heading").first()).toBeVisible();
 
@@ -26,13 +29,11 @@ test.describe("UI consistency — portal shell", () => {
   });
 
   test("portal inbox section uses canonical page shell heading", async ({ page }) => {
-    await signInAsManager(page);
     await page.goto("/portal/communication/active");
     await expect(page.getByRole("heading", { name: /^communication$/i })).toBeVisible();
   });
 
   test("portal payments section renders without legacy empty state", async ({ page }) => {
-    await signInAsManager(page);
     await page.goto("/portal/payments");
     await expect(page.getByRole("heading", { name: /^payments$/i })).toBeVisible();
     await expect(page.locator("main")).toBeVisible();
@@ -42,11 +43,12 @@ test.describe("UI consistency — portal shell", () => {
 test.describe("UI consistency — dark mode portal routes", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
 
+  test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
+
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
       localStorage.setItem("axis:theme", "dark");
     });
-    await signInAsManager(page);
   });
 
   const routes = ["/portal/communication/active", "/portal/payments", "/portal/services/requests"] as const;
