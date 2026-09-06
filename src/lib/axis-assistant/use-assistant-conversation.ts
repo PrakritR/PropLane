@@ -14,7 +14,12 @@ import {
   saveAssistantChatMessages,
 } from "@/lib/axis-assistant/assistant-chat-storage";
 import { notifyAgentPendingActionsChanged } from "@/lib/axis-assistant/pending-actions-events";
+import {
+  notifyFinancesAssistantUpdated,
+  postedDateFromPreviewFields,
+} from "@/lib/finances-assistant-events";
 import { notifyListingAssistantUpdated } from "@/lib/listing-assistant-events";
+import { syncManagerOutgoingExpensesFromServer } from "@/lib/manager-outgoing-payments";
 import { agentChatThreadTitleFromPrompts } from "@/lib/agent/chat-title";
 
 /**
@@ -25,6 +30,20 @@ import { agentChatThreadTitleFromPrompts } from "@/lib/agent/chat-title";
  * every turn, and the feedback route re-verifies ownership server-side.
  */
 export type ChatMessage = { role: "user" | "assistant"; content: string; traceId?: string };
+
+export function visibleConversationMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages.filter((message) => message.role === "user" || message.content.trim().length > 0);
+}
+
+export function completedAssistantTurnMessages(
+  prior: ChatMessage[],
+  reply: string | undefined,
+  traceId?: string,
+): ChatMessage[] {
+  const content = reply?.trim() ?? "";
+  if (!content) return prior;
+  return [...prior, { role: "assistant", content, ...(traceId ? { traceId } : {}) }];
+}
 export type ToolTraceEntry = { tool: string; ok: boolean };
 export type AssistantChatThreadSummary = { id: string; title: string; updatedAt: string };
 
@@ -147,7 +166,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<PendingChatAttachment[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
-    storageScope ? loadAssistantChatMessages(endpoint, storageScope) : [],
+    storageScope ? visibleConversationMessages(loadAssistantChatMessages(endpoint, storageScope)) : [],
   );
   /** traceId -> the rating this user gave it, so the control reflects the choice. */
   const [ratings, setRatings] = useState<Record<string, "up" | "down">>({});
@@ -268,7 +287,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
         const conversation = await fetchTranscript(initialThreads[0]!.id);
         if (hasInteractedWithConversation.current || !conversation) return;
         setActiveThreadId(conversation.id);
-        setMessages(conversation.messages);
+        setMessages(visibleConversationMessages(conversation.messages));
         setPendingAction(conversation.pendingAction ?? null);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "Could not restore your latest conversation.");
@@ -283,7 +302,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
   }, [fetchThreadList, fetchTranscript, multiThread]);
 
   useEffect(() => {
-    if (!multiThread) saveAssistantChatMessages(endpoint, messages, storageScope);
+    if (!multiThread) saveAssistantChatMessages(endpoint, visibleConversationMessages(messages), storageScope);
   }, [endpoint, messages, multiThread, storageScope]);
 
   useEffect(
@@ -323,6 +342,13 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
           setPendingAction(null);
           if (decision === "confirm" && confirmedKind === "apply_listing_photos" && listingIdForRefresh) {
             notifyListingAssistantUpdated({ propertyId: listingIdForRefresh, tool: "apply_listing_photos" });
+          }
+          if (decision === "confirm" && (confirmedKind === "record_expense" || confirmedKind === "record_income")) {
+            notifyFinancesAssistantUpdated({
+              tool: confirmedKind,
+              postedDate: postedDateFromPreviewFields(pendingAction.preview.fields),
+            });
+            void syncManagerOutgoingExpensesFromServer(true);
           }
         }
       } catch {
@@ -407,14 +433,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
           // The stream can populate a provisional reply. Replacing it with the
           // completed transport payload guarantees that the archived thread and
           // local state agree, while retaining the optional Langfuse trace id.
-          const completed = [
-            ...next,
-            {
-              role: "assistant" as const,
-              content: data.reply ?? "",
-              ...(data.traceId ? { traceId: data.traceId } : {}),
-            },
-          ];
+          const completed = completedAssistantTurnMessages(next, data.reply, data.traceId);
           setMessages(completed);
           if (data.sessionId) {
             setActiveThreadId(data.sessionId);
@@ -530,7 +549,7 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
         const conversation = await fetchTranscript(threadId);
         if (!conversation) return;
         setActiveThreadId(conversation.id);
-        setMessages(conversation.messages);
+        setMessages(visibleConversationMessages(conversation.messages));
         setPendingAction(conversation.pendingAction ?? null);
         setLastTools([]);
         setError(null);

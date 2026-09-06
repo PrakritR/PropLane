@@ -101,4 +101,32 @@ describe("disconnectCoManagerLinksForPlanDowngrade", () => {
     expect(updated).toEqual(["invite-1"]);
     expect(deleted).toEqual(["invite-1"]);
   });
+  it.each([
+    ["pro", false, 0],
+    ["free", false, 1],
+    [null, true, 0],
+  ])("preserves inherited Free invitees unless owner is positively Free (%s)", async (ownerTier, readFailed, expected) => {
+    getManagerPurchaseSku.mockImplementation(async (id: string) => id === "mgr-a"
+      ? { tier: "free", readFailed: false }
+      : { tier: ownerTier, readFailed });
+    const { client, updated } = serviceClientWithInvites([
+      { id: "open-link", inviter_user_id: "owner", invitee_user_id: "mgr-a", status: "accepted", invitee_plan_inherited: true },
+    ]);
+    createSupabaseServiceRoleClient.mockReturnValue(client);
+    const { disconnectCoManagerLinksForPlanDowngrade } = await import("@/lib/co-manager-plan-reconcile.server");
+    expect(await disconnectCoManagerLinksForPlanDowngrade("mgr-a")).toBe(expected);
+    expect(updated).toHaveLength(expected);
+  });
+
+  it("still revokes an inherited link when the inviter downgrades", async () => {
+    getManagerPurchaseSku.mockResolvedValue({ tier: "free", readFailed: false });
+    const { client, updated } = serviceClientWithInvites([
+      { id: "open-link", inviter_user_id: "mgr-a", invitee_user_id: "other", status: "accepted", invitee_plan_inherited: true },
+    ]);
+    createSupabaseServiceRoleClient.mockReturnValue(client);
+    const { disconnectCoManagerLinksForPlanDowngrade } = await import("@/lib/co-manager-plan-reconcile.server");
+    expect(await disconnectCoManagerLinksForPlanDowngrade("mgr-a")).toBe(1);
+    expect(updated).toEqual(["open-link"]);
+  });
+
 });

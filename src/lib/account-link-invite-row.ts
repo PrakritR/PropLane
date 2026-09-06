@@ -1,14 +1,14 @@
-/** Shared account-link row parsing and serialization; route modules export only Next.js handlers/configuration. */
+/** Shared invite serialization; route modules export only handlers/configuration. */
 import type { AccountLinkInviteDto } from "@/lib/account-links";
 import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
 
 export type InviteRow = {
   id: string;
   inviter_user_id: string;
-  invitee_user_id: string;
+  invitee_user_id: string | null;
   tab_kind: string;
   inviter_axis_id: string;
-  invitee_axis_id: string;
+  invitee_axis_id: string | null;
   inviter_display_name: string | null;
   invitee_display_name: string | null;
   assigned_property_ids: unknown;
@@ -19,6 +19,8 @@ export type InviteRow = {
   created_at: string;
   responded_at: string | null;
   expires_at?: string | null;
+  invite_token_hash?: string | null;
+  invitee_plan_inherited?: boolean;
 };
 
 export function asStringArray(v: unknown): string[] {
@@ -40,9 +42,14 @@ export function serializeInvite(
   propertyLabelsById: Record<string, string> = {},
 ): AccountLinkInviteDto {
   const out = row.inviter_user_id === viewerId;
-  const linkedAxisId = out ? row.invitee_axis_id : row.inviter_axis_id;
-  const linkedDisplayName = out ? row.invitee_display_name : row.inviter_display_name;
-  const linkedUserId = out ? row.invitee_user_id : row.inviter_user_id;
+  const openInvite = !String(row.invitee_user_id ?? "").trim();
+  const linkedAxisId = out ? (row.invitee_axis_id ?? "") : row.inviter_axis_id;
+  const linkedDisplayName = out
+    ? openInvite
+      ? "Invite link"
+      : row.invitee_display_name
+    : row.inviter_display_name;
+  const linkedUserId = out ? (row.invitee_user_id ?? "") : row.inviter_user_id;
   const assignedPropertyIds = asStringArray(row.assigned_property_ids);
   const propertyCoManagerPermissions = readPropertyPermissionsFromRow(row);
   const assignedPropertyLabels: Record<string, string> = {};
@@ -62,7 +69,8 @@ export function serializeInvite(
         : "pending",
     direction: out ? "outgoing" : "incoming",
     inviterAxisId: row.inviter_axis_id,
-    inviteeAxisId: row.invitee_axis_id,
+    inviteeAxisId: row.invitee_axis_id ?? "",
+    openInvite,
     inviterDisplayName: row.inviter_display_name,
     inviteeDisplayName: row.invitee_display_name,
     linkedAxisId,
@@ -78,4 +86,3 @@ export function serializeInvite(
     expiresAt: row.expires_at ?? null,
   };
 }
-

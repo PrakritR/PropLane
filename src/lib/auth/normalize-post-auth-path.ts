@@ -1,4 +1,5 @@
 import { portalDashboardPath, type AuthRole } from "@/lib/auth/portal-roles";
+import { isCoManagerInvitePath } from "@/lib/co-manager-invite-path";
 
 /** Legacy / misconfigured Supabase site URLs sometimes land on bare /dashboard. */
 export function isBareDashboardPath(path: string): boolean {
@@ -47,6 +48,7 @@ export function isUnsafeRedirectPath(path: string): boolean {
 }
 
 function pathMatchesRole(path: string, role: AuthRole): boolean {
+  if (isCoManagerInvitePath(path)) return true;
   if (role === "manager") return path.startsWith("/portal") || path.startsWith("/pro");
   if (role === "resident") return path.startsWith("/resident");
   if (role === "admin") return path.startsWith("/admin");

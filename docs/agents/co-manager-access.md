@@ -11,6 +11,18 @@ the granular form is `{ read, edit, delete }` (`edit`/`delete` imply `read`).
 Model + level helpers live in `src/lib/co-manager-permissions.ts`
 (`hasCoManagerPermissionLevel[ForProperty]`).
 
+**Shareable invite links do not need a PropLane ID.** Teams → Managers → Add
+mints a pending open row (`invitee_user_id` null, `invite_token_hash` only)
+and returns `/auth/co-manager-invite?token=…`. Houses and permissions are
+optional before copy and editable after she joins (PATCH on pending or
+accepted, inviter-only). Empty assignment stays deny-all. The raw token is
+never stored; re-copying rotates the hash so the previous URL dies. Redeem
+(`POST /api/pro/account-links/redeem`) is compare-and-swap on
+`status = pending` and `invitee_user_id is null`. The inviter still needs Pro
+or Business; she can join on Free as a pure co-manager and inherit the owner's
+paid modules on assigned houses. One unused open link per owner. Migration:
+`20260906010000_account_link_open_invite_token.sql`.
+
 **`coManagerModuleAllowed` is the ONE answer to "may this co-manager use this
 module".** The server scope (`src/lib/auth/co-manager-module-scope.ts`) and the
 client portfolio mirror (`src/lib/manager-portfolio-access.ts`) both delegate to
@@ -65,16 +77,25 @@ and silently revokes C while the co-manager card still lists the property —
 already-accepted forged link is not re-checked at use, so the invite table must
 be audited per environment before release.
 
-**Co-manager linking is a PAID capability, on both sides.**
+**Direct PropLane-ID linking is a PAID capability on both sides.**
 `POST /api/pro/account-links` refuses with 403 unless the inviter AND the invitee
 are each on Pro or Business (`managerPlanAllowsCoManagerInvites`, which counts the
 signup trial). That is checked before the per-tier link cap, so a Free account
 gets "upgrade" rather than "at your limit".
 
+Open-link invitees may stay Free: the server stamps `invitee_plan_inherited`
+on the row, retaining that provenance after the one-time token hash is cleared.
+Redemption rechecks the owner's paid eligibility and compares both the current
+token hash and assigned-property snapshot when claiming the row; a rotation or
+scope edit during redemption requires a fresh attempt.
+
 When a manager drops to Free, access must not outlive the plan:
 `disconnectCoManagerLinksForPlanDowngrade`
 (`co-manager-plan-reconcile.server.ts`) cancels every `manager` link they
 participate in — inviter or invitee — and deletes the matching relationship rows.
+The exception is an incoming `invitee_plan_inherited` open link whose owner
+remains paid; an unreadable owner plan also does not trigger irreversible
+revocation. An owner positively on Free still loses all outgoing links.
 It is called from `syncManagerPurchaseTierState`, i.e. on ordinary portal reads,
 and wrapped in a `try`/`catch` so a failure never blocks the read. Because
 revocation is irreversible it runs ONLY on a tier positively read as free:

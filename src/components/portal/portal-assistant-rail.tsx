@@ -64,7 +64,7 @@ export function PortalAssistantRail({
     <aside
       className={cn(
         "portal-assistant-rail relative z-30 hidden h-full min-h-0 shrink-0 self-stretch flex-col overflow-hidden border-l border-border bg-background lg:flex",
-        collapsed ? "w-[58px]" : "w-[min(22rem,28vw)]",
+        collapsed ? "w-[58px]" : "w-[var(--portal-assistant-rail-width)]",
       )}
       data-attr="portal-assistant-rail"
       aria-label="PropLane Assistant"

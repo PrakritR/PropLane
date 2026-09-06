@@ -4,6 +4,9 @@ import { enrichOutgoingRowWithVendorPayments, managerVendorPayMethodLabel } from
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { readManagerWorkOrderRows } from "@/lib/manager-work-orders-storage";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { portalSessionViewerId, onPortalSessionViewerChange } from "@/lib/auth/portal-session-gate";
+import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
+import { serverSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { safeFormatDateTime } from "@/lib/pacific-time";
 
 export type ManagerExpenseSnapshot = {
@@ -24,9 +27,33 @@ const SESSION_KEY = "axis:manager-outgoing-expenses:v1";
 const DELETED_DEMO_EXPENSES_KEY = "axis:manager-outgoing-expenses-deleted:v1";
 const SYNC_TTL_MS = 15_000;
 
-let memoryExpenses: ManagerExpenseSnapshot[] = [];
-let lastSyncedAt = 0;
-let syncPromise: Promise<ManagerExpenseSnapshot[]> | null = null;
+type ExpenseCache = {
+  rows: ManagerExpenseSnapshot[];
+  hydrated: boolean;
+  lastSyncedAt: number;
+  refresher?: CoalescedRefresher<ManagerExpenseSnapshot[]>;
+};
+const caches = new Map<string, ExpenseCache>();
+let viewerGeneration = 0;
+onPortalSessionViewerChange(() => {
+  viewerGeneration += 1;
+  caches.clear();
+});
+function viewerKey(): string | null {
+  return isDemoModeActive() ? "demo" : portalSessionViewerId();
+}
+function storageKey(key: string): string {
+  return key === "demo" ? SESSION_KEY : `${SESSION_KEY}:${key}`;
+}
+function cacheFor(key: string): ExpenseCache {
+  let entry = caches.get(key);
+  if (!entry) {
+    entry = { rows: [], hydrated: false, lastSyncedAt: 0 };
+    caches.set(key, entry);
+  }
+  return entry;
+}
+
 
 function canUseStorage() {
   return typeof window !== "undefined";
@@ -76,24 +103,27 @@ function workOrderStatusLabel(bucket: ManagerPaymentBucket): string {
   return "Awaiting approval";
 }
 
-function hydrateFromSession() {
-  if (!canUseStorage() || memoryExpenses.length > 0) return;
+function hydrateFromSession(key: string): ExpenseCache {
+  const entry = cacheFor(key);
+  if (!canUseStorage() || entry.hydrated) return entry;
+  entry.hydrated = true;
   try {
-    const raw = window.sessionStorage.getItem(SESSION_KEY);
-    if (!raw) return;
-    memoryExpenses = JSON.parse(raw) as ManagerExpenseSnapshot[];
+    const raw = window.sessionStorage.getItem(storageKey(key));
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    entry.rows = Array.isArray(parsed) ? parsed as ManagerExpenseSnapshot[] : [];
   } catch {
-    memoryExpenses = [];
+    entry.rows = [];
   }
+  return entry;
 }
 
-function writeSession(expenses: ManagerExpenseSnapshot[]) {
-  memoryExpenses = expenses;
+function writeSession(expenses: ManagerExpenseSnapshot[], key: string, fromServer = false) {
+  const entry = cacheFor(key);
+  entry.rows = expenses;
+  entry.hydrated = true;
   if (canUseStorage()) {
-    window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(expenses));
-  }
-  if (canUseStorage()) {
-    window.dispatchEvent(new Event(MANAGER_OUTGOING_PAYMENTS_EVENT));
+    try { window.sessionStorage.setItem(storageKey(key), JSON.stringify(expenses)); } catch { /* memory remains usable */ }
+    window.dispatchEvent(fromServer ? serverSyncOriginatedEvent(MANAGER_OUTGOING_PAYMENTS_EVENT) : new Event(MANAGER_OUTGOING_PAYMENTS_EVENT));
   }
 }
 
@@ -116,65 +146,59 @@ function writeDeletedDemoExpenseIds(ids: Set<string>) {
 
 /** Demo seed: overwrite local expense rows (no server mirror). */
 export function seedDemoManagerOutgoingExpenses(expenses: ManagerExpenseSnapshot[]): void {
-  writeSession(expenses);
+  writeSession(expenses, "demo");
 }
 
 export function deleteManagerOutgoingExpense(expenseId: string): boolean {
   const id = expenseId.trim();
-  if (!id) return false;
-  hydrateFromSession();
-
-  const hadLocal = memoryExpenses.some((expense) => expense.id === id);
-  if (hadLocal) {
-    writeSession(memoryExpenses.filter((expense) => expense.id !== id));
-  }
-
+  const key = viewerKey();
+  if (!id || !key) return false;
+  const entry = hydrateFromSession(key);
+  const hadLocal = entry.rows.some((expense) => expense.id === id);
+  if (!hadLocal) return false;
+  writeSession(entry.rows.filter((expense) => expense.id !== id), key);
   if (isDemoModeActive()) {
     const deleted = readDeletedDemoExpenseIds();
-    if (!hadLocal) return false;
     deleted.add(id);
     writeDeletedDemoExpenseIds(deleted);
-    writeSession(memoryExpenses.filter((expense) => expense.id !== id));
-    return true;
   }
-
-  return hadLocal;
+  return true;
 }
 
 export function readManagerOutgoingExpenses(): ManagerExpenseSnapshot[] {
-  hydrateFromSession();
-  return [...memoryExpenses];
+  const key = viewerKey();
+  return key ? [...hydrateFromSession(key).rows] : [];
 }
 
 export async function syncManagerOutgoingExpensesFromServer(force = false): Promise<ManagerExpenseSnapshot[]> {
-  hydrateFromSession();
-  if (isDemoModeActive()) {
-    return readManagerOutgoingExpenses();
+  const key = viewerKey();
+  if (!key) return [];
+  const entry = hydrateFromSession(key);
+  if (isDemoModeActive()) return [...entry.rows];
+  if (!force && entry.lastSyncedAt > 0 && Date.now() - entry.lastSyncedAt < SYNC_TTL_MS) {
+    return [...entry.rows];
   }
-
-  if (!force && lastSyncedAt > 0 && Date.now() - lastSyncedAt < SYNC_TTL_MS) {
-    return readManagerOutgoingExpenses();
+  if (!entry.refresher) {
+    const generation = viewerGeneration;
+    const stillCurrent = () => generation === viewerGeneration && key === viewerKey();
+    entry.refresher = createCoalescedRefresher(async () => {
+      // A queued forced refresh must not start under a different session.
+      if (!stillCurrent()) return [];
+      try {
+        const res = await fetch("/api/expenses", { credentials: "include", cache: "no-store" });
+        const data = (await res.json()) as { expenses?: ManagerExpenseSnapshot[] };
+        if (!stillCurrent()) return [];
+        if (!res.ok) return [...entry.rows];
+        const expenses = data.expenses ?? [];
+        writeSession(expenses, key, true);
+        entry.lastSyncedAt = Date.now();
+        return expenses;
+      } catch {
+        return stillCurrent() ? [...entry.rows] : [];
+      }
+    });
   }
-
-  if (syncPromise) return syncPromise;
-
-  syncPromise = (async () => {
-    try {
-      const res = await fetch("/api/expenses", { credentials: "include", cache: "no-store" });
-      const data = (await res.json()) as { expenses?: ManagerExpenseSnapshot[] };
-      if (!res.ok) return readManagerOutgoingExpenses();
-      const expenses = data.expenses ?? [];
-      writeSession(expenses);
-      lastSyncedAt = Date.now();
-      return expenses;
-    } catch {
-      return readManagerOutgoingExpenses();
-    } finally {
-      syncPromise = null;
-    }
-  })();
-
-  return syncPromise;
+  return entry.refresher.run(force);
 }
 
 export function buildManagerOutgoingPaymentRows(input: {
