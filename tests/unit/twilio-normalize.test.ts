@@ -6,6 +6,7 @@ describe("normalizeE164", () => {
     expect(normalizeE164("2065551234")).toBe("+12065551234");
     expect(normalizeE164("(206) 555-1234")).toBe("+12065551234");
     expect(normalizeE164("12065551234")).toBe("+12065551234");
+    expect(normalizeE164(12065551234)).toBe("+12065551234");
   });
 
   it("passes through international E.164 input", () => {

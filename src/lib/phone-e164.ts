@@ -1,5 +1,19 @@
-export function normalizeE164(phone: string): string | null {
-  const trimmed = phone.trim();
+/**
+ * Coerce a stored phone to a trim-safe string.
+ *
+ * JSON / PostgREST sometimes hands back a numeric `18559168031` instead of
+ * `"+18559168031"`. Calling `.trim()` on that number is the Communication
+ * `x.trim is not a function` crash.
+ */
+export function coercePhoneInput(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(Math.trunc(Math.abs(value)));
+  }
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function normalizeE164(phone: unknown): string | null {
+  const trimmed = coercePhoneInput(phone);
   // Already-international input ("+44 20 7946 0958") passes through; bare
   // digits keep the US default so existing 10/11-digit data still works.
   if (trimmed.startsWith("+")) {

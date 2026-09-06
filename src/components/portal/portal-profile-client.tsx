@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import { coercePhoneInput, formatSmsPhoneLabel } from "@/lib/phone-e164";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalChangePasswordPanel } from "@/components/portal/portal-change-password-panel";
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
@@ -52,6 +54,11 @@ import {
 
 function dashToEmpty(v: unknown): string {
   return typeof v === "string" && v !== "—" ? v : "";
+}
+
+function phoneDashToEmpty(v: unknown): string {
+  const phone = coercePhoneInput(v);
+  return phone && phone !== "—" ? phone : "";
 }
 
 function emptyToDash(v: unknown) {
@@ -125,7 +132,7 @@ export function PortalProfileClient({
   const searchParams = useSearchParams();
   const [editing, setEditing] = useState(false);
   const [fullName, setFullName] = useState(dashToEmpty(initialFullName));
-  const [phone, setPhone] = useState(dashToEmpty(initialPhone));
+  const [phone, setPhone] = useState(phoneDashToEmpty(initialPhone));
   const [saving, setSaving] = useState(false);
   const skipNextServerPropsSync = useRef(false);
   const [pendingSkipServerPropsSync, setPendingSkipServerPropsSync] = useState(false);
@@ -143,7 +150,7 @@ export function PortalProfileClient({
       return;
     }
     setFullName(dashToEmpty(initialFullName));
-    setPhone(dashToEmpty(initialPhone));
+    setPhone(phoneDashToEmpty(initialPhone));
   }, [initialFullName, initialPhone, editing]);
 
   const save = useCallback(async () => {
@@ -224,12 +231,10 @@ export function PortalProfileClient({
                 <label className="text-sm font-medium text-foreground" htmlFor="pf-phone">
                   Phone
                 </label>
-                <Input
+                <PhoneNumberField
                   id="pf-phone"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  inputMode="tel"
-                  autoComplete="tel"
+                  onChange={setPhone}
                 />
               </div>
               <div className="space-y-2">
@@ -249,7 +254,7 @@ export function PortalProfileClient({
           <>
             <PortalSettingsField label="Full name" value={emptyToDash(fullName)} />
             <PortalSettingsField label="Email" value={initialEmail} />
-            <PortalSettingsField label="Phone" value={emptyToDash(phone)} />
+            <PortalSettingsField label="Phone" value={formatSmsPhoneLabel(phone) || emptyToDash(phone)} />
             {/*
               Through the display formatter. Accounts created before the rebrand
               still STORE an `AXIS-` id — every lookup accepts both prefixes and
