@@ -64,6 +64,15 @@ const RUN_DIR = join(OUT_ROOT, "runs", `${ROLE}-${RUN_ID}`);
 const ACTIONABILITY = flag("actionability");
 const ACTIONABILITY_TIMEOUT = Number(arg("actionability-timeout", "1500"));
 const ACTIONABILITY_LIMIT = Number(arg("actionability-limit", "45"));
+const DIALOGS = flag("dialogs");
+const DIALOG_LIMIT = Number(arg("dialog-limit", "6"));
+const DIALOG_OPENER_SELECTOR = 'button:visible, [role="button"]:visible';
+// Anything that counts as an open panel — dialogs, but also the filter dropdowns
+// and listboxes, which are what actually opened during the first dialog pass.
+const PANEL_SELECTOR = '[role="dialog"]:visible, .modal-panel:visible, [role="listbox"]:visible, [data-attr*="dropdown"]:visible';
+const DIALOG_SAFE = /^(filter|settings|customize|view|open|manage|columns|sort|group|more|options|display)/i;
+const DIALOG_UNSAFE = /(delete|remove|send|approve|deny|reject|pay|charge|refund|invite|publish|unlist|archive|cancel|sign|submit|confirm|create|add|new|generate|import|export|upload|disconnect|revoke)/i;
+
 const ACTIONABLE_SELECTOR = 'button:visible, a[href]:visible, [role="button"]:visible, input:visible, select:visible, textarea:visible';
 
 const VIEWPORTS = {
@@ -142,6 +151,9 @@ function keyOf(f) {
 // that a person still has to judge is ui.
 const RUNTIME_CHECKS = new Set([
   "unclickable-control",
+  "dialog-unscrollable",
+  "dialog-offscreen",
+  "dialog-escape-ignored",
   "page-error",
   "console-error",
   "request-failed",
@@ -350,6 +362,92 @@ async function sweepViewport(browser, viewport, routes, probeSource) {
         .evaluate(() => document.querySelectorAll('[class*="-row"], tbody tr, [role="row"], [role="listitem"], li[data-attr]').length)
         .catch(() => 0);
 
+      // Dialog pass. Route-level measurement saturates fast — the same handful of
+      // layout defects, then nothing. The bugs that are left live one click in:
+      // a settings modal whose body is cut off with no scrollbar, a filter popover
+      // that opens off-screen. This opens the things that only OPEN, measures what
+      // appears, and presses Escape.
+      //
+      // It NEVER touches a control that could change state. The allow-list is by
+      // intent (filter, settings, customize, view, open, manage, columns) and the
+      // deny-list is belt and braces over it, because a sweep that quietly sends a
+      // message or approves an application is not a sweep, it is an incident.
+      if (DIALOGS) {
+        const openers = await page.locator(DIALOG_OPENER_SELECTOR).all();
+        let opened = 0;
+        for (const opener of openers) {
+          if (opened >= DIALOG_LIMIT) break;
+          let label = "";
+          try {
+            if (!(await opener.isVisible()) || (await opener.isDisabled().catch(() => false))) continue;
+            label = ((await opener.getAttribute("aria-label")) || (await opener.innerText().catch(() => "")) || (await opener.getAttribute("data-attr")) || "").trim().replace(/\s+/g, " ").slice(0, 40);
+            if (!DIALOG_SAFE.test(label) || DIALOG_UNSAFE.test(label)) continue;
+            await opener.click({ timeout: 3000 });
+            opened += 1;
+            await page.waitForTimeout(900);
+            const dialogFindings = await page.evaluate(() => {
+              const panel = document.querySelector('[role="dialog"], .modal-panel, [data-state="open"][role="menu"], [role="listbox"]');
+              if (!panel) return null;
+              const out = [];
+              const r = panel.getBoundingClientRect();
+              // A dialog taller than the window with nothing to scroll it is the
+              // "I can't scroll in task settings" shape.
+              const scroller = [panel, ...panel.querySelectorAll("*")].find((n) => {
+                const st = getComputedStyle(n);
+                return /(auto|scroll)/.test(st.overflowY) && n.scrollHeight > n.clientHeight + 4;
+              });
+              if (r.height > innerHeight + 4 && !scroller) {
+                out.push({ check: "dialog-unscrollable", severity: "high", summary: `A dialog is ${Math.round(r.height - innerHeight)}px taller than the window with nothing to scroll it` });
+              }
+              if (r.left < -4 || r.right > innerWidth + 4 || r.top < -4) {
+                out.push({ check: "dialog-offscreen", severity: "high", summary: `A dialog opens partly off-screen (left ${Math.round(r.left)}, right ${Math.round(r.right)}, top ${Math.round(r.top)}, window ${innerWidth}×${innerHeight})` });
+              }
+              const focusables = panel.querySelectorAll('button, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+              if (!focusables.length) {
+                out.push({ check: "dialog-no-focusable", severity: "medium", summary: "A dialog opens with nothing focusable inside it" });
+              }
+              return out;
+            });
+            for (const f of dialogFindings ?? []) {
+              push({ ...f, summary: `${f.summary} — opened by "${label}"`, detail: { opener: label } });
+            }
+            await page.keyboard.press("Escape").catch(() => {});
+            await page.waitForTimeout(500);
+            // If Escape did not close it, say so and stop opening things on this
+            // route — a trapped dialog is both a finding and a reason not to keep
+            // clicking underneath one.
+            const stillOpen = await page.locator(PANEL_SELECTOR).count().catch(() => 0);
+            if (stillOpen) {
+              push({
+                check: "dialog-escape-ignored",
+                severity: "medium",
+                summary: `A dialog opened by "${label}" does not close on Escape`,
+                detail: { opener: label },
+              });
+              break;
+            }
+          } catch (err) {
+            const message = String(err.message).split("\n")[0];
+            if (/not attached|destroyed|navigation|Timeout/i.test(message)) continue;
+            push({ check: "dialog-open-failed", severity: "medium", summary: `Opening "${label}" failed: ${message.slice(0, 110)}`, detail: { opener: label } });
+          }
+        }
+      }
+
+      // Leave nothing open. An open filter dropdown legitimately covers the rows
+      // beneath it, so measuring the page underneath one reports the dropdown as
+      // a defect — the dialog pass's first run did exactly that on Payments and
+      // Tasks. If Escape did not clear it, reload rather than measure a page the
+      // sweep itself disturbed.
+      if (DIALOGS) {
+        await page.keyboard.press("Escape").catch(() => {});
+        await page.waitForTimeout(300);
+        if (await page.locator(PANEL_SELECTOR).count().catch(() => 0)) {
+          await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+          await page.waitForTimeout(1500);
+        }
+      }
+
       const top = await page.evaluate(() => globalThis.__tmProbe?.());
       // Sticky chrome only collides once the page is scrolled — the floating bulk
       // bar meeting the phone tab bar is invisible from the top of the page.
@@ -435,7 +533,7 @@ async function main() {
   if (!SELECTED_VIEWPORTS.length) throw new Error(`--viewports matched none of: ${Object.keys(VIEWPORTS).join(", ")}`);
 
   const probeSource = readFileSync(join(__dirname, "qa-portal-dom-probe.js"), "utf8");
-  console.log(`portal DOM sweep · ${ROLE} · ${BASE} · ${routes.length} routes × ${SELECTED_VIEWPORTS.length} viewports${ACTIONABILITY ? " · actionability on" : ""}`);
+  console.log(`portal DOM sweep · ${ROLE} · ${BASE} · ${routes.length} routes × ${SELECTED_VIEWPORTS.length} viewports${ACTIONABILITY ? " · actionability on" : ""}${DIALOGS ? " · dialogs on" : ""}`);
 
   const browser = await chromium.launch({ headless: !flag("headed") });
   const all = [];
