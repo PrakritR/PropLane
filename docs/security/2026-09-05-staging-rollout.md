@@ -18,6 +18,12 @@ Independent review also found a browser-only subscription invoked during shared-
 
 The old security-wrapper command had no implementation in reachable history; the [gate reconciliation](2026-09-05-release-gate-reconciliation.md) preserves mandatory security/Bugbot reviews and unresolved Critical/High blockers. No-mistakes run `01M1SCSVDD95GJDPYV33DHHMT2` was **cancelled immediately at the user's explicit instruction not to use it**. It did not pass and is not a remaining permission or release dependency for this authorized run. Its findings are being resolved through direct edits, independent reviews and tests; no pipeline fixes were discarded.
 
-## Still pending
+## Earlier checkpoint — superseded by execution below
 
 The legacy application-ID/document-alias correction is implemented with atomic exact-snapshot normalization and reference migration. Its hosted dev/staging transaction probes each passed 10 checks and rolled back all fixtures. The integrated unit suite passed 1,144 files / 7,569 tests. The resumed final production-mode webpack build passed compilation, TypeScript and all 368 static pages. Changed-file lint passed with no errors and 16 existing hook warnings. Candidate landing, staging deployment, synthetic browser/mobile validation, actual backfill and strict-read cutover remain pending. Remote staging was absent again when work resumed; it will be recreated through the normal promotion script. Production runtime settings were read privately and the exact production Supabase URL verified; no production mutation has occurred yet.
+
+## Completed execution update
+
+Candidate `944e9e0b` was deployed to staging and passed the [focused component/HTTP QA run](2026-09-05-staging-security-qa.json), including Chromium and mobile WebKit. Synthetic fixtures were cleaned up. The harness tested actual upload components against deployed routes; full wizard-resume navigation, physical camera/Capacitor and live OAuth were not certified.
+
+Existing staging backfills then encrypted 24 calendar tokens and 27 applicant identity fields. All four post-apply inventories reported zero plaintext/changed rows and zero legacy documents. Four strict flags were provisioned for staging; its strict deployment at `108b6533` is READY and [final strict-mode QA](2026-09-05-staging-strict-security-qa.json) passed, including deliberate plaintext rejection and fixture cleanup. Main/staging advanced concurrently in another workstream; no branch was forced or rewound. Production execution is recorded in the [current rollout report](2026-09-05-production-rollout.md).

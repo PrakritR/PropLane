@@ -89,3 +89,7 @@ provider sends or live screening/calendar synchronization.
 ## CI test synchronization follow-up
 
 Main CI run `33997444356` passed integration, lint, build and browser smoke, but one of 7,569 unit tests raced the PDF renderer's final event-loop yield. The test published all three images before loading-state finalization. Its final loading-removal assertion now uses `waitFor`, retaining the same expected result and all image/truncation assertions. All nine focused preview tests pass. Bugbot and security-review independently approved the test-only change; application source is unchanged.
+
+## Subsequent release execution
+
+The compatibility candidate `944e9e0b` subsequently passed focused deployed staging QA with synthetic cleanup and was promoted to production. Actual production backfills and encrypted archives verified successfully. The evidence narrows the original browser plan to actual component/HTTP QA, not a full wizard-resume or physical-device certification. Main CI at the test-only `9184d14e` follow-up completed successfully after one browser-smoke rerun. See the [production execution report](2026-09-05-production-rollout.md) for current strict-mode and remaining-control status; the pending language above records the earlier review checkpoint.
