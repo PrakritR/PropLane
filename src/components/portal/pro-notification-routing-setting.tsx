@@ -24,6 +24,7 @@ import {
   formatManagerMessagingPhone,
   type ManagerMessagingNumberStatus,
 } from "@/lib/sms/manager-messaging-number";
+import { trimmedText } from "@/lib/trimmed-text";
 
 const DESTINATIONS: ReadonlyArray<{
   id: ManagerNotificationDestination;
@@ -106,8 +107,8 @@ export function ManagerNotificationRoutingSetting() {
 
   const textConnectionReady = Boolean(
     numberStatus?.canSend &&
-      numberStatus.number?.phoneNumber?.trim() &&
-      numberStatus.personalPhone.phone?.trim() &&
+      trimmedText(numberStatus.number?.phoneNumber) &&
+      trimmedText(numberStatus.personalPhone?.phone) &&
       numberStatus.personalPhone.forwardInbound,
   );
   const statusCopy = useMemo(() => {
