@@ -26,6 +26,10 @@ describe("listingRoomHasRent is the one rule", () => {
     expect(listingRoomHasRent(room({ rentBasis: "daily", dailyRentPrice: 95 }))).toBe(true);
   });
 
+  it("accepts a weekly-priced room with no monthly rent", () => {
+    expect(listingRoomHasRent(room({ rentBasis: "weekly", weeklyRentPrice: 350 }))).toBe(true);
+  });
+
   it("rejects a room with neither", () => {
     expect(listingRoomHasRent(room({}))).toBe(false);
     expect(listingRoomHasRent(room({ rentBasis: "daily", dailyRentPrice: 0 }))).toBe(false);

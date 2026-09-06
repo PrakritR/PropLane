@@ -271,8 +271,14 @@ function leaseTermsRiderHtml(ctx: LeaseGenerationContext): string {
   const address = dash(prop?.address ?? sub?.address);
   const cityZipParts = [prop?.neighborhood ?? sub?.neighborhood, prop?.zip ?? sub?.zip].filter(Boolean);
   const cityZip = dash(cityZipParts.join(", "));
-  const rate = pricing.basis === "daily" ? pricing.dailyRate : pricing.monthlyRate;
-  const rateLabel = pricing.basis === "daily" ? "Daily rate" : "Monthly rent";
+  const rate =
+    pricing.basis === "daily"
+      ? pricing.dailyRate
+      : pricing.basis === "weekly"
+        ? pricing.weeklyRate
+        : pricing.monthlyRate;
+  const rateLabel =
+    pricing.basis === "daily" ? "Daily rate" : pricing.basis === "weekly" ? "Weekly rent" : "Monthly rent";
   const fees = [
     ctx.leaseBilling?.moveInFee ? ["Move-in fee", money(ctx.leaseBilling.moveInFee)] : null,
     ctx.leaseBilling?.applicationFee ? ["Application fee", money(ctx.leaseBilling.applicationFee)] : null,
@@ -289,7 +295,7 @@ function leaseTermsRiderHtml(ctx: LeaseGenerationContext): string {
   <tr><th>Property</th><td>${address}${cityZipParts.length > 0 ? `<br/>${cityZip}` : ""}</td></tr>
   <tr><th>Room / unit</th><td>${dash(prop?.unitLabel ?? room?.name)}</td></tr>
   <tr><th>Stay dates</th><td>${dash(a.leaseStart)} to ${dash(a.leaseEnd)}</td></tr>
-  <tr><th>Rent basis</th><td>${pricing.basis === "daily" ? "Daily" : "Monthly"}</td></tr>
+  <tr><th>Rent basis</th><td>${pricing.basis === "daily" ? "Daily" : pricing.basis === "weekly" ? "Weekly" : "Monthly"}</td></tr>
   <tr><th>${rateLabel}</th><td>${money(rate)}</td></tr>
   <tr><th>Security deposit</th><td>${money(pricing.deposit)}</td></tr>
   ${fees.map(([label, value]) => `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(value)}</td></tr>`).join("\n  ")}

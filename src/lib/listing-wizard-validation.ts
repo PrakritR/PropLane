@@ -31,13 +31,21 @@ export function listingRoomDailyRentKey(roomId: string): string {
   return `room-${roomId}-daily-rent`;
 }
 
+export function listingRoomWeeklyRentKey(roomId: string): string {
+  return `room-${roomId}-weekly-rent`;
+}
+
 /**
- * A room is priced when it carries a monthly rent OR an explicit daily rate. Every
+ * A room is priced when it carries a monthly rent OR an explicit daily/weekly rate. Every
  * gate that asks "does this room have a price?" must use this, so a daily-only room
  * that passes step validation is not rejected later by a monthly-only check.
  */
 export function listingRoomHasRent(room: ManagerRoomSubmission): boolean {
-  return room.monthlyRent > 0 || (room.rentBasis === "daily" && (room.dailyRentPrice ?? 0) > 0);
+  return (
+    room.monthlyRent > 0 ||
+    (room.rentBasis === "daily" && (room.dailyRentPrice ?? 0) > 0) ||
+    (room.rentBasis === "weekly" && (room.weeklyRentPrice ?? 0) > 0)
+  );
 }
 
 export function listingBathroomNameKey(bathId: string): string {
@@ -126,11 +134,14 @@ export function validateListingWizardStep(
       if (ltToggles.rent && !isEntireHome) {
         const anyRent = sub.rooms.some(listingRoomHasRent);
         if (!anyRent && sub.rooms.length > 0) {
-          errs.monthlyRent = "Set a monthly or daily rent for at least one room (leave others at 0 if not offered).";
+          errs.monthlyRent = "Set a monthly, weekly, or daily rent for at least one room (leave others at 0 if not offered).";
         }
         for (const room of sub.rooms) {
           if (room.rentBasis === "daily" && !((room.dailyRentPrice ?? 0) > 0)) {
             errs[listingRoomDailyRentKey(room.id)] = "Enter a daily rent rate, or turn off daily pricing.";
+          }
+          if (room.rentBasis === "weekly" && !((room.weeklyRentPrice ?? 0) > 0)) {
+            errs[listingRoomWeeklyRentKey(room.id)] = "Enter a weekly rent rate, or turn off weekly pricing.";
           }
         }
       }
@@ -166,7 +177,11 @@ export function buildListingStepFieldOrder(stepIndex: number, sub: ManagerListin
     return [...sub.sharedSpaces.map((s) => listingSharedSpaceNameKey(s.id)), "sharedSpaces"];
   }
   if (stepIndex === 4 && !isEntireHomeListing(sub)) {
-    const rentKeys = sub.rooms.flatMap((r) => [listingRoomRentKey(r.id), listingRoomDailyRentKey(r.id)]);
+    const rentKeys = sub.rooms.flatMap((r) => [
+      listingRoomRentKey(r.id),
+      listingRoomDailyRentKey(r.id),
+      listingRoomWeeklyRentKey(r.id),
+    ]);
     const monthlyIdx = base.indexOf("monthlyRent");
     if (monthlyIdx === -1) return [...rentKeys, ...base];
     return [...base.slice(0, monthlyIdx + 1), ...rentKeys, ...base.slice(monthlyIdx + 1)];
