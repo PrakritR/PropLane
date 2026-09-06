@@ -16,7 +16,7 @@ before any build. Share **`ticket.md`** with friends via
 | **② Plan + share** | Lavish `plan.html` + optional `ticket.md` | Review Lavish; share `ticket.md` if needed |
 | **③ Execute** | Build on keeper branch; wire MCP/tools | — |
 | **④ Review** | Test sandbox port; summarize | Review localhost + diff |
-| **⑤ Promote** | Merge to `prakrit` when captain asks | Approve integration; verify :3000 |
+| **⑤ Promote** | Push keeper branch; captain runs `ship:to-prakrit` + main ladder | Approve integration; verify :3000 on review route |
 
 **Do not skip ① or ②** unless the captain says **"no ticket"** or **"skip plan"**
 (hotfix only).
@@ -106,9 +106,12 @@ Commit and push **only** the pane's keeper branch.
 ## ④ Review (sandbox)
 
 1. Dev server on **this pane's port**.
-2. Happy path + edge cases (`docs/ship-gate.md`).
-3. Targeted `npm run test:unit`; smoke e2e when UI/routes changed.
-4. Linear comment: what was tested, PRP link, localhost URL.
+2. **`npm run sandbox:open -- </route>`** — mandatory before handoff; opens browser + records `.proplane-review-path` (`docs/agents/sandbox-open-review.md`).
+3. Happy path + edge cases (`docs/ship-gate.md`).
+4. Targeted `npm run test:unit`; smoke e2e when UI/routes changed.
+5. Linear comment: what was tested, PRP link, full Review URL.
+
+**Captain promote (not agents):** `npm run ship:to-prakrit -- --source <keeper>` runs security review + no-mistakes, then opens `localhost:3000` on the review route.
 
 ---
 

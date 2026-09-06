@@ -1,0 +1,50 @@
+---
+description: After a user-facing fix, open localhost to the review route for instant captain testing
+alwaysApply: true
+---
+
+# Open sandbox to the fixed feature (mandatory handoff)
+
+When you finish a **user-facing** change (UI, route, portal flow, public page),
+the captain must be able to test it **immediately** without hunting for the URL.
+
+## Before you say "ready" or "done" (every agent, every pane)
+
+1. Confirm the dev server on **this pane's port** is running (`local-agent-branch.mdc`).
+2. **Always** run:
+
+```bash
+npm run sandbox:open -- </route-to-the-fix>
+```
+
+This opens the captain's browser **and** writes `.proplane-review-path` so
+`npm run ship:to-prakrit` can reopen the same route on integration localhost.
+
+3. Put the **full Review URL** in your reply (`Review URL: http://localhost:…`).
+
+## Examples
+
+| Fix | Command |
+| --- | --- |
+| Manager Tasks | `npm run sandbox:open -- /portal/tasks` |
+| Manager inbox | `npm run sandbox:open -- /portal/communication` |
+| Resident lease | `npm run sandbox:open -- /resident/lease` |
+| Listing browse | `npm run sandbox:open -- /rent/browse` |
+
+If a modal has no deep link yet, open the parent section and say which control
+to click (e.g. Tasks → **Settings**).
+
+`--print` only when the captain asked not to steal focus.
+
+## Promote ladder (captain / firstmate — not agents)
+
+Agents **do not** merge to `prakrit` or `main`. After captain approves:
+
+```bash
+npm run ship:to-prakrit -- --source <keeper-branch>
+```
+
+Runs **security review + no-mistakes** before pushing `prakrit`, then opens
+`http://localhost:3000` on the route from `.proplane-review-path` (or `--path`).
+
+Full doc: `docs/agents/sandbox-open-review.md`.

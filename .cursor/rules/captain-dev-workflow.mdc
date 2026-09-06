@@ -53,7 +53,7 @@ UI work: follow `docs/agents/ui-change-checklist.md`
 
 ## ④ Review
 
-Test on **this pane's sandbox URL**. Update Linear. Do not merge to `main`,
+Test on **this pane's sandbox URL**. After UI/route fixes run `npm run sandbox:open -- </route>` so the captain lands on the feature instantly (`sandbox-open-feature-review.mdc`). Update Linear. Do not merge to `main`,
 `staging`, or `production` yourself.
 
 ## ⑤ Promote (captain only)

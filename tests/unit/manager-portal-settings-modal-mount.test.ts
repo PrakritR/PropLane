@@ -15,4 +15,11 @@ describe("ManagerPortalSettingsModal mount gating", () => {
     expect(SRC).toMatch(/\{open && tab === "automation" \?/);
     expect(SRC).toMatch(/\{open && tab === "tasks" \?/);
   });
+
+  it("pins Save in Modal footer so tall tab bodies scroll (PRP-334)", () => {
+    expect(SRC).toMatch(/footer=\{/);
+    expect(SRC).toMatch(/<ModalFooter>/);
+    expect(SRC).not.toMatch(/scrollableContent=\{!inlineFooter\}/);
+    expect(SRC).not.toMatch(/border-t border-border pt-3[\s\S]*SettingsPanelModalSaveButton/);
+  });
 });

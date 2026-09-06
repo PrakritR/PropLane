@@ -45,13 +45,27 @@ Fix high/critical findings before ship. Summarize the rest for the user.
 Unit tests alone are insufficient.
 
 1. Identify the **user-facing feature** touched by the diff.
-2. Exercise the **full happy path** in the browser (localhost or staging) as the
+2. **Open the review route:** `npm run sandbox:open -- </route>` before handoff
+   (`sandbox-open-feature-review.mdc`). Include the printed Review URL in your reply.
+3. Exercise the **full happy path** in the browser (localhost or staging) as the
    correct role — not `/demo` unless the change is demo-only.
-3. Run **edge checks** every time: empty/invalid input, auth failures, expired
+4. Run **edge checks** every time: empty/invalid input, auth failures, expired
    links/tokens, duplicate submits, mobile width, sync/email failure paths,
    cross-links (applications ↔ leases ↔ emails ↔ resident portal, etc.).
-4. Run targeted tests for the area, then broader unit suite before promote.
-5. Note what you tested in the PR body or handoff.
+5. Run targeted tests for the area, then broader unit suite before promote.
+6. Note what you tested in the PR body or handoff.
+
+## Promote to prakrit (captain gate)
+
+Sandbox → **prakrit** integration **must** run **no-mistakes** (and security
+review). Agents never run this themselves:
+
+```bash
+npm run ship:to-prakrit -- --source cursor-1
+```
+
+Reads `.proplane-review-path` from the agent worktree for the browser open on
+`http://localhost:3000`. Override with `--path /portal/tasks` when needed.
 
 ## Do not
 
