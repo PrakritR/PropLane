@@ -2,7 +2,7 @@ import { z } from "zod";
 import { defineTool } from "../registry";
 import type { AgentContext } from "../context";
 import { assertFinancialsTier } from "@/lib/reports/auth";
-import { statementMatchSuggestions } from "@/lib/statement-file-intake";
+import { statementMatchReview } from "@/lib/statement-file-intake";
 
 export const suggestStatementMatchesTool = defineTool({
   name: "suggest_bank_statement_matches",
@@ -45,9 +45,10 @@ export const suggestStatementMatchesTool = defineTool({
       }
     }
     const available = candidates.filter(c => !consumed.has(`${c.kind}:${c.id}`));
-    return { count: lines.filter(l => !l.cleared).length, matches: lines.filter(l => !l.cleared).map(l => {
-      const matches = statementMatchSuggestions({ lineDate: l.line_date, amountCents: Number(l.amount_cents) }, available);
-      return { lineId: l.id, date: l.line_date, amountCents: Number(l.amount_cents), ambiguous: matches.length > 1, candidates: matches };
-    }) };
+    const pending = lines.filter(line => !line.cleared);
+    return { count: pending.length, matches: statementMatchReview(
+      pending.map(line => ({ id: line.id, lineDate: line.line_date, amountCents: Number(line.amount_cents) })),
+      available,
+    ) };
   },
 });

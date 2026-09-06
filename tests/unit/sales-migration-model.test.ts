@@ -4,7 +4,7 @@ import type { SecurityDepositLedgerRow } from "@/lib/reports/security-deposits";
 import { describe, expect, it } from "vitest";
 import { validateMigration, type SalesMigration } from "@/lib/sales-migration/model";
 import { allocateUtilityBill } from "@/lib/utility-allocation";
-import { parseStatementCsv, statementMatchSuggestions } from "@/lib/statement-file-intake";
+import { parseStatementCsv, statementMatchSuggestions, statementMatchReview } from "@/lib/statement-file-intake";
 const source = { sheet: "Roster", range: "A4:Z4", recordKey: "payment1" };
 export const validPlan = (): SalesMigration => ({ version: 2, workbookId: "fixture", asOf: "2026-09-05", inventory: [{ propertyKey: "p", roomCount: 1 }], unresolved: [], properties: [{ propertyKey: "p", propertyId: "canonical-p", sheet: "Roster", rooms: [{ roomId: "r", roomNumber: 1 }], tenancies: [{ source, tenancyKey: "stay1", roomId: "r", name: "Resident", email: "resident@example.test", start: "2026-01-01", end: null, monthToMonth: true, monthlyRentCents: 100000 }], facts: [], checks: [] }] });
 describe("canonical migration validation", () => {
@@ -52,5 +52,30 @@ describe("explicit financial block mapping", () => {
   it("withholds both rows when their transaction key is ambiguous", () => {
     const result = prepareSalesFinancialBlock({...mapping,rows:[["9/1/2026","Repair","-12.35","duplicate"],["9/2/2026","Another repair","-20","duplicate"]]});
     expect(result.facts).toEqual([]);expect(result.unresolved[0]?.reason).toMatch(/Duplicate/);
+  });
+});
+
+
+describe("financial source and bank review ambiguity", () => {
+  it("withholds every duplicate key even when the first row is invalid", () => {
+    const result = prepareSalesFinancialBlock({ propertyKey: "p", sheet: "Accounts", firstRow: 1,
+      columns: { date: 0, description: 1, amount: 2, recordKey: 3 }, kind: "income", categoryCode: "rent_income", amountSign: "positive",
+      rows: [["unknown", "Earlier row", "100", "same"], ["9/1/2026", "Later row", "100", "same"]],
+    });
+    expect(result.facts).toEqual([]);
+    expect(result.unresolved.map(issue => [issue.source.range, issue.reason])).toEqual([
+      ["1:1", "Duplicate stable transaction key"], ["2:2", "Duplicate stable transaction key"],
+    ]);
+  });
+  it("marks a sole receipt ambiguous when two bank lines compete for it", () => {
+    const reviews = statementMatchReview([
+      {id:"line-a",lineDate:"2026-09-01",amountCents:10000},
+      {id:"line-b",lineDate:"2026-09-02",amountCents:10000},
+      {id:"line-c",lineDate:"2026-09-01",amountCents:-10000},
+    ], [{id:"receipt",kind:"income",date:"2026-09-01",amountCents:10000}, {id:"expense",kind:"expense",date:"2026-09-01",amountCents:10000}]);
+    expect(reviews.map(r => [r.lineId, r.ambiguous, r.competingLineIds])).toEqual([
+      ["line-a", true, ["line-b"]], ["line-b", true, ["line-a"]], ["line-c", false, []],
+    ]);
+    expect(reviews.every(r => r.candidates.length === 1)).toBe(true);
   });
 });

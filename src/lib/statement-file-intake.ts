@@ -53,3 +53,36 @@ export function statementMatchSuggestions(line: { lineDate: string; amountCents:
   return candidates.filter(c => c.amountCents === Math.abs(line.amountCents) && (line.amountCents >= 0 ? c.kind === "income" : c.kind === "expense") && Math.abs(Date.parse(c.date) - time) <= 3 * 86_400_000)
     .map(c => ({ id: c.id, kind: c.kind, date: c.date, amountCents: c.amountCents }));
 }
+
+
+/** Review all lines together: one candidate cannot settle two bank movements. */
+export function statementMatchReview(
+  lines: { id: string; lineDate: string; amountCents: number }[],
+  candidates: Parameters<typeof statementMatchSuggestions>[1],
+) {
+  const reviews = lines.map(line => ({
+    lineId: line.id,
+    date: line.lineDate,
+    amountCents: line.amountCents,
+    candidates: statementMatchSuggestions(line, candidates),
+  }));
+  const candidateLines = new Map<string, Set<string>>();
+  for (const review of reviews) {
+    for (const candidate of review.candidates) {
+      const key = `${candidate.kind}:${candidate.id}`;
+      const ids = candidateLines.get(key) ?? new Set<string>();
+      ids.add(review.lineId);
+      candidateLines.set(key, ids);
+    }
+  }
+  return reviews.map(review => {
+    const competingLineIds = new Set<string>();
+    for (const candidate of review.candidates) {
+      for (const id of candidateLines.get(`${candidate.kind}:${candidate.id}`) ?? []) {
+        if (id !== review.lineId) competingLineIds.add(id);
+      }
+    }
+    return { ...review, ambiguous: review.candidates.length > 1 || competingLineIds.size > 0,
+      competingLineIds: [...competingLineIds].sort() };
+  });
+}

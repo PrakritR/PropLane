@@ -55,3 +55,16 @@ optional Airbnb payout intake are not inferred from occupancy calendars.
 
 Release remains subject to the existing no-mistakes gate decisions and the
 main → staging → production ladder. This record is not production QA sign-off.
+
+## Follow-up source and matching checks
+
+`2026-09-06` follow-up found two review ambiguities and fixed them: duplicated
+source transaction keys are withheld even when the first row is invalid, and
+bank lines competing for the same available transaction are all marked
+ambiguous with explicit competing line IDs. The focused migration suite passes
+22 tests; typecheck and changed-file lint pass.
+
+A read-only identity audit against the three owner-scoped production properties
+found no unique exact name + phone + canonical-room match for the 14 long-term
+roster entries. The private reconciliation artifact remains outside Git. This
+provides no basis to invent emails, choose accounts, or infer missing lease terms.

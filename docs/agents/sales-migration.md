@@ -20,7 +20,7 @@ rate as a balance owed or treats a held deposit as a new unpaid charge.
    Optional `financialBlocks` explicitly specify property/sheet, `firstRow`, row
    values, zero-based date/amount/description/stable-key column indexes, income or
    expense, canonical category, and positive/negative source amount convention.
-   Only dated, exact-cent transactions enter the draft; ambiguous keys, notes,
+   Only dated, exact-cent transactions enter the draft; ambiguous keys (including keys shared with invalid rows), notes,
    and summary rows remain unresolved. Monthly totals belong in `checks`, not
    another transaction. A stable source key must survive sorting and inserted rows.
 4. Reconcile the draft's version-2 model (`src/lib/sales-migration/model.ts`).
@@ -99,7 +99,8 @@ Statement and line inserts commit together and must reconcile to closing balance
 
 `suggest_bank_statement_matches` returns same-signed-amount income/expense
 candidates within three days. Ambiguous candidates remain choices, and consumed
-transactions are excluded. `reconcile_bank_statement_line` accepts one typed
+transactions are excluded. When separate bank lines compete for the same
+transaction, each review names the competing line IDs and remains ambiguous. `reconcile_bank_statement_line` accepts one typed
 receipt or expense target; a database trigger verifies owner, exact signed
 amount, and exclusive target use under a target row lock. Suggestions never
 clear lines or create transactions. This is file intake, not a bank connection.
