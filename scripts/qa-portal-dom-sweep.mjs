@@ -502,8 +502,28 @@ async function sweepViewport(browser, viewport, routes, probeSource, discovered 
       // past. "Covered" is only meaningful where the page rests: if a control is
       // unreachable as the page presents itself, that is a bug; if it is under
       // chrome because you scrolled it there, that is a scrollbar.
-      const bottom = await page.evaluate(() => globalThis.__tmProbe?.({ skip: ["obscured-control", "duplicate-control", "tiny-tap-target"] }));
-      for (const pass of [top, bottom]) for (const f of pass?.findings ?? []) push(f);
+      const bottom = await page.evaluate(() => globalThis.__tmProbe?.({ skip: ["duplicate-control", "tiny-tap-target"] }));
+      // A control counts as unreachable only if it is covered BOTH where the page
+      // rests AND once everything has been scrolled to its end. Covered at rest
+      // alone just means "further down a long list"; covered after scrolling alone
+      // means it slid under sticky chrome, which is what scrolling is. Only the
+      // intersection is a control a person cannot get to — and that intersection
+      // is what the two verified findings (the admin search box, the screening
+      // toggle) sit in, while the false positives sit in exactly one side.
+      const coveredAtRest = new Set(
+        (top?.findings ?? []).filter((f) => f.check === "obscured-control").map((f) => f.detail?.el),
+      );
+      for (const f of top?.findings ?? []) {
+        if (f.check === "obscured-control") continue;
+        push(f);
+      }
+      for (const f of bottom?.findings ?? []) {
+        if (f.check === "obscured-control") {
+          if (coveredAtRest.has(f.detail?.el)) push(f);
+          continue;
+        }
+        push(f);
+      }
 
       for (const e of pageErrors.slice(0, 5)) {
         push({ check: "page-error", severity: "high", summary: `Uncaught error: ${e}`, detail: { error: e } });
