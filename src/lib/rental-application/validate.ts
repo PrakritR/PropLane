@@ -21,7 +21,7 @@ import {
 } from "@/lib/manager-listing-submission";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { propertyAllowsShortTermRental, listingAllowedLeaseTerms, getPropertyById, isEntireHomeProperty } from "./data";
-import { LEASE_TERM_OPTIONS } from "./lease-terms";
+import { LEASE_TERM_OPTIONS, acceptedLeaseTermsFromStored } from "./lease-terms";
 import { listingApplicationFeeAmount } from "@/lib/household-charges";
 import {
   isAchApplicationFeeChannel,
@@ -92,9 +92,14 @@ function leaseTermsForProperty(
   const sub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
   if (sub) {
     const terms = resolveAllowedLeaseTerms(sub);
-    return terms.length > 0 ? terms : [...LEASE_TERM_OPTIONS];
+    // The UNION of what the listing stored and what it now offers. A listing
+    // holding only "12-Month" offers "Long-term", so the stored set alone would
+    // reject the very answer the form just handed the applicant — and the
+    // offered set alone would reject an application filed while the old lengths
+    // were still being offered. The union is never narrower than before.
+    return terms.length > 0 ? acceptedLeaseTermsFromStored(terms) : [...LEASE_TERM_OPTIONS];
   }
-  return listingAllowedLeaseTerms(propertyId);
+  return acceptedLeaseTermsFromStored(listingAllowedLeaseTerms(propertyId));
 }
 
 function shortTermAllowedForProperty(
