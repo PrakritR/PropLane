@@ -457,7 +457,7 @@ export function ManagerPaymentSetupModal({
                       }`}
                     >
                       <span className="text-sm font-semibold text-foreground">
-                        {option.id === "proplane" && skuTier === "free" ? "PropLane covers it (FREE100)" : option.title}
+                        {option.id === "proplane" && skuTier === "free" ? "PropLane covers it" : option.title}
                       </span>
                       <span className="mt-0.5 text-xs text-muted">{option.detail}</span>
                     </button>
@@ -467,8 +467,8 @@ export function ManagerPaymentSetupModal({
             </div>
           ) : skuTier === "free" ? (
             <p className="text-xs text-muted">
-              On the Free plan, residents cover the payment processing fee unless your account has the FREE100 waiver
-              code or you upgrade to Pro or Business.
+              On the Free plan, residents cover the payment processing fee unless your account has a processing fee
+              waiver or you upgrade to Pro or Business.
             </p>
           ) : null}
           <p className="text-xs text-muted">

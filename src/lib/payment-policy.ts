@@ -164,14 +164,22 @@ export function listingPaymentWaiverCodeMatches(code: string | null | undefined)
   return normalized.length > 0 && normalized === LISTING_PAYMENT_WAIVER_CODE;
 }
 
-/** PropLane absorb in the listing wizard requires a per-listing FREE100 code. */
+/** PropLane absorb in the listing wizard requires a per-listing waiver code unless the account already has one. */
 export function listingProplaneAbsorbNeedsWaiverCode(
   _tier: ManagerSkuTier,
   serviceFeePayer: ServiceFeePayer | null | undefined,
-  _accountWaiverGranted: boolean,
+  accountWaiverGranted: boolean,
 ): boolean {
+  if (accountWaiverGranted) return false;
   return serviceFeePayer === "proplane";
 }
+
+/** User-facing copy — never embed the literal comp code in the product UI. */
+export const LISTING_PROCESSING_FEE_WAIVER_CODE_HELP =
+  "PropLane will share a waiver code with you directly. Contact support if you do not have one.";
+
+export const LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID =
+  "Enter the waiver code PropLane gave you.";
 
 /**
  * Who pays the processing fee on one payment.
