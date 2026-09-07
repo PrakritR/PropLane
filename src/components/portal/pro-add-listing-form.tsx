@@ -1678,9 +1678,9 @@ export function ManagerAddListingForm({
       serviceRequestOptions: serviceOffers,
     });
   }
-  /** Last submission fingerprint successfully written to the drafts bucket. */
+  /** Last submission fingerprint successfully written to the drafts bucket or server. */
   const lastPersistedFingerprintRef = useRef<string | null>(
-    editDraftId?.trim()
+    editDraftId?.trim() || editListingId?.trim() || editPendingId?.trim() || editRequestChangeId?.trim()
       ? listingSubmissionFingerprint({
           ...(initialSubmission
             ? normalizeManagerListingSubmissionV1(initialSubmission)
@@ -2006,6 +2006,11 @@ export function ManagerAddListingForm({
     }
     setStepFieldErrors({});
     if (isEditMode) {
+      const current = ensureSubmissionListingFees({ ...sub, serviceRequestOptions: serviceOffers });
+      if (!listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")) {
+        advanceFromCurrentStep();
+        return;
+      }
       void persistEditListingRef.current({ advanceOnSuccess: true });
       return;
     }
@@ -2727,6 +2732,7 @@ export function ManagerAddListingForm({
    * those as a draft would fork it into a second record.
    */
   const draftAutoSaveEligible = !isEditMode && !isPreviewWizard;
+  const editAutoSaveEligible = isEditMode && !isPreviewWizard;
 
   const buildSubmissionPayload = useCallback((): ManagerListingSubmissionV1 => {
     const submission = ensureSubmissionListingFees({
@@ -2760,24 +2766,55 @@ export function ManagerAddListingForm({
 
   const persistEditListing = useCallback(
     async (opts?: { advanceOnSuccess?: boolean; closeAfter?: boolean; silent?: boolean }): Promise<boolean> => {
-      if (!isEditMode || busy || closingDraft) return false;
-      if (!authReady || !userId) {
-        if (!opts?.silent) showToast("Sign in to save changes.");
+      if (!isEditMode || closingDraft) return false;
+      if (busy) {
+        if (!opts?.silent) showToast("Still saving your changes…");
         return false;
+      }
+      if (!authReady || !userId) {
+        const msg = "Sign in to save changes.";
+        setDraftSaveError(msg);
+        if (!opts?.silent) showToast(msg);
+        return false;
+      }
+
+      const current = ensureSubmissionListingFees({ ...sub, serviceRequestOptions: serviceOffers });
+      const hasChanges = listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "");
+      if (!hasChanges) {
+        setDraftSaveError(null);
+        if (opts?.advanceOnSuccess) advanceFromCurrentStep();
+        if (opts?.closeAfter) onClose();
+        return true;
       }
 
       const stepPos = wizardSteps.indexOf(stepIndex);
       const advancingToReview = stepPos >= 0 && stepPos === wizardSteps.length - 2;
       const shouldToast = !opts?.silent && (advancingToReview || opts?.closeAfter);
+      const backgroundSave = Boolean(opts?.silent && !opts?.closeAfter && !opts?.advanceOnSuccess);
 
-      setBusy(true);
+      if (backgroundSave) {
+        setAutosaveStatus("saving");
+      } else {
+        setBusy(true);
+      }
+
       try {
-        const uploaded = await uploadSubmissionMedia(buildSubmissionPayload());
-        if (uploaded.failedCount > 0) {
-          if (!opts?.silent) showToast("Could not upload photos. Check your connection and try again.");
-          return false;
+        droppedAttachmentsRef.current = false;
+        let uploadedSubmission = buildSubmissionPayload();
+        try {
+          const uploaded = await uploadSubmissionMedia(uploadedSubmission);
+          uploadedSubmission = uploaded.submission;
+          if (uploaded.failedCount > 0) {
+            droppedAttachmentsRef.current = true;
+          } else {
+            setSub(uploadedSubmission);
+          }
+        } catch (err) {
+          console.error("manager-add-listing-form: edit media upload failed", err);
+          uploadedSubmission = stripSubmissionDataUrls(buildSubmissionPayload());
+          droppedAttachmentsRef.current = true;
         }
-        const uploadedSubmission = uploaded.submission;
+
         let ok = false;
         if (editPendingId) {
           ok = await updatePendingManagerPropertyOnServer(editPendingId, uploadedSubmission, userId);
@@ -2788,7 +2825,10 @@ export function ManagerAddListingForm({
           ok = await updateExtraListingFromSubmissionOnServer(editListingId, saveUserId, uploadedSubmission);
         }
         if (!ok) {
-          if (!opts?.silent) showToast("Could not save changes.");
+          const msg = "Could not save changes. Check your connection and try again.";
+          setDraftSaveError(msg);
+          if (backgroundSave) setAutosaveStatus("error");
+          if (!opts?.silent) showToast(msg);
           return false;
         }
 
@@ -2797,17 +2837,48 @@ export function ManagerAddListingForm({
           serviceRequestOptions: serviceOffers,
         });
         baselineFingerprintRef.current = fingerprint;
+        lastPersistedFingerprintRef.current = fingerprint;
+        setDraftSaveError(null);
 
-        if (shouldToast) showToast("Changes saved.");
+        const droppedAttachments = droppedAttachmentsRef.current;
+        droppedAttachmentsRef.current = false;
+
+        if (shouldToast) {
+          showToast(
+            droppedAttachments
+              ? "Changes saved. Some photos couldn't be uploaded — they're still in the form."
+              : "Changes saved.",
+          );
+        } else if (droppedAttachments && !opts?.silent) {
+          showToast("Saved, but some photos couldn't be uploaded — they are still in the form, try again.");
+        } else if (backgroundSave) {
+          setAutosaveStatus(droppedAttachments ? "saved-without-photos" : "saved");
+          if (droppedAttachments) {
+            showToast("Saved, but some photos couldn't be uploaded — they are still in the form, try again.");
+          }
+        }
+
         if (opts?.advanceOnSuccess) advanceFromCurrentStep();
-        if (opts?.closeAfter) onClose();
+        if (opts?.closeAfter) {
+          if (droppedAttachments) {
+            showToast(
+              "Changes saved. Some attachments couldn't be uploaded — they're still in the form for next time.",
+            );
+          }
+          onClose();
+        }
         return true;
       } catch (err) {
         console.error("manager-add-listing-form: persistEditListing failed", err);
-        if (!opts?.silent) showToast("Could not save changes.");
+        const msg = "Could not save changes. Check your connection and try again.";
+        setDraftSaveError(msg);
+        if (backgroundSave) setAutosaveStatus("error");
+        if (!opts?.silent) showToast(msg);
         return false;
       } finally {
-        setBusy(false);
+        if (!backgroundSave) {
+          setBusy(false);
+        }
       }
     },
     [
@@ -2846,7 +2917,7 @@ export function ManagerAddListingForm({
         isEditMode &&
         listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")
       ) {
-        void persistEditListingRef.current({ closeAfter: true, silent: true });
+        void persistEditListingRef.current({ closeAfter: true });
         return;
       }
       onClose();
@@ -3000,7 +3071,7 @@ export function ManagerAddListingForm({
   }, [persistListingDraft]);
 
   useEffect(() => {
-    if (!draftAutoSaveEligible || !authReady || !userId) return;
+    if ((!draftAutoSaveEligible && !editAutoSaveEligible) || !authReady || !userId) return;
 
     const current: ManagerListingSubmissionV1 = { ...sub, serviceRequestOptions: serviceOffers };
     if (!listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")) {
@@ -3010,8 +3081,9 @@ export function ManagerAddListingForm({
     const fingerprint = listingSubmissionFingerprint(current);
     const alreadyPersisted =
       fingerprint === lastPersistedFingerprintRef.current &&
-      stepIndex === lastPersistedStepRef.current.stepIndex &&
-      maxStepReached === lastPersistedStepRef.current.maxStepReached;
+      (!draftAutoSaveEligible ||
+        (stepIndex === lastPersistedStepRef.current.stepIndex &&
+          maxStepReached === lastPersistedStepRef.current.maxStepReached));
     if (alreadyPersisted) return;
 
     setAutosaveStatus((status) =>
@@ -3022,7 +3094,11 @@ export function ManagerAddListingForm({
     autosaveTimerRef.current = setTimeout(() => {
       autosaveTimerRef.current = null;
       autosaveDirtyRef.current = false;
-      void persistListingDraft({ silent: true });
+      if (draftAutoSaveEligible) {
+        void persistListingDraft({ silent: true });
+      } else {
+        void persistEditListing({ silent: true });
+      }
     }, LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS);
 
     return () => {
@@ -3031,7 +3107,9 @@ export function ManagerAddListingForm({
   }, [
     authReady,
     draftAutoSaveEligible,
+    editAutoSaveEligible,
     maxStepReached,
+    persistEditListing,
     persistListingDraft,
     serviceOffers,
     stepIndex,
@@ -3040,7 +3118,7 @@ export function ManagerAddListingForm({
   ]);
 
   useEffect(() => {
-    if (!draftAutoSaveEligible) return;
+    if (!draftAutoSaveEligible && !editAutoSaveEligible) return;
     const flushOnHide = () => {
       if (document.visibilityState !== "hidden") return;
       if (autosaveTimerRef.current) {
@@ -3049,11 +3127,15 @@ export function ManagerAddListingForm({
       }
       if (!autosaveDirtyRef.current) return;
       autosaveDirtyRef.current = false;
-      void persistListingDraft({ silent: true });
+      if (draftAutoSaveEligible) {
+        void persistListingDraft({ silent: true });
+      } else {
+        void persistEditListing({ silent: true });
+      }
     };
     document.addEventListener("visibilitychange", flushOnHide);
     return () => document.removeEventListener("visibilitychange", flushOnHide);
-  }, [draftAutoSaveEligible, persistListingDraft]);
+  }, [draftAutoSaveEligible, editAutoSaveEligible, persistEditListing, persistListingDraft]);
 
   const submitListing = async () => {
     // EXACTLY what the steps run. Submit used to omit `stFeeToggles` and
@@ -5711,7 +5793,7 @@ export function ManagerAddListingForm({
             <p role="alert" data-testid="listing-wizard-draft-save-error" className="mb-3 text-xs font-medium text-red-600">
               {draftSaveError}
             </p>
-          ) : draftAutoSaveEligible && autosaveStatus !== "idle" ? (
+          ) : (draftAutoSaveEligible || editAutoSaveEligible) && autosaveStatus !== "idle" ? (
             <p
               className="mb-3 text-xs text-muted"
               data-testid="listing-wizard-autosave-status"
@@ -5720,9 +5802,13 @@ export function ManagerAddListingForm({
               {autosaveStatus === "saving"
                 ? "Saving…"
                 : autosaveStatus === "saved"
-                  ? "Saved to Drafts"
+                  ? draftAutoSaveEligible
+                    ? "Saved to Drafts"
+                    : "Changes saved"
                   : autosaveStatus === "saved-without-photos"
-                    ? "Saved to Drafts — photos not uploaded yet"
+                    ? draftAutoSaveEligible
+                      ? "Saved to Drafts — photos not uploaded yet"
+                      : "Changes saved — photos not uploaded yet"
                     : "Couldn't save — check your connection"}
             </p>
           ) : null}
@@ -5743,11 +5829,13 @@ export function ManagerAddListingForm({
                   onClick={goNext}
                   disabled={busy}
                 >
-                  {visibleStepPosition === visibleStepCount - 2
-                    ? isPreviewWizard
-                      ? "Review & save →"
-                      : "Review & submit →"
-                    : "Continue"}
+                  {busy
+                    ? "Saving…"
+                    : visibleStepPosition === visibleStepCount - 2
+                      ? isPreviewWizard
+                        ? "Review & save →"
+                        : "Review & submit →"
+                      : "Continue"}
                 </Button>
               ) : (
                 <Button

@@ -16,6 +16,7 @@ import {
   resolveSavedServiceFeeSelection,
   saveManagerManualPaymentSettings,
 } from "@/lib/manager-manual-payment-settings";
+import { LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID } from "@/lib/payment-policy";
 
 describe("resolveSavedServiceFeeSelection", () => {
   it("keeps PropLane absorb when the promo code is valid", () => {
@@ -161,7 +162,7 @@ describe("payment setup: PropLane covers it", () => {
     await click("manager-service-fee-waiver-apply");
 
     expect(patches).toHaveLength(0);
-    expect(screen.getByText("Enter the waiver code PropLane gave you.")).toBeTruthy();
+    expect(screen.getByText(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID)).toBeTruthy();
   });
 
   it("saves the choice with the code once it checks out", async () => {

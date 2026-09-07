@@ -53,6 +53,7 @@ vi.mock("@/components/ui/modal", () => ({
 }));
 
 import { ManagerPaymentSetupModal } from "@/components/portal/pro-payment-setup-modal";
+import { LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID } from "@/lib/payment-policy";
 
 let patches: Record<string, unknown>[] = [];
 
@@ -147,7 +148,9 @@ describe("evidence · PropLane covers it requires the promo code", () => {
     await typeCode("NOPE123");
     await click("manager-service-fee-waiver-apply");
     expect(patches).toHaveLength(0);
-    expect(document.body.textContent).toContain("Enter the waiver code PropLane gave you.");
+    // The refusal message is the shared one, so the product never prints the code
+    // itself back at a manager who does not have it.
+    expect(document.body.textContent).toContain(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID);
     shot(
       "payment-setup-03-wrong-code",
       "A wrong code is refused inline — still 0 PATCH requests, so nothing was stored.",

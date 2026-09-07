@@ -549,7 +549,7 @@ export function ManagerPaymentSetupModal({
                       setWaiverCodeDraft(normalizeListingPaymentWaiverCode(event.target.value));
                       setWaiverCodeError(null);
                     }}
-                    placeholder="Enter your waiver code"
+                    placeholder="Waiver code"
                     autoComplete="off"
                     data-attr="manager-service-fee-waiver-code"
                     aria-invalid={Boolean(waiverCodeError)}
@@ -588,7 +588,7 @@ export function ManagerPaymentSetupModal({
                   </div>
                 </div>
               ) : (draft.serviceFeePayer ?? "resident") === "proplane" && draft.serviceFeeWaiverCode ? (
-                <p className="text-xs text-muted">Processing fee waiver applied.</p>
+                <p className="text-xs text-muted">Waiver code applied.</p>
               ) : null}
             </div>
           ) : skuTier === "free" ? (
