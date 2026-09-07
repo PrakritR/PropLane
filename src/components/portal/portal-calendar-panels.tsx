@@ -1100,6 +1100,10 @@ export function PortalCalendarPanels({
    * tabs do; the blocks stay visible in the grid, labelled Blocked.
    */
   const scheduledMeetings = useMemo(() => scheduledCalendarMeetings(meetings), [meetings]);
+  const gridPaintedMeetings = useMemo(
+    () => meetings.filter((meeting) => meetingPaintsCalendarGrid(meeting)),
+    [meetings],
+  );
   const showEventCountsInDayHeader = readOnly || preferEventCountsInDayHeader;
 
   const monthYear = anchorDate.getFullYear();
@@ -1586,8 +1590,9 @@ export function PortalCalendarPanels({
   }, [meetings]);
 
   /**
-   * The half hours that are genuinely TAKEN — non-blocking Google entries are
-   * neither painted nor counted, and the public booking page goes on offering them.
+   * The half hours that are genuinely TAKEN — informational Google metadata is
+   * neither painted nor counted; Free/declined rows still draw but do not reduce
+   * open capacity, and the public booking page goes on offering them.
    */
   const takenSlotKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -2101,7 +2106,7 @@ export function PortalCalendarPanels({
         <h3 className="min-w-0 text-base font-bold text-foreground">
           {selectedBlock.kind === "meeting"
             ? isGoogleCalendarPrivateBlock(selectedBlock.meeting)
-              ? "Blocked"
+              ? meetingCalendarGridLabel(selectedBlock.meeting)
               : selectedBlock.meeting.title
             : "Availability block"}
         </h3>
@@ -2128,8 +2133,9 @@ export function PortalCalendarPanels({
 
           {isGoogleCalendarPrivateBlock(selectedBlock.meeting) ? (
             <p className="text-sm text-muted">
-              This time is busy on your linked Google Calendar. Personal event details stay on Google — only the blocked
-              time is shown here so tour availability stays accurate.
+              {selectedBlock.meeting.blocksTourAvailability === false
+                ? "This time is marked Free on your linked Google Calendar. Personal event details stay on Google — tour slots here still count as open."
+                : "This time is busy on your linked Google Calendar. Personal event details stay on Google — only the blocked time is shown here so tour availability stays accurate."}
             </p>
           ) : (
             <>
@@ -2808,7 +2814,9 @@ export function PortalCalendarPanels({
                       <span className="block truncate">{meetingCalendarGridLabel(meeting)}</span>
                     ) : (
                       <span className="block truncate opacity-70">
-                        {meetingCalendarGridLabel(meeting)}
+                        {isGoogleCalendarPrivateBlock(meeting)
+                          ? meetingCalendarGridLabel(meeting)
+                          : meeting.statusLabel}
                       </span>
                     )
                   ) : selected ? (
@@ -3149,7 +3157,7 @@ export function PortalCalendarPanels({
               onChange={setViewMode}
             />
             <div className="rounded-full bg-accent/30 px-4 py-2 text-sm font-semibold text-muted">
-              {viewMode === "month" ? monthBlocksCount : meetings.length} blocks
+              {viewMode === "month" ? monthBlocksCount : gridPaintedMeetings.length} blocks
             </div>
             {viewMode !== "month" ? renderTimeWindowControl() : null}
             <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={openBlockModal}>

@@ -1,7 +1,7 @@
 import { SLOT_DURATION_MINUTES, toLocalDateStr } from "@/lib/demo-admin-scheduling";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
 import type { GoogleCalendarApiEvent } from "@/lib/google-calendar/api.server";
-import { googleEventBlocksTours } from "@/lib/google-calendar/busy";
+import { googleEventBlocksTours, googleCalendarEventInformational } from "@/lib/google-calendar/busy";
 import {
   PROPLANE_GOOGLE_CALENDAR_MARKER,
   PROPLANE_TOUR_TYPE_MARKER,
@@ -190,8 +190,7 @@ export function googleCalendarEventsToMeetings(events: GoogleCalendarApiEvent[])
       const end = new Date(event.end);
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
       const blocksTourAvailability = googleEventBlocksTours(event);
-      const informationalGoogleEvent =
-        event.eventType === "birthday" || event.eventType === "workingLocation";
+      const informationalGoogleEvent = googleCalendarEventInformational(event);
       const dateStr = toLocalDateStr(start);
       const durationMinutes = Math.max(SLOT_DURATION_MINUTES, Math.round((end.getTime() - start.getTime()) / 60_000));
       const span = Math.max(1, Math.ceil(durationMinutes / SLOT_DURATION_MINUTES));

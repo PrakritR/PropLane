@@ -41,10 +41,13 @@ export function googleEventBlocksTours(event: {
   eventType?: string;
 }): boolean {
   if (event.declinedBySelf) return false;
-  if (event.eventType === "birthday" || event.eventType === "workingLocation") {
-    return false;
-  }
+  if (googleCalendarEventInformational(event)) return false;
   if (event.eventType === "outOfOffice" || event.eventType === "focusTime") return true;
   if (event.transparency === "transparent") return false;
   return true;
+}
+
+/** Google metadata rows — never block tours or paint the availability grid. */
+export function googleCalendarEventInformational(event: { eventType?: string }): boolean {
+  return event.eventType === "birthday" || event.eventType === "workingLocation";
 }
