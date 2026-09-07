@@ -254,7 +254,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   if (reportId) return <div className="space-y-3 p-4">{error ? <p role="alert">{error}</p> : <p role="status">Loading inspection…</p>}<Button variant="outline" onClick={() => router.push(`${routeBase}/${kind}`)} data-attr="inspection-list-back">Back to inspections</Button></div>;
   return <div className="min-w-0 space-y-3" data-attr="inspections-panel">
     {embeddedInResident ? (
-      <div className="mb-3 shrink-0 space-y-2 bg-background">
+      <div className="sticky z-[38] mb-3 shrink-0 space-y-2 bg-background/95 backdrop-blur-md [top:var(--portal-mobile-top-chrome,0px)]">
         <LocalDestinationNav
           items={(["move-in", "move-out"] as const).map((id) => ({
             id,
@@ -287,7 +287,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
         ) : null}
       </div>
     ) : (
-    <PortalListControlStack variant="command" destinationAriaLabel="Inspection type" activeDestinationId={kind}
+    <PortalListControlStack variant="command" stickyDestinations destinationAriaLabel="Inspection type" activeDestinationId={kind}
       destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
       destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
       actions={role === "manager" && !isDemoModeActive()
