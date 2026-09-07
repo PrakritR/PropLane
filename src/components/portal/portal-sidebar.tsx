@@ -1036,33 +1036,38 @@ export function PortalSidebar({
               ref={setBottomNavEl}
               className={`${PORTAL_NATIVE_BOTTOM_NAV_CLASS} relative`}
               aria-label="Portal sections"
+              onTouchStart={(e) => {
+                const touch = e.touches[0];
+                if (!touch) return;
+                bottomNavTouchRef.current = { x: touch.clientX, y: touch.clientY };
+              }}
+              onTouchEnd={(e) => {
+                const start = bottomNavTouchRef.current;
+                bottomNavTouchRef.current = null;
+                const touch = e.changedTouches[0];
+                if (!start || !touch) return;
+                if (
+                  shouldOpenNativeSectionsSheet({
+                    startX: start.x,
+                    startY: start.y,
+                    endX: touch.clientX,
+                    endY: touch.clientY,
+                  })
+                ) {
+                  setSectionsSheetOpen(true);
+                }
+              }}
             >
+              {/*
+                Hit target is ONLY the centered handle strip — never full-bar
+                inset-x-0 + h-11 (PRP-366 / PRP-349). That overlay sat above the
+                tabs and stole every thumb tap.
+              */}
               <button
                 type="button"
-                className="portal-native-bottom-nav-pull absolute inset-x-0 -top-1 z-10 flex h-11 items-start justify-center border-0 bg-transparent p-0"
+                className="portal-native-bottom-nav-pull absolute left-1/2 top-0 z-10 flex h-4 w-14 -translate-x-1/2 items-start justify-center border-0 bg-transparent p-0"
                 aria-label="Show all sections"
                 onClick={() => setSectionsSheetOpen(true)}
-                onTouchStart={(e) => {
-                  const touch = e.touches[0];
-                  if (!touch) return;
-                  bottomNavTouchRef.current = { x: touch.clientX, y: touch.clientY };
-                }}
-                onTouchEnd={(e) => {
-                  const start = bottomNavTouchRef.current;
-                  bottomNavTouchRef.current = null;
-                  const touch = e.changedTouches[0];
-                  if (!start || !touch) return;
-                  if (
-                    shouldOpenNativeSectionsSheet({
-                      startX: start.x,
-                      startY: start.y,
-                      endX: touch.clientX,
-                      endY: touch.clientY,
-                    })
-                  ) {
-                    setSectionsSheetOpen(true);
-                  }
-                }}
               >
                 {showMoreTab ? null : (
                   <span className="portal-native-bottom-nav-pull-handle mt-0.5" aria-hidden />
@@ -1070,7 +1075,7 @@ export function PortalSidebar({
               </button>
               <div
                 ref={bottomNavScrollRef}
-                className="portal-native-bottom-nav-scroll grid w-full min-w-0 pt-1"
+                className="portal-native-bottom-nav-scroll relative z-0 grid w-full min-w-0 pt-1"
                 style={{
                   gridTemplateColumns: `repeat(${nativeBottomNavItems.length + (showMoreTab ? 1 : 0)}, minmax(0, 1fr))`,
                 }}
