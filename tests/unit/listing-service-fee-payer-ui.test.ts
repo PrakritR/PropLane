@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { validateListingWizardStep } from "@/lib/listing-wizard-validation";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import {
+  LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED,
   listingPaymentWaiverCodeMatches,
   listingProplaneAbsorbNeedsWaiverCode,
   listingServiceFeePayerUiValue,
@@ -11,7 +12,7 @@ import {
 } from "@/lib/payment-policy";
 
 describe("listing service fee payer UI helpers", () => {
-  it("allows PropLane absorb on paid plans and on Free with FREE100", () => {
+  it("allows PropLane absorb on paid plans and on Free with an account waiver", () => {
     expect(managerCanSelectProplaneServiceFee("pro", false)).toBe(true);
     expect(managerCanSelectProplaneServiceFee("free", true)).toBe(true);
     expect(managerCanSelectProplaneServiceFee("free", false)).toBe(false);
@@ -28,12 +29,10 @@ describe("listing service fee payer UI helpers", () => {
     expect(listingServiceFeePayerUiValue(null, "free", true)).toBe("resident");
   });
 
-  it("requires a per-listing waiver code whenever PropLane absorb is selected", () => {
-    expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", false)).toBe(true);
-    expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", true)).toBe(false);
-    expect(listingProplaneAbsorbNeedsWaiverCode("pro", "proplane", false)).toBe(true);
+  it("never asks the listing wizard for a FREE100 box (PRP-421)", () => {
+    expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", false)).toBe(false);
+    expect(listingProplaneAbsorbNeedsWaiverCode("pro", "proplane", false)).toBe(false);
     expect(listingProplaneAbsorbNeedsWaiverCode("pro", "proplane", true)).toBe(false);
-    expect(listingProplaneAbsorbNeedsWaiverCode("pro", "resident", false)).toBe(false);
   });
 
   it("persists PropLane absorb with FREE100, account grant, or preserved codeless proplane", () => {
@@ -63,15 +62,15 @@ describe("listing service fee payer UI helpers", () => {
     });
   });
 
-  it("accepts only FREE100 as the listing waiver code", () => {
+  it("accepts only FREE100 as the listing waiver code (server/storage still)", () => {
     expect(listingPaymentWaiverCodeMatches("free100")).toBe(true);
     expect(listingPaymentWaiverCodeMatches("FREE 100")).toBe(true);
     expect(listingPaymentWaiverCodeMatches("wrong")).toBe(false);
   });
 });
 
-describe("listing wizard pricing — service fee waiver", () => {
-  it("blocks PropLane absorb on Free without a valid waiver code", () => {
+describe("listing wizard pricing — service fee payer (PRP-421)", () => {
+  it("blocks PropLane absorb on Free without an account waiver", () => {
     const sub = {
       ...createDefaultListingSubmission(),
       listingPlaceCategoryId: "individual_rooms",
@@ -82,7 +81,8 @@ describe("listing wizard pricing — service fee waiver", () => {
       managerSkuTier: "free",
       accountPaymentWaiverGranted: false,
     });
-    expect(errors.serviceFeeWaiverCode).toMatch(/waiver code PropLane gave you/i);
+    expect(errors.serviceFeePayer).toBe(LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED);
+    expect(errors.serviceFeeWaiverCode).toBeUndefined();
   });
 
   it("allows PropLane absorb on Free when the account already has a waiver grant", () => {
@@ -96,21 +96,22 @@ describe("listing wizard pricing — service fee waiver", () => {
       managerSkuTier: "free",
       accountPaymentWaiverGranted: true,
     });
+    expect(errors.serviceFeePayer).toBeUndefined();
     expect(errors.serviceFeeWaiverCode).toBeUndefined();
   });
 
-  it("allows PropLane absorb on Free when the listing waiver code matches", () => {
+  it("allows PropLane absorb on Pro without any listing waiver code", () => {
     const sub = {
       ...createDefaultListingSubmission(),
       listingPlaceCategoryId: "individual_rooms",
       allowedLeaseTerms: ["12_month"],
       serviceFeePayer: "proplane" as const,
-      serviceFeeWaiverCode: "FREE100",
     };
     const errors = validateListingWizardStep(4, sub, {
-      managerSkuTier: "free",
+      managerSkuTier: "pro",
       accountPaymentWaiverGranted: false,
     });
+    expect(errors.serviceFeePayer).toBeUndefined();
     expect(errors.serviceFeeWaiverCode).toBeUndefined();
   });
 });

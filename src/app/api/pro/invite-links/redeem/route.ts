@@ -37,6 +37,13 @@ export async function POST(req: Request) {
       alreadyRedeemed: result.alreadyRedeemed,
     });
   }
+  if (result.kind === "vendor") {
+    return NextResponse.json({
+      kind: "vendor",
+      vendorDirectoryId: result.vendorDirectoryId,
+      alreadyRedeemed: result.alreadyRedeemed,
+    });
+  }
   return NextResponse.json({
     kind: "manager",
     inviteId: result.inviteId,

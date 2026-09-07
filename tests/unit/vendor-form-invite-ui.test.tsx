@@ -25,6 +25,10 @@ vi.mock("@/lib/manager-vendor-invite-client", () => ({
   fetchManagerVendorRemovalDraft: vi.fn(),
 }));
 
+vi.mock("@/components/providers/app-ui-provider", () => ({
+  useAppUi: () => ({ showToast: vi.fn() }),
+}));
+
 describe("ManagerVendorFormModal invite flow", () => {
   afterEach(() => {
     cleanup();
@@ -43,6 +47,7 @@ describe("ManagerVendorFormModal invite flow", () => {
 
     expect(screen.getByRole("heading", { name: "Invite vendor" })).toBeInTheDocument();
     expect(screen.getByText("Invite by email")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Create Invite Link/i })).toBeInTheDocument();
     expect(screen.queryByText("Priority for this trade")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("e.g. Apex Plumbing"), {

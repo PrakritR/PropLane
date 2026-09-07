@@ -319,12 +319,26 @@ For **bugs**: role, URL, browser width, `/demo` yes/no.
 
 | Status | Meaning |
 | --- | --- |
-| **Backlog** | Idea or screenshot-only; not scheduled |
+| **Backlog** | Not actively coding; waiting or parked |
 | **Todo** | Spec complete, correct project + milestone + labels |
-| **In Progress** | Assignee actively coding |
-| **Done** | Shipped + verified on localhost:3011 or staging |
+| **In Progress** | Assignee is **actively** coding right now |
+| **Done** | **Verified fix on a keeper tip** — fix commit covers the whole ticket **and** `tsc` + unit tests are green on that tip |
 | **Canceled** | Won't do |
 | **Duplicate** | Link canonical PRP in comment |
+
+### Agent rule (standing order — captain 2026-09-07)
+
+1. **In Progress** while you are actively coding the ticket.
+2. When the fix commit covers the **whole** ticket and verification is green on the tip that contains the fix (`npx tsc --noEmit` clean + unit suite green), mark **Done** and comment the commit SHA.
+3. A partial fix (e.g. only 1 of 4 acceptance parts) stays **Backlog** / **In Progress** — do **not** mark Done.
+4. Do **not** move issues back to Backlog after another pane (or the captain) marked them Done for a verified tip.
+
+```bash
+npm run linear:comment -- --ticket PRP-### --sha <commit> --lane cursor-1
+# then set state to Done via GraphQL / Linear UI when the whole ticket is verified
+```
+
+Production promote is still captain-owned; **Done** here means verified on the agent/integration tip, not "live on prop-lane.space".
 
 ---
 
@@ -346,25 +360,25 @@ For **bugs**: role, URL, browser width, `/demo` yes/no.
 ## Epics and children
 
 - **PRP-102** — `[Epic] Unified messaging hub` lives in **06 / Epic — Unified hub**
-- Children PRP-103–109, 150, 151 stay under that parent; when a child ships, move
-  it to the specific milestone (SMS, Automation, etc.) and mark Done
+- Children PRP-103–109, 150, 151 stay under that parent; when a child is
+  **verified Done** on a keeper tip, move it to the specific milestone
 - Do not close PRP-102 until all children are Done or Canceled
 
 ---
 
 ## Dev / agent workflow
 
-1. Pull from **Todo** in your project milestone (Urgent → High first)
-2. **In Progress** + assign yourself
-3. Code on `cursor-2` → http://localhost:3011
+1. Pull from **Todo** / **Backlog** in your project milestone (Urgent → High first)
+2. **In Progress** while actively coding
+3. Code on your keeper branch → this pane's sandbox URL
 4. Read `docs/agents/<area>.md` before touching that subsystem
 5. Commit message includes `PRP-###`
-6. **Done** after happy path + edge checks (not `/demo` alone)
-7. Comment on issue: what shipped, how tested
+6. Happy path + edge checks on the sandbox (not `/demo` alone)
+7. When the commit covers the **whole** ticket and `tsc` + unit are green on that tip → comment SHA and mark **Done**
 
 ```bash
-cursor agent mcp login linear          # once per machine
-cursor agent mcp list                  # linear: ready
+npm run linear:comment -- --ticket PRP-### --sha <commit> --lane <keeper>
+# GraphQL via LINEAR_API_KEY — do not use Linear MCP for tickets/status
 ```
 
 ---

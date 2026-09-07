@@ -257,15 +257,18 @@ describe("minting a RESIDENT invite link", () => {
     expect(row.property_permissions).toEqual({});
   });
 
-  it("still refuses the vendor kind, which has nowhere to land", async () => {
+  it("mints a vendor link with no property grant and no co-manager plan gate", async () => {
     const result = await mintInviteLink(makeDb(), {
       actorUserId: "owner-1",
       kind: "vendor",
-      assignedPropertyIds: ["prop-1"],
+      assignedPropertyIds: [],
       propertyPermissions: {},
     });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.status).toBe(400);
+    expect(result.ok).toBe(true);
+    const row = inserted.manager_invite_links![0]!;
+    expect(row.kind).toBe("vendor");
+    expect(row.assigned_property_ids).toEqual([]);
+    expect(row.property_permissions).toEqual({});
   });
 });
 

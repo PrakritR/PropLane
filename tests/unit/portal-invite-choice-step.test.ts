@@ -29,13 +29,14 @@ describe("portal invite choice step", () => {
     expect(PANEL).not.toContain('useState<"link" | "axis">("link")');
   });
 
-  // A redeemed link can only ever create an `account_link_invites` co-manager row,
-  // so the vendor form must not offer a shareable link it has no way to honour.
-  it("keeps the vendor form on the email path with no shareable-link card", () => {
+  // Vendor shareable links mint `kind: "vendor"` and redeem into the manager's
+  // vendor directory (PRP-330) — same two-path shape as co-manager invites.
+  it("offers the vendor form a shareable-link card plus the email path", () => {
     expect(VENDOR).toContain("PortalInviteChoiceStep");
-    expect(VENDOR).not.toContain("onCreateInviteLink");
-    expect(VENDOR).not.toContain("ManagerInviteLinkModal");
-    expect(VENDOR).not.toContain('kind="vendor"');
+    expect(VENDOR).toContain("onCreateInviteLink");
+    expect(VENDOR).toContain("ManagerInviteLinkModal");
+    expect(VENDOR).toContain('kind="vendor"');
+    expect(VENDOR).toContain('inviteLinkDataAttr="vendor-create-invite-link"');
     expect(VENDOR).toContain('secondaryTitle="Invite by email"');
     expect(VENDOR).toContain("ManagerVendorEssentialFields");
     expect(VENDOR).toContain("ManagerVendorOptionalFields");
@@ -50,11 +51,10 @@ describe("portal invite choice step", () => {
     expect(CHOICE).toContain("if (!onCreateInviteLink)");
   });
 
-  // A redeemed link only ever yields a co-manager invite, so the mint modal has no
-  // vendor mode to render — the refusal is a compile-time fact, not a runtime 400.
-  it("mints co-manager links only", () => {
-    expect(MODAL).not.toContain("kind?: InviteLinkKind");
-    expect(MODAL).not.toContain("isManagerLink");
-    expect(MODAL).toContain('kind: "manager"');
+  // Co-manager and vendor share one modal; `kind` picks properties vs directory.
+  it("mints co-manager or vendor links from the same modal", () => {
+    expect(MODAL).toContain('kind?: "manager" | "vendor"');
+    expect(MODAL).toContain("isVendor");
+    expect(MODAL).toContain("assignedPropertyIds: isVendor ? [] : selectedPropIds");
   });
 });

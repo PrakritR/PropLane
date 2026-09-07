@@ -71,6 +71,22 @@ After filing a batch, run `npm run linear:triage` to normalize assignee + priori
 - Use Linear MCP or `cursor agent` for tickets.
 - Create tickets without project + milestone.
 - Put secrets in descriptions.
+- Mark **Done** for a **partial** fix (only some acceptance parts).
+- Move issues **back to Backlog** after a peer/captain marked them Done for a verified tip.
+
+## Status (agents)
+
+| When | Status |
+| --- | --- |
+| Actively coding this issue | **In Progress** |
+| Fix commit covers whole ticket + green `tsc`/unit on that tip | **Done** (+ comment SHA) |
+| Partial work / parked | **Backlog** |
+
+```bash
+npm run linear:comment -- --ticket PRP-### --sha <commit> --lane cursor-1
+```
+
+Full matrix: `docs/linear-ticket-system.md` → **Status workflow**.
 
 ## Auth
 

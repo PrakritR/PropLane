@@ -17,6 +17,7 @@ import { normalizeManagerSkuTier, type ManagerSkuTier } from "@/lib/manager-acce
 import {
   LISTING_PROCESSING_FEE_WAIVER_CODE_HELP,
   LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
+  SERVICE_FEE_PAYER_OPTION_LABELS,
   listingPaymentWaiverCodeMatches,
   managerCanSelectManagerAbsorbServiceFee,
   managerCanSelectProplaneServiceFee,
@@ -32,13 +33,6 @@ const SELECT_ALL_PROPERTIES = "__select_all_properties__";
 
 function draftFromSettings(settings: ManagerManualPaymentSettingsView | null): ManagerManualPaymentSettingsView {
   return settings ?? { ...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS, paymentInboxAddress: DEMO_INBOX };
-}
-
-function feePayerLabel(payer: ServiceFeePayer, skuTier: ManagerSkuTier | null, paymentWaiverGranted: boolean): string {
-  if (payer === "resident") return "Resident pays";
-  if (payer === "manager") return "I'll cover it";
-  if (payer === "proplane" && skuTier === "free" && paymentWaiverGranted) return "PropLane covers it";
-  return "PropLane covers it";
 }
 
 export function ManagerPaymentSetupModal({
@@ -334,17 +328,19 @@ export function ManagerPaymentSetupModal({
   const feePayerOptions = useMemo(
     () =>
       [
-        { value: "resident" as const, label: "Resident pays" },
+        { value: "resident" as const, label: SERVICE_FEE_PAYER_OPTION_LABELS.resident },
         {
           value: "manager" as const,
-          label: "I'll cover it",
+          label: canSelectManagerAbsorb
+            ? SERVICE_FEE_PAYER_OPTION_LABELS.manager
+            : `${SERVICE_FEE_PAYER_OPTION_LABELS.manager} — needs paid plan`,
           disabled: !canSelectManagerAbsorb,
         },
         ...(canSelectProplane
-          ? [{ value: "proplane" as const, label: feePayerLabel("proplane", tier, paymentWaiverGranted) }]
+          ? [{ value: "proplane" as const, label: SERVICE_FEE_PAYER_OPTION_LABELS.proplane }]
           : []),
       ],
-    [canSelectManagerAbsorb, canSelectProplane, paymentWaiverGranted, tier],
+    [canSelectManagerAbsorb, canSelectProplane],
   );
 
   const propertyMultiOptions = useMemo(() => {

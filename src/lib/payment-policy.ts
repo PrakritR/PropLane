@@ -177,22 +177,42 @@ export function listingPaymentWaiverCodeMatches(code: string | null | undefined)
   return normalized.length > 0 && normalized === LISTING_PAYMENT_WAIVER_CODE;
 }
 
-/** PropLane absorb in the listing wizard requires a per-listing waiver code unless the account already has one. */
+/**
+ * Whether the listing Pricing step should show a waiver-code field.
+ *
+ * Always false: PropLane shares grants out-of-band (account promo / Payment setup),
+ * never as a required FREE100 box on the listing wizard (PRP-421). Paid plans select
+ * PropLane absorb without a code; Free needs an account grant or a paid plan.
+ */
 export function listingProplaneAbsorbNeedsWaiverCode(
   _tier: ManagerSkuTier,
-  serviceFeePayer: ServiceFeePayer | null | undefined,
-  accountWaiverGranted: boolean,
+  _serviceFeePayer: ServiceFeePayer | null | undefined,
+  _accountWaiverGranted: boolean,
 ): boolean {
-  if (accountWaiverGranted) return false;
-  return serviceFeePayer === "proplane";
+  return false;
 }
 
-/** User-facing copy — never embed the literal comp code in the product UI. */
-export const LISTING_PROCESSING_FEE_WAIVER_CODE_HELP =
-  "PropLane will share a waiver code with you directly. Contact support if you do not have one.";
+/** Short labels for the Pricing / Payment setup selects (who pays Stripe's fee). */
+export const SERVICE_FEE_PAYER_OPTION_LABELS: Record<ServiceFeePayer, string> = {
+  resident: "Resident pays (added on top of rent)",
+  manager: "Manager pays (taken from your payout)",
+  proplane: "PropLane pays (neither of you is charged)",
+};
 
+/** Helper under the listing Pricing select. */
+export const LISTING_PROCESSING_FEE_PAYER_HELP =
+  "This is Stripe's card/ACH processing cost on each resident payment — not PropLane's subscription. On Pro and Business, PropLane can cover it. On Free, the resident pays unless PropLane has granted your account a waiver.";
+
+/** @deprecated Prefer Payment-setup waiver prompt help — never show FREE100 in product copy. */
+export const LISTING_PROCESSING_FEE_WAIVER_CODE_HELP =
+  "If PropLane gave you a waiver, enter it here. Paid plans can choose PropLane absorb without a code.";
+
+/** Shown when a typed waiver code does not match (Payment setup). Never print FREE100. */
 export const LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID =
-  "Enter the waiver code PropLane gave you.";
+  "That waiver code is not valid. Check with PropLane if you were given one.";
+
+export const LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED =
+  "PropLane absorb needs a paid plan (Pro/Business) or a PropLane waiver on this account.";
 
 /**
  * Who pays the processing fee on one payment.

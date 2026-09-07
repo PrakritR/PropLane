@@ -2,10 +2,14 @@
 /**
  * Cancel duplicate / empty-stub Linear issues and optionally mark shipped work Done.
  *
+ * CAPTAIN / ops only for MARK_DONE. Agents must NOT mark issues Done when a fix
+ * lands on a keeper branch — Done means live on production. Prefer:
+ *   npm run linear:comment -- --ticket PRP-### --sha <commit>
+ *
  *   node scripts/linear-cleanup.mjs --dry-run
  *   node scripts/linear-cleanup.mjs
  *
- * @see docs/linear-ticket-system.md → Monthly hygiene
+ * @see docs/linear-ticket-system.md → Status workflow / Monthly hygiene
  */
 
 import { linearGraphql, teamId } from "./linear/graphql.mjs";

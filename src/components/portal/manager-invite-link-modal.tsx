@@ -35,29 +35,31 @@ type ExistingLink = {
 };
 
 /**
- * Mint a shareable co-manager invite link.
+ * Mint a shareable invite link (co-manager or vendor).
  *
- * The order is the point, and it is the order the permission model needs: the
- * properties and the access are chosen FIRST and stored on the link, so the
- * person who opens it never names their own scope. The expiry and the use
- * budget are what make it safe to paste into a chat.
+ * Co-manager order is the point: properties and access are chosen FIRST and
+ * stored on the link, so the person who opens it never names their own scope.
+ * Vendor links skip property grants — they only join the vendor directory.
  */
 export function ManagerInviteLinkModal({
   open,
   onClose,
   propertyOptions,
+  kind = "manager",
   renderPermissionsEditor,
 }: {
   open: boolean;
   onClose: () => void;
   propertyOptions: CheckboxMultiSelectOption[];
-  /** Every link is a co-manager link — `redeemInviteLink` refuses any other kind. */
+  /** `manager` = co-manager access; `vendor` = vendor directory link (PRP-330). */
+  kind?: "manager" | "vendor";
   renderPermissionsEditor?: (
     value: CoManagerPermissions,
     onChange: (next: CoManagerPermissions) => void,
   ) => React.ReactNode;
 }) {
   const { showToast } = useAppUi();
+  const isVendor = kind === "vendor";
   const [selectedPropIds, setSelectedPropIds] = useState<string[]>([]);
   const [permissions, setPermissions] = useState<PropertyCoManagerPermissions>({});
   const [label, setLabel] = useState("");
@@ -73,11 +75,11 @@ export function ManagerInviteLinkModal({
       const res = await fetch("/api/pro/invite-links", { credentials: "include", cache: "no-store" });
       if (!res.ok) return;
       const body = (await res.json()) as { links?: ExistingLink[] };
-      setLinks((body.links ?? []).filter((link) => link.kind === "manager"));
+      setLinks((body.links ?? []).filter((link) => link.kind === kind));
     } catch {
       /* the list is a convenience; a failed load must not block minting */
     }
-  }, []);
+  }, [kind]);
 
   useEffect(() => {
     if (!open) return;
@@ -106,10 +108,10 @@ export function ManagerInviteLinkModal({
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          kind: "manager",
+          kind,
           label: label.trim() || undefined,
-          assignedPropertyIds: selectedPropIds,
-          propertyPermissions: permissions,
+          assignedPropertyIds: isVendor ? [] : selectedPropIds,
+          propertyPermissions: isVendor ? {} : permissions,
           expiry,
           uses,
         }),
@@ -181,20 +183,25 @@ export function ManagerInviteLinkModal({
 
   // With houses on the account, require at least one grant. With none yet, allow
   // minting an empty-scope link so a brand-new manager can still invite (PRP-419).
-  const mintDisabled = propertyOptions.length > 0 && selectedPropIds.length === 0;
+  // Vendor links never need properties.
+  const mintDisabled = !isVendor && propertyOptions.length > 0 && selectedPropIds.length === 0;
 
   return (
     <Modal
       open={open}
-      title="Create an invite link"
-      description="Anyone who opens this link joins with exactly the access you set here."
-      assistantContext="Co-manager invite link"
-      assistantStorageScopeKey="Co-manager invite link"
+      title={isVendor ? "Create a vendor invite link" : "Create an invite link"}
+      description={
+        isVendor
+          ? "Anyone who opens this link joins your vendor directory on PropLane."
+          : "Anyone who opens this link joins with exactly the access you set here."
+      }
+      assistantContext={isVendor ? "Vendor invite link" : "Co-manager invite link"}
+      assistantStorageScopeKey={isVendor ? "Vendor invite link" : "Co-manager invite link"}
       onClose={() => {
         reset();
         onClose();
       }}
-      dataAttr="manager-invite-link-modal"
+      dataAttr={isVendor ? "vendor-invite-link-modal" : "manager-invite-link-modal"}
       footer={
         <ModalFooter>
           {mintedUrl ? (
@@ -239,42 +246,46 @@ export function ManagerInviteLinkModal({
           </div>
         ) : (
           <>
-            <div>
-              {propertyOptions.length === 0 ? (
-                <p className="rounded-xl border border-border bg-accent/30 px-4 py-3 text-sm text-muted">
-                  No properties yet. You can still create a link and assign houses later.
-                </p>
-              ) : (
-                <CheckboxMultiSelect
-                  label="Properties this link grants access to"
-                  labelClassName="text-xs font-semibold uppercase tracking-wide text-muted"
-                  options={propertyOptions}
-                  selected={selectedPropIds}
-                  onChange={setPropertySelection}
-                  emptyLabel="Select properties…"
-                  searchPlaceholder="Search properties…"
-                  dataAttr="invite-link-properties"
-                />
-              )}
-            </div>
+            {!isVendor ? (
+              <>
+                <div>
+                  {propertyOptions.length === 0 ? (
+                    <p className="rounded-xl border border-border bg-accent/30 px-4 py-3 text-sm text-muted">
+                      No properties yet. You can still create a link and assign houses later.
+                    </p>
+                  ) : (
+                    <CheckboxMultiSelect
+                      label="Properties this link grants access to"
+                      labelClassName="text-xs font-semibold uppercase tracking-wide text-muted"
+                      options={propertyOptions}
+                      selected={selectedPropIds}
+                      onChange={setPropertySelection}
+                      emptyLabel="Select properties…"
+                      searchPlaceholder="Search properties…"
+                      dataAttr="invite-link-properties"
+                    />
+                  )}
+                </div>
 
-            {renderPermissionsEditor
-              ? selectedPropIds.map((pid) => (
-                  <div key={pid} className="rounded-xl border border-border bg-accent/25 p-4">
-                    <p className="text-sm font-semibold text-foreground">
-                      {propertyOptions.find((o) => o.value === pid)?.label ?? "Property"}
-                    </p>
-                    <p className="mt-0.5 text-xs text-muted">
-                      {describeCoManagerPermissions(permissions[pid] ?? {})}
-                    </p>
-                    <div className="mt-3">
-                      {renderPermissionsEditor(permissions[pid] ?? {}, (next) =>
-                        setPermissions((prev) => ({ ...prev, [pid]: next })),
-                      )}
-                    </div>
-                  </div>
-                ))
-              : null}
+                {renderPermissionsEditor
+                  ? selectedPropIds.map((pid) => (
+                      <div key={pid} className="rounded-xl border border-border bg-accent/25 p-4">
+                        <p className="text-sm font-semibold text-foreground">
+                          {propertyOptions.find((o) => o.value === pid)?.label ?? "Property"}
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted">
+                          {describeCoManagerPermissions(permissions[pid] ?? {})}
+                        </p>
+                        <div className="mt-3">
+                          {renderPermissionsEditor(permissions[pid] ?? {}, (next) =>
+                            setPermissions((prev) => ({ ...prev, [pid]: next })),
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  : null}
+              </>
+            ) : null}
 
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-xs font-semibold uppercase tracking-wide text-muted">
@@ -315,7 +326,7 @@ export function ManagerInviteLinkModal({
                 className="mt-1.5"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
-                placeholder="e.g. Seattle team"
+                placeholder={isVendor ? "e.g. Plumbing crew" : "e.g. Seattle team"}
               />
             </label>
           </>
