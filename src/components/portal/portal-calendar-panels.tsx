@@ -82,7 +82,15 @@ import {
   type ScheduledTourFilter,
 } from "@/lib/co-manager-calendar";
 import { buildScheduledTourMeetings } from "@/lib/manager-calendar-tour-meetings";
-import { isGoogleCalendarPrivateBlock, meetingCalendarGridLabel, calendarMeetingSupportsDelete, isPropPlaneGoogleTourMeeting, scheduledCalendarMeetings } from "@/lib/google-calendar/meetings";
+import {
+  calendarMeetingSupportsDelete,
+  googleBusyBlockStatusLabel,
+  isGoogleCalendarPrivateBlock,
+  isPropPlaneGoogleTourMeeting,
+  meetingCalendarGridLabel,
+  meetingCalendarGridTooltip,
+  scheduledCalendarMeetings,
+} from "@/lib/google-calendar/meetings";
 import { deleteProplaneGoogleTourFromServer } from "@/lib/google-calendar/delete-tour.client";
 import {
   cancelPlannedTourFromServer,
@@ -473,7 +481,11 @@ export type DemoMeeting = {
   sourceTaskId?: string;
   hostLabel?: string;
   isPeerTour?: boolean;
-  /** Personal Google Calendar busy time — title/details must not be shown in the UI. */
+  /**
+   * Personal Google Calendar busy time. `title` is the event's own summary and
+   * is shown ONLY to the manager whose calendar it is (the events route answers
+   * for the signed-in account alone); no attendees or description are carried.
+   */
   googleCalendarPrivate?: boolean;
   /** Google `eventType` metadata rows (working location, birthday) — never paint or block. */
   googleCalendarInformational?: boolean;
@@ -1440,7 +1452,15 @@ export function PortalCalendarPanels({
           setMeetingRefresh((n) => n + 1);
           onMeetingsChanged?.();
           reloadAvailability();
-          if (skipMessage) {
+          if (result.calendarSync?.ok === false) {
+            // Same warning the cancel path gives: the tour is booked and the
+            // guest told, but the manager's own Google Calendar has no entry.
+            showToast(
+              skipMessage
+                ? "Tour confirmed, but your Google Calendar did not update."
+                : "Tour confirmed and the guest was notified, but your Google Calendar did not update.",
+            );
+          } else if (skipMessage) {
             showToast("Tour confirmed (no guest notification sent).");
           } else if (result.notificationSkipped) {
             showToast(
@@ -2795,7 +2815,9 @@ export function PortalCalendarPanels({
                       ? canEditAvailability
                         ? "Open for tours by default — click to remove this time"
                         : "Open for tours by default. Select one house to edit availability."
-                      : undefined
+                      : meeting
+                        ? `${meetingCalendarGridTooltip(meeting)} · ${formatRangeLabel(meeting.startIso, meeting.endIso)}`
+                        : undefined
                   }
                   aria-label={
                     defaultOpen
@@ -2815,7 +2837,7 @@ export function PortalCalendarPanels({
                     ) : (
                       <span className="block truncate opacity-70">
                         {isGoogleCalendarPrivateBlock(meeting)
-                          ? meetingCalendarGridLabel(meeting)
+                          ? googleBusyBlockStatusLabel(meeting)
                           : meeting.statusLabel}
                       </span>
                     )

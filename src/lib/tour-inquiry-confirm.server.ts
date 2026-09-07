@@ -10,6 +10,10 @@
  * drift apart on double-booking protection.
  */
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
+import {
+  runPlannedTourCalendarSync,
+  type PlannedTourCalendarSync,
+} from "@/lib/google-calendar/planned-tour-sync.server";
 import { syncPlannedTourToGoogleCalendar } from "@/lib/google-calendar/sync.server";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -128,6 +132,8 @@ export type ConfirmTourResult =
       plannedEvent: Record<string, unknown>;
       message: string;
       tenantNotification: { ok: boolean; skipped?: boolean; error?: string } | null;
+      /** The push onto the manager's linked Google Calendar; `skipped` when none is linked. */
+      calendarSync: PlannedTourCalendarSync;
     }
   | { ok: false; status: number; error: string };
 
@@ -365,18 +371,26 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     );
   }
 
-  void syncPlannedTourToGoogleCalendar(db, managerUserId, {
-    plannedEventId: String(plannedEvent.id),
-    title: String(plannedEvent.title),
-    start,
-    end,
-    propertyTitle: textField(row, "propertyTitle") || undefined,
-    attendeeName: textField(row, "name") || undefined,
-    attendeeEmail: textField(row, "email") || undefined,
-    attendeePhone: textField(row, "phone") || undefined,
-    notes: textField(row, "notes") || undefined,
-    instructions: instructions || undefined,
-  }).catch(() => undefined);
+  // Awaited, never fire-and-forget: a serverless runtime can freeze the
+  // instance the moment the response is returned, and a `void` push here left
+  // the manager's Google Calendar with no entry for a tour PropLane had already
+  // told the guest was confirmed. Bounded and classified so a Google failure
+  // is reported on the result rather than failing a booking that already
+  // landed — the same contract as cancel and reschedule.
+  const calendarSync = await runPlannedTourCalendarSync(() =>
+    syncPlannedTourToGoogleCalendar(db, managerUserId, {
+      plannedEventId: String(plannedEvent.id),
+      title: String(plannedEvent.title),
+      start,
+      end,
+      propertyTitle: textField(row, "propertyTitle") || undefined,
+      attendeeName: textField(row, "name") || undefined,
+      attendeeEmail: textField(row, "email") || undefined,
+      attendeePhone: textField(row, "phone") || undefined,
+      notes: textField(row, "notes") || undefined,
+      instructions: instructions || undefined,
+    }),
+  );
 
   void createPrepareForTourTask(db, managerUserId, {
     inquiryId: id,
@@ -388,5 +402,5 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     plannedEventId: String(plannedEvent.id),
   }).catch(() => undefined);
 
-  return { ok: true, plannedEvent, message: formatRangeLabel(start, end), tenantNotification };
+  return { ok: true, plannedEvent, message: formatRangeLabel(start, end), tenantNotification, calendarSync };
 }
