@@ -3096,19 +3096,21 @@ export function ManagerResidents({
         // button. Same reasoning as the Leases pipeline panel.
         sendToResidentDisabled={false}
         onMoveToManagerReview={() => {
-          const moveResult = sendLeaseBackToManager(residentLease.id, userId);
-          if (!moveResult.ok) {
-            showToast(moveResult.error);
-            return;
-          }
-          appendLeaseThreadMessage(
-            residentLease.id,
-            "manager",
-            "Moved lease back to manager review.",
-            userId,
-          );
-          setLeaseTick((n) => n + 1);
-          showToast("Lease moved to Manager Review.");
+          void (async () => {
+            const moveResult = await sendLeaseBackToManager(residentLease.id, userId);
+            if (!moveResult.ok) {
+              showToast(moveResult.error);
+              return;
+            }
+            appendLeaseThreadMessage(
+              residentLease.id,
+              "manager",
+              "Moved lease back to manager review.",
+              userId,
+            );
+            setLeaseTick((n) => n + 1);
+            showToast("Lease moved to Manager Review.");
+          })();
         }}
         canEditDocument={leaseAllowsManagerDocumentEdits(residentLease)}
         generateLeaseDisabled={!leaseGenerationSupportedForRow(residentLease).ok}
