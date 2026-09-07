@@ -305,6 +305,31 @@ export function ManagerLeasesPipelinePanel({
         leaseAllowsManagerDocumentEdits(singleSelectedLeaseRow),
     );
 
+  const bulkSingleRowActions =
+    selectedLeaseRows.length === 1 && singleSelectedLeaseRow ? singleSelectedLeaseRow : null;
+  const bulkMoveToReviewRow =
+    bulkSingleRowActions?.status === "Resident Signature Pending" ? bulkSingleRowActions : null;
+  const bulkSigningReminderRow =
+    bulkSingleRowActions?.status === "Resident Signature Pending" ? bulkSingleRowActions : null;
+  const bulkManagerSignRow =
+    bulkSingleRowActions &&
+    !bulkSingleRowActions.managerSignature &&
+    residentHasSignedLease(bulkSingleRowActions)
+      ? bulkSingleRowActions
+      : null;
+  const bulkReviewImportRow =
+    bulkSingleRowActions?.uploadedLeaseParse ? bulkSingleRowActions : null;
+  const bulkRenewalsRow =
+    bulkSingleRowActions &&
+    hasBothLeaseSignatures(bulkSingleRowActions) &&
+    bulkSingleRowActions.status === "Fully Signed"
+      ? bulkSingleRowActions
+      : null;
+  const bulkReviewImportLabel =
+    bulkReviewImportRow && leaseNeedsUploadedLeaseReviewAction(bulkReviewImportRow)
+      ? "Review import"
+      : "Imported lease";
+
   const openBulkSendLeasePreview = useCallback(() => {
     if (bulkSendableLeaseRows.length === 0) {
       showToast("None of the selected leases can be sent. Each needs a document, resident account, and no review blockers.");
@@ -1205,6 +1230,73 @@ export function ManagerLeasesPipelinePanel({
                     singleSelectedLeaseRow.propertyId
                   }
                 />
+              ) : null}
+              {bulkMoveToReviewRow ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="leases-bulk-move-review"
+                  onClick={() => onMoveToManagerReview(bulkMoveToReviewRow)}
+                >
+                  Move to review
+                </Button>
+              ) : null}
+              {bulkSigningReminderRow ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="leases-bulk-signing-reminder"
+                  disabled={reminderBusyForRow === bulkSigningReminderRow.id}
+                  onClick={() => openLeaseSigningReminderPreview(bulkSigningReminderRow)}
+                >
+                  {reminderBusyForRow === bulkSigningReminderRow.id ? "Sending…" : "Send reminder"}
+                </Button>
+              ) : null}
+              {bulkManagerSignRow ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="leases-bulk-sign"
+                  onClick={() => onManagerSign(bulkManagerSignRow)}
+                >
+                  Sign
+                </Button>
+              ) : null}
+              {bulkReviewImportRow ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="leases-bulk-review-import"
+                  onClick={() => setImportReviewRowId(bulkReviewImportRow.id)}
+                >
+                  {bulkReviewImportLabel}
+                </Button>
+              ) : null}
+              {bulkRenewalsRow ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={PORTAL_BULK_BAR_BTN}
+                    data-attr="leases-bulk-renew"
+                    onClick={() => setAmendLeaseRow(bulkRenewalsRow)}
+                  >
+                    Renew lease
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={PORTAL_BULK_BAR_BTN}
+                    data-attr="leases-bulk-extend"
+                    onClick={() => setAmendLeaseRow(bulkRenewalsRow)}
+                  >
+                    Extend move-out
+                  </Button>
+                </>
               ) : null}
             </>
           ) : null
