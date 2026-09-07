@@ -13,6 +13,10 @@ import {
 } from "@/lib/demo-property-pipeline";
 import { effectiveApplicationForRow, readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { isEntireHomeListing, normalizeManagerListingSubmissionV1, resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
+import {
+  applicationHoldsRoomPublicly,
+  executedApplicationIdsForManager,
+} from "@/lib/rental-application/room-public-occupancy-eligibility";
 import { bundleShortTermPriceLabel } from "@/lib/listing-bundle-short-term";
 import {
   LEASE_TERM_CHOICES,
@@ -132,8 +136,10 @@ function approvedOccupancyForRoom(roomChoiceValue: string, excludeApplicationId?
   })));
   const parsedTarget = parseRoomChoiceValue(roomChoiceValue);
   const normalizedTarget = roomChoiceValue.trim();
+  const executedApplicationIds = executedApplicationIdsForManager();
   return readManagerApplicationRows()
     .filter((row) => row.bucket === "approved" && !row.withdrawnAt && row.id !== excludeApplicationId)
+    .filter((row) => applicationHoldsRoomPublicly(row, executedApplicationIds))
     .map((row) => {
       const effective = effectiveApplicationForRow(row);
       const assignedChoice = row.assignedRoomChoice?.trim() || effective?.roomChoice1?.trim() || "";
@@ -166,9 +172,7 @@ function approvedOccupancyForRoom(roomChoiceValue: string, excludeApplicationId?
       const manualEnd = parseFlexibleLocalDate(row.manualResidentDetails?.moveOutDate);
       const appStart = parseFlexibleLocalDate(effective?.leaseStart);
       const appEnd = parseFlexibleLocalDate(effective?.leaseEnd);
-      // When no explicit start date exists but the resident has a definitive room assignment,
-      // treat them as currently occupying from today with no known end date.
-      const currentStart = manualStart ?? appStart ?? (row.assignedRoomChoice?.trim() ? startOfToday() : null);
+      const currentStart = manualStart ?? appStart ?? null;
       const floor = parseFlexibleLocalDate(row.occupancyStartedOn);
       const leaseStart = floor && currentStart && floor < currentStart ? floor : currentStart;
       const leaseEnd = manualEnd ?? appEnd;
@@ -630,7 +634,7 @@ export function getDemoRoomAvailabilityMessage(
   if (!room) return null;
   return isRoomChoiceAvailable(roomId, room.available, { leaseStart, leaseEnd: endForCheck })
     ? null
-    : "This room is not available for the selected lease dates. Choose another room or adjust your dates.";
+    : "This room is not available for your selected dates. Choose another room or adjust your move-in dates.";
 }
 
 export function applyApprovedAvailabilityToRichContent(property: MockProperty, rich: ListingRichContent): ListingRichContent {

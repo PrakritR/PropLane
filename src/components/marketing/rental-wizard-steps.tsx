@@ -1036,8 +1036,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
         </WizardFieldGate>
         {showAvailabilityWarnings && showWizardField("roomChoice1") && room1ApprovedConflict ? (
           <p className="rounded-xl border px-4 py-3 text-sm portal-banner-pending">
-            Warning: your first-choice room does not appear available for the selected move-in dates, but you can still submit
-            this application.
+            This room is not available for your selected dates. Choose another room or adjust your move-in dates before
+            applying.
           </p>
         ) : null}
         {showAvailabilityWarnings && showWizardField("roomChoice1") && !room1ApprovedConflict && room1PendingConflict ? (

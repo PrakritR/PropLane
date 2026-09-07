@@ -11,16 +11,30 @@ type TestRow = {
   id: string;
   bucket: string;
   assignedRoomChoice?: string;
+  manuallyAdded?: boolean;
   application?: { roomChoice1?: string; leaseStart?: string; leaseEnd?: string | null };
 };
 
 const rows: TestRow[] = [];
+const leaseRows: Record<string, unknown>[] = [];
 let roomCapacity: number | undefined;
 
-vi.mock("@/lib/manager-applications-storage", () => ({
-  readManagerApplicationRows: () => rows,
-  effectiveApplicationForRow: (row: TestRow) => row.application,
-}));
+vi.mock("@/lib/manager-applications-storage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/manager-applications-storage")>();
+  return {
+    ...actual,
+    readManagerApplicationRows: () => rows,
+    effectiveApplicationForRow: (row: TestRow) => row.application,
+  };
+});
+
+vi.mock("@/lib/lease-pipeline-storage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/lease-pipeline-storage")>();
+  return {
+    ...actual,
+    readLeasePipeline: () => leaseRows.map((row) => actual.normalizeLeasePipelineRow(row)),
+  };
+});
 
 vi.mock("@/lib/demo-property-pipeline", () => ({
   buildMockPropertyFromDraft: () => undefined,
@@ -68,9 +82,48 @@ function approved(id: string, leaseStart: string, leaseEnd: string | null): Test
   return { id, bucket: "approved", assignedRoomChoice: ROOM, application: { leaseStart, leaseEnd } };
 }
 
+function executedLease(appId: string) {
+  leaseRows.push({
+    id: `lease_${appId}`,
+    residentName: "Resident",
+    residentEmail: "resident@test.com",
+    unit: "A",
+    updated: "2026-01-01",
+    bucket: "signed",
+    pdfVersion: 1,
+    notes: "",
+    updatedAtIso: "2026-01-01T00:00:00Z",
+    axisId: appId,
+    fullySignedAt: "2026-01-01T00:00:00Z",
+    status: "Fully Signed",
+    thread: [],
+    managerSignature: { role: "manager", name: "Manager", signedAtIso: "2026-01-01" },
+    residentSignature: { role: "resident", name: "Resident", signedAtIso: "2026-01-01" },
+  });
+}
+
+function holdingResident(id: string, leaseStart: string, leaseEnd: string | null) {
+  rows.push(approved(id, leaseStart, leaseEnd));
+  executedLease(id);
+}
+
 beforeEach(() => {
   rows.length = 0;
+  leaseRows.length = 0;
   roomCapacity = undefined;
+});
+
+describe("unsigned approvals do not block public availability", () => {
+  it("keeps the room available when approved but not yet signed", () => {
+    rows.push(approved("app-1", "2026-03-01", "2026-06-30"));
+    expect(isRoomChoiceAvailable(ROOM, "Now", { leaseStart: "2026-04-01", leaseEnd: "2026-04-30" })).toBe(true);
+    expect(getRoomUnavailabilityWindows(ROOM)).toEqual([]);
+  });
+
+  it("manual residents still block without a signed lease", () => {
+    rows.push({ ...approved("app-1", "2026-01-01", "2026-12-31"), manuallyAdded: true });
+    expect(isRoomChoiceAvailable(ROOM, "Now", { leaseStart: "2026-04-01", leaseEnd: "2026-04-30" })).toBe(false);
+  });
 });
 
 describe("a single-occupancy room is completely unchanged", () => {
@@ -78,14 +131,14 @@ describe("a single-occupancy room is completely unchanged", () => {
     expect(isRoomChoiceAvailable(ROOM, "Now", { leaseStart: "2026-04-01", leaseEnd: "2026-04-30" })).toBe(true);
   });
 
-  it("becomes unavailable the moment one resident overlaps — the pre-existing rule", () => {
-    rows.push(approved("app-1", "2026-03-01", "2026-06-30"));
+  it("becomes unavailable the moment one signed resident overlaps — the pre-existing rule", () => {
+    holdingResident("app-1", "2026-03-01", "2026-06-30");
     expect(isRoomChoiceAvailable(ROOM, "Now", { leaseStart: "2026-04-01", leaseEnd: "2026-04-30" })).toBe(false);
     expect(isRoomApprovedConflict(ROOM, "2026-04-01", "2026-04-30")).toBe(true);
   });
 
   it("frees up the day after an inclusive end date", () => {
-    rows.push(approved("app-1", "2026-03-01", "2026-03-31"));
+    holdingResident("app-1", "2026-03-01", "2026-03-31");
     expect(isRoomChoiceAvailable(ROOM, "Now", { leaseStart: "2026-04-01", leaseEnd: "2026-04-30" })).toBe(true);
   });
 });
@@ -96,27 +149,27 @@ describe("a room configured for two residents", () => {
   });
 
   it("still has a bed while only one is taken — the whole point of the feature", () => {
-    rows.push(approved("app-1", "2026-03-01", "2026-06-30"));
+    holdingResident("app-1", "2026-03-01", "2026-06-30");
     expect(isRoomChoiceAvailable(ROOM, "Now", { leaseStart: "2026-04-01", leaseEnd: "2026-04-30" })).toBe(true);
     expect(isRoomApprovedConflict(ROOM, "2026-04-01", "2026-04-30")).toBe(false);
   });
 
   it("refuses a third resident once both beds overlap the request", () => {
-    rows.push(approved("app-1", "2026-03-01", "2026-06-30"));
-    rows.push(approved("app-2", "2026-03-15", "2026-08-31"));
+    holdingResident("app-1", "2026-03-01", "2026-06-30");
+    holdingResident("app-2", "2026-03-15", "2026-08-31");
     expect(isRoomChoiceAvailable(ROOM, "Now", { leaseStart: "2026-04-01", leaseEnd: "2026-04-30" })).toBe(false);
   });
 
   it("counts PEAK occupancy, so two consecutive single stays leave a bed free", () => {
     // A long search window spans both stays, but they never coincide.
-    rows.push(approved("app-1", "2026-01-01", "2026-03-31"));
-    rows.push(approved("app-2", "2026-06-01", "2026-09-30"));
+    holdingResident("app-1", "2026-01-01", "2026-03-31");
+    holdingResident("app-2", "2026-06-01", "2026-09-30");
     expect(isRoomChoiceAvailable(ROOM, "Now", { leaseStart: "2026-01-01", leaseEnd: "2026-12-31" })).toBe(true);
   });
 
   it("excludes the application being edited so a resident never blocks themselves", () => {
-    rows.push(approved("app-1", "2026-03-01", "2026-06-30"));
-    rows.push(approved("app-2", "2026-03-01", "2026-06-30"));
+    holdingResident("app-1", "2026-03-01", "2026-06-30");
+    holdingResident("app-2", "2026-03-01", "2026-06-30");
     expect(
       isRoomChoiceAvailable(ROOM, "Now", {
         leaseStart: "2026-04-01",
@@ -127,9 +180,9 @@ describe("a room configured for two residents", () => {
   });
 
   it("treats an open-ended resident as occupying one bed indefinitely", () => {
-    rows.push(approved("app-1", "2026-01-01", null));
+    holdingResident("app-1", "2026-01-01", null);
     expect(isRoomChoiceAvailable(ROOM, "Now", { leaseStart: "2030-01-01", leaseEnd: "2030-12-31" })).toBe(true);
-    rows.push(approved("app-2", "2026-01-01", null));
+    holdingResident("app-2", "2026-01-01", null);
     expect(isRoomChoiceAvailable(ROOM, "Now", { leaseStart: "2030-01-01", leaseEnd: "2030-12-31" })).toBe(false);
   });
 
@@ -140,11 +193,13 @@ describe("a room configured for two residents", () => {
       assignedRoomChoice: "prop-1::r2",
       application: { leaseStart: "2026-01-01", leaseEnd: "2026-12-31" },
     });
-    rows.push(approved("app-1", "2026-01-01", "2026-12-31"));
-    rows.push(approved("app-2", "2026-01-01", "2026-12-31"));
+    executedLease("app-other");
+    holdingResident("app-1", "2026-01-01", "2026-12-31");
+    holdingResident("app-2", "2026-01-01", "2026-12-31");
     // Only the two in r1 count; the r2 resident must not push it over capacity.
     expect(isRoomChoiceAvailable(ROOM, "Now", { leaseStart: "2026-04-01", leaseEnd: "2026-04-30" })).toBe(false);
     rows.splice(rows.findIndex((r) => r.id === "app-2"), 1);
+    leaseRows.splice(leaseRows.findIndex((r) => r.axisId === "app-2"), 1);
     expect(isRoomChoiceAvailable(ROOM, "Now", { leaseStart: "2026-04-01", leaseEnd: "2026-04-30" })).toBe(true);
   });
 });
@@ -152,14 +207,14 @@ describe("a room configured for two residents", () => {
 describe("what the manager and prospect are shown agrees with the gate", () => {
   it("reports no unavailable window while a bed is still free", () => {
     roomCapacity = 2;
-    rows.push(approved("app-1", "2026-01-01", "2026-12-31"));
+    holdingResident("app-1", "2026-01-01", "2026-12-31");
     expect(getRoomUnavailabilityWindows(ROOM)).toEqual([]);
   });
 
   it("reports the stretch where BOTH beds are taken, not one window per resident", () => {
     roomCapacity = 2;
-    rows.push(approved("app-1", "2026-01-01", "2026-06-30"));
-    rows.push(approved("app-2", "2026-04-01", "2026-09-30"));
+    holdingResident("app-1", "2026-01-01", "2026-06-30");
+    holdingResident("app-2", "2026-04-01", "2026-09-30");
     const windows = getRoomUnavailabilityWindows(ROOM);
     expect(windows).toHaveLength(1);
     expect(windows[0]!.start).toEqual(new Date(2026, 3, 1));
@@ -168,7 +223,7 @@ describe("what the manager and prospect are shown agrees with the gate", () => {
   });
 
   it("keeps a capacity-1 room's window wording as it has always read", () => {
-    rows.push(approved("app-1", "2026-01-01", "2026-06-30"));
+    holdingResident("app-1", "2026-01-01", "2026-06-30");
     const windows = getRoomUnavailabilityWindows(ROOM);
     expect(windows).toHaveLength(1);
     expect(windows[0]!.label).toContain("Occupied");
@@ -176,15 +231,15 @@ describe("what the manager and prospect are shown agrees with the gate", () => {
 
   it("does not label a partly-filled shared room as occupied", () => {
     roomCapacity = 2;
-    rows.push(approved("app-1", "2020-01-01", null));
+    holdingResident("app-1", "2020-01-01", null);
     // One resident, two beds: a prospect must not be told the room is taken.
     expect(effectiveRoomAvailabilityLabel(ROOM, "Now")).toBe("Available now");
   });
 
   it("still labels a FULL shared room as unavailable", () => {
     roomCapacity = 2;
-    rows.push(approved("app-1", "2020-01-01", null));
-    rows.push(approved("app-2", "2020-01-01", null));
+    holdingResident("app-1", "2020-01-01", null);
+    holdingResident("app-2", "2020-01-01", null);
     expect(effectiveRoomAvailabilityLabel(ROOM, "Now")).toBe("Unavailable (occupied)");
   });
 });
@@ -197,15 +252,15 @@ describe("bed counts shown to a prospect", () => {
 
   it("counts down as beds fill", () => {
     roomCapacity = 2;
-    rows.push(approved("app-1", "2020-01-01", null));
+    holdingResident("app-1", "2020-01-01", null);
     expect(roomBedAvailability(ROOM)).toEqual({ capacity: 2, remaining: 1 });
-    rows.push(approved("app-2", "2020-01-01", null));
+    holdingResident("app-2", "2020-01-01", null);
     expect(roomBedAvailability(ROOM)).toEqual({ capacity: 2, remaining: 0 });
   });
 
   it("reads a single room as one bed, which is what the old flat label assumed", () => {
     expect(roomBedAvailability(ROOM)).toEqual({ capacity: 1, remaining: 1 });
-    rows.push(approved("app-1", "2020-01-01", null));
+    holdingResident("app-1", "2020-01-01", null);
     expect(roomBedAvailability(ROOM)).toEqual({ capacity: 1, remaining: 0 });
   });
 });

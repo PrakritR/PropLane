@@ -27,6 +27,7 @@ const APPROVED_APPLICATION = {
   property: "p1",
   application_property: "p1",
   withdrawn: null,
+  manually_added: false,
   choice: "p1::r1",
   preferred: "p1::r1",
   manual_room: "Room A",
@@ -36,8 +37,29 @@ const APPROVED_APPLICATION = {
   lease_end: "2026-08-31",
 };
 
-/** `manager_property_records` resolves on `.in()`; applications resolve on `.range()`. */
-function fakeDb(opts: { properties: unknown[]; applications: unknown[] }) {
+const EXECUTED_LEASE = {
+  manager_user_id: "mgr-1",
+  row_data: {
+    id: "lease_app-1",
+    residentName: "Resident",
+    residentEmail: "resident@test.com",
+    unit: "A",
+    updated: "2026-01-01",
+    bucket: "signed",
+    pdfVersion: 1,
+    notes: "",
+    updatedAtIso: "2026-01-01T00:00:00Z",
+    axisId: "app-1",
+    fullySignedAt: "2026-01-01T00:00:00Z",
+    status: "Fully Signed",
+    thread: [],
+    managerSignature: { role: "manager", name: "Manager", signedAtIso: "2026-01-01" },
+    residentSignature: { role: "resident", name: "Resident", signedAtIso: "2026-01-01" },
+  },
+};
+
+/** `manager_property_records` resolves on `.in()`; applications and leases on `.range()`. */
+function fakeDb(opts: { properties: unknown[]; applications: unknown[]; leases?: unknown[] }) {
   const chain = (terminal: string, value: unknown) => {
     const node: Record<string, unknown> = {};
     for (const key of ["select", "eq", "in", "order", "range"]) {
@@ -46,10 +68,11 @@ function fakeDb(opts: { properties: unknown[]; applications: unknown[] }) {
     return node;
   };
   return {
-    from: (table: string) =>
-      table === "manager_property_records"
-        ? chain("in", opts.properties)
-        : chain("range", opts.applications),
+    from: (table: string) => {
+      if (table === "manager_property_records") return chain("in", opts.properties);
+      if (table === "portal_lease_pipeline_records") return chain("range", opts.leases ?? []);
+      return chain("range", opts.applications);
+    },
   } as never;
 }
 
@@ -61,7 +84,11 @@ describe("GET /api/public/approved-room-occupancy", () => {
 
   it("returns aggregate capacity spans and no applicant identity", async () => {
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
-      fakeDb({ properties: [{ id: "p1", manager_user_id: "mgr-1" }], applications: [APPROVED_APPLICATION] }),
+      fakeDb({
+        properties: [{ id: "p1", manager_user_id: "mgr-1" }],
+        applications: [APPROVED_APPLICATION],
+        leases: [EXECUTED_LEASE],
+      }),
     );
 
     const res = await roomOccupancy();
@@ -75,6 +102,40 @@ describe("GET /api/public/approved-room-occupancy", () => {
     expect(JSON.stringify(data)).not.toContain("mgr-1");
   });
 
+  it("ignores approved applications whose lease is not fully executed", async () => {
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
+      fakeDb({
+        properties: [{ id: "p1", manager_user_id: "mgr-1" }],
+        applications: [APPROVED_APPLICATION],
+        leases: [],
+      }),
+    );
+
+    const res = await roomOccupancy();
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.rooms).toEqual([{ roomChoice: "p1::r1", spans: [] }]);
+  });
+
+  it("counts manager-added residents without a signed lease", async () => {
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
+      fakeDb({
+        properties: [{ id: "p1", manager_user_id: "mgr-1" }],
+        applications: [{ ...APPROVED_APPLICATION, manually_added: true }],
+        leases: [],
+      }),
+    );
+
+    const res = await roomOccupancy();
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data.rooms).toEqual([
+      { roomChoice: "p1::r1", spans: [{ start: "2026-06-01", end: "2026-08-31", count: 1 }] },
+    ]);
+  });
+
   /**
    * The owner scope is the `manager_user_id` COLUMN, not the manager-mirrored
    * `property_data` blob: a planted owner there must not aim this unauthenticated
@@ -83,7 +144,11 @@ describe("GET /api/public/approved-room-occupancy", () => {
   it("scopes on the stored owner column, not the listing blob's managerUserId", async () => {
     vi.mocked(getPublicListings).mockResolvedValue([{ ...LISTING, managerUserId: "planted" }] as never);
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(
-      fakeDb({ properties: [{ id: "p1", manager_user_id: "mgr-1" }], applications: [APPROVED_APPLICATION] }),
+      fakeDb({
+        properties: [{ id: "p1", manager_user_id: "mgr-1" }],
+        applications: [APPROVED_APPLICATION],
+        leases: [EXECUTED_LEASE],
+      }),
     );
 
     const res = await roomOccupancy();
@@ -100,6 +165,7 @@ describe("GET /api/public/approved-room-occupancy", () => {
       fakeDb({
         properties: [{ id: "p1", manager_user_id: "mgr-1" }],
         applications: [{ ...APPROVED_APPLICATION, manager_user_id: "other-manager" }],
+        leases: [EXECUTED_LEASE],
       }),
     );
 

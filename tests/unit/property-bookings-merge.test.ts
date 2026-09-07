@@ -19,6 +19,13 @@ import type { ManagerChannelBookingProperty } from "@/lib/channel-calendar/types
 const PROPERTY_ID = "mgr-house-1";
 const LABEL = "4709A 8th Ave NE";
 
+const signedLeaseFields = {
+  status: "Fully Signed",
+  fullySignedAt: "2026-08-01T00:00:00Z",
+  managerSignature: { role: "manager", name: "Manager", signedAtIso: "2026-08-01" },
+  residentSignature: { role: "resident", name: "Resident", signedAtIso: "2026-08-01" },
+};
+
 function leaseOpts(overrides?: Partial<Parameters<typeof leaseBookingEntries>[1]>) {
   return {
     propertyId: PROPERTY_ID,
@@ -56,6 +63,10 @@ describe("leaseBookingEntries", () => {
     residentName: "Cv Ponce",
     roomChoice: `${PROPERTY_ID}::room-a`,
     stageLabel: "Signed",
+    status: "Fully Signed",
+    fullySignedAt: "2026-08-01T00:00:00Z",
+    managerSignature: { role: "manager", name: "Manager", signedAtIso: "2026-08-01" },
+    residentSignature: { role: "resident", name: "Cv Ponce", signedAtIso: "2026-08-01" },
     application: { leaseStart: "2026-08-10", leaseEnd: "2026-08-20" },
   };
 
@@ -78,9 +89,23 @@ describe("leaseBookingEntries", () => {
     expect(leaseBookingEntries([{ ...base, status: "Voided" }], leaseOpts())).toHaveLength(0);
   });
 
-  it("a lease awaiting manager review still blocks the calendar", () => {
-    expect(leaseBookingEntries([{ ...base, status: "Manager Review" }], leaseOpts())).toHaveLength(1);
-    expect(leaseBookingEntries([{ ...base, status: "Draft" }], leaseOpts())).toHaveLength(1);
+  it("a lease still awaiting signatures is not a booking", () => {
+    const unsigned = {
+      ...base,
+      status: "Manager Review",
+      fullySignedAt: null,
+      managerSignature: null,
+      residentSignature: null,
+      signatureName: null,
+      signedAtIso: null,
+    };
+    expect(leaseBookingEntries([unsigned], leaseOpts())).toHaveLength(0);
+    expect(
+      leaseBookingEntries(
+        [{ ...unsigned, status: "Draft", bucket: "manager" } as typeof unsigned],
+        leaseOpts(),
+      ),
+    ).toHaveLength(0);
   });
 
   it("a joint bundle lease blocks the whole home on rent-by-room listings", () => {
@@ -151,6 +176,7 @@ describe("merged day lookup", () => {
           propertyId: PROPERTY_ID,
           residentName: "Cv Ponce",
           roomChoice: `${PROPERTY_ID}::room-a`,
+          ...signedLeaseFields,
           application: { leaseStart: "2026-08-10", leaseEnd: "2026-08-13" },
         },
       ],
@@ -192,6 +218,7 @@ describe("merged day lookup", () => {
             propertyId: PROPERTY_ID,
             residentName: "Whole home guest",
             roomChoice: "",
+            ...signedLeaseFields,
             application: { leaseStart: "2026-09-01", leaseEnd: "2026-09-05" },
           },
         ],
@@ -213,18 +240,21 @@ describe("leaseBookingEntriesForProperties", () => {
       propertyId: PROPERTY_ID,
       residentName: "Ada",
       roomChoice: `${PROPERTY_ID}::room-a`,
+      ...signedLeaseFields,
       application: { leaseStart: "2026-08-01", leaseEnd: "2026-08-04" },
     },
     {
       propertyId: "mgr-house-2",
       residentName: "Grace",
       roomChoice: "",
+      ...signedLeaseFields,
       application: { leaseStart: "2026-08-02", leaseEnd: "2026-08-03" },
     },
     {
       propertyId: "mgr-house-3",
       residentName: "Not in scope",
       roomChoice: "",
+      ...signedLeaseFields,
       application: { leaseStart: "2026-08-02", leaseEnd: "2026-08-03" },
     },
   ];
