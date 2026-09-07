@@ -10,5 +10,12 @@
  * account reproduces in every browser.
  */
 export function trimmedText(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
+  if (typeof value === "string") return value.trim();
+  // JSON / PostgREST sometimes stores phones as numbers (`18559168031`).
+  // Dropping those to "" would "fix" the crash by wiping the current account's
+  // number; coerce so existing rows keep working after a refresh.
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(Math.trunc(value));
+  }
+  return "";
 }

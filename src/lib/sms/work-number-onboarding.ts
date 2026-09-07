@@ -1,5 +1,5 @@
+import { normalizeE164 } from "@/lib/phone-e164";
 import type { ManagerMessagingWorkspaceRole } from "@/lib/sms/manager-messaging-number";
-import { trimmedText } from "@/lib/trimmed-text";
 
 /**
  * Just enough of `/api/manager/messaging-number` to decide whether the signup
@@ -14,7 +14,7 @@ export type WorkNumberOnboardingStatus = {
 
 /** The number already provisioned for this account, or "" when there is none. */
 export function workNumberOnboardingPhone(status: WorkNumberOnboardingStatus | null): string {
-  return trimmedText(status?.number?.phoneNumber);
+  return normalizeE164(status?.number?.phoneNumber) ?? "";
 }
 
 /**

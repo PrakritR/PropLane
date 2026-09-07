@@ -70,7 +70,7 @@ export function resolveManagerInboxSmsTarget(
       (row) =>
         trimmedText(row.residentEmail).toLowerCase() === email && Boolean(trimmedText(row.phone)),
     );
-    const emailPhone = trimmedText(byEmail?.phone);
+    const emailPhone = normalizeE164(byEmail?.phone) ?? trimmedText(byEmail?.phone);
     if (byEmail && emailPhone) {
       return {
         phone: emailPhone,
@@ -89,7 +89,7 @@ export function resolveManagerInboxSmsTarget(
     if (!phone) return false;
     return normalizeE164(phone) === phoneHint || samePhone(phone, phoneHint);
   });
-  const matchedPhone = trimmedText(byPhone?.phone);
+  const matchedPhone = normalizeE164(byPhone?.phone) ?? trimmedText(byPhone?.phone);
   if (byPhone && matchedPhone) {
     return {
       phone: matchedPhone,
