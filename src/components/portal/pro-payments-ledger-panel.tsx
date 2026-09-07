@@ -35,7 +35,8 @@ import { formatPacificDateTime } from "@/lib/pacific-time";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { deleteManagerPaymentLedgerEntry, markManagerPaymentLedgerPaid, markManagerPaymentLedgerPending } from "@/lib/demo-manager-payment-ledger";
-import { deleteHouseholdCharge, legacyChargeIdAliases, markHouseholdChargePaid, markHouseholdChargePending, publicChargeIdForUrl, updateHouseholdChargeAmount } from "@/lib/household-charges";
+import { deleteHouseholdCharge, legacyChargeIdAliases, markHouseholdChargePaid, markHouseholdChargePending, publicChargeIdForUrl, updateHouseholdChargeAmount, type ChargeManagerScopeOpts } from "@/lib/household-charges";
+import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import {
   syncResidentAfterStayPaymentEdit,
   syncResidentBillingAndLeases,
@@ -87,11 +88,11 @@ const PAYMENTS_BULK_BAR_BTN =
 const PAYMENTS_BULK_MORE_BTN = cn(PAYMENTS_BULK_BAR_BTN, "min-w-9 px-0");
 
 function isMarkableAsPaid(row: DemoManagerPaymentLedgerRow): boolean {
-  return row.statusLabel !== "Paid" && row.balanceDue !== "$0.00";
+  return row.statusLabel !== "Paid" && parseMoneyLabel(row.balanceDue) > 0;
 }
 
 function isPaidRow(row: DemoManagerPaymentLedgerRow): boolean {
-  return row.statusLabel === "Paid" || row.balanceDue === "$0.00";
+  return row.statusLabel === "Paid" || parseMoneyLabel(row.balanceDue) <= 0;
 }
 
 /**
@@ -211,6 +212,7 @@ export function ManagerPaymentsLedgerPanel({
   onEmbeddedBulkActions,
   onAddPayment,
   groupMode = "resident",
+  linkedPropertyIds,
 }: {
   rows: DemoManagerPaymentLedgerRow[];
   managerUserId: string | null;
@@ -231,7 +233,13 @@ export function ManagerPaymentsLedgerPanel({
   /** Dashed footer row — opens the add-charge / add-payment flow. */
   onAddPayment?: () => void;
   groupMode?: PortalListGroupMode;
+  /** Co-managed property ids — same set used to scope the Payments list. */
+  linkedPropertyIds?: Set<string>;
 }) {
+  const chargeScopeOpts = useMemo<ChargeManagerScopeOpts | undefined>(
+    () => (linkedPropertyIds?.size ? { linkedPropertyIds } : undefined),
+    [linkedPropertyIds],
+  );
   const { showToast } = useAppUi();
   const displayScheduledMessages = useMemo(
     () => combineScheduledPaymentMessages(scheduledMessages),
@@ -266,7 +274,7 @@ export function ManagerPaymentsLedgerPanel({
     [selectedRows],
   );
   const showSelection = !paymentIdProp;
-  const rowIdsKey = useMemo(() => rows.map((row) => row.id).join(","), [rows]);
+  const rowIdSet = useMemo(() => new Set(rows.map((row) => row.id)), [rows]);
   const ledgerClusters = useMemo(
     () =>
       embeddedInResident
@@ -329,7 +337,23 @@ export function ManagerPaymentsLedgerPanel({
     setEditAmountDraft("");
     setEditDueDateDraft("");
     setEditNightsDraft("");
-  }, [activeBucket, rowIdsKey]);
+  }, [activeBucket]);
+
+  // Keep selection across sync/reorder when the same charge ids remain; only
+  // drop ids that left the list. A hard clear on every rowIdsKey change made
+  // the bulk Mark as paid / Delete bar vanish right after a checkbox click.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (rowIdSet.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed || next.size !== prev.size ? next : prev;
+    });
+  }, [rowIdSet]);
 
   const toggleSelected = (id: string) => {
     setSelectedIds((prev) => {
@@ -358,7 +382,7 @@ export function ManagerPaymentsLedgerPanel({
     let ok = 0;
     for (const row of targets) {
       if (row.householdChargeId) {
-        if (markHouseholdChargePaid(row.householdChargeId, managerUserId)) {
+        if (markHouseholdChargePaid(row.householdChargeId, managerUserId, chargeScopeOpts)) {
           await cancelFutureRemindersForPaidCharge(row.householdChargeId, scheduledMessages).catch(() => undefined);
           ok += 1;
         }
@@ -370,6 +394,10 @@ export function ManagerPaymentsLedgerPanel({
     setSelectedIds(new Set());
     onRowsChanged?.();
     onScheduleChanged?.();
+    if (ok === 0) {
+      showToast("Could not mark selected payments as paid.");
+      return;
+    }
     showToast(ok === 1 ? "Marked as paid." : `Marked ${ok} payments as paid.`);
   };
 
@@ -379,7 +407,7 @@ export function ManagerPaymentsLedgerPanel({
     let ok = 0;
     for (const row of targets) {
       if (row.householdChargeId) {
-        if (markHouseholdChargePending(row.householdChargeId, managerUserId)) ok += 1;
+        if (markHouseholdChargePending(row.householdChargeId, managerUserId, chargeScopeOpts)) ok += 1;
       } else {
         markManagerPaymentLedgerPending(row.id);
         ok += 1;
@@ -393,6 +421,10 @@ export function ManagerPaymentsLedgerPanel({
     }
     onScheduleChanged?.();
     setSelectedIds(new Set());
+    if (ok === 0) {
+      showToast("Could not move selected payments to pending.");
+      return;
+    }
     showToast(ok === 1 ? "Moved to pending." : `Moved ${ok} payments to pending.`);
   };
 
@@ -403,13 +435,17 @@ export function ManagerPaymentsLedgerPanel({
     let ok = 0;
     for (const row of targets) {
       if (row.householdChargeId) {
-        if (deleteHouseholdCharge(row.householdChargeId, managerUserId)) ok += 1;
+        if (deleteHouseholdCharge(row.householdChargeId, managerUserId, chargeScopeOpts)) ok += 1;
       } else if (deleteManagerPaymentLedgerEntry(row.id)) {
         ok += 1;
       }
     }
     setSelectedIds(new Set());
     onRowsChanged?.();
+    if (ok === 0) {
+      showToast("Could not remove selected payments.");
+      return;
+    }
     showToast(ok === 1 ? "Payment removed." : `Removed ${ok} payments.`);
   };
 
@@ -459,7 +495,7 @@ export function ManagerPaymentsLedgerPanel({
       showToast("Enter a valid due date.");
       return;
     }
-    if (updateHouseholdChargeAmount(row.householdChargeId, amt, managerUserId, title, dueLabel)) {
+    if (updateHouseholdChargeAmount(row.householdChargeId, amt, managerUserId, title, dueLabel, chargeScopeOpts)) {
       const email = row.residentEmail?.trim();
       if (email) {
         if (isStayTotalRow(row) && title) {
@@ -960,7 +996,7 @@ export function ManagerPaymentsLedgerPanel({
 
   const recordPaid = async (row: DemoManagerPaymentLedgerRow, toastMessage: string) => {
     if (row.householdChargeId) {
-      if (markHouseholdChargePaid(row.householdChargeId, managerUserId)) {
+      if (markHouseholdChargePaid(row.householdChargeId, managerUserId, chargeScopeOpts)) {
         await cancelFutureRemindersForPaidCharge(row.householdChargeId, scheduledMessages).catch(() => undefined);
         showToast(toastMessage);
         navigateToList();
@@ -980,7 +1016,7 @@ export function ManagerPaymentsLedgerPanel({
   const removePayment = (row: DemoManagerPaymentLedgerRow) => {
     if (!window.confirm(`Delete "${row.chargeTitle}" for ${row.residentName}?`)) return;
     if (row.householdChargeId) {
-      if (deleteHouseholdCharge(row.householdChargeId, managerUserId)) {
+      if (deleteHouseholdCharge(row.householdChargeId, managerUserId, chargeScopeOpts)) {
         showToast("Payment removed.");
         navigateToList();
         onRowsChanged?.();
@@ -1000,7 +1036,7 @@ export function ManagerPaymentsLedgerPanel({
 
   const moveToPending = async (row: DemoManagerPaymentLedgerRow) => {
     if (row.householdChargeId) {
-      if (markHouseholdChargePending(row.householdChargeId, managerUserId)) {
+      if (markHouseholdChargePending(row.householdChargeId, managerUserId, chargeScopeOpts)) {
         onRowsChanged?.();
         onScheduleChanged?.();
         await restoreFutureRemindersForPendingCharge(row.householdChargeId).catch(() => undefined);
@@ -1026,7 +1062,7 @@ export function ManagerPaymentsLedgerPanel({
     const btnClass = RESIDENT_DETAIL_HEADER_ACTION_BTN;
 
     const markPaidButton =
-      !editing && row.statusLabel !== "Paid" && row.balanceDue !== "$0.00" ? (
+      !editing && isMarkableAsPaid(row) ? (
         <Button type="button" variant="outline" className={btnClass} onClick={() => recordPaid(row, "Marked as paid.")}>
           Mark as paid
         </Button>
@@ -1177,6 +1213,8 @@ export function ManagerPaymentsLedgerPanel({
       actions.push({
         id: "mark-paid",
         keepPriority: 5,
+        alwaysVisible: true,
+        pinEdge: "start",
         node: (
           <Button
             type="button"
@@ -1356,6 +1394,8 @@ export function ManagerPaymentsLedgerPanel({
     actions.push({
       id: "delete",
       keepPriority: 0,
+      alwaysVisible: true,
+      pinEdge: "start",
       node: (
         <Button
           type="button"

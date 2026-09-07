@@ -55,6 +55,18 @@ describe("household-charges pure helpers", () => {
     expect(chargeVisibleToManager(makeCharge({ managerUserId: "mgr-2" }), "mgr-1")).toBe(false);
   });
 
+  it("lets a co-manager mutate charges on a linked property", () => {
+    const linked = new Set(["prop-a"]);
+    const charge = makeCharge({ managerUserId: "owner-mgr", propertyId: "prop-a" });
+    expect(chargeVisibleToManager(charge, "co-mgr")).toBe(false);
+    expect(chargeVisibleToManager(charge, "co-mgr", { linkedPropertyIds: linked })).toBe(true);
+    expect(
+      chargeVisibleToManager(makeCharge({ managerUserId: "owner-mgr", propertyId: "prop-b" }), "co-mgr", {
+        linkedPropertyIds: linked,
+      }),
+    ).toBe(false);
+  });
+
   it("maps paid charges to the paid bucket even when due date is in the past", () => {
     const paid = makeCharge({
       status: "paid",

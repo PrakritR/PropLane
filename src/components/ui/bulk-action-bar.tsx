@@ -49,7 +49,8 @@ export function BulkActionBar({
       className={cn(
         listPane
           ? "relative shrink-0 border-t border-border bg-card/95 px-3 py-2.5 shadow-[var(--shadow-sm)] backdrop-blur-md sm:px-4"
-          : "fixed inset-x-0 bottom-0 z-[51] border-t border-border bg-card/95 px-3 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-md sm:px-4 sm:py-3",
+          // Above the assistant FAB (z-55) so Mark as paid / Delete stay clickable.
+          : "fixed inset-x-0 bottom-0 z-[56] border-t border-border bg-card/95 px-3 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-md sm:px-4 sm:py-3",
         !listPane &&
           "pb-[max(0.75rem,var(--native-safe-bottom))] max-lg:left-[max(0.625rem,env(safe-area-inset-left,0px))] max-lg:right-[max(0.625rem,env(safe-area-inset-right,0px))] max-lg:w-auto max-lg:overflow-hidden max-lg:bottom-[calc(var(--portal-native-bottom-nav-inset,0px)+var(--portal-floating-bottom-gap,1.25rem))] max-lg:rounded-2xl max-lg:border max-lg:py-3 max-lg:pb-3 max-lg:shadow-md",
         !listPane && variant === "payments" && "lg:left-[224px] lg:right-0",

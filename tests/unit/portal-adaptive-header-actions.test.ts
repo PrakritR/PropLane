@@ -45,10 +45,15 @@ describe("pickAdaptiveActions", () => {
     expect(result.overflow.map((action) => action.id)).toEqual(["setup"]);
   });
 
-  it("shows every action inline when optional space is ample", () => {
-    const result = pickAdaptiveActions(actions, 2);
-    expect(result.visible.map((action) => action.id)).toEqual(["filter", "reminders", "setup", "add"]);
-    expect(result.overflow).toEqual([]);
+  it("keeps pinned Mark as paid / Delete visible when optional fit is zero", () => {
+    const actions: PortalAdaptiveAction[] = [
+      { id: "mark-paid", node: null, menuItem: null, alwaysVisible: true, pinEdge: "start", keepPriority: 5 },
+      { id: "send-reminder", node: null, menuItem: null, keepPriority: 3 },
+      { id: "delete", node: null, menuItem: null, alwaysVisible: true, pinEdge: "start", keepPriority: 0 },
+    ];
+    const result = pickAdaptiveActions(actions, 0);
+    expect(result.visible.map((action) => action.id)).toEqual(["mark-paid", "delete"]);
+    expect(result.overflow.map((action) => action.id)).toEqual(["send-reminder"]);
   });
 });
 

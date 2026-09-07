@@ -2682,15 +2682,32 @@ export function readChargesForResident(email: string, userId: string | null): Ho
     .filter((charge) => charge.status === "paid" || !isStaleRecurringHouseholdCharge(charge, profileById, scoped));
 }
 
+/** Optional co-manager scope — same linked-property set used by `readChargesForManager`. */
+export type ChargeManagerScopeOpts = {
+  linkedPropertyIds?: Set<string>;
+};
+
 /**
  * Whether the signed-in manager may view or mutate this charge (or legacy rows with no manager id).
- * Does not allow cross-manager access when `charge.managerUserId` is set to another id.
+ * Owned rows and blank-owner legacy rows always pass. Accepted co-managers pass when
+ * `linkedPropertyIds` includes the charge's property (matches the Payments list scope).
  */
-export function chargeVisibleToManager(charge: HouseholdCharge, managerUserId: string | null): boolean {
+export function chargeVisibleToManager(
+  charge: HouseholdCharge,
+  managerUserId: string | null,
+  opts?: ChargeManagerScopeOpts,
+): boolean {
   if (managerUserId == null || managerUserId === "") return true;
   const scope = managerUserId ?? HOUSEHOLD_CHARGE_DEMO_MANAGER_SCOPE;
   if (charge.managerUserId === scope) return true;
   if (charge.managerUserId == null || charge.managerUserId === "") return true;
+  if (
+    opts?.linkedPropertyIds?.size &&
+    charge.propertyId &&
+    opts.linkedPropertyIds.has(charge.propertyId)
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -2731,10 +2748,14 @@ export function readChargesForManager(
     .filter((charge) => charge.status === "paid" || !isStaleRecurringHouseholdCharge(charge, profileById, all));
 }
 
-export function deleteHouseholdCharge(chargeId: string, managerUserId: string | null): boolean {
+export function deleteHouseholdCharge(
+  chargeId: string,
+  managerUserId: string | null,
+  opts?: ChargeManagerScopeOpts,
+): boolean {
   if (!isBrowser()) return false;
   const rows = readAll();
-  const idx = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId));
+  const idx = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId, opts));
   if (idx === -1) return false;
   deleteChargeRowFromServer(chargeId);
   writeAll(rows.filter((_, i) => i !== idx));
@@ -2775,9 +2796,13 @@ export function uncancelHouseholdChargeReminder(
   return true;
 }
 
-export function markHouseholdChargePaid(chargeId: string, managerUserId: string | null): boolean {
+export function markHouseholdChargePaid(
+  chargeId: string,
+  managerUserId: string | null,
+  opts?: ChargeManagerScopeOpts,
+): boolean {
   const rows = readAll();
-  const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId));
+  const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId, opts));
   if (i === -1) return false;
   if (rows[i]!.status === "paid") return true;
   const now = new Date().toISOString();
@@ -2799,9 +2824,13 @@ export function markHouseholdChargePaid(chargeId: string, managerUserId: string 
   return true;
 }
 
-export function markHouseholdChargePending(chargeId: string, managerUserId: string | null): boolean {
+export function markHouseholdChargePending(
+  chargeId: string,
+  managerUserId: string | null,
+  opts?: ChargeManagerScopeOpts,
+): boolean {
   const rows = readAll();
-  const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId));
+  const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId, opts));
   if (i === -1) return false;
   if (rows[i]!.status === "pending") return true;
   const next = [...rows];
@@ -4132,10 +4161,11 @@ export function updateHouseholdChargeAmount(
   managerUserId: string | null,
   newTitle?: string,
   newDueDateLabel?: string,
+  opts?: ChargeManagerScopeOpts,
 ): boolean {
   if (!isBrowser() || !Number.isFinite(newAmount) || newAmount < 0) return false;
   const rows = readAll();
-  const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId));
+  const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId, opts));
   if (i === -1) return false;
   const label = `$${newAmount.toFixed(2)}`;
   const next = [...rows];
