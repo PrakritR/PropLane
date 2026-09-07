@@ -1,5 +1,6 @@
 import { dateKeyInBookingRange } from "@/lib/channel-calendar/bookings-dates";
 import type { ManagerChannelBookingProperty } from "@/lib/channel-calendar/types";
+import { leaseIsFullyExecuted, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { parseRoomChoiceValue } from "@/lib/rental-application/data";
 import { normalizeIsoDateInput } from "@/lib/rental-application/lease-dates";
 
@@ -50,6 +51,13 @@ export type LeaseBookingRow = {
   status?: string;
   leaseKind?: string;
   bundleGroupKey?: string | null;
+  voidedAt?: string | null;
+  fullySignedAt?: string | null;
+  externallySignedLease?: boolean;
+  managerSignature?: { name?: string; signedAtIso?: string } | null;
+  residentSignature?: { name?: string; signedAtIso?: string } | null;
+  signatureName?: string | null;
+  signedAtIso?: string | null;
   application?: { leaseStart?: string; leaseEnd?: string };
 };
 
@@ -95,11 +103,9 @@ export function airbnbBookingEntries(
 /**
  * PropLane's own stays for one house.
  *
- * A voided lease is not a booking. Everything else that has a start date is —
- * including a lease still being signed, because it is holding the room, which
- * is exactly what a manager checking availability needs to see. `statusLabel`
- * carries the stage so a signed stay is still distinguishable from a pending
- * one in the day detail.
+ * A voided lease is not a booking. Only a **fully executed** lease counts — an
+ * offer still out for signature does not hold the room on Bookings or the public
+ * listing. `statusLabel` still carries the stage for day-detail copy.
  *
  * `openEndedHorizonKey` is what a lease with no end date runs to. Without it an
  * open-ended (month-to-month) stay would collapse to a single booked day.
@@ -119,8 +125,8 @@ export function leaseBookingEntries(
   if (!propertyId) return [];
   const out: PropertyBookingEntry[] = [];
   for (const row of rows) {
+    if (!leaseIsFullyExecuted(row as LeasePipelineRow)) continue;
     if ((row.propertyId ?? "").trim() !== propertyId) continue;
-    if (row.status === "Voided") continue;
     const start = normalizeBookingDateKey(row.application?.leaseStart);
     if (!start) continue;
     const parsedEnd = normalizeBookingDateKey(row.application?.leaseEnd);
