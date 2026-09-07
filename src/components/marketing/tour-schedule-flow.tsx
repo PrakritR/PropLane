@@ -44,8 +44,26 @@ import {
   normalizeTourContactPhone,
   validateTourContactFields,
 } from "@/lib/tour-contact-quality";
+import {
+  getRoomUnavailabilityWindows,
+  isRoomChoiceAvailable,
+} from "@/lib/rental-application/data";
+import { syncPublicApprovedApplicationsFromServer } from "@/lib/manager-applications-storage";
 
 type TourStep = 1 | 2 | 3;
+
+/** Banner when a prospect picks a room that is fully booked (PRP-398 tour half). */
+export function tourRoomAvailabilityMessage(roomKey: string | null | undefined): string | null {
+  if (!roomKey || isTourRoomUndecided(roomKey)) return null;
+  if (isRoomChoiceAvailable(roomKey, "")) return null;
+  const windows = getRoomUnavailabilityWindows(roomKey);
+  const detail = windows[0]?.label?.trim();
+  if (detail) {
+    return `This room is not available for your dates (${detail}). You can still schedule a tour, or choose another room.`;
+  }
+  return "This room is not available for your selected dates. You can still schedule a tour, or choose another room.";
+}
+
 
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
@@ -222,6 +240,13 @@ export function TourScheduleFlow({
   const [bookingTour, setBookingTour] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [step3Footer, setStep3Footer] = useState<ReactNode | null>(null);
+  const [occupancySyncEpoch, setOccupancySyncEpoch] = useState(0);
+
+  useEffect(() => {
+    void syncPublicApprovedApplicationsFromServer().then(() =>
+      setOccupancySyncEpoch((n) => n + 1),
+    );
+  }, [property.id]);
 
   useEffect(() => {
     const sync = () => setTick((n) => n + 1);
@@ -515,6 +540,7 @@ export function TourScheduleFlow({
             }}
             selectedRoomKey={selectedRoomKey}
             fieldErrors={fieldErrors}
+            occupancySyncEpoch={occupancySyncEpoch}
           />
         )}
         {step === 2 && (
@@ -716,11 +742,13 @@ function Step1({
   onSelectRoom,
   selectedRoomKey,
   fieldErrors,
+  occupancySyncEpoch,
 }: {
   property: MockProperty;
   onSelectRoom: (roomKey: string | null) => void;
   selectedRoomKey: string | null;
   fieldErrors: Record<string, string>;
+  occupancySyncEpoch: number;
 }) {
   const listedRooms = roomOptionsForProperty(property);
   const showUndecided = listedRooms.length > 1;
@@ -733,6 +761,8 @@ function Step1({
   }));
   const undecidedSelected = isTourRoomUndecided(selectedRoomKey);
   const pickerValue = undecidedSelected ? null : selectedRoomKey;
+  void occupancySyncEpoch;
+  const roomAvailabilityWarning = tourRoomAvailabilityMessage(selectedRoomKey);
 
   return (
     <div className="space-y-3">
@@ -775,6 +805,15 @@ function Step1({
         />
         {fieldErrors.room ? <p className="mt-2 text-xs font-medium text-red-600">{fieldErrors.room}</p> : null}
       </div>
+      {roomAvailabilityWarning ? (
+        <p
+          role="status"
+          data-attr="tour-room-unavailable"
+          className="rounded-xl border px-4 py-3 text-sm portal-banner-pending"
+        >
+          {roomAvailabilityWarning}
+        </p>
+      ) : null}
     </div>
   );
 }
