@@ -51,12 +51,22 @@ import {
   upsertCustomFieldAnswer,
 } from "@/lib/rental-application/custom-fields";
 import { normalizeCustomApplicationFields, type ManagerCustomApplicationField } from "@/lib/manager-listing-submission";
+import { RENTAL_APPLICATION_SECTIONS } from "@/lib/rental-application/application-sections";
 import { wizardSectionErrorClass } from "@/lib/wizard-field-errors";
 import {
   activeApplicationWizardSteps,
   applicationConfigForVariant,
   isWizardFormFieldEnabled,
 } from "@/lib/rental-application/application-field-catalog";
+
+/**
+ * Every step a custom question's section can be asked on, taken from the section
+ * catalog rather than typed out — a new section opens its own step here, and its
+ * step body renders `stepManagerQuestions` like the other nine.
+ */
+const CUSTOM_QUESTION_WIZARD_STEPS = new Set(
+  RENTAL_APPLICATION_SECTIONS.map((section) => section.wizardStep),
+);
 
 const pillWrap = "flex flex-wrap gap-2 rounded-full border border-border bg-accent/30 p-1 [html[data-theme=dark]_&]:border-white/12 [html[data-theme=dark]_&]:bg-white/6";
 const pillActive = "rounded-full px-4 py-2.5 text-sm font-semibold bg-primary text-primary-foreground shadow-sm transition min-h-[44px] sm:min-h-0";
@@ -383,9 +393,18 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
   const photosReadOnly = mode === "editor";
   const getApplicationId = p.getApplicationId ?? (() => form.email.trim().toLowerCase() || "");
 
-  // Manager custom questions render inside their configured section's step (untagged → step 9).
+  // Manager custom questions render inside their configured section's step
+  // (untagged → step 8, `DEFAULT_CUSTOM_FIELD_SECTION_ID`).
+  //
+  // The range must cover EVERY step a section can map to — `household` is step 1
+  // and `review` is step 10, and both were outside the old 2–9 window. Validation
+  // has no such window: `validateRentalWizardStep` asks for the answer on
+  // whatever step the question is tagged to, so a required question in either
+  // section made Continue do nothing at all, with no field on screen to fix and
+  // no error text anywhere (the household step is the FIRST one, so an
+  // application could not be started or edited past it).
   const stepManagerQuestions = (() => {
-    if (step < 2 || step > 9) return null;
+    if (!CUSTOM_QUESTION_WIZARD_STEPS.has(step)) return null;
     const stepProp = getPropertyById(form.propertyId);
     const fields = customFieldsForWizardStep(
       listingCustomApplicationFields(applicationConfig),
@@ -641,6 +660,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             </>
           ) : null}
         </div>
+
+        {stepManagerQuestions}
       </div>
     );
   }
@@ -2194,6 +2215,12 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           </ReviewSection>
           ) : null}
         </div>
+
+        {/* A question tagged to the Review section is asked here — the summary
+            above only ECHOES answers, so without this the review step validated
+            an answer it never collected. */}
+        {stepManagerQuestions}
+
         <p className="text-center text-xs text-muted">Next: application fee confirmation before final submit.</p>
       </div>
     );
