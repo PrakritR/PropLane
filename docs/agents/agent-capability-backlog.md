@@ -13,33 +13,27 @@ Two things are deliberately absent and are not gaps: lease signing (a legal
 ceremony — deep-link to `/resident/lease`) and completing a payment (the agent
 hands over a Stripe Checkout link and stops).
 
-## Next up: resident maintenance depth
+## Done: resident maintenance depth (PRP-269)
 
-`report_maintenance_issue` (`src/lib/tools/domains/resident/maintenance.ts`)
-files a REAL work order into `portal_work_order_records` — it is not a message —
-but its input schema is `description` only, so category, title and priority are
-inferred by `createWorkOrderFromResidentSms`. The UI
-(`resident-add-service-modal.tsx:135-217`) collects far more, and every field
-below is one the manager and the dispatched vendor actually act on:
+`report_maintenance_issue` (`src/lib/tools/domains/resident/maintenance.ts`) now
+reaches parity with the Services form: title, priority (incl. Emergency),
+category, preferred arrival window (presets + custom), entry permission and
+entry notes are all on the schema, and each renders on the confirm card.
+Everything stays optional, so "the heater is dead" still files in one line and
+`createWorkOrderFromResidentSms` keeps inferring the rest.
 
-| Field | Where the UI collects it |
-| --- | --- |
-| title | `resident-add-service-modal.tsx` repair branch |
-| priority, including Emergency | same |
-| category | same |
-| preferred arrival window | same |
-| entry permission + entry notes | same |
-| up to 6 photos (`photoDataUrls`) | photo picker, `:89-133` |
-
-Everything except photos is a schema widening plus a pass-through.
-
-**Photos are the one genuinely hard item.** A model cannot put binary in a tool
-call, and the read tools deliberately strip photo blobs
-(`resident/services.ts:16`). The portal chat already parses images
-(`src/lib/agent/images.ts`, `MAX_CHAT_IMAGES`), so the shape that works is: the
-chat route stashes the parsed attachments for the turn and the tool references
-them by index, with the tool re-reading them server-side. That is a real design,
-not a widening — do not bolt a `photoDataUrls` string array onto the schema.
+**Photos took the shape this note predicted, and the rule it set still holds:
+no image bytes in a tool schema.** The resident chat route stashes each parsed
+attachment privately under the resident's own storage prefix and puts
+`{ index, storagePath }` on `ctx.chatPhotos` for that ONE request; the model
+references a photo by its position (`attachmentIndexes`), never by content. The
+preview resolves those indexes to storage paths and pins them in
+`confirmedInput`, because the confirm request is a different request and the
+stash is gone by then. `ownedResidentChatPhotoRef` re-checks at both preview and
+execute that a path is under the caller's own prefix, is an inbox-attachment
+path, carries no traversal or key-reshaping characters and ends in an image
+extension — a reference from anywhere else is refused, never downloaded.
+Coverage: `tests/unit/tools/resident-portal.test.ts`.
 
 ## Resident work-order lifecycle
 

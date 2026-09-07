@@ -27,6 +27,8 @@ import { suggestVendorsForWorkOrder } from "@/lib/work-order-auto-match";
 import { sendWorkOrderToVendors } from "@/lib/work-order-vendor-offers";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import {
+  RESIDENT_MAINTENANCE_CATEGORY_LABELS,
+  WORK_ORDER_PRIORITY_OPTIONS,
   type ResidentMaintenanceCategoryLabel,
   workOrderCategoryForResidentLabel,
 } from "@/lib/work-order-taxonomy";
@@ -38,15 +40,14 @@ export function isMaintenanceServiceOffer(offerId: string): boolean {
   return offerId === MAINTENANCE_SERVICE_OFFER_ID;
 }
 
-/** Repair categories shown in the unified service picker (lights, toilet, HVAC, etc.). */
-export const RESIDENT_SERVICE_REPAIR_CATEGORIES: readonly ResidentMaintenanceCategoryLabel[] = [
-  "Plumbing",
-  "Electrical",
-  "HVAC",
-  "Appliance",
-  "Access / Locks",
-  "General",
-] as const;
+/**
+ * Repair categories shown in the unified service picker (lights, toilet, HVAC,
+ * etc.). The list itself lives in `work-order-taxonomy.ts` so the assistant's
+ * `report_maintenance_issue` schema reads the same one without importing the
+ * browser stores this module depends on.
+ */
+export const RESIDENT_SERVICE_REPAIR_CATEGORIES: readonly ResidentMaintenanceCategoryLabel[] =
+  RESIDENT_MAINTENANCE_CATEGORY_LABELS;
 
 /** @deprecated Use {@link RESIDENT_SERVICE_REPAIR_CATEGORIES} — kept for legacy manager intake form. */
 export const MAINTENANCE_CATEGORY_OPTIONS: ResidentMaintenanceCategoryLabel[] = [
@@ -219,7 +220,8 @@ export async function submitMaintenanceServiceIntake(
   };
 }
 
-export const SERVICE_INTAKE_PRIORITY_OPTIONS = ["Emergency", "High", "Medium", "Low"] as const;
+/** Same list as the assistant's maintenance tool — see `WORK_ORDER_PRIORITY_OPTIONS`. */
+export const SERVICE_INTAKE_PRIORITY_OPTIONS = WORK_ORDER_PRIORITY_OPTIONS;
 export type ServiceIntakePriority = (typeof SERVICE_INTAKE_PRIORITY_OPTIONS)[number];
 
 export type ServiceIntakeKind = "add-on" | "repair";
