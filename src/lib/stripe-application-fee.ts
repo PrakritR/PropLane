@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { APPLICATION_FEE_CHECKOUT_PURPOSE, axisAchCheckoutPaid } from "@/lib/stripe-axis-ach-checkout";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { cancelFuturePaymentRemindersForCharge } from "@/lib/payment-reminder-lifecycle.server";
+import { ensureApplicationFeeChargeRow } from "@/lib/resident-check-manual-payment.server";
 import { syncLedgerPaymentEntry } from "@/lib/reports/ledger-sync";
 
 export function includesHoldingDeposit(session: Stripe.Checkout.Session): boolean {
@@ -13,13 +14,25 @@ export function isApplicationFeeCheckoutSession(session: Stripe.Checkout.Session
   return session.metadata?.purpose === APPLICATION_FEE_CHECKOUT_PURPOSE;
 }
 
+type ChargeMatchRow = {
+  id: string;
+  row_data: HouseholdCharge | null;
+  status: string | null;
+};
+
 /**
- * Marks the pending application-fee household charge paid after Stripe ACH clears.
+ * Marks the pending application-fee household charge paid after Stripe clears.
+ *
+ * PRP-428: guest Stripe checkout never created a server pending row (only the
+ * browser `ensurePendingApplicationFeeCharge` did). If verify/webhook ran with
+ * no matching row, `paid: true` could land with `chargeId: null` and the money
+ * stayed invisible in PropLane. When no match exists we now ensure a fee row
+ * from session metadata, then mark it paid.
  */
 export async function markApplicationFeePaidFromStripeSession(
   db: SupabaseClient,
   session: Stripe.Checkout.Session,
-): Promise<{ ok: boolean; chargeId?: string; alreadyPaid?: boolean }> {
+): Promise<{ ok: boolean; chargeId?: string; alreadyPaid?: boolean; created?: boolean }> {
   if (!isApplicationFeeCheckoutSession(session) || !axisAchCheckoutPaid(session)) {
     return { ok: false };
   }
@@ -36,29 +49,44 @@ export async function markApplicationFeePaidFromStripeSession(
     .select("id, row_data, status")
     .eq("resident_email", residentEmail);
 
-  if (error || !rows?.length) return { ok: false };
+  if (error) return { ok: false };
 
-  const candidates = rows.filter((row) => {
-    const charge = row.row_data as HouseholdCharge | null;
+  const candidates = ((rows ?? []) as ChargeMatchRow[]).filter((row) => {
+    const charge = row.row_data;
     if (!charge || charge.kind !== "application_fee") return false;
     return charge.propertyId === propertyId;
   });
 
-  const match =
+  let match: ChargeMatchRow | undefined =
     candidates.find((row) => row.status === "pending") ??
     candidates.find((row) => {
       const charge = row.row_data as HouseholdCharge;
       return row.status === "paid" || charge.status === "paid";
     });
 
-  if (!match) return { ok: false };
+  let created = false;
+  if (!match) {
+    const residentName = session.metadata?.resident_name?.trim() || undefined;
+    const ensured = await ensureApplicationFeeChargeRow(db, {
+      residentEmail,
+      propertyId,
+      residentName,
+    });
+    if (!ensured?.row_data) return { ok: false };
+    match = {
+      id: ensured.id,
+      row_data: ensured.row_data,
+      status: ensured.status,
+    };
+    created = true;
+  }
 
   const charge = match.row_data as HouseholdCharge;
   if (match.status === "paid" || charge.status === "paid") {
     await syncLedgerPaymentEntry(db, charge, charge.paidAt, session.id).catch((err) => {
       console.error("[stripe-application-fee] ledger heal for already-paid charge failed", err);
     });
-    return { ok: true, chargeId: match.id as string, alreadyPaid: true };
+    return { ok: true, chargeId: match.id as string, alreadyPaid: true, created };
   }
 
   const now = new Date().toISOString();
@@ -93,7 +121,7 @@ export async function markApplicationFeePaidFromStripeSession(
   if (charge.managerUserId) {
     await cancelFuturePaymentRemindersForCharge(db, charge.managerUserId, match.id as string).catch(() => undefined);
   }
-  return { ok: true, chargeId: match.id as string };
+  return { ok: true, chargeId: match.id as string, created };
 }
 
 /**

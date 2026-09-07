@@ -15,6 +15,16 @@ vi.mock("@/lib/reports/gl-posting", () => ({
   postGlPaymentEntry: vi.fn().mockResolvedValue(null),
 }));
 
+const ensureApplicationFeeChargeRow = vi.fn();
+vi.mock("@/lib/resident-check-manual-payment.server", () => ({
+  ensureApplicationFeeChargeRow: (...args: unknown[]) => ensureApplicationFeeChargeRow(...args),
+}));
+
+vi.mock("@/lib/payment-reminder-lifecycle.server", () => ({
+  cancelFuturePaymentRemindersForCharge: vi.fn().mockResolvedValue(undefined),
+  restoreFuturePaymentRemindersForCharge: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe("stripe-application-fee", () => {
   it("identifies application fee sessions", () => {
     expect(
@@ -80,7 +90,8 @@ describe("markApplicationFeePaidFromStripeSession", () => {
     const { db } = makeDb(ledgerInsert);
 
     const result = await markApplicationFeePaidFromStripeSession(db, session);
-    expect(result).toEqual({ ok: true, chargeId: "hc-1", alreadyPaid: true });
+    expect(result).toEqual({ ok: true, chargeId: "hc-1", alreadyPaid: true, created: false });
+    expect(ensureApplicationFeeChargeRow).not.toHaveBeenCalled();
     expect(ledgerInsert).toHaveBeenCalledTimes(1);
     expect(ledgerInsert.mock.calls[0][0]).toMatchObject({
       entry_type: "payment",
@@ -95,9 +106,65 @@ describe("markApplicationFeePaidFromStripeSession", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     const result = await markApplicationFeePaidFromStripeSession(db, session);
-    expect(result).toEqual({ ok: true, chargeId: "hc-1", alreadyPaid: true });
+    expect(result).toEqual({ ok: true, chargeId: "hc-1", alreadyPaid: true, created: false });
     expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
+  });
+
+  it("PRP-428: creates a fee row when none exists, then marks it paid", async () => {
+    const pending = {
+      id: "hc_app_fee_res_test_com_prop_1",
+      kind: "application_fee" as const,
+      propertyId: "prop-1",
+      managerUserId: "3b9c2c65-6f0f-4d3a-9a3e-0b7f6f8a1c2d",
+      residentUserId: null,
+      residentEmail: "res@test.com",
+      propertyLabel: "Unit 1",
+      status: "pending" as const,
+      amountLabel: "$50.00",
+      balanceLabel: "$50.00",
+      title: "Application fee",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    };
+    ensureApplicationFeeChargeRow.mockResolvedValue({
+      id: pending.id,
+      row_data: pending,
+      status: "pending",
+      manager_user_id: pending.managerUserId,
+    });
+
+    const chargeEq = vi.fn().mockResolvedValue({ data: [], error: null });
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const ledgerInsert = vi.fn((row: unknown) => {
+      return {
+        select: vi.fn().mockReturnValue({
+          single: vi.fn().mockResolvedValue({ data: { id: "ledger-1" }, error: null }),
+        }),
+      };
+    });
+    const maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+    const ledgerEq2 = vi.fn().mockReturnValue({ maybeSingle });
+    const ledgerEq1 = vi.fn().mockReturnValue({ eq: ledgerEq2 });
+    const from = vi.fn((table: string) => {
+      if (table === "portal_household_charge_records") {
+        return { select: vi.fn().mockReturnValue({ eq: chargeEq }), upsert };
+      }
+      return { select: vi.fn().mockReturnValue({ eq: ledgerEq1 }), insert: ledgerInsert };
+    });
+    const db = { from } as never;
+
+    const result = await markApplicationFeePaidFromStripeSession(db, session);
+    expect(ensureApplicationFeeChargeRow).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({ residentEmail: "res@test.com", propertyId: "prop-1" }),
+    );
+    expect(result).toMatchObject({ ok: true, chargeId: pending.id, created: true });
+    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(upsert.mock.calls[0][0]).toMatchObject({
+      id: pending.id,
+      kind: "application_fee",
+      status: "paid",
+    });
   });
 });
 

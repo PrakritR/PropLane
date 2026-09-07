@@ -168,7 +168,7 @@ async function loadListingForProperty(db: SupabaseClient, propertyId: string): P
   return { managerUserId, propertyLabel, sub };
 }
 
-async function ensureApplicationFeeChargeRow(
+export async function ensureApplicationFeeChargeRow(
   db: SupabaseClient,
   input: {
     residentEmail: string;
