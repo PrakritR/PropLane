@@ -25,5 +25,13 @@ describe("leases list bulk bar mirrors detail footer actions", () => {
 
   it("exposes review-import when a row carries an uploaded parse", () => {
     expect(PANEL).toContain('data-attr="leases-bulk-review-import"');
+    expect(PANEL).toContain("leaseUploadedImportFooterLabel");
+  });
+
+  it("exposes download, upload, and delete on single selection", () => {
+    expect(PANEL).toContain('data-attr="leases-bulk-download"');
+    expect(PANEL).toContain('data-attr="leases-bulk-upload"');
+    expect(PANEL).toContain('data-attr="leases-bulk-delete"');
+    expect(PANEL).toContain("managerLeaseSignButtonLabel");
   });
 });

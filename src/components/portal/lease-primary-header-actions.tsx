@@ -13,7 +13,13 @@ import {
 } from "@/components/portal/portal-footer-fit-action-row";
 import { RESIDENT_DETAIL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
-import { leaseNeedsUploadedLeaseReviewAction, residentHasSignedLease } from "@/lib/lease-pipeline-storage";
+import {
+  hasBothLeaseSignatures,
+  leaseNeedsUploadedLeaseReviewAction,
+  leaseUploadedImportFooterLabel,
+  managerLeaseSignButtonLabel,
+  residentHasSignedLease,
+} from "@/lib/lease-pipeline-storage";
 import { cn } from "@/lib/utils";
 
 const FOOTER_ACTION_BTN = "h-10 min-w-0 whitespace-nowrap px-2.5 text-xs sm:px-3";
@@ -54,6 +60,9 @@ type LeasePrimaryHeaderActionsProps = {
   deleteDataAttr?: string;
   sendToResidentDataAttr?: string;
   moveToManagerReviewDataAttr?: string;
+  /** Opens renew / extend move-out for a fully signed lease. */
+  onRenewLease?: () => void;
+  onExtendMoveOut?: () => void;
   /** Render buttons only — parent supplies PortalSectionActionRow / footer shell. */
   embedded?: boolean;
   /** With embedded, use the same left-aligned fit row on all breakpoints (resident detail dock). */
@@ -83,6 +92,8 @@ export function LeasePrimaryHeaderActions({
   onUploadPdf,
   uploadPdfBusy = false,
   onReviewImportedLease,
+  onRenewLease,
+  onExtendMoveOut,
   onEditLease,
   editLeaseDataAttr = "lease-primary-edit",
   canEditDocument = false,
@@ -116,11 +127,12 @@ export function LeasePrimaryHeaderActions({
   // Not gated on `canEditDocument`: once a lease is out for signature the
   // manager can no longer replace the document, but they must still be able to
   // read what PropLane extracted from it.
-  const showReviewImport = Boolean(row.uploadedLeaseParse) && Boolean(onReviewImportedLease);
-  // The CTA predicate, not the send gate: it is scoped to rows where
-  // confirming can actually succeed, so this button is never a nag whose
-  // action always fails.
+  const showRenewals =
+    hasBothLeaseSignatures(row) && row.status === "Fully Signed" && Boolean(onRenewLease || onExtendMoveOut);
+  const reviewImportLabel = leaseUploadedImportFooterLabel(row);
+  const showReviewImport = Boolean(onReviewImportedLease) && Boolean(reviewImportLabel);
   const importNeedsReview = leaseNeedsUploadedLeaseReviewAction(row);
+  const signLeaseLabel = managerLeaseSignButtonLabel();
 
   const compactBtnClass = cn(btnClass, FOOTER_ACTION_BTN);
   const deleteBtnClass = cn(
@@ -263,12 +275,12 @@ export function LeasePrimaryHeaderActions({
             data-attr={signManagerDataAttr}
             onClick={onSignManager}
           >
-            Sign
+            {signLeaseLabel}
           </Button>
         ),
         menuItem: (
           <DropdownMenuItem data-attr={signManagerDataAttr} onClick={onSignManager}>
-            Sign
+            {signLeaseLabel}
           </DropdownMenuItem>
         ),
       });
@@ -348,8 +360,7 @@ export function LeasePrimaryHeaderActions({
       });
     }
 
-    if (showReviewImport) {
-      const label = importNeedsReview ? "Review import" : "Imported lease";
+    if (showReviewImport && reviewImportLabel) {
       actions.push({
         id: "review-import",
         button: (
@@ -360,12 +371,12 @@ export function LeasePrimaryHeaderActions({
             data-attr="lease-primary-review-import"
             onClick={onReviewImportedLease}
           >
-            {label}
+            {reviewImportLabel}
           </Button>
         ),
         menuItem: (
           <DropdownMenuItem data-attr="lease-primary-review-import" onClick={onReviewImportedLease}>
-            {label}
+            {reviewImportLabel}
           </DropdownMenuItem>
         ),
       });
@@ -388,6 +399,38 @@ export function LeasePrimaryHeaderActions({
         menuItem: (
           <DropdownMenuItem disabled={uploadPdfBusy} onSelect={() => uploadInputRef.current?.click()}>
             {uploadPdfBusy ? "Uploading..." : "Upload PDF"}
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (showRenewals && onRenewLease) {
+      actions.push({
+        id: "renew",
+        button: (
+          <Button type="button" variant="outline" className={compactBtnClass} data-attr="lease-renew" onClick={onRenewLease}>
+            Renew lease
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="lease-renew" onClick={onRenewLease}>
+            Renew lease
+          </DropdownMenuItem>
+        ),
+      });
+    }
+
+    if (showRenewals && onExtendMoveOut) {
+      actions.push({
+        id: "extend",
+        button: (
+          <Button type="button" variant="outline" className={compactBtnClass} data-attr="lease-extend" onClick={onExtendMoveOut}>
+            Extend move-out
+          </Button>
+        ),
+        menuItem: (
+          <DropdownMenuItem data-attr="lease-extend" onClick={onExtendMoveOut}>
+            Extend move-out
           </DropdownMenuItem>
         ),
       });
@@ -455,8 +498,15 @@ export function LeasePrimaryHeaderActions({
     onGenerateLease,
     uploadPdfBusy,
     showReviewImport,
+    reviewImportLabel,
     importNeedsReview,
+    signLeaseLabel,
+    showRenewals,
+    onRenewLease,
+    onExtendMoveOut,
     onReviewImportedLease,
+    onRenewLease,
+    onExtendMoveOut,
     deleteDataAttr,
     deleteLabel,
   ]);

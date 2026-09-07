@@ -6,10 +6,7 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
-import {
-  PortalFooterFitActionRow,
-  type PortalFooterFitAction,
-} from "@/components/portal/portal-footer-fit-action-row";
+import { LeasePrimaryHeaderActions } from "@/components/portal/lease-primary-header-actions";
 import {
   RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN,
   ResidentDocumentsDetailFooter,
@@ -26,9 +23,6 @@ import {
   clusterManagerLeaseListRows,
   sortManagerLeaseClustersForBucket,
 } from "@/lib/manager-lease-list";
-import {
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
 import { LeaseDocumentPreview } from "@/components/portal/lease-document-preview";
 import { ManagerPipelineLeaseEditModal } from "@/components/portal/pro-pipeline-lease-edit-modal";
@@ -62,6 +56,8 @@ import {
   leaseRowMatchesManagerTab,
   residentHasSignedLease,
   resolveManagerLeaseGenerationRow,
+  leaseUploadedImportFooterLabel,
+  managerLeaseSignButtonLabel,
   syncLeasePipelineFromServer,
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
@@ -317,18 +313,26 @@ export function ManagerLeasesPipelinePanel({
     residentHasSignedLease(bulkSingleRowActions)
       ? bulkSingleRowActions
       : null;
+  const bulkReviewImportLabel =
+    bulkSingleRowActions ? leaseUploadedImportFooterLabel(bulkSingleRowActions) : null;
   const bulkReviewImportRow =
-    bulkSingleRowActions?.uploadedLeaseParse ? bulkSingleRowActions : null;
+    bulkReviewImportLabel && bulkSingleRowActions ? bulkSingleRowActions : null;
+  const bulkDeleteRow =
+    bulkSingleRowActions && bulkSingleRowActions.status !== "Fully Signed"
+      ? bulkSingleRowActions
+      : null;
+  const bulkUploadRow =
+    bulkSingleRowActions && leaseAllowsManagerDocumentEdits(bulkSingleRowActions)
+      ? bulkSingleRowActions
+      : null;
   const bulkRenewalsRow =
     bulkSingleRowActions &&
     hasBothLeaseSignatures(bulkSingleRowActions) &&
     bulkSingleRowActions.status === "Fully Signed"
       ? bulkSingleRowActions
       : null;
-  const bulkReviewImportLabel =
-    bulkReviewImportRow && leaseNeedsUploadedLeaseReviewAction(bulkReviewImportRow)
-      ? "Review import"
-      : "Imported lease";
+  const bulkDeleteButtonClass = `${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`;
+  const signLeaseLabel = managerLeaseSignButtonLabel();
 
   const openBulkSendLeasePreview = useCallback(() => {
     if (bulkSendableLeaseRows.length === 0) {
@@ -620,268 +624,57 @@ export function ManagerLeasesPipelinePanel({
   };
 
   const renderLeaseDetailFooterActions = (row: LeasePipelineRow) => {
-    const canEditDocument = leaseAllowsManagerDocumentEdits(row);
-    const showGenerate = canEditDocument;
-    const hasDocument = hasLeaseDocument(row);
-    const sendBlockedReason = !residentAccountEmails.has(row.residentEmail.trim().toLowerCase())
-      ? "Resident must create their PropLane resident account before you can send the lease."
-      : !row.generatedHtml && !row.managerUploadedPdf?.dataUrl
-        ? "Generate or upload a lease document first."
-        : sendGateBlockerForRender(row);
-    const showSendToResident =
-      hasDocument && (row.status === "Manager Review" || row.status === "Draft");
-    const showMoveToReview = row.status === "Resident Signature Pending";
-    const showManagerSign = !row.managerSignature && residentHasSignedLease(row);
-    const showSigningReminder = row.status === "Resident Signature Pending";
-    const showRenewals = hasBothLeaseSignatures(row) && row.status === "Fully Signed";
-    const showReviewImport = Boolean(row.uploadedLeaseParse);
-    const importNeedsReview = leaseNeedsUploadedLeaseReviewAction(row);
-    const reviewImportLabel = importNeedsReview ? "Review import" : "Imported lease";
-    const actionBtnClass = RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN;
-
-    const showEditButton = leaseRowOpensManagerEditModal(row);
-    const editActionLabel = "Edit";
-
-    const actions: PortalFooterFitAction[] = [];
-
-    if (showSendToResident) {
-      actions.push({
-        id: "send",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="lease-send-resident"
-            disabled={sendingToResidentRowId === row.id}
-            title={sendBlockedReason ?? undefined}
-            onClick={() => openSendLeasePreview(row)}
-          >
-            {sendingToResidentRowId === row.id ? "Sending…" : "Send"}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="lease-send-resident"
-            disabled={sendingToResidentRowId === row.id}
-            onSelect={() => openSendLeasePreview(row)}
-          >
-            {sendingToResidentRowId === row.id ? "Sending…" : "Send"}
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    if (hasDocument) {
-      actions.push({
-        id: "share",
-        button: (
-          <PortalRecordShareLinkButton
-            kind="lease"
-            recordId={row.id}
-            className={actionBtnClass}
-            dataAttr="lease-share"
-            recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
-          />
-        ),
-        menuItem: (
-          <PortalRecordShareLinkButton
-            kind="lease"
-            recordId={row.id}
-            menuItem
-            dataAttr="lease-share-menu"
-            recordTitle={row.residentName?.trim() || row.unit?.trim() || row.propertyId}
-          />
-        ),
-      });
-    }
-
-    if (showEditButton) {
-      actions.push({
-        id: "edit",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="lease-edit"
-            onClick={() => setEditLeaseRowId(row.id)}
-          >
-            {editActionLabel}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="lease-edit" onSelect={() => setEditLeaseRowId(row.id)}>
-            {editActionLabel}
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    if (showGenerate && !hasDocument) {
-      const generationOk = leaseGenerationSupportedForRow(row).ok;
-      actions.push({
-        id: "generate",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="lease-generate"
-            disabled={!generationOk || generatingRowId === row.id}
-            onClick={() => runGenerateLease(row)}
-          >
-            {generatingRowId === row.id ? "Generating…" : "Generate lease"}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="lease-generate"
-            disabled={!generationOk || generatingRowId === row.id}
-            onSelect={() => runGenerateLease(row)}
-          >
-            {generatingRowId === row.id ? "Generating…" : "Generate lease"}
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    if (showReviewImport) {
-      actions.push({
-        id: "review-import",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="lease-review-import"
-            onClick={() => setImportReviewRowId(row.id)}
-          >
-            {reviewImportLabel}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="lease-review-import" onSelect={() => setImportReviewRowId(row.id)}>
-            {reviewImportLabel}
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    if (showManagerSign) {
-      actions.push({
-        id: "sign",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="lease-manager-sign"
-            onClick={() => onManagerSign(row)}
-          >
-            Sign
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="lease-manager-sign" onSelect={() => onManagerSign(row)}>
-            Sign
-          </DropdownMenuItem>
-        ),
-      });
-    } else if (showSigningReminder) {
-      actions.push({
-        id: "reminder",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="lease-signing-reminder"
-            disabled={reminderBusyForRow === row.id}
-            title="Send signing reminder"
-            onClick={() => openLeaseSigningReminderPreview(row)}
-          >
-            {reminderBusyForRow === row.id ? "Sending…" : "Send reminder"}
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="lease-signing-reminder"
-            disabled={reminderBusyForRow === row.id}
-            onSelect={() => openLeaseSigningReminderPreview(row)}
-          >
-            {reminderBusyForRow === row.id ? "Sending…" : "Send reminder"}
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    if (showMoveToReview) {
-      actions.push({
-        id: "move-review",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="lease-move-manager-review"
-            onClick={() => onMoveToManagerReview(row)}
-          >
-            Move to review
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem data-attr="lease-move-manager-review" onSelect={() => onMoveToManagerReview(row)}>
-            Move to review
-          </DropdownMenuItem>
-        ),
-      });
-    }
-
-    if (showRenewals) {
-      actions.push({
-        id: "renew",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={actionBtnClass}
-            data-attr="lease-renew"
-            onClick={() => setAmendLeaseRow(row)}
-          >
-            Renew lease
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            data-attr="lease-renew"
-            onSelect={() => setAmendLeaseRow(row)}
-          >
-            Renew lease
-          </DropdownMenuItem>
-        ),
-      });
-      actions.push({
-        id: "extend",
-        button: (
-          <Button type="button" variant="outline" className={actionBtnClass} onClick={() => setAmendLeaseRow(row)}>
-            Extend move-out
-          </Button>
-        ),
-        menuItem: <DropdownMenuItem onSelect={() => setAmendLeaseRow(row)}>Extend move-out</DropdownMenuItem>,
-      });
-    }
-
-    if (actions.length === 0) return null;
-
+    const generation = leaseGenerationSupportedForRow(row);
     return (
       <div
         className="relative w-full min-w-0 flex-1"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => event.stopPropagation()}
         role="presentation"
       >
-        <PortalFooterFitActionRow actions={actions} moreLabel="More lease actions" />
+        <LeasePrimaryHeaderActions
+          embedded
+          flatFooter
+          btnClass={RESIDENT_DOCUMENTS_DETAIL_FOOTER_BTN}
+          row={row}
+          downloadDataAttr="lease-download"
+          signManagerDataAttr="lease-manager-sign"
+          signingReminderDataAttr="lease-signing-reminder"
+          deleteDataAttr="lease-delete"
+          sendToResidentDataAttr="lease-send-resident"
+          moveToManagerReviewDataAttr="lease-move-manager-review"
+          editLeaseDataAttr="lease-edit"
+          onDownload={() => onDownload(row)}
+          onSignManager={() => onManagerSign(row)}
+          onSigningReminder={() => openLeaseSigningReminderPreview(row)}
+          signingReminderBusy={reminderBusyForRow === row.id}
+          onDelete={row.status !== "Fully Signed" ? () => onDeleteLease(row) : undefined}
+          onSendToResident={() => onSendToResident(row)}
+          shareRecordId={row.id}
+          sendToResidentBusy={sendingToResidentRowId === row.id}
+          sendToResidentDisabled={false}
+          onMoveToManagerReview={() => onMoveToManagerReview(row)}
+          canEditDocument={leaseAllowsManagerDocumentEdits(row)}
+          generateLeaseDisabled={!generation.ok}
+          generateLeaseBusy={generatingRowId === row.id}
+          generateLeaseTitle={generation.ok ? undefined : generation.error}
+          onGenerateLease={() => runGenerateLease(row)}
+          onEditLease={
+            leaseRowAllowsGeneratedBodyEdit(row) ? () => setEditLeaseRowId(row.id) : undefined
+          }
+          onReviewImportedLease={() => setImportReviewRowId(row.id)}
+          onUploadPdf={
+            leaseAllowsManagerDocumentEdits(row)
+              ? async (file) => {
+                  const files = { 0: file, length: 1, item: (index: number) => (index === 0 ? file : null) } as FileList;
+                  await onPickUpload(row.id, files);
+                }
+              : undefined
+          }
+          uploadPdfBusy={pendingRowId === row.id}
+          onRenewLease={() => setAmendLeaseRow(row)}
+          onExtendMoveOut={() => setAmendLeaseRow(row)}
+        />
       </div>
     );
   };
@@ -1220,6 +1013,17 @@ export function ManagerLeasesPipelinePanel({
                 </Button>
               ) : null}
               {singleSelectedLeaseRow && hasLeaseDocument(singleSelectedLeaseRow) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="leases-bulk-download"
+                  onClick={() => onDownload(singleSelectedLeaseRow)}
+                >
+                  Download
+                </Button>
+              ) : null}
+              {singleSelectedLeaseRow && hasLeaseDocument(singleSelectedLeaseRow) ? (
                 <PortalRecordShareLinkButton
                   kind="lease"
                   recordId={singleSelectedLeaseRow.id}
@@ -1231,6 +1035,32 @@ export function ManagerLeasesPipelinePanel({
                     singleSelectedLeaseRow.propertyId
                   }
                 />
+              ) : null}
+              {bulkUploadRow ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="leases-bulk-upload"
+                  disabled={pendingRowId === bulkUploadRow.id}
+                  onClick={() => {
+                    uploadTargetRowIdRef.current = bulkUploadRow.id;
+                    uploadRef.current?.click();
+                  }}
+                >
+                  {pendingRowId === bulkUploadRow.id ? "Uploading…" : "Upload PDF"}
+                </Button>
+              ) : null}
+              {bulkDeleteRow ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={bulkDeleteButtonClass}
+                  data-attr="leases-bulk-delete"
+                  onClick={() => onDeleteLease(bulkDeleteRow)}
+                >
+                  Delete
+                </Button>
               ) : null}
               {bulkMoveToReviewRow ? (
                 <Button
@@ -1263,7 +1093,7 @@ export function ManagerLeasesPipelinePanel({
                   data-attr="leases-bulk-sign"
                   onClick={() => onManagerSign(bulkManagerSignRow)}
                 >
-                  Sign
+                  {signLeaseLabel}
                 </Button>
               ) : null}
               {bulkReviewImportRow ? (
