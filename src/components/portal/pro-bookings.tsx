@@ -187,6 +187,8 @@ function useBookingsWorkspace({
       <PortalFilterSortSheet
         activeCount={portalFilterActiveCount([roomFilterId])}
         compactPanel
+        commandStripTrigger
+        dropdownAlign="start"
         filterFieldCount={1}
         constrainDropdownToTitleBand={false}
         mobileFlushBody
