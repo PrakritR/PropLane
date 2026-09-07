@@ -1657,6 +1657,50 @@ function materializeLeasePipeline(managerUserId?: string | null): LeasePipelineR
   return merged;
 }
 
+/**
+ * A lease both sides have executed — the moment an applicant becomes a tenant.
+ *
+ * Deliberately STRICTER than `leaseClaimsExecution`, which is true on a single
+ * signature: a lease the manager has signed and the resident has not is still
+ * an offer, and the person on it is still a prospect.
+ */
+export function leaseIsFullyExecuted(row: LeasePipelineRow): boolean {
+  if (row.voidedAt || row.status === "Voided") return false;
+  if (row.externallySignedLease === true) return true;
+  if (row.status === "Fully Signed") return true;
+  if (row.fullySignedAt) return true;
+  return hasBothLeaseSignatures(row);
+}
+
+/**
+ * Everyone with an executed lease on file, keyed the two ways an application
+ * row can be matched to one (`jointLeaseRowIncludesMember`'s own two keys), so
+ * a whole resident list can be classified in a single pass over the pipeline
+ * instead of re-reading it per person.
+ */
+export function executedLeaseIdentities(managerUserId?: string | null): {
+  emails: Set<string>;
+  axisIds: Set<string>;
+} {
+  const emails = new Set<string>();
+  const axisIds = new Set<string>();
+  for (const row of readLeasePipeline(managerUserId)) {
+    if (!leaseIsFullyExecuted(row)) continue;
+    const members =
+      row.leaseKind === "joint_bundle" && row.jointLeaseMembers?.length
+        ? row.jointLeaseMembers.map((m) => ({ email: m.residentEmail, axisId: m.applicationId }))
+        : [];
+    members.push({ email: row.residentEmail, axisId: row.axisId ?? "" });
+    for (const member of members) {
+      const email = member.email?.trim().toLowerCase();
+      if (email) emails.add(email);
+      const axisId = member.axisId?.trim();
+      if (axisId) axisIds.add(normalizeApplicationAxisId(axisId));
+    }
+  }
+  return { emails, axisIds };
+}
+
 export function readLeasePipeline(managerUserId?: string | null): LeasePipelineRow[] {
   try {
     return computeLeasePipelineRows(managerUserId);

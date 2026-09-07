@@ -613,7 +613,9 @@ export async function renderPortalSection(
         const tail = tabParts.slice(1);
         redirect(`${def.basePath}/residents/past${tail.length ? `/${tail.join("/")}` : ""}`);
       }
-      const parsedResidentsTab = residentsTab === "past" ? "past" : residentsTab === "current" ? "current" : null;
+      const parsedResidentsTab = (
+        ["potential", "current", "past"] as const
+      ).find((tab) => tab === residentsTab) ?? null;
       if (!parsedResidentsTab) notFound();
       const residentId = tabParts.length >= 2 ? decodeURIComponent(tabParts[1]!) : undefined;
       const residentDetailTabRaw = tabParts.length >= 3 ? tabParts[2]! : undefined;

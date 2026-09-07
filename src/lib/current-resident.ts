@@ -1,6 +1,5 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { isDraftApplicationRow } from "@/lib/manager-applications-storage";
-import { isInProgressApplicationRow } from "@/lib/rental-application/in-progress-application";
 
 /** Pending (submitted) or active approved residents that should keep generated payment schedules. */
 export function shouldReconcileResidentPaymentSchedule(row: DemoApplicantRow, nowMs = Date.now()): boolean {
@@ -31,9 +30,16 @@ export function isCurrentResidentApplicationRow(row: DemoApplicantRow, nowMs = D
   return !isPreviousResidentStage(row.stage);
 }
 
-/** Pending (submitted) or approved applications shown on the manager Residents tab. */
+/**
+ * Applications that appear anywhere in the manager Residents directory.
+ *
+ * Unfinished ("Incomplete") applications are INCLUDED: they are the earliest
+ * stage of the same person, and the manager's move on one — chase them to
+ * finish it — only exists if they are on the list. Which of the three
+ * directory stages a row lands in is `residentDirectoryStage`'s answer, not
+ * this one's.
+ */
 export function isResidentDirectoryRow(row: DemoApplicantRow): boolean {
-  if (isInProgressApplicationRow(row)) return false;
   return row.bucket === "approved" || row.bucket === "pending";
 }
 
@@ -41,4 +47,31 @@ export function isResidentDirectoryRow(row: DemoApplicantRow): boolean {
 export function isPreviousResidentDirectoryRow(row: DemoApplicantRow, nowMs = Date.now()): boolean {
   if (row.bucket === "pending") return false;
   return !isCurrentResidentApplicationRow(row, nowMs);
+}
+
+/** The three stages of the manager Residents directory. */
+export type ResidentDirectoryStage = "potential" | "current" | "past";
+
+/**
+ * Which directory stage a person sits in.
+ *
+ * The dividing line is the SIGNED LEASE, not the approval. An unfinished
+ * application, a submitted one awaiting review, and an approved one whose
+ * lease nobody has executed are all the same thing to a manager — somebody who
+ * might live here — so they share the Potential stage. Tenancy starts when the
+ * lease is executed.
+ *
+ * `leaseExecuted` is supplied by the caller because the answer lives in the
+ * lease pipeline, not on the application row; `manuallyAdded` is its own
+ * sufficient signal, because a manager who onboards an existing tenant by hand
+ * is asserting the tenancy directly and may never file a lease here at all.
+ */
+export function residentDirectoryStage(
+  row: DemoApplicantRow,
+  opts: { leaseExecuted: boolean },
+  nowMs = Date.now(),
+): ResidentDirectoryStage {
+  if (row.bucket !== "approved") return "potential";
+  if (!isCurrentResidentApplicationRow(row, nowMs)) return "past";
+  return opts.leaseExecuted || row.manuallyAdded === true ? "current" : "potential";
 }

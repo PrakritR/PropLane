@@ -102,8 +102,9 @@ describe("evidence · PATCH manager-manual-payment-settings", () => {
       serviceFeePayer: "proplane",
     });
     expect(refused.status).toBe(400);
-    // The refusal uses the shared wording, so the product never prints the code at
-    // a manager who does not have one.
+    // Assert the SHIPPED string, not a paraphrase of it: this asserted the word
+    // "promo code" while the product had been reworded to "waiver code", so a
+    // deliberate copy change read as a broken refusal.
     expect(refused.json.error).toBe(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID);
     // Nothing was written — not even a downgraded `resident`.
     expect(stored).toBeNull();

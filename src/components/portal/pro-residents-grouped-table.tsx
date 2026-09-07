@@ -6,6 +6,7 @@ import {
   householdClusterHeaderForRows,
 } from "@/components/portal/application-household-list";
 import { Badge } from "@/components/ui/badge";
+import { INCOMPLETE_APPLICATION_LABEL } from "@/lib/rental-application/draft-shape";
 import { DataList } from "@/components/ui/data-list";
 import {
   residentHousingMeta,
@@ -44,7 +45,10 @@ function residentRowMeta(
   groupMode: PortalListGroupMode,
 ): string {
   if (groupMode === "house") {
-    return [row.roomLabel, row.email].filter(Boolean).join(" · ") || "—";
+    // A nameless in-progress application falls back to the address for its
+    // title, so repeating it here would print the same string twice.
+    const email = row.email.trim().toLowerCase() === row.name.trim().toLowerCase() ? "" : row.email;
+    return [row.roomLabel, email].filter(Boolean).join(" · ") || "—";
   }
   return residentHousingMeta(row, showPropertyInRows);
 }
@@ -87,7 +91,13 @@ export function ManagerResidentsGroupedTable({
         selected: selectedIds?.has(row.id),
         onSelectedChange:
           selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined,
-        trailing: row.leaseStart ? (
+        // A prospect has no lease start to print, and the useful thing in that
+        // column is how far their application actually got.
+        trailing: row.statusLabel?.trim() ? (
+          <Badge tone={row.statusLabel.trim() === INCOMPLETE_APPLICATION_LABEL ? "warning" : "neutral"}>
+            {row.statusLabel.trim()}
+          </Badge>
+        ) : row.leaseStart ? (
           <span className="text-sm tabular-nums text-muted">{shortDateLabel(row.leaseStart)}</span>
         ) : undefined,
         onClick: () => onOpenResident(row),

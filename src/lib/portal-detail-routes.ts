@@ -188,18 +188,42 @@ export function propertyListHref(basePath: string, stage: string): string {
   return `${basePath}/properties/${stage}`;
 }
 
-/** Manager resident directory stages (current leases vs moved-out). */
-export const RESIDENT_DIRECTORY_TABS = ["current", "past"] as const;
+/**
+ * Manager resident directory stages, in funnel order: people who might live
+ * here, people who do, people who did. `potential` covers everything before an
+ * executed lease — an unfinished application, one awaiting review, and an
+ * approved one nobody has signed yet (`residentDirectoryStage`).
+ */
+export const RESIDENT_DIRECTORY_TABS = ["potential", "current", "past"] as const;
 export type ResidentsTabId = (typeof RESIDENT_DIRECTORY_TABS)[number];
 
 export const RESIDENT_DIRECTORY_TAB_LABELS: Record<ResidentsTabId, string> = {
+  potential: "Potential",
   current: "Current",
   past: "Past",
 };
 
 export function parseResidentsTab(raw: string | undefined | null): ResidentsTabId {
   if (raw === "past" || raw === "previous") return "past";
+  if (raw === "potential" || raw === "prospects") return "potential";
   return "current";
+}
+
+/**
+ * Which profile tabs a person gets, by directory stage.
+ *
+ * A prospect has no tenancy, so Services — the add-on and maintenance queue a
+ * tenant raises — has nothing to show and nothing to add. A tenant is past
+ * touring, so Tours goes; their tour history stays on the Tours section.
+ */
+export const RESIDENT_DETAIL_TABS_BY_STAGE: Record<ResidentsTabId, readonly ResidentDetailTabId[]> = {
+  potential: RESIDENT_DETAIL_TABS.filter((tab) => tab !== "services"),
+  current: RESIDENT_DETAIL_TABS.filter((tab) => tab !== "tours"),
+  past: RESIDENT_DETAIL_TABS.filter((tab) => tab !== "tours"),
+};
+
+export function residentDetailTabsForStage(stage: ResidentsTabId): readonly ResidentDetailTabId[] {
+  return RESIDENT_DETAIL_TABS_BY_STAGE[stage];
 }
 
 export function residentListHref(basePath: string, tab: ResidentsTabId): string {
