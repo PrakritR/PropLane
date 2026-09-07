@@ -82,7 +82,10 @@ export async function notifyManagerFromAgent(
           scope: MANAGER_INBOX_SCOPE,
           owner_user_id: args.landlordId,
           participant_email: null,
-          thread_type: args.threadType ?? "agent_notice",
+          // This remains an assistant conversation even when the latest
+          // notice is an escalation. Changing the routing type made its next
+          // reply fall through to human-recipient validation with no recipient.
+          thread_type: "agent_notice",
           row_data: {
             id: threadId,
             // A new notice pulls the thread back out of trash — the manager is
@@ -95,9 +98,11 @@ export async function notifyManagerFromAgent(
             body: args.text,
             unread: true,
             scope: MANAGER_INBOX_SCOPE,
+            threadType: "agent_notice",
             messages: [
               ...priorMessages,
-              { id: messageId, from: "PropLane Assistant", body: args.text, at: nowIso, outbound: false },
+              { id: messageId, from: "PropLane Assistant", body: args.text, at: nowIso, outbound: false,
+                ...(args.threadType ? { noticeType: args.threadType } : {}) },
             ],
           },
           updated_at: nowIso,

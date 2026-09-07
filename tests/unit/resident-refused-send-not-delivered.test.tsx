@@ -27,6 +27,7 @@ const THREAD = {
   time: "Jul 16, 2026",
   unread: false,
 };
+let residentRows = [THREAD];
 
 const upsertPersistedInboxRows = vi.fn(async () => true);
 const persistInbox = vi.fn();
@@ -37,8 +38,8 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   RESIDENT_INBOX_STORAGE_KEY: "resident-inbox",
   collapsePersonInboxThreads: (threads: unknown[]) => threads,
   inboxThreadCounterpartyEmail: (t: { email?: string }) => t.email ?? "",
-  loadPersistedInbox: () => [THREAD],
-  syncPersistedInboxFromServer: () => Promise.resolve([THREAD]),
+  loadPersistedInbox: () => residentRows,
+  syncPersistedInboxFromServer: () => Promise.resolve(residentRows),
   persistInbox: (...args: unknown[]) => persistInbox(...args),
   persistInboxAwait: () => Promise.resolve(true),
   invalidatePersistedInboxCache: () => {},
@@ -170,7 +171,7 @@ async function openThreadAndReply(text: string) {
       embeddedInCommunication
       externalTitleActions
       suppressListPane
-      controlledExpandedId={THREAD.id}
+      controlledExpandedId={residentRows[0]!.id}
     />,
   );
   const composer = await screen.findByPlaceholderText(/reply/i);
@@ -182,6 +183,7 @@ async function openThreadAndReply(text: string) {
 
 afterEach(() => {
   cleanup();
+  residentRows = [THREAD];
   vi.unstubAllGlobals();
   upsertPersistedInboxRows.mockClear();
   persistInbox.mockClear();
@@ -189,6 +191,26 @@ afterEach(() => {
 });
 
 describe("resident reply that the server refuses", () => {
+  it("reports a successful PropLane-only reply instead of a failure toast", async () => {
+    residentRows = [{ ...THREAD, id: "resident-agent-res-1", from: "PropLane Assistant", email: "" }];
+    stubFetch({ status: 200, body: { ok: true } });
+    await openThreadAndReply("PropLane-only reply");
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Reply sent via PropLane."));
+    expect(showToast).not.toHaveBeenCalledWith("Could not send reply.");
+    expect(upsertPersistedInboxRows).toHaveBeenCalled();
+    expect(screen.getByPlaceholderText(/reply/i)).toHaveValue("");
+  });
+
+  it("keeps an accepted PropLane reply when its email notification fails", async () => {
+    stubFetchSequence([
+      { status: 200, body: { ok: true } },
+      { status: 503, body: { ok: false, error: "Email unavailable." } },
+    ]);
+    await openThreadAndReply("Accepted in PropLane");
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Reply sent via PropLane. Email failed."));
+    expect(upsertPersistedInboxRows).toHaveBeenCalled();
+    expect(screen.getByPlaceholderText(/reply/i)).toHaveValue("");
+  });
   it("never writes the refused message to the thread store", async () => {
     stubFetch({ status: 403, body: { ok: false, error: REFUSAL } });
     await openThreadAndReply("REFUSED probe");

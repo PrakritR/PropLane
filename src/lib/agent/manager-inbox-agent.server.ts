@@ -16,6 +16,8 @@ import {
 } from "@/lib/portal-inbox-delivery";
 import { MANAGER_AGENT_NOTICE_FROM_NAME } from "@/lib/communication-assistant-inbox-list";
 import { MAX_HISTORY_MESSAGES } from "@/lib/agent/inbox-auto-respond.server";
+import { createPendingActionForUser } from "@/lib/tools/pending-actions";
+import { track } from "@/lib/analytics/posthog";
 
 async function resolveManagerInboxAgentContext(
   db: SupabaseClient,
@@ -59,6 +61,11 @@ function managerThreadTurnMessages(
       };
     })
     .filter((entry): entry is { role: "user" | "assistant"; content: string } => Boolean(entry));
+  // The route has already committed this turn. Keep intentional earlier
+  // repeats, but do not feed the just-committed request to the model twice.
+  if (turns.at(-1)?.role === "user" && turns.at(-1)?.content === incoming.trim()) {
+    turns.pop();
+  }
   turns.push({ role: "user", content: incoming.trim() });
   return turns;
 }
@@ -82,7 +89,6 @@ export async function runManagerInboxAgentTurn(
     .maybeSingle();
   const rowData = (row?.row_data ?? null) as Record<string, unknown> | null;
   const prior = managerThreadTurnMessages(rowData, incoming);
-  const history = prior.slice(0, -1);
 
   try {
     let traceId: string | null = null;
@@ -114,16 +120,29 @@ export async function runManagerInboxAgentTurn(
         },
       },
     );
-    void traceId;
-    void history;
-
     const reply = result.reply.trim();
     if (!reply && !result.pendingAction) return { replied: false, reason: "empty_reply" };
 
     let body = reply;
     if (result.pendingAction) {
+      const actionId = await createPendingActionForUser(db, {
+        landlordId: ctx.landlordId,
+        userId: ctx.userId,
+        portal: "manager",
+        toolName: result.pendingAction.toolName,
+        input: result.pendingAction.input,
+        preview: result.pendingAction.preview,
+        proposalTraceId: traceId,
+      });
       const label = result.pendingAction.preview?.title ?? result.pendingAction.toolName;
-      body = [reply, "", `Open your dashboard to approve "${label}" before anything happens.`]
+      if (actionId) {
+        track("assistant_action_proposed", ctx.userId, {
+          portal: "manager", surface: "inbox", tool: result.pendingAction.toolName,
+        });
+      }
+      body = [reply, "", actionId
+        ? `Open your dashboard to approve "${label}" before anything happens.`
+        : `I could not prepare "${label}" for approval. Nothing has happened yet. Please try again.`]
         .filter(Boolean)
         .join("\n");
     }
@@ -133,9 +152,13 @@ export async function runManagerInboxAgentTurn(
       text: body,
       outbound: false,
     });
+    track("assistant_message_sent", ctx.userId, { portal: "manager", surface: "inbox" });
     return { replied: true };
   } catch (error) {
     console.error("manager-inbox-agent turn failed", error);
+    track("assistant_reply_failed", ctx.userId, {
+      portal: "manager", surface: "inbox", reason: "agent_turn_failed",
+    });
     return { replied: false, reason: "agent_turn_failed" };
   }
 }
