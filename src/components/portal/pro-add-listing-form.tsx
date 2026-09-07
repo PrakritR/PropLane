@@ -67,6 +67,9 @@ import {
 } from "@/lib/manager-access";
 import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
 import {
+  LISTING_PAYMENT_WAIVER_CODE,
+  LISTING_PROCESSING_FEE_WAIVER_CODE_HELP,
+  listingPaymentWaiverCodeMatches,
   listingProplaneAbsorbNeedsWaiverCode,
   listingServiceFeePayerUiValue,
   managerCanSelectManagerAbsorbServiceFee,
@@ -1460,7 +1463,17 @@ export function ManagerAddListingForm({
     managerSkuTier,
     paymentWaiverGranted,
   );
-  const showProcessingFeeWaiveCode = serviceFeePayerUi === "proplane";
+  const showProcessingFeeWaiveCode =
+    serviceFeePayerUi === "proplane" && !paymentWaiverGranted;
+
+  useEffect(() => {
+    if (!paymentWaiverGranted || sub.serviceFeePayer !== "proplane") return;
+    if (listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)) return;
+    setSub((s) => ({
+      ...s,
+      serviceFeeWaiverCode: LISTING_PAYMENT_WAIVER_CODE,
+    }));
+  }, [paymentWaiverGranted, sub.serviceFeePayer, sub.serviceFeeWaiverCode]);
 
   useEffect(() => {
     if (isDemoModeActive()) return;
@@ -4528,7 +4541,12 @@ export function ManagerAddListingForm({
                         setSub((s) => ({
                           ...s,
                           serviceFeePayer: next,
-                          serviceFeeWaiverCode: next === "proplane" ? s.serviceFeeWaiverCode : undefined,
+                          serviceFeeWaiverCode:
+                            next === "proplane"
+                              ? paymentWaiverGranted
+                                ? LISTING_PAYMENT_WAIVER_CODE
+                                : s.serviceFeeWaiverCode
+                              : undefined,
                         }));
                       }}
                     >
@@ -4541,7 +4559,7 @@ export function ManagerAddListingForm({
                   </GridField>
                   {showProcessingFeeWaiveCode ? (
                     <div className="space-y-2 sm:col-span-2">
-                      <FieldLabel optional={!proplaneAbsorbNeedsWaiverCode}>Processing fee waive code</FieldLabel>
+                      <FieldLabel optional={!proplaneAbsorbNeedsWaiverCode}>Processing fee waiver code</FieldLabel>
                       <Input
                         value={sub.serviceFeeWaiverCode ?? ""}
                         onChange={(e) =>
@@ -4551,8 +4569,8 @@ export function ManagerAddListingForm({
                             serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value),
                           }))
                         }
-                        placeholder="FREE100"
-                        aria-label="Processing fee waive code"
+                        placeholder="Enter your waiver code"
+                        aria-label="Processing fee waiver code"
                         autoComplete="off"
                         data-attr="listing-service-fee-waiver-code"
                         className="w-full font-mono uppercase sm:max-w-xs"
@@ -4562,9 +4580,7 @@ export function ManagerAddListingForm({
                         }
                       />
                       {proplaneAbsorbNeedsWaiverCode ? (
-                        <p className="text-xs text-muted">
-                          Required — enter FREE100 so PropLane can absorb processing fees on this listing.
-                        </p>
+                        <p className="text-xs text-muted">{LISTING_PROCESSING_FEE_WAIVER_CODE_HELP}</p>
                       ) : null}
                       {stepFieldErrors.serviceFeeWaiverCode ? (
                         <p id="listing-service-fee-waiver-error" className="text-xs text-destructive">

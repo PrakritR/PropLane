@@ -30,8 +30,9 @@ describe("listing service fee payer UI helpers", () => {
 
   it("requires a per-listing waiver code whenever PropLane absorb is selected", () => {
     expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", false)).toBe(true);
-    expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", true)).toBe(true);
+    expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", true)).toBe(false);
     expect(listingProplaneAbsorbNeedsWaiverCode("pro", "proplane", false)).toBe(true);
+    expect(listingProplaneAbsorbNeedsWaiverCode("pro", "proplane", true)).toBe(false);
     expect(listingProplaneAbsorbNeedsWaiverCode("pro", "resident", false)).toBe(false);
   });
 
@@ -73,7 +74,21 @@ describe("listing wizard pricing — service fee waiver", () => {
       managerSkuTier: "free",
       accountPaymentWaiverGranted: false,
     });
-    expect(errors.serviceFeeWaiverCode).toMatch(/FREE100/);
+    expect(errors.serviceFeeWaiverCode).toMatch(/waiver code PropLane gave you/i);
+  });
+
+  it("allows PropLane absorb on Free when the account already has a waiver grant", () => {
+    const sub = {
+      ...createDefaultListingSubmission(),
+      listingPlaceCategoryId: "individual_rooms",
+      allowedLeaseTerms: ["12_month"],
+      serviceFeePayer: "proplane" as const,
+    };
+    const errors = validateListingWizardStep(4, sub, {
+      managerSkuTier: "free",
+      accountPaymentWaiverGranted: true,
+    });
+    expect(errors.serviceFeeWaiverCode).toBeUndefined();
   });
 
   it("allows PropLane absorb on Free when the listing waiver code matches", () => {

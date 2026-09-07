@@ -14,6 +14,7 @@ import { validateListingBundleShortTermPricing } from "@/lib/listing-bundle-shor
 import { isEntireHomeListing, resolveAllowedLeaseTerms, type ManagerListingSubmissionV1, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import type { ManagerSkuTier } from "@/lib/manager-access";
 import {
+  LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
   listingPaymentWaiverCodeMatches,
 } from "@/lib/payment-policy";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
@@ -154,9 +155,10 @@ export function validateListingWizardStep(
 
     if (
       sub.serviceFeePayer === "proplane" &&
+      !opts.accountPaymentWaiverGranted &&
       !listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
     ) {
-      errs.serviceFeeWaiverCode = "Enter a valid waiver code (FREE100).";
+      errs.serviceFeeWaiverCode = LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID;
     }
     // Resident payment methods (Stripe ACH / card) are configured in Payment setup.
   }
