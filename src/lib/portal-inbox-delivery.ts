@@ -148,7 +148,13 @@ export async function resolveInboxThreadReplyTarget(
     scope: String(threadRow.scope ?? rowData.scope ?? MANAGER_INBOX_SCOPE),
     ownerUserId: (threadRow.owner_user_id as string | null) ?? null,
     participantEmail: (threadRow.participant_email as string | null) ?? null,
-    threadType: String(threadRow.thread_type ?? ""),
+    // Older notifications stamped their event type onto the one canonical
+    // assistant thread. Resolve that owner-bound identity without requiring a
+    // production data rewrite; a human conversation's name is never a signal.
+    threadType: ownerUserId && threadId === `agent_notice_${ownerUserId}` &&
+      threadRow.scope === MANAGER_INBOX_SCOPE
+      ? "agent_notice"
+      : String(threadRow.thread_type ?? ""),
     rowData,
   };
 }
@@ -176,12 +182,13 @@ export async function commitInboxThreadReply(
     messageId?: string;
   },
 ): Promise<void> {
-  const { data: freshRow } = await db
+  const { data: freshRow, error: readError } = await db
     .from("portal_inbox_thread_records")
     .select("id, row_data")
     .eq("id", target.threadId)
     .maybeSingle();
-  if (!freshRow) return;
+  if (readError) throw new Error("Could not load the conversation. Please try again.", { cause: readError });
+  if (!freshRow) throw new Error("This conversation is no longer available.");
   const rowData = (freshRow.row_data ?? {}) as Record<string, unknown>;
   const messages = Array.isArray(rowData.messages) ? [...(rowData.messages as unknown[])] : [];
   const when = formatPacificDateTime(new Date());
@@ -193,7 +200,7 @@ export async function commitInboxThreadReply(
     ...(opts.outbound !== undefined ? { outbound: opts.outbound } : {}),
     ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
   });
-  await db.from("portal_inbox_thread_records").upsert(
+  const { error: writeError } = await db.from("portal_inbox_thread_records").upsert(
     {
       id: target.threadId,
       scope: target.scope,
@@ -212,6 +219,7 @@ export async function commitInboxThreadReply(
     },
     { onConflict: "id" },
   );
+  if (writeError) throw new Error("Could not save the reply. Please try again.", { cause: writeError });
 }
 
 /**

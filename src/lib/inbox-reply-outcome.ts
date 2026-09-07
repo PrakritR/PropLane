@@ -7,6 +7,8 @@ export type InboxReplySendOutcome = {
   smsRequested: boolean;
   emailOk: boolean;
   smsOk: boolean;
+  proplaneRequested?: boolean;
+  proplaneOk?: boolean;
   /** Provider submission may have happened, so retrying is unsafe. */
   smsUnknown?: boolean;
 };
@@ -28,6 +30,27 @@ export function inboxReplySentToastMessage(
 ): string {
   const emailDelivered = outcome.emailRequested && outcome.emailOk;
   const smsDelivered = outcome.smsRequested && outcome.smsOk;
+  const proplaneDelivered = outcome.proplaneRequested && outcome.proplaneOk;
+  if (outcome.proplaneRequested) {
+    const sent = [
+      ...(proplaneDelivered ? ["PropLane"] : []),
+      ...(emailDelivered ? ["email"] : []),
+      ...(smsDelivered ? ["text"] : []),
+    ];
+    if (!sent.length && !outcome.smsUnknown) return "Could not send reply.";
+    const channels = sent.length > 2
+      ? `${sent.slice(0, -1).join(", ")} and ${sent.at(-1)}`
+      : sent.join(" and ");
+    const parts = sent.length ? [`Reply sent via ${channels}.`] : [];
+    if (!proplaneDelivered) parts.push("PropLane message failed.");
+    if (outcome.emailRequested && !emailDelivered) parts.push("Email failed.");
+    if (outcome.smsUnknown) {
+      parts.push("Text delivery could not be confirmed—do not resend it; check the conversation later.");
+    } else if (outcome.smsRequested && !smsDelivered) {
+      parts.push("Text message failed.");
+    }
+    return parts.join(" ");
+  }
   if (outcome.smsUnknown) {
     return emailDelivered
       ? "Email sent. Text delivery could not be confirmed—do not resend it; check the conversation later."

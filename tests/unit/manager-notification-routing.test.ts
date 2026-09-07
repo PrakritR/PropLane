@@ -58,6 +58,13 @@ describe("resolveManagerNotificationChannels", () => {
     ).resolves.toMatchObject({ inbox: true, sms: false, fellBackToAssistant: false });
   });
 
+  it("tolerates a numeric phone from a legacy profile without crashing an escalation", async () => {
+    vi.mocked(resolveActiveManagerSendNumber).mockResolvedValue(null);
+    await expect(resolveManagerNotificationChannels(db, "manager-1", "leasing", {
+      ...profile, phone: 13175550123 as unknown as string,
+    })).resolves.toMatchObject({ inbox: true, sms: false });
+  });
+
   it("switches the default route to manager-cell SMS when the work number is active", async () => {
     vi.mocked(loadManagerAutomationSettings).mockResolvedValue({
       ...DEFAULT_MANAGER_AUTOMATION_SETTINGS,

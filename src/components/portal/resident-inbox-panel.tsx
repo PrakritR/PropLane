@@ -36,6 +36,14 @@ import {
   resolveCommunicationPersonThreadReplyChannels,
 } from "@/lib/manager-inbox-reply-channels";
 import { sendPropLaneAssistantInboxMessage } from "@/lib/assistant-inbox-reply";
+import {
+  InboxSendRefusal,
+  inboxReplySentToastMessage as residentReplySentToastMessage,
+  type InboxReplySendOutcome as ResidentReplySendOutcome,
+} from "@/lib/inbox-reply-outcome";
+
+export { residentReplySentToastMessage };
+export type { ResidentReplySendOutcome };
 
 function resolveResidentReplyRecipientEmail(threadEmail: string, contacts: InboxScopedContact[]): string {
   const normalized = threadEmail.trim().toLowerCase();
@@ -124,46 +132,6 @@ function previewLine(body: string, max = 100) {
   const t = body.trim().replace(/\s+/g, " ");
   if (t.length <= max) return t;
   return `${t.slice(0, max)}…`;
-}
-
-/**
- * A send the SERVER refused, carrying the server's own reason on a typed field.
- * Only this class's `reason` is ever shown to the resident: inferring it from
- * `Error.message` echoed unexpected client-side exceptions into a user toast.
- */
-class InboxSendRefusal extends Error {
-  readonly reason: string | null;
-  constructor(reason: string | null) {
-    super(reason ?? "inbox send refused");
-    this.name = "InboxSendRefusal";
-    this.reason = reason;
-  }
-}
-
-/**
- * What each channel ACTUALLY did. The reply toast is built from this, never from
- * the channels the resident asked for: telling someone their text message went
- * out when the SMS leg failed is the same "shown as delivered when it wasn't"
- * defect as persisting a refused reply.
- */
-export type ResidentReplySendOutcome = {
-  emailRequested: boolean;
-  smsRequested: boolean;
-  emailOk: boolean;
-  smsOk: boolean;
-};
-
-export function residentReplySentToastMessage(outcome: ResidentReplySendOutcome): string {
-  const emailDelivered = outcome.emailRequested && outcome.emailOk;
-  const smsDelivered = outcome.smsRequested && outcome.smsOk;
-  if (!emailDelivered && !smsDelivered) return "Could not send reply.";
-  const emailFailed = outcome.emailRequested && !outcome.emailOk;
-  const smsFailed = outcome.smsRequested && !outcome.smsOk;
-  if (smsFailed) return "Reply sent via email. Text message failed.";
-  if (emailFailed) return "Reply sent via text. Email failed.";
-  if (emailDelivered && smsDelivered) return "Reply sent via email and text.";
-  if (smsDelivered) return "Reply sent via text.";
-  return "Reply sent.";
 }
 
 export type ResidentInboxPanelHandle = {
@@ -998,7 +966,7 @@ export const ResidentInboxPanel = forwardRef<
           }
           if (!emailOk && !smsOk && !proplaneOk) throw new InboxSendRefusal(failureMessage.trim() || null);
         } catch (e) {
-          if (!emailOk && !smsOk) {
+          if (!emailOk && !smsOk && !proplaneOk) {
             rollbackReply();
             throw e;
           }
@@ -1028,7 +996,14 @@ export const ResidentInboxPanel = forwardRef<
         persistInboxRef.current = true;
       }
       void syncPersistedInboxFromServer(RESIDENT_INBOX_STORAGE_KEY, { force: true }).catch(() => {});
-      return { emailRequested: channels.email, smsRequested: channels.sms, emailOk, smsOk };
+      return {
+        emailRequested: channels.email,
+        smsRequested: channels.sms,
+        proplaneRequested: proplaneAllowed,
+        emailOk,
+        smsOk,
+        proplaneOk,
+      };
     },
     [activeSmsAvailable, eligibleContacts],
   );

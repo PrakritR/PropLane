@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { appendInboxThreadReply } from "@/lib/portal-inbox-delivery";
+import { appendInboxThreadReply, resolveInboxThreadReplyTarget } from "@/lib/portal-inbox-delivery";
 import { makeWritableCtx } from "./tools/fake-agent-ctx";
 
 /**
@@ -24,6 +24,27 @@ const baseOpts = {
 };
 
 describe("appendInboxThreadReply", () => {
+  it("routes an existing canonical escalation thread back to its owner's bot", async () => {
+    const { db } = makeDb([{
+      id: "agent_notice_manager_a", owner_user_id: "manager_a", participant_email: null,
+      scope: "axis_portal_inbox_manager_v1", thread_type: "leasing_sms_escalation", row_data: {},
+    }]);
+    expect(await resolveInboxThreadReplyTarget(db, { ...baseOpts, threadId: "agent_notice_manager_a" }))
+      .toMatchObject({ threadType: "agent_notice", ownerUserId: "manager_a" });
+    expect(await resolveInboxThreadReplyTarget(db, {
+      threadId: "agent_notice_manager_a", senderUserId: "foreign", senderEmail: "foreign@example.com",
+    })).toBeNull();
+  });
+
+  it("does not turn a person named PropLane Assistant into the bot", async () => {
+    const { db } = makeDb([{
+      id: "person-thread", owner_user_id: "manager_a", participant_email: null,
+      scope: "axis_portal_inbox_manager_v1", thread_type: "portal_message",
+      row_data: { from: "PropLane Assistant" },
+    }]);
+    expect(await resolveInboxThreadReplyTarget(db, { ...baseOpts, threadId: "person-thread" }))
+      .toMatchObject({ threadType: "portal_message" });
+  });
   it("appends a message to a thread the sender owns", async () => {
     const { db, store } = makeDb([
       {

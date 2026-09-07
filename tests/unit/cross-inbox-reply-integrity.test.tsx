@@ -160,6 +160,31 @@ afterEach(() => {
 });
 
 describe("manager and vendor inbox reply integrity", () => {
+  it("reports a PropLane-only assistant reply as sent without contacting email or SMS", async () => {
+    managerRows = [{ ...BASE_THREAD, id: "agent_notice_manager-1", from: "PropLane Assistant", email: "" }];
+    const sends: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("send-inbox-message") && init?.method === "POST") {
+        sends.push(JSON.parse(String(init.body)));
+        return Response.json({ ok: true, agentHandled: true });
+      }
+      return responseForBackground(url);
+    }));
+    render(<ManagerInbox tabId="all" embeddedInCommunication externalTitleActions
+      suppressCompose suppressListPane controlledExpandedId="agent_notice_manager-1" />);
+    const input = await typeAndSend("inbox-reply", "Check my pending requests");
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Reply sent via PropLane."));
+    expect(showToast).not.toHaveBeenCalledWith("Could not send reply.");
+    expect(input).toHaveValue("");
+    expect(sends).toEqual([expect.objectContaining({
+      threadId: "agent_notice_manager-1", deliverToPortalInbox: true,
+      deliverViaEmail: false, deliverViaSms: false,
+    })]);
+    expect(sends[0]).not.toHaveProperty("toEmails");
+    expect(sends[0]).not.toHaveProperty("toUserIds");
+    expect(upsertPersistedInboxRows).toHaveBeenCalled();
+  });
   it("withdraws a manager reply refused by the server and keeps the draft", async () => {
     vi.stubGlobal(
       "fetch",

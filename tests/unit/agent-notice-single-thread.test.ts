@@ -53,6 +53,18 @@ async function notify(subject: string, text: string, idempotencyKey?: string) {
 }
 
 describe("PropLane Assistant is one conversation", () => {
+  it("keeps assistant reply routing after a typed escalation notice", async () => {
+    const { notifyManagerFromAgent } = await import("@/lib/agent-notify.server");
+    await notifyManagerFromAgent(makeDb(rows), {
+      landlordId: LANDLORD, subject: "Needs a reply", text: "A prospect needs help",
+      threadType: "leasing_sms_escalation",
+    });
+    expect(rows.get(`agent_notice_${LANDLORD}`)).toMatchObject({
+      thread_type: "agent_notice", row_data: { threadType: "agent_notice", messages: [
+        expect.objectContaining({ noticeType: "leasing_sms_escalation" }),
+      ] },
+    });
+  });
   it("keeps every notice in a single thread", async () => {
     await notify("First", "one");
     await notify("Second", "two");

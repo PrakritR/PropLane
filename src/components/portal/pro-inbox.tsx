@@ -924,6 +924,8 @@ export const ManagerInbox = forwardRef<
       return {
         emailRequested: emailAllowed,
         smsRequested: smsAllowed,
+        proplaneRequested: proplaneAllowed,
+        proplaneOk,
         emailOk,
         smsOk,
         smsUnknown,
