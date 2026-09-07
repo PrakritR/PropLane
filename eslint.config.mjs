@@ -12,6 +12,16 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local scratch trees, never shipped and never tracked. `output/` holds
+    // mocks, screenshots and prototype entrypoints whose .tsx files sit outside
+    // the Next app, so eslint-config-next resolves no react-hooks plugin for
+    // them and `npm run lint` died on a config error for anyone who had the
+    // directory. `.main-green-validation/` is a full copy of the repo, so
+    // linting it reported every finding twice over. Both are excluded from
+    // tsconfig for the same reason. CI never sees either - which is exactly why
+    // they broke only local runs.
+    "output/**",
+    ".main-green-validation/**",
   ]),
   {
     rules: {

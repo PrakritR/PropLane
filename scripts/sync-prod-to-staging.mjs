@@ -10,10 +10,15 @@
  * `pg_dump --role postgres`. Docker is not required. PROD_DB_PASSWORD is
  * optional. Staging writes use the same CLI login against the staging project.
  *
- * First --apply (no snapshot yet): wipe staging tenant/auth rows, then restore
- * the prod dump. Later --apply without --full-replace refuses: a second restore
- * would wipe staging-only rows. Use the merge planner (`decideRowFate`) for
- * those refreshes, or --full-replace if the captain wants a wipe.
+ * `--apply` is an INCREMENTAL three-way merge (`decideRowFate`, applied by
+ * `lib/staging-merge-apply.sql`): production wins on rows it changed, and rows
+ * QA created or edited on staging survive. It never wipes. The dump is restored
+ * into a throwaway import schema first, so a bad dump cannot empty staging, and
+ * the merge plus its snapshot rotation are one transaction.
+ *
+ * `--apply --full-replace` is the escape hatch: wipe staging and restore
+ * production wholesale, discarding every staging-only row. Only when someone
+ * explicitly wants staging reset.
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
@@ -23,6 +28,7 @@ import {
   PROD_REF,
   STAGING_REF,
   assertCloneEndpoint,
+  rewriteDumpSchema,
 } from "./lib/prod-staging-merge.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -163,13 +169,58 @@ BEGIN
   LOOP
     EXECUTE format('TRUNCATE TABLE public.%I CASCADE', r.tablename);
   END LOOP;
-  TRUNCATE TABLE auth.users CASCADE;
+  -- Every auth table the dump restores, not just users. Most auth tables cascade
+  -- from auth.users, but flow_state (in-flight PKCE), audit_log_entries, instances
+  -- and the sso_/saml_ tables do not — they survived the old users-only truncate
+  -- and then collided with the dump's own rows, aborting the restore under
+  -- ON_ERROR_STOP=1 *after* the wipe had already emptied staging.
+  -- schema_migrations is excluded here because the dump excludes it too.
+  FOR r IN
+    SELECT tablename
+    FROM pg_tables
+    WHERE schemaname = 'auth'
+      AND tablename <> 'schema_migrations'
+  LOOP
+    EXECUTE format('TRUNCATE TABLE auth.%I CASCADE', r.tablename);
+  END LOOP;
 END $$;
 `;
   runStagingSql({
     args: ["-c", wipe, "-f", authFile, "-f", publicFile, "-c", "RESET ALL;"],
     label: "psql wipe+restore staging",
   });
+}
+
+/**
+ * Incremental refresh. Restores the dump into import schemas that nothing else
+ * reads, then merges row by row and rotates the snapshot in one transaction.
+ * Staging is never emptied at any point, so a failure anywhere leaves the
+ * environment exactly as it was.
+ */
+function mergeRefresh({ authFile, publicFile }) {
+  const importAuthFile = join(SNAPSHOT_DIR, "import-auth.sql");
+  const importPublicFile = join(SNAPSHOT_DIR, "import-public.sql");
+  writeFileSync(importAuthFile, rewriteDumpSchema(readFileSync(authFile, "utf8")));
+  writeFileSync(importPublicFile, rewriteDumpSchema(readFileSync(publicFile, "utf8")));
+
+  console.log("building import schemas…");
+  runStagingSql({
+    args: ["-f", join(ROOT, "scripts/lib/staging-merge-import.sql")],
+    label: "psql build import schemas",
+  });
+
+  console.log("restoring production dump into import schemas…");
+  runStagingSql({
+    args: ["-c", "SET ROLE postgres;", "-f", importAuthFile, "-f", importPublicFile],
+    label: "psql restore import schemas",
+  });
+
+  console.log("merging into staging (production wins on rows it changed)…");
+  const report = runStagingSql({
+    args: ["-f", join(ROOT, "scripts/lib/staging-merge-apply.sql")],
+    label: "psql merge staging",
+  });
+  return report;
 }
 
 function main() {
@@ -183,10 +234,9 @@ function main() {
 
   if (apply) requireApplyGate();
 
-  const hasSnapshot = existsSync(SNAPSHOT_MARK);
   console.log(
     apply
-      ? `sync-prod-to-staging: APPLY (read ${PROD_REF} → write ${STAGING_REF})`
+      ? `sync-prod-to-staging: APPLY ${fullReplace ? "FULL REPLACE" : "merge"} (read ${PROD_REF} → write ${STAGING_REF})`
       : `sync-prod-to-staging: dry-run (read ${PROD_REF}, no staging write)`,
   );
   console.log("production dump uses Supabase CLI login + local pg_dump (read-only)");
@@ -201,21 +251,34 @@ function main() {
   console.log(`dumped ${publicFile} and ${authFile}`);
 
   if (!apply) {
-    console.log("dry-run complete. Pass --apply to wipe staging then restore.");
+    console.log(
+      "dry-run complete. --apply merges (staging-only rows kept); " +
+        "--apply --full-replace wipes staging first.",
+    );
     process.exit(0);
   }
 
-  if (hasSnapshot && !fullReplace) {
-    throw new Error(
-      "A snapshot already exists. A second restore would wipe staging-only rows. " +
-        "Re-run with --full-replace only if the captain wants a wipe, or wait for the merge apply path.",
-    );
+  if (fullReplace) {
+    console.log("wiping staging public + auth, then restoring…");
+    wipeAndRestore({ authFile, publicFile });
+    // Re-run the merge so the snapshot baseline exists. Staging equals
+    // production at this point, so it changes no rows; without it the next
+    // incremental refresh would have no baseline and could not tell a row
+    // production deleted from a row QA created.
+    console.log("seeding the merge baseline…");
+    mergeRefresh({ authFile, publicFile });
+  } else {
+    const report = mergeRefresh({ authFile, publicFile });
+    const changed = report.trim();
+    console.log(changed || "no row changes (staging already matches production)");
   }
 
-  console.log("wiping staging public + auth.users, then restoring…");
-  wipeAndRestore({ authFile, publicFile });
   writeFileSync(SNAPSHOT_MARK, `${new Date().toISOString()}\n`);
-  console.log("staging restore complete. Snapshot marked.");
+  console.log(
+    fullReplace
+      ? "staging replaced from production. Snapshot marked."
+      : "staging refreshed from production. Staging-only rows kept. Snapshot marked.",
+  );
 }
 
 try {

@@ -41,6 +41,8 @@
     "tests",
     "vitest.config.ts",
     "playwright.config.ts",
-    "axis-crm-outreach"
+    "axis-crm-outreach",
+    "output",
+    ".main-green-validation"
   ]
 }
