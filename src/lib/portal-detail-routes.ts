@@ -79,10 +79,10 @@ export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetail
 
 /** Routed detail tabs for manager resident profile (Appendix C2). */
 export const RESIDENT_DETAIL_TABS = [
+  "tours",
   "application",
   "background-check",
   "lease",
-  "tours",
   "payments",
   "services",
   "inspections",
@@ -248,6 +248,25 @@ export function managerResidentItemDetailHref(
   itemId: string,
 ): string {
   return `${basePath}/residents/${residentsTab}/${encodeURIComponent(residentId)}/${tab}/${encodeURIComponent(itemId)}`;
+}
+
+export function managerResidentTourListHref(
+  basePath: string,
+  residentsTab: string,
+  residentId: string,
+  bucket: ManagerTourBucketId = "pending",
+): string {
+  return `${basePath}/residents/${residentsTab}/${encodeURIComponent(residentId)}/tours/${bucket}`;
+}
+
+export function managerResidentTourDetailHref(
+  basePath: string,
+  residentsTab: string,
+  residentId: string,
+  bucket: ManagerTourBucketId,
+  tourId: string,
+): string {
+  return `${managerResidentTourListHref(basePath, residentsTab, residentId, bucket)}/${encodeURIComponent(tourId)}`;
 }
 
 export function residentPaymentDetailHref(

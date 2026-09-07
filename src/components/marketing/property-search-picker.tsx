@@ -209,7 +209,7 @@ export function PropertySearchPicker({
                               : "border-border bg-card hover:border-primary/20 hover:bg-accent/30"
                           }`}
                         >
-                          <div className="flex items-start justify-between gap-4">
+                          <div className="flex items-center justify-between gap-4">
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold text-foreground">{option.title}</p>
                               {option.subtitle ? (
@@ -223,13 +223,20 @@ export function PropertySearchPicker({
                                 </div>
                               ) : null}
                             </div>
-                            <div
-                              className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
-                                isSelected ? "border-primary bg-primary text-white" : "border-border bg-card"
+                            {/* Rendered as a span, not a button: the whole row is already the
+                                control (and a listbox option), so a nested button would be
+                                invalid markup and a second, redundant tab stop. */}
+                            <span
+                              aria-hidden
+                              className={`inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-full border px-4 text-[13px] font-semibold transition-colors ${
+                                isSelected
+                                  ? "border-primary bg-primary text-white"
+                                  : "border-primary/40 bg-card text-primary"
                               }`}
                             >
                               {isSelected ? <CheckSmIcon /> : null}
-                            </div>
+                              Select
+                            </span>
                           </div>
                         </button>
                       </li>

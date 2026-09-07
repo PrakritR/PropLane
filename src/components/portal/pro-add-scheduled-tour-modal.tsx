@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import {
   Modal,
   ModalFooter,
@@ -274,13 +275,11 @@ export function ManagerAddScheduledTourModal({
           <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manual-tour-guest-phone">
             Guest phone (optional)
           </label>
-          <Input
+          <PhoneNumberField
             id="manual-tour-guest-phone"
-            type="tel"
             value={form.guestPhone}
-            onChange={(e) => setForm((current) => ({ ...current, guestPhone: e.target.value }))}
-            placeholder="(555) 555-0100"
-            data-attr="manual-tour-guest-phone"
+            onChange={(guestPhone) => setForm((current) => ({ ...current, guestPhone }))}
+            dataAttr="manual-tour-guest-phone"
           />
         </div>
         <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>

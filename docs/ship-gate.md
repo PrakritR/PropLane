@@ -12,9 +12,10 @@ a substantial feature. Agents must follow it (see `AGENTS.md` and
 ## Why
 
 - **Web (live)** deploys from Vercel on every push to **`production`** only.
-- **`main`** builds the developer Preview (shared dev/test DB). **`staging`**
-  builds the QA Preview (staging Supabase `xwszcafaontidfgznlxd`). Non-`main` / non-`staging` /
-  non-`production` pushes are skipped via the Vercel Ignored Build Step plus
+- **`main`** is tested on localhost (shared dev/test DB). **`staging`**
+  builds the QA Preview at `staging-prop-lane.space` (staging Supabase
+  `xwszcafaontidfgznlxd`). All pushes except `staging` and `production`
+  are skipped via the Vercel Ignored Build Step plus
   `vercel.json`.
 - **iOS** builds, uploads **and distributes** to the internal TestFlight tester
   group from GitHub Actions on push to **`production`**
@@ -251,10 +252,10 @@ not failing — they pass locally and pass on a re-run. Both CI E2E jobs run at
 attempt: re-run the job before filing either as a failure, and fix the specs
 rather than reintroducing retries.
 
-## Land work on `main` (Vercel Preview)
+## Land work on `main` (localhost)
 
-Work goes straight to `main`, fast-forward only, never force. `main` builds a
-Preview deployment — verify there and on localhost before promoting.
+Work goes straight to `main`, fast-forward only, never force. `main` does not
+create a Vercel deployment — verify on localhost before promoting to staging.
 
 Before pushing:
 
@@ -284,7 +285,7 @@ If no-mistakes parks at a gate, drive `no-mistakes axi respond` then re-run with
 ```bash
 git checkout main
 git pull
-# developers already verified the main Preview
+# developers already verified main on localhost
 npm run ship:staging
 ```
 

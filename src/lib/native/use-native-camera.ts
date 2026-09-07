@@ -9,6 +9,9 @@ export type CapturedPhoto = {
   file: File;
 };
 
+/** Explicit picker on web; maps to CameraSource on native. */
+export type PhotoCaptureSource = "files" | "camera";
+
 /**
  * Returns `capture()`, which opens the native camera/photo picker inside the
  * app and falls back to a normal file input on the web. Wire it into document
@@ -19,19 +22,22 @@ export type CapturedPhoto = {
  * rejected; genuine native features clear that bar).
  */
 export function useNativeCamera() {
-  const capture = useCallback(async (): Promise<CapturedPhoto | null> => {
+  const capture = useCallback(async (source?: PhotoCaptureSource): Promise<CapturedPhoto | null> => {
     const { Capacitor } = await import("@capacitor/core");
 
     if (!Capacitor.isNativePlatform()) {
-      return pickFromWeb();
+      return pickFromWeb(source ?? "camera");
     }
 
     const { Camera, CameraResultType, CameraSource } = await import("@capacitor/camera");
+    const cameraSource = source === "files" ? CameraSource.Photos
+      : source === "camera" ? CameraSource.Camera
+        : CameraSource.Prompt;
     const photo = await Camera.getPhoto({
       quality: 80,
       allowEditing: false,
       resultType: CameraResultType.Uri,
-      source: CameraSource.Prompt, // user picks camera or library
+      source: cameraSource,
     });
     if (!photo.webPath) return null;
 
@@ -49,12 +55,12 @@ export function useNativeCamera() {
   return { capture };
 }
 
-function pickFromWeb(): Promise<CapturedPhoto | null> {
+function pickFromWeb(source: PhotoCaptureSource): Promise<CapturedPhoto | null> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
-    input.capture = "environment";
+    if (source === "camera") input.capture = "environment";
     input.oncancel = () => resolve(null);
     input.onchange = () => {
       const file = input.files?.[0];

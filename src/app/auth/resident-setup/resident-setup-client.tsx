@@ -11,6 +11,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { residentSetupIdFromUrlParams } from "@/lib/auth/resident-setup-links";
 import { FIELD_LABEL_CLASS, READONLY_INPUT_CLASS } from "@/lib/ui-styles";
@@ -220,16 +221,13 @@ function ResidentSetupInner() {
           <label className={FIELD_LABEL_CLASS} htmlFor="resident-setup-phone">
             Phone number
           </label>
-          <Input
+          <PhoneNumberField
             id="resident-setup-phone"
             className="mt-1.5"
-            type="tel"
-            inputMode="tel"
-            placeholder="(555) 555-0100"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            onChange={setPhone}
             disabled={busy}
-            autoComplete="tel"
+            dataAttr="resident-setup-phone"
           />
           <p className="mt-1 text-xs text-muted/70">Used for account and tenancy text updates. Reply STOP anytime.</p>
         </div>

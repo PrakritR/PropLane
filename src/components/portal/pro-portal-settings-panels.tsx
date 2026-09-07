@@ -26,6 +26,7 @@ import {
   ManagerSmsWorkNumberHint,
   ManagerWorkNumberCopyControl,
 } from "@/components/portal/pro-sms-work-number-hint";
+import { normalizeE164 } from "@/lib/phone-e164";
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 import {
   PAYMENT_REMINDER_PRESETS,
@@ -814,10 +815,13 @@ export function TourSettingsPanel({
         viaSms={automation.tourReminderDeliverViaSms === true}
         smsLabel="SMS (when guest opted in)"
         placeholders={TOUR_PLACEHOLDERS}
-        onSave={(next) => {
+        onSave={({ subject, body, viaInbox, viaEmail, viaSms }) => {
           setAutomation((prev) => ({
             ...prev,
-            templates: { ...prev.templates, tourReminder: next },
+            templates: { ...prev.templates, tourReminder: { subject, body } },
+            tourReminderDeliverViaInbox: viaInbox,
+            tourReminderDeliverViaEmail: viaEmail,
+            tourReminderDeliverViaSms: viaSms,
           }));
         }}
       />
@@ -943,9 +947,7 @@ export function CommunicationSettingsPanel({
           setSmsSetup(
             status
               ? {
-                  phone: typeof status.number?.phoneNumber === "string"
-                    ? status.number.phoneNumber.trim() || null
-                    : null,
+                  phone: normalizeE164(status.number?.phoneNumber),
                   canSend: status.canSend,
                 }
               : null,

@@ -13,7 +13,7 @@ import { centsToUsd, dollarsToCents } from "@/lib/reports/money";
 import { resolveDocumentScope } from "@/lib/reports/parse-filters";
 import type { DocumentScope, ManagerReportFilters, ReportResult } from "@/lib/reports/types";
 import { parseMoneyAmount } from "@/lib/parse-money";
-import { rentMonthlyEquivalent } from "@/lib/room-pricing";
+import { rentProfileMonthlyEquivalent } from "@/lib/room-pricing";
 import {
   queryBalanceSheet,
   queryCashFlowStatement,
@@ -158,13 +158,13 @@ export async function queryRentRoll(
     unit: p.roomLabel || "—",
     resident: p.residentName,
     email: p.residentEmail,
-    monthlyRent: centsToUsd(Math.round(rentMonthlyEquivalent(p.monthlyRent, p.dailyRentPrice) * 100)),
+    monthlyRent: centsToUsd(Math.round(rentProfileMonthlyEquivalent(p.monthlyRent, p.dailyRentPrice, p.weeklyRentPrice) * 100)),
     depositHeld: centsToUsd(depositByResident.get(p.residentEmail.toLowerCase()) ?? 0),
     status: p.active ? "Occupied" : "Inactive",
   }));
 
   const totalRentCents = profiles.reduce(
-    (sum, p) => sum + Math.round(rentMonthlyEquivalent(p.monthlyRent, p.dailyRentPrice) * 100),
+    (sum, p) => sum + Math.round(rentProfileMonthlyEquivalent(p.monthlyRent, p.dailyRentPrice, p.weeklyRentPrice) * 100),
     0,
   );
 
@@ -719,7 +719,7 @@ export async function queryLeaseExpiration(
       property: p.propertyLabel,
       unit: p.roomLabel || "—",
       leaseEnd: p.leaseEnd!,
-      monthlyRent: centsToUsd(Math.round(rentMonthlyEquivalent(p.monthlyRent, p.dailyRentPrice) * 100)),
+      monthlyRent: centsToUsd(Math.round(rentProfileMonthlyEquivalent(p.monthlyRent, p.dailyRentPrice, p.weeklyRentPrice) * 100)),
     }))
     .sort((a, b) => String(a.leaseEnd).localeCompare(String(b.leaseEnd)));
 

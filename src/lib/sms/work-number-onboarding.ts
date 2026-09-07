@@ -1,3 +1,4 @@
+import { normalizeE164 } from "@/lib/phone-e164";
 import type { ManagerMessagingWorkspaceRole } from "@/lib/sms/manager-messaging-number";
 
 /**
@@ -13,7 +14,7 @@ export type WorkNumberOnboardingStatus = {
 
 /** The number already provisioned for this account, or "" when there is none. */
 export function workNumberOnboardingPhone(status: WorkNumberOnboardingStatus | null): string {
-  return status?.number?.phoneNumber?.trim() || "";
+  return normalizeE164(status?.number?.phoneNumber) ?? "";
 }
 
 /**

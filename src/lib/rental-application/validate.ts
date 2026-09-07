@@ -8,6 +8,7 @@ import {
   validateEmail,
   validateFullName,
   validateGroupSize,
+  isBlankOrCompletePhone,
   validatePhone10,
   validateRequired,
   validateSsn,
@@ -279,11 +280,8 @@ export function validateStandardWizardStep(
       const z = validateZip(f.currentZip);
       if (!z.ok) e.currentZip = z.message;
     }
-    if (fieldEnabled("currentLandlordPhone")) {
-      const curLdDigits = digitsOnly(f.currentLandlordPhone);
-      if (curLdDigits.length > 0 && curLdDigits.length !== 10) {
-        e.currentLandlordPhone = "Enter a complete 10-digit number or leave this blank.";
-      }
+    if (fieldEnabled("currentLandlordPhone") && !isBlankOrCompletePhone(f.currentLandlordPhone)) {
+      e.currentLandlordPhone = "Enter a complete phone number or leave this blank.";
     }
     return e;
   }
@@ -306,11 +304,8 @@ export function validateStandardWizardStep(
       const z = validateZip(f.prevZip);
       if (!z.ok) e.prevZip = z.message;
     }
-    if (fieldEnabled("prevLandlordPhone")) {
-      const prevLdDigits = digitsOnly(f.prevLandlordPhone);
-      if (prevLdDigits.length > 0 && prevLdDigits.length !== 10) {
-        e.prevLandlordPhone = "Enter a complete 10-digit number or leave this blank.";
-      }
+    if (fieldEnabled("prevLandlordPhone") && !isBlankOrCompletePhone(f.prevLandlordPhone)) {
+      e.prevLandlordPhone = "Enter a complete phone number or leave this blank.";
     }
     return e;
   }
@@ -321,11 +316,8 @@ export function validateStandardWizardStep(
         const emp = validateRequired(f.employer, "Employer name");
         if (!emp.ok) e.employer = emp.message;
       }
-      if (fieldEnabled("supervisorPhone")) {
-        const supDigits = digitsOnly(f.supervisorPhone);
-        if (supDigits.length > 0 && supDigits.length !== 10) {
-          e.supervisorPhone = "Enter a complete 10-digit number or leave this blank.";
-        }
+      if (fieldEnabled("supervisorPhone") && !isBlankOrCompletePhone(f.supervisorPhone)) {
+        e.supervisorPhone = "Enter a complete phone number or leave this blank.";
       }
     }
     if (

@@ -11,10 +11,11 @@
  * plan assets/ and embedded in the HTML for Lavish review.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { copyFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { basename, join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { writeActiveSession } from "./lavish-session.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..");
@@ -179,11 +180,15 @@ Images: pass each attachment path with --image (copied into plan assets/).`);
   console.log(`Plan written: ${htmlPath}`);
   if (copied.length) console.log(`Images: ${copied.join(", ")}`);
 
+  writeActiveSession({ planPath: htmlPath, ticket });
+
   if (args.open) {
     execFileSync("npx", ["-y", "lavish-axi", htmlPath], { cwd: REPO_ROOT, stdio: "inherit" });
+    spawnSync("node", ["scripts/lavish-listen.mjs"], { cwd: REPO_ROOT, stdio: "inherit" });
+    console.log("\n⚠ AGENT: Lavish listener started (`npm run lavish:listen`). Run `npm run lavish:poll` each turn.");
   } else {
     console.log(`Open: npx -y lavish-axi ${htmlPath}`);
-    console.log(`Poll:  npx -y lavish-axi poll ${htmlPath}`);
+    console.log(`Poll:  npm run lavish:poll`);
   }
 }
 

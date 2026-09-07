@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import {
   PortalNotificationPreviewModal,
@@ -300,14 +301,13 @@ export function PortalRecordShareModal({
                     <label htmlFor="record-share-phone" className={FIELD_LABEL_CLASS}>
                       Phone
                     </label>
-                    <Input
+                    <PhoneNumberField
                       id="record-share-phone"
                       name="record-share-recipient-phone"
                       autoComplete="off"
-                      type="tel"
                       value={recipientPhone}
-                      onChange={(e) => setRecipientPhone(e.target.value)}
-                      placeholder="(555) 555-5555"
+                      onChange={setRecipientPhone}
+                      dataAttr="record-share-phone"
                     />
                   </div>
                 ) : null}
@@ -317,14 +317,13 @@ export function PortalRecordShareModal({
                   <label htmlFor="record-share-phone-sms" className={FIELD_LABEL_CLASS}>
                     Phone (SMS)
                   </label>
-                  <Input
+                  <PhoneNumberField
                     id="record-share-phone-sms"
                     name="record-share-recipient-phone-sms"
                     autoComplete="off"
-                    type="tel"
                     value={recipientPhone}
-                    onChange={(e) => setRecipientPhone(e.target.value)}
-                    placeholder="(555) 555-5555"
+                    onChange={setRecipientPhone}
+                    dataAttr="record-share-phone-sms"
                   />
                 </div>
               ) : null}

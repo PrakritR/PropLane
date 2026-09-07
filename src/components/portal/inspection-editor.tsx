@@ -10,7 +10,7 @@ import { Modal } from "@/components/ui/modal";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
-import { useNativeCamera, type CapturedPhoto } from "@/lib/native/use-native-camera";
+import { useNativeCamera, type CapturedPhoto, type PhotoCaptureSource } from "@/lib/native/use-native-camera";
 import { inspectionDraftKey, appendUnsentRecovery, discardInspectionDraft, retainInspectionDraft, peekInspectionDraft, takeInspectionDraft, type InspectionEditorDraft, type InspectionEditorSnapshot } from "@/lib/inspections/editor-drafts";
 import { downloadInspection, inspectionRequest } from "@/lib/inspections/client";
 import { downloadBlobFile } from "@/lib/portal-document-download";
@@ -74,7 +74,9 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const [activeAreaId, setActiveAreaId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [documentOpen, setDocumentOpen] = useState(false);
+  const [uploadSourceOpen, setUploadSourceOpen] = useState(false);
   const [choosePhoto, setChoosePhoto] = useState(false);
+  const [photoSource, setPhotoSource] = useState<PhotoCaptureSource | null>(null);
   const [pendingPhoto, setPendingPhoto] = useState<{ itemId: string; photo: CapturedPhoto } | null>((resumable ? restored?.active?.pendingPhoto : null) ?? null);
   const live = useRef(true);
   const draftRef = useRef<InspectionEditorDraft | null>(null);
@@ -203,16 +205,18 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     if (!live.current) return;
     URL.revokeObjectURL(photo.previewUrl); setPendingPhoto(null); setNotice("Photo added. Your document is up to date.");
   };
-  const upload = (itemId: string) => run(async () => {
-    const photo = await capture(); if (!photo) return;
+  const upload = (itemId: string, source: PhotoCaptureSource) => run(async () => {
+    const photo = await capture(source); if (!photo) return;
     if (pendingPhoto) URL.revokeObjectURL(pendingPhoto.photo.previewUrl);
-    setPendingPhoto({ itemId, photo }); setChoosePhoto(false);
+    setPendingPhoto({ itemId, photo }); setChoosePhoto(false); setPhotoSource(null);
     await sendPhoto(itemId, photo);
   });
-  const startUpload = () => {
+  const startUpload = () => setUploadSourceOpen(true);
+  const pickUploadSource = (source: PhotoCaptureSource) => {
+    setUploadSourceOpen(false);
     const area = activeArea ?? (selected.size === 1 ? roomAreas.find(a => selected.has(a.id)) : undefined);
-    if (area?.items.length === 1) void upload(area.items[0]!.id);
-    else setChoosePhoto(true);
+    if (area?.items.length === 1) void upload(area.items[0]!.id, source);
+    else { setPhotoSource(source); setChoosePhoto(true); }
   };
   const remove = (photoId: string) => run(async () => {
     const current = await save();
@@ -358,16 +362,22 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     </PortalCollapsibleSection>}
     <PortalCollapsibleSection title="Record history" defaultExpanded={false}>{report.document.history.map((event, i) => <p key={i} className="py-1 text-xs text-muted">{new Date(event.at).toLocaleString()} · {event.role} · {event.action}</p>)}</PortalCollapsibleSection>
     <PortalPageFooterActions pinned rowVariant="header">
-      <Button variant="outline" aria-label={documentOpen ? "Download document" : "View document"} disabled={busy} onClick={() => documentOpen ? run(async () => { await save(); await downloadInspection(role, report.id); }) : setDocumentOpen(true)} data-attr="inspection-download"><FileText className="h-4 w-4" /><span className="hidden sm:inline">{documentOpen ? "Download document" : "View document"}</span></Button>
+      <Button variant="outline" aria-label={documentOpen ? "Download document" : "View"} disabled={busy} onClick={() => documentOpen ? run(async () => { await save(); await downloadInspection(role, report.id); }) : setDocumentOpen(true)} data-attr="inspection-download"><FileText className="h-4 w-4" /><span className="hidden sm:inline">{documentOpen ? "Download document" : "View"}</span></Button>
       {editable && !pendingPhoto && <Button variant="outline" disabled={busy} aria-label="Upload photos" onClick={startUpload} data-attr="inspection-photo-add"><Camera className="h-4 w-4" /><span className="sm:hidden">Photos</span><span className="hidden sm:inline">Upload photos</span></Button>}
       {pendingPhoto && <>{editable && <Button variant="outline" disabled={busy} onClick={() => run(() => sendPhoto(pendingPhoto.itemId, pendingPhoto.photo))} data-attr="inspection-photo-retry">Retry upload</Button>}<Button variant="ghost" disabled={busy} onClick={() => { URL.revokeObjectURL(pendingPhoto.photo.previewUrl); setPendingPhoto(null); }} data-attr="inspection-photo-discard">Remove</Button></>}
       {error && dirty && editable && !pendingPhoto && <Button variant="outline" disabled={busy} onClick={() => run(async () => { await save(); })} data-attr="inspection-save-retry">Retry save</Button>}
       {error && <Button variant="ghost" disabled={busy} onClick={() => setConfirm("reload")} data-attr="inspection-conflict-review">Review latest</Button>}
-      {canEdit && editable && role === "manager" && !pendingPhoto && <Button className="ml-auto" disabled={busy} aria-label="Request confirmation" onClick={() => setConfirm("submit")} data-attr="inspection-submit"><span className="sm:hidden">Request</span><span className="hidden sm:inline">Request confirmation</span></Button>}
-      {canEdit && report.status === "submitted" && role === "resident" && !report.document.residentAcknowledgment && <Button className="ml-auto" disabled={busy} aria-label="Confirm review" onClick={() => setConfirm("acknowledge")} data-attr="inspection-acknowledge"><span className="sm:hidden">Confirm</span><span className="hidden sm:inline">Confirm review</span></Button>}
-      {canEdit && report.status === "submitted" && role === "manager" && <><Button variant="outline" disabled={busy} aria-label="Request changes" onClick={() => setConfirm("reopen")} data-attr="inspection-reopen"><span className="sm:hidden">Changes</span><span className="hidden sm:inline">Request changes</span></Button><Button className="ml-auto" disabled={busy || !report.document.residentAcknowledgment} onClick={() => setConfirm("complete")} aria-label="Approve inspection" data-attr="inspection-complete"><span className="sm:hidden">Approve</span><span className="hidden sm:inline">Approve inspection</span></Button></>}
+      {canEdit && editable && role === "manager" && !pendingPhoto && <Button disabled={busy} aria-label="Request confirmation" onClick={() => setConfirm("submit")} data-attr="inspection-submit"><span className="sm:hidden">Request</span><span className="hidden sm:inline">Request confirmation</span></Button>}
+      {canEdit && report.status === "submitted" && role === "resident" && !report.document.residentAcknowledgment && <Button disabled={busy} aria-label="Confirm review" onClick={() => setConfirm("acknowledge")} data-attr="inspection-acknowledge"><span className="sm:hidden">Confirm</span><span className="hidden sm:inline">Confirm review</span></Button>}
+      {canEdit && report.status === "submitted" && role === "manager" && <><Button variant="outline" disabled={busy} aria-label="Request changes" onClick={() => setConfirm("reopen")} data-attr="inspection-reopen"><span className="sm:hidden">Changes</span><span className="hidden sm:inline">Request changes</span></Button><Button disabled={busy || !report.document.residentAcknowledgment} onClick={() => setConfirm("complete")} aria-label="Approve inspection" data-attr="inspection-complete"><span className="sm:hidden">Approve</span><span className="hidden sm:inline">Approve inspection</span></Button></>}
     </PortalPageFooterActions>
-    <Modal open={choosePhoto} onClose={() => { if (!busy) setChoosePhoto(false); }} dismissBlocked={busy} title="Add photos to a section" assistantStrip={false}><div className="space-y-2">{(activeArea ? [activeArea] : selected.size ? roomAreas.filter(area => selected.has(area.id)) : roomAreas).map(area => <div key={area.id}><h3 className="py-2 text-sm font-semibold">{area.label}</h3>{area.items.map(item => <Button key={item.id} variant="outline" className="mb-2 w-full justify-between" disabled={busy} onClick={() => upload(item.id)} data-attr="inspection-upload-section">{item.label}<Camera className="h-4 w-4" /></Button>)}</div>)}</div></Modal>
+    <Modal open={uploadSourceOpen} onClose={() => { if (!busy) setUploadSourceOpen(false); }} dismissBlocked={busy} title="Add photos" assistantStrip={false}>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Button variant="outline" className="h-auto min-h-12 justify-start px-4 py-3 text-left" disabled={busy} onClick={() => pickUploadSource("files")} data-attr="inspection-upload-files">Choose from files</Button>
+        <Button variant="outline" className="h-auto min-h-12 justify-start px-4 py-3 text-left" disabled={busy} onClick={() => pickUploadSource("camera")} data-attr="inspection-upload-camera">Use camera</Button>
+      </div>
+    </Modal>
+    <Modal open={choosePhoto} onClose={() => { if (!busy) { setChoosePhoto(false); setPhotoSource(null); } }} dismissBlocked={busy} title="Add photos to a section" assistantStrip={false}><div className="space-y-2">{(activeArea ? [activeArea] : selected.size ? roomAreas.filter(area => selected.has(area.id)) : roomAreas).map(area => <div key={area.id}><h3 className="py-2 text-sm font-semibold">{area.label}</h3>{area.items.map(item => <Button key={item.id} variant="outline" className="mb-2 w-full justify-between" disabled={busy || !photoSource} onClick={() => photoSource && upload(item.id, photoSource)} data-attr="inspection-upload-section">{item.label}<Camera className="h-4 w-4" /></Button>)}</div>)}</div></Modal>
     <Modal open={confirm !== null} onClose={() => { if (!busy) setConfirm(null); }} dismissBlocked={busy} title={confirm === "leave" ? "Leave without saving?" : confirm === "reload" ? "Review the latest saved report?" : confirm === "complete" ? "Approve inspection" : confirm ? actions[confirm].label : "Review report"} assistantStrip={false} footer={<Button disabled={busy} onClick={confirmAction} data-attr="inspection-confirm">{confirm === "leave" ? "Discard and leave" : confirm === "reload" ? "Review latest" : confirm === "complete" ? "Approve inspection" : confirm ? actions[confirm].label : "Confirm"}</Button>}>
       <p className="text-sm text-muted">{confirm === "leave" ? "Unsaved notes and pending uploads will be discarded. Saved photos and observations remain." : confirm === "reload" ? "Unsaved notes will be discarded. Your pending photo is kept: retry its upload if the latest report is still a draft, or save it to your device if it has since been submitted or completed." : confirm ? actions[confirm].explanation : ""}</p>
       {error && <p role="alert" className="mt-3 text-sm">{error}</p>}

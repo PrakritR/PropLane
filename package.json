@@ -63,6 +63,7 @@
     "workflow:plan": "node scripts/workflow-plan.mjs",
     "lavish:plan": "node scripts/lavish-plan.mjs",
     "lavish:poll": "node scripts/lavish-poll.mjs",
+    "lavish:listen": "node scripts/lavish-listen.mjs",
     "lavish:workflow": "npx -y lavish-axi docs/lavish/captain-workflow.html",
     "posthog:verify": "node --env-file=.env.local --env-file-if-exists=.env scripts/posthog-verify-setup.mjs",
     "sandbox:pin": "node scripts/pin-sandbox-port.mjs",
@@ -112,7 +113,8 @@
     "security:cosigner-backfill": "tsx --conditions=react-server scripts/security/backfill-cosigner-identities.ts",
     "security:prepare-database": "node scripts/security/prepare-nonproduction-database.mjs",
     "security:document-backfill": "tsx --conditions=react-server scripts/security/backfill-application-documents.ts",
-    "security:backfill-applicant-identities": "tsx --conditions=react-server scripts/security/backfill-applicant-identities.ts"
+    "security:backfill-applicant-identities": "tsx --conditions=react-server scripts/security/backfill-applicant-identities.ts",
+    "qa:dom-sweep": "node scripts/qa-portal-dom-sweep.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",

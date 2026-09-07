@@ -77,4 +77,17 @@ describe("work number card on the signup step", () => {
       shouldOfferWorkNumberSetup({ workspaceRole: "primary", number: { phoneNumber: "  " } }),
     ).toBe(false);
   });
+
+  it.each([123, {}, [], true])("ignores a malformed phoneNumber (%j) without a trim error", (phoneNumber) => {
+    const status = { number: { phoneNumber: phoneNumber as unknown as string } };
+    expect(() => workNumberOnboardingPhone(status)).not.toThrow();
+    expect(workNumberOnboardingPhone(status)).toBe("");
+    expect(shouldOfferWorkNumberSetup({ workspaceRole: "primary", ...status })).toBe(false);
+  });
+
+  it("keeps a JSON-number work number so an existing account still sees it", () => {
+    const status = { number: { phoneNumber: 18559168031 as unknown as string } };
+    expect(workNumberOnboardingPhone(status)).toBe("+18559168031");
+    expect(shouldOfferWorkNumberSetup({ workspaceRole: "primary", ...status })).toBe(true);
+  });
 });

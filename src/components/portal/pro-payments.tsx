@@ -50,10 +50,7 @@ import { applicationVisibleToPortalUser, buildManagerPropertyFilterOptions, coll
 import { ledgerRoomNumberForApplication } from "@/lib/rental-application/data";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { scopeChargesToManagerPaymentsLedger } from "@/lib/manager-payments-scope";
-import {
-  ReminderSettingsModal,
-  useScheduledPaymentMessages,
-} from "@/components/portal/payment-schedule-ui";
+import { useScheduledPaymentMessages } from "@/components/portal/payment-schedule-ui";
 import { formatFriendlyReminderSchedule } from "@/lib/payment-reminder-presets";
 import {
   buildManagerOutgoingPaymentRows,
@@ -270,7 +267,6 @@ export function ManagerPayments({
   const [residentFilters, setResidentFilters] = useState<string[]>([]);
   const [applicationTick, setApplicationTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
-  const [reminderSettingsOpen, setReminderSettingsOpen] = useState(false);
   const [paymentSettingsOpen, setPaymentSettingsOpen] = useState(false);
   const [paymentSetupOpen, setPaymentSetupOpen] = useState(false);
   const [paymentsFilterOpen, setPaymentsFilterOpen] = useState(false);
@@ -287,7 +283,7 @@ export function ManagerPayments({
     direction === "incoming" ? setIncomingGroupMode : setOutgoingGroupMode;
   // Per-payment reminder lists show the full saved default schedule, so bypass
   // the Inbox schedule-visibility window (which only gates Inbox → Schedule).
-  const { messages: scheduledMessages, settings: reminderSettings, reload: reloadSchedule, setSettings: setReminderSettings } = useScheduledPaymentMessages({ includeHidden: true });
+  const { messages: scheduledMessages, settings: reminderSettings, reload: reloadSchedule } = useScheduledPaymentMessages({ includeHidden: true });
   const reminderScheduleSummary = useMemo(
     () => (reminderSettings ? formatFriendlyReminderSchedule(reminderSettings) : undefined),
     [reminderSettings],
@@ -602,6 +598,24 @@ export function ManagerPayments({
     onGroupModeChange: setGroupMode,
   };
 
+  // A silent scan still has to be able to say it is broken. Nothing is left to press
+  // once the Check button is gone, so an expired Gmail link would otherwise stop
+  // confirming receipts with no signal at all; the first failure of a mount speaks,
+  // the repeats stay quiet.
+  const manualCheckFailureReportedRef = useRef(false);
+  const reportManualCheckFailure = useCallback(
+    (silent: boolean | undefined, message: string) => {
+      if (!silent) {
+        showToast(message);
+        return;
+      }
+      if (manualCheckFailureReportedRef.current) return;
+      manualCheckFailureReportedRef.current = true;
+      showToast(message);
+    },
+    [showToast],
+  );
+
   const runCheckManualPayments = useCallback((options?: { silent?: boolean }) => {
     void (async () => {
       setCheckingManualPayments(true);
@@ -612,9 +626,10 @@ export function ManagerPayments({
           error?: string;
         };
         if (!response.ok) {
-          if (!options?.silent) {
-            showToast(body.error ?? "Could not check payments. Link Gmail in Payment setup first.");
-          }
+          reportManualCheckFailure(
+            options?.silent,
+            body.error ?? "Could not check payments. Link Gmail in Payment setup first.",
+          );
           return;
         }
         const result = body.result;
@@ -629,12 +644,12 @@ export function ManagerPayments({
         await syncHouseholdChargesFromServer(true);
         setHcTick((n) => n + 1);
       } catch {
-        if (!options?.silent) showToast("Could not check payments.");
+        reportManualCheckFailure(options?.silent, "Could not check payments.");
       } finally {
         setCheckingManualPayments(false);
       }
     })();
-  }, [showToast]);
+  }, [reportManualCheckFailure, showToast]);
 
   const paymentsFilterSort = <PaymentsFilterSheet {...paymentsFilterSheetProps} />;
 
@@ -657,19 +672,13 @@ export function ManagerPayments({
     </Button>
   );
 
-  const paymentsCheckButton =
-    direction === "incoming" ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
-        data-attr="manager-check-manual-payments"
-        disabled={checkingManualPayments}
-        onClick={() => runCheckManualPayments()}
-      >
-        {checkingManualPayments ? "Checking…" : "Check"}
-      </Button>
-    ) : null;
+  /*
+    No "Check" button.
+    Confirming forwarded receipts is not a thing a manager should have to press:
+    the same scan already runs on its own whenever there are open charges to
+    match (see the silent run below), so the control only ever repeated work the
+    page had already done.
+  */
 
   const paymentsSetupButton = (
     <Button
@@ -687,7 +696,6 @@ export function ManagerPayments({
     <>
       {paymentsFilterSort}
       {paymentsSettingsMenu}
-      {paymentsCheckButton}
       {paymentsSetupButton}
     </>
   );
@@ -698,8 +706,21 @@ export function ManagerPayments({
     checkingManualPaymentsRef.current = checkingManualPayments;
   }, [checkingManualPayments]);
 
+  // One scan on arrival, then the interval. With no Check button, an interval-only
+  // scan would leave a manager who has just forwarded a receipt watching an unpaid
+  // charge for up to a minute with no way to ask now; the same visibility and
+  // in-flight guards keep it from doubling up with the timer.
+  const didInitialManualCheckRef = useRef(false);
   useEffect(() => {
     if (!hasIncomingManualCandidates || isDemoModeActive()) return;
+    if (
+      !didInitialManualCheckRef.current &&
+      document.visibilityState === "visible" &&
+      !checkingManualPaymentsRef.current
+    ) {
+      didInitialManualCheckRef.current = true;
+      runCheckManualPayments({ silent: true });
+    }
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "visible" || checkingManualPaymentsRef.current) return;
       runCheckManualPayments({ silent: true });
@@ -768,7 +789,7 @@ export function ManagerPayments({
         activeBucket={bucket}
         scheduledMessages={scheduledMessages}
         reminderScheduleSummary={reminderScheduleSummary}
-        onOpenReminderSettings={() => setReminderSettingsOpen(true)}
+        onOpenReminderSettings={() => setPaymentSettingsOpen(true)}
         onScheduleChanged={() => void reloadSchedule()}
         onRowsChanged={() => setHcTick((n) => n + 1)}
         paymentId={paymentId}
@@ -796,16 +817,6 @@ export function ManagerPayments({
 
   const paymentsModals = (
     <>
-      <ReminderSettingsModal
-        open={reminderSettingsOpen}
-        onClose={() => setReminderSettingsOpen(false)}
-        settings={reminderSettings}
-        onSaved={(next) => {
-          setReminderSettings(next);
-          void reloadSchedule();
-          setReminderSettingsOpen(false);
-        }}
-      />
       <ManagerPortalSettingsModal
         open={paymentSettingsOpen}
         onClose={() => setPaymentSettingsOpen(false)}

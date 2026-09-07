@@ -309,7 +309,7 @@ function ListingModalStatGrid({ items }: { items: { label: string; value: React.
 function roomRentLabel(room: ListingRoomRow): string | null {
   const amount = room.priceHeadlineAmount;
   if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) return null;
-  return `${formatRoomPriceAmount(amount)}${room.pricePeriod === "day" ? "/day" : "/mo"}`;
+  return `${formatRoomPriceAmount(amount)}${room.pricePeriod === "day" ? "/day" : room.pricePeriod === "week" ? "/week" : "/mo"}`;
 }
 
 /**

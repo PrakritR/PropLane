@@ -1,28 +1,27 @@
 import { test, expect } from "@playwright/test";
-import { signInAsManager, signInAsResident, signInAsAdmin, mockStripeAllRoutes } from "../helpers/auth";
+import path from "node:path";
+import { mockStripeAllRoutes } from "../helpers/auth";
 
 const portalTestsEnabled = process.env.E2E_TESTS_ENABLED === "1";
 
-test.describe("Cross-portal interconnect", () => {
+test.describe("Cross-portal interconnect — manager", () => {
   test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
+
+  test.use({ storageState: path.join(__dirname, "../.auth/manager.json") });
 
   test("manager applications tab shows seeded application", async ({ page }) => {
     await mockStripeAllRoutes(page);
-    await signInAsManager(page);
     await page.goto("/portal/applications");
     await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
-    // The seeded application for test resident should appear (or at least the page loads without error)
     const errorEl = page.getByText(/something went wrong|500/i);
     await expect(errorEl).not.toBeVisible({ timeout: 10_000 });
   });
 
   test("manager can compose and view sent inbox message", async ({ page }) => {
     await mockStripeAllRoutes(page);
-    await signInAsManager(page);
     await page.goto("/portal/communication/active");
     await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
 
-    // Try to compose a new message
     const composeBtn = page.getByRole("button", { name: /new message|compose/i }).first();
     if (await composeBtn.count() > 0) {
       await composeBtn.click();
@@ -36,7 +35,6 @@ test.describe("Cross-portal interconnect", () => {
         if (await bodyField.count() > 0) {
           await bodyField.fill("This is a test message for interconnect.");
         }
-        // Close/cancel without sending to avoid polluting inbox
         const cancelBtn = page.getByRole("button", { name: "Cancel", exact: true });
         if (await cancelBtn.count() > 0) {
           await cancelBtn.click();
@@ -47,16 +45,21 @@ test.describe("Cross-portal interconnect", () => {
     }
   });
 
-  test("admin can view manager applications section", async ({ page }) => {
-    await signInAsAdmin(page);
-    await page.goto("/admin/axis-users");
+  test("manager residents tab shows current residents", async ({ page }) => {
+    await mockStripeAllRoutes(page);
+    await page.goto("/portal/residents/current");
     await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
     const errorEl = page.getByText(/something went wrong|500/i);
     await expect(errorEl).not.toBeVisible({ timeout: 10_000 });
   });
+});
+
+test.describe("Cross-portal interconnect — resident", () => {
+  test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
+
+  test.use({ storageState: path.join(__dirname, "../.auth/resident.json") });
 
   test("resident inbox tab loads correctly", async ({ page }) => {
-    await signInAsResident(page);
     await page.goto("/resident/communication/active");
     await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
     const errorEl = page.getByText(/something went wrong|500/i);
@@ -64,28 +67,29 @@ test.describe("Cross-portal interconnect", () => {
   });
 
   test("resident portal reflects approved application status", async ({ page }) => {
-    await signInAsResident(page);
     await page.goto("/resident/dashboard");
     await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
-    // With seeded approved application, dashboard should not show an error
+    const errorEl = page.getByText(/something went wrong|500/i);
+    await expect(errorEl).not.toBeVisible({ timeout: 10_000 });
+  });
+});
+
+test.describe("Cross-portal interconnect — admin", () => {
+  test.skip(!portalTestsEnabled, "Set E2E_TESTS_ENABLED=1 after running npm run test:seed");
+
+  test.use({ storageState: path.join(__dirname, "../.auth/admin.json") });
+
+  test("admin can view manager applications section", async ({ page }) => {
+    await page.goto("/admin/axis-users");
+    await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
     const errorEl = page.getByText(/something went wrong|500/i);
     await expect(errorEl).not.toBeVisible({ timeout: 10_000 });
   });
 
   test("admin portal can reach all key admin sections", async ({ page }) => {
-    await signInAsAdmin(page);
     for (const path of ["/admin/dashboard", "/admin/properties"]) {
       await page.goto(path);
       await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
     }
-  });
-
-  test("manager residents tab shows current residents", async ({ page }) => {
-    await mockStripeAllRoutes(page);
-    await signInAsManager(page);
-    await page.goto("/portal/residents/current");
-    await expect(page.getByRole("heading").first()).toBeVisible({ timeout: 15_000 });
-    const errorEl = page.getByText(/something went wrong|500/i);
-    await expect(errorEl).not.toBeVisible({ timeout: 10_000 });
   });
 });

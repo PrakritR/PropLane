@@ -109,15 +109,15 @@ export default function ReviewsPage() {
           <RevealOnView delayMs={EARLY_ACCESS_QUOTES.length * 60}>
             <p className="mx-auto mt-8 max-w-xl text-center text-xs leading-relaxed text-muted sm:text-sm">
               Collected during the PropLane beta from early-access users. Want to see the product
-              behind the quotes? Explore the{" "}
+              behind the quotes?{" "}
               <Link
-                href="/demo"
-                data-attr="reviews-try-demo"
+                href="/auth/create-account"
+                data-attr="reviews-get-started"
                 className="font-semibold text-primary transition-colors duration-200 hover:text-foreground"
               >
-                live demo
+                Create a free account
               </Link>
-              . No signup required.
+              .
             </p>
           </RevealOnView>
         </div>

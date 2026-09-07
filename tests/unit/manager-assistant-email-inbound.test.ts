@@ -9,6 +9,26 @@ const mocks = vi.hoisted(() => ({
   deliverManagerEmailReply: vi.fn(),
   resolveInboundEmailBody: vi.fn(),
   mirrorAssistantEmailTurnToInbox: vi.fn(),
+  mirrorAssistantEmailConversation: vi.fn(),
+  resolveResidentInboxAgentContext: vi.fn(),
+  autoRespondToResidentInboxMessage: vi.fn(),
+  runLeasingEmailAgentTurn: vi.fn(),
+}));
+
+vi.mock("@/lib/manager-assistant-email/mirror-assistant-email-conversation.server", () => ({
+  mirrorAssistantEmailConversation: mocks.mirrorAssistantEmailConversation,
+}));
+
+vi.mock("@/lib/tools/resident-inbox-context", () => ({
+  resolveResidentInboxAgentContext: mocks.resolveResidentInboxAgentContext,
+}));
+
+vi.mock("@/lib/agent/inbox-auto-respond.server", () => ({
+  autoRespondToResidentInboxMessage: mocks.autoRespondToResidentInboxMessage,
+}));
+
+vi.mock("@/lib/agent/leasing-email-agent.server", () => ({
+  runLeasingEmailAgentTurn: mocks.runLeasingEmailAgentTurn,
 }));
 
 vi.mock("@/lib/manager-assistant-email/manager-assistant-email.server", () => ({
@@ -76,6 +96,20 @@ describe("processManagerAssistantInboundEmail", () => {
       provisionState: "active",
     });
     mocks.mirrorAssistantEmailTurnToInbox.mockResolvedValue(undefined);
+    mocks.mirrorAssistantEmailConversation.mockResolvedValue(undefined);
+    // Default: the sender is not a resident of this manager.
+    mocks.resolveResidentInboxAgentContext.mockResolvedValue({ ok: false, reason: "not_a_resident" });
+    mocks.autoRespondToResidentInboxMessage.mockResolvedValue({
+      ok: true,
+      reply: "Your rent is due on the 1st.",
+      model: "m",
+      traceId: null,
+    });
+    mocks.runLeasingEmailAgentTurn.mockResolvedValue({
+      reply: "Yes, Room 2 is still available.",
+      sessionId: "leasing-sess",
+      traceId: null,
+    });
     mocks.deliverManagerEmailReply.mockResolvedValue({ ok: true });
 
     const insert = vi.fn().mockResolvedValue({ error: null });
@@ -92,11 +126,90 @@ describe("processManagerAssistantInboundEmail", () => {
 
   it("runs the agent and sends a reply for a verified manager", async () => {
     const result = await processManagerAssistantInboundEmail(db, parsed);
-    expect(result).toEqual({ handled: true, replied: true });
+    expect(result).toMatchObject({ handled: true, replied: true, role: "manager" });
     expect(mocks.runManagerEmailAgentTurn).toHaveBeenCalled();
     expect(mocks.mirrorAssistantEmailTurnToInbox).toHaveBeenCalled();
     expect(mocks.deliverManagerEmailReply).toHaveBeenCalledWith(
       expect.objectContaining({ toEmail: "mgr@example.com" }),
     );
+  });
+
+  /**
+   * The three-role dispatch. Before it, a sender who was not the manager or an
+   * accepted co-manager fell out of the identity gate as `null` and the mail was
+   * dropped: no reply, nothing in Communication, and no redelivery — the inbound
+   * id is claimed before the sender is resolved.
+   */
+  describe("sender routing", () => {
+    const fromProspect = { ...parsed, fromEmail: "renter@example.com", fromName: "Renter" };
+
+    it("answers a current resident with the resident assistant", async () => {
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
+      mocks.resolveResidentInboxAgentContext.mockResolvedValue({
+        ok: true,
+        ctx: { kind: "resident", userId: "res-1", email: "renter@example.com" },
+      });
+
+      const result = await processManagerAssistantInboundEmail(db, fromProspect);
+
+      expect(result).toMatchObject({ handled: true, replied: true, role: "resident" });
+      expect(mocks.autoRespondToResidentInboxMessage).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ managerUserId: "mgr-1", residentEmail: "renter@example.com" }),
+      );
+      expect(mocks.runLeasingEmailAgentTurn).not.toHaveBeenCalled();
+      // Never the manager's own assistant thread — this is a conversation with a person.
+      expect(mocks.mirrorAssistantEmailTurnToInbox).not.toHaveBeenCalled();
+      expect(mocks.mirrorAssistantEmailConversation).toHaveBeenCalled();
+    });
+
+    it("answers everyone else with the leasing assistant", async () => {
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
+
+      const result = await processManagerAssistantInboundEmail(db, fromProspect);
+
+      expect(result).toMatchObject({ handled: true, replied: true, role: "prospect" });
+      expect(mocks.runLeasingEmailAgentTurn).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ landlordId: "mgr-1", prospectEmail: "renter@example.com" }),
+      );
+      expect(mocks.autoRespondToResidentInboxMessage).not.toHaveBeenCalled();
+    });
+
+    it("replies to the sender, never to the mailbox owner", async () => {
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
+      await processManagerAssistantInboundEmail(db, fromProspect);
+      expect(mocks.deliverManagerEmailReply).toHaveBeenCalledWith(
+        expect.objectContaining({ toEmail: "renter@example.com" }),
+      );
+    });
+
+    it("still shows the mail in Communication when no reply was produced", async () => {
+      mocks.resolveManagerEmailInboundIdentity.mockResolvedValue(null);
+      mocks.runLeasingEmailAgentTurn.mockResolvedValue(null);
+
+      const result = await processManagerAssistantInboundEmail(db, fromProspect);
+
+      expect(result).toMatchObject({ handled: true, replied: false, role: "prospect" });
+      expect(mocks.deliverManagerEmailReply).not.toHaveBeenCalled();
+      expect(mocks.mirrorAssistantEmailConversation).toHaveBeenCalledWith(
+        db,
+        expect.objectContaining({ senderEmail: "renter@example.com", replyText: null }),
+      );
+    });
+
+    it("keeps a manager who is also a resident on the manager assistant", async () => {
+      // Manager gate wins: a manager must not be demoted to a resident view of
+      // their own mailbox just because they also rent somewhere.
+      mocks.resolveResidentInboxAgentContext.mockResolvedValue({
+        ok: true,
+        ctx: { kind: "resident", userId: "mgr-1", email: "mgr@example.com" },
+      });
+
+      const result = await processManagerAssistantInboundEmail(db, parsed);
+
+      expect(result).toMatchObject({ role: "manager" });
+      expect(mocks.autoRespondToResidentInboxMessage).not.toHaveBeenCalled();
+    });
   });
 });

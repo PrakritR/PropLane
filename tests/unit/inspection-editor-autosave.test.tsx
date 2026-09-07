@@ -24,6 +24,14 @@ function mount() {
   fireEvent.click(screen.getByRole("button", { name: /Room overview/ }));
 }
 async function pause() { await act(async () => { await vi.advanceTimersByTimeAsync(700); }); }
+async function startPhotoUpload() {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Upload photos" }));
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Choose from files" }));
+  });
+}
 function savedNotes(notes: string) {
   const next = structuredClone(detail); next.report.revision++;
   next.report.document.areas[0]!.items[0]!.resident.notes = notes;
@@ -40,7 +48,7 @@ it("saves after typing pauses and flushes the latest notes into the preview", as
   expect(request).toHaveBeenCalledTimes(1);
   const body = JSON.parse(request.mock.calls[0]![2].body);
   expect(body.revision).toBe(1); expect(body.observations[0].notes).toBe("Mark beside the door");
-  fireEvent.click(screen.getByRole("button", { name: "View document" }));
+  fireEvent.click(screen.getByRole("button", { name: "View" }));
   expect(screen.getByText("Mark beside the door")).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Reload|Refresh|Save changes/ })).toBeNull();
 });
@@ -62,7 +70,7 @@ it("retains a failed photo upload and retries the same file without asking for a
   const next = structuredClone(detail); next.report.revision++;
   next.report.document.areas[0]!.items[0]!.resident.photos.push({ id: "photo", path: "private", uploadedBy: "resident", uploadedAt: "2026-09-05" });
   request.mockRejectedValueOnce(new Error("Upload interrupted")).mockResolvedValueOnce(next); mount();
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Upload photos" })); });
+  await startPhotoUpload();
   expect(screen.getByAltText("Photo waiting to upload")).toBeTruthy();
   expect(URL.revokeObjectURL).not.toHaveBeenCalled();
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Retry upload" })); });
@@ -108,7 +116,7 @@ it("keeps the same photo across a conflict refresh and retries with the fresh re
   const current = structuredClone(detail); current.report.revision = 2;
   const uploaded = structuredClone(current); uploaded.report.revision = 3;
   request.mockRejectedValueOnce(new Error("Someone updated this report")).mockResolvedValueOnce(current).mockResolvedValueOnce(uploaded); mount();
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Upload photos" })); });
+  await startPhotoUpload();
   fireEvent.click(screen.getByRole("button", { name: "Review latest", exact: true }));
   await act(async () => { fireEvent.click(screen.getByRole("dialog").querySelector("button")!); });
   expect(URL.revokeObjectURL).not.toHaveBeenCalled();
@@ -135,7 +143,7 @@ it("keeps a completed server report authoritative and holds recovered notes asid
   render(<InspectionEditor initial={detail} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
 
   // The authoritative document shows nothing that was never sent.
-  fireEvent.click(screen.getByRole("button", { name: "View document" }));
+  fireEvent.click(screen.getByRole("button", { name: "View" }));
   expect(screen.queryByText("Never sent")).toBeNull();
   await pause();
   expect(request).not.toHaveBeenCalled();
@@ -167,7 +175,7 @@ it("keeps a captured photo recoverable when a refresh freezes the report", async
   request.mockRejectedValueOnce(new Error("Upload interrupted")).mockResolvedValueOnce(completed);
   mount();
 
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Upload photos" })); });
+  await startPhotoUpload();
   fireEvent.click(screen.getByRole("button", { name: "Review latest", exact: true }));
   await act(async () => { fireEvent.click(screen.getByRole("dialog").querySelector("button")!); });
 

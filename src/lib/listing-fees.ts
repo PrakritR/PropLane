@@ -223,6 +223,7 @@ export function normalizeListingFeeRow(raw: ListingFeeRow): ListingFeeRow {
       typeof row.shortTermAmount === "string" && row.shortTermAmount.trim()
         ? row.shortTermAmount.trim()
         : undefined,
+    includeInRent: row.includeInRent === true,
   };
 }
 

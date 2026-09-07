@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appendIssueSection, fetchIssue } from "./linear/update-issue.mjs";
+import { writeActiveSession } from "./lavish-session.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, "..");
@@ -128,11 +129,13 @@ async function main() {
     throw new Error("Could not find plan.html path in lavish output");
   }
 
+  writeActiveSession({ planPath, ticket });
+
   console.log("\n③ Linking plan on Linear ticket…");
   await appendIssueSection(
     ticket,
     "Lavish plan (review before build)",
-    `Local path: \`${planPath}\`\n\nOpen: \`npx -y lavish-axi ${planPath}\`\nPoll: \`npx -y lavish-axi poll ${planPath}\`\n\n**Do not build until captain approves** (chat: \`approved — build\`).`,
+    `Local path: \`${planPath}\`\n\nOpen: \`npx -y lavish-axi ${planPath}\`\nPoll: \`npm run lavish:poll\`\n\n**Do not build until captain approves** (chat: \`approved — build\`).`,
   );
 
   console.log(`
@@ -140,12 +143,10 @@ async function main() {
   Ticket:  ${ticket}
   Plan:    ${planPath}
   Open:    npx -y lavish-axi ${planPath}
-  Poll:    npx -y lavish-axi poll ${planPath}
+  Poll:    npm run lavish:poll
 
 Captain: annotate in Lavish or reply **approved — build** when ready.
-Agent:   do NOT write product code until approval.
-Agent:   MUST run poll before ending turn (Lavish shows "not listening" otherwise):
-         npm run lavish:poll -- --plan ${planPath}`);
+Agent:   run **npm run lavish:poll** (and **npm run lavish:listen** after open) before ending turn; do NOT write product code until approval.`);
 }
 
 main().catch((e) => {

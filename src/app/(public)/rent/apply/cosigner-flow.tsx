@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { clearCosignerDraft, loadCosignerDraft, saveCosignerDraft } from "@/lib/rental-application/drafts";
 import { todayISO } from "@/lib/rental-application/state";
@@ -552,16 +553,15 @@ export function CosignerApplyFlow({
                   className={err("email")}
                 />
               </Field>
-              <Field fieldKey="phone" label="Phone number" hint="10 digits" error={fieldErrors.phone}>
-                <Input
-                  type="tel"
+              <Field fieldKey="phone" label="Phone number" error={fieldErrors.phone}>
+                <PhoneNumberField
                   value={f.phone}
-                  onChange={(e) => {
-                    patchField(setF, "phone", e.target.value);
+                  onChange={(phone) => {
+                    patchField(setF, "phone", phone);
                     clearError("phone");
                   }}
-                  placeholder="(206) 555-0100"
-                  className={err("phone")}
+                  inputClassName={err("phone")}
+                  dataAttr="cosigner-phone"
                 />
               </Field>
               <Field fieldKey="dob" label="Date of birth" error={fieldErrors.dob}>

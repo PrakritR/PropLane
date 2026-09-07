@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import {
   Modal,
   ModalFooter,
@@ -514,13 +515,11 @@ export function ManagerTaskFormModal({
               <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-guest-phone">
                 Guest phone (optional)
               </label>
-              <Input
+              <PhoneNumberField
                 id="manager-task-guest-phone"
-                type="tel"
                 value={form.guestPhone}
-                onChange={(e) => setForm((current) => ({ ...current, guestPhone: e.target.value }))}
-                placeholder="(555) 555-0100"
-                data-attr="manager-task-guest-phone"
+                onChange={(guestPhone) => setForm((current) => ({ ...current, guestPhone }))}
+                dataAttr="manager-task-guest-phone"
               />
             </div>
           </>

@@ -94,7 +94,7 @@ import {
   activeApplicationWizardSteps,
   applicationConfigForVariant,
 } from "@/lib/rental-application/application-field-catalog";
-import { digitsOnly, maskPhoneInput, maskSsnInput } from "@/lib/rental-application/masks";
+import { digitsOnly, maskSsnInput } from "@/lib/rental-application/masks";
 import { countValidationErrors, validateRentalWizardStep } from "@/lib/rental-application/validate";
 import {
   sanitizeApplicationFormForListing,
@@ -1196,7 +1196,7 @@ function RentalApplicationWizardInner({
         const phoneDigits = digitsOnly(phoneParam).slice(-10);
         const phone =
           phoneDigits.length === 10 && digitsOnly(prev.phone).length < 10
-            ? maskPhoneInput("", phoneDigits)
+            ? `+1${phoneDigits}`
             : prev.phone;
 
         const rentalType = shortTermFromLink
@@ -1346,7 +1346,7 @@ function RentalApplicationWizardInner({
   }, [draftReady, step, form.propertyId, form.applicationFeePayChannel, patchForm]);
 
   const setPhoneMasked = useCallback((key: keyof RentalWizardFormState, next: string) => {
-    setForm((f) => ({ ...f, [key]: maskPhoneInput(String(f[key] ?? ""), next) }));
+    setForm((f) => ({ ...f, [key]: next }));
     setErrors((e) => ({ ...e, [key]: "" }));
   }, []);
 

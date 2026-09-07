@@ -5,6 +5,7 @@ import {
   collapseAssistantInboxThreads,
   collapsePersonInboxThreads,
   inboxThreadMessages,
+  normalizePersistedInboxThread,
   type PersistedInboxThread,
 } from "@/lib/portal-inbox-storage";
 
@@ -78,5 +79,16 @@ describe("inbox thread messages survive rows that storage did not validate", () 
     expect(() =>
       collapsePersonInboxThreads([threadWithMalformedMessage("p1"), threadWithMalformedMessage("p2")]),
     ).not.toThrow();
+  });
+
+  it("coerces a JSON-number email so an existing account can still open Communication", () => {
+    const thread = normalizePersistedInboxThread({
+      ...threadWithMalformedMessage("n1"),
+      email: 18559168031 as unknown as string,
+      from: 18559168031 as unknown as string,
+    });
+    expect(thread.email).toBe("18559168031");
+    expect(thread.from).toBe("18559168031");
+    expect(thread.email.trim()).toBe("18559168031");
   });
 });

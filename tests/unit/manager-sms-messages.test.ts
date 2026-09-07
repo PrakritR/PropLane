@@ -48,6 +48,42 @@ describe("manager-sms-messages types", () => {
     expect(payload.workNumber).toBe("+12065550999");
   });
 
+  it("normalizes non-string name/phone fields without a trim error", () => {
+    expect(() =>
+      normalizeManagerSmsConversationsPayload({
+        residents: [
+          {
+            residentUserId: null,
+            residentEmail: 42 as unknown as string,
+            name: 18559168031 as unknown as string,
+            directoryName: {} as unknown as string,
+            savedContactName: true as unknown as string,
+            phone: 12065550100 as unknown as string,
+            propertyLabel: [] as unknown as string,
+            messages: [],
+          },
+        ],
+      }),
+    ).not.toThrow();
+    const payload = normalizeManagerSmsConversationsPayload({
+      residents: [
+        {
+          residentUserId: null,
+          residentEmail: 42 as unknown as string,
+          name: 18559168031 as unknown as string,
+          phone: 12065550100 as unknown as string,
+          propertyLabel: null,
+          messages: [],
+        },
+      ],
+    });
+    expect(payload.residents[0]?.name).toBe("18559168031");
+    expect(payload.residents[0]?.phone).toBe("+12065550100");
+    expect(payload.residents[0]?.phone?.trim()).toBe("+12065550100");
+    expect(payload.residents[0]?.residentEmail).toBe("42");
+    expect(() => smsConversationDisplayName(payload.residents[0]!)).not.toThrow();
+  });
+
   it("normalizes missing residents and message arrays", () => {
     const payload = normalizeManagerSmsConversationsPayload({
       workNumber: "+12065550000",

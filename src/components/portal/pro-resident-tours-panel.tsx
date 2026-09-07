@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
@@ -8,10 +8,23 @@ import {
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
 } from "@/components/portal/portal-property-detail-section";
+import { ResidentDetailSubsectionChrome } from "@/components/portal/resident-detail-subsection-chrome";
+import { syncScheduleRecordsFromServer } from "@/lib/demo-admin-scheduling";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
-import { buildManagerTourRows, type ManagerTourRow } from "@/lib/manager-tour-list";
+import {
+  MANAGER_TOUR_BUCKET_LABELS,
+  type ManagerTourBucketId,
+} from "@/lib/portal-detail-routes";
+import {
+  buildManagerTourRows,
+  countManagerTourRowsByBucket,
+  filterManagerTourRows,
+  sortManagerTourRowsForBucket,
+  type ManagerTourRow,
+} from "@/lib/manager-tour-list";
+import { RESIDENT_DETAIL_TOUR_BUCKET_TABS } from "@/lib/resident-detail-subsection-tabs";
 
 function tourSubtitle(row: ManagerTourRow): string {
   return [row.propertyTitle, row.roomLabel, row.statusLabel].filter(Boolean).join(" · ");
@@ -60,30 +73,54 @@ export function ManagerResidentToursPanel({
   managerUserId,
   residentEmail,
   residentName,
+  bucket = "pending",
   tourId,
   buildTourDetailHref,
+  buildTourListHref,
+  propertyIds,
 }: {
   managerUserId: string | null;
   residentEmail: string;
   residentName: string;
+  bucket?: ManagerTourBucketId;
   tourId?: string;
   buildTourDetailHref?: (row: ManagerTourRow) => string;
+  buildTourListHref?: (bucket: ManagerTourBucketId) => string;
+  propertyIds?: string[];
 }) {
   const navigate = usePortalNavigate();
   const normalizedEmail = residentEmail.trim().toLowerCase();
+  const [tick, setTick] = useState(0);
 
-  const rows = useMemo(() => {
+  useEffect(() => {
+    if (!managerUserId) return;
+    void syncScheduleRecordsFromServer({ force: true }).then(() => setTick((n) => n + 1));
+  }, [managerUserId]);
+
+  useEffect(() => {
+    const onStorage = () => setTick((n) => n + 1);
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
+  const allRows = useMemo(() => {
     if (!managerUserId || !normalizedEmail.includes("@")) return [];
-    return buildManagerTourRows({ viewerUserId: managerUserId, propertyIds: [] })
-      .filter((row) => row.guestEmail?.trim().toLowerCase() === normalizedEmail)
-      .sort((a, b) => a.startMs - b.startMs);
-  }, [managerUserId, normalizedEmail]);
+    return buildManagerTourRows({ viewerUserId: managerUserId, propertyIds: propertyIds ?? [] })
+      .filter((row) => row.guestEmail?.trim().toLowerCase() === normalizedEmail);
+  }, [managerUserId, normalizedEmail, propertyIds, tick]);
+
+  const bucketCounts = useMemo(() => countManagerTourRowsByBucket(allRows), [allRows]);
+
+  const rows = useMemo(
+    () => sortManagerTourRowsForBucket(filterManagerTourRows(allRows, bucket, [], ""), bucket),
+    [allRows, bucket],
+  );
 
   const detailRow = useMemo(() => {
     if (!tourId) return null;
     const decoded = decodeURIComponent(tourId);
-    return rows.find((row) => row.id === decoded) ?? null;
-  }, [rows, tourId]);
+    return allRows.find((row) => row.id === decoded) ?? null;
+  }, [allRows, tourId]);
 
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(rows.length);
 
@@ -95,50 +132,67 @@ export function ManagerResidentToursPanel({
     return <ResidentTourDetailPanel row={detailRow} />;
   }
 
-  if (rows.length === 0) {
-    return (
-      <PortalPropertyDetailSection>
-        <PortalDataTableEmpty
-          message={`No tours on file for ${residentName.trim() || "this resident"} yet.`}
-        />
-      </PortalPropertyDetailSection>
-    );
-  }
+  const bucketLabel = MANAGER_TOUR_BUCKET_LABELS[bucket].toLowerCase();
 
   return (
     <>
-      <PortalPropertyDetailSection contentClassName="space-y-0">
-        {rows.map((row) => (
-          <div key={row.id} className="border-b border-border last:border-b-0">
-            <div className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-              <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
-                  checked={selectedIds.has(row.id)}
-                  data-attr={`resident-tour-select-${row.id}`}
-                  onChange={() => toggleSelected(row.id)}
-                  onClick={(e) => e.stopPropagation()}
-                />
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 text-left"
-                  data-attr={`resident-tour-open-${row.id}`}
-                  onClick={() => {
-                    if (buildTourDetailHref) {
-                      navigate(buildTourDetailHref(row));
-                      return;
-                    }
-                  }}
-                >
-                  <p className="text-sm font-semibold text-foreground">{row.whenLabel}</p>
-                  <p className="mt-0.5 text-xs text-muted">{tourSubtitle(row)}</p>
-                </button>
-              </label>
+      <ResidentDetailSubsectionChrome
+        bucketItems={RESIDENT_DETAIL_TOUR_BUCKET_TABS.map((tab) => ({
+          id: tab.id,
+          label: tab.label,
+          count: bucketCounts[tab.id],
+          dataAttr: tab.dataAttr,
+        }))}
+        activeBucketId={bucket}
+        onBucketChange={(id) => {
+          if (buildTourListHref) navigate(buildTourListHref(id as ManagerTourBucketId));
+        }}
+        bucketAriaLabel="Tour status"
+      />
+
+      {rows.length === 0 ? (
+        <PortalPropertyDetailSection>
+          <PortalDataTableEmpty
+            message={
+              allRows.length === 0
+                ? `No tours on file for ${residentName.trim() || "this resident"} yet.`
+                : `No ${bucketLabel} tours for ${residentName.trim() || "this resident"}.`
+            }
+          />
+        </PortalPropertyDetailSection>
+      ) : (
+        <PortalPropertyDetailSection contentClassName="space-y-0">
+          {rows.map((row) => (
+            <div key={row.id} className="border-b border-border last:border-b-0">
+              <div className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
+                <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                    checked={selectedIds.has(row.id)}
+                    data-attr={`resident-tour-select-${row.id}`}
+                    onChange={() => toggleSelected(row.id)}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    data-attr={`resident-tour-open-${row.id}`}
+                    onClick={() => {
+                      if (buildTourDetailHref) {
+                        navigate(buildTourDetailHref(row));
+                      }
+                    }}
+                  >
+                    <p className="text-sm font-semibold text-foreground">{row.whenLabel}</p>
+                    <p className="mt-0.5 text-xs text-muted">{tourSubtitle(row)}</p>
+                  </button>
+                </label>
+              </div>
             </div>
-          </div>
-        ))}
-      </PortalPropertyDetailSection>
+          ))}
+        </PortalPropertyDetailSection>
+      )}
 
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">

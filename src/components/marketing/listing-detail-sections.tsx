@@ -25,6 +25,7 @@ import {
   ListingSidebarRenterCtasContext,
 } from "@/components/marketing/listing-preview-context";
 import { buildSmsDeepLink, isClawMessagingPubliclyEnabled } from "@/lib/claw-leasing-links";
+
 import { ProspectListingCta } from "@/components/marketing/prospect-listing-cta";
 import type { MockProperty } from "@/data/types";
 import { DEFAULT_LISTING_HOUSE_RULES_FALLBACK, type ListingRichContent } from "@/data/listing-rich-content";
@@ -184,14 +185,6 @@ function ListingPricingCtaCard({
         toPhone: property.contactSmsPhone,
       })
     : null;
-  const textApplyHref = textEnabled
-    ? buildSmsDeepLink({
-        intent: "apply",
-        propertyId: property.id,
-        propertyLabel,
-        toPhone: property.contactSmsPhone,
-      })
-    : null;
 
   return (
     <Card className={`overflow-hidden border-border bg-card p-0 shadow-sm backdrop-blur-xl ${className}`}>
@@ -217,46 +210,31 @@ function ListingPricingCtaCard({
         ) : null}
       </div>
       <div className="px-5 pb-5 pt-4 sm:px-6 sm:pb-6">
+        {/* Three separate doors, each labelled by what it DOES. Texting used to
+            replace the tour and apply buttons whenever a work number existed, so a
+            prospect on a desktop browser was offered two SMS links and reached the
+            booking form only through a footnote. Booking and applying are now always
+            the first two, and texting is its own third option. */}
+        <ProspectListingCta
+          action="tour"
+          propertyId={property.id}
+          data-attr="listing-web-tour"
+          className={`${primaryCtaClass} min-h-[48px] mt-0`}
+        >
+          Schedule tour
+        </ProspectListingCta>
+        <ProspectListingCta
+          action="apply"
+          propertyId={property.id}
+          data-attr="listing-web-apply"
+          className={secondaryCtaClass}
+        >
+          Apply
+        </ProspectListingCta>
         {textTourHref ? (
-          <a href={textTourHref} data-attr="listing-text-tour" className={`${primaryCtaClass} min-h-[48px] mt-0`}>
-            Text to tour
+          <a href={textTourHref} data-attr="listing-text-tour" className={secondaryCtaClass}>
+            Text
           </a>
-        ) : (
-          <ProspectListingCta
-            action="tour"
-            propertyId={property.id}
-            data-attr="listing-web-tour"
-            className={`${primaryCtaClass} min-h-[48px] mt-0`}
-          >
-            Schedule a tour
-          </ProspectListingCta>
-        )}
-        {textApplyHref ? (
-          <a href={textApplyHref} data-attr="listing-text-apply" className={secondaryCtaClass}>
-            Text to apply
-          </a>
-        ) : (
-          <ProspectListingCta
-            action="apply"
-            propertyId={property.id}
-            data-attr="listing-web-apply"
-            className={secondaryCtaClass}
-          >
-            Apply online
-          </ProspectListingCta>
-        )}
-        {textTourHref || textApplyHref ? (
-          <p className="mt-3 text-center text-xs text-muted">
-            No texting on this device?{" "}
-            <ProspectListingCta action="tour" propertyId={property.id} className="underline underline-offset-2" data-attr="listing-web-tour-fallback">
-              Schedule a tour
-            </ProspectListingCta>{" "}
-            or{" "}
-            <ProspectListingCta action="apply" propertyId={property.id} className="underline underline-offset-2" data-attr="listing-web-apply-fallback">
-              apply online
-            </ProspectListingCta>
-            .
-          </p>
         ) : null}
       </div>
     </Card>
@@ -424,6 +402,11 @@ export function ListingDetailSections({
             : "py-8 sm:py-10 [html[data-native]_&]:pb-[max(2rem,env(safe-area-inset-bottom))] [html[data-native]_&]:pt-[max(0.5rem,env(safe-area-inset-top))]"
         }`}
       >
+        {/* The "set up messaging" notice used to live here, manager-preview only.
+            It is now `ManagerMessagingSetupBanner` in the portal layout, so it
+            reaches every page instead of this one tab — and rendering it here as
+            well would stack two of the same notice on this screen. */}
+
         {previewModal && !hidePreviewSubnav ? (
           <ListingStickySubnav mode="modal" />
         ) : embeddedPreview || managerPreviewChrome ? null : (

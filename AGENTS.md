@@ -1,7 +1,12 @@
 <!-- BEGIN:nextjs-agent-rules -->
+
 # This is NOT the Next.js you know
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
 
 This project is building Axis Housing. A platform for users that are property managers to manage their platform effectively.
 Currently as we code there are two things to keep in mind for how we want to code. 
@@ -311,7 +316,6 @@ charges. Do not add one until that logic moves server-side.
   loop; avoid heavy agent frameworks.
 - New site features should expose their capabilities as tools so the agent
   inherits them automatically.
-<!-- END:nextjs-agent-rules -->
 
 ## Web + native (Capacitor)
 
@@ -517,7 +521,7 @@ Details: `docs/agents/sandbox-open-review.md`.
 # Branching & deployment (Vercel)
 
 The Vercel project (`axis-2`, connected to `PrakritR/AXIS-2` / `PrakritR/PropLane`)
-builds **only** `main`, `staging`, and `production`
+builds **only** `staging` and `production`. `main` is tested on localhost
 (`vercel.json` → `git.deploymentEnabled`, plus `scripts/vercel-should-build.sh`).
 Every other branch is skipped. Feature and agent branches are the messy layer
 (their names do not belong in this file). There is no long-lived `dev`
@@ -525,7 +529,7 @@ integration branch.
 
 ```
 feature / agent branch  →  main  →  staging  →  production
-     (no deploy)         preview    QA preview    live + TestFlight
+     (no deploy)         localhost  QA preview    live + TestFlight
                          dev DB     staging DB    live production DB
                          developers dedicated QA  no experiments
 ```
@@ -533,7 +537,7 @@ feature / agent branch  →  main  →  staging  →  production
 | Branch | Role | Database | Vercel | Who tests |
 | --- | --- | --- | --- | --- |
 | feature / agent | messy work | local + shared **dev/test** (`emstjswhotsnyksqhqyf`) | no deploy | the author |
-| **`main`** | consolidation | shared **dev/test** | Preview | developers |
+| **`main`** | consolidation | shared **dev/test** | No deploy; localhost | developers |
 | **`staging`** | QA candidate, ff of `main` | staging project `xwszcafaontidfgznlxd` (never the live production project) | Preview, git-branch-scoped env | dedicated QA |
 | **`production`** | live site | live production (`qahnczmilgptcedaqype`) | Production | nobody experiments here |
 
@@ -588,7 +592,7 @@ known-good commit and push, or use Vercel's **Instant Rollback**. Full checklist
 
 **Captain-owned setup (cannot be done from the repo alone)**
 
-1. Optional hostname `staging.prop-lane.space`.
+1. QA hostname `staging-prop-lane.space` (also `staging.prop-lane.space`), both assigned to `staging`.
 2. GitHub Environments `preview` / `staging` / `production` protection rules
    (needs repo admin).
 3. Branch protection on `main`, `staging`, and `production` (needs repo admin).
@@ -1317,7 +1321,7 @@ below always apply; the files carry the full rationale, schemas, and gotchas.
 | Financials (ledger, GL, deposits, AP, NSF) | `docs/agents/financials.md` | Every charge/payment write MUST call `syncLedgerChargeEntry`/`syncLedgerPaymentEntry` + GL posting next to the DB write — the ledger is write-through only, never read-time backfill. `security_deposit` books to liability, not income. |
 | Vendor invoicing (Phase 4) | `docs/agents/vendor-invoicing.md` | Invoice totals recomputed server-side from line items; vendor tools live in `vendorAgentRegistry`, never the manager registry. |
 | Lease generation (stay pricing, short-term doc, jurisdiction) | `docs/agents/lease-generation.md` | `resolveStayPricing` (`room-pricing.ts`) is the ONE decision for short-vs-long, which rate is active, and which deposit applies — the lease document AND the charge ledger both read it, so they can never quote different numbers. Deposit keys on `rentalType`, rate precedence keys on the resolved stay. NEVER author, infer, or paraphrase a statute citation: no lodger statute exists in `leases/disclosure-clause-rules.json`, so CA cites nothing. |
-| Resident payments (resident-paid processing, ACH clearing) | `docs/agents/resident-payments.md` | The resident pays the processing/service fee on every method (card/Link and ACH) so the manager's payout equals the subtotal; `processing` charges are ignored by late fees/reminders/re-pay. |
+| Resident payments (service-fee payer, ACH clearing) | `docs/agents/resident-payments.md` | Who pays the processing/service fee depends on the manager's plan and choice — `resolveServiceFeePayerFor` is the only resolver, and selecting `proplane` (PropLane absorbing it) takes the `FREE100` code on the account as well as per listing; `processing` charges are ignored by late fees/reminders/re-pay. |
 | Lease generation & execution evidence | `docs/agents/lease-generation.md` | Every signature records the SHA-256 of the document THAT party was shown: per-signature, at signature time, over the base document, and never the copy carrying the certificate page. A row that claims execution (`leaseClaimsExecution`: `fullySignedAt` or any signature) can never have its document body replaced — `preserveSignedLeaseDocuments` guards `write()` — and a write that supplies the body and the execution claim TOGETHER is untrusted unless its bytes match the manager-filed PDF. Provenance fields (`documentSha256` / `templateVersion` / `executedJurisdiction`) absent means unknown; never backfill a guess. A consent tick (the e-signature affirmation, the uploaded-lease review attestation) must reset when a CONTENT-derived identity of what it consents to changes — the modals mount without a `key`, so nothing resets on its own, and the evidence layer records a substitution rather than catching it. |
 | Uploaded (third-party) leases | `docs/agents/lease-generation.md` | The upload stays the executed artifact; `uploadedLeaseParse` is an additive DERIVED reading beside it, never in `generatedHtml`. Extraction emits a term only when the document states it exactly once — otherwise BLANK and flagged, never a guess; it authors no clause and no citation; sections PARTITION the source so nothing is dropped. `uploadedLeaseReviewIsConfirmed` is the ONE read of "has a human confirmed this" (never compare `review.status` at a call site), and `sendLeaseToResident` **and** the agent's `send_lease_for_signature` both refuse via one shared `leaseSendGateBlocker` — unapproved application, then a named parties/terms mismatch, then the generic review message. A row with NO parse is NOT exempt: normalize gives an unread upload an `unreadUploadedLeaseParse`, because "nobody read it" is the least reviewed state, not an exemption. A confirmation binds to BOTH the document (`confirmedDocumentSha256`) and the record it was compared against (`confirmedRecordFingerprint`), so editing the rent after accepting a mismatch re-gates the send. Gate and CTA are scoped differently on purpose — the gate covers everything the send paths accept (including a row already out for signature), the CTA only where confirming can succeed — and a surface reads the predicate for the claim IT makes. Both digest bindings are internal-consistency checks, NOT tamper-proofing — `row_data` is writable by the row's own resident, so the gate is defeatable until that trust model is fixed in the lease-pipeline route lane. |
 | Lease generation & execution evidence | `docs/agents/lease-generation.md` | Every signature records the SHA-256 of the document THAT party was shown: per-signature, at signature time, over the base document, and never the copy carrying the certificate page. A row that claims execution (`leaseClaimsExecution`: `fullySignedAt` or any signature) can never have its document body replaced — `preserveSignedLeaseDocuments` guards `write()` — and a write that supplies the body and the execution claim TOGETHER is untrusted unless its bytes match the manager-filed PDF. Provenance fields (`documentSha256` / `templateVersion` / `executedJurisdiction`) absent means unknown; never backfill a guess. |

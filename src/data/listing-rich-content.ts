@@ -37,10 +37,12 @@ export type ListingRoomRow = {
   /** Monthly utilities estimate label from submission (shown in modal). */
   utilitiesEstimate?: string;
   price: string;
-  /** "day" when the room is priced by the day (headline "$X/day"); "month" (default) otherwise. */
-  pricePeriod?: "day" | "month";
-  /** Comparable monthly-equivalent rent (daily × ~30) used for sorting/budget filters when priced daily. */
+  /** "day" / "week" / "month" — which period the headline `price` uses. */
+  pricePeriod?: "day" | "week" | "month";
+  /** Comparable monthly-equivalent rent used for sorting/budget filters when not priced monthly. */
   priceMonthlyEquivalent?: number;
+  /** Prospect-facing short-lease surcharge note, e.g. "+$150/mo on leases ≤3 mo". */
+  shortLeaseNote?: string;
   /** Exact headline number behind `price` (daily rate for daily rooms, monthly rent otherwise) — never re-parse `price`. */
   priceHeadlineAmount?: number;
   availability: string;
@@ -58,7 +60,13 @@ export function listingRoomPriceMetaLine(room: ListingRoomRow): string | undefin
   const amount = room.priceHeadlineAmount;
   if (typeof amount === "number" && Number.isFinite(amount) && amount > 0) {
     const formatted = amount % 1 === 0 ? `$${amount.toLocaleString("en-US")}` : `$${amount.toFixed(2)}`;
-    parts.push(room.pricePeriod === "day" ? `${formatted}/day` : `${formatted}/mo`);
+    parts.push(
+      room.pricePeriod === "day"
+        ? `${formatted}/day`
+        : room.pricePeriod === "week"
+          ? `${formatted}/week`
+          : `${formatted}/mo`,
+    );
   } else {
     const raw = room.price?.trim();
     if (raw && raw !== "—" && raw !== "Included") {
@@ -70,6 +78,8 @@ export function listingRoomPriceMetaLine(room: ListingRoomRow): string | undefin
   }
   const utilities = room.utilitiesEstimate?.trim();
   if (utilities) parts.push(utilities);
+  const shortLease = room.shortLeaseNote?.trim();
+  if (shortLease) parts.push(shortLease);
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 

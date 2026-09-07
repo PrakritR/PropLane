@@ -2,6 +2,7 @@
 
 import type { LucideIcon } from "lucide-react";
 import {
+  ClipboardCheck,
   ClipboardList,
   CreditCard,
   DoorOpen,
@@ -112,6 +113,7 @@ export const PORTAL_LIST_ADD_ICONS = {
   promotion: Megaphone,
   request: ListTodo,
   service: ClipboardList,
+  inspection: ClipboardCheck,
   conversation: MessageSquare,
   vendor: HardHat,
   team: Users,

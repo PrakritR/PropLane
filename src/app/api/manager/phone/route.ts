@@ -4,6 +4,7 @@ import { managerContactSmsPhoneForPublicCta } from "@/lib/claw-leasing-links";
 import { scheduleManagerMessagingReady } from "@/lib/proplane-sms-transport.server";
 import { sendSms } from "@/lib/twilio";
 import { createTwilioRestClient, twilioErrorFields } from "@/lib/twilio-client.server";
+import { normalizeE164 } from "@/lib/phone-e164";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -34,11 +35,8 @@ function hashCode(code: string): string {
   return createHash("sha256").update(code).digest("hex");
 }
 
-function normalizeUsPhone(raw: string): string | null {
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length === 10) return `+1${digits}`;
-  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  return null;
+function normalizeUsPhone(raw: unknown): string | null {
+  return normalizeE164(raw);
 }
 
 type VerificationRow = {
@@ -199,8 +197,8 @@ export async function POST(req: Request) {
   if (!user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   const body = (await req.json().catch(() => ({}))) as { phone?: string };
-  const phone = normalizeUsPhone(String(body.phone ?? ""));
-  if (!phone) return NextResponse.json({ error: "Enter a valid US phone number." }, { status: 400 });
+  const phone = normalizeUsPhone(body.phone);
+  if (!phone) return NextResponse.json({ error: "Enter a valid phone number." }, { status: 400 });
 
   const db = createSupabaseServiceRoleClient();
 

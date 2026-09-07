@@ -58,7 +58,7 @@ Manual enrich + poll:
 
 1. `npx -y lavish-axi playbook plan` (and `comparison` / `diagram` if needed).
 2. **Images:** `--image` on `workflow:plan` or `lavish:plan` (stored in `assets/`).
-3. `npx -y lavish-axi poll <plan.html>` — wait for annotations.
+3. `npm run lavish:poll` — **mandatory** on every agent turn while `.lavish/active-session.json` exists.
 4. **Stop** until captain says **approved — build**.
 
 ### Share with a friend
@@ -127,7 +127,7 @@ npm run ship:production   # ff staging → production after QA sign-off
 Or use the GitHub Action **Promote** (`workflow_dispatch`). Do not use
 `bin/fm-proplane-promote-to-prakrit.sh` — `prakrit` is retired.
 
-Captain verifies the `main` Preview (developers) and the `staging` URL (QA)
+Captain verifies `main` on localhost (developers) and the `staging` URL (QA)
 before a live ship.
 
 ---

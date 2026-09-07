@@ -13,8 +13,11 @@ import {
 } from "@/lib/manager-manual-payment-settings";
 import { normalizeManagerSkuTier, type ManagerSkuTier } from "@/lib/manager-access";
 import {
+  LISTING_PAYMENT_WAIVER_CODE,
+  listingPaymentWaiverCodeMatches,
   managerCanSelectManagerAbsorbServiceFee,
   managerCanSelectProplaneServiceFee,
+  normalizeListingPaymentWaiverCode,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
 import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
@@ -48,6 +51,7 @@ function HubRow({
   allowed,
   onAllowedChange,
   allowDataAttr,
+  allowDisabled = false,
 }: {
   label: string;
   connected: boolean;
@@ -62,14 +66,17 @@ function HubRow({
   allowed: boolean;
   onAllowedChange: (allowed: boolean) => void;
   allowDataAttr: string;
+  /** Stored settings could not be read — a save now would write defaults over them. */
+  allowDisabled?: boolean;
 }) {
   return (
     <div className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
-      <label className="flex min-w-0 cursor-pointer items-center gap-3">
+      <label className={`flex min-w-0 items-center gap-3 ${allowDisabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
         <input
           type="checkbox"
           className="h-4 w-4 shrink-0 rounded border-border"
           checked={allowed}
+          disabled={allowDisabled}
           onChange={(e) => onAllowedChange(e.target.checked)}
           data-attr={allowDataAttr}
         />
@@ -126,6 +133,14 @@ export function ManagerPaymentSetupModal({
   const demo = isDemoModeActive();
   const [draft, setDraft] = useState<ManagerManualPaymentSettingsView>(() => draftFromSettings(null));
   const [loading, setLoading] = useState(false);
+  /*
+    Nothing may be written back before the stored settings have actually been read.
+    A failed GET leaves `draft` at the defaults, whose `serviceFeePayer` is
+    "resident" — and every save sends the whole draft, so one click on the Stripe
+    checkbox would have moved Stripe's cost onto an account that was absorbing it.
+    The server cannot catch that: switching to "resident" is a legitimate choice.
+  */
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [stripeBusy, setStripeBusy] = useState(false);
   const [stripeState, setStripeState] = useState<StripeSetupState>("unlinked");
   const [stripeIssue, setStripeIssue] = useState<string | null>(null);
@@ -134,6 +149,9 @@ export function ManagerPaymentSetupModal({
   const [canEditBankAccount, setCanEditBankAccount] = useState(true);
   const [isCoManagerForPayout, setIsCoManagerForPayout] = useState(false);
   const [savingFeePayer, setSavingFeePayer] = useState(false);
+  const [waiverPromptOpen, setWaiverPromptOpen] = useState(false);
+  const [waiverCodeDraft, setWaiverCodeDraft] = useState("");
+  const [waiverCodeError, setWaiverCodeError] = useState<string | null>(null);
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(() => new Set());
   const [propertySelectionComplete, setPropertySelectionComplete] = useState(false);
 
@@ -187,6 +205,7 @@ export function ManagerPaymentSetupModal({
   const loadSettings = useCallback(async () => {
     if (demo) {
       setDraft(draftFromSettings({ ...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS, paymentInboxAddress: DEMO_INBOX }));
+      setSettingsLoaded(true);
       return;
     }
     setLoading(true);
@@ -201,6 +220,7 @@ export function ManagerPaymentSetupModal({
         return;
       }
       setDraft(draftFromSettings(data.settings ?? null));
+      setSettingsLoaded(true);
     } catch {
       showToast("Could not load payment setup.");
     } finally {
@@ -233,6 +253,10 @@ export function ManagerPaymentSetupModal({
     if (!open) {
       setPropertySelectionComplete(false);
       setSelectedPropertyIds(new Set());
+      setWaiverPromptOpen(false);
+      setWaiverCodeDraft("");
+      setWaiverCodeError(null);
+      setSettingsLoaded(false);
       return;
     }
     void loadStripeStatus();
@@ -260,6 +284,10 @@ export function ManagerPaymentSetupModal({
   }, [open, loadStripeStatus]);
 
   async function persistSettings(patch: Partial<ManagerManualPaymentSettingsView>) {
+    if (!settingsLoaded && !demo) {
+      showToast("Couldn't read your current payment setup, so nothing was changed. Reopen this window to try again.");
+      return;
+    }
     if (demo) {
       setDraft((prev) => draftFromSettings({ ...prev, ...patch }));
       showToast("Saved (demo).");
@@ -314,9 +342,36 @@ export function ManagerPaymentSetupModal({
 
   async function changeFeePayer(choice: ServiceFeePayer) {
     if ((draft.serviceFeePayer ?? "resident") === choice) return;
+    // PropLane covering the fee is PropLane spending its own money, so it is unlocked by
+    // a promo code rather than by a click — the same rule the listing wizard applies per
+    // listing. Ask for the code first; nothing is saved until it checks out.
+    if (choice === "proplane") {
+      setWaiverCodeError(null);
+      setWaiverCodeDraft(draft.serviceFeeWaiverCode ?? "");
+      setWaiverPromptOpen(true);
+      return;
+    }
+    setWaiverPromptOpen(false);
+    setWaiverCodeError(null);
     setSavingFeePayer(true);
     try {
-      await persistSettings({ serviceFeePayer: choice });
+      await persistSettings({ serviceFeePayer: choice, serviceFeeWaiverCode: undefined });
+    } finally {
+      setSavingFeePayer(false);
+    }
+  }
+
+  async function applyWaiverCode() {
+    const code = normalizeListingPaymentWaiverCode(waiverCodeDraft);
+    if (!listingPaymentWaiverCodeMatches(code)) {
+      setWaiverCodeError("That promo code isn't valid.");
+      return;
+    }
+    setWaiverCodeError(null);
+    setSavingFeePayer(true);
+    try {
+      await persistSettings({ serviceFeePayer: "proplane", serviceFeeWaiverCode: code });
+      setWaiverPromptOpen(false);
     } finally {
       setSavingFeePayer(false);
     }
@@ -409,6 +464,7 @@ export function ManagerPaymentSetupModal({
             busy={stripeBusy}
             allowed={draft.axisPaymentsEnabled !== false}
             allowDataAttr="manager-payment-stripe-allowed"
+            allowDisabled={!settingsLoaded && !demo}
             onAllowedChange={(allowed) => void persistSettings({ axisPaymentsEnabled: allowed })}
           />
           {isCoManagerForPayout ? (
@@ -447,7 +503,7 @@ export function ManagerPaymentSetupModal({
                     <button
                       key={option.id}
                       type="button"
-                      disabled={savingFeePayer}
+                      disabled={savingFeePayer || (!settingsLoaded && !demo)}
                       onClick={() => void changeFeePayer(option.id)}
                       data-attr={`manager-service-fee-payer-${option.id}`}
                       className={`flex flex-col rounded-xl border px-3 py-2.5 text-left transition disabled:opacity-60 ${
@@ -464,6 +520,65 @@ export function ManagerPaymentSetupModal({
                   );
                 })}
               </div>
+              {waiverPromptOpen ? (
+                <div className="space-y-2 rounded-xl border border-primary/40 bg-primary/5 px-3 py-3">
+                  <label
+                    className="block text-xs font-semibold text-foreground"
+                    htmlFor="manager-service-fee-waiver-code"
+                  >
+                    Promo code
+                  </label>
+                  <input
+                    id="manager-service-fee-waiver-code"
+                    value={waiverCodeDraft}
+                    onChange={(event) => {
+                      setWaiverCodeDraft(normalizeListingPaymentWaiverCode(event.target.value));
+                      setWaiverCodeError(null);
+                    }}
+                    placeholder={LISTING_PAYMENT_WAIVER_CODE}
+                    autoComplete="off"
+                    data-attr="manager-service-fee-waiver-code"
+                    aria-invalid={Boolean(waiverCodeError)}
+                    aria-describedby={waiverCodeError ? "manager-service-fee-waiver-error" : undefined}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground sm:max-w-xs"
+                  />
+                  <p className="text-xs text-muted">
+                    Required — enter your PropLane promo code so PropLane covers Stripe&apos;s processing fee on
+                    this account.
+                  </p>
+                  {waiverCodeError ? (
+                    <p id="manager-service-fee-waiver-error" className="text-xs text-destructive">
+                      {waiverCodeError}
+                    </p>
+                  ) : null}
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      className="h-9 min-h-0 rounded-full px-4 text-[13px]"
+                      disabled={savingFeePayer}
+                      data-attr="manager-service-fee-waiver-apply"
+                      onClick={() => applyWaiverCode()}
+                    >
+                      Apply code
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 min-h-0 rounded-full px-4 text-[13px]"
+                      data-attr="manager-service-fee-waiver-cancel"
+                      onClick={() => {
+                        setWaiverPromptOpen(false);
+                        setWaiverCodeError(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (draft.serviceFeePayer ?? "resident") === "proplane" && draft.serviceFeeWaiverCode ? (
+                <p className="text-xs text-muted">Promo code {draft.serviceFeeWaiverCode} applied.</p>
+              ) : null}
             </div>
           ) : skuTier === "free" ? (
             <p className="text-xs text-muted">

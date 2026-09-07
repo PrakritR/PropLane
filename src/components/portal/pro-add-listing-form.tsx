@@ -109,6 +109,7 @@ import {
   type ManagerSharedSpaceSubmission,
   type PaymentAtSigningOptionId,
   normalizeFlexibleRentBound,
+  normalizeShortLeaseMaxMonths,
 } from "@/lib/manager-listing-submission";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { applyListingFeeContextDefaults } from "@/lib/listing-fee-defaults";
@@ -189,10 +190,11 @@ import {
   listingRoomHasRent,
   listingRoomNameKey,
   listingRoomRentKey,
+  listingRoomWeeklyRentKey,
   listingSharedSpaceNameKey,
   validateListingWizardStep,
 } from "@/lib/listing-wizard-validation";
-import { roomHeadlinePriceLabel } from "@/lib/room-pricing";
+import { roomHeadlinePriceLabel, roomShortLeaseSurcharge } from "@/lib/room-pricing";
 import { listingRoomPricingSummaryLabel } from "@/lib/rental-application/listing-fees-display";
 import {
   scrollToFirstWizardFieldError,
@@ -1674,9 +1676,9 @@ export function ManagerAddListingForm({
       serviceRequestOptions: serviceOffers,
     });
   }
-  /** Last submission fingerprint successfully written to the drafts bucket. */
+  /** Last submission fingerprint successfully written to the drafts bucket or server. */
   const lastPersistedFingerprintRef = useRef<string | null>(
-    editDraftId?.trim()
+    editDraftId?.trim() || editListingId?.trim() || editPendingId?.trim() || editRequestChangeId?.trim()
       ? listingSubmissionFingerprint({
           ...(initialSubmission
             ? normalizeManagerListingSubmissionV1(initialSubmission)
@@ -2002,6 +2004,11 @@ export function ManagerAddListingForm({
     }
     setStepFieldErrors({});
     if (isEditMode) {
+      const current = ensureSubmissionListingFees({ ...sub, serviceRequestOptions: serviceOffers });
+      if (!listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")) {
+        advanceFromCurrentStep();
+        return;
+      }
       void persistEditListingRef.current({ advanceOnSuccess: true });
       return;
     }
@@ -2723,6 +2730,7 @@ export function ManagerAddListingForm({
    * those as a draft would fork it into a second record.
    */
   const draftAutoSaveEligible = !isEditMode && !isPreviewWizard;
+  const editAutoSaveEligible = isEditMode && !isPreviewWizard;
 
   const buildSubmissionPayload = useCallback((): ManagerListingSubmissionV1 => {
     const submission = ensureSubmissionListingFees({
@@ -2754,24 +2762,55 @@ export function ManagerAddListingForm({
 
   const persistEditListing = useCallback(
     async (opts?: { advanceOnSuccess?: boolean; closeAfter?: boolean; silent?: boolean }): Promise<boolean> => {
-      if (!isEditMode || busy || closingDraft) return false;
-      if (!authReady || !userId) {
-        if (!opts?.silent) showToast("Sign in to save changes.");
+      if (!isEditMode || closingDraft) return false;
+      if (busy) {
+        if (!opts?.silent) showToast("Still saving your changes…");
         return false;
+      }
+      if (!authReady || !userId) {
+        const msg = "Sign in to save changes.";
+        setDraftSaveError(msg);
+        if (!opts?.silent) showToast(msg);
+        return false;
+      }
+
+      const current = ensureSubmissionListingFees({ ...sub, serviceRequestOptions: serviceOffers });
+      const hasChanges = listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "");
+      if (!hasChanges) {
+        setDraftSaveError(null);
+        if (opts?.advanceOnSuccess) advanceFromCurrentStep();
+        if (opts?.closeAfter) onClose();
+        return true;
       }
 
       const stepPos = wizardSteps.indexOf(stepIndex);
       const advancingToReview = stepPos >= 0 && stepPos === wizardSteps.length - 2;
       const shouldToast = !opts?.silent && (advancingToReview || opts?.closeAfter);
+      const backgroundSave = Boolean(opts?.silent && !opts?.closeAfter && !opts?.advanceOnSuccess);
 
-      setBusy(true);
+      if (backgroundSave) {
+        setAutosaveStatus("saving");
+      } else {
+        setBusy(true);
+      }
+
       try {
-        const uploaded = await uploadSubmissionMedia(buildSubmissionPayload());
-        if (uploaded.failedCount > 0) {
-          if (!opts?.silent) showToast("Could not upload photos. Check your connection and try again.");
-          return false;
+        droppedAttachmentsRef.current = false;
+        let uploadedSubmission = buildSubmissionPayload();
+        try {
+          const uploaded = await uploadSubmissionMedia(uploadedSubmission);
+          uploadedSubmission = uploaded.submission;
+          if (uploaded.failedCount > 0) {
+            droppedAttachmentsRef.current = true;
+          } else {
+            setSub(uploadedSubmission);
+          }
+        } catch (err) {
+          console.error("manager-add-listing-form: edit media upload failed", err);
+          uploadedSubmission = stripSubmissionDataUrls(buildSubmissionPayload());
+          droppedAttachmentsRef.current = true;
         }
-        const uploadedSubmission = uploaded.submission;
+
         let ok = false;
         if (editPendingId) {
           ok = await updatePendingManagerPropertyOnServer(editPendingId, uploadedSubmission, userId);
@@ -2782,7 +2821,10 @@ export function ManagerAddListingForm({
           ok = await updateExtraListingFromSubmissionOnServer(editListingId, saveUserId, uploadedSubmission);
         }
         if (!ok) {
-          if (!opts?.silent) showToast("Could not save changes.");
+          const msg = "Could not save changes. Check your connection and try again.";
+          setDraftSaveError(msg);
+          if (backgroundSave) setAutosaveStatus("error");
+          if (!opts?.silent) showToast(msg);
           return false;
         }
 
@@ -2791,17 +2833,48 @@ export function ManagerAddListingForm({
           serviceRequestOptions: serviceOffers,
         });
         baselineFingerprintRef.current = fingerprint;
+        lastPersistedFingerprintRef.current = fingerprint;
+        setDraftSaveError(null);
 
-        if (shouldToast) showToast("Changes saved.");
+        const droppedAttachments = droppedAttachmentsRef.current;
+        droppedAttachmentsRef.current = false;
+
+        if (shouldToast) {
+          showToast(
+            droppedAttachments
+              ? "Changes saved. Some photos couldn't be uploaded — they're still in the form."
+              : "Changes saved.",
+          );
+        } else if (droppedAttachments && !opts?.silent) {
+          showToast("Saved, but some photos couldn't be uploaded — they are still in the form, try again.");
+        } else if (backgroundSave) {
+          setAutosaveStatus(droppedAttachments ? "saved-without-photos" : "saved");
+          if (droppedAttachments) {
+            showToast("Saved, but some photos couldn't be uploaded — they are still in the form, try again.");
+          }
+        }
+
         if (opts?.advanceOnSuccess) advanceFromCurrentStep();
-        if (opts?.closeAfter) onClose();
+        if (opts?.closeAfter) {
+          if (droppedAttachments) {
+            showToast(
+              "Changes saved. Some attachments couldn't be uploaded — they're still in the form for next time.",
+            );
+          }
+          onClose();
+        }
         return true;
       } catch (err) {
         console.error("manager-add-listing-form: persistEditListing failed", err);
-        if (!opts?.silent) showToast("Could not save changes.");
+        const msg = "Could not save changes. Check your connection and try again.";
+        setDraftSaveError(msg);
+        if (backgroundSave) setAutosaveStatus("error");
+        if (!opts?.silent) showToast(msg);
         return false;
       } finally {
-        setBusy(false);
+        if (!backgroundSave) {
+          setBusy(false);
+        }
       }
     },
     [
@@ -2840,7 +2913,7 @@ export function ManagerAddListingForm({
         isEditMode &&
         listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")
       ) {
-        void persistEditListingRef.current({ closeAfter: true, silent: true });
+        void persistEditListingRef.current({ closeAfter: true });
         return;
       }
       onClose();
@@ -2994,7 +3067,7 @@ export function ManagerAddListingForm({
   }, [persistListingDraft]);
 
   useEffect(() => {
-    if (!draftAutoSaveEligible || !authReady || !userId) return;
+    if ((!draftAutoSaveEligible && !editAutoSaveEligible) || !authReady || !userId) return;
 
     const current: ManagerListingSubmissionV1 = { ...sub, serviceRequestOptions: serviceOffers };
     if (!listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")) {
@@ -3004,8 +3077,9 @@ export function ManagerAddListingForm({
     const fingerprint = listingSubmissionFingerprint(current);
     const alreadyPersisted =
       fingerprint === lastPersistedFingerprintRef.current &&
-      stepIndex === lastPersistedStepRef.current.stepIndex &&
-      maxStepReached === lastPersistedStepRef.current.maxStepReached;
+      (!draftAutoSaveEligible ||
+        (stepIndex === lastPersistedStepRef.current.stepIndex &&
+          maxStepReached === lastPersistedStepRef.current.maxStepReached));
     if (alreadyPersisted) return;
 
     setAutosaveStatus((status) =>
@@ -3016,7 +3090,11 @@ export function ManagerAddListingForm({
     autosaveTimerRef.current = setTimeout(() => {
       autosaveTimerRef.current = null;
       autosaveDirtyRef.current = false;
-      void persistListingDraft({ silent: true });
+      if (draftAutoSaveEligible) {
+        void persistListingDraft({ silent: true });
+      } else {
+        void persistEditListing({ silent: true });
+      }
     }, LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS);
 
     return () => {
@@ -3025,7 +3103,9 @@ export function ManagerAddListingForm({
   }, [
     authReady,
     draftAutoSaveEligible,
+    editAutoSaveEligible,
     maxStepReached,
+    persistEditListing,
     persistListingDraft,
     serviceOffers,
     stepIndex,
@@ -3034,7 +3114,7 @@ export function ManagerAddListingForm({
   ]);
 
   useEffect(() => {
-    if (!draftAutoSaveEligible) return;
+    if (!draftAutoSaveEligible && !editAutoSaveEligible) return;
     const flushOnHide = () => {
       if (document.visibilityState !== "hidden") return;
       if (autosaveTimerRef.current) {
@@ -3043,11 +3123,15 @@ export function ManagerAddListingForm({
       }
       if (!autosaveDirtyRef.current) return;
       autosaveDirtyRef.current = false;
-      void persistListingDraft({ silent: true });
+      if (draftAutoSaveEligible) {
+        void persistListingDraft({ silent: true });
+      } else {
+        void persistEditListing({ silent: true });
+      }
     };
     document.addEventListener("visibilitychange", flushOnHide);
     return () => document.removeEventListener("visibilitychange", flushOnHide);
-  }, [draftAutoSaveEligible, persistListingDraft]);
+  }, [draftAutoSaveEligible, editAutoSaveEligible, persistEditListing, persistListingDraft]);
 
   const submitListing = async () => {
     // EXACTLY what the steps run. Submit used to omit `stFeeToggles` and
@@ -4560,9 +4644,13 @@ export function ManagerAddListingForm({
                 const checkedFurniture = parseFurnitureSet(room.furnishing);
                 const roomNameKey = listingRoomNameKey(room.id);
                 const roomRentKey = listingRoomRentKey(room.id);
+                const roomDailyRentKey = listingRoomDailyRentKey(room.id);
+                const roomWeeklyRentKey = listingRoomWeeklyRentKey(room.id);
                 const roomNameErr = stepFieldErrors[roomNameKey];
                 const roomRentErr = stepFieldErrors[roomRentKey];
-                const roomHasErr = Boolean(roomNameErr || roomRentErr);
+                const roomDailyRentErr = stepFieldErrors[roomDailyRentKey];
+                const roomWeeklyRentErr = stepFieldErrors[roomWeeklyRentKey];
+                const roomHasErr = Boolean(roomNameErr || roomRentErr || roomDailyRentErr || roomWeeklyRentErr);
                 // The facts a manager compares rooms on, on the row itself
                 // (PRP-137): where it is, how big, whether it is furnished.
                 // Furnishing used to print the whole item list here, which
@@ -4698,6 +4786,116 @@ export function ManagerAddListingForm({
                           <option value="fixed">Fixed price</option>
                           <option value="flexible">Flexible pricing</option>
                         </Select>
+                        {room.pricingMode !== "flexible" ? (
+                          <div className="mt-3 space-y-3">
+                            <p className="text-xs text-muted">
+                              Quote the rates you actually offer. A weekly or daily rate is a
+                              real price, not the monthly one divided up — leave a row blank if
+                              you do not offer that length.
+                            </p>
+                            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                              <GridField>
+                                <FieldLabel>Rent / week</FieldLabel>
+                                <MoneyInput
+                                  ariaLabel={`Weekly rent for ${room.name || `room ${i + 1}`}`}
+                                  data-attr="listing-room-weekly-rent"
+                                  invalid={Boolean(roomWeeklyRentErr)}
+                                  value={room.weeklyRentPrice === undefined ? "" : String(room.weeklyRentPrice)}
+                                  onChange={(e) => {
+                                    const n = parseFloat(sanitizeMoneyInput(e.target.value));
+                                    clearListingFieldError(roomWeeklyRentKey);
+                                    setRoom(i, { weeklyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
+                                  }}
+                                  placeholder="Weekly rate"
+                                />
+                                <StepFieldError msg={roomWeeklyRentErr} />
+                              </GridField>
+                              <GridField>
+                                <FieldLabel>Rent / day</FieldLabel>
+                                <MoneyInput
+                                  ariaLabel={`Daily rent for ${room.name || `room ${i + 1}`}`}
+                                  data-attr="listing-room-daily-rent-basis"
+                                  invalid={Boolean(roomDailyRentErr)}
+                                  value={room.dailyRentPrice === undefined ? "" : String(room.dailyRentPrice)}
+                                  onChange={(e) => {
+                                    const n = parseFloat(sanitizeMoneyInput(e.target.value));
+                                    clearListingFieldError(roomDailyRentKey);
+                                    setRoom(i, { dailyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
+                                  }}
+                                  placeholder="Daily rate"
+                                />
+                                <StepFieldError msg={roomDailyRentErr} />
+                              </GridField>
+                              <GridField>
+                                <FieldLabel hint="Which rate leads the listing and drives billing.">
+                                  Billed by
+                                </FieldLabel>
+                                <Select
+                                  aria-label={`Billing basis for ${room.name || `room ${i + 1}`}`}
+                                  className={selectInputCls}
+                                  data-attr="listing-room-rent-basis"
+                                  value={room.rentBasis ?? "monthly"}
+                                  onChange={(e) =>
+                                    setRoom(i, { rentBasis: e.target.value as "monthly" | "weekly" | "daily" })
+                                  }
+                                >
+                                  <option value="monthly">Month</option>
+                                  <option value="weekly">Week</option>
+                                  <option value="daily">Day</option>
+                                </Select>
+                              </GridField>
+                            </div>
+                            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                              <GridField>
+                                <FieldLabel hint="Extra monthly rent on a short tenancy. Folded into the rent, not billed as a separate fee.">
+                                  Short-lease surcharge / mo
+                                </FieldLabel>
+                                <MoneyInput
+                                  ariaLabel={`Short-lease surcharge for ${room.name || `room ${i + 1}`}`}
+                                  data-attr="listing-room-short-lease-surcharge"
+                                  value={(room.shortLeaseSurchargeMonthly ?? "").replace(/^\$/, "").trim()}
+                                  onChange={(e) =>
+                                    setRoom(i, { shortLeaseSurchargeMonthly: sanitizeMoneyInput(e.target.value) })
+                                  }
+                                  placeholder="Extra per month"
+                                />
+                              </GridField>
+                              <GridField>
+                                <FieldLabel>Short lease is up to</FieldLabel>
+                                <Input
+                                  inputMode="numeric"
+                                  aria-label={`Short lease threshold in months for ${room.name || `room ${i + 1}`}`}
+                                  data-attr="listing-room-short-lease-months"
+                                  placeholder="Months"
+                                  value={room.shortLeaseMaxMonths === undefined ? "" : String(room.shortLeaseMaxMonths)}
+                                  onChange={(e) =>
+                                    setRoom(i, { shortLeaseMaxMonths: normalizeShortLeaseMaxMonths(e.target.value) })
+                                  }
+                                />
+                              </GridField>
+                            </div>
+                            {(room.shortLeaseSurchargeMonthly ?? "").trim() &&
+                            room.shortLeaseMaxMonths === undefined ? (
+                              <p className="text-xs text-danger" role="alert">
+                                Set how many months counts as a short lease, or this surcharge
+                                will not apply to anyone.
+                              </p>
+                            ) : null}
+                            {room.monthlyRent > 0 &&
+                            room.shortLeaseMaxMonths !== undefined &&
+                            (room.shortLeaseSurchargeMonthly ?? "").trim() ? (
+                              <p className="text-xs text-muted" data-attr="listing-room-short-lease-preview">
+                                A short lease is quoted as{" "}
+                                <strong>
+                                  ${(room.monthlyRent + roomShortLeaseSurcharge(room)).toLocaleString("en-US")}
+                                </strong>{" "}
+                                / month on a lease of {room.shortLeaseMaxMonths}{" "}
+                                {room.shortLeaseMaxMonths === 1 ? "month" : "months"} or less —{" "}
+                                ${room.monthlyRent.toLocaleString("en-US")} rent plus the surcharge.
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
                         {room.pricingMode === "flexible" ? (
                           <div className="mt-3 space-y-2">
                             <p className="text-xs text-muted">
@@ -5590,7 +5788,7 @@ export function ManagerAddListingForm({
             <p role="alert" data-testid="listing-wizard-draft-save-error" className="mb-3 text-xs font-medium text-red-600">
               {draftSaveError}
             </p>
-          ) : draftAutoSaveEligible && autosaveStatus !== "idle" ? (
+          ) : (draftAutoSaveEligible || editAutoSaveEligible) && autosaveStatus !== "idle" ? (
             <p
               className="mb-3 text-xs text-muted"
               data-testid="listing-wizard-autosave-status"
@@ -5599,9 +5797,13 @@ export function ManagerAddListingForm({
               {autosaveStatus === "saving"
                 ? "Saving…"
                 : autosaveStatus === "saved"
-                  ? "Saved to Drafts"
+                  ? draftAutoSaveEligible
+                    ? "Saved to Drafts"
+                    : "Changes saved"
                   : autosaveStatus === "saved-without-photos"
-                    ? "Saved to Drafts — photos not uploaded yet"
+                    ? draftAutoSaveEligible
+                      ? "Saved to Drafts — photos not uploaded yet"
+                      : "Changes saved — photos not uploaded yet"
                     : "Couldn't save — check your connection"}
             </p>
           ) : null}
@@ -5622,11 +5824,13 @@ export function ManagerAddListingForm({
                   onClick={goNext}
                   disabled={busy}
                 >
-                  {visibleStepPosition === visibleStepCount - 2
-                    ? isPreviewWizard
-                      ? "Review & save →"
-                      : "Review & submit →"
-                    : "Continue"}
+                  {busy
+                    ? "Saving…"
+                    : visibleStepPosition === visibleStepCount - 2
+                      ? isPreviewWizard
+                        ? "Review & save →"
+                        : "Review & submit →"
+                      : "Continue"}
                 </Button>
               ) : (
                 <Button

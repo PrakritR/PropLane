@@ -1,7 +1,8 @@
 /** Client-safe types for manager Communication → SMS. */
 
-import { formatSmsPhoneLabel } from "@/lib/phone-e164";
+import { coercePhoneInput, formatSmsPhoneLabel, normalizeE164 } from "@/lib/phone-e164";
 import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
+import { trimmedText } from "@/lib/trimmed-text";
 
 /** Refresh any mounted Communication SMS readers after a contact mutation. */
 export const MANAGER_SMS_CONTACTS_CHANGED_EVENT = "axis:manager-sms-contacts-changed";
@@ -87,7 +88,7 @@ export type ManagerSmsResidentConversation = {
  * email, or a readable phone label instead.
  */
 export function isPhoneLikeLabel(value: string | null | undefined): boolean {
-  const t = value?.trim();
+  const t = trimmedText(value);
   if (!t) return false;
   if (!/^[+()\d\s.\-]+$/.test(t)) return false;
   return t.replace(/\D/g, "").length >= 7;
@@ -107,13 +108,13 @@ export type SmsConversationLabelSource = Pick<
  * surface). SMS threading still keys on the phone/conversation key internally.
  */
 export function smsConversationDisplayName(resident: SmsConversationLabelSource): string {
-  const directoryName = (resident.directoryName ?? resident.name)?.trim();
+  const directoryName = trimmedText(resident.directoryName) || trimmedText(resident.name);
   if (directoryName && !isPhoneLikeLabel(directoryName)) return directoryName;
-  const savedName = resident.savedContactName?.trim();
+  const savedName = trimmedText(resident.savedContactName);
   if (savedName) return savedName;
-  const property = resident.propertyLabel?.trim();
+  const property = trimmedText(resident.propertyLabel);
   if (property) return property;
-  const email = resident.residentEmail?.trim();
+  const email = trimmedText(resident.residentEmail);
   if (email) return email;
   return (
     formatSmsPhoneLabel(resident.phone) ??
@@ -130,9 +131,9 @@ export function smsConversationDisplayName(resident: SmsConversationLabelSource)
  */
 export function smsConversationSubtitle(resident: SmsConversationLabelSource): string {
   const name = smsConversationDisplayName(resident);
-  const property = resident.propertyLabel?.trim();
+  const property = trimmedText(resident.propertyLabel);
   if (property && property !== name) return property;
-  const email = resident.residentEmail?.trim();
+  const email = trimmedText(resident.residentEmail);
   if (email && email !== name) return email;
   const phone = formatSmsPhoneLabel(resident.phone);
   if (phone && phone !== name) return phone;
@@ -197,12 +198,16 @@ export function normalizeManagerSmsConversationsPayload(
   const residents = Array.isArray(payload?.residents)
     ? payload.residents.map((resident) => ({
         residentUserId: resident?.residentUserId ?? null,
-        residentEmail: resident?.residentEmail ?? null,
-        name: resident?.name?.trim() || resident?.phone || resident?.residentEmail || "Resident",
-        directoryName: resident?.directoryName?.trim() || null,
-        savedContactName: resident?.savedContactName?.trim() || null,
-        phone: resident?.phone ?? null,
-        propertyLabel: resident?.propertyLabel ?? null,
+        residentEmail: trimmedText(resident?.residentEmail) || null,
+        name:
+          trimmedText(resident?.name) ||
+          trimmedText(resident?.phone) ||
+          trimmedText(resident?.residentEmail) ||
+          "Resident",
+        directoryName: trimmedText(resident?.directoryName) || null,
+        savedContactName: trimmedText(resident?.savedContactName) || null,
+        phone: normalizeE164(resident?.phone) ?? (coercePhoneInput(resident?.phone) || null),
+        propertyLabel: trimmedText(resident?.propertyLabel) || null,
         tenancyStatus: resident?.tenancyStatus === "applicant" ? ("applicant" as const) : ("resident" as const),
         counterpartyRole: resident?.counterpartyRole,
         conversationKey: resident?.conversationKey,
@@ -214,8 +219,9 @@ export function normalizeManagerSmsConversationsPayload(
       }))
     : [];
   return {
-    workNumber: payload?.workNumber ?? null,
-    personalPhone: payload?.personalPhone ?? null,
+    workNumber: normalizeE164(payload?.workNumber) ?? (coercePhoneInput(payload?.workNumber) || null),
+    personalPhone:
+      normalizeE164(payload?.personalPhone) ?? (coercePhoneInput(payload?.personalPhone) || null),
     phoneVerified: Boolean(payload?.phoneVerified),
     forwardInbound: payload?.forwardInbound !== false,
     smsConfigured: Boolean(payload?.smsConfigured),
