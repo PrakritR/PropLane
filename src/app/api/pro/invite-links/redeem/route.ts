@@ -27,5 +27,19 @@ export async function POST(req: Request) {
     redeemerUserId: user.id,
   });
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
-  return NextResponse.json({ inviteId: result.inviteId, alreadyRedeemed: result.alreadyRedeemed });
+
+  // The two kinds land in different places and the client routes on that, so
+  // `kind` is returned rather than inferred from which id came back.
+  if (result.kind === "resident") {
+    return NextResponse.json({
+      kind: "resident",
+      claimId: result.claimId,
+      alreadyRedeemed: result.alreadyRedeemed,
+    });
+  }
+  return NextResponse.json({
+    kind: "manager",
+    inviteId: result.inviteId,
+    alreadyRedeemed: result.alreadyRedeemed,
+  });
 }
