@@ -424,7 +424,7 @@ export function computeFieldSelectMenuRectInHost(
       let top = Math.max(safeTop, triggerBottomInHost + gap);
       let maxHeight = Math.min(contentPx, hostBottom - top);
 
-      if (maxHeight < FIELD_SELECT_MENU_ITEM_HEIGHT_PX + 12) {
+      if (maxHeight < contentPx) {
         /* Not enough room below the trigger inside the box: open UP against it
            instead. Falling straight to the bottom-pin below detaches the menu from
            its trigger, which is what a manager reads as "the dropdown opened in the
@@ -477,6 +477,30 @@ export function computeFieldSelectMenuRectInHost(
   return { top, left, width, maxHeight, position: "absolute" };
 }
 
+/** Fixed viewport menu inside a Radix/Vaul modal — escapes `overflow-hidden` on the panel. */
+export function computeFieldSelectMenuRectForModalPanel(
+  button: HTMLButtonElement,
+  contentPx: number,
+  modalPanel: HTMLElement,
+  options?: {
+    minWidth?: number;
+    matchTriggerWidth?: boolean;
+  },
+): FieldSelectMenuRect {
+  const boundsEl = fieldSelectMenuBoundsElement(button, modalPanel);
+  const cardRect = boundsEl.getBoundingClientRect();
+  const gap = 4;
+  const topInset = fieldSelectHostTopInsetPx(boundsEl);
+  const bottomInset = fieldSelectHostBottomInsetPx(boundsEl);
+  return computeFieldSelectMenuRect(button, contentPx, document.body, {
+    minWidth: options?.minWidth,
+    preferOpenDown: true,
+    matchTriggerWidth: options?.matchTriggerWidth ?? true,
+    topBoundPx: cardRect.top + topInset + gap,
+    bottomBoundPx: cardRect.bottom - bottomInset - gap,
+  });
+}
+
 export function computeFieldSelectMenuRect(
   button: HTMLButtonElement,
   contentPx: number,
@@ -492,6 +516,10 @@ export function computeFieldSelectMenuRect(
      * today stops being tall enough the next time its content changes, silently.
      */
     topInsetPx?: number;
+    /** Viewport Y the menu must stay below (modal card top + chrome). */
+    topBoundPx?: number;
+    /** Viewport Y the menu must stay above (modal card bottom minus footer). */
+    bottomBoundPx?: number;
   },
 ): FieldSelectMenuRect {
   const rect = button.getBoundingClientRect();
@@ -504,10 +532,14 @@ export function computeFieldSelectMenuRect(
   const hostTop = topInset > 0 ? portalHost.getBoundingClientRect().top : 0;
   /* This menu is `position: fixed`, so the host's chrome has to be translated into
      viewport coordinates before it can be honoured. Every placement below starts here. */
-  const topBound = Math.max(viewportPadding, hostTop + topInset + gap);
+  const topBound = Math.max(
+    viewportPadding,
+    options?.topBoundPx ?? hostTop + topInset + gap,
+  );
+  const bottomBound = options?.bottomBoundPx ?? viewportH - viewportPadding;
   const preferOpenDown = options?.preferOpenDown ?? false;
   const matchTriggerWidth = options?.matchTriggerWidth ?? false;
-  const spaceBelow = viewportH - rect.bottom - viewportPadding;
+  const spaceBelow = bottomBound - rect.bottom - gap;
   const spaceAbove = rect.top - topBound;
   const openUp = resolveOpenUp(spaceBelow, spaceAbove, contentHeight, preferOpenDown);
   const maxHeight = Math.min(
@@ -619,6 +651,19 @@ export function useFieldSelectMenu({
     const updateMenuRect = () => {
       const button = buttonRef.current;
       if (!button) return;
+      const modalPanel = button.closest<HTMLElement>(
+        '[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"]',
+      );
+      if (modalPanel && align !== "end") {
+        setPortalHost(document.body);
+        setMenuRect(
+          computeFieldSelectMenuRectForModalPanel(button, contentPx, modalPanel, {
+            minWidth: minMenuWidth,
+            matchTriggerWidth,
+          }),
+        );
+        return;
+      }
       const portalHost = fieldSelectOverflowSafePortalHost(
         portalHostRef.current ?? resolveFieldSelectMenuPortal(),
       );
