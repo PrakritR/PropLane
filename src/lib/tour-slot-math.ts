@@ -148,6 +148,21 @@ export function slotStartMs(slot: string): number | null {
   return zonedWallTimeMs(year, month, day, slotIndex * 30);
 }
 
+/**
+ * Authoritative ISO window for a slotKey — Pacific wall time, 30 minutes.
+ * Tour creates MUST use this instead of a client-supplied proposedStart so a
+ * prospect's browser timezone cannot store a different time than the slot they
+ * picked (PRP-368).
+ */
+export function isoWindowFromSlotKey(slotKey: string): { start: string; end: string } | null {
+  const startMs = slotStartMs(slotKey);
+  if (startMs === null) return null;
+  return {
+    start: new Date(startMs).toISOString(),
+    end: new Date(startMs + 30 * 60 * 1000).toISOString(),
+  };
+}
+
 export function overlaps(slot: string, block: TourBlock): boolean {
   const startMs = slotStartMs(slot);
   if (startMs === null) return false;

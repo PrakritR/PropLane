@@ -478,9 +478,9 @@ export function CosignerApplyFlow({
       }
     >
       <div className="rental-wizard-step-header border-b border-border pb-4 sm:pb-6">
-        <p className="rental-wizard-step-eyebrow text-[10px] font-bold uppercase tracking-[0.18em] text-muted/70 sm:text-[11px]">
+        <h1 className="rental-wizard-step-eyebrow text-[10px] font-bold uppercase tracking-[0.18em] text-muted/70 sm:text-[11px]">
           {eyebrow}
-        </p>
+        </h1>
         <p className="rental-wizard-step-title mt-1 text-lg font-bold tracking-tight text-foreground sm:text-xl">
           {stepTitle}
         </p>

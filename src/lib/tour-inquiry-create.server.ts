@@ -31,7 +31,7 @@ import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings
 import { proposeTourConfirmation } from "@/lib/tour-proposal.server";
 import { createApproveTourRequestTask } from "@/lib/manager-default-tasks.server";
 import { normalizeTourContactPhone, validateTourContactFields } from "@/lib/tour-contact-quality";
-import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
+import { isActivePlannedTourEvent, isoWindowFromSlotKey } from "@/lib/tour-slot-math";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -75,16 +75,29 @@ export function requestedWindowsFromRow(row: Record<string, unknown>): Requested
       adminUserId: typeof window.adminUserId === "string" ? window.adminUserId : undefined,
       slotKey: typeof window.slotKey === "string" ? window.slotKey : undefined,
     }))
-    .filter((window) => window.start && window.end);
+    .filter((window) => (window.start && window.end) || Boolean(window.slotKey?.trim()));
   if (normalized.length > 0) return normalized;
-  return typeof row.proposedStart === "string" && typeof row.proposedEnd === "string"
-    ? [{
-      start: row.proposedStart,
-      end: row.proposedEnd,
-      adminUserId: typeof row.adminUserId === "string" ? row.adminUserId : undefined,
-      slotKey: typeof row.slotKey === "string" ? row.slotKey : undefined,
-    }]
-    : [];
+  if (typeof row.proposedStart === "string" && typeof row.proposedEnd === "string") {
+    return [
+      {
+        start: row.proposedStart,
+        end: row.proposedEnd,
+        adminUserId: typeof row.managerUserId === "string" ? row.managerUserId : undefined,
+        slotKey: typeof row.slotKey === "string" ? row.slotKey : undefined,
+      },
+    ];
+  }
+  if (typeof row.slotKey === "string" && row.slotKey.trim()) {
+    return [
+      {
+        start: "",
+        end: "",
+        adminUserId: typeof row.managerUserId === "string" ? row.managerUserId : undefined,
+        slotKey: row.slotKey,
+      },
+    ];
+  }
+  return [];
 }
 
 function payloadFromScheduleRecord(rowData: unknown): Record<string, unknown> | null {
@@ -201,9 +214,9 @@ export async function createTourInquiry(
         : new Date().toISOString(),
   };
   const propertyId = typeof row["propertyId"] === "string" ? row["propertyId"] : null;
-  const proposedStart = typeof row["proposedStart"] === "string" ? row["proposedStart"] : null;
-  const proposedEnd = typeof row["proposedEnd"] === "string" ? row["proposedEnd"] : null;
-  const requestedWindows = requestedWindowsFromRow(row);
+  let proposedStart = typeof row["proposedStart"] === "string" ? row["proposedStart"] : null;
+  let proposedEnd = typeof row["proposedEnd"] === "string" ? row["proposedEnd"] : null;
+  let requestedWindows = requestedWindowsFromRow(row);
   const isTour = textValue(row.kind) === "tour";
 
   if (isTour) {
@@ -221,6 +234,26 @@ export async function createTourInquiry(
       return { ok: false, reason: "invalid_contact", error: "Phone number must be 10 digits." };
     }
     row.phone = normalizedPhone;
+
+    // Pin every window's ISO start/end to the slotKey's Pacific wall clock. The
+    // public client builds proposedStart in the prospect's browser zone, which
+    // can disagree with the slot by hours — UI/email would then show the wrong
+    // time while blocking still held the correct half hour (PRP-368).
+    requestedWindows = requestedWindows.map((window) => {
+      const slotKey = textValue(window.slotKey);
+      if (!slotKey) return window;
+      const iso = isoWindowFromSlotKey(slotKey);
+      if (!iso) return window;
+      return { ...window, start: iso.start, end: iso.end, slotKey };
+    });
+    row.requestedWindows = requestedWindows;
+    if (requestedWindows[0]) {
+      proposedStart = requestedWindows[0].start;
+      proposedEnd = requestedWindows[0].end;
+      row.proposedStart = proposedStart;
+      row.proposedEnd = proposedEnd;
+      if (requestedWindows[0].slotKey) row.slotKey = requestedWindows[0].slotKey;
+    }
 
     for (const window of requestedWindows) {
       const managerUserId = textValue(row.managerUserId) || textValue(window.adminUserId);
