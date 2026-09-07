@@ -366,11 +366,48 @@ describe("POST /api/portal-lease-pipeline: signed documents are immutable server
         status: "Manager Review",
         bucket: "manager",
         fullySignedAt: null,
+        pendingRenewal: {
+          leaseTerm: "12 months",
+          leaseStart: "2026-10-01",
+          leaseEnd: "2027-09-30",
+          monthlyRent: 1200,
+          requestedAtIso: "2026-09-07T00:00:00.000Z",
+        },
+        signedLeaseSnapshots: [
+          {
+            id: "snap_prior",
+            label: "prior term",
+            fullySignedAt: "2026-09-01T00:00:00.000Z",
+            archivedAtIso: "2026-09-01T00:00:00.000Z",
+          },
+        ],
       }),
     });
 
     expect(res.status).toBe(200);
     expect(storedRowData().generatedHtml).toContain("RENEWAL");
+  });
+
+  it("refuses a Draft stub that clears an executed lease (PRP-385)", async () => {
+    const res = await post({
+      action: "upsert",
+      row: executedRow({
+        generatedHtml: null,
+        managerUploadedPdf: null,
+        residentSignature: null,
+        managerSignature: null,
+        signatureName: null,
+        signedAtIso: null,
+        fullySignedAt: null,
+        status: "Draft",
+        bucket: "manager",
+        notes: "Created from approved application.",
+      }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(storedRowData().generatedHtml).toBe(EXECUTED_HTML);
+    expect(storedRowData().fullySignedAt).toBeTruthy();
   });
 
   it("still accepts ordinary edits that leave the document alone", async () => {

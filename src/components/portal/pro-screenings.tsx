@@ -22,6 +22,7 @@ import {
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { ScreeningTestModeToggle } from "@/components/portal/screening-test-mode-toggle";
 import { InboxTwoPane } from "@/components/portal/portal-inbox-ui";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -47,7 +48,6 @@ import { loadManagerSubscriptionTierClient } from "@/lib/manager-subscription-cl
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import {
   isScreeningTestModeActive,
-  setScreeningTestModeActive,
   subscribeScreeningTestMode,
 } from "@/lib/screening/screening-test-mode";
 import {
@@ -489,36 +489,7 @@ export function ManagerScreenings({
           titleInlineFilter={filterSheet}
           titleAside={
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs shadow-sm">
-                <span className="font-medium text-foreground">Test mode</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={testMode}
-                  className={cn(
-                    "relative h-6 w-11 rounded-full transition",
-                    testMode ? "bg-amber-400" : "bg-muted",
-                  )}
-                  onClick={() => {
-                    const next = !testMode;
-                    setScreeningTestModeActive(next);
-                    showToast(
-                      next
-                        ? "Screening test mode on — simulated reports, no charges."
-                        : "Live screening mode — real Checkr orders.",
-                    );
-                    handleUpdated();
-                  }}
-                  data-attr="screening-test-mode-toggle"
-                >
-                  <span
-                    className={cn(
-                      "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition",
-                      testMode ? "left-[22px]" : "left-0.5",
-                    )}
-                  />
-                </button>
-              </div>
+              <ScreeningTestModeToggle active={testMode} onChanged={handleUpdated} />
               <label className="relative hidden sm:block">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
                 <input

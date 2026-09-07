@@ -1387,7 +1387,12 @@ input[type="date"].portal-modal-date-input::-webkit-date-and-time-value {
    higher specificity and wins in the native app, so this only ever governs web. */
 :root {
   --portal-native-bottom-nav-inset: max(2.75rem, calc(env(safe-area-inset-bottom, 0px) + 2rem));
-  --portal-mobile-scroll-bottom-inset: calc(var(--portal-native-bottom-nav-inset) + 0.75rem);
+  /* FAB (~2.75–3rem) + breathing room so the last Needs-attention CTA stays
+     clickable under Ask PropLane (PRP-377). Zeroed when the FAB is hidden. */
+  --portal-assistant-fab-clearance: 3.75rem;
+  --portal-mobile-scroll-bottom-inset: calc(
+    var(--portal-native-bottom-nav-inset) + 0.75rem + var(--portal-assistant-fab-clearance)
+  );
   /* How far a floating bottom element (bulk bar, FAB) sits ABOVE the tab bar.
      The nav inset is measured to the bar's exact height, so a small gap read as
      the two touching on a phone; this is the deliberate breathing room. */
@@ -2619,6 +2624,15 @@ html[data-communication-surface][data-communication-hide-assistant-fab] .portal-
 html[data-hide-assistant-fab],
 html[data-rental-wizard-active] {
   --portal-assistant-fab-clearance: 0px;
+}
+
+/* Desktop portal pages have no bottom nav, but the FAB still covers the
+   bottom-right — pad main so the last attention CTA stays clickable (PRP-377). */
+@media (min-width: 1024px) {
+  html:has(.portal-shell):not([data-hide-assistant-fab]):not([data-rental-wizard-active]) #portal-main-content {
+    padding-bottom: calc(var(--portal-assistant-fab-clearance) + 1.25rem);
+    scroll-padding-bottom: calc(var(--portal-assistant-fab-clearance) + 1.25rem);
+  }
 }
 
 html[data-communication-surface] {

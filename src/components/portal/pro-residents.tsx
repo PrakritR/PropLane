@@ -442,6 +442,7 @@ export function ManagerResidents({
   const [welcomePreviewFor, setWelcomePreviewFor] = useState<ActiveResident | null>(null);
   const [welcomePreviewContent, setWelcomePreviewContent] = useState("");
   const [approvePreviewRow, setApprovePreviewRow] = useState<DemoApplicantRow | null>(null);
+  const [approveError, setApproveError] = useState<string | null>(null);
   const [checkrScreeningRowId, setCheckrScreeningRowId] = useState<string | null>(null);
   const [holdingFeeRowId, setHoldingFeeRowId] = useState<string | null>(null);
   const [checkrScreeningShowPicker, setCheckrScreeningShowPicker] = useState(false);
@@ -2022,12 +2023,12 @@ export function ManagerResidents({
       // from this surface.
       automation: applicationAutomation.forProperty(propertyId),
     });
-    if (!result) return;
+    if (!result) return null;
     setHcTick((n) => n + 1);
     setLeaseTick((n) => n + 1);
     if (result.blocked) {
       showToast(result.message ?? "That change could not be saved.");
-      return;
+      return result;
     }
     const msg =
       nextBucket === "approved"
@@ -2040,6 +2041,7 @@ export function ManagerResidents({
           ? "Application rejected."
           : "Moved to pending.";
     showToast(msg);
+    return result;
   };
 
   const deleteApplicationForRow = async (row: DemoApplicantRow) => {
@@ -4773,7 +4775,11 @@ export function ManagerResidents({
       <PortalNotificationPreviewModal
         open={approvePreviewRow !== null}
         title="Approve application: account setup email"
-        onClose={() => setApprovePreviewRow(null)}
+        onClose={() => {
+          if (approveBusyId) return;
+          setApprovePreviewRow(null);
+          setApproveError(null);
+        }}
         recipient={approvePreviewRow?.email ?? ""}
         subject={RESIDENT_WELCOME_EMAIL_SUBJECT}
         body={
@@ -4790,6 +4796,8 @@ export function ManagerResidents({
             ? `Approving ${approvePreviewRow.name || approvePreviewRow.email} will update their application status and can send their PropLane resident account setup email.`
             : undefined
         }
+        warning={approveError ?? undefined}
+        warningLead={approveError ? "Could not approve." : null}
         hideSendViaFooterNote
         showWorkNumberHint={false}
         confirmLabel="Approve & send setup email"
@@ -4799,11 +4807,17 @@ export function ManagerResidents({
         onConfirm={(skipMessage) => {
           if (!approvePreviewRow) return;
           const row = approvePreviewRow;
-          setApprovePreviewRow(null);
+          setApproveError(null);
           setApproveBusyId(row.id);
-          void setApplicationBucket(row.id, "approved", { skipWelcomeEmail: skipMessage }).finally(() =>
-            setApproveBusyId(null),
-          );
+          void setApplicationBucket(row.id, "approved", { skipWelcomeEmail: skipMessage }).then((result) => {
+            setApproveBusyId(null);
+            if (!result || result.blocked) {
+              setApproveError(result?.message ?? "Approval could not be saved. Refresh and retry.");
+              return;
+            }
+            setApprovePreviewRow(null);
+            setApproveError(null);
+          });
         }}
       />
 
