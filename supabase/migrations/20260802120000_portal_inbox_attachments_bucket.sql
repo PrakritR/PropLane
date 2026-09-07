@@ -9,8 +9,14 @@ values (
   'portal-inbox-attachments',
   'portal-inbox-attachments',
   false,
-  5242880, -- 5 MB — matches MAX_BYTES in the upload route
-  array['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+  -- 10 MB and application/pdf, because THIS ROW is the real gate: the bucket's own
+  -- limits refuse an upload the route would have accepted, and the statement below
+  -- re-applies them on every replay (`db push --include-all`). Left at the old
+  -- image-only 5 MB, a replay silently un-ships PDF attachments — which is exactly
+  -- how production came to reject them. Keep in step with `MAX_PDF_BYTES` and
+  -- `ALLOWED_MIME` in src/lib/inbox-attachments*.
+  10485760,
+  array['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf']
 )
 on conflict (id) do update
   set public = excluded.public,
