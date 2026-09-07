@@ -171,8 +171,10 @@ export function meetingCalendarGridLabel(meeting: DemoMeeting): string {
 }
 
 /**
- * Every Google event becomes a meeting the manager's calendar DRAWS — including
- * ones marked Free or declined, which they still want to see.
+ * Every Google event that blocks or is a PropLane tour/service becomes a meeting
+ * the manager's calendar can draw. Free, declined, and informational Google
+ * rows still exist in the list for future detail surfaces, but they no longer
+ * paint grey "Blocked" cells — see {@link meetingPaintsCalendarGrid}.
  *
  * What varies is `blocksTourAvailability`, carried from the SAME
  * {@link googleEventBlocksTours} predicate the public booking route uses. Only

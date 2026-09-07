@@ -491,6 +491,17 @@ export function meetingConsumesTourSlot(meeting: DemoMeeting): boolean {
   return meeting.blocksTourAvailability !== false;
 }
 
+/**
+ * Whether a meeting paints a grid cell. Personal Google blocks that do not
+ * consume tour capacity (Free, declined, working location, birthdays) must not
+ * render as grey "Blocked" — that was the linked-calendar "everything blocked"
+ * regression while day headers still read "0 EVENTS".
+ */
+export function meetingPaintsCalendarGrid(meeting: DemoMeeting): boolean {
+  if (!isGoogleCalendarPrivateBlock(meeting)) return true;
+  return meetingConsumesTourSlot(meeting);
+}
+
 function shiftDateStr(dateStr: string, days: number): string {
   const [year, month, day] = dateStr.split("-").map(Number);
   if (!year || !month || !day) return dateStr;
@@ -1562,6 +1573,7 @@ export function PortalCalendarPanels({
   const meetingBySlotKey = useMemo(() => {
     const map = new Map<string, DemoMeeting>();
     for (const meeting of meetings) {
+      if (!meetingPaintsCalendarGrid(meeting)) continue;
       for (const key of meetingOccupiedSlotKeys(meeting)) {
         const current = map.get(key);
         if (current && calendarCellPriority(current) < calendarCellPriority(meeting)) continue;
@@ -1572,9 +1584,8 @@ export function PortalCalendarPanels({
   }, [meetings]);
 
   /**
-   * The half hours that are genuinely TAKEN — the grid still draws every
-   * meeting, but a Google event the manager marked Free or declined is not
-   * capacity they have lost, and the public booking page goes on offering it.
+   * The half hours that are genuinely TAKEN — non-blocking Google entries are
+   * neither painted nor counted, and the public booking page goes on offering them.
    */
   const takenSlotKeys = useMemo(() => {
     const keys = new Set<string>();
