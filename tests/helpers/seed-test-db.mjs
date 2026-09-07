@@ -1034,6 +1034,7 @@ try {
     detail,
     furnishing: extras.furnishing ?? "Fully furnished",
     roomAmenitiesText: extras.roomAmenitiesText ?? "Closet\nHeating\nAC",
+    ...(extras.occupancyCapacity ? { occupancyCapacity: extras.occupancyCapacity } : {}),
   });
 
   function buildManagerScalePortfolioProperty(index, ownerUserId) {
@@ -1106,7 +1107,10 @@ try {
       ownerUserId: managerUserId,
       rooms: [
         room(1, "2nd floor", 1050, "Bright room with city view.", { name: "Unit 2A" }),
-        room(2, "3rd floor", 1100, "Corner room with extra closet.", { name: "Unit 3C" }),
+        // Two beds: Casey Cosigner Host is approved here and Ethan Wright is the pending
+        // applicant a demo approves into it; one bed would have the capacity trigger
+        // refuse that approval (PRP-372).
+        room(2, "3rd floor", 1100, "Corner room with extra closet.", { name: "Unit 3C", occupancyCapacity: 2 }),
         room(3, "4th floor", 1150, "Quiet top-floor room.", { name: "Unit 4B" }),
         room(4, "4th floor", 1125, "Compact room near shared bath.", { name: "Unit 4A" }),
         room(5, "5th floor", 1200, "Penthouse room with deck access.", { name: "Unit 5D" }),
