@@ -621,28 +621,44 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   // below still explains it.
   const managerRentOverrideLabel = overrideFeeLabel(a.managerRentOverride, "");
   const rentIsManagerOverride = Boolean(managerRentOverrideLabel);
-  const listingMonthlyRentNum =
-    !isDailyBasis && stay.basis === "monthly" && !rentIsManagerOverride && !bundleRentLabel
-      ? entireHomeRent > 0
-        ? entireHomeRent
-        : stay.source === "room"
-          ? stay.monthlyRate
-          : undefined
-      : undefined;
+  const monthlyListingRent = !isDailyBasis && stay.basis === "monthly" && !rentIsManagerOverride && !bundleRentLabel;
+  // The room's BARE listing rent — what the fold-in and the surcharge are added to.
+  const roomBareRent = monthlyListingRent
+    ? entireHomeRent > 0
+      ? entireHomeRent
+      : (parseAmount(String(specificRoom?.monthlyRent ?? "")) ?? 0) > 0
+        ? (parseAmount(String(specificRoom?.monthlyRent ?? "")) as number)
+        : undefined
+    : undefined;
   const rentShortLeaseSurcharge =
-    !isDailyBasis && stay.basis === "monthly" && !rentIsManagerOverride && !wholeHome && !bundleRentLabel
+    monthlyListingRent && !wholeHome
       ? tenancyPaysShortLeaseSurcharge(specificRoom, a)
         ? roomShortLeaseSurcharge(specificRoom)
         : 0
       : 0;
+  const listingQuotedRentNum =
+    roomBareRent !== undefined
+      ? Number((roomBareRent + rentShortLeaseSurcharge + foldedIntoRentTotal).toFixed(2))
+      : undefined;
   const listingQuotedRentLabel =
-    listingMonthlyRentNum !== undefined && listingMonthlyRentNum > 0
-      ? `$${(listingMonthlyRentNum + foldedIntoRentTotal).toFixed(2)} / month`
-      : "";
+    listingQuotedRentNum !== undefined && listingQuotedRentNum > 0 ? `$${listingQuotedRentNum.toFixed(2)} / month` : "";
+  // A signed-rent label on a lease that is still being prepared is DERIVED from the
+  // application, and it has been seen carrying the bare room rent while the ledger already
+  // billed the folded figure. When it says exactly the bare rent and this tenancy adds a
+  // surcharge or folded fees on top, it is that stale derivation, not a negotiated rent:
+  // quote the listing figure the ledger bills instead. A genuinely negotiated rent is a
+  // manager override, which wins above and is never touched here.
+  const signedRentLabelNum = parseAmount(signedRentLabel ?? "");
+  const signedRentLabelIsStaleDerivation =
+    monthlyListingRent &&
+    roomBareRent !== undefined &&
+    signedRentLabelNum != null &&
+    Math.abs(signedRentLabelNum - roomBareRent) < 0.005 &&
+    rentShortLeaseSurcharge + foldedIntoRentTotal > 0;
   const monthlyRentBaseStr =
     (isDailyBasis ? `${fmtUsd(dailyBasisRate!)} / day` : "") ||
       managerRentOverrideLabel ||
-      signedRentLabel ||
+      (signedRentLabelIsStaleDerivation ? "" : signedRentLabel) ||
       bundleRentLabel ||
       listingQuotedRentLabel ||
       (entireHomeRent > 0 ? `$${entireHomeRent.toFixed(2)} / month` : "") ||
@@ -660,8 +676,14 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   ];
   const quotedMonthlyRentNum = parseAmount(monthlyRentBaseStr);
   const rentCompositionTotal = rentCompositionParts.reduce((sum, part) => sum + part.amount, 0);
+  // The clause explains the quoted rent as base + parts, so it renders ONLY when the quoted
+  // figure IS base + parts. A rent that came from anywhere else (a signed figure, a bundle)
+  // gets no explanation rather than an invented base that makes the arithmetic work.
   const rentCompositionBase =
-    quotedMonthlyRentNum != null ? Number((quotedMonthlyRentNum - rentCompositionTotal).toFixed(2)) : null;
+    quotedMonthlyRentNum != null && roomBareRent !== undefined &&
+    Math.abs(quotedMonthlyRentNum - (roomBareRent + rentCompositionTotal)) < 0.01
+      ? roomBareRent
+      : null;
   const rentCompositionHtml =
     !isDailyBasis && rentCompositionParts.length > 0 && quotedMonthlyRentNum != null && rentCompositionBase != null && rentCompositionBase > 0
       ? `<p class="rent-composition" data-rent-composition="true">Monthly rent of <strong>${escapeHtml(fmtUsd(quotedMonthlyRentNum))}</strong> is made up of <strong>${escapeHtml(fmtUsd(rentCompositionBase))}</strong> base rent plus ${rentCompositionParts
