@@ -36,10 +36,7 @@ import {
   createPortalRowExpandClick,
 } from "@/components/portal/portal-data-table";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
-import {
-  ReminderSettingsModal,
-  useScheduledPaymentMessages,
-} from "@/components/portal/payment-schedule-ui";
+import { useScheduledPaymentMessages } from "@/components/portal/payment-schedule-ui";
 import { formatFriendlyReminderSchedule } from "@/lib/payment-reminder-presets";
 import { togglePortalListClusterSelection } from "@/components/portal/application-household-list";
 import { PortalFormSingleSelect } from "@/components/portal/filter-field-lists";
@@ -365,7 +362,6 @@ export function ManagerResidents({
     messages: scheduledPaymentMessages,
     settings: residentReminderSettings,
     reload: reloadResidentPaymentSchedule,
-    setSettings: setResidentReminderSettings,
   } = useScheduledPaymentMessages({ includeHidden: true });
   const residentReminderScheduleSummary = useMemo(
     () => (residentReminderSettings ? formatFriendlyReminderSchedule(residentReminderSettings) : undefined),
@@ -382,7 +378,6 @@ export function ManagerResidents({
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(RESIDENT_LIST_DEFAULT_GROUP_MODE);
   const residentsTab = parseResidentsTab(tabIdProp);
   const [chargeBucket, setChargeBucket] = useState<ManagerPaymentBucket>("pending");
-  const [residentReminderSettingsOpen, setResidentReminderSettingsOpen] = useState(false);
   const [residentPaymentSettingsOpen, setResidentPaymentSettingsOpen] = useState(false);
   const [prevSelectedId, setPrevSelectedId] = useState<string | null>(null);
   const [residentAccountEmails, setResidentAccountEmails] = useState<Set<string>>(new Set());
@@ -3184,7 +3179,7 @@ export function ManagerResidents({
                                   activeBucket={chargeBucket}
                                   scheduledMessages={scheduledPaymentMessages}
                                   reminderScheduleSummary={residentReminderScheduleSummary}
-                                  onOpenReminderSettings={() => setResidentReminderSettingsOpen(true)}
+                                  onOpenReminderSettings={() => setResidentPaymentSettingsOpen(true)}
                                   onScheduleChanged={() => void reloadResidentPaymentSchedule()}
                                   onRowsChanged={() => {
                                     setHcTick((n) => n + 1);
@@ -3618,16 +3613,6 @@ export function ManagerResidents({
 
       </ManagerPortalPageShell>
       )}
-      <ReminderSettingsModal
-        open={residentReminderSettingsOpen}
-        onClose={() => setResidentReminderSettingsOpen(false)}
-        settings={residentReminderSettings}
-        onSaved={(next) => {
-          setResidentReminderSettings(next);
-          void reloadResidentPaymentSchedule();
-          setResidentReminderSettingsOpen(false);
-        }}
-      />
       <ManagerAddPaymentModal
         open={addResidentPaymentOpen}
         onClose={() => setAddResidentPaymentOpen(false)}

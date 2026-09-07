@@ -64,7 +64,7 @@ export async function PATCH(req: Request) {
     // constraint here, see AGENTS.md).
     const storedSettings =
       normalized.serviceFeePayer === "proplane"
-        ? await loadManagerManualPaymentSettings(ctx.db, ctx.userId).catch(() => null)
+        ? await loadManagerManualPaymentSettings(ctx.db, ctx.userId)
         : null;
     if (
       normalized.serviceFeePayer === "proplane" &&

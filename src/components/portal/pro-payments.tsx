@@ -50,10 +50,7 @@ import { applicationVisibleToPortalUser, buildManagerPropertyFilterOptions, coll
 import { ledgerRoomNumberForApplication } from "@/lib/rental-application/data";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { scopeChargesToManagerPaymentsLedger } from "@/lib/manager-payments-scope";
-import {
-  ReminderSettingsModal,
-  useScheduledPaymentMessages,
-} from "@/components/portal/payment-schedule-ui";
+import { useScheduledPaymentMessages } from "@/components/portal/payment-schedule-ui";
 import { formatFriendlyReminderSchedule } from "@/lib/payment-reminder-presets";
 import {
   buildManagerOutgoingPaymentRows,
@@ -270,7 +267,6 @@ export function ManagerPayments({
   const [residentFilters, setResidentFilters] = useState<string[]>([]);
   const [applicationTick, setApplicationTick] = useState(0);
   const [propertyTick, setPropertyTick] = useState(0);
-  const [reminderSettingsOpen, setReminderSettingsOpen] = useState(false);
   const [paymentSettingsOpen, setPaymentSettingsOpen] = useState(false);
   const [paymentSetupOpen, setPaymentSetupOpen] = useState(false);
   const [paymentsFilterOpen, setPaymentsFilterOpen] = useState(false);
@@ -287,7 +283,7 @@ export function ManagerPayments({
     direction === "incoming" ? setIncomingGroupMode : setOutgoingGroupMode;
   // Per-payment reminder lists show the full saved default schedule, so bypass
   // the Inbox schedule-visibility window (which only gates Inbox → Schedule).
-  const { messages: scheduledMessages, settings: reminderSettings, reload: reloadSchedule, setSettings: setReminderSettings } = useScheduledPaymentMessages({ includeHidden: true });
+  const { messages: scheduledMessages, settings: reminderSettings, reload: reloadSchedule } = useScheduledPaymentMessages({ includeHidden: true });
   const reminderScheduleSummary = useMemo(
     () => (reminderSettings ? formatFriendlyReminderSchedule(reminderSettings) : undefined),
     [reminderSettings],
@@ -793,7 +789,7 @@ export function ManagerPayments({
         activeBucket={bucket}
         scheduledMessages={scheduledMessages}
         reminderScheduleSummary={reminderScheduleSummary}
-        onOpenReminderSettings={() => setReminderSettingsOpen(true)}
+        onOpenReminderSettings={() => setPaymentSettingsOpen(true)}
         onScheduleChanged={() => void reloadSchedule()}
         onRowsChanged={() => setHcTick((n) => n + 1)}
         paymentId={paymentId}
@@ -821,16 +817,6 @@ export function ManagerPayments({
 
   const paymentsModals = (
     <>
-      <ReminderSettingsModal
-        open={reminderSettingsOpen}
-        onClose={() => setReminderSettingsOpen(false)}
-        settings={reminderSettings}
-        onSaved={(next) => {
-          setReminderSettings(next);
-          void reloadSchedule();
-          setReminderSettingsOpen(false);
-        }}
-      />
       <ManagerPortalSettingsModal
         open={paymentSettingsOpen}
         onClose={() => setPaymentSettingsOpen(false)}
