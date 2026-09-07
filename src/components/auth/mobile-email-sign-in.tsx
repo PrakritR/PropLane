@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { resolveFormCredentials } from "@/lib/auth/form-credentials";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 
 const LOGIN_TIMEOUT_MS = 6000;
@@ -33,6 +34,11 @@ async function tryResidentAutoConfirm(email: string): Promise<boolean> {
   }
 }
 
+/**
+ * Compact email/password sign-in. Currently unused by `/auth/sign-in` (that
+ * route is {@link NativeAuthHub}), but any credential form must survive iOS
+ * Password AutoFill the same way — see PRP-420 / Guideline 2.1(a).
+ */
 export function MobileEmailSignIn({
   nextPath,
   disabled = false,
@@ -40,22 +46,42 @@ export function MobileEmailSignIn({
   nextPath: string;
   disabled?: boolean;
 }) {
+  const formRef = useRef<HTMLFormElement | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
 
+  const credentialsFromDom = () => {
+    const form = formRef.current;
+    const domEmail = (form?.elements.namedItem("email") as HTMLInputElement | null)?.value ?? "";
+    const domPassword =
+      (form?.elements.namedItem("password") as HTMLInputElement | null)?.value ?? "";
+    return resolveFormCredentials({
+      domEmail,
+      domPassword,
+      stateEmail: email,
+      statePassword: password,
+    });
+  };
+
   const signIn = async () => {
-    if (!email.trim() || !password) {
+    const credentials = credentialsFromDom();
+    if (!credentials.email || !credentials.password) {
       setErrorText("Enter email and password.");
       return;
     }
+    if (credentials.email !== email.trim()) setEmail(credentials.email);
+    if (credentials.password !== password) setPassword(credentials.password);
     setErrorText(null);
     setBusy(true);
     try {
       const supabase = createSupabaseBrowserClient();
       let authResult = (await Promise.race([
-        supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password }),
+        supabase.auth.signInWithPassword({
+          email: normalizeAuthEmail(credentials.email),
+          password: credentials.password,
+        }),
         new Promise<never>((_, reject) =>
           window.setTimeout(() => reject(new Error("Login timed out. Check your connection.")), LOGIN_TIMEOUT_MS),
         ),
@@ -63,9 +89,12 @@ export function MobileEmailSignIn({
 
       let { data, error } = authResult;
       if (error?.message.toLowerCase().includes("email not confirmed")) {
-        const repaired = await tryResidentAutoConfirm(email);
+        const repaired = await tryResidentAutoConfirm(credentials.email);
         if (repaired) {
-          authResult = (await supabase.auth.signInWithPassword({ email: normalizeAuthEmail(email), password })) as SignInResult;
+          authResult = (await supabase.auth.signInWithPassword({
+            email: normalizeAuthEmail(credentials.email),
+            password: credentials.password,
+          })) as SignInResult;
           data = authResult.data;
           error = authResult.error;
         }
@@ -88,9 +117,17 @@ export function MobileEmailSignIn({
   const locked = disabled || busy;
 
   return (
-    <div className="space-y-3">
+    <form
+      ref={formRef}
+      className="space-y-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void signIn();
+      }}
+    >
       <Input
         id="mobile-sign-in-email"
+        name="email"
         type="email"
         autoComplete="email"
         // iOS/macOS autocapitalise the first letter by default, which used to
@@ -105,22 +142,15 @@ export function MobileEmailSignIn({
       />
       <PasswordInput
         id="mobile-sign-in-pw"
+        name="password"
         autoComplete="current-password"
         placeholder="Password"
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         disabled={locked}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") void signIn();
-        }}
       />
       {errorText ? <p className="text-center text-xs text-rose-600">{errorText}</p> : null}
-      <Button
-        type="button"
-        className="w-full rounded-full py-2.5 text-[15px] font-semibold"
-        disabled={locked}
-        onClick={() => signIn()}
-      >
+      <Button type="submit" className="w-full rounded-full py-2.5 text-[15px] font-semibold" disabled={locked}>
         {busy ? "Signing in…" : "Sign in"}
       </Button>
       <p className="text-center text-[12px] text-muted">
@@ -128,6 +158,6 @@ export function MobileEmailSignIn({
           Forgot password?
         </Link>
       </p>
-    </div>
+    </form>
   );
 }
