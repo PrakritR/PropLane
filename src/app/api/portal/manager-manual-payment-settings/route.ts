@@ -9,6 +9,8 @@ import {
   saveManagerManualPaymentSettings,
 } from "@/lib/manager-manual-payment-settings";
 import { applyManagerManualPaymentsToListings } from "@/lib/manager-manual-payment-settings.server";
+import { getManagerPurchaseSku } from "@/lib/manager-access-server";
+import { waiverGrantedFromPromoCode } from "@/lib/payment-policy";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -66,12 +68,15 @@ export async function PATCH(req: Request) {
       normalized.serviceFeePayer === "proplane"
         ? await loadManagerManualPaymentSettings(ctx.db, ctx.userId)
         : null;
+    const purchase = await getManagerPurchaseSku(ctx.userId).catch(() => null);
+    const accountWaiverGranted = waiverGrantedFromPromoCode(purchase?.promoCode ?? null);
     if (
       normalized.serviceFeePayer === "proplane" &&
-      resolveSavedServiceFeeSelection(normalized, storedSettings).serviceFeePayer !== "proplane"
+      resolveSavedServiceFeeSelection(normalized, storedSettings, accountWaiverGranted).serviceFeePayer !==
+        "proplane"
     ) {
       return NextResponse.json(
-        { error: "Enter your PropLane promo code to have PropLane cover the processing fee." },
+        { error: "Enter the processing fee waiver code PropLane gave you." },
         { status: 400 },
       );
     }

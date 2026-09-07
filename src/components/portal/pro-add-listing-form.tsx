@@ -67,8 +67,8 @@ import {
 } from "@/lib/manager-access";
 import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
 import {
-  LISTING_PAYMENT_WAIVER_CODE,
   LISTING_PROCESSING_FEE_WAIVER_CODE_HELP,
+  listingProplaneAbsorbNeedsWaiverCode,
   listingServiceFeePayerUiValue,
   managerCanSelectManagerAbsorbServiceFee,
   normalizeListingPaymentWaiverCode,
@@ -1456,8 +1456,11 @@ export function ManagerAddListingForm({
     managerSkuTier,
     paymentWaiverGranted,
   );
-  const showProcessingFeeWaiveCode =
-    serviceFeePayerUi === "proplane" && !paymentWaiverGranted;
+  const showProcessingFeeWaiveCode = listingProplaneAbsorbNeedsWaiverCode(
+    managerSkuTier,
+    sub.serviceFeePayer,
+    paymentWaiverGranted,
+  );
 
   useEffect(() => {
     if (isDemoModeActive()) return;
@@ -2748,8 +2751,10 @@ export function ManagerAddListingForm({
       ...bath,
       name: bath.name.trim() || emptyBathroom(i).name,
     }));
-    return normalizeManagerListingSubmissionV1(submission);
-  }, [sub, serviceOffers]);
+    return normalizeManagerListingSubmissionV1(submission, {
+      accountPaymentWaiverGranted: paymentWaiverGranted,
+    });
+  }, [sub, serviceOffers, paymentWaiverGranted]);
 
   const persistEditListing = useCallback(
     async (opts?: { advanceOnSuccess?: boolean; closeAfter?: boolean; silent?: boolean }): Promise<boolean> => {
@@ -4446,7 +4451,7 @@ export function ManagerAddListingForm({
                           serviceFeeWaiverCode:
                             next === "proplane"
                               ? paymentWaiverGranted
-                                ? LISTING_PAYMENT_WAIVER_CODE
+                                ? undefined
                                 : s.serviceFeeWaiverCode
                               : undefined,
                         }));

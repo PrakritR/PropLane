@@ -13,7 +13,6 @@ import {
 } from "@/lib/manager-manual-payment-settings";
 import { normalizeManagerSkuTier, type ManagerSkuTier } from "@/lib/manager-access";
 import {
-  LISTING_PAYMENT_WAIVER_CODE,
   LISTING_PROCESSING_FEE_WAIVER_CODE_HELP,
   LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
   listingPaymentWaiverCodeMatches,
@@ -355,7 +354,6 @@ export function ManagerPaymentSetupModal({
         try {
           await persistSettings({
             serviceFeePayer: "proplane",
-            serviceFeeWaiverCode: LISTING_PAYMENT_WAIVER_CODE,
           });
         } finally {
           setSavingFeePayer(false);

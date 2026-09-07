@@ -51,7 +51,7 @@ describe("listing service fee payer UI helpers", () => {
     });
     expect(persistListingServiceFeePayer("proplane", "", true)).toEqual({
       serviceFeePayer: "proplane",
-      serviceFeeWaiverCode: "FREE100",
+      serviceFeeWaiverCode: undefined,
     });
     expect(persistListingServiceFeePayer(null, "FREE100")).toEqual({
       serviceFeePayer: null,

@@ -1148,7 +1148,14 @@ export function applyEntireHomeMonthlyRent(
 }
 
 /** Coerces older saved submissions into the current v1 shape (preserves listing data where possible). */
-export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissionV1): ManagerListingSubmissionV1 {
+export type NormalizeManagerListingSubmissionOptions = {
+  accountPaymentWaiverGranted?: boolean;
+};
+
+export function normalizeManagerListingSubmissionV1(
+  sub: ManagerListingSubmissionV1,
+  opts: NormalizeManagerListingSubmissionOptions = {},
+): ManagerListingSubmissionV1 {
   const legacy = sub as ManagerListingSubmissionV1 & LegacyListingSubmissionFields;
   const fallbackUtil = legacy.utilitiesMonthly?.trim() ?? "";
 
@@ -1786,7 +1793,11 @@ export function normalizeManagerListingSubmissionV1(sub: ManagerListingSubmissio
     // Null, not a default payer: absence means this property follows the manager's account
     // setting, so an untouched property keeps tracking it rather than pinning today's value.
     ...(() => {
-      const persisted = persistListingServiceFeePayer(sub.serviceFeePayer, sub.serviceFeeWaiverCode);
+      const persisted = persistListingServiceFeePayer(
+        sub.serviceFeePayer,
+        sub.serviceFeeWaiverCode,
+        opts.accountPaymentWaiverGranted === true,
+      );
       return {
         serviceFeePayer: persisted.serviceFeePayer,
         serviceFeeWaiverCode: persisted.serviceFeeWaiverCode,
