@@ -67,11 +67,11 @@ import {
 } from "@/lib/manager-access";
 import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
 import {
-  LISTING_PROCESSING_FEE_WAIVER_CODE_HELP,
-  listingProplaneAbsorbNeedsWaiverCode,
+  LISTING_PROCESSING_FEE_PAYER_HELP,
+  SERVICE_FEE_PAYER_OPTION_LABELS,
   listingServiceFeePayerUiValue,
   managerCanSelectManagerAbsorbServiceFee,
-  normalizeListingPaymentWaiverCode,
+  managerCanSelectProplaneServiceFee,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
 import {
@@ -1462,14 +1462,13 @@ export function ManagerAddListingForm({
   );
   const managerSkuTier = normalizeManagerSkuTier(skuTier) ?? "free";
   const canSelectManagerAbsorbFee = managerCanSelectManagerAbsorbServiceFee(managerSkuTier);
-  const serviceFeePayerUi = listingServiceFeePayerUiValue(
-    sub.serviceFeePayer,
+  const canSelectProplaneAbsorbFee = managerCanSelectProplaneServiceFee(
     managerSkuTier,
     paymentWaiverGranted === true,
   );
-  const showProcessingFeeWaiveCode = listingProplaneAbsorbNeedsWaiverCode(
-    managerSkuTier,
+  const serviceFeePayerUi = listingServiceFeePayerUiValue(
     sub.serviceFeePayer,
+    managerSkuTier,
     paymentWaiverGranted === true,
   );
 
@@ -4604,55 +4603,36 @@ export function ManagerAddListingForm({
                         const next: ServiceFeePayer =
                           raw === "proplane" || raw === "manager" || raw === "resident" ? raw : "resident";
                         if (next === "manager" && !canSelectManagerAbsorbFee) return;
+                        if (next === "proplane" && !canSelectProplaneAbsorbFee) return;
                         setSub((s) => ({
                           ...s,
                           serviceFeePayer: next,
-                          serviceFeeWaiverCode:
-                            next === "proplane"
-                              ? paymentWaiverGranted === true
-                                ? undefined
-                                : s.serviceFeeWaiverCode
-                              : undefined,
+                          // Listing wizard never collects FREE100 — grants live on the account
+                          // (Payment setup) or paid-plan entitlement (PRP-421).
+                          serviceFeeWaiverCode: undefined,
                         }));
                       }}
+                      aria-invalid={Boolean(stepFieldErrors.serviceFeePayer)}
+                      aria-describedby="listing-processing-fee-payer-help"
+                      data-attr="listing-service-fee-payer"
                     >
-                      <option value="resident">Resident pays</option>
+                      <option value="resident">{SERVICE_FEE_PAYER_OPTION_LABELS.resident}</option>
                       <option value="manager" disabled={!canSelectManagerAbsorbFee}>
-                        Manager pays{canSelectManagerAbsorbFee ? "" : " (needs paid plan)"}
+                        {SERVICE_FEE_PAYER_OPTION_LABELS.manager}
+                        {canSelectManagerAbsorbFee ? "" : " — needs paid plan"}
                       </option>
-                      <option value="proplane">PropLane absorbs</option>
+                      <option value="proplane" disabled={!canSelectProplaneAbsorbFee}>
+                        {SERVICE_FEE_PAYER_OPTION_LABELS.proplane}
+                        {canSelectProplaneAbsorbFee ? "" : " — needs paid plan or PropLane waiver"}
+                      </option>
                     </Select>
+                    <p id="listing-processing-fee-payer-help" className="mt-1 text-xs text-muted">
+                      {LISTING_PROCESSING_FEE_PAYER_HELP}
+                    </p>
+                    {stepFieldErrors.serviceFeePayer ? (
+                      <p className="text-xs text-destructive">{stepFieldErrors.serviceFeePayer}</p>
+                    ) : null}
                   </GridField>
-                  {showProcessingFeeWaiveCode ? (
-                    <div className="space-y-2 sm:col-span-2">
-                      <FieldLabel>Processing fee waiver code</FieldLabel>
-                      <Input
-                        value={sub.serviceFeeWaiverCode ?? ""}
-                        onChange={(e) =>
-                          setSub((s) => ({
-                            ...s,
-                            serviceFeePayer: "proplane",
-                            serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value),
-                          }))
-                        }
-                        placeholder="Enter your waiver code"
-                        aria-label="Processing fee waiver code"
-                        autoComplete="off"
-                        data-attr="listing-service-fee-waiver-code"
-                        className="w-full font-mono uppercase sm:max-w-xs"
-                        aria-invalid={Boolean(stepFieldErrors.serviceFeeWaiverCode)}
-                        aria-describedby={
-                          stepFieldErrors.serviceFeeWaiverCode ? "listing-service-fee-waiver-error" : undefined
-                        }
-                      />
-                      <p className="text-xs text-muted">{LISTING_PROCESSING_FEE_WAIVER_CODE_HELP}</p>
-                      {stepFieldErrors.serviceFeeWaiverCode ? (
-                        <p id="listing-service-fee-waiver-error" className="text-xs text-destructive">
-                          {stepFieldErrors.serviceFeeWaiverCode}
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
                   <GridField>
                     <FieldLabel>Late fee grace (days)</FieldLabel>
                     <Input
