@@ -8,6 +8,7 @@ import { AssistantDockPanel } from "@/components/portal/assistant-dock-panel";
 import { AxisAssistantSparkleIcon } from "@/components/portal/assistant-shared";
 import { AssistantConversationProvider } from "@/lib/axis-assistant/assistant-conversation-context";
 import { modalAssistantStorageScope } from "@/lib/axis-assistant/assistant-chat-storage";
+import { closeAxisAssistant } from "@/lib/axis-assistant/open-store";
 import { usePortalAssistantConfig } from "@/lib/axis-assistant/portal-assistant-context";
 import { cn } from "@/lib/utils";
 import { useVisualViewportBottomInset } from "@/hooks/use-visual-viewport-bottom-inset";
@@ -107,6 +108,12 @@ export function ModalAssistantStrip({
     const dialog = railTarget?.matches('[role="dialog"]') ? railTarget : null;
     dialog?.setAttribute("data-modal-assistant-open", "");
     openModalAssistants += 1;
+    // One assistant presentation at a time. The FAB hides on this attribute
+    // (`shouldHideAssistantFab`), and an already-open popup sits below the
+    // dialog's z-index and outside its focus boundary, so it must close rather
+    // than compete with the task rail — on every viewport, and especially on
+    // phones where the popup and this rail would otherwise stack full-width.
+    closeAxisAssistant();
     document.documentElement.setAttribute("data-modal-assistant-active", "");
     return () => {
       dialog?.removeAttribute("data-modal-assistant-open");
@@ -148,6 +155,7 @@ export function ModalAssistantStrip({
         contextHint={contextHint}
         pinnedComposer
         onCollapse={() => toggle(false)}
+        collapseVariant="close"
         composerHint={editHint?.trim()}
         className="min-h-0 flex-1"
       />

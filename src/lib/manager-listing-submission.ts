@@ -372,9 +372,24 @@ export type ManagerListingSubmissionV1 = {
   /** Rentable bedroom slots — synced to `rooms.length` when leaving the home step. */
   listingBedroomSlots?: number;
   tagline: string;
+  /**
+   * Marketing / ad titles for this home (Facebook, Craigslist, etc.) so leasing
+   * SMS can match a prospect who quotes the ad instead of the PropLane address
+   * (PRP-426). Free text; comma- or newline-separated aliases are fine.
+   */
+  alsoListedAs: string;
   petFriendly: boolean;
   /** Long-form house / coliving description shown on listing */
   houseOverview: string;
+  /**
+   * Free-text marketing notes about the home, typed on the property's Promotion
+   * tab: the Facebook / Craigslist ad title and copy, nicknames, landmarks,
+   * anything a prospect might quote back. The leasing SMS assistant searches
+   * it so "the locked room near UW" resolves to this listing (PRP-426). It is
+   * PUBLIC listing metadata (projected to prospects) — never credentials or
+   * resident-only instructions.
+   */
+  marketingNotes: string;
   /** Quiet hours, guests, smoking, shared spaces — shown on House rules tab */
   houseRulesText: string;
   /** Manager-only internal notes about the house (not shown to residents). */
@@ -1669,6 +1684,10 @@ export function normalizeManagerListingSubmissionV1(
     listingTotalBathroomsId: typeof sub.listingTotalBathroomsId === "string" ? sub.listingTotalBathroomsId : "",
     listingBedroomSlots,
     homeStructureNote: typeof sub.homeStructureNote === "string" ? sub.homeStructureNote : "",
+    marketingNotes: typeof sub.marketingNotes === "string" ? sub.marketingNotes : "",
+    alsoListedAs: typeof (sub as { alsoListedAs?: unknown }).alsoListedAs === "string"
+      ? (sub as { alsoListedAs: string }).alsoListedAs.trim()
+      : "",
     houseRulesText: typeof sub.houseRulesText === "string" ? sub.houseRulesText : "",
     houseDescription: typeof sub.houseDescription === "string" ? sub.houseDescription : undefined,
     generalHouseInfo: typeof sub.generalHouseInfo === "string" ? sub.generalHouseInfo : "",
@@ -2383,8 +2402,10 @@ export function createDefaultListingSubmission(): ManagerListingSubmissionV1 {
     listingTotalBathroomsId: "",
     listingBedroomSlots: 1,
     tagline: "",
+    alsoListedAs: "",
     petFriendly: false,
     houseOverview: "",
+    marketingNotes: "",
     housePhotoDataUrls: [],
     houseVideoDataUrl: null,
     houseRulesText: "",

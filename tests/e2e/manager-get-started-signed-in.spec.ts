@@ -69,13 +69,27 @@ async function sessionEmailFromCookies(page: Page): Promise<string | null> {
   }
 }
 
-async function expectManagerCreateForm(page: Page) {
+/**
+ * The manager submit button names what the click will do, and that differs by
+ * session: an anonymous visitor CREATES an account, while someone already
+ * signed in is adding the property-manager role to the account they have
+ * (`manager-trial-signup-form.tsx`: `signedInUser ? "Set up property manager" :
+ * "Create property account"`). Asserting one label for both states is what made
+ * the signed-in cases fail.
+ */
+function managerSubmitButton(page: Page, signedIn: boolean) {
+  return page.getByRole("button", {
+    name: signedIn ? /set up property manager/i : /create property account/i,
+  });
+}
+
+async function expectManagerCreateForm(page: Page, opts: { signedIn: boolean }) {
   await expect(page.getByPlaceholder("Full name")).toBeVisible();
   await expect(page.getByPlaceholder("Email")).toBeVisible();
   await expect(page.getByPlaceholder("Phone number")).toBeVisible();
   await expect(page.getByPlaceholder(/Password \(8\+/)).toBeVisible();
   await expect(page.getByRole("button", { name: /continue with google/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /create property account/i })).toBeVisible();
+  await expect(managerSubmitButton(page, opts.signedIn)).toBeVisible();
 }
 
 test.describe('"Get started" while signed in', () => {
@@ -87,7 +101,10 @@ test.describe('"Get started" while signed in', () => {
     // Enter from the marketing home page exactly like an end user would.
     await page.goto("/");
     const cta = page.getByRole("link", { name: /get started/i }).first();
-    await expect(cta).toHaveAttribute("href", "/auth/create-account?mode=create&role=manager");
+    // PRP-307: a plain "Get started" asks who you are instead of assuming a
+    // manager, so the CTA points at the bare create surface and the role is
+    // chosen on the next screen.
+    await expect(cta).toHaveAttribute("href", "/auth/create-account");
     const [response] = await Promise.all([
       page.waitForNavigation({ waitUntil: "domcontentloaded" }),
       cta.click(),
@@ -99,8 +116,11 @@ test.describe('"Get started" while signed in', () => {
     expect(chain.join(" -> ")).not.toMatch(/\/portal/);
     expect(new URL(page.url()).pathname).toBe("/auth/create-account");
 
-    // Generic account creation — no role toggle; signed-in users can still register a new email.
-    await expectManagerCreateForm(page);
+    // The role chooser, then the manager form — signed-in users can still
+    // register a new email, and no step bounces them into a portal.
+    await expect(page.getByRole("heading", { name: /create your account/i })).toBeVisible();
+    await page.getByRole("button", { name: /^property/i }).first().click();
+    await expectManagerCreateForm(page, { signedIn: true });
 
     await page.screenshot({ path: shot("signed-in-get-started"), fullPage: true });
     console.log(`redirect chain (signed in): ${chain.join(" -> ")}`);
@@ -109,7 +129,7 @@ test.describe('"Get started" while signed in', () => {
   test("signed-out Get started is unchanged: manager trial signup form, no notice", async ({ page }) => {
     await page.goto("/auth/create-account?mode=create&role=manager");
     await page.waitForLoadState("networkidle").catch(() => {});
-    await expectManagerCreateForm(page);
+    await expectManagerCreateForm(page, { signedIn: false });
     await expect(page.getByText(/you're signed in as/i)).toHaveCount(0);
     await page.screenshot({ path: shot("signed-out-get-started"), fullPage: true });
   });
@@ -129,7 +149,7 @@ test.describe('"Get started" while signed in', () => {
 
     const newEmail = `get-started-e2e-${Date.now()}@test.proplane.local`;
     await page.goto("/auth/create-account?mode=create&role=manager");
-    await expectManagerCreateForm(page);
+    await expectManagerCreateForm(page, { signedIn: true });
 
     await page.getByPlaceholder("Full name").fill("Second Account Manager");
     await page.getByPlaceholder("Email").fill(newEmail);
@@ -137,7 +157,7 @@ test.describe('"Get started" while signed in', () => {
     await page.getByPlaceholder(/Password \(8\+/).fill("SecondAcct123!");
     await page.screenshot({ path: shot("signed-in-filled-new-account"), fullPage: true });
 
-    await page.getByRole("button", { name: /create property account/i }).click();
+    await managerSubmitButton(page, true).click();
     await page.waitForURL(/\/portal/, { timeout: 60_000 });
     await page.waitForLoadState("networkidle").catch(() => {});
 

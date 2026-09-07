@@ -89,8 +89,11 @@ const PUBLIC_SUBMISSION_KEYS = [
   "listingBedroomSlots",
   // Marketing copy + media.
   "tagline",
+  "alsoListedAs",
   "petFriendly",
   "houseOverview",
+  // Ad titles / marketing notes the leasing SMS assistant matches on (PRP-426).
+  "marketingNotes",
   "houseRulesText",
   "amenitiesText",
   "housePhotoDataUrls",

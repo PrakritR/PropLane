@@ -85,6 +85,7 @@ import {
 } from "@/lib/manager-sms-messages";
 import { isVoiceCallNoteSid, voiceCallListPreviewPrefix } from "@/lib/voice/voice-call-notes";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
+import { inboxCounterpartyName } from "@/lib/manager-inbox-contacts";
 import {
   loadManagerSmsArchivedIds,
   MANAGER_SMS_ARCHIVE_CHANGED_EVENT,
@@ -439,7 +440,11 @@ export function ManagerUnifiedInbox({
       const msgs = inboxThreadMessages(t);
       const lastMsg = msgs[msgs.length - 1];
       const sentSemantics = t.folder === "sent";
-      const displayName = sentSemantics ? t.email || "Unknown recipient" : t.from || t.email || "Unknown sender";
+      // Title the row by the person's name when they are in the directory
+      // (PRP-315); the address stays available in the open thread.
+      const displayName =
+        inboxCounterpartyName(t.email, sentSemantics ? null : t.from, filterContacts) ||
+        (sentSemantics ? "Unknown recipient" : "Unknown sender");
       const lastOutbound = inboxThreadLastTurnDirection(t) === "outbound";
       return {
         key: unifiedInboxKey("email", t.id),

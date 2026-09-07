@@ -1,16 +1,25 @@
 "use client";
 
-import { CalendarDays, Check, ChevronRight, Mail, ShieldCheck } from "lucide-react";
+import { CalendarDays, Check, ChevronRight, Mail, MessageSquareText, Phone, ShieldCheck } from "lucide-react";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { AuthCard } from "@/components/auth/auth-card";
 import { AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
+import {
+  ManagerOnboardingPhoneSetup,
+  ManagerOnboardingWorkNumberSetup,
+} from "@/components/auth/manager-onboarding-inline-setup";
 import { useAuthWelcomeChrome } from "@/components/auth/use-auth-welcome-chrome";
 import { Button } from "@/components/ui/button";
 import { isGmailPaymentsOAuthBlocked } from "@/lib/gmail-payments/connect-errors";
 import { GMAIL_PAYMENTS_ENABLED } from "@/lib/gmail-payments/enabled";
 import { MANAGER_GOOGLE_SERVICES_PATH } from "@/lib/auth/manager-google-services";
+import {
+  shouldOfferWorkNumberSetup,
+  workNumberOnboardingPhone,
+  type WorkNumberOnboardingStatus,
+} from "@/lib/sms/work-number-onboarding";
 
 type ServiceStatus = {
   connected: boolean;
@@ -18,7 +27,74 @@ type ServiceStatus = {
   configured: boolean;
 };
 
+type PhoneSettings = {
+  phone: string | null;
+  phoneVerifiedAt: string | null;
+};
+
 const EMPTY_STATUS: ServiceStatus = { connected: false, email: null, configured: true };
+
+function formatUsPhone(e164: string | null | undefined): string {
+  const digits = String(e164 ?? "").replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  return e164?.trim() || "";
+}
+
+/**
+ * Phone setup on the setup screen (PRP-321). Resident texting depends on a work
+ * number, and a landlord used to finish this screen believing they were set up,
+ * only to find messaging reached nobody. The number is OFFERED here, not
+ * provisioned automatically — a number costs money every month, so the landlord
+ * takes the step on purpose.
+ */
+function PhoneStepCard({
+  title,
+  description,
+  icon,
+  statusLabel,
+  statusTone,
+  children,
+}: {
+  title: string;
+  description: string;
+  icon: React.ReactNode;
+  statusLabel: string;
+  statusTone: "confirmed" | "muted";
+  children?: React.ReactNode;
+}) {
+  return (
+    <section
+      className="rounded-[18px] border border-border/75 bg-card/65 p-4 shadow-[0_12px_34px_-28px_rgba(15,23,42,0.45)] sm:p-5"
+      data-attr="manager-google-onboarding-phone-step"
+    >
+      <div className="flex min-w-0 items-start gap-3.5">
+        <span
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary"
+          aria-hidden
+        >
+          {icon}
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[15px] font-semibold text-foreground sm:text-base">{title}</h2>
+          <p className="mt-1 text-xs leading-relaxed text-muted sm:text-[13px]">{description}</p>
+          <p
+            className={`mt-2 text-xs font-medium ${
+              statusTone === "confirmed" ? "text-[var(--status-confirmed-fg)]" : "text-muted"
+            }`}
+          >
+            {statusLabel}
+          </p>
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
 
 function gmailOnboardingError(reason: string | null): string {
   if (isGmailPaymentsOAuthBlocked(reason)) {
@@ -110,7 +186,29 @@ function GoogleServicesContent() {
   const [gmail, setGmail] = useState<ServiceStatus>(EMPTY_STATUS);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [workNumber, setWorkNumber] = useState<WorkNumberOnboardingStatus | null>(null);
+  const [phoneSettings, setPhoneSettings] = useState<PhoneSettings | null>(null);
   useAuthWelcomeChrome(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [workRes, phoneRes] = await Promise.all([
+          fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }),
+          fetch("/api/manager/phone", { credentials: "include", cache: "no-store" }),
+        ]);
+        if (cancelled) return;
+        if (workRes.ok) setWorkNumber((await workRes.json()) as WorkNumberOnboardingStatus);
+        if (phoneRes.ok) setPhoneSettings((await phoneRes.json()) as PhoneSettings);
+      } catch {
+        /* optional setup step — a failed read leaves the phone cards on their "not set up" state */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const oauthMessage = useMemo(() => {
     if (searchParams.get("calendar") === "connected") return "Google Calendar is connected.";
@@ -173,16 +271,63 @@ function GoogleServicesContent() {
   }, [router]);
 
   const hasConnection = calendar.connected || gmail.connected;
+  const provisionedNumber = workNumberOnboardingPhone(workNumber);
+  const phoneVerified = Boolean(phoneSettings?.phoneVerifiedAt);
+  const phoneDisplay = formatUsPhone(phoneSettings?.phone);
+  const offerWorkNumber = shouldOfferWorkNumberSetup(workNumber);
 
   return (
     <AuthCard wide variant="blend">
       <div className="mx-auto w-full max-w-[42rem]">
         <AuthPageHeader
           showLogo
-          title="Connect Google services"
-          subtitle="Choose only the tools you want. Each connection opens its own Google permission screen."
+          title="Set up your account"
+          subtitle="Phone first — it is what lets residents text you. Then connect only the Google tools you want."
           accent={false}
         />
+
+        <div className="mt-4 grid min-w-0 gap-3 sm:mt-5 sm:grid-cols-2">
+          <PhoneStepCard
+            title="Personal phone"
+            description="Verify your cell so PropLane can text you alerts and forward inbound SMS."
+            icon={<Phone className="h-5 w-5" />}
+            statusLabel={
+              phoneVerified && phoneDisplay
+                ? `Verified · ${phoneDisplay}`
+                : phoneDisplay
+                  ? `Added · ${phoneDisplay} — verification pending`
+                  : "Not added yet"
+            }
+            statusTone={phoneVerified ? "confirmed" : "muted"}
+          >
+            {!phoneVerified ? (
+              <ManagerOnboardingPhoneSetup
+                initialPhone={phoneSettings?.phone ?? ""}
+                phoneVerified={phoneVerified}
+                onUpdated={(next) =>
+                  setPhoneSettings({ phone: next.phone, phoneVerifiedAt: next.phoneVerifiedAt })
+                }
+              />
+            ) : null}
+          </PhoneStepCard>
+          <PhoneStepCard
+            title="PropLane work number"
+            description="Text residents and prospects; replies land in your inbox."
+            icon={<MessageSquareText className="h-5 w-5" />}
+            statusLabel={
+              provisionedNumber
+                ? `Active · ${provisionedNumber}`
+                : offerWorkNumber
+                  ? "Not set up yet"
+                  : "Available in Settings when SMS is enabled on your plan"
+            }
+            statusTone={provisionedNumber ? "confirmed" : "muted"}
+          >
+            {!provisionedNumber && offerWorkNumber && workNumber ? (
+              <ManagerOnboardingWorkNumberSetup status={workNumber} onUpdated={setWorkNumber} />
+            ) : null}
+          </PhoneStepCard>
+        </div>
 
         <div className="mx-auto mt-4 flex max-w-xl items-start gap-2 rounded-2xl border border-primary/15 bg-primary/[0.055] px-3.5 py-3 text-xs leading-relaxed text-muted sm:mt-5">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />

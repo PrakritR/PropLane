@@ -31,6 +31,8 @@ export type ManagerReportFilters = {
   scope?: DocumentScope;
   residentEmail?: string;
   roomLabel?: string;
+  /** Profitability report only: one row per property (default) or per property per month. */
+  groupBy?: string;
 };
 
 export type DocumentScope = "portfolio" | "property" | "tenant" | "room";
@@ -67,6 +69,7 @@ export const MANAGER_REPORT_IDS = [
   "ap-aging",
   "budget-vs-actual",
   "owner-statement",
+  "profitability",
 ] as const;
 
 export const RESIDENT_REPORT_IDS = ["resident-ledger"] as const;

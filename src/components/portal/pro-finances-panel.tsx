@@ -57,6 +57,7 @@ import type { ReportColumn, ReportResult, ReportRow } from "@/lib/reports/types"
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { MonthlyProfitChart } from "@/components/portal/monthly-profit-chart";
+import { ManagerProfitabilityCard } from "@/components/portal/pro-profitability-card";
 import {
   readChargesForManager,
   syncHouseholdChargesFromServer,
@@ -1105,6 +1106,7 @@ export function ManagerFinancesPanel({
         {tabId === "cash-flow-statement" ? (
           <MonthlyProfitChart points={monthlyProfitPoints} />
         ) : null}
+        {tabId === "income" ? <ManagerProfitabilityCard propertyId={filters.propertyId} /> : null}
 
         {loading && !report ? (
           <div className={PORTAL_DATA_TABLE_WRAP}>

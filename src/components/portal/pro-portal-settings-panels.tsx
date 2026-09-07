@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { FieldSingleSelect, CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import {
@@ -179,9 +179,12 @@ export function ApplicationsSettingsPanel({
   propertyOptions,
   propertyId,
   onPropertyIdChange,
+  propertyIds,
+  onPropertyIdsChange,
   onAutomationChange,
   waiverCode = "",
   onWaiverCodeChange,
+  onWaiverCodeCommit,
   hidePropertyField = false,
   teamMembers = [],
   reminderFormRef,
@@ -190,23 +193,67 @@ export function ApplicationsSettingsPanel({
   loading: boolean;
   saving: boolean;
   propertyOptions: { id: string; label: string }[];
-  propertyId: string;
-  onPropertyIdChange: (propertyId: string) => void;
+  /** @deprecated Prefer `propertyIds` — kept for single-property scoped dialogs. */
+  propertyId?: string;
+  onPropertyIdChange?: (propertyId: string) => void;
+  /** Multi-select for waive-code + automation fan-out (PRP-427). */
+  propertyIds?: string[];
+  onPropertyIdsChange?: (propertyIds: string[]) => void;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
   waiverCode?: string;
   onWaiverCodeChange?: (code: string) => void;
+  /** Persist the promo code to every selected property (blur / Apply). */
+  onWaiverCodeCommit?: () => void;
   /** When opened from one property's Application tab, the house is already known. */
   hidePropertyField?: boolean;
   teamMembers?: WorkAssignmentTeamMember[];
   reminderFormRef?: React.Ref<ManagerReminderRuleSettingsHandle>;
 }) {
+  const multiSelect = Boolean(onPropertyIdsChange);
+  const selectedIds = propertyIds ?? (propertyId ? [propertyId] : []);
+  const hasSelection = selectedIds.length > 0;
+  const selectableIds = propertyOptions.map((o) => o.id);
+
   return (
     <div className="space-y-6">
-      {hidePropertyField ? null : (
+      {hidePropertyField ? null : multiSelect ? (
+        <CheckboxMultiSelect
+          label="Properties"
+          options={propertyOptions.map((option) => ({ value: option.id, label: option.label }))}
+          selected={selectedIds}
+          onChange={onPropertyIdsChange!}
+          disabled={loading || saving || propertyOptions.length === 0}
+          emptyLabel="Select properties…"
+          searchPlaceholder="Search properties…"
+          dataAttr="manager-settings-properties"
+          menuFooter={
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="text-xs font-semibold text-primary hover:underline"
+                data-attr="manager-settings-properties-select-all"
+                disabled={loading || saving || selectableIds.length === 0}
+                onClick={() => onPropertyIdsChange?.(selectableIds)}
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                className="text-xs font-semibold text-muted hover:underline"
+                data-attr="manager-settings-properties-clear"
+                disabled={loading || saving || selectedIds.length === 0}
+                onClick={() => onPropertyIdsChange?.([])}
+              >
+                Clear
+              </button>
+            </div>
+          }
+        />
+      ) : (
         <ManagerSettingsPropertyField
           propertyOptions={propertyOptions}
-          propertyId={propertyId}
-          onPropertyIdChange={onPropertyIdChange}
+          propertyId={propertyId ?? ""}
+          onPropertyIdChange={onPropertyIdChange ?? (() => {})}
           disabled={loading || saving || propertyOptions.length === 0}
         />
       )}
@@ -220,14 +267,16 @@ export function ApplicationsSettingsPanel({
             type="text"
             className="w-full rounded-xl border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground"
             value={waiverCode}
-            disabled={loading || saving || !propertyId}
+            disabled={loading || saving || !hasSelection}
             placeholder="E.G. WELCOME50"
             data-attr="manager-application-settings-promo-code"
             onChange={(e) => onWaiverCodeChange(e.target.value.toUpperCase())}
+            onBlur={() => onWaiverCodeCommit?.()}
           />
           <p className="text-xs text-muted">
-            Applicants who enter this code on this property&apos;s application waive the application fee. Leave
-            empty to turn it off.
+            {selectedIds.length > 1
+              ? `Applicants who enter this code on any of the ${selectedIds.length} selected properties waive the application fee. Leave empty to turn it off for those listings.`
+              : "Applicants who enter this code on this property's application waive the application fee. Leave empty to turn it off."}
           </p>
         </div>
       ) : null}
@@ -236,7 +285,7 @@ export function ApplicationsSettingsPanel({
           type="checkbox"
           className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
           checked={automation.autoApproveApplications}
-          disabled={loading || saving}
+          disabled={loading || saving || !hasSelection}
           data-attr="manager-application-automation-autoApproveApplications"
           // No confirm() gate. The consequence is stated under the label and
           // again in the banner once it is on, and the setting is one click to
@@ -250,12 +299,14 @@ export function ApplicationsSettingsPanel({
           <span className="block text-[13px] font-medium text-foreground">Auto-approve applications</span>
           <span className="block text-xs text-muted">
             Approve a submitted application without reviewing it first. Withdrawn applications are never approved.
+            {selectedIds.length > 1 ? " Applies to every selected property." : null}
           </span>
         </span>
       </label>
       {automation.autoApproveApplications ? (
         <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-xs text-foreground">
-          Auto-approve is on for this property. New submissions are approved without a manual review step.
+          Auto-approve is on{selectedIds.length > 1 ? " for the selected properties" : " for this property"}. New
+          submissions are approved without a manual review step.
         </p>
       ) : null}
       <ApplicationRemindersSettingsBundle

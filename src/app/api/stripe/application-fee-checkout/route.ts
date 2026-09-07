@@ -58,6 +58,13 @@ export async function POST(req: Request) {
         : "/rent/apply";
     const mode = body.mode === "hosted" ? "hosted" : "embedded";
 
+    // Stamp propertyId on the return URL so the wizard can re-bind the listing
+    // after embedded Checkout (PRP-427). Checkout used to drop every query
+    // param, so a successful pay landed on bare /rent/apply and the manager-link
+    // gate fired once finalize cleared the in-memory form.
+    // Keep `{CHECKOUT_SESSION_ID}` literal (not URLSearchParams) so Stripe can
+    // substitute it — encoding the braces breaks the placeholder.
+    const pidQ = encodeURIComponent(propertyId);
     const result = await createApplicationFeeCheckout(db, stripe, {
       propertyId,
       residentEmail,
@@ -67,9 +74,9 @@ export async function POST(req: Request) {
       mode,
       // Embedded returns the applicant to the same apply step after paying; the
       // wizard verifies the session server-side before treating the fee as paid.
-      returnUrl: `${appUrl}${returnPath}?fee_checkout=return&session_id={CHECKOUT_SESSION_ID}`,
-      successUrl: `${appUrl}${returnPath}?fee_checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${appUrl}${returnPath}?fee_checkout=cancel`,
+      returnUrl: `${appUrl}${returnPath}?propertyId=${pidQ}&fee_checkout=return&session_id={CHECKOUT_SESSION_ID}`,
+      successUrl: `${appUrl}${returnPath}?propertyId=${pidQ}&fee_checkout=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${appUrl}${returnPath}?propertyId=${pidQ}&fee_checkout=cancel`,
     });
 
     if (!result.ok) {

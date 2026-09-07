@@ -1,5 +1,7 @@
 import "server-only";
 
+import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
+
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { syncPlannedTourToGoogleCalendar } from "@/lib/google-calendar/sync.server";
 import { getShareablePropertyForUser } from "@/lib/manager-property-share-access";
@@ -21,6 +23,8 @@ export type ManualPlannedTourInput = {
   start: string;
   end: string;
   notes?: string;
+  /** In person (default) or virtual; normalized on write. */
+  tourFormat?: TourFormat | string | null;
   assignee?: WorkAssignee | null;
 };
 
@@ -163,6 +167,7 @@ export async function createManualPlannedTour(
     propertyId,
     propertyTitle: input.propertyTitle?.trim() || property.propertyTitle,
     roomLabel: input.roomLabel?.trim() || undefined,
+    tourFormat: normalizeTourFormat(input.tourFormat),
     adminUserId: managerUserId,
     attendeeName: guestName,
     attendeeEmail: input.guestEmail?.trim() || undefined,

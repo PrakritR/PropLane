@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireVendorApiAccess } from "@/lib/auth/vendor-api-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import type { VendorPayoutStatus } from "@/lib/vendor-payouts";
 
 export const runtime = "nodejs";
 
@@ -15,7 +16,7 @@ export async function GET() {
     const db = createSupabaseServiceRoleClient();
     const { data, error } = await db
       .from("vendor_payouts")
-      .select("id, work_order_id, amount_cents, stripe_transfer_id, status, failure_reason, created_at")
+      .select("id, work_order_id, amount_cents, stripe_transfer_id, status, failure_reason, created_at, updated_at")
       .eq("vendor_user_id", access.actor.userId)
       .order("created_at", { ascending: false });
 
@@ -26,9 +27,10 @@ export async function GET() {
       workOrderId: row.work_order_id as string,
       amountCents: row.amount_cents as number,
       stripeTransferId: (row.stripe_transfer_id as string | null) ?? null,
-      status: row.status as "paid" | "failed" | "skipped",
+      status: row.status as VendorPayoutStatus,
       failureReason: (row.failure_reason as string | null) ?? null,
       createdAt: row.created_at as string,
+      updatedAt: (row.updated_at as string | null) ?? null,
     }));
 
     return NextResponse.json({ payouts });

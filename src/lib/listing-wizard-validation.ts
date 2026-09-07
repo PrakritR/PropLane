@@ -14,8 +14,8 @@ import { validateListingBundleShortTermPricing } from "@/lib/listing-bundle-shor
 import { isEntireHomeListing, resolveAllowedLeaseTerms, type ManagerListingSubmissionV1, type ManagerRoomSubmission } from "@/lib/manager-listing-submission";
 import type { ManagerSkuTier } from "@/lib/manager-access";
 import {
-  LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
-  listingPaymentWaiverCodeMatches,
+  LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED,
+  managerCanSelectProplaneServiceFee,
 } from "@/lib/payment-policy";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 
@@ -153,12 +153,13 @@ export function validateListingWizardStep(
     }
     Object.assign(errs, validateListingBundleShortTermPricing(sub));
 
-    if (
-      sub.serviceFeePayer === "proplane" &&
-      opts.accountPaymentWaiverGranted === false &&
-      !listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
-    ) {
-      errs.serviceFeeWaiverCode = LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID;
+    if (sub.serviceFeePayer === "proplane") {
+      const tier = opts.managerSkuTier ?? "free";
+      const granted = opts.accountPaymentWaiverGranted === true;
+      if (!managerCanSelectProplaneServiceFee(tier, granted)) {
+        // Prefer the payer field over a hidden FREE100 box (PRP-421).
+        errs.serviceFeePayer = LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED;
+      }
     }
     // Resident payment methods (Stripe ACH / card) are configured in Payment setup.
   }

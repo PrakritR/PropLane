@@ -1,5 +1,7 @@
 /** Shared copy for manager Plan page and public partner pricing — keep amounts aligned with `MANAGER_TIER_MONTHLY_USD`. */
 
+import { commsAllowanceFeatureText } from "@/lib/comms-billing/allowances";
+
 export type PlanTierId = "free" | "pro" | "business";
 
 export function isPlanTierId(tier: string): tier is PlanTierId {
@@ -42,6 +44,7 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
       { text: "Residents, leases & work orders", included: false },
       { text: "Inbox & co-managers", included: false },
       { text: "Dedicated phone number & texting", included: false },
+      { text: commsAllowanceFeatureText("free"), included: true },
       { text: "Priority admin support", included: false },
     ],
   },
@@ -65,6 +68,7 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
       { text: "Residents, leases & work orders", included: true },
       { text: "Inbox & up to 2 co-managers", included: true },
       { text: "Dedicated phone number & texting (active paid plan — not during the free trial)", included: true },
+      { text: commsAllowanceFeatureText("pro"), included: true },
       { text: "Priority admin support", included: false },
     ],
   },
@@ -88,6 +92,7 @@ export const MANAGER_PLAN_TIERS: ManagerPlanTierDefinition[] = [
       { text: "Residents, leases & work orders", included: true },
       { text: "Inbox & up to 20 co-managers", included: true },
       { text: "Dedicated phone number & texting (active paid plan — not during the free trial)", included: true },
+      { text: commsAllowanceFeatureText("business"), included: true },
       { text: "Priority admin support", included: true },
     ],
   },

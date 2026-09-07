@@ -6,6 +6,7 @@ import { Input, Select, Textarea } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { Modal, MODAL_FIELD_LABEL_CLASS, PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS, PORTAL_MODAL_FORM_GRID_CLASS } from "@/components/ui/modal";
 import { PortalInviteChoiceStep } from "@/components/portal/portal-invite-choice-step";
+import { ManagerInviteLinkModal } from "@/components/portal/manager-invite-link-modal";
 import {
   PortalNotificationPreviewModal,
   type NotificationConfirmDraft,
@@ -394,6 +395,7 @@ export function ManagerVendorFormModal({
   const [removePreview, setRemovePreview] = useState<ManagerVendorRemovalPreview | null>(null);
   const [createdVendorId, setCreatedVendorId] = useState<string | null>(null);
   const [addStep, setAddStep] = useState<"essentials" | "options">("essentials");
+  const [inviteLinkOpen, setInviteLinkOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -411,6 +413,7 @@ export function ManagerVendorFormModal({
     setRemovePreview(null);
     setCreatedVendorId(null);
     setAddStep("essentials");
+    setInviteLinkOpen(false);
   }, [open, mode, vendor, initialTrade]);
 
   const patch = (next: Partial<ManagerVendorFormDraft>) => setDraft((prev) => ({ ...prev, ...next }));
@@ -723,6 +726,10 @@ export function ManagerVendorFormModal({
                 </p>
               ) : null}
               <PortalInviteChoiceStep
+                inviteTitle="Invite by link"
+                inviteDescription="Create a shareable link so a vendor can join your directory without typing their email first."
+                onCreateInviteLink={() => setInviteLinkOpen(true)}
+                inviteLinkDataAttr="vendor-create-invite-link"
                 secondaryTitle="Invite by email"
                 secondaryDescription="Enter the vendor's name and email to send a portal signup invite."
                 secondaryIcon="person"
@@ -818,6 +825,12 @@ export function ManagerVendorFormModal({
         confirmBusyLabel="Removing…"
         cancelLabel="Cancel"
         onConfirm={(skipMessage, channels, messageDraft) => void confirmVendorRemove(skipMessage, channels, messageDraft)}
+      />
+      <ManagerInviteLinkModal
+        open={inviteLinkOpen}
+        onClose={() => setInviteLinkOpen(false)}
+        kind="vendor"
+        propertyOptions={[]}
       />
     </>
   );

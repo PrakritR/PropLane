@@ -18,6 +18,9 @@ export const adminPortal: PortalDefinition = {
     // resolve — a bookmark that lands nowhere is worse than a redundant one.
     { section: "communication", label: "Communication", tabs: [] },
     { section: "axis-users", label: "Accounts", tabs: [] },
+    // Billing is a LENS on those same accounts - plan, caps, fees and usage - not a second place
+    // to administer one. Opening a row opens the Accounts editor.
+    { section: "billing", label: "Billing", tabs: [] },
     { section: "profile", label: "Settings", tabs: [] },
   ],
 };
@@ -29,6 +32,7 @@ export const ADMIN_PORTAL_SMOKE_PATHS = [
   { label: "Meetings", path: "/admin/events" },
   { label: "Communication", path: "/admin/communication" },
   { label: "Accounts", path: "/admin/axis-users" },
+  { label: "Billing", path: "/admin/billing" },
   { label: "Feedback", path: "/admin/bugs-feedback" },
   { label: "Settings", path: "/admin/profile" },
 ] as const;

@@ -76,4 +76,37 @@ describe("resident detail tab chrome", () => {
     expect(src).toContain('itemLayout="equal"');
     expect(src).toContain("ResidentDetailCommandToolbar");
   });
+
+  it("command toolbar always ships Filter · Settings · Edit (PRP-395)", () => {
+    const chrome = readFileSync(
+      `${process.cwd()}/src/components/portal/resident-detail-subsection-chrome.tsx`,
+      "utf8",
+    );
+    expect(chrome).toContain('data-attr="resident-detail-filter"');
+    expect(chrome).toContain('data-attr="resident-detail-settings"');
+    expect(chrome).toContain('data-attr="resident-detail-edit"');
+    expect(chrome).toContain("Status filters live in the pills above");
+
+    const residents = readFileSync(
+      `${process.cwd()}/src/components/portal/pro-residents.tsx`,
+      "utf8",
+    );
+    // Duplicate Settings/Setup dock on the Payments list is gone.
+    expect(residents).not.toContain('data-attr="resident-payments-settings-open"');
+    expect(residents).not.toContain('data-attr="resident-payment-setup-open"');
+
+    const tours = readFileSync(
+      `${process.cwd()}/src/components/portal/pro-resident-tours-panel.tsx`,
+      "utf8",
+    );
+    expect(tours).toContain("onSettings={onSettings}");
+    expect(tours).toContain("editDisabled=");
+
+    const inspections = readFileSync(
+      `${process.cwd()}/src/components/portal/inspections-panel.tsx`,
+      "utf8",
+    );
+    expect(inspections).toContain("ResidentDetailSubsectionChrome");
+    expect(inspections).toContain("editDisabled={selectedReports.length !== 1}");
+  });
 });

@@ -42,6 +42,10 @@ const FAQ: { q: string; a: string }[] = [
     a: "Paying for the year up front is roughly two months free: Pro is $192/yr instead of $240, and Business is $1,920/yr instead of $2,400.",
   },
   {
+    q: "How much texting, calling and AI assistant use is included?",
+    a: "Every plan includes a monthly amount of communication — $2.50 on Free, $15 on Pro, $150 on Business — measured by what you actually use (a text is a few cents, an assistant reply is 15¢). The work number itself is free on every plan. Past the included amount you pay as you go at those rates, only if you have a card on file; without one, sending pauses until you add a card.",
+  },
+  {
     q: "Can I change plans later?",
     a: "Yes. Upgrade or downgrade anytime. Upgrading unlocks residents, leases, the inbox, and more co-managers right away. Every tier is the same on payments: residents pay face value, you receive it in full, and PropLane covers payment processing.",
   },
@@ -210,7 +214,13 @@ export default async function PricingPage({
       </MarketingHero>
 
       <section className="pb-4">
-        <div className="lp-w-wide grid gap-5 md:grid-cols-3">
+        {/* Three plans stay side by side on a phone too (PRP-314): a snap scroller
+            below md, a plain 3-column grid from md up. Stacking them meant only
+            one plan was ever on screen, which defeats a comparison page. */}
+        <div
+          className="lp-w-wide flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3 [&>*]:w-[84%] [&>*]:shrink-0 [&>*]:snap-center md:grid md:grid-cols-3 md:gap-5 md:overflow-visible md:pb-0 md:[&>*]:w-auto"
+          data-attr="pricing-plan-scroller"
+        >
           {MANAGER_PLAN_TIERS.map((tier) => (
             <PlanCard key={tier.id} tier={tier} annual={annual} />
           ))}

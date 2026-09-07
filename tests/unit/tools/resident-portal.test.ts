@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { listMySharedDocumentsTool } from "@/lib/tools/domains/resident/documents";
-import { reportMaintenanceIssueTool } from "@/lib/tools/domains/resident/maintenance";
+import { ownedResidentChatPhotoRef, reportMaintenanceIssueTool } from "@/lib/tools/domains/resident/maintenance";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { residentAgentRegistry } from "@/lib/tools/resident-index";
 import { makeResidentToolCtx, type FakeRow } from "./fake-resident-ctx";
 
@@ -78,6 +79,103 @@ describe("report_maintenance_issue", () => {
     expect(preview.fields.some((f) => f.value.includes("Kitchen sink is leaking"))).toBe(true);
     expect(preview.fields.some((f) => f.value.includes(RESIDENT.email))).toBe(true);
     expect(preview.warnings?.[0]).toMatch(/manager is notified/i);
+  });
+
+  /**
+   * PRP-269 — the chat report reaches parity with the Services form: every
+   * field the form collects, plus photos referenced by their position in the
+   * message. The tool never sees bytes; a photo is a storage path under the
+   * resident's OWN prefix, re-checked at confirm time because stored input is
+   * never ownership proof.
+   */
+  const MY_PHOTO = "resident_a/2026/leak-1.jpg";
+  const MY_PHOTO_2 = "resident_a/2026/leak-2.png";
+  const THEIR_PHOTO = "resident_b/2026/private.jpg";
+
+  it("carries every field the Services form collects onto the confirm card", async () => {
+    const { ctx } = seeded();
+    ctx.chatPhotos = [
+      { index: 0, storagePath: MY_PHOTO },
+      { index: 1, storagePath: MY_PHOTO_2 },
+    ];
+    const preview = await reportMaintenanceIssueTool.preview(ctx, {
+      description: "Water pooling under the sink overnight",
+      title: "Kitchen faucet leaking",
+      priority: "Emergency",
+      category: "Plumbing",
+      arrivalWindow: "Custom",
+      arrivalCustom: "Tuesday after 3pm",
+      entryPermission: "call_first",
+      entryNotes: "Gate code 1234, dog in the yard",
+      attachmentIndexes: [0, 1],
+    });
+    const shown = new Map(preview.fields.map((f) => [f.label, f.value]));
+    expect(shown.get("Title")).toBe("Kitchen faucet leaking");
+    expect(shown.get("Category")).toBe("Plumbing");
+    expect(shown.get("Priority")).toBe("Emergency");
+    expect(shown.get("Preferred arrival")).toContain("Tuesday after 3pm");
+    expect(shown.get("Entry notes")).toContain("Gate code 1234");
+    expect(shown.get("Entry if not home")).toBeTruthy();
+    expect(shown.get("Photos")).toBe("2 attached");
+    // An emergency says so on the card, and says to call 911 first.
+    expect(preview.warnings?.[0]).toMatch(/emergency/i);
+    expect(preview.warnings?.[0]).toMatch(/911/);
+  });
+
+  it("pins the resolved storage paths and drops the per-turn indexes", async () => {
+    const { ctx } = seeded();
+    ctx.chatPhotos = [{ index: 0, storagePath: MY_PHOTO }];
+    const preview = await reportMaintenanceIssueTool.preview(ctx, {
+      description: "Water pooling under the sink",
+      attachmentIndexes: [0],
+    });
+    // The confirm request is a different request: an index means nothing there.
+    const pinned = preview.confirmedInput as { photoRefs?: string[]; attachmentIndexes?: number[] };
+    expect(pinned.photoRefs).toEqual([MY_PHOTO]);
+    expect(pinned.attachmentIndexes).toBeUndefined();
+  });
+
+  it("files a description-only report with no optional fields on the card", async () => {
+    const { ctx } = seeded();
+    const preview = await reportMaintenanceIssueTool.preview(ctx, { description: "Heater is dead" });
+    const labels = preview.fields.map((f) => f.label);
+    expect(labels).not.toContain("Photos");
+    expect(labels).not.toContain("Priority");
+    expect(labels).not.toContain("Entry notes");
+    expect(preview.fields.some((f) => f.value.includes("Heater is dead"))).toBe(true);
+  });
+
+  it("refuses a photo index that is not attached to this message", async () => {
+    const { ctx } = seeded();
+    ctx.chatPhotos = [{ index: 0, storagePath: MY_PHOTO }];
+    await expect(
+      reportMaintenanceIssueTool.preview(ctx, { description: "Leaking sink", attachmentIndexes: [3] }),
+    ).rejects.toThrow(/isn't attached to this message/i);
+
+    const { ctx: bare } = seeded();
+    await expect(
+      reportMaintenanceIssueTool.preview(bare, { description: "Leaking sink", attachmentIndexes: [0] }),
+    ).rejects.toThrow(/No photos are attached/i);
+  });
+
+  it("never accepts a photo path outside the resident's own uploads", async () => {
+    const { ctx } = seeded();
+    ctx.chatPhotos = [{ index: 0, storagePath: MY_PHOTO }];
+    for (const ref of [THEIR_PHOTO, "resident_a/../resident_b/private.jpg", "resident_a/2026/notes.pdf"]) {
+      expect(ownedResidentChatPhotoRef(ctx, ref)).toBe(false);
+      await expect(
+        reportMaintenanceIssueTool.preview(ctx, { description: "Leaking sink", photoRefs: [ref] }),
+      ).rejects.toThrow(/isn't one of your own chat uploads/i);
+    }
+    expect(ownedResidentChatPhotoRef(ctx, MY_PHOTO)).toBe(true);
+  });
+
+  it("takes photos by reference only — no image bytes can enter through the schema", () => {
+    const schema = JSON.stringify(zodToJsonSchema(reportMaintenanceIssueTool.inputSchema));
+    for (const shape of ["base64", "dataUrl", "data_url", "bytes", "content", "buffer"]) {
+      expect(schema.toLowerCase()).not.toContain(shape.toLowerCase());
+    }
+    expect(schema).toContain("attachmentIndexes");
   });
 
   it("refuses to file anything for a resident with no linked manager", async () => {

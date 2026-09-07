@@ -72,6 +72,7 @@ import {
   type PromotionUploadEntry,
 } from "@/lib/promotion-upload";
 import { PromotionDefaultSuggestions } from "@/components/portal/promotion-default-suggestions";
+import { PromotionHouseNotesCard } from "@/components/portal/promotion-house-notes";
 import { addDefaultPromotionPreset, type PromotionPresetKind } from "@/lib/promotion-default-sync";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
@@ -595,6 +596,16 @@ export function ManagerPropertyPromotionPanel({
           />
         )}
       </PortalPropertyDetailSection>
+
+      <div className="px-3 pt-4 max-md:px-2.5 sm:pt-5">
+        <PromotionHouseNotesCard
+          propertyId={propertyId}
+          managerUserId={userId}
+          revision={propertyTick}
+          showToast={showToast}
+          onUpdated={onUpdated}
+        />
+      </div>
 
       <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
         <PromotionDefaultSuggestions

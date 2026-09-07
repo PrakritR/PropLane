@@ -14,6 +14,7 @@ import {
   type PlannedEvent,
 } from "@/lib/demo-admin-scheduling";
 import type { ManagerTourBucketId } from "@/lib/portal-detail-routes";
+import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
 import {
   type PropertyCluster,
   type ResidentCluster,
@@ -42,6 +43,8 @@ export type ManagerTourRow = {
   endMs: number;
   statusLabel: string;
   notes?: string;
+  /** Always normalized — "in_person" for rows written before the field existed. */
+  tourFormat: TourFormat;
   bucket: ManagerTourBucketId;
 };
 
@@ -97,6 +100,7 @@ function inquiryRows(filter: ScheduledTourFilter): ManagerTourRow[] {
             endMs,
             statusLabel: "Pending",
             notes: row.notes,
+            tourFormat: normalizeTourFormat(row.tourFormat),
             bucket: "pending" as const,
           };
         })
@@ -129,6 +133,7 @@ function inquiryRows(filter: ScheduledTourFilter): ManagerTourRow[] {
             endMs,
             statusLabel: "Declined",
             notes: row.notes,
+            tourFormat: normalizeTourFormat(row.tourFormat),
             bucket: "past" as const,
           },
         ];
@@ -170,6 +175,7 @@ function plannedRow(event: PlannedEvent): ManagerTourRow | null {
     endMs,
     statusLabel: canceled ? "Canceled" : "Confirmed",
     notes: event.notes,
+    tourFormat: normalizeTourFormat(event.tourFormat),
     bucket: canceled || !upcoming ? "past" : "upcoming",
   };
 }

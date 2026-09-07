@@ -1,6 +1,7 @@
 "use client";
 
 import { Calendar } from "lucide-react";
+import { tourFormatLabel } from "@/lib/tour-format";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -133,6 +134,7 @@ function TourDetailBody({
           <div className="grid gap-4 sm:grid-cols-2">
             <DetailField label="Property" value={tour.propertyTitle} />
             <DetailField label="Room" value={tour.roomLabel} />
+            <DetailField label="Format" value={tourFormatLabel(tour.tourFormat)} />
             <DetailField label="Host" value={tour.managerLabel} />
             <DetailField label="Name" value={tour.guestName} />
             <DetailField label="Email" value={tour.guestEmail} />

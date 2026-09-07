@@ -6,6 +6,9 @@ import { postGlRefundEntry } from "@/lib/reports/gl-posting";
 import { syncLedgerRefundEntry } from "@/lib/reports/ledger-sync";
 import type { HouseholdCharge } from "@/lib/household-charges";
 import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
+import { parseMoneyAmount } from "@/lib/parse-money";
+import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
+import { webhookEventBuilders } from "@/lib/webhooks/events";
 
 export async function resolveUserIdByConnectAccountId(
   db: SupabaseClient,
@@ -266,6 +269,13 @@ export async function handlePaymentIntentFailed(
         charge: failedCharge,
         transitionId: `${chargeId}:payment_failed:${paymentIntent.id}`,
       }).catch(() => undefined);
+      // Outbound webhooks: ids, amount and status only, and never throws here.
+      await enqueueWebhookEvent(managerUserId, "payment.failed", webhookEventBuilders["payment.failed"]({
+        chargeId,
+        propertyId: failedCharge.propertyId,
+        amountCents: Math.round(parseMoneyAmount(failedCharge.amountLabel) * 100),
+        kind: failedCharge.kind,
+      }));
     }
   }
 }

@@ -2,6 +2,7 @@
 
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { PortalRoleSwitcher } from "@/components/portal/portal-role-switcher";
+import { PortalDataExportButton } from "@/components/portal/portal-data-export-button";
 import { PortalDeleteAccountButton } from "@/components/portal/portal-delete-account-button";
 import { PortalSignOutButton } from "@/components/portal/portal-sign-out-button";
 import {
@@ -46,6 +47,15 @@ export function PortalSettingsExtras({
         <div className="border-b border-border px-4 py-3.5 last:border-0">
           <PortalSignOutButton className="text-sm font-medium text-foreground underline-offset-2 transition hover:underline disabled:opacity-60" />
         </div>
+
+        {currentKind === "manager" || currentKind === "pro" ? (
+          <PortalSettingsRow
+            label="Export my data"
+            description="Download everything your property account owns as one encrypted file. Identity numbers and payment details are left out."
+          >
+            <PortalDataExportButton className="text-sm font-medium text-foreground underline-offset-2 transition hover:underline" />
+          </PortalSettingsRow>
+        ) : null}
 
         <div className="px-4 py-3.5">
           <PortalDeleteAccountButton

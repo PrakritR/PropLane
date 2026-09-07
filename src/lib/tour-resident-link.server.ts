@@ -3,6 +3,7 @@
  * Email is used only to verify ownership at link time — never as the identity key.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
 import { INQUIRIES_RECORD_ID } from "@/lib/tour-inquiry.server";
 import { inboxThreadSortMs, parseInboxStampMs } from "@/lib/portal-inbox-storage";
 import { propertyManagerConversationThreadId } from "@/lib/property-manager-inbox-thread.server";
@@ -529,6 +530,8 @@ export type ResidentTourView = {
   propertyId: string | null;
   propertyTitle: string | null;
   roomLabel: string | null;
+  /** Always normalized; older rows read as in person. */
+  tourFormat: TourFormat;
   managerUserId: string | null;
   managerLabel: string | null;
   guestName: string | null;
@@ -580,6 +583,7 @@ function viewFromPlannedEvent(event: Record<string, unknown>, link: ResidentTour
     propertyId: textField(event, "propertyId") || link.property_id,
     propertyTitle: textField(event, "propertyTitle") || null,
     roomLabel: textField(event, "roomLabel") || null,
+    tourFormat: normalizeTourFormat(event.tourFormat),
     managerUserId: textField(event, "managerUserId") || textField(event, "adminUserId") || link.manager_user_id,
     managerLabel: textField(event, "adminLabel") || null,
     guestName: textField(event, "attendeeName") || null,
@@ -667,6 +671,8 @@ export async function loadResidentTourViews(
       propertyId: textField(inquiry, "propertyId") || link.property_id,
       propertyTitle: textField(inquiry, "propertyTitle") || null,
       roomLabel: textField(inquiry, "roomLabel") || null,
+      // A confirmed event is the later, authoritative record of the tour.
+      tourFormat: normalizeTourFormat(confirmedEvent ? confirmedEvent.tourFormat : inquiry.tourFormat),
       managerUserId: textField(inquiry, "managerUserId") || link.manager_user_id,
       managerLabel: textField(inquiry, "adminLabel") || null,
       guestName: textField(inquiry, "name") || null,

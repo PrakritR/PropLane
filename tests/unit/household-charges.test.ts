@@ -6,13 +6,15 @@ import {
   compareDueDateMs,
   dedupeHouseholdCharges,
   duplicateHouseholdChargeIds,
+  expectedRecurringRentAmountForMonth,
   householdChargeToLedgerRow,
   isHouseholdChargeOverdue,
   isManagerAddedOneOffCharge,
   joinPropertyAndUnitLabel,
   mergeHouseholdChargesWithServer,
+  pastDueUnpaidHouseholdCharges,
 } from "@/lib/household-charges";
-import type { HouseholdCharge } from "@/lib/household-charges";
+import type { HouseholdCharge, RecurringRentProfile } from "@/lib/household-charges";
 
 function makeCharge(overrides: Partial<HouseholdCharge> = {}): HouseholdCharge {
   return {
@@ -534,5 +536,66 @@ describe("joinPropertyAndUnitLabel", () => {
   it("handles a missing side", () => {
     expect(joinPropertyAndUnitLabel("The Pioneer", "")).toBe("The Pioneer");
     expect(joinPropertyAndUnitLabel("", "12A")).toBe("12A");
+  });
+});
+
+describe("expectedRecurringRentAmountForMonth (PRP-408 part 2)", () => {
+  function makeProfile(overrides: Partial<RecurringRentProfile> = {}): RecurringRentProfile {
+    return {
+      id: "rrp-1",
+      residentEmail: "r@test.com",
+      residentName: "Resident",
+      residentUserId: null,
+      propertyId: "prop-1",
+      propertyLabel: "Test Property",
+      roomLabel: "1",
+      managerUserId: "mgr-1",
+      monthlyRent: 2400,
+      dueDay: 1,
+      startMonth: "2026-01",
+      active: true,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      ...overrides,
+    };
+  }
+
+  it("returns full monthly rent for a non-partial month", () => {
+    expect(expectedRecurringRentAmountForMonth(makeProfile(), "2026-03")).toBe(2400);
+  });
+
+  it("prorates the partial last month by lease end day", () => {
+    // March has 31 days; lease ends March 15 → 15/31 of $2400
+    const amount = expectedRecurringRentAmountForMonth(
+      makeProfile({ leaseEnd: "2026-03-15" }),
+      "2026-03",
+    );
+    expect(amount).toBe(Number(((2400 * 15) / 31).toFixed(2)));
+  });
+});
+
+describe("pastDueUnpaidHouseholdCharges (PRP-408 part 3)", () => {
+  it("lists only overdue unpaid charges in manager scope", () => {
+    const overdue = makeCharge({ id: "a", rentMonth: undefined, dueDateLabel: "Jan 1, 2020" });
+    const future = makeCharge({ id: "b", rentMonth: undefined, dueDateLabel: "Dec 1, 2099" });
+    const paid = makeCharge({
+      id: "c",
+      rentMonth: undefined,
+      status: "paid",
+      paidAt: "2026-01-01T00:00:00.000Z",
+      balanceLabel: "$0.00",
+      dueDateLabel: "Jan 1, 2020",
+    });
+    const otherMgr = makeCharge({
+      id: "d",
+      managerUserId: "mgr-2",
+      rentMonth: undefined,
+      dueDateLabel: "Jan 1, 2020",
+    });
+    const now = new Date("2026-06-15T12:00:00");
+    const ids = pastDueUnpaidHouseholdCharges([overdue, future, paid, otherMgr], {
+      managerUserId: "mgr-1",
+      now,
+    }).map((c) => c.id);
+    expect(ids).toEqual(["a"]);
   });
 });

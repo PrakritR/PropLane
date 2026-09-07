@@ -28,6 +28,53 @@ function rangeLabel(months: CashflowChartRangeMonths): string {
   return `${months}M`;
 }
 
+/**
+ * The 3M / 6M / 1Y / 2Y range pills. Shared by the cash-flow chart and the
+ * Profitability card so the two month selectors on Finances cannot drift apart.
+ */
+export function CashflowRangeToggle({
+  value,
+  onChange,
+  ariaLabel = "Chart time range",
+  dataAttrPrefix = "cashflow-range",
+  className,
+}: {
+  value: CashflowChartRangeMonths;
+  onChange: (months: CashflowChartRangeMonths) => void;
+  ariaLabel?: string;
+  dataAttrPrefix?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn("flex gap-1", className)}
+      role="tablist"
+      aria-label={ariaLabel}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {CASHFLOW_CHART_RANGE_MONTHS.map((months) => (
+        <button
+          key={months}
+          type="button"
+          role="tab"
+          aria-selected={value === months}
+          data-attr={`${dataAttrPrefix}-${months}`}
+          className={cn(
+            // PRP-350: 44px in BOTH directions — "1Y"/"2Y" are narrow enough to fail on width alone.
+            "portal-pressable min-h-11 min-w-11 rounded-full px-3 py-2 text-[11px] font-semibold tabular-nums transition-colors sm:px-3.5 sm:text-xs",
+            value === months
+              ? "bg-foreground text-background"
+              : "text-muted hover:bg-accent/40 hover:text-foreground",
+          )}
+          onClick={() => onChange(months)}
+        >
+          {rangeLabel(months)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 const METRIC_OPTIONS: { id: CashflowChartMetric; label: string; subtitle: string }[] = [
   { id: "revenue", label: "Revenue", subtitle: "Revenue per month" },
   { id: "profit", label: "Profit", subtitle: "Profit per month" },
@@ -251,31 +298,12 @@ export function MonthlyProfitChart({
             ))}
           </svg>
 
-          <div
-            className="mt-2 flex justify-center gap-1 px-1"
-            role="tablist"
-            aria-label="Chart time range"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {CASHFLOW_CHART_RANGE_MONTHS.map((months) => (
-              <button
-                key={months}
-                type="button"
-                role="tab"
-                aria-selected={rangeMonths === months}
-                data-attr={`cashflow-range-${months}`}
-                className={cn(
-                  "portal-pressable min-h-11 min-w-11 rounded-full px-3 py-2 text-[11px] font-semibold tabular-nums transition-colors sm:px-3.5 sm:text-xs",
-                  rangeMonths === months
-                    ? "bg-foreground text-background"
-                    : "text-muted hover:bg-accent/40 hover:text-foreground",
-                )}
-                onClick={() => setRangeMonths(months)}
-              >
-                {rangeLabel(months)}
-              </button>
-            ))}
-          </div>
+          <CashflowRangeToggle
+            className="mt-2 justify-center px-1"
+            value={rangeMonths}
+            onChange={setRangeMonths}
+            dataAttrPrefix="cashflow-range"
+          />
 
           <div className="mt-2 flex justify-between gap-0.5 px-0.5">
             {points.map((p, i) => {

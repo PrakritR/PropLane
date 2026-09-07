@@ -13,6 +13,7 @@ import {
 import { isPropertyClusterList, type PortalListGroupMode } from "@/lib/portal-list-grouping";
 import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
 import { scheduledSendBadgeLabel } from "@/lib/scheduled-send-summary";
+import { tourFormatLabel } from "@/lib/tour-format";
 
 function tourLocationMeta(
   row: ManagerTourRow,
@@ -21,6 +22,9 @@ function tourLocationMeta(
   tourReminders: readonly ScheduledInboxMessageRecord[],
 ): string {
   const parts: string[] = [];
+  // Only the non-default format is called out; every row says nothing when it
+  // is the ordinary in-person tour, so "Virtual" reads as the exception it is.
+  if (row.tourFormat === "virtual") parts.push(tourFormatLabel(row.tourFormat));
   const location = tourLocationMetaBase(row, showPropertyColumn, groupMode);
   if (location !== "—") parts.push(location);
   const reminder = tourReminderMetaHint(row, tourReminders);

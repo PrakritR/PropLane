@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { GMAIL_PAYMENTS_ENABLED } from "@/lib/gmail-payments/enabled";
 import { Button } from "@/components/ui/button";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
@@ -949,6 +950,23 @@ function PaymentAutomationSettingsForm({
     compact && variant === "payments" ? (
       <div className={embeddedInBundle ? "space-y-3" : "space-y-3 border-t border-border pt-4"}>
         <UnifiedReminderScheduleSelect draft={draft} busy={busy} onChange={applySchedulePatch} />
+        <label className="flex items-start gap-2 text-sm text-foreground">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+            checked={draft.lateFeeNoticeEnabled}
+            onChange={(e) => setDraft({ ...draft, lateFeeNoticeEnabled: e.target.checked })}
+            disabled={busy}
+            data-attr="payment-late-fee-notices"
+          />
+          <span>
+            <span className="font-medium">Late fee notices</span>
+            <span className="mt-0.5 block text-xs font-normal text-muted">
+              Account-wide gate for automatic late fees. Each listing also needs Automatic late fees
+              on in Pricing (grace days and amount are per property).
+            </span>
+          </span>
+        </label>
         <ReminderSendViaField
           showProplaneChannel
           viaInbox={draft.paymentReminderDeliverViaInbox !== false}
@@ -984,7 +1002,19 @@ function PaymentAutomationSettingsForm({
       ) : null}
 
       {compact ? (
-        paymentsReminderSection
+        <>
+          {paymentsReminderSection}
+          {!GMAIL_PAYMENTS_ENABLED ? (
+            // Recorded decision (Sep 3, PRP-322): Gmail-based Zelle/Venmo tracking
+            // stays switched off but is FLAGGED as incomplete, not hidden — a
+            // landlord whose residents pay by Zelle must not be left guessing
+            // why nothing is being tracked.
+            <p className="text-xs leading-relaxed text-muted" data-attr="payments-manual-zelle-venmo-note">
+              Zelle and Venmo payments are recorded by hand for now — open the payment and mark it paid. Automatic
+              tracking from a connected Gmail inbox is not finished yet.
+            </p>
+          ) : null}
+        </>
       ) : (
         <>
           <ReminderPresetDropdown activePreset={activePreset} busy={busy} onSelect={selectPreset} />

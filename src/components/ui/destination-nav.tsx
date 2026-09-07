@@ -107,7 +107,7 @@ export function DestinationNav({
               className={
                 itemLayout === "equal"
                   ? denseEqualRow
-                    ? "block w-full min-w-0 max-w-full whitespace-nowrap text-[length:clamp(8px,2.1vw,0.875rem)] leading-none lg:text-sm lg:leading-tight lg:truncate"
+                    ? "block w-full min-w-0 max-w-full truncate whitespace-nowrap text-[length:clamp(11px,2.4vw,0.875rem)] leading-none lg:text-sm lg:leading-tight"
                     : "block w-full min-w-0 max-w-full whitespace-nowrap text-xs leading-tight lg:truncate"
                   : undefined
               }
@@ -310,7 +310,7 @@ export function LocalDestinationNav({
               className={
                 itemLayout === "equal"
                   ? denseEqualRow
-                    ? "block w-full min-w-0 max-w-full whitespace-nowrap text-[length:clamp(8px,2.1vw,0.875rem)] leading-none lg:text-sm lg:leading-tight lg:truncate"
+                    ? "block w-full min-w-0 max-w-full truncate whitespace-nowrap text-[length:clamp(11px,2.4vw,0.875rem)] leading-none lg:text-sm lg:leading-tight"
                     : "block w-full min-w-0 max-w-full whitespace-nowrap text-xs leading-tight lg:truncate"
                   : undefined
               }

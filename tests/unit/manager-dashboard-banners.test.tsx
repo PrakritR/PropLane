@@ -8,6 +8,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, cleanup } from "@testing-library/react";
 
+// PRP-396 added useRouter for the first-listing soft-redirect; this suite
+// renders ManagerDashboard without an App Router tree.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    refresh: vi.fn(),
+    prefetch: vi.fn(),
+    back: vi.fn(),
+  }),
+  usePathname: () => "/portal/dashboard",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+vi.mock("@/lib/manager-first-listing-onboarding", () => ({
+  firstListingDashboardRedirectStorageKey: (id: string) => `test-redirect:${id}`,
+  managerNeedsFirstListingOnboarding: () => false,
+  managerPortfolioNeedsFirstListingSeed: () => false,
+  readFirstListingPortfolioSnapshot: () => ({ listingSlots: 1, drafts: 0, unlisted: 0 }),
+  shouldSkipFirstListingOnboarding: () => true,
+}));
+
 // ── Inject a deterministic scenario through the data layer the dashboard reads.
 // One overdue charge + one on-time pending charge + apps/leases/inbox items, so
 // the banner block is populated and the payments table has an "Overdue" row.
@@ -64,6 +86,8 @@ vi.mock("@/lib/manager-applications-storage", () => ({
 vi.mock("@/lib/manager-portfolio-access", () => ({
   applicationVisibleToPortalUser: () => true,
   collectLinkedPropertyIdsForModule: () => new Set<string>(),
+  moduleRowVisibleToPortalUser: () => true,
+  syncManagerPortfolioFromServer: () => Promise.resolve(),
 }));
 
 vi.mock("@/lib/lease-pipeline-storage", () => ({

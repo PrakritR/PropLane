@@ -6,6 +6,12 @@ import { LocalDestinationNav, type LocalDestinationNavItem } from "@/components/
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PORTAL_COMMAND_ACTION_BTN } from "@/components/portal/portal-metrics";
 
+/**
+ * Shared command strip for manager resident-detail tabs (PRP-395).
+ * Always renders Filter · Settings · Edit so every tab has the same shape —
+ * Filter defaults to disabled (status lives in the pills above); Settings/Edit
+ * stay visible and disable when the tab has nothing to open.
+ */
 export function ResidentDetailCommandToolbar({
   filter,
   onSettings,
@@ -25,31 +31,38 @@ export function ResidentDetailCommandToolbar({
 }) {
   return (
     <>
-      {filter ?? null}
-      {onSettings ? (
+      {filter ?? (
         <Button
           type="button"
           variant="outline"
           className={PORTAL_COMMAND_ACTION_BTN}
-          data-attr="resident-detail-settings"
-          disabled={settingsDisabled}
-          onClick={onSettings}
+          data-attr="resident-detail-filter"
+          disabled
+          title="Status filters live in the pills above"
         >
-          {settingsLabel}
+          Filter
         </Button>
-      ) : null}
-      {onEdit ? (
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_COMMAND_ACTION_BTN}
-          data-attr="resident-detail-edit"
-          disabled={editDisabled}
-          onClick={onEdit}
-        >
-          {editLabel}
-        </Button>
-      ) : null}
+      )}
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_COMMAND_ACTION_BTN}
+        data-attr="resident-detail-settings"
+        disabled={settingsDisabled || !onSettings}
+        onClick={() => onSettings?.()}
+      >
+        {settingsLabel}
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_COMMAND_ACTION_BTN}
+        data-attr="resident-detail-edit"
+        disabled={editDisabled || !onEdit}
+        onClick={() => onEdit?.()}
+      >
+        {editLabel}
+      </Button>
     </>
   );
 }
@@ -85,8 +98,6 @@ export function ResidentDetailSubsectionChrome({
   activeFilterChips?: ReactNode;
   className?: string;
 }) {
-  const showToolbar = Boolean(filter || onSettings || onEdit);
-
   return (
     <div className={className ?? "mb-3 shrink-0 space-y-2 bg-background"}>
       <LocalDestinationNav
@@ -98,24 +109,22 @@ export function ResidentDetailSubsectionChrome({
         itemLayout="equal"
         denseEqualRow={denseEqualRow}
       />
-      {showToolbar ? (
-        <PortalListControlStack
-          variant="command"
-          stickyDestinations={false}
-          actions={
-            <ResidentDetailCommandToolbar
-              filter={filter}
-              onSettings={onSettings}
-              onEdit={onEdit}
-              settingsDisabled={settingsDisabled}
-              editDisabled={editDisabled}
-              settingsLabel={settingsLabel}
-              editLabel={editLabel}
-            />
-          }
-          activeFilterChips={activeFilterChips}
-        />
-      ) : null}
+      <PortalListControlStack
+        variant="command"
+        stickyDestinations={false}
+        actions={
+          <ResidentDetailCommandToolbar
+            filter={filter}
+            onSettings={onSettings}
+            onEdit={onEdit}
+            settingsDisabled={settingsDisabled}
+            editDisabled={editDisabled}
+            settingsLabel={settingsLabel}
+            editLabel={editLabel}
+          />
+        }
+        activeFilterChips={activeFilterChips}
+      />
     </div>
   );
 }
