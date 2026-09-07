@@ -19,6 +19,7 @@ import {
   computeFieldSelectMenuRectInHost,
   fieldSelectHostBottomInsetPx,
   fieldSelectMenuBoundsElement,
+  fieldSelectOverflowSafePortalHost,
   FIELD_SELECT_HOST_FOOTER_ATTR,
 } from "@/components/ui/field-select-menu";
 
@@ -176,5 +177,41 @@ describe("field menu inside a full-bleed dialog wrapper", () => {
     });
 
     expect(rect.top + rect.maxHeight).toBeLessThanOrEqual(540);
+  });
+
+  it("lifts portaling beside a clipping dialog panel (host === modal-panel)", () => {
+    const center = document.createElement("div");
+    center.getBoundingClientRect = () => rectOf(50, 380, 520, 520);
+
+    const host = document.createElement("div");
+    host.setAttribute("data-slot", "modal-radix-dialog");
+    host.className = "modal-panel";
+    host.getBoundingClientRect = () => rectOf(80, 400, 480, 460);
+    center.appendChild(host);
+
+    const footer = document.createElement("div");
+    footer.setAttribute(FIELD_SELECT_HOST_FOOTER_ATTR, "");
+    footer.getBoundingClientRect = () => rectOf(480, 400, 480, 60);
+    host.appendChild(footer);
+
+    const button = document.createElement("button");
+    button.getBoundingClientRect = () => rectOf(360, 420, 223, 44);
+    host.appendChild(button);
+
+    expect(fieldSelectOverflowSafePortalHost(host)).toBe(center);
+    expect(fieldSelectMenuBoundsElement(button, center)).toBe(host);
+
+    const footerInset = fieldSelectHostBottomInsetPx(host);
+    const rect = computeFieldSelectMenuRectInHost(button, CONTENT_PX, center, {
+      preferOpenDown: true,
+      matchTriggerWidth: true,
+      strictHostContainment: true,
+      bottomInsetPx: footerInset,
+      boundsRect: host.getBoundingClientRect(),
+    });
+
+    // Menu paints above the footer inside the card, not clipped by overflow-hidden.
+    expect(rect.top + rect.maxHeight).toBeLessThanOrEqual(480);
+    expect(rect.top).toBeGreaterThanOrEqual(360 + 44 + 4 - 50);
   });
 });
