@@ -6,6 +6,7 @@ import {
 } from "@/lib/account-link-invite-row";
 import { looksLikeAccountLinksMissingTable } from "@/lib/account-links";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
+import { actorCanManageInviteLink } from "@/lib/auth/co-manager-team-invite.server";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import { mintOpenCoManagerInvite } from "@/lib/co-manager-open-invite.server";
@@ -53,19 +54,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ inviteId: stri
     if (!invite?.id) {
       return NextResponse.json({ error: "Invite not found." }, { status: 404 });
     }
-    if (invite.inviter_user_id !== user.id) {
+    const assignedPropertyIds = asStringArray(invite.assigned_property_ids);
+    const inviterUserId = String(invite.inviter_user_id ?? "").trim();
+    const allowed = await actorCanManageInviteLink(svc, user.id, {
+      ownerUserId: inviterUserId,
+      assignedPropertyIds,
+    });
+    if (!allowed) {
       return NextResponse.json({ error: "Only the inviter can copy this link." }, { status: 403 });
     }
     if (invite.status !== "pending" || invite.invitee_user_id) {
       return NextResponse.json({ error: "Only an unused invite link can be refreshed." }, { status: 409 });
     }
 
-    const assignedPropertyIds = asStringArray(invite.assigned_property_ids);
-    const sku = await getManagerPurchaseSku(user.id);
+    const sku = await getManagerPurchaseSku(inviterUserId);
     if (sku.readFailed || !managerPlanAllowsCoManagerInvites(sku)) {
       return NextResponse.json({ error: "Upgrade to Pro or Business before linking co-managers." }, { status: 403 });
     }
-    const ownership = await findPropertyIdsNotOwnedByManager(svc, user.id, assignedPropertyIds);
+    const ownership = await findPropertyIdsNotOwnedByManager(svc, inviterUserId, assignedPropertyIds);
     if (!ownership.ok) return NextResponse.json({ error: ownership.error }, { status: 500 });
     if (ownership.unowned.length > 0) {
       return NextResponse.json({ error: "Update this invite to include only properties you manage." }, { status: 403 });
@@ -78,7 +84,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ inviteId: stri
     const minted = await mintOpenCoManagerInvite({
       svc,
       existingId: invite.id,
-      inviterUserId: user.id,
+      inviterUserId,
       inviterAxisId: invite.inviter_axis_id,
       inviterDisplayName: invite.inviter_display_name,
       assignedPropertyIds,

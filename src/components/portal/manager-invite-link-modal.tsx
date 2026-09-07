@@ -66,6 +66,7 @@ export function ManagerInviteLinkModal({
   const [minting, setMinting] = useState(false);
   const [mintedUrl, setMintedUrl] = useState<string | null>(null);
   const [links, setLinks] = useState<ExistingLink[]>([]);
+  const [copyingLinkId, setCopyingLinkId] = useState<string | null>(null);
 
   const loadLinks = useCallback(async () => {
     try {
@@ -135,6 +136,24 @@ export function ManagerInviteLinkModal({
       showToast("Invite link copied.");
     } catch {
       showToast("Could not copy. Select the link and copy it manually.");
+    }
+  };
+
+  const copyExistingLink = async (id: string) => {
+    setCopyingLinkId(id);
+    try {
+      const res = await fetch(`/api/pro/invite-links/${encodeURIComponent(id)}/link`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !body.url) {
+        showToast(body.error ?? "Could not copy that invite link.");
+        return;
+      }
+      await copy(body.url);
+    } finally {
+      setCopyingLinkId(null);
     }
   };
 
@@ -322,16 +341,32 @@ export function ManagerInviteLinkModal({
                         {unusable ? " · no longer active" : ""}
                       </p>
                     </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="shrink-0 border-rose-200 text-rose-800 portal-danger-outline"
-                      data-attr="invite-link-revoke"
-                      onClick={() => void revoke(link.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      <span className="ml-1.5">Turn off</span>
-                    </Button>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {!unusable ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="shrink-0"
+                          data-attr="invite-link-copy-existing"
+                          loading={copyingLinkId === link.id}
+                          disabled={copyingLinkId !== null && copyingLinkId !== link.id}
+                          onClick={() => void copyExistingLink(link.id)}
+                        >
+                          <Copy className="h-4 w-4" />
+                          <span className="ml-1.5">Copy new link</span>
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="shrink-0 border-rose-200 text-rose-800 portal-danger-outline"
+                        data-attr="invite-link-revoke"
+                        onClick={() => void revoke(link.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        <span className="ml-1.5">Turn off</span>
+                      </Button>
+                    </div>
                   </li>
                 );
               })}

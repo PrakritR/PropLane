@@ -54,12 +54,14 @@ import {
 } from "@/lib/demo-property-pipeline";
 import {
   buildManagerPropertyFilterOptions,
+  ownedPropertyIdsForUser,
   readLinkedListingsForUser,
   resolvePropertyLabelForId,
   disambiguatePropertyOptionLabels,
   safePropertyOptionLabel,
   samePropertyId,
   syncManagerPortfolioFromServer,
+  teamInviteEligiblePropertyIds,
 } from "@/lib/manager-portfolio-access";
 import {
   AXIS_ID_LABEL,
@@ -901,11 +903,26 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     };
   }, []);
 
+  const teamInviteEligibleIds = useMemo(() => {
+    void localTick;
+    return teamInviteEligiblePropertyIds(userId);
+  }, [userId, localTick]);
+
+  const ownsTeamInviteProperties = useMemo(() => {
+    const owned = ownedPropertyIdsForUser(userId);
+    return [...teamInviteEligibleIds].some((id) => owned.has(id));
+  }, [userId, teamInviteEligibleIds]);
+
+  const canSendTeamInvites = teamInviteEligibleIds.size > 0;
+
   const linkCap = maxAccountLinksForTier(skuTier);
   const participantUsedCount = remoteInvites.filter((i) => i.status === "pending" || i.status === "accepted").length;
   const atLinkCap = linkCap != null && (useRemote ? participantUsedCount >= linkCap : localRows.length >= linkCap);
   const planAllowsInvites = skuTier != null && managerPlanAllowsCoManagerInvites(skuTier);
-  const linkAccountBlocked = atLinkCap || (skuTier != null && !planAllowsInvites);
+  const linkAccountBlocked =
+    !canSendTeamInvites ||
+    atLinkCap ||
+    (ownsTeamInviteProperties && skuTier != null && !planAllowsInvites);
 
   const navigateToList = useCallback(() => {
     navigate(teamLinkHref(portalBase));
@@ -1114,7 +1131,11 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   };
 
   const openLinkModal = () => {
-    if (skuTier != null && !managerPlanAllowsCoManagerInvites(skuTier)) {
+    if (!canSendTeamInvites) {
+      showToast("You do not have Team permission to invite co-managers.");
+      return;
+    }
+    if (ownsTeamInviteProperties && skuTier != null && !managerPlanAllowsCoManagerInvites(skuTier)) {
       showToast("Upgrade to Pro or Business before linking co-managers.");
       return;
     }
@@ -1123,7 +1144,11 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   };
 
   const openInviteLinkModal = () => {
-    if (skuTier != null && !managerPlanAllowsCoManagerInvites(skuTier)) {
+    if (!canSendTeamInvites) {
+      showToast("You do not have Team permission to invite co-managers.");
+      return;
+    }
+    if (ownsTeamInviteProperties && skuTier != null && !managerPlanAllowsCoManagerInvites(skuTier)) {
       showToast("Upgrade to Pro or Business before linking co-managers.");
       return;
     }
@@ -1141,9 +1166,11 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     resetLinkDraft();
   };
 
-  const linkInvitePropertySelectOptions = useMemo(
-    () =>
-      propertyOptions.map((p) => ({
+  const linkInvitePropertySelectOptions = useMemo(() => {
+    const options: { value: string; label: string; disabled?: boolean; hint?: string }[] = [];
+    for (const p of propertyOptions) {
+      if (!teamInviteEligibleIds.has(p.id)) continue;
+      options.push({
         value: p.id,
         label: p.label,
         // A listing that exists only in this browser's cache would be rejected by
@@ -1151,9 +1178,15 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         // than reading as an arbitrarily dead row (PRP-210).
         disabled: Boolean(p.notYetSynced),
         hint: p.notYetSynced ? "Still saving — you can assign this once it finishes." : undefined,
-      })),
-    [propertyOptions],
-  );
+      });
+    }
+    for (const property of coManagedProperties) {
+      if (!teamInviteEligibleIds.has(property.id)) continue;
+      if (options.some((option) => option.value === property.id)) continue;
+      options.push({ value: property.id, label: property.label });
+    }
+    return options;
+  }, [propertyOptions, coManagedProperties, teamInviteEligibleIds]);
 
   const handleLinkPropertySelectionChange = (nextIds: string[]) => {
     const nextSet = new Set(nextIds);
@@ -1175,7 +1208,11 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   };
 
   const saveNewLink = () => {
-    if (skuTier != null && !managerPlanAllowsCoManagerInvites(skuTier)) {
+    if (!canSendTeamInvites) {
+      showToast("You do not have Team permission to invite co-managers.");
+      return;
+    }
+    if (ownsTeamInviteProperties && skuTier != null && !managerPlanAllowsCoManagerInvites(skuTier)) {
       showToast("Upgrade to Pro or Business before linking co-managers.");
       return;
     }
@@ -2452,9 +2489,9 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
 
             {draftAxisId ? (
               <>
-                {propertyOptions.length === 0 ? (
+                {linkInvitePropertySelectOptions.length === 0 ? (
                   <p className="text-sm text-muted">
-                    No properties yet. You can assign houses after she accepts the invite.
+                    No properties available for team invites yet.
                   </p>
                 ) : (
                   <CheckboxMultiSelect

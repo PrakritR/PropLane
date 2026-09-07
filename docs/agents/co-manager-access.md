@@ -23,6 +23,17 @@ or Business; she can join on Free as a pure co-manager and inherit the owner's
 paid modules on assigned houses. One unused open link per owner. Migration:
 `20260906010000_account_link_open_invite_token.sql`.
 
+**Co-managers may send team invites when granted Team edit.** The `teams`
+module (shown as "Team" in the permissions editor) gates minting shareable
+invite links, copying an active link, revoking a link, and addressed
+PropLane-ID invites. Delegation is resolved in
+`src/lib/auth/co-manager-team-invite.server.ts`: the link is stored under the
+property owner's id, and every selected property must belong to that owner
+with `teams` at **edit** on the actor's grant. The client mirrors eligibility
+via `teamInviteEligiblePropertyIds` in `manager-portfolio-access.ts`. Copy on
+an active link rotates the token through `POST /api/pro/invite-links/[linkId]/link`.
+Coverage: `tests/unit/co-manager-team-invite.test.ts`.
+
 **`coManagerModuleAllowed` is the ONE answer to "may this co-manager use this
 module".** The server scope (`src/lib/auth/co-manager-module-scope.ts`) and the
 client portfolio mirror (`src/lib/manager-portfolio-access.ts`) both delegate to
