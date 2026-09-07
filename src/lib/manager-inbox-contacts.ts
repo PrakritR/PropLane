@@ -126,3 +126,82 @@ export function residentsForProperty(contacts: InboxScopedContact[], propertyId:
   if (!propertyId) return residents;
   return residents.filter((c) => c.propertyId === propertyId);
 }
+
+/**
+ * Per-property audience for New message (PRP-315).
+ *
+ * "Water is off tomorrow" goes to the residents of ONE house, not to every
+ * resident the manager has. The compose picker offers one option per property
+ * under Residents & applicants; sending expands it to that property's CURRENT
+ * residents — an applicant has not moved in and someone with a past move-out
+ * date has left, so neither is a resident of the house today.
+ */
+const PROPERTY_AUDIENCE_PREFIX = "broadcast:property:";
+
+export function propertyAudienceKey(propertyId: string): string {
+  return `${PROPERTY_AUDIENCE_PREFIX}${trimmedText(propertyId)}`;
+}
+
+/** The property id inside a per-property audience key, or null for any other key. */
+export function parsePropertyAudienceKey(key: string): string | null {
+  if (!key.startsWith(PROPERTY_AUDIENCE_PREFIX)) return null;
+  const id = trimmedText(key.slice(PROPERTY_AUDIENCE_PREFIX.length));
+  return id || null;
+}
+
+export function propertyAudienceLabel(propertyLabel: string): string {
+  return `All residents · ${propertyLabel}`;
+}
+
+/** Current residents of one property — the people "All residents · <house>" actually reaches. */
+export function residentsForPropertyAudience(
+  contacts: InboxScopedContact[],
+  propertyId: string,
+): InboxScopedContact[] {
+  const id = trimmedText(propertyId);
+  if (!id) return [];
+  return contacts.filter(
+    (c) =>
+      c.role === "resident" &&
+      trimmedText(c.propertyId) === id &&
+      c.tenancyStatus !== "applicant" &&
+      c.tenancyStatus !== "past",
+  );
+}
+
+/** One picker option per property that has at least one current resident. */
+export function propertyAudienceOptions(
+  contacts: InboxScopedContact[],
+): { key: string; label: string; propertyId: string; propertyLabel: string }[] {
+  return propertyOptionsFromContacts(contacts)
+    .filter((property) => residentsForPropertyAudience(contacts, property.id).length > 0)
+    .map((property) => ({
+      key: propertyAudienceKey(property.id),
+      label: propertyAudienceLabel(property.label),
+      propertyId: property.id,
+      propertyLabel: property.label,
+    }));
+}
+
+/**
+ * Who a conversation is with, by NAME (PRP-315). A thread row used to be
+ * titled by the other side's email (or phone), so a landlord decoded addresses
+ * to find the person they meant. When the counterparty is someone in the
+ * manager's directory, use that person's name; the sender-supplied `from` is
+ * next; the address is the last resort.
+ */
+export function inboxCounterpartyName(
+  counterpartyEmail: string | null | undefined,
+  from: string | null | undefined,
+  contacts: readonly InboxScopedContact[] | null | undefined,
+): string {
+  const email = trimmedText(counterpartyEmail).toLowerCase();
+  if (email && contacts) {
+    const match = contacts.find((c) => trimmedText(c.email).toLowerCase() === email);
+    const name = trimmedText(match?.name);
+    if (name && name.toLowerCase() !== email) return name;
+  }
+  const fromName = trimmedText(from);
+  if (fromName) return fromName;
+  return trimmedText(counterpartyEmail);
+}
