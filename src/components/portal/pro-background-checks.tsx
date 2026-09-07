@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -25,6 +24,7 @@ import {
 import { ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
 import { ManagerScreeningSettingsModal } from "@/components/portal/pro-screening-settings";
+import { ScreeningTestModeToggle } from "@/components/portal/screening-test-mode-toggle";
 import { ManagerBackgroundChecksGroupedTable } from "@/components/portal/pro-background-checks-grouped-table";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
@@ -51,7 +51,6 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { useScreeningTestMode } from "@/hooks/use-screening-test-mode";
 import {
   isScreeningTestModeActive,
-  setScreeningTestModeActive,
 } from "@/lib/screening/screening-test-mode";
 import {
   buildScreeningSubjects,
@@ -384,6 +383,7 @@ export function ManagerBackgroundChecks({
 
   const listActions = (
     <>
+      <ScreeningTestModeToggle active={screeningTestMode} onChanged={handleScreeningUpdated} />
       {filterSheet}
       {settingsButton}
     </>
@@ -591,39 +591,6 @@ export function ManagerBackgroundChecks({
           )}
         </div>
       </ManagerPortalPageShell>
-
-      <div
-        className="fixed bottom-[calc(var(--portal-floating-bottom-gap)+3.5rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))] left-4 z-40 flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs shadow-lg lg:bottom-[calc(var(--portal-floating-bottom-gap)+env(safe-area-inset-bottom,0px))]"
-      >
-        <span className="font-medium text-foreground">Test mode</span>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={screeningTestMode}
-          className={cn(
-            "relative h-6 w-11 rounded-full transition",
-            screeningTestMode ? "bg-amber-400" : "bg-muted",
-          )}
-          onClick={() => {
-            const next = !screeningTestMode;
-            setScreeningTestModeActive(next);
-            showToast(
-              next
-                ? "Screening test mode on — simulated reports, no charges."
-                : "Live screening mode — real Checkr orders.",
-            );
-            handleScreeningUpdated();
-          }}
-          data-attr="screening-test-mode-toggle"
-        >
-          <span
-            className={cn(
-              "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition",
-              screeningTestMode ? "left-[22px]" : "left-0.5",
-            )}
-          />
-        </button>
-      </div>
     </>
   );
 }
