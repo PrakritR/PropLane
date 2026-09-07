@@ -196,6 +196,7 @@ import {
   validateListingWizardStep,
 } from "@/lib/listing-wizard-validation";
 import { roomHeadlinePriceLabel, roomShortLeaseSurcharge } from "@/lib/room-pricing";
+import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import { listingRoomPricingSummaryLabel } from "@/lib/rental-application/listing-fees-display";
 import {
   scrollToFirstWizardFieldError,
@@ -4480,6 +4481,7 @@ export function ManagerAddListingForm({
                 <ListingUnifiedFeesTable
                   expandableSections={feeExpandableSections}
                   showShortTerm={Boolean(sub.shortTermRentalsAllowed)}
+                  foldsMonthlyFeesIntoRent={listingFoldsAllMonthlyFeesIntoRent(sub)}
                   sub={sub}
                   isEntireHome={isEntireHome}
                   stFeeToggles={stFeeToggles}

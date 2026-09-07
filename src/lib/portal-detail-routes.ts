@@ -213,13 +213,14 @@ export function parseResidentsTab(raw: string | undefined | null): ResidentsTabI
  * Which profile tabs a person gets, by directory stage.
  *
  * A prospect has no tenancy, so Services — the add-on and maintenance queue a
- * tenant raises — has nothing to show and nothing to add. A tenant is past
- * touring, so Tours goes; their tour history stays on the Tours section.
+ * tenant raises — has nothing to show and nothing to add. Tours stay on every
+ * stage (PRP-394): a Current/Past tenant's tour history is still reachable from
+ * their profile, scoped to the viewing manager's portfolio in the panel.
  */
 export const RESIDENT_DETAIL_TABS_BY_STAGE: Record<ResidentsTabId, readonly ResidentDetailTabId[]> = {
   potential: RESIDENT_DETAIL_TABS.filter((tab) => tab !== "services"),
-  current: RESIDENT_DETAIL_TABS.filter((tab) => tab !== "tours"),
-  past: RESIDENT_DETAIL_TABS.filter((tab) => tab !== "tours"),
+  current: RESIDENT_DETAIL_TABS,
+  past: RESIDENT_DETAIL_TABS,
 };
 
 export function residentDetailTabsForStage(stage: ResidentsTabId): readonly ResidentDetailTabId[] {

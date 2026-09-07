@@ -12,6 +12,7 @@ import {
 } from "@/lib/listing-fee-term-toggles";
 import { LISTING_FEE_PRESETS, type ListingFeeRow } from "@/lib/listing-fees";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
+import { SEATTLE_RENT_RULE_NOTE } from "@/lib/seattle-rent-rule";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -342,6 +343,7 @@ export function ListingUnifiedFeesTable({
   onAddStandardRow,
   expandableSections,
   showShortTerm,
+  foldsMonthlyFeesIntoRent = false,
 }: {
   sub: ManagerListingSubmissionV1;
   isEntireHome: boolean;
@@ -371,6 +373,12 @@ export function ListingUnifiedFeesTable({
   expandableSections?: FeeExpandableSection[];
   /** Show the Short-term column. When false the whole column (header + cells) is gone. */
   showShortTerm: boolean;
+  /**
+   * Seattle rent rule: every monthly fee here is added to the rent and disclosed on the
+   * lease as part of rent, never billed as its own charge. Shown as a note on the section
+   * so the manager knows what the amounts they type will become.
+   */
+  foldsMonthlyFeesIntoRent?: boolean;
 }) {
   // Rent is NEVER an "Other fee" (round 27): it lives in the Rent section above — per room
   // when renting by room, as the whole-place row otherwise — and is re-added there, not here.
@@ -394,7 +402,12 @@ export function ListingUnifiedFeesTable({
         {sections.length > 0 ? (
           <SectionHeaderRow
             title="Other fees"
-            hint={isEntireHome ? "Whole-home rent and shared fees." : "Fees shared across the whole property."}
+            hint={[
+              isEntireHome ? "Whole-home rent and shared fees." : "Fees shared across the whole property.",
+              foldsMonthlyFeesIntoRent ? SEATTLE_RENT_RULE_NOTE : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             showShortTerm={showShortTerm}
           />
         ) : null}

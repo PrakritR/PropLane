@@ -32,8 +32,11 @@ export async function resolveTeamInviteDelegate(
   propertyIds: string[],
 ): Promise<TeamInviteDelegateResult> {
   const unique = [...new Set(propertyIds.map((id) => String(id).trim()).filter(Boolean))];
+  // Empty property list: primary owner may mint a placeholder invite and assign
+  // houses later (PRP-419). A co-manager always needs at least one property so
+  // we can pin which owner's Team grant authorizes the mint.
   if (unique.length === 0) {
-    return { ok: false, status: 400, error: "Choose at least one property this link grants access to." };
+    return { ok: true, ownerUserId: actorUserId };
   }
 
   const owned = await findPropertyIdsNotOwnedByManager(db, actorUserId, unique);

@@ -17,6 +17,7 @@ import {
   isLegacyFixedLeaseTerm,
 } from "@/lib/rental-application/lease-terms";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { listingFoldsAllMonthlyFeesIntoRent, type RentRuleAddress } from "@/lib/seattle-rent-rule";
 
 /** Fee fields must be filled with a dollar amount; use 0 when there is no charge. */
 export function isListingFeeAmountFilled(raw: string): boolean {
@@ -996,27 +997,38 @@ export type LeaseDocumentFeeLine = {
  * Canonical one-time and monthly fee lines for generated lease documents — includes preset
  * "Other fees" (parking, MTM surcharge, custom lease, holding deposit, etc.), not only
  * genuinely-custom rows.
+ *
+ * `monthly` is what bills as its own recurring charge. `foldedIntoRent` is what the ledger
+ * bills INSIDE the rent figure instead — every monthly line on a Seattle listing
+ * (`listingFoldsAllMonthlyFeesIntoRent`) — so the document can print the rent's composition
+ * without also listing those amounts as fees and totalling them twice. Pass
+ * `options.listingProperty` whenever there is a stored property record: the rule resolves the
+ * address the same way the lease's jurisdiction does, property first.
  */
 export function leaseDocumentFeeLines(
   sub: ManagerListingSubmissionV1 | undefined,
   section: LeaseBasicsFeeSection = "long-term",
   billingContext?: LeaseRecurringFeeBillingContext,
-  options?: { excludeHoldingDeposit?: boolean },
-): { oneTime: LeaseDocumentFeeLine[]; monthly: LeaseDocumentFeeLine[] } {
-  if (!sub?.v) return { oneTime: [], monthly: [] };
+  options?: { excludeHoldingDeposit?: boolean; listingProperty?: RentRuleAddress | null },
+): { oneTime: LeaseDocumentFeeLine[]; monthly: LeaseDocumentFeeLine[]; foldedIntoRent: LeaseDocumentFeeLine[] } {
+  if (!sub?.v) return { oneTime: [], monthly: [], foldedIntoRent: [] };
+  const foldsMonthlyIntoRent = listingFoldsAllMonthlyFeesIntoRent(sub, options?.listingProperty);
   const shortTermOn = Boolean(sub.shortTermRentalsAllowed);
   const excludedRemovedPresets = presetIdsExcludedForRemovedListingFeeRows(
     parseRemovedStandardListingFeeRows(sub),
   );
   const oneTime: LeaseDocumentFeeLine[] = [];
   const monthly: LeaseDocumentFeeLine[] = [];
+  const foldedIntoRent: LeaseDocumentFeeLine[] = [];
   const seen = new Set<string>();
 
   const push = (cadence: "one-time" | "monthly", line: LeaseDocumentFeeLine) => {
     const key = `${cadence}|${line.label.trim().toLowerCase()}|${line.amount.trim()}`;
     if (seen.has(key)) return;
     seen.add(key);
-    (cadence === "monthly" ? monthly : oneTime).push(line);
+    if (cadence !== "monthly") oneTime.push(line);
+    else if (foldsMonthlyIntoRent) foldedIntoRent.push(line);
+    else monthly.push(line);
   };
 
   const appRaw = String(sub.applicationFee ?? "")
@@ -1060,7 +1072,7 @@ export function leaseDocumentFeeLines(
     push(cadence === "monthly" ? "monthly" : "one-time", { label, amount: fee.amount });
   }
 
-  return { oneTime, monthly };
+  return { oneTime, monthly, foldedIntoRent };
 }
 
 /** Public listing fee rows for one lease-basics section (skips zero amounts). */
@@ -1079,6 +1091,9 @@ export function listingFeeRowsForLeaseBasicsSection(
     return feeMeaningfulForPublicListing(fee.amount);
   });
   const rows: ListingFeeDisplayRow[] = [];
+  // A Seattle listing's monthly fees are part of the rent, and the prospect is told so here
+  // rather than being shown a "Monthly" fee that will never appear as its own charge.
+  const foldsMonthlyIntoRent = listingFoldsAllMonthlyFeesIntoRent(sub);
 
   for (const fee of fees) {
     if (fee.presetId === "holding_deposit") continue;
@@ -1086,7 +1101,16 @@ export function listingFeeRowsForLeaseBasicsSection(
     if (leaseLengthGatesOutPreset(sub, fee.presetId as ListingFeePresetId | undefined)) continue;
     if (!feeBelongsInLeaseBasicsSection(fee, section, shortTermOn)) continue;
     const row = listingFeeToDisplayRow(fee, formatPrice, section);
-    if (row) rows.push(row);
+    if (!row) continue;
+    rows.push(
+      foldsMonthlyIntoRent && listingFeeCadence(fee) === "monthly"
+        ? {
+            ...row,
+            status: "Added to rent",
+            body: `${row.body} Included in the rent figure, never billed as a separate monthly charge.`,
+          }
+        : row,
+    );
   }
 
   return rows;

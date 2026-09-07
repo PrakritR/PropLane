@@ -1487,13 +1487,6 @@ export function ManagerResidents({
   // the prospect's tabs.
   const selectedStage: ResidentsTabId = selected?.stage ?? residentsTab;
 
-  // Tours belong to the prospect surface. A tenant is past touring, so the tab
-  // is gone from Current/Past even when they toured before signing; that
-  // history stays on the Tours section. Shown for every prospect, tours on
-  // file or not — the panel states the empty case, and a tab that appears only
-  // once a tour exists is a tab a manager cannot find.
-  const showResidentTours = selectedStage === "potential";
-
   const managerPortfolioPropertyIds = useMemo(
     () => (userId ? buildManagerPropertyFilterOptions(userId).map((option) => option.id) : []),
     [userId, propertyTick],

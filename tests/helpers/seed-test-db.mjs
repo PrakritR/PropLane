@@ -65,18 +65,38 @@ const testRunId = process.argv[2]?.trim() || `seed-${Date.now()}`;
 
 // `?.trim() ||` (never `??`): CI injects a missing secret as an empty string,
 // which must fall back to the same defaults tests/fixtures/index.ts resolves.
-const adminEmail = (process.env.E2E_ADMIN_EMAIL?.trim() || "admin@test.proplane.local").toLowerCase();
+/**
+ * The canonical accounts live at `@test.proplane.local`. A worktree's copied `.env.test` can
+ * still name the retired `@test.axis.local` family (the pre-rebrand domain), and seeding THAT
+ * family collides with the canonical one on `profiles.manager_id` (the AXIS ids are unique
+ * and shared), which surfaces as "duplicate key value violates unique constraint
+ * profiles_manager_id_key" and a portal with no applications. The seed therefore refuses the
+ * legacy domain and maps it to the canonical one, loudly, rather than seeding a ghost.
+ */
+const LEGACY_TEST_ACCOUNT_DOMAIN = "@test.axis.local";
+const CANONICAL_TEST_ACCOUNT_DOMAIN = "@test.proplane.local";
+function canonicalTestEmail(envName, fallback) {
+  const raw = (process.env[envName]?.trim() || fallback).toLowerCase();
+  if (!raw.endsWith(LEGACY_TEST_ACCOUNT_DOMAIN)) return raw;
+  const mapped = raw.slice(0, -LEGACY_TEST_ACCOUNT_DOMAIN.length) + CANONICAL_TEST_ACCOUNT_DOMAIN;
+  console.warn(
+    `[seed] ${envName}=${raw} names the retired ${LEGACY_TEST_ACCOUNT_DOMAIN} family; seeding ${mapped} instead. ` +
+      `Update .env.test to the ${CANONICAL_TEST_ACCOUNT_DOMAIN} accounts.`,
+  );
+  return mapped;
+}
+const adminEmail = canonicalTestEmail("E2E_ADMIN_EMAIL", "admin@test.proplane.local");
 const adminPassword = process.env.E2E_ADMIN_PASSWORD?.trim() || "TestAdmin123!";
-const managerEmail = (process.env.E2E_MANAGER_EMAIL?.trim() || "manager@test.proplane.local").toLowerCase();
+const managerEmail = canonicalTestEmail("E2E_MANAGER_EMAIL", "manager@test.proplane.local");
 const managerPassword = process.env.E2E_MANAGER_PASSWORD?.trim() || "TestManager123!";
-const residentEmail = (process.env.E2E_RESIDENT_EMAIL?.trim() || "resident@test.proplane.local").toLowerCase();
+const residentEmail = canonicalTestEmail("E2E_RESIDENT_EMAIL", "resident@test.proplane.local");
 const residentPassword = process.env.E2E_RESIDENT_PASSWORD?.trim() || "TestResident123!";
 // Must match E2E_RESIDENT_AXIS_ID in tests/fixtures/index.ts. The application
 // record id IS the resident's axis id (see normalizeApplicationAxisId), and the
 // resident's `profiles.manager_id` stores the same axis id — that is where the
 // app reads it (resident-portal-access.ts, resident-profile-panel.tsx).
 const residentAxisId = process.env.E2E_RESIDENT_AXIS_ID?.trim() || "AXIS-TESTRSID";
-const vendorEmail = (process.env.E2E_VENDOR_EMAIL?.trim() || "vendor@test.proplane.local").toLowerCase();
+const vendorEmail = canonicalTestEmail("E2E_VENDOR_EMAIL", "vendor@test.proplane.local");
 const vendorPassword = process.env.E2E_VENDOR_PASSWORD?.trim() || "TestVendor123!";
 // All-portals sandbox account for manual testing: one login that can open every
 // portal (admin + manager + resident + vendor) via the sign-in role picker.
@@ -503,6 +523,26 @@ async function ensureUser(
     if (updateErr) throw new Error(`updateUserById ${email}: ${updateErr.message}`);
   } else {
     userId = created.user.id;
+  }
+
+  // `profiles.manager_id` is UNIQUE and the upsert conflicts on `id`, so an id parked on
+  // some OTHER profile (a retired-domain twin of this account, a stale QA run) aborts the
+  // whole seed with profiles_manager_id_key. Reclaim it first — null the squatter's id,
+  // never delete the row — and say who held it. Same treatment the resident AXIS id gets.
+  if (managerId) {
+    const { data: squatters, error: squatErr } = await supabase
+      .from("profiles")
+      .select("id,email")
+      .eq("manager_id", managerId)
+      .neq("id", userId);
+    if (squatErr) throw new Error(`profiles(reclaim ${managerId}): ${squatErr.message}`);
+    for (const squatter of squatters ?? []) {
+      console.warn(`[seed] ${managerId} was held by ${squatter.email ?? squatter.id}; reclaiming it for ${email}.`);
+      await must(
+        supabase.from("profiles").update({ manager_id: null }).eq("id", squatter.id),
+        `profiles(release ${managerId} from ${squatter.email ?? squatter.id})`,
+      );
+    }
   }
 
   await must(
@@ -966,6 +1006,8 @@ try {
         name: r.name,
         floor: r.floor,
         monthlyRent: r.rent,
+        // Beds in the room. Absent means one; the capacity trigger reads exactly this field.
+        ...(r.occupancyCapacity ? { occupancyCapacity: r.occupancyCapacity } : {}),
         availability: "Now",
         moveInAvailableDate: isoDate(NOW),
         moveInInstructions: "Lockbox at front door; code shared after signing.",
@@ -992,6 +1034,7 @@ try {
     detail,
     furnishing: extras.furnishing ?? "Fully furnished",
     roomAmenitiesText: extras.roomAmenitiesText ?? "Closet\nHeating\nAC",
+    ...(extras.occupancyCapacity ? { occupancyCapacity: extras.occupancyCapacity } : {}),
   });
 
   function buildManagerScalePortfolioProperty(index, ownerUserId) {
@@ -1064,7 +1107,10 @@ try {
       ownerUserId: managerUserId,
       rooms: [
         room(1, "2nd floor", 1050, "Bright room with city view.", { name: "Unit 2A" }),
-        room(2, "3rd floor", 1100, "Corner room with extra closet.", { name: "Unit 3C" }),
+        // Two beds: Casey Cosigner Host is approved here and Ethan Wright is the pending
+        // applicant a demo approves into it; one bed would have the capacity trigger
+        // refuse that approval (PRP-372).
+        room(2, "3rd floor", 1100, "Corner room with extra closet.", { name: "Unit 3C", occupancyCapacity: 2 }),
         room(3, "4th floor", 1150, "Quiet top-floor room.", { name: "Unit 4B" }),
         room(4, "4th floor", 1125, "Compact room near shared bath.", { name: "Unit 4A" }),
         room(5, "5th floor", 1200, "Penthouse room with deck access.", { name: "Unit 5D" }),
@@ -1130,6 +1176,10 @@ try {
           name: "Studio",
           floor: "6th floor",
           rent: 1800,
+          // Two beds: the primary e2e resident AND Ava Nguyen are both approved here, which
+          // the shared-room capacity trigger refuses on a one-bed room (PRP-372). It also
+          // gives the seed one genuinely shared room to demonstrate that feature on.
+          occupancyCapacity: 2,
           detail: "Open studio with kitchenette and lake views.",
           furnishing: "Fully furnished",
           roomAmenitiesText: "Kitchenette\nLake views\nCloset",
@@ -1444,7 +1494,10 @@ try {
     { axisId: "AXIS-DEMOJORDL", first: "Jordan", last: "Lee", propId: "mgr-demo-pioneer", roomId: "room-1", bucket: "approved", leaseStage: "signed", income: 96000 },
     { axisId: "AXIS-DEMOGRAP1", first: "Riley", last: "Group Lead", email: "riley.group.lead.workflow@test.proplane.local", propId: "mgr-demo-ballard", roomId: "room-2", bucket: "approved", leaseStage: "signed", income: 92000, demoGroupId: "PROPLANE-DEMOGRP2", groupRole: "first" },
     { axisId: "AXIS-DEMOGRAP2", first: "Sam", last: "Group Mate", email: "sam.group.mate.workflow@test.proplane.local", propId: "mgr-demo-ballard", roomId: "room-3", bucket: "approved", leaseStage: "signed", income: 88000, demoGroupId: "PROPLANE-DEMOGRP2", groupRole: "joining" },
-    { axisId: "AXIS-DEMOCOSAP", first: "Casey", last: "Cosigner Host", email: "casey.cosigner.host.workflow@test.proplane.local", propId: "mgr-demo-cascade", roomId: "room-1", bucket: "approved", leaseStage: "signed", income: 82000, hasCosigner: true },
+    // room-2, not room-1: Diego Morales already holds room-1's one bed, and the shared-room
+    // capacity trigger (20260906070000) refuses a second approved placement there — which
+    // killed the whole seed at manager_application_records(catalog). PRP-372.
+    { axisId: "AXIS-DEMOCOSAP", first: "Casey", last: "Cosigner Host", email: "casey.cosigner.host.workflow@test.proplane.local", propId: "mgr-demo-cascade", roomId: "room-2", bucket: "approved", leaseStage: "signed", income: 82000, hasCosigner: true },
     { axisId: "AXIS-DEMOAVAN", first: "Ava", last: "Nguyen", propId: "mgr-demo-lakeview", roomId: "room-1", bucket: "approved", leaseStage: "manager_sign", income: 88000 },
     { axisId: "AXIS-DEMODIEGM", first: "Diego", last: "Morales", propId: "mgr-demo-cascade", roomId: "room-1", bucket: "approved", leaseStage: "resident_sign", income: 91000 },
     { axisId: "AXIS-DEMOSOFID", first: "Sofia", last: "Diaz", propId: "mgr-demo-ballard", roomId: "room-1", bucket: "approved", leaseStage: "signed", income: 104000 },
@@ -1555,7 +1608,11 @@ try {
       roomChoice3: "",
       shortTermCheckInTime: "",
       shortTermCheckOutTime: "",
-      managerRentOverride: String(p.rent),
+      // A manager override is a NEGOTIATED rent, which the ledger and the lease take as-is
+      // (no short-lease surcharge, no folded fees). Only an approved fixture carries one;
+      // a pending applicant has nothing negotiated yet, so approving one in a demo bills
+      // the listing's own price the way a real applicant's approval does.
+      managerRentOverride: p.bucket === "approved" ? String(p.rent) : "",
       managerUtilitiesOverride: "150",
       managerSecurityDepositOverride: String(p.prop.deposit),
       managerMoveInFeeOverride: "250",
@@ -1807,6 +1864,27 @@ try {
       },
       updated_at: NOW.toISOString(),
     };
+  }
+
+  // The database arbitrates the last bed (shared-room capacity trigger), so two approved
+  // fixtures on one room do not "just both seed" — the upsert is refused and the seed dies
+  // half-written. Catch it here, by name, before any row is sent. Rooms default to one bed;
+  // a fixture that wants more must set occupancyCapacity on the room, not rely on this.
+  const bedsByRoom = new Map();
+  for (const p of people) {
+    if (p.bucket !== "approved") continue;
+    const key = `${p.propId}::${p.roomId}`;
+    const entry = bedsByRoom.get(key) ?? { capacity: Number(p.room?.occupancyCapacity) || 1, holders: [] };
+    entry.holders.push(`${p.first} ${p.last}`);
+    bedsByRoom.set(key, entry);
+  }
+  const overbooked = [...bedsByRoom.entries()].filter(([, { capacity, holders }]) => holders.length > capacity);
+  if (overbooked.length > 0) {
+    throw new Error(
+      `seed fixture places more approved residents in a room than it has beds: ${overbooked
+        .map(([room, { capacity, holders }]) => `${room} has ${capacity} bed(s) for ${holders.join(", ")}`)
+        .join("; ")}. Move one of them or raise that room's occupancyCapacity.`,
+    );
   }
 
   const applicationRows = [

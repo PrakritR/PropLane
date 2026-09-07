@@ -54,6 +54,7 @@ describe("co-manager open invite surfaces", () => {
     expect(panel).toContain('inviteTitle="Invite by link"');
     expect(panel).toContain("onCreateInviteLink={openInviteLinkModal}");
     expect(panel).toContain('inviteLinkDataAttr="co-manager-create-invite-link"');
+    expect(panel).toContain("inviteDisabled={inviteLinkBlocked}");
     expect(panel).toContain("ManagerInviteLinkModal");
     expect(panel).toContain('data-attr="co-manager-proplane-id-input"');
     expect(panel).toContain('data-attr="co-manager-link-continue"');
@@ -61,6 +62,22 @@ describe("co-manager open invite surfaces", () => {
     expect(panel).toContain('label="Properties"');
     expect(panel).not.toContain('data-attr="co-manager-invite-link-open"');
     expect(panel).not.toContain("Select at least one property for this invite.");
+
+    const modal = readFileSync(
+      join(process.cwd(), "src/components/portal/manager-invite-link-modal.tsx"),
+      "utf8",
+    );
+    expect(modal).toContain("No properties yet. You can still create a link and assign houses later.");
+  });
+
+  it("allows minting a co-manager invite with zero properties (PRP-419)", () => {
+    const server = readFileSync(
+      join(process.cwd(), "src/lib/auth/co-manager-team-invite.server.ts"),
+      "utf8",
+    );
+    expect(server).toContain("unique.length === 0");
+    expect(server).toContain("ownerUserId: actorUserId");
+    expect(server).not.toContain("Choose at least one property this link grants access to.");
   });
 
   it("create route mints an open invite when no PropLane ID is sent", () => {

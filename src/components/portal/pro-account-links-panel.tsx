@@ -919,10 +919,15 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   const participantUsedCount = remoteInvites.filter((i) => i.status === "pending" || i.status === "accepted").length;
   const atLinkCap = linkCap != null && (useRemote ? participantUsedCount >= linkCap : localRows.length >= linkCap);
   const planAllowsInvites = skuTier != null && managerPlanAllowsCoManagerInvites(skuTier);
+  // Axis-ID / property-assignment path still needs at least one house to grant.
   const linkAccountBlocked =
     !canSendTeamInvites ||
     atLinkCap ||
     (ownsTeamInviteProperties && skuTier != null && !planAllowsInvites);
+  // Invite-by-link can mint with zero properties (assign houses later — PRP-419).
+  // Still honor plan + seat caps. Do not require a house just to open the mint UI.
+  const inviteLinkBlocked =
+    atLinkCap || (skuTier != null && !planAllowsInvites);
 
   const navigateToList = useCallback(() => {
     navigate(teamLinkHref(portalBase));
@@ -1144,11 +1149,11 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   };
 
   const openInviteLinkModal = () => {
-    if (!canSendTeamInvites) {
-      showToast("You do not have Team permission to invite co-managers.");
+    if (atLinkCap) {
+      showToast("You have reached your co-manager link limit.");
       return;
     }
-    if (ownsTeamInviteProperties && skuTier != null && !managerPlanAllowsCoManagerInvites(skuTier)) {
+    if (skuTier != null && !managerPlanAllowsCoManagerInvites(skuTier)) {
       showToast("Upgrade to Pro or Business before linking co-managers.");
       return;
     }
@@ -2454,7 +2459,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
                 inviteDescription="Create a shareable link to invite your team member. It's the fastest and easiest way to link an account."
                 onCreateInviteLink={openInviteLinkModal}
                 inviteLinkDataAttr="co-manager-create-invite-link"
-                inviteDisabled={linkAccountBlocked}
+                inviteDisabled={inviteLinkBlocked}
                 secondaryTitle="Link with PropLane ID"
                 secondaryDescription={`Enter the account's ${AXIS_ID_LABEL} to link directly.`}
                 secondaryIcon="id"

@@ -350,8 +350,14 @@ describe("long-term lease parity", () => {
       leaseEnd: "",
     };
     const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
-    expect(html).toContain("Month-to-month surcharge");
-    expect(html).toMatch(/<strong>Month-to-month surcharge:<\/strong> \$25\.00 \(monthly\)/);
+    // Seattle: the surcharge is RENT. The document quotes one rent figure that includes it,
+    // says so, and never lists it as a separate monthly fee (tests/unit/seattle-rent-fold-in.test.ts).
+    expect(html).toContain("$25.00 month-to-month surcharge");
+    expect(html).toContain('data-rent-composition="true"');
+    expect(html).not.toMatch(/<strong>Month-to-month surcharge:<\/strong> \$25\.00 \(monthly\)/);
+    // A fixed-term lease on the same listing carries no surcharge at all.
+    const fixed = buildLeaseHtml(longTermContext({ monthToMonthSurcharge: "25" }), SEATTLE_LEASE_CONFIG);
+    expect(fixed).not.toContain("month-to-month surcharge");
   });
 
   it("shows custom lease surcharge only when the term uses non-standard calendar dates", () => {
@@ -363,9 +369,11 @@ describe("long-term lease parity", () => {
       leaseEnd: "12/1/2026",
     };
     const html = buildLeaseHtml(ctx, SEATTLE_LEASE_CONFIG);
-    expect(html).toContain("Custom lease");
-    expect(html).toMatch(/<strong>Custom lease:<\/strong> \$100\.00 \(monthly\)/);
-    expect(html).not.toContain("Month-to-month surcharge");
+    // Seattle: folded into rent and disclosed there, never a separate "(monthly)" fee line.
+    expect(html).toContain("$100.00 custom lease");
+    expect(html).toContain('data-rent-composition="true"');
+    expect(html).not.toMatch(/<strong>Custom lease:<\/strong> \$100\.00 \(monthly\)/);
+    expect(html).not.toContain("month-to-month surcharge");
   });
 
   it("includes a manager-entered one-time short-term lease fee in the compact summary and signing breakdown", () => {
