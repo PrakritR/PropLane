@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { showToast } from "@/lib/toast";
 import { setScreeningTestModeActive } from "@/lib/screening/screening-test-mode";
 
-/** In-header Test mode switch — never `fixed left-4` under the sidebar (PRP-383). */
+/** In-header Test mode switch — never a bottom-left overlay under the sidebar (PRP-383). */
 export function ScreeningTestModeToggle({
   active,
   onChanged,

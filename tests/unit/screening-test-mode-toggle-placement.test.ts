@@ -14,10 +14,10 @@ describe("screening test-mode toggle placement (PRP-383)", () => {
     "utf8",
   );
 
-  it("keeps the shared control out of a fixed left-4 overlay", () => {
+  it("keeps the shared control out of a viewport-corner overlay", () => {
     expect(toggle).toContain('data-attr="screening-test-mode-toggle"');
     expect(toggle).not.toMatch(/\bfixed\b/);
-    expect(toggle).not.toMatch(/className="[^"]*\bleft-4\b/);
+    expect(toggle).not.toMatch(/\bleft-4\b/);
   });
 
   it("uses ScreeningTestModeToggle in Background checks and Screenings headers", () => {
