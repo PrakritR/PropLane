@@ -960,7 +960,10 @@ export function ManagerPlan({
               ))}
             </div>
           ) : (
-            <div className="mt-6 grid gap-5 lg:grid-cols-3 lg:items-stretch">
+            <div
+              className="mt-6 flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3 [&>*]:w-[84%] [&>*]:shrink-0 [&>*]:snap-center lg:grid lg:grid-cols-3 lg:items-stretch lg:gap-5 lg:overflow-visible lg:pb-0 lg:[&>*]:w-auto"
+              data-attr="billing-plan-scroller"
+            >
               {planTiers.map((t) => {
                 const tierId = t.id as ManagerSkuTier;
                 const pb = priceView === "monthly" ? t.monthly : t.annual;

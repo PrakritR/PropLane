@@ -210,7 +210,13 @@ export default async function PricingPage({
       </MarketingHero>
 
       <section className="pb-4">
-        <div className="lp-w-wide grid gap-5 md:grid-cols-3">
+        {/* Three plans stay side by side on a phone too (PRP-314): a snap scroller
+            below md, a plain 3-column grid from md up. Stacking them meant only
+            one plan was ever on screen, which defeats a comparison page. */}
+        <div
+          className="lp-w-wide flex snap-x snap-mandatory gap-4 overflow-x-auto pb-3 [&>*]:w-[84%] [&>*]:shrink-0 [&>*]:snap-center md:grid md:grid-cols-3 md:gap-5 md:overflow-visible md:pb-0 md:[&>*]:w-auto"
+          data-attr="pricing-plan-scroller"
+        >
           {MANAGER_PLAN_TIERS.map((tier) => (
             <PlanCard key={tier.id} tier={tier} annual={annual} />
           ))}
