@@ -786,9 +786,13 @@ never defaulting — the stored property JSON's own `contactSmsPhone` is
 manager-editable and is deliberately ignored), `/api/manager/phone` returns it
 as `listingCtaPhone` for manager-side previews, and the browser's
 `listingCtaSmsPhone` only normalizes/rejects. The browser must NEVER substitute
-a number of its own: `null` means render the "Schedule a tour" / "Apply online"
-web links that already sit under those buttons, not an `sms:` to the shared
-line. Note `managerContactSmsPhoneForPublicCta` still collapses everything onto
+a number of its own: `null` means the listing's **Text** button is simply absent,
+not an `sms:` to the shared line. Texting is a third door beside the always-present
+**Schedule tour** and **Apply** web CTAs — it never replaces them, so a prospect on a
+desktop browser still reaches the booking form and the application directly. In the
+manager's OWN preview of the listing (`managerPreviewChrome`) a missing work number
+also raises a "Set up messaging" banner, which a prospect never sees. Note
+`managerContactSmsPhoneForPublicCta` still collapses everything onto
 the Claw line — it backs the SEND transport (`proplane-sms-transport.server.ts`)
 and work-number UI, not CTAs. Coverage:
 `tests/unit/listing-cta-manager-phone.test.ts`,

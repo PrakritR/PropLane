@@ -85,6 +85,23 @@ precedence the money paths do, so the payer a resident is shown before checkout
 cannot disagree with the one they are billed under; it resolves without a
 `propertyChoice` because the account-wide disclosure has no property in hand.
 
+**Choosing `proplane` for the ACCOUNT needs the same `FREE100` code the listing
+wizard asks for per listing**, because it spends PropLane's own money either way.
+`resolveSavedServiceFeeSelection` (`manager-manual-payment-settings.ts`) is the one
+decision: a NEW `proplane` selection with no valid `serviceFeeWaiverCode` falls back
+to `resident`, exactly as `persistListingServiceFeePayer` does, while a save that
+merely CARRIES FORWARD an account already stored on `proplane` keeps it — legacy rows
+carry no code, so an unrelated toggle must not quietly move Stripe's cost onto their
+residents. `PATCH /api/portal/manager-manual-payment-settings` REFUSES the code-less
+new selection with **400** rather than storing the downgrade and answering 200, and
+`saveManagerManualPaymentSettings` THROWS when the stored settings cannot be read at
+all: a failed read cannot tell a legacy absorber from a code-less new choice. The
+Payment setup modal asks for the code inline and saves nothing until it matches, and
+it refuses to write anything before its own settings GET has succeeded — the draft
+defaults to `resident`, so one click on the Stripe checkbox would otherwise overwrite
+a stored `proplane` with a choice the server cannot refuse. Coverage:
+`tests/unit/manager-service-fee-waiver-code.test.tsx`.
+
 The **property choice** is `serviceFeePayer` on `ManagerListingSubmissionV1`,
 edited in the listing wizard's Pricing step. `null` means "follow the account",
 which is NOT the same as any of the three payers — an untouched property must

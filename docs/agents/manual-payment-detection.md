@@ -22,7 +22,7 @@ own payment-notification emails, and the setup a manager and resident each did.
 
 | Path | Trigger | Latency |
 | --- | --- | --- |
-| **Linked Gmail** | Resident taps **Check payment** (`resident-check-manual-payment.server.ts`); manager taps **Check payments** on the Payments tab (`POST /api/portal/gmail-payments/sync`) | `GET /api/cron/sync-manual-payments` runs once daily on Vercel Hobby (managers with rent due in 48h are prioritized inside each run) |
+| **Linked Gmail** | Resident taps **Check payment** (`resident-check-manual-payment.server.ts`); the manager's Payments tab scans on its own (`POST /api/portal/gmail-payments/sync` — once on arrival, then on a timer, while the tab is visible and there are open charges to match; there is no **Check** button to press) | `GET /api/cron/sync-manual-payments` runs once daily on Vercel Hobby (managers with rent due in 48h are prioritized inside each run) |
 | **Forwarded email** (`payments+<token>@…`) | A Gmail filter forwards receipts; the inbound webhook processes each on arrival | Instant |
 
 Both paths run the SAME parse → match → mark-paid pipeline
@@ -90,7 +90,7 @@ applied to at most one charge.
 
 ### Detection timing
 - **Forwarded email:** matched the moment the receipt lands.
-- **Linked Gmail:** matched when a resident taps **Check payment**, when the manager taps **Check payments**, or on the daily cron scan.
+- **Linked Gmail:** matched when a resident taps **Check payment**, when the manager's Payments tab runs its automatic scan (on arrival and on a timer), or on the daily cron scan.
 - Anything we can't confidently attribute is counted **ambiguous** and left
   alone — the charge stays pending for the manager to mark paid manually, and
   is never silently credited.
