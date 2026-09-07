@@ -191,6 +191,13 @@ export function isProvisioningEnabled(
   return String(env.SMS_PROVISIONING_ENABLED ?? "").trim() === "1";
 }
 
+/** Temporary onboarding offer; unset restores paid-only trial enrollment. */
+export function isTrialWorkNumberOnboardingEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return env.SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED?.trim() === "1";
+}
+
 /**
  * True when the manager may send from their own provisioned number: a usable
  * number physically exists AND that manager's registration is approved. A number

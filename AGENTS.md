@@ -514,7 +514,7 @@ iOS TestFlight build, so it is promoted only after dedicated QA signs off on
 **Agent handoff (every pane):** before saying work is ready, run
 `npm run sandbox:open -- </route>` and include the printed Review URL.
 **Captain integration (not agents):** `npm run ship:to-prakrit -- --source <keeper>`
-runs security review + no-mistakes before updating the captain integration
+requires security review, tests, and lint before updating the captain integration
 branch, then opens `localhost:3000` on `.proplane-review-path`.
 Details: `docs/agents/sandbox-open-review.md`.
 
@@ -543,7 +543,7 @@ feature / agent branch  →  main  →  staging  →  production
 
 **`prakrit` is captain integration only** — agents land on their keeper branch,
 never merge to `prakrit` themselves. Captain uses `npm run ship:to-prakrit` /
-`bin/fm-proplane-promote-to-prakrit.sh` (security review + no-mistakes) to fold
+`bin/fm-proplane-promote-to-prakrit.sh` (legacy wrapper) to fold
 keeper work into integration before `main`. Agents must not treat `prakrit` as
 their landing branch.
 
@@ -666,7 +666,7 @@ agent, every runtime, every feature.
    you drove: the empty state, the refusal, the second actor, the concurrent
    write, the over-limit case, the permission that should say no. Anything you
    could not reach, say so plainly rather than implying coverage.
-3. **Run the no-mistakes pipeline** and let it reach a verdict. `/no-mistakes`.
+3. **Run code review, tests, and lint.** No specific pipeline tool is required.
    Report the real exit codes; a piped `| tail` hides a failure.
 4. **Then open it.** Pin the port and start the server, leave it running, and
    give the captain the exact URL of the page the feature lives on:
@@ -1634,3 +1634,9 @@ Keep this file for knowledge useful to almost every future agent session in this
 Do not repeat what the codebase already shows; point to the authoritative file or command instead.
 Prefer rewriting or pruning existing entries over appending new ones.
 When updating this file, preserve this bar for all agents and keep entries concise.
+
+## Akhil’s validation preference
+
+Never invoke no-mistakes for Akhil, including through a wrapper or at the end
+of a task. Use normal reviews, tests, lint, and staging QA. Only a new explicit
+request from Akhil to run that tool overrides this preference.

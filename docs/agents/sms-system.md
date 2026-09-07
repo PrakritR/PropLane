@@ -337,20 +337,21 @@ server state machine in `src/lib/sms/manager-number-provisioning.server.ts`.
 - **One PropLane brand/campaign.** Workspace registration uses the approved
   PropLane campaign. Sendability still requires the individual number's carrier
   registration to be `registered`, attachment to the configured Messaging
-  Service, exact account/service/campaign allow-list match, active paid
-  entitlement, and both runtime kill switches.
+  Service, exact account/service/campaign allow-list match, communication
+  eligibility (see [billing policy](comms-billing.md)), and both runtime kill switches.
 - **Signup** (`scheduleManagerMessagingReady`) always seeds a parked record via
   `ensureManagerNumberRecord`. Release on deactivation is reversible
   (`releaseManagerNumber` → `released`, history kept; `restoreManagerNumber`).
-- **Paid entitlement is enforced.** Explicit setup reconciles Stripe/Apple into
-  `sms_manager_entitlements`; trialing, past-due,
-  canceled, legacy-unknown, and unreadable plans fail closed. Comp grants carry
+- **Plan-based entitlement is enforced when PAYG is disabled.** Explicit setup
+  reconciles billing into `sms_manager_entitlements`; past-due, canceled,
+  legacy-unknown, and unreadable plans fail closed. The
+  [billing policy](comms-billing.md#temporary-trial-work-number-onboarding) owns
+  the temporary trial exception and eligibility recovery flow. Comp grants carry
   no Stripe subscription to revalidate, so `reconcileManagerSmsEntitlement`
   recognises all THREE shapes the portal's own plan resolver does — `billing =
   'admin'`, an `admin_`-prefixed checkout session, and a payment waiver
-  (`promo_code`). Recognising only the first read a waiver-granted Business
-  manager back as `legacy_unknown`: every other paid feature worked while
-  Settings → Messaging refused their number as unpaid. Dispatch uses the
+  (`promo_code`). Stored reads revalidate those same grant shapes against the
+  current purchase, so removing a grant also removes access. Dispatch uses the
   persisted state and never calls billing providers in the hot path. The pilot
   allowlist controls rollout only; it is never accepted as proof of payment.
   Stripe and RevenueCat lifecycle webhooks refresh this cache.
@@ -492,7 +493,7 @@ catalog, over text, with proposals confirmed by a `YES` reply. Session kind
 route uses.
 
 **Who gets a work number and an assistant email.** Every manager account that
-clears the plan check can provision **its own** number and **its own**
+clears the applicable [billing eligibility check](comms-billing.md) can provision **its own** number or **its own**
 `assist-…@` address — including a pure co-manager, who inherits plan eligibility
 from an inviter (`getEffectiveManagerSmsEntitlement`). A co-manager used to be
 refused the address and told to email the owner's, which meant two people shared

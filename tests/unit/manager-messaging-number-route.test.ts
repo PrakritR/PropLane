@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getManagerPortalNavSubscriptionTier: vi.fn(),
   provisionManagerNumber: vi.fn(),
   track: vi.fn(),
+  rateLimit: vi.fn<typeof import("@/lib/rate-limit").rateLimit>(),
 }));
 
 vi.mock("@/lib/manager-route-guard.server", () => ({
@@ -24,6 +25,7 @@ vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({
   provisionManagerNumber: mocks.provisionManagerNumber,
 }));
 vi.mock("@/lib/analytics/posthog", () => ({ track: mocks.track }));
+vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.rateLimit }));
 
 import { GET, POST } from "@/app/api/manager/messaging-number/route";
 
@@ -72,6 +74,7 @@ function dbFor(input?: {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.rateLimit.mockResolvedValue({ ok: true });
   delete process.env.SMS_PROVISIONING_ENABLED;
   const db = dbFor();
   mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
@@ -89,12 +92,84 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   if (originalProvisioning === undefined)
     delete process.env.SMS_PROVISIONING_ENABLED;
   else process.env.SMS_PROVISIONING_ENABLED = originalProvisioning;
 });
 
 describe("manager messaging-number route", () => {
+  it("offers explicit setup for an old trial snapshot only during the onboarding rollout", async () => {
+    const db = dbFor({ mode: "automatic" });
+    mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "trialing" });
+    process.env.SMS_PROVISIONING_ENABLED = "1";
+    vi.stubEnv("SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED", "1");
+    expect((await (await GET()).json()).canRequest).toBe(true);
+    vi.stubEnv("SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED", "0");
+    expect((await (await GET()).json()).canRequest).toBe(false);
+    expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
+  });
+
+  it("rejects unauthenticated eligibility refresh before billing work", async () => {
+    mocks.requireManagerRouteUser.mockResolvedValue(null);
+    const response = await POST(new Request("https://prop-lane.test/api/manager/messaging-number", {
+      method: "POST", body: JSON.stringify({ action: "refresh_eligibility" }),
+    }));
+    expect(response.status).toBe(401);
+    expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
+    expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
+  });
+
+  it("bounds explicit refresh without purchasing or reading billing when throttled", async () => {
+    mocks.rateLimit.mockResolvedValue({ ok: false });
+    const response = await POST(new Request("https://prop-lane.test/api/manager/messaging-number", {
+      method: "POST", body: JSON.stringify({ action: "refresh_eligibility" }),
+    }));
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    expect(mocks.rateLimit).toHaveBeenCalledWith(`messaging-eligibility-refresh:${MANAGER}`, 3, 60_000);
+    expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
+    expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
+  });
+
+  it("returns a recoverable service failure when the limiter is unavailable", async () => {
+    mocks.rateLimit.mockResolvedValue({ ok: false, unavailable: true });
+    const response = await POST(new Request("https://prop-lane.test/api/manager/messaging-number", {
+      method: "POST", body: JSON.stringify({ action: "refresh_eligibility" }),
+    }));
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect((await response.json()).error).toContain("temporarily unavailable");
+    expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
+    expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
+  });
+
+  it.each(["pro", "business"])("lets an active %s subscriber request a number", async (tier) => {
+    const db = dbFor({ mode: "automatic" });
+    mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+    mocks.reconcileManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier, source: "stripe" });
+    mocks.provisionManagerNumber.mockResolvedValue({ ok: true, number: "+12065550123", state: "provisioning", alreadyProvisioned: false });
+    process.env.SMS_PROVISIONING_ENABLED = "1";
+    const response = await POST(new Request("https://prop-lane.test/api/manager/messaging-number", { method: "POST", body: "{}" }));
+    expect(response.status).toBe(200);
+    expect(mocks.provisionManagerNumber).toHaveBeenCalledWith(db, MANAGER, undefined);
+    expect(mocks.track).toHaveBeenCalledWith("messaging_number_requested", MANAGER, { state: "provisioning" });
+  });
+
+  it.each([
+    ["trialing", 403, "trial converts"],
+    ["plan_unreadable", 503, "could not verify"],
+    ["legacy_unknown", 503, "could not verify"],
+  ])("explains %s eligibility without a misleading upgrade prompt", async (reason, status, message) => {
+    mocks.reconcileManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason });
+    const response = await POST(new Request("https://prop-lane.test/api/manager/messaging-number", { method: "POST", body: "{}" }));
+    expect(response.status).toBe(status);
+    expect((await response.json()).error).toContain(message);
+    expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
+  });
+
   it("keeps GET strictly read-only and reports the effective paused mode", async () => {
     const response = await GET();
     const body = await response.json();
@@ -253,9 +328,8 @@ describe("manager messaging-number route", () => {
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 
-  it("refuses a numberless check once a plan snapshot exists", async () => {
-    // `plan_unreadable` is sticky, so a reason-keyed gate would never close and
-    // every press would re-hit billing. A stored snapshot closes it for good.
+  it("recovers a numberless account even when an old plan snapshot exists", async () => {
+    // An old snapshot must never permanently block recovery after an upgrade.
     const db = dbFor({ entitlementRow: true });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({
@@ -271,8 +345,9 @@ describe("manager messaging-number route", () => {
       }),
     );
 
-    expect(response.status).toBe(409);
-    expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.reconcileManagerSmsEntitlement).toHaveBeenCalledTimes(1);
+    expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 
   it("refreshes an unresolved plan even before a number exists", async () => {
@@ -301,7 +376,7 @@ describe("manager messaging-number route", () => {
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 
-  it("does not refresh or provision when no number exists", async () => {
+  it("refreshes an eligible account without purchasing a number", async () => {
     const response = await POST(
       new Request("https://prop-lane.test/api/manager/messaging-number", {
         method: "POST",
@@ -310,8 +385,9 @@ describe("manager messaging-number route", () => {
       }),
     );
 
-    expect(response.status).toBe(409);
-    expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.reconcileManagerSmsEntitlement).toHaveBeenCalledTimes(1);
+    expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 

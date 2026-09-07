@@ -15,10 +15,17 @@ import type { ManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/
 import {
   getEffectiveManagerSmsEntitlement,
   reconcileManagerSmsEntitlement,
+  type SmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
 import { isPureCoManagerWorkspace } from "@/lib/sms/manager-workspace-role.server";
 
 export const runtime = "nodejs";
+
+function assistantEmailEntitlement(entitlement: SmsEntitlement): SmsEntitlement {
+  return entitlement.eligible && entitlement.trial
+    ? { eligible: false, reason: "trialing" }
+    : entitlement;
+}
 
 async function hasStoredEntitlementRow(
   db: SupabaseClient,
@@ -38,7 +45,7 @@ async function buildStatus(
   userId: string,
 ): Promise<ManagerAssistantEmailStatus> {
   const [entitlement, planTierResult, row, pureCoManager, storageReady] = await Promise.all([
-    getEffectiveManagerSmsEntitlement(db, userId),
+    getEffectiveManagerSmsEntitlement(db, userId, { preferPaid: true }).then(assistantEmailEntitlement),
     getManagerPortalNavSubscriptionTier(userId),
     loadManagerAssistantEmail(db, userId),
     isPureCoManagerWorkspace(db, userId),
@@ -116,7 +123,7 @@ export async function POST(req: Request) {
         { status: 409 },
       );
     }
-    await reconcileManagerSmsEntitlement(actor.db, actor.userId);
+    await reconcileManagerSmsEntitlement(actor.db, actor.userId, { preferPaid: true });
     return NextResponse.json(await buildStatus(actor.db, actor.userId), {
       headers: { "Cache-Control": "private, no-store" },
     });
@@ -156,7 +163,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const entitlement = await reconcileManagerSmsEntitlement(actor.db, actor.userId);
+  const entitlement = assistantEmailEntitlement(await reconcileManagerSmsEntitlement(actor.db, actor.userId, { preferPaid: true }));
   const planTierResult = await getManagerPortalNavSubscriptionTier(actor.userId);
   const planTier: ManagerAssistantEmailStatus["planTier"] =
     planTierResult === "free" ? "free" : planTierResult === null ? "unknown" : "paid";
