@@ -30,9 +30,9 @@ import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-n
  * Route by URL instead: billing answers "disabled" (the card renders nothing),
  * and the queued responses stay reserved for the work-number endpoint.
  */
-function messagingFetchMock(responses: Response[]) {
+function messagingFetchMock(responses: (Response | Promise<Response>)[]) {
   const queue = [...responses];
-  const fn = vi.fn(async (input: RequestInfo | URL) => {
+  const fn = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
     if (String(input).includes("/api/manager/comms-billing")) {
       return Response.json({ paygEnabled: false });
     }
@@ -133,12 +133,21 @@ describe("ManagerMessagingSettingsPanel", () => {
       entitlement: { eligible: true, tier: "business", source: "stripe" },
       canRequest: true,
     };
-    const fetchMock = messagingFetchMock([Response.json(stale), Response.json(refreshed)]);
+    showToast.mockClear();
+    let finishRefresh!: (response: Response) => void;
+    const pendingRefresh = new Promise<Response>((resolve) => { finishRefresh = resolve; });
+    const fetchMock = messagingFetchMock([Response.json(stale), pendingRefresh]);
     vi.stubGlobal("fetch", fetchMock);
     render(<ManagerMessagingSettingsPanel />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Refresh eligibility" }));
+    const checking = await screen.findByRole("button", { name: "Checking…" });
+    expect(checking.getAttribute("aria-busy")).toBe("true");
+    expect((checking as HTMLButtonElement).disabled).toBe(true);
+    expect(showToast).not.toHaveBeenCalled();
+    finishRefresh(Response.json(refreshed));
     expect(await screen.findByRole("button", { name: "Request work number" })).toBeTruthy();
+    expect(showToast).toHaveBeenCalledWith("Messaging eligibility refreshed.");
     expect(numberCalls(fetchMock)).toHaveLength(2);
     expect(JSON.parse(String(numberCalls(fetchMock)[1]?.[1]?.body)).action).toBe("refresh_eligibility");
   });

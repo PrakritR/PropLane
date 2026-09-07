@@ -212,7 +212,7 @@ export function ManagerMessagingSettingsPanel({
     null,
   );
   const [loading, setLoading] = useState(true);
-  const [pendingAction, setPendingAction] = useState<"request" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"request" | "refresh" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [areaCode, setAreaCode] = useState("");
   const [announceOpen, setAnnounceOpen] = useState(false);
@@ -302,9 +302,9 @@ export function ManagerMessagingSettingsPanel({
   );
 
   const postAction = useCallback(
-    async (action: "request_number") => {
+    async (action: "request_number" | "refresh_eligibility") => {
       setError(null);
-      setPendingAction("request");
+      setPendingAction(action === "refresh_eligibility" ? "refresh" : "request");
       try {
         const res = await fetch(ENDPOINT, {
           method: "POST",
@@ -325,7 +325,9 @@ export function ManagerMessagingSettingsPanel({
           // quarantined provisioning with canRequest: false). Apply it so Retry
           // does not stay enabled against a server that will refuse another buy.
           if (isMessagingNumberStatus(body)) setStatus(body);
-          setError(body.error ?? "Could not request a messaging number.");
+          setError(body.error ?? (action === "refresh_eligibility"
+            ? "Could not refresh messaging eligibility."
+            : "Could not request a messaging number."));
           return;
         }
         if (!isMessagingNumberStatus(body)) {
@@ -353,7 +355,9 @@ export function ManagerMessagingSettingsPanel({
               : "Messaging number assigned. Carrier registration may still be finishing.",
           );
         } else {
-          showToast("Messaging number request received.");
+          showToast(action === "refresh_eligibility"
+            ? "Messaging eligibility refreshed."
+            : "Messaging number request received.");
         }
       } catch {
         setError("Network error. Check your connection and try again.");

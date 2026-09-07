@@ -304,7 +304,14 @@ export async function POST(req: Request) {
     // Explicit refresh must recover stale Free/trial snapshots after an
     // upgrade, even before a number exists. Bound billing reads by time,
     // never permanently by the existence of an old snapshot.
-    if (!rateLimit(`messaging-eligibility-refresh:${actor.userId}`, 3, 60_000).ok) {
+    const limit = await rateLimit(`messaging-eligibility-refresh:${actor.userId}`, 3, 60_000);
+    if (limit.unavailable) {
+      return NextResponse.json(
+        { error: "Messaging eligibility checks are temporarily unavailable. Please try again shortly." },
+        { status: 503, headers: { "Retry-After": "60", "Cache-Control": "private, no-store" } },
+      );
+    }
+    if (!limit.ok) {
       return NextResponse.json(
         { error: "Please wait a minute before refreshing messaging eligibility again." },
         { status: 429, headers: { "Retry-After": "60", "Cache-Control": "private, no-store" } },

@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   getManagerPortalNavSubscriptionTier: vi.fn(),
   provisionManagerNumber: vi.fn(),
   track: vi.fn(),
-  rateLimit: vi.fn(),
+  rateLimit: vi.fn<typeof import("@/lib/rate-limit").rateLimit>(),
 }));
 
 vi.mock("@/lib/manager-route-guard.server", () => ({
@@ -74,7 +74,7 @@ function dbFor(input?: {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.rateLimit.mockReturnValue({ ok: true });
+  mocks.rateLimit.mockResolvedValue({ ok: true });
   delete process.env.SMS_PROVISIONING_ENABLED;
   const db = dbFor();
   mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
@@ -122,13 +122,26 @@ describe("manager messaging-number route", () => {
   });
 
   it("bounds explicit refresh without purchasing or reading billing when throttled", async () => {
-    mocks.rateLimit.mockReturnValue({ ok: false });
+    mocks.rateLimit.mockResolvedValue({ ok: false });
     const response = await POST(new Request("https://prop-lane.test/api/manager/messaging-number", {
       method: "POST", body: JSON.stringify({ action: "refresh_eligibility" }),
     }));
     expect(response.status).toBe(429);
     expect(response.headers.get("Retry-After")).toBe("60");
     expect(mocks.rateLimit).toHaveBeenCalledWith(`messaging-eligibility-refresh:${MANAGER}`, 3, 60_000);
+    expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
+    expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
+  });
+
+  it("returns a recoverable service failure when the limiter is unavailable", async () => {
+    mocks.rateLimit.mockResolvedValue({ ok: false, unavailable: true });
+    const response = await POST(new Request("https://prop-lane.test/api/manager/messaging-number", {
+      method: "POST", body: JSON.stringify({ action: "refresh_eligibility" }),
+    }));
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect((await response.json()).error).toContain("temporarily unavailable");
     expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
