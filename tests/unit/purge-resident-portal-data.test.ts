@@ -60,6 +60,8 @@ describe("purgeResidentPortalData", () => {
     expect(tables).toContain("cosigner_submission_records");
     expect(tables).toContain("screening_orders");
     expect(tables).toContain("portal_scheduled_inbox_message_records");
+    expect(tables).toContain("portal_reminder_records");
+    expect(tables).toContain("portal_household_charge_records");
     expect(db.from).toHaveBeenCalled();
   });
 

@@ -4,9 +4,10 @@ Use this checklist whenever promoting `staging` → `production`, or when finish
 a substantial feature. Agents must follow it (see `AGENTS.md` and
 `.cursor/rules/ship-and-review-gate.mdc`).
 
-> **The ladder is `main` → `staging` → `production`.** `prakrit` is retired; do
-> not merge new work into it. Any `bin/fm-proplane-promote-prakrit-*` script is
-> kept only for historical reference. `scripts/promote-main-to-production.sh`
+> **The full ladder is `agent keepers` → `prakrit` → `main` → `staging` →
+> `production`.** `prakrit` is captain integration only (folds agent branches
+> together); agents never land there themselves. The deploy rungs remain
+> `main` → `staging` → `production`. `scripts/promote-main-to-production.sh`
 > is retired and exits 1 — live ships from `staging`.
 
 ## Why

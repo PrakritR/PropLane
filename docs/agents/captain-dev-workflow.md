@@ -117,18 +117,21 @@ Commit and push **only** the pane's keeper branch.
 
 ## ⑤ Promote (captain gate)
 
-Land the keeper branch on `main` (captain). Then:
+Fold the keeper into **`prakrit`** (integration across all agent branches), then
+`main`, then the deploy rungs:
 
 ```bash
+npm run ship:to-prakrit -- --source <keeper>   # security review + no-mistakes → prakrit
+# or: /promote prakrit
+# then: bin/fm-proplane-promote-prakrit-to-main.sh --push-main
 npm run ship:staging      # ff main → staging; dedicated QA tests that URL
 npm run ship:production   # ff staging → production after QA sign-off
 ```
 
-Or use the GitHub Action **Promote** (`workflow_dispatch`). Do not use
-`bin/fm-proplane-promote-to-prakrit.sh` — `prakrit` is retired.
+Or use the GitHub Action **Promote** (`workflow_dispatch`) for staging/production.
 
-Captain verifies `main` on localhost (developers) and the `staging` URL (QA)
-before a live ship.
+Captain verifies `prakrit` / `main` on localhost (developers) and the `staging`
+URL (QA) before a live ship.
 
 ---
 

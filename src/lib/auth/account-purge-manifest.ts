@@ -431,6 +431,8 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "portal_scheduled_inbox_message_records",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
+    // Recipient is only in row_data — resident purge deletes via JSON filters in
+    // purgeResidentPortalData (no promoted recipient_email column on this table).
   },
   {
     table: "portal_reminder_records",

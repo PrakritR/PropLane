@@ -9,13 +9,15 @@ deployment for the contract.
 | Branch | Role | Database | Vercel | CI |
 | --- | --- | --- | --- | --- |
 | `claude-*`, `cursor-*`, feature branches | Per-agent / per-change sandbox | shared dev/test | No deploy | PR: unit + lint + build |
+| **`prakrit`** | Captain integration — folds agent keepers together | shared dev/test | No deploy | localhost review on :3000 |
 | `main` | Consolidation. Developers verify on localhost. | shared dev/test | **No deploy** | unit, lint, build, integration, e2e smoke |
 | `staging` | QA candidate. Fast-forward of `main`. | staging project `xwszcafaontidfgznlxd` (never live production) | **Preview** (branch-scoped env) | same as `main` |
 | `production` | Live site + TestFlight | live production | **Production** | TestFlight workflow |
 
-`prakrit` is retired — agents do not land there. Captain integration uses
-`npm run ship:to-prakrit`. There is no long-lived `dev` branch; feature and
-agent branches are the messy layer.
+`prakrit` is the integration branch between all agent keepers. Agents do not
+merge there themselves — captain runs `npm run ship:to-prakrit -- --source
+<keeper>` (or `/promote prakrit`). There is no long-lived `dev` branch; feature
+and agent branches are the messy layer.
 
 ## Vercel: `axis-2` is PropLane production
 

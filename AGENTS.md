@@ -494,9 +494,10 @@ that prefer it, so editing only the SVG leaves the old mark visible.
 
 # Landing rule
 
-**Work lands on `main`. QA happens on `staging`. Live ships from `production`.**
-Commit and push to `main` (fast-forward only, never force). Open a PR only on
-explicit request.
+**Work lands on keepers → `prakrit` (captain integrate) → `main`. QA happens on
+`staging`. Live ships from `production`.**
+Commit and push to your keeper branch (fast-forward only, never force). Open a PR
+only on explicit request.
 
 **No agent's branch name belongs in this file.** Which lane or keeper branch is
 yours comes from YOUR OWN local instructions or configuration — this file is
@@ -528,24 +529,25 @@ Every other branch is skipped. Feature and agent branches are the messy layer
 integration branch.
 
 ```
-feature / agent branch  →  main  →  staging  →  production
-     (no deploy)         localhost  QA preview    live + TestFlight
-                         dev DB     staging DB    live production DB
-                         developers dedicated QA  no experiments
+feature / agent keepers  →  prakrit  →  main  →  staging  →  production
+     (no deploy)          integrate   localhost  QA preview   live + TestFlight
+                          (captain)   dev DB     staging DB   live production DB
+                                      developers dedicated QA no experiments
 ```
 
 | Branch | Role | Database | Vercel | Who tests |
 | --- | --- | --- | --- | --- |
-| feature / agent | messy work | local + shared **dev/test** (`emstjswhotsnyksqhqyf`) | no deploy | the author |
+| feature / agent | messy work (keeper sandboxes) | local + shared **dev/test** (`emstjswhotsnyksqhqyf`) | no deploy | the author |
+| **`prakrit`** | captain integration — folds every agent keeper together | shared **dev/test** | no deploy; localhost :3000 | captain |
 | **`main`** | consolidation | shared **dev/test** | No deploy; localhost | developers |
 | **`staging`** | QA candidate, ff of `main` | staging project `xwszcafaontidfgznlxd` (never the live production project) | Preview, git-branch-scoped env | dedicated QA |
 | **`production`** | live site | live production (`qahnczmilgptcedaqype`) | Production | nobody experiments here |
 
-**`prakrit` is captain integration only** — agents land on their keeper branch,
-never merge to `prakrit` themselves. Captain uses `npm run ship:to-prakrit` /
-`bin/fm-proplane-promote-to-prakrit.sh` (legacy wrapper) to fold
-keeper work into integration before `main`. Agents must not treat `prakrit` as
-their landing branch.
+**`prakrit` is captain integration only** — it is the shared merge point between
+all agent branches (`cursor-*`, `claude-*`, `codex-*`, …). Agents land on their
+keeper branch and never merge to `prakrit` themselves. Captain uses
+`npm run ship:to-prakrit` / `bin/fm-proplane-promote-to-prakrit.sh` /
+`/promote prakrit` to fold keeper work into integration before `main`.
 
 **`production` is the live site.** It deploys to `prop-lane.space` /
 `www.prop-lane.space`, the legacy `axis-seattle-housing.com` /
