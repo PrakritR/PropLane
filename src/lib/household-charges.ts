@@ -2325,15 +2325,10 @@ export function reconcilePendingRecurringChargeAmountsFromProfiles(): boolean {
         "Utilities",
         bundleSplitContextFromProfile(profile),
       ).amount;
-    } else if (charge.customFeeId) {
-      const fee = (profile.monthlyFees ?? []).find((f) => f.id === charge.customFeeId);
-      if (!fee || !(fee.amount > 0)) return charge;
-      expected = applyBundleGroupSplit(
-        fee.amount,
-        fee.label || "Fee",
-        bundleSplitContextFromProfile(profile),
-      ).amount;
     } else {
+      // Custom monthly fees keep the amount that was billed when the month was
+      // first emitted (see custom-fee-monthly-charges.test.ts). Rent/utilities
+      // track the live lease profile (PRP-408 part 2).
       return charge;
     }
 
