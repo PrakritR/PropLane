@@ -42,6 +42,10 @@ const FAQ: { q: string; a: string }[] = [
     a: "Paying for the year up front is roughly two months free: Pro is $192/yr instead of $240, and Business is $1,920/yr instead of $2,400.",
   },
   {
+    q: "How much texting, calling and AI assistant use is included?",
+    a: "Every plan includes a monthly amount of communication — $2.50 on Free, $15 on Pro, $150 on Business — measured by what you actually use (a text is a few cents, an assistant reply is 15¢). The work number itself is free on every plan. Past the included amount you pay as you go at those rates, only if you have a card on file; without one, sending pauses until you add a card.",
+  },
+  {
     q: "Can I change plans later?",
     a: "Yes. Upgrade or downgrade anytime. Upgrading unlocks residents, leases, the inbox, and more co-managers right away. Every tier is the same on payments: residents pay face value, you receive it in full, and PropLane covers payment processing.",
   },

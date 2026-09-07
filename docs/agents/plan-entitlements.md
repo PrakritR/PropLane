@@ -118,3 +118,37 @@ on an account with five listings and no paywall anywhere).
   `manager-relist-in-place.test.ts`,
   `manager-trial-expiry-quota.test.ts`,
   `tools/property-resident-writes.test.ts`.
+
+## Communication & AI allowance by plan (PRP-282)
+
+The tiers differ on TWO axes: what a plan unlocks (properties, co-managers,
+sections — above) and how much texting, calling and assistant use is included
+each month. The second axis is a usage **value**, not a message count, because
+the meters are not comparable (`src/lib/comms-billing/rates.ts`: an outbound
+SMS segment is 3¢, an inbound segment 2¢, a voice minute 4¢, an AI assistant
+turn 15¢; the work number itself is free on every plan).
+
+| Plan | Included per month (`COMMS_INCLUDED_ALLOWANCE_CENTS`) | Roughly |
+| --- | --- | --- |
+| Free | $2.50 | ~80 texts, or ~16 assistant turns |
+| Pro | $15.00 | ~500 texts, or ~100 assistant turns |
+| Business | $150.00 | ~5,000 texts, or ~1,000 assistant turns |
+
+Rules (`src/lib/comms-billing/allowances.ts`):
+
+- The allowance is the ONLY entitlement on this axis. Every plan is capped —
+  Business is capped high, not unmetered — and the cap is a value, so a rate
+  change never silently changes a message count that copy promised.
+- Past the allowance, usage is **pay-as-you-go at the listed rates** when a
+  card is on file (`COMMS_PAYG_BILLING_ENABLED`); with NO card the account is
+  blocked from sending until one is added. That block is the paywall, and
+  `commsAllowanceBlockedMessage(tier)` is the one place its copy lives.
+- Usage is metered by `recordManagerCommsUsage` regardless of whether billing
+  is switched on, so PostHog and the Settings → Communication meter always
+  show real numbers; enforcement and charging are separate flags.
+
+Customer-facing copy (pricing cards and FAQ, `src/data/manager-plan-tiers.ts`
+and `src/app/(public)/pricing/page.tsx`) is DERIVED from
+`COMMS_INCLUDED_ALLOWANCE_CENTS` through `commsAllowanceFeatureText`, so the
+page cannot promise a number the code does not enforce. Coverage:
+`tests/unit/plan-comms-allowance-copy.test.ts`.

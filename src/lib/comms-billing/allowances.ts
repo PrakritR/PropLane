@@ -115,6 +115,18 @@ export function billableCentsAboveAllowance(input: {
   return Math.max(0, Math.round(input.totalUsedCents) - allowanceCents);
 }
 
+/**
+ * The pricing-card line for a plan's included communication (PRP-282). Derived
+ * from the allowance so the public page can never promise a number the code
+ * does not enforce; a rate change updates the copy for free.
+ */
+export function commsAllowanceFeatureText(tier: CommsPlanTier): string {
+  const allowance = includedAllowanceCents(tier);
+  if (allowance === null) return "Unlimited texting, calls & AI assistant";
+  const dollars = allowance % 100 === 0 ? `$${allowance / 100}` : `$${(allowance / 100).toFixed(2)}`;
+  return `${dollars}/mo of texting, calls & AI assistant included, then pay as you go`;
+}
+
 export function commsAllowanceBlockedMessage(tier: CommsPlanTier): string {
   const allowance = includedAllowanceCents(tier);
   const label = allowance === null ? "" : `$${(allowance / 100).toFixed(2)}`;
