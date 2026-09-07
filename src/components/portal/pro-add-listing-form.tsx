@@ -4698,11 +4698,17 @@ export function ManagerAddListingForm({
                         className="h-4 w-4 rounded border-border"
                         checked={sub.lateFeeEnabled !== false}
                         onChange={(e) => setSub((s) => ({ ...s, lateFeeEnabled: e.target.checked }))}
+                        data-attr="listing-late-fee-enabled"
                       />
                       Auto-charge & notify
                     </label>
                   </GridField>
                 </div>
+                <p className="mt-2 text-xs text-muted">
+                  Also turn on <span className="font-medium text-foreground">Late fee notices</span> in
+                  Payments → Settings — that account switch gates automatic late fees across listings
+                  (PRP-319).
+                </p>
 
                 <p className="mt-4 border-t border-border pt-4 text-xs text-muted">
                   Payment methods: configure in{" "}
