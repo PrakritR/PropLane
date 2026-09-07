@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
-import { Modal, ModalFooter, MODAL_FIELD_LABEL_CLASS, PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS, PORTAL_MODAL_FORM_GRID_CLASS } from "@/components/ui/modal";
+import { Modal, MODAL_FIELD_LABEL_CLASS, PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS, PORTAL_MODAL_FORM_GRID_CLASS } from "@/components/ui/modal";
 import { PortalInviteChoiceStep } from "@/components/portal/portal-invite-choice-step";
 import {
   PortalNotificationPreviewModal,
@@ -65,6 +65,169 @@ function draftFromVendor(row: ManagerVendorRow): ManagerVendorFormDraft {
     sharedWithManagers: row.sharedWithManagers === true,
     vendorPriority: row.vendorPriority ?? "",
   };
+}
+
+function vendorEmailLooksValid(email: string): boolean {
+  const normalized = email.trim().toLowerCase();
+  return Boolean(normalized && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(normalized));
+}
+
+export function ManagerVendorEssentialFields({
+  draft,
+  onPatch,
+  idPrefix = "vendor",
+}: {
+  draft: ManagerVendorFormDraft;
+  onPatch: (patch: Partial<ManagerVendorFormDraft>) => void;
+  idPrefix?: string;
+}) {
+  return (
+    <div className="space-y-3">
+      <label className="block">
+        <span className="text-xs font-semibold text-muted">Vendor name</span>
+        <Input
+          id={`${idPrefix}-name`}
+          value={draft.name}
+          onChange={(e) => onPatch({ name: e.target.value })}
+          placeholder="e.g. Apex Plumbing"
+          autoFocus
+          className="mt-1"
+          data-attr="vendor-essential-name"
+        />
+      </label>
+      <label className="block">
+        <span className="text-xs font-semibold text-muted">Email</span>
+        <Input
+          id={`${idPrefix}-email`}
+          type="email"
+          value={draft.email}
+          onChange={(e) => onPatch({ email: e.target.value })}
+          placeholder="vendor@company.com"
+          autoComplete="email"
+          className="mt-1"
+          data-attr="vendor-essential-email"
+        />
+      </label>
+      <label className="block">
+        <span className="text-xs font-semibold text-muted">Trade</span>
+        <Select
+          id={`${idPrefix}-trade`}
+          value={draft.trade}
+          onChange={(e) => onPatch({ trade: e.target.value })}
+          className="mt-1"
+          data-attr="vendor-essential-trade"
+        >
+          {VENDOR_TRADE_OPTIONS.map((trade) => (
+            <option key={trade} value={trade}>
+              {trade}
+            </option>
+          ))}
+        </Select>
+      </label>
+    </div>
+  );
+}
+
+export function ManagerVendorOptionalFields({
+  draft,
+  onPatch,
+  idPrefix = "vendor",
+}: {
+  draft: ManagerVendorFormDraft;
+  onPatch: (patch: Partial<ManagerVendorFormDraft>) => void;
+  idPrefix?: string;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className={PORTAL_MODAL_FORM_GRID_CLASS}>
+        <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor={`${idPrefix}-phone`}>
+            Phone
+          </label>
+          <PhoneNumberField
+            id={`${idPrefix}-phone`}
+            value={draft.phone}
+            onChange={(phone) => onPatch({ phone })}
+            dataAttr="vendor-optional-phone"
+          />
+        </div>
+      </div>
+      <div>
+        <label className={MODAL_FIELD_LABEL_CLASS} htmlFor={`${idPrefix}-notes`}>
+          Notes <span className="font-normal normal-case tracking-normal text-muted">(optional)</span>
+        </label>
+        <Textarea
+          id={`${idPrefix}-notes`}
+          rows={3}
+          className="mt-1 resize-y"
+          value={draft.notes}
+          onChange={(e) => onPatch({ notes: e.target.value })}
+          placeholder="License, service area, after-hours contact, billing notes…"
+          data-attr="vendor-optional-notes"
+        />
+      </div>
+      <div className="space-y-3">
+        <label className="flex cursor-pointer items-center gap-2.5">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-border text-primary"
+            checked={draft.active}
+            onChange={(e) => onPatch({ active: e.target.checked })}
+            data-attr="vendor-optional-active"
+          />
+          <span className="text-sm font-medium text-foreground">Active — available for work orders and payments</span>
+        </label>
+        <fieldset className="space-y-2">
+          <legend className={MODAL_FIELD_LABEL_CLASS}>Priority for this trade</legend>
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+            <input
+              type="radio"
+              name={`${idPrefix}-priority`}
+              checked={draft.vendorPriority === "primary"}
+              onChange={() => onPatch({ vendorPriority: "primary" })}
+              data-attr="vendor-priority-primary"
+            />
+            Primary — preferred when assigning this trade
+          </label>
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+            <input
+              type="radio"
+              name={`${idPrefix}-priority`}
+              checked={draft.vendorPriority === "secondary"}
+              onChange={() => onPatch({ vendorPriority: "secondary" })}
+              data-attr="vendor-priority-secondary"
+            />
+            Secondary backup
+          </label>
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+            <input
+              type="radio"
+              name={`${idPrefix}-priority`}
+              checked={draft.vendorPriority === ""}
+              onChange={() => onPatch({ vendorPriority: "" })}
+              data-attr="vendor-priority-standard"
+            />
+            Standard — no priority
+          </label>
+        </fieldset>
+        <label className="flex cursor-pointer items-start gap-2.5">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 rounded border-border text-primary"
+            checked={draft.sharedWithManagers}
+            onChange={(e) => onPatch({ sharedWithManagers: e.target.checked })}
+            data-attr="vendor-optional-share"
+          />
+          <span className="text-sm leading-6 text-foreground">
+            Share on PropLane
+            <span className="mt-0.5 block text-xs font-normal text-muted">
+              Other managers can discover and assign this vendor. You can turn this off anytime.
+            </span>
+          </span>
+        </label>
+      </div>
+    </div>
+  );
 }
 
 export function ManagerVendorFormFields({
@@ -230,6 +393,7 @@ export function ManagerVendorFormModal({
   const [invitePreview, setInvitePreview] = useState<VendorInvitePreview | null>(null);
   const [removePreview, setRemovePreview] = useState<ManagerVendorRemovalPreview | null>(null);
   const [createdVendorId, setCreatedVendorId] = useState<string | null>(null);
+  const [addStep, setAddStep] = useState<"essentials" | "options">("essentials");
 
   useEffect(() => {
     if (!open) return;
@@ -246,6 +410,7 @@ export function ManagerVendorFormModal({
     setInvitePreview(null);
     setRemovePreview(null);
     setCreatedVendorId(null);
+    setAddStep("essentials");
   }, [open, mode, vendor, initialTrade]);
 
   const patch = (next: Partial<ManagerVendorFormDraft>) => setDraft((prev) => ({ ...prev, ...next }));
@@ -310,7 +475,7 @@ export function ManagerVendorFormModal({
     const row = buildRow();
     if (!row) return;
     const email = row.email.trim().toLowerCase();
-    const validEmail = email && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email);
+    const validEmail = vendorEmailLooksValid(email);
     if (validEmail) {
       await openInvitePreview();
       return;
@@ -323,6 +488,26 @@ export function ManagerVendorFormModal({
     showToast("Vendor added.");
     onClose();
     onSaved?.();
+  };
+
+  const continueFromEssentials = () => {
+    const name = draft.name.trim();
+    if (!name) {
+      setError("Vendor name is required.");
+      return;
+    }
+    const email = draft.email.trim();
+    if (email && !vendorEmailLooksValid(email)) {
+      setError("Enter a valid email address, or leave it blank to add without an invite.");
+      return;
+    }
+    setError(null);
+    setAddStep("options");
+  };
+
+  const backToEssentials = () => {
+    setError(null);
+    setAddStep("essentials");
   };
 
   const openRemovePreview = async () => {
@@ -382,7 +567,7 @@ export function ManagerVendorFormModal({
     const row = buildRow();
     if (!row) return;
     const email = row.email.trim().toLowerCase();
-    if (!email || !/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email)) {
+    if (!email || !vendorEmailLooksValid(email)) {
       setError("A valid email is required to preview the vendor portal invite.");
       return;
     }
@@ -440,7 +625,8 @@ export function ManagerVendorFormModal({
     }
   };
 
-  const title = mode === "edit" ? "Edit vendor" : "Invite vendor";
+  const title = mode === "edit" ? "Edit vendor" : addStep === "options" ? "Send invite" : "Invite vendor";
+  const addHasValidEmail = vendorEmailLooksValid(draft.email);
 
   return (
     <>
@@ -450,10 +636,10 @@ export function ManagerVendorFormModal({
         assistantContext={mode === "add" ? "Invite vendor" : "Edit vendor"}
         assistantStorageScopeKey={mode === "add" ? "Invite vendor" : "Edit vendor"}
         onClose={onClose}
-        panelClassName="max-w-lg"
+        panelClassName={mode === "add" ? "max-w-2xl" : "max-w-lg"}
         dense
         footer={
-          <ModalFooter className="w-full">
+          <div className="flex w-full items-center justify-between gap-2">
             {mode === "edit" && vendor ? (
               <Button
                 type="button"
@@ -464,18 +650,44 @@ export function ManagerVendorFormModal({
               >
                 Delete
               </Button>
-            ) : null}
-            {mode === "add" ? (
+            ) : mode === "add" && addStep === "options" ? (
               <Button
                 type="button"
-                variant="primary"
-                className="ml-auto rounded-full"
-                disabled={saving}
-                onClick={() => void addOnly()}
-                data-attr="vendor-form-preview-invite"
+                variant="outline"
+                className="rounded-full"
+                onClick={backToEssentials}
+                data-attr="vendor-form-back"
               >
-                {saving ? "Saving…" : "Continue"}
+                Back
               </Button>
+            ) : (
+              <span aria-hidden />
+            )}
+            {mode === "add" ? (
+              addStep === "essentials" ? (
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="rounded-full"
+                  disabled={saving}
+                  onClick={continueFromEssentials}
+                  data-attr="vendor-form-continue"
+                >
+                  Continue
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="rounded-full"
+                  disabled={saving}
+                  loading={saving}
+                  onClick={() => void addOnly()}
+                  data-attr={addHasValidEmail ? "vendor-form-send-invite" : "vendor-form-add-only"}
+                >
+                  {saving ? "Saving…" : addHasValidEmail ? "Send invite" : "Add vendor"}
+                </Button>
+              )
             ) : (
               <Button
                 type="button"
@@ -488,18 +700,56 @@ export function ManagerVendorFormModal({
                 {saving ? "Saving…" : "Save"}
               </Button>
             )}
-          </ModalFooter>
+          </div>
         }
       >
-        <div className="space-y-4">
+        <div className="space-y-5">
           {mode === "add" ? (
-            <PortalInviteChoiceStep
-              secondaryTitle="Invite by email"
-              secondaryDescription="Enter the vendor's details to send a portal signup invite."
-              secondaryIcon="person"
-            >
-              <ManagerVendorFormFields draft={draft} onPatch={patch} idPrefix="vendor-choice" />
-            </PortalInviteChoiceStep>
+            <>
+              {onBrowseCatalog ? (
+                <p className="text-xs text-muted">
+                  Prefer a curated vendor?{" "}
+                  <button
+                    type="button"
+                    className="font-semibold text-primary hover:underline"
+                    data-attr="vendor-form-browse-catalog"
+                    onClick={() => {
+                      onClose();
+                      onBrowseCatalog();
+                    }}
+                  >
+                    Browse PropLane catalog
+                  </button>
+                </p>
+              ) : null}
+              <PortalInviteChoiceStep
+                secondaryTitle="Invite by email"
+                secondaryDescription="Enter the vendor's name and email to send a portal signup invite."
+                secondaryIcon="person"
+              >
+                {addStep === "options" ? (
+                  <div className="rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
+                    <p className="text-sm font-semibold text-foreground">{draft.name.trim()}</p>
+                    <p className="mt-0.5 text-sm text-muted">
+                      {[draft.trade, draft.email.trim() || "No email"].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                ) : (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      continueFromEssentials();
+                    }}
+                  >
+                    <ManagerVendorEssentialFields draft={draft} onPatch={patch} idPrefix="vendor-choice" />
+                  </form>
+                )}
+              </PortalInviteChoiceStep>
+
+              {addStep === "options" ? (
+                <ManagerVendorOptionalFields draft={draft} onPatch={patch} idPrefix="vendor-options" />
+              ) : null}
+            </>
           ) : (
             <>
               {onBrowseCatalog ? (

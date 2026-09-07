@@ -45,14 +45,21 @@ describe("co-manager open invite token", () => {
 });
 
 describe("co-manager open invite surfaces", () => {
-  it("Add modal copies a shareable link without requiring a PropLane ID", () => {
+  it("Add modal uses invite link + PropLane ID cards with property picker on ID path", () => {
     const panel = readFileSync(
       join(process.cwd(), "src/components/portal/pro-account-links-panel.tsx"),
       "utf8",
     );
-    expect(panel).toContain("createOpenInviteLink");
-    expect(panel).toContain("Copy invite link");
-    expect(panel).toContain("Assigned properties (optional)");
+    expect(panel).toContain("PortalInviteChoiceStep");
+    expect(panel).toContain('inviteTitle="Invite by link"');
+    expect(panel).toContain("onCreateInviteLink={openInviteLinkModal}");
+    expect(panel).toContain('inviteLinkDataAttr="co-manager-create-invite-link"');
+    expect(panel).toContain("ManagerInviteLinkModal");
+    expect(panel).toContain('data-attr="co-manager-proplane-id-input"');
+    expect(panel).toContain('data-attr="co-manager-link-continue"');
+    expect(panel).toContain('dataAttr="co-manager-invite-properties"');
+    expect(panel).toContain('label="Properties"');
+    expect(panel).not.toContain('data-attr="co-manager-invite-link-open"');
     expect(panel).not.toContain("Select at least one property for this invite.");
   });
 

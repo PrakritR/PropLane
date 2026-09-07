@@ -192,12 +192,13 @@ describe("every Google event still renders; only some count as taken", () => {
     expect(meetingPaintsCalendarGrid(meeting!)).toBe(false);
   });
 
-  it("does not paint a Free Google block even though a meeting row exists", () => {
+  it("paints a Free Google block as Free rather than Blocked", () => {
     const [meeting] = googleCalendarEventsToMeetings([
       event({ summary: "Bin day", transparency: "transparent", allDay: true }),
     ]);
     expect(meeting).toBeDefined();
-    expect(meetingPaintsCalendarGrid(meeting!)).toBe(false);
+    expect(meetingPaintsCalendarGrid(meeting!)).toBe(true);
+    expect(meetingCalendarGridLabel(meeting!)).toBe("Free");
   });
 });
 

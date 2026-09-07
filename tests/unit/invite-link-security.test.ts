@@ -133,19 +133,20 @@ describe("minting a link", () => {
     expect(MODAL).toContain('method: "DELETE"');
   });
 
-  it("opens the same open-link flow from the toolbar and ADD row", () => {
-    expect(PANEL).toContain('data-attr="co-manager-invite-link-open"');
-    expect(PANEL.match(/onClick=\{openLinkModal\}/g)).toHaveLength(2);
-    expect(PANEL).toContain('data-attr="co-manager-copy-open-invite"');
-    expect(PANEL).toContain("createOpenInviteLink");
+  it("opens the add dialog from the ADD row and routes invite links to the mint modal", () => {
+    expect(PANEL).not.toContain('data-attr="co-manager-invite-link-open"');
+    expect(PANEL).toContain("onCreateInviteLink={openInviteLinkModal}");
+    expect(PANEL).toContain('inviteLinkDataAttr="co-manager-create-invite-link"');
+    expect(PANEL).toContain("ManagerInviteLinkModal");
+    expect(PANEL.match(/onClick=\{openLinkModal\}/g)).toHaveLength(1);
+    expect(PANEL).toContain('data-attr="co-manager-link-continue"');
+    expect(PANEL).toContain("PortalInviteChoiceStep");
   });
 
-  it("switches to PropLane ID inside the same dialog instead of stacking dialogs", () => {
-    expect(PANEL).toContain('setLinkModalMode("axis")');
-    expect(PANEL).toContain('setLinkModalMode("link")');
+  it("uses the add dialog for PropLane ID and a dedicated modal for shareable links", () => {
     expect(PANEL).toContain('open={linkModalOpen}');
-    expect(PANEL).not.toContain("inviteLinkModalOpen");
-    expect(PANEL).not.toContain("ManagerInviteLinkModal");
+    expect(PANEL).toContain('open={inviteLinkModalOpen}');
+    expect(PANEL).not.toContain('setLinkModalMode("axis")');
   });
 });
 

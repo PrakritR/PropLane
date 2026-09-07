@@ -475,6 +475,8 @@ export type DemoMeeting = {
   isPeerTour?: boolean;
   /** Personal Google Calendar busy time — title/details must not be shown in the UI. */
   googleCalendarPrivate?: boolean;
+  /** Google `eventType` metadata rows (working location, birthday) — never paint or block. */
+  googleCalendarInformational?: boolean;
   /**
    * Does this meeting make the manager unavailable for a tour? Absent means yes.
    *
@@ -492,14 +494,14 @@ export function meetingConsumesTourSlot(meeting: DemoMeeting): boolean {
 }
 
 /**
- * Whether a meeting paints a grid cell. Personal Google blocks that do not
- * consume tour capacity (Free, declined, working location, birthdays) must not
+ * Whether a meeting paints a grid cell. Informational Google metadata must not
  * render as grey "Blocked" — that was the linked-calendar "everything blocked"
- * regression while day headers still read "0 EVENTS".
+ * regression while day headers still read "0 EVENTS". Free and declined events
+ * still draw (labelled "Free") so the manager can see them.
  */
 export function meetingPaintsCalendarGrid(meeting: DemoMeeting): boolean {
   if (!isGoogleCalendarPrivateBlock(meeting)) return true;
-  return meetingConsumesTourSlot(meeting);
+  return !meeting.googleCalendarInformational;
 }
 
 function shiftDateStr(dateStr: string, days: number): string {
@@ -1098,6 +1100,10 @@ export function PortalCalendarPanels({
    * tabs do; the blocks stay visible in the grid, labelled Blocked.
    */
   const scheduledMeetings = useMemo(() => scheduledCalendarMeetings(meetings), [meetings]);
+  const gridPaintedMeetings = useMemo(
+    () => meetings.filter((meeting) => meetingPaintsCalendarGrid(meeting)),
+    [meetings],
+  );
   const showEventCountsInDayHeader = readOnly || preferEventCountsInDayHeader;
 
   const monthYear = anchorDate.getFullYear();
@@ -1584,8 +1590,9 @@ export function PortalCalendarPanels({
   }, [meetings]);
 
   /**
-   * The half hours that are genuinely TAKEN — non-blocking Google entries are
-   * neither painted nor counted, and the public booking page goes on offering them.
+   * The half hours that are genuinely TAKEN — informational Google metadata is
+   * neither painted nor counted; Free/declined rows still draw but do not reduce
+   * open capacity, and the public booking page goes on offering them.
    */
   const takenSlotKeys = useMemo(() => {
     const keys = new Set<string>();
@@ -2099,7 +2106,7 @@ export function PortalCalendarPanels({
         <h3 className="min-w-0 text-base font-bold text-foreground">
           {selectedBlock.kind === "meeting"
             ? isGoogleCalendarPrivateBlock(selectedBlock.meeting)
-              ? "Blocked"
+              ? meetingCalendarGridLabel(selectedBlock.meeting)
               : selectedBlock.meeting.title
             : "Availability block"}
         </h3>
@@ -2126,8 +2133,9 @@ export function PortalCalendarPanels({
 
           {isGoogleCalendarPrivateBlock(selectedBlock.meeting) ? (
             <p className="text-sm text-muted">
-              This time is busy on your linked Google Calendar. Personal event details stay on Google — only the blocked
-              time is shown here so tour availability stays accurate.
+              {selectedBlock.meeting.blocksTourAvailability === false
+                ? "This time is marked Free on your linked Google Calendar. Personal event details stay on Google — tour slots here still count as open."
+                : "This time is busy on your linked Google Calendar. Personal event details stay on Google — only the blocked time is shown here so tour availability stays accurate."}
             </p>
           ) : (
             <>
@@ -2806,7 +2814,9 @@ export function PortalCalendarPanels({
                       <span className="block truncate">{meetingCalendarGridLabel(meeting)}</span>
                     ) : (
                       <span className="block truncate opacity-70">
-                        {isGoogleCalendarPrivateBlock(meeting) ? "Blocked" : meeting.statusLabel}
+                        {isGoogleCalendarPrivateBlock(meeting)
+                          ? meetingCalendarGridLabel(meeting)
+                          : meeting.statusLabel}
                       </span>
                     )
                   ) : selected ? (
@@ -3147,7 +3157,7 @@ export function PortalCalendarPanels({
               onChange={setViewMode}
             />
             <div className="rounded-full bg-accent/30 px-4 py-2 text-sm font-semibold text-muted">
-              {viewMode === "month" ? monthBlocksCount : meetings.length} blocks
+              {viewMode === "month" ? monthBlocksCount : gridPaintedMeetings.length} blocks
             </div>
             {viewMode !== "month" ? renderTimeWindowControl() : null}
             <Button type="button" variant="outline" className="h-9 rounded-full px-3 text-xs" onClick={openBlockModal}>
@@ -3214,7 +3224,9 @@ export function PortalCalendarPanels({
                   </div>
                   <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-px bg-accent/30">
                     {visibleSlotIndices.map((slotIdx) => {
-                      const meeting = meetings.find((m) => m.dateStr === ds && m.startSlot === slotIdx);
+                      const meeting = meetings.find(
+                        (m) => m.dateStr === ds && m.startSlot === slotIdx && meetingPaintsCalendarGrid(m),
+                      );
                       return (
                         <Fragment key={`${ds}-${slotIdx}`}>
                           <div className={`bg-card px-3 py-2 text-[11px] ${CALENDAR_TIME_CELL}`}>{formatAvailabilitySlotLabel(slotIdx)}</div>
@@ -3251,7 +3263,9 @@ export function PortalCalendarPanels({
             </div>
             {visibleSlotIndices.map((slotIdx) => {
               const ds = toLocalDateStr(anchorDate);
-              const meeting = meetings.find((m) => m.dateStr === ds && m.startSlot === slotIdx);
+              const meeting = meetings.find(
+                (m) => m.dateStr === ds && m.startSlot === slotIdx && meetingPaintsCalendarGrid(m),
+              );
               return (
                 <Fragment key={slotIdx}>
                   <div className={`bg-card px-2 py-2 text-[11px] ${CALENDAR_TIME_CELL}`}>{formatAvailabilitySlotLabel(slotIdx)}</div>
