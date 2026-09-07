@@ -77,7 +77,10 @@ function ChoosePortalForm() {
       }
       return {
         kind: "error",
-        message: body.error ?? "Could not load your account.",
+        message:
+          res.status === 429
+            ? "Sign-in is temporarily rate limited. Wait a minute and try again."
+            : (body.error ?? `Could not load your account (HTTP ${res.status}).`),
       };
     }
     return {
