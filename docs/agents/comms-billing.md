@@ -2,6 +2,32 @@
 
 Pure PAYG for SMS, voice, and AI on manager work numbers.
 
+## Temporary trial work-number onboarding
+
+When the plan-based messaging entitlement gate is in use (PAYG disabled), set
+`SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED=1` to let Pro and Business trials
+request a number during onboarding. This covers both signup trials and Stripe
+subscription trials. It does not enable Free plans or bypass provisioning,
+runtime, carrier registration, or provider configuration gates.
+
+Trial grants remain `status=trialing` in `sms_manager_entitlements`, with a
+finite `valid_until`: signup date plus the existing trial duration, or Stripe's
+`trial_end`. Missing or expired trial dates fail closed. Setup and status
+refresh remain explicit manager actions; status GET never purchases a number.
+
+To stop enrolling new trials, unset the flag (or set it to `0`) and redeploy
+through staging QA. Already enrolled trial grants remain usable only through
+their original expiry; reconciliation cannot extend them while enrollment is
+closed. No number is automatically released by this flag. Paid subscriptions
+and intentional admin/waiver grants retain their normal access.
+
+The independent PAYG policy still applies when `COMMS_PAYG_BILLING_ENABLED=1`;
+this trial flag does not redefine its allowances or payment requirements.
+
+Coverage: `manager-sms-entitlement.test.ts`,
+`manager-messaging-number-route.test.ts`, and
+`manager-messaging-settings-panel.test.tsx` in `tests/unit/`.
+
 ## Two switches, and they are not the same switch
 
 | Env | Default | Controls |

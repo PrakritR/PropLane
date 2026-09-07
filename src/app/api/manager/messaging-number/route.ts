@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { track } from "@/lib/analytics/posthog";
+import { rateLimit } from "@/lib/rate-limit";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { getManagerPortalNavSubscriptionTier } from "@/lib/manager-access-server";
 import {
@@ -20,6 +21,7 @@ import { provisionManagerNumber } from "@/lib/sms/manager-number-provisioning.se
 import {
   effectiveRegistrationState,
   isProvisioningEnabled,
+  isTrialWorkNumberOnboardingEnabled,
   managerSmsNumberIsSendable,
   normalizeProvisionState,
   normalizeRegistrationState,
@@ -38,25 +40,6 @@ export const runtime = "nodejs";
 
 const NUMBER_SELECT =
   "phone_number, provision_state, registration_state, registration_ref, attachment_state, number_registration_state, registration_submitted_at, last_provider_event_at, grace_started_at, grace_expires_at, quarantined_at, quarantine_reason, last_error";
-
-/**
- * Whether this manager has ANY stored entitlement snapshot. Distinguishes "we
- * have never checked this account" from "the check failed" - both of which
- * `getStoredManagerSmsEntitlement` collapses into `plan_unreadable`.
- * Fails closed (reports a row) so a read error never opens a billing re-read.
- */
-async function hasStoredEntitlementRow(
-  db: SupabaseClient,
-  userId: string,
-): Promise<boolean> {
-  const { data, error } = await db
-    .from("sms_manager_entitlements")
-    .select("manager_user_id")
-    .eq("manager_user_id", userId)
-    .maybeSingle();
-  if (error) return true;
-  return Boolean(data);
-}
 
 async function buildStatus(
   db: SupabaseClient,
@@ -166,6 +149,7 @@ async function buildStatus(
     number.state === "failed";
   const entitlementCanBeReconciled =
     entitlement.eligible ||
+    (entitlement.reason === "trialing" && isTrialWorkNumberOnboardingEnabled()) ||
     entitlement.reason === "plan_unreadable" ||
     entitlement.reason === "legacy_unknown";
   const strictNumberReady = managerSmsNumberIsSendable(normalizedNumber, {
@@ -317,29 +301,13 @@ export async function POST(req: Request) {
   }
 
   if (action === "refresh_eligibility") {
-    const current = await buildStatus(actor.db, actor.userId);
-    // A manager with no number may still check ONCE, when their plan has never
-    // been reconciled at all: a new account has no `sms_manager_entitlements`
-    // row, which reads back as `plan_unreadable`, and this action is the only
-    // thing that settles it.
-    //
-    // The gate keys on the ABSENCE OF THE ROW, not on the reason, because
-    // `plan_unreadable` is sticky - every failing purchase read returns it - so
-    // a reason-keyed gate would be opened by exactly the condition it can never
-    // close, and each press would re-hit billing. Reconciling writes a row on
-    // every resolved outcome (free included), so the first successful check
-    // closes this permanently and status checks cannot become a billing ping.
-    const neverReconciled =
-      !current.entitlement.eligible &&
-      !(await hasStoredEntitlementRow(actor.db, actor.userId));
-    if (!current.number?.phoneNumber && !neverReconciled) {
+    // Explicit refresh must recover stale Free/trial snapshots after an
+    // upgrade, even before a number exists. Bound billing reads by time,
+    // never permanently by the existence of an old snapshot.
+    if (!rateLimit(`messaging-eligibility-refresh:${actor.userId}`, 3, 60_000).ok) {
       return NextResponse.json(
-        {
-          ...publicStatus(current),
-          error:
-            "Request a messaging number before refreshing its eligibility.",
-        },
-        { status: 409 },
+        { error: "Please wait a minute before refreshing messaging eligibility again." },
+        { status: 429, headers: { "Retry-After": "60", "Cache-Control": "private, no-store" } },
       );
     }
     await reconcileManagerSmsEntitlement(actor.db, actor.userId);
@@ -372,12 +340,16 @@ export async function POST(req: Request) {
       );
     }
   } else if (!entitlement.eligible) {
+    const unreadable = entitlement.reason === "plan_unreadable" || entitlement.reason === "legacy_unknown";
     return NextResponse.json(
       {
-        error:
-          "A paid Pro or Business plan is required for a dedicated messaging number.",
+        error: unreadable
+          ? "We could not verify your messaging eligibility. Refresh eligibility or contact support if this continues."
+          : entitlement.reason === "trialing"
+            ? "Work-number setup is available after your Pro or Business trial converts to a paid subscription."
+            : "An active paid Pro or Business plan is required for a dedicated messaging number.",
       },
-      { status: 403 },
+      { status: unreadable ? 503 : 403 },
     );
   }
 

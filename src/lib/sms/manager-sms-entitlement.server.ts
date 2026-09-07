@@ -4,6 +4,8 @@ import { isWaiverGrantedManagerPurchase } from "@/lib/manager-access";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { isAdminManagedManagerPurchase } from "@/lib/manager-admin-purchase";
 import { getStripe } from "@/lib/stripe";
+import { isSignupTrialManagerPurchase, managerPurchasePeriodEndMs } from "@/lib/manager-tier-expiry";
+import { isTrialWorkNumberOnboardingEnabled } from "@/lib/sms/number-registration-policy";
 import {
   getAcceptedCoManagerInviterIds,
   isPureCoManagerWorkspace,
@@ -22,6 +24,16 @@ export type SmsEntitlement =
   | { eligible: false; reason: SmsEntitlementReason };
 
 type PurchaseSku = Awaited<ReturnType<typeof getManagerPurchaseSku>>;
+
+function isCompGrant(purchase: {
+  billing: string | null;
+  stripeCheckoutSessionId: string | null;
+  promoCode: string | null;
+}): boolean {
+  return purchase.billing === "admin" ||
+    isAdminManagedManagerPurchase(purchase.stripeCheckoutSessionId) ||
+    isWaiverGrantedManagerPurchase(purchase.promoCode);
+}
 
 function paidTier(raw: string | null): "pro" | "business" | null {
   return raw === "pro" || raw === "business" ? raw : null;
@@ -59,6 +71,39 @@ function stripeIneligibleReason(status: Stripe.Subscription.Status): SmsEntitlem
   if (status === "trialing") return "trialing";
   if (status === "past_due" || status === "unpaid" || status === "incomplete") return "past_due";
   return "canceled";
+}
+
+async function reconcileTrialEntitlement(
+  db: SupabaseClient,
+  ownerId: string,
+  tier: "pro" | "business",
+  source: "stripe" | "none",
+  trialEndMs: number | null,
+): Promise<SmsEntitlement> {
+  // Never turn a missing trial end into an unlimited communication grant.
+  if (trialEndMs === null || !Number.isFinite(trialEndMs)) {
+    return { eligible: false, reason: "plan_unreadable" };
+  }
+  const validUntil = new Date(trialEndMs).toISOString();
+  let enrolled = isTrialWorkNumberOnboardingEnabled();
+  if (!enrolled && trialEndMs > Date.now()) {
+    const { data, error } = await db.from("sms_manager_entitlements")
+      .select("eligible, status, source, valid_until")
+      .eq("manager_user_id", ownerId).maybeSingle();
+    if (error) return { eligible: false, reason: "plan_unreadable" };
+    // Closing enrollment does not cut off an already granted trial. It cannot
+    // extend the original grant or carry it into another trial period.
+    enrolled = data?.eligible === true && data.status === "trialing" &&
+      data.source === source && Date.parse(String(data.valid_until)) === trialEndMs;
+  }
+  const eligible = enrolled && trialEndMs > Date.now();
+  const persisted = await persistEntitlement(db, ownerId, {
+    tier, source, status: "trialing", eligible, validUntil,
+  });
+  if (!persisted) return { eligible: false, reason: "plan_unreadable" };
+  return eligible
+    ? { eligible: true, tier, source: "stripe" }
+    : { eligible: false, reason: trialEndMs <= Date.now() ? "canceled" : "trialing" };
 }
 
 /**
@@ -135,11 +180,7 @@ async function reconcileManagerSmsEntitlementDirect(
   // as `legacy_unknown`: the portal showed them a paid plan and every other
   // paid feature worked, while Settings -> Messaging refused their number with
   // "a paid Pro or Business plan is required".
-  const isCompGrant =
-    purchase.billing === "admin" ||
-    isAdminManagedManagerPurchase(purchase.stripeCheckoutSessionId) ||
-    isWaiverGrantedManagerPurchase(purchase.promoCode);
-  if (isCompGrant && tier) {
+  if (isCompGrant(purchase)) {
     const persisted = await persistEntitlement(db, ownerId, {
       tier,
       source: "none",
@@ -153,6 +194,11 @@ async function reconcileManagerSmsEntitlementDirect(
 
   const subscriptionId = purchase.stripeSubscriptionId?.trim();
   if (!subscriptionId) {
+    if (isSignupTrialManagerPurchase(purchase.billing)) {
+      return reconcileTrialEntitlement(db, ownerId, tier, "none", managerPurchasePeriodEndMs({
+        tier, billing: purchase.billing, paid_at: purchase.paidAt,
+      }));
+    }
     return { eligible: false, reason: "legacy_unknown" };
   }
 
@@ -165,6 +211,10 @@ async function reconcileManagerSmsEntitlementDirect(
     return { eligible: false, reason: "plan_unreadable" };
   }
 
+  if (subscription.status === "trialing") {
+    return reconcileTrialEntitlement(db, ownerId, tier, "stripe",
+      subscription.trial_end ? subscription.trial_end * 1000 : null);
+  }
   const eligible = subscription.status === "active";
   const validUntilSeconds = (subscription as Stripe.Subscription & { current_period_end?: number }).current_period_end;
   const validUntil = validUntilSeconds ? new Date(validUntilSeconds * 1000).toISOString() : null;
@@ -173,9 +223,7 @@ async function reconcileManagerSmsEntitlementDirect(
     source: "stripe",
     status: eligible
       ? "active"
-      : subscription.status === "trialing"
-        ? "trialing"
-        : subscription.status === "past_due" || subscription.status === "unpaid" || subscription.status === "incomplete"
+      : subscription.status === "past_due" || subscription.status === "unpaid" || subscription.status === "incomplete"
           ? "past_due"
           : "canceled",
     eligible,
@@ -215,6 +263,23 @@ export async function getStoredManagerSmsEntitlement(
     return { eligible: false, reason: "canceled" };
   }
   const tier = paidTier(data.tier);
+  if (data.eligible === true && data.status === "trialing" && tier) {
+    const trialEnd = Date.parse(String(data.valid_until ?? ""));
+    if (!Number.isFinite(trialEnd)) return { eligible: false, reason: "plan_unreadable" };
+    if (data.source === "stripe") return { eligible: true, tier, source: "stripe" };
+    if (data.source === "none") {
+      const { data: purchase, error: purchaseError } = await db.from("manager_purchases")
+        .select("tier, billing, paid_at, stripe_subscription_id")
+        .eq("user_id", managerUserId).maybeSingle();
+      if (purchaseError || !purchase || purchase.tier !== tier ||
+        !isSignupTrialManagerPurchase(purchase.billing) ||
+        managerPurchasePeriodEndMs(purchase) !== trialEnd) {
+        return { eligible: false, reason: "plan_unreadable" };
+      }
+      return { eligible: true, tier, source: "stripe" };
+    }
+    return { eligible: false, reason: "plan_unreadable" };
+  }
   if (data.eligible === true && data.status === "active" && tier) {
     if (data.source === "apple") {
       const { data: purchase, error: purchaseError } = await db
@@ -235,10 +300,14 @@ export async function getStoredManagerSmsEntitlement(
     if (data.source === "none") {
       const { data: purchase, error: purchaseError } = await db
         .from("manager_purchases")
-        .select("tier, billing")
+        .select("tier, billing, stripe_checkout_session_id, promo_code")
         .eq("user_id", managerUserId)
         .maybeSingle();
-      if (purchaseError || purchase?.billing !== "admin" || purchase?.tier !== tier) {
+      if (purchaseError || !purchase || purchase.tier !== tier || !isCompGrant({
+        billing: purchase.billing,
+        stripeCheckoutSessionId: purchase.stripe_checkout_session_id,
+        promoCode: purchase.promo_code,
+      })) {
         return { eligible: false, reason: "plan_unreadable" };
       }
       // Admin-comp grants surface as stripe-shaped eligibility to callers; the

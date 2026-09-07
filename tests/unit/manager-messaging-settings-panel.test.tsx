@@ -121,6 +121,28 @@ describe("work number resident announce recipients", () => {
 });
 
 describe("ManagerMessagingSettingsPanel", () => {
+  it.each(["free", "trialing"] as const)("recovers a numberless %s snapshot after a paid upgrade", async (reason) => {
+    const stale: ManagerMessagingNumberStatus = {
+      ...pausedStatus,
+      mode: "automatic",
+      provisioningAvailable: true,
+      entitlement: { eligible: false, reason },
+    };
+    const refreshed: ManagerMessagingNumberStatus = {
+      ...stale,
+      entitlement: { eligible: true, tier: "business", source: "stripe" },
+      canRequest: true,
+    };
+    const fetchMock = messagingFetchMock([Response.json(stale), Response.json(refreshed)]);
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ManagerMessagingSettingsPanel />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Refresh eligibility" }));
+    expect(await screen.findByRole("button", { name: "Request work number" })).toBeTruthy();
+    expect(numberCalls(fetchMock)).toHaveLength(2);
+    expect(JSON.parse(String(numberCalls(fetchMock)[1]?.[1]?.body)).action).toBe("refresh_eligibility");
+  });
+
   it("shows a recoverable error for a malformed API payload", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({ personalPhone: [] })));
     render(<ManagerMessagingSettingsPanel />);
