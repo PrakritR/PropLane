@@ -584,6 +584,19 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   {
+    // Phase 2: a claim references `manager_invite_links`, so it goes before the
+    // link it hangs off (phase 3) rather than tripping the FK.
+    //
+    // Both sides DELETE the row. A claim is one person saying "I live at this
+    // manager's property" — with either party gone there is nobody to approve
+    // it and nobody it could be approved onto, so detaching a pointer would
+    // leave an unresolvable request holding the other person's email.
+    table: "resident_invite_claims",
+    phase: 2,
+    manager: { ids: ["owner_user_id"] },
+    resident: { ids: ["claimant_user_id"], emails: ["claimant_email"] },
+  },
+  {
     table: "manager_invite_links",
     phase: 3,
     manager: { ids: ["owner_user_id"] },

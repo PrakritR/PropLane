@@ -9,7 +9,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { inviteLinkUnusableMessage, type InviteLinkUnusableReason } from "@/lib/invite-links/invite-link-model";
 
 type Preview = {
-  kind: "manager" | "vendor";
+  kind: "manager" | "vendor" | "resident";
   ownerName: string;
   propertyLabels: string[];
   unusableReason: InviteLinkUnusableReason | null;
@@ -31,6 +31,7 @@ export default function InviteLinkClient({ token }: { token: string }) {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [claimed, setClaimed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,8 +81,29 @@ export default function InviteLinkClient({ token }: { token: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
       });
-      const body = (await res.json().catch(() => ({}))) as { inviteId?: string; error?: string };
-      if (!res.ok || !body.inviteId) {
+      const body = (await res.json().catch(() => ({}))) as {
+        kind?: string;
+        inviteId?: string;
+        claimId?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        setError(body.error ?? "Could not accept this invite.");
+        return;
+      }
+      // A RESIDENT link grants nothing on redeem — it files a request the
+      // manager approves — so there is no accept screen to hand off to. Saying
+      // so plainly is the honest end of this flow; anything that looked like
+      // "you're in" would be a lie until a manager acts.
+      if (body.kind === "resident") {
+        if (!body.claimId) {
+          setError(body.error ?? "Could not send your request.");
+          return;
+        }
+        setClaimed(true);
+        return;
+      }
+      if (!body.inviteId) {
         setError(body.error ?? "Could not accept this invite.");
         return;
       }
@@ -124,23 +146,55 @@ export default function InviteLinkClient({ token }: { token: string }) {
   }
 
   const isVendor = preview.kind === "vendor";
+  const isResident = preview.kind === "resident";
+
+  // A resident's claim is filed, not granted. Ending on "we sent your request"
+  // is the truthful screen: nothing about their account has changed yet.
+  if (claimed) {
+    return (
+      <AuthCard variant="blend">
+        <AuthPageHeader
+          showLogo
+          title="Request sent"
+          subtitle={`${preview.ownerName} will confirm you live here and set up your resident portal. You will get an email when they do.`}
+        />
+        <div className="mt-6">
+          <Button
+            type="button"
+            className="w-full rounded-full py-2.5 text-[15px] font-semibold"
+            onClick={() => router.push("/")}
+          >
+            Done
+          </Button>
+        </div>
+      </AuthCard>
+    );
+  }
 
   return (
     <AuthCard variant="blend">
       <AuthPageHeader
         showLogo
-        title={`${preview.ownerName} invited you`}
+        title={isResident ? `${preview.ownerName} invited you to PropLane` : `${preview.ownerName} invited you`}
         subtitle={
-          isVendor
-            ? "Join their vendor directory on PropLane."
-            : "Co-manage the properties below with them on PropLane."
+          isResident
+            ? "Already living in one of the homes below? Confirm it and they will set up your resident portal."
+            : isVendor
+              ? "Join their vendor directory on PropLane."
+              : "Co-manage the properties below with them on PropLane."
         }
       />
 
       {preview.propertyLabels.length > 0 ? (
         <div className="mt-5 rounded-2xl border border-border bg-accent/20 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted">
-            {preview.propertyLabels.length === 1 ? "Property" : "Properties"}
+            {isResident
+              ? preview.propertyLabels.length === 1
+                ? "Home"
+                : "Homes"
+              : preview.propertyLabels.length === 1
+                ? "Property"
+                : "Properties"}
           </p>
           <ul className="mt-2 space-y-1 text-sm">
             {preview.propertyLabels.map((label, i) => (
@@ -161,7 +215,7 @@ export default function InviteLinkClient({ token }: { token: string }) {
               router.push(`/auth/sign-in?next=${encodeURIComponent(`/invite/${token}`)}`)
             }
           >
-            Sign in to accept
+            {isResident ? "Sign in or create an account" : "Sign in to accept"}
           </Button>
         ) : (
           <Button
@@ -171,13 +225,15 @@ export default function InviteLinkClient({ token }: { token: string }) {
             loading={busy}
             onClick={() => accept()}
           >
-            Continue
+            {isResident ? "This is my home" : "Continue"}
           </Button>
         )}
       </div>
 
       <p className="mt-4 text-center text-xs text-muted">
-        You will see exactly what you are being given access to before anything is linked.
+        {isResident
+          ? "This sends a request to your property manager. Nothing on your account changes until they confirm it."
+          : "You will see exactly what you are being given access to before anything is linked."}
       </p>
     </AuthCard>
   );

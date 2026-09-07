@@ -1,5 +1,6 @@
 "use client";
 
+import { Link2 } from "lucide-react";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { cn } from "@/lib/utils";
@@ -72,6 +73,7 @@ import {
 import { PortalServiceRecordRow, PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
+import { ResidentInviteClaimsPanel } from "@/components/portal/resident-invite-claims-panel";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
@@ -99,6 +101,10 @@ import { ManagerPipelineLeaseEditModal } from "@/components/portal/pro-pipeline-
 import { PropertyResidentPdfUploadCard } from "@/components/portal/property-resident-onboard-wizard";
 import { mergeParsedFields } from "@/lib/resident-document-import/onboard-draft";
 import { mapParsedFieldsToAddResidentForm } from "@/lib/resident-document-import/apply-parsed-to-add-resident";
+import {
+  resolveResidentOnboardingStage,
+  type ResidentLeaseFiling,
+} from "@/lib/resident-onboarding/resolve-onboarding-stage";
 import {
   parsedFieldsToRecord,
   parseResidentDocumentPdfClient,
@@ -181,6 +187,7 @@ import {
   leaseLandlordNameWarning,
   leaseSendGateBlocker,
   UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE,
+  ensureManagerReviewLeaseForApplication,
   executedLeaseIdentities,
   readLeasePipeline,
   residentCanViewLeaseRow,
@@ -494,6 +501,17 @@ export function ManagerResidents({
   const [arNotes, setArNotes] = useState("");
   const [arSignedLeaseFileName, setArSignedLeaseFileName] = useState("");
   const [arSignedLeaseDataUrl, setArSignedLeaseDataUrl] = useState("");
+  /**
+   * What the manager SAYS the uploaded lease is, never what we infer from a PDF
+   * being attached. `signed` is what sets `externallySignedLease`, which unlocks
+   * the resident's Services stage and stamps `fullySignedAt` — so filing a draft
+   * that way would unlock a resident as though a countersigned lease existed.
+   * Defaults to `signed` because migrating an existing tenancy is the case this
+   * screen is for, but the control is always visible once a lease is attached.
+   */
+  const [arLeaseFiling, setArLeaseFiling] = useState<ResidentLeaseFiling>("signed");
+  const [arInviteUrl, setArInviteUrl] = useState("");
+  const [arInviteBusy, setArInviteBusy] = useState(false);
   const [addResidentNoticePreview, setAddResidentNoticePreview] = useState<DemoApplicantRow | null>(null);
   const [arSaving, setArSaving] = useState(false);
   const [arPdfBusy, setArPdfBusy] = useState(false);
@@ -2140,6 +2158,59 @@ export function ManagerResidents({
     }
   };
 
+  /**
+   * Mint a shareable link for the selected property.
+   *
+   * Deliberately NOT the resident account-setup link: that one is bound to one
+   * person's identity and whoever holds it becomes that resident, which is why
+   * the server never hands it to a browser. This link carries a PROPERTY, binds
+   * nobody, and produces a request the manager approves — so it is safe to post
+   * in a building group chat, which is the whole point when moving an existing
+   * portfolio across.
+   */
+  async function copyResidentInviteLink() {
+    if (!arPropertyId) {
+      showToast("Pick a property first — the link carries it.");
+      return;
+    }
+    setArInviteBusy(true);
+    try {
+      const res = await fetch("/api/pro/invite-links", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          kind: "resident",
+          assignedPropertyIds: [arPropertyId],
+          assignedRoomId: arRoomId || undefined,
+          label: propertyOptions.find((p) => p.id === arPropertyId)?.label ?? null,
+          // A building-wide migration link: everyone already living there should
+          // be able to use it, and a month is long enough to chase stragglers.
+          expiry: "30d",
+          uses: "unlimited",
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !body.url) {
+        showToast(body.error ?? "Could not create the invite link.");
+        return;
+      }
+      setArInviteUrl(body.url);
+      try {
+        await navigator.clipboard.writeText(body.url);
+        showToast("Invite link copied. Anyone who opens it asks to join — you approve.");
+      } catch {
+        // Clipboard is blocked in plenty of contexts; the link is on screen and
+        // selectable either way, so this is not a failure of the mint.
+        showToast("Invite link ready — copy it below.");
+      }
+    } catch {
+      showToast("Could not create the invite link.");
+    } finally {
+      setArInviteBusy(false);
+    }
+  }
+
   function resetAddResidentForm() {
     setArName("");
     setArEmail("");
@@ -2158,6 +2229,9 @@ export function ManagerResidents({
     setArNotes("");
     setArSignedLeaseFileName("");
     setArSignedLeaseDataUrl("");
+    setArLeaseFiling("signed");
+    setArInviteUrl("");
+    setArInviteBusy(false);
     setArPdfBusy(false);
     setArApplicationFile(null);
     setArLeaseImportFile(null);
@@ -2208,13 +2282,25 @@ export function ManagerResidents({
     const selectedRoomLabel = placement.placementLabel?.trim() || "";
     const signedLeaseUploadedAt = arSignedLeaseDataUrl.trim() ? new Date().toISOString() : undefined;
     const hasUploadedLeasePdf = Boolean(arSignedLeaseDataUrl.trim());
+    // One shared rule for where this resident lands, so this screen and the
+    // property-panel document import can no longer disagree about identical
+    // input. It also decides `externallySignedLease` from the manager's answer
+    // rather than from a PDF merely being attached.
+    const onboarding = resolveResidentOnboardingStage({
+      name: arName,
+      email: arEmail,
+      propertyId: arPropertyId,
+      roomChoice: placement.assignedRoomChoice,
+      monthlyRent: rent ?? null,
+      leaseFiling: hasUploadedLeasePdf ? arLeaseFiling : "none",
+    });
     return {
       id: axisId,
       name: arName.trim(),
       email: arEmail.trim(),
       property: propLabel,
-      stage: "Active",
-      bucket: "approved",
+      stage: onboarding.stage,
+      bucket: onboarding.bucket,
       detail: "",
       assignedPropertyId: arPropertyId || undefined,
       assignedRoomChoice: placement.assignedRoomChoice,
@@ -2231,10 +2317,19 @@ export function ManagerResidents({
         roomNumber: selectedRoomLabel || undefined,
         leaseTerm: arLeaseTerm.trim() || undefined,
         notes: arNotes.trim() || undefined,
-        signedLeaseFileName: arSignedLeaseFileName.trim() || undefined,
-        signedLeaseDataUrl: arSignedLeaseDataUrl.trim() || undefined,
-        signedLeaseUploadedAt,
-        ...(hasUploadedLeasePdf ? { externallySignedLease: true as const } : {}),
+        // ONLY an already-signed filing writes these. `manualResidentSignedLeasePdf`
+        // keys on `signedLeaseDataUrl` alone, and `syncLeasePipelineFromApplications`
+        // stamps `fullySignedAt` plus both signatures for any row that has it — so a
+        // draft parked here would execute itself no matter what the flag beside it
+        // said. A draft is filed for manager review instead, in `confirmManualResident`.
+        ...(onboarding.externallySignedLease
+          ? {
+              signedLeaseFileName: arSignedLeaseFileName.trim() || undefined,
+              signedLeaseDataUrl: arSignedLeaseDataUrl.trim() || undefined,
+              signedLeaseUploadedAt,
+              externallySignedLease: true as const,
+            }
+          : {}),
       },
       application: arAppLeaseFields.leaseTerm
         ? ({
@@ -2281,8 +2376,31 @@ export function ManagerResidents({
           showToast(persisted.error ?? "Could not complete resident onboarding.");
           return;
         }
-        recordApprovedApplicationCharges(nextRow, userId ?? null, true);
+        // A pending applicant has no approved tenancy yet, so it has no move-in
+        // charges either — billing one would be inventing money owed.
+        if (nextRow.bucket === "approved") {
+          recordApprovedApplicationCharges(nextRow, userId ?? null, true);
+        }
         syncLeasePipelineFromApplications(userId ?? null);
+
+        // A DRAFT lease goes down the same manager-review path the document
+        // import uses, rather than into `signedLeaseDataUrl` where the sync
+        // above would treat it as executed.
+        if (arLeaseFiling === "draft" && arLeaseImportFile) {
+          const ensured = ensureManagerReviewLeaseForApplication(nextRow.id, userId ?? null);
+          if (!ensured.ok) {
+            showToast(ensured.error ?? "Resident added, but the lease could not be filed.");
+          } else {
+            const uploaded = await uploadAndParseLeasePdf(
+              ensured.row.id,
+              arLeaseImportFile,
+              userId ?? null,
+            );
+            if (!uploaded.ok) {
+              showToast(uploaded.error ?? "Resident added, but the lease PDF could not be filed.");
+            }
+          }
+        }
 
         await Promise.all([
           syncManagerApplicationsFromServer({ force: true, managerUserId: userId }),
@@ -3822,6 +3940,17 @@ export function ManagerResidents({
           ) : null
         }
       />
+      <ResidentInviteClaimsPanel
+        residentOptions={residents.map((r) => ({
+          id: r.axisId || r.id,
+          label: `${r.name}${r.propertyLabel ? ` · ${r.propertyLabel}` : ""}`,
+        }))}
+        propertyLabelFor={(propertyId) =>
+          propertyOptions.find((p) => p.id === propertyId)?.label ?? "one of your properties"
+        }
+        onApproved={() => setPropertyTick((n) => n + 1)}
+        showToast={showToast}
+      />
       <PortalRecordListSurface
         isEmpty={filtered.length === 0}
         empty={
@@ -4005,7 +4134,7 @@ export function ManagerResidents({
         }
       >
         <div className="min-w-0 max-w-full space-y-3 overflow-x-hidden">
-          <div className="grid grid-cols-1 gap-3 min-[28rem]:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 min-[28rem]:grid-cols-2 min-[44rem]:grid-cols-3">
             <PropertyResidentPdfUploadCard
               title="Add application"
               subtitle="Rental application PDF"
@@ -4022,7 +4151,28 @@ export function ManagerResidents({
               dataAttr="residents-add-lease-pdf"
               onPick={() => arLeaseImportUploadRef.current?.click()}
             />
+            <button
+              type="button"
+              onClick={() => void copyResidentInviteLink()}
+              disabled={arInviteBusy}
+              data-attr="residents-copy-invite-link"
+              className="flex min-h-[10rem] w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-primary/50 bg-primary/[0.05] px-3 py-6 text-center transition hover:border-primary hover:bg-primary/10 disabled:opacity-60"
+            >
+              <Link2 className="h-7 w-7 text-primary" aria-hidden />
+              <span className="text-sm font-semibold text-foreground">Copy invite link</span>
+              <span className="text-xs text-muted">Post or text it — no email needed</span>
+            </button>
           </div>
+          {arInviteUrl ? (
+            <div className="rounded-2xl border border-primary/40 bg-primary/[0.04] px-4 py-3">
+              <p className="text-xs font-semibold text-foreground">Invite link for this property</p>
+              <p className="mt-1 break-all font-mono text-xs text-muted">{arInviteUrl}</p>
+              <p className="mt-2 text-xs text-muted">
+                Anyone who opens this asks to join — nothing happens to your properties until you
+                approve them under Requests to join. Expires in 30 days.
+              </p>
+            </div>
+          ) : null}
           <input
             ref={arApplicationUploadRef}
             type="file"
@@ -4045,6 +4195,43 @@ export function ManagerResidents({
               void handleAddResidentLeasePdf(file);
             }}
           />
+          {arSignedLeaseDataUrl.trim() ? (
+            <fieldset className="rounded-2xl border border-primary/40 bg-primary/[0.04] px-4 py-3">
+              <legend className="px-1 text-xs font-semibold text-foreground">This lease is…</legend>
+              <div className="mt-1 flex flex-wrap gap-2">
+                {(
+                  [
+                    { id: "signed", label: "Already signed", hint: "File as executed" },
+                    { id: "draft", label: "A draft", hint: "Send for signature" },
+                  ] as const
+                ).map((option) => {
+                  const active = arLeaseFiling === option.id;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      onClick={() => setArLeaseFiling(option.id)}
+                      aria-pressed={active}
+                      data-attr={`add-resident-lease-filing-${option.id}`}
+                      className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                        active
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-background text-foreground hover:border-primary/40"
+                      }`}
+                    >
+                      <span className="block font-semibold">{option.label}</span>
+                      <span className={`block ${active ? "opacity-80" : "text-muted"}`}>{option.hint}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-xs text-muted">
+                {arLeaseFiling === "signed"
+                  ? "Recorded as executed off-platform. The resident only needs to activate their account."
+                  : "Filed for your review. The resident still has to sign it before their lease is active."}
+              </p>
+            </fieldset>
+          ) : null}
           <p className="text-xs text-muted">
             Upload one or both. Parsed fields appear below — edit anything before importing.
           </p>
