@@ -5,6 +5,9 @@ import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import { managerOwnsResident } from "@/lib/auth/resident-relationship";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
 
+/** Shared singleton holding every manager's tour inquiries (see tour-inquiry.server). */
+const INQUIRIES_RECORD_ID = "axis_admin_partner_inquiries_v1";
+
 /**
  * Server-side recipient scoping for the portal inbox compose flow.
  *
@@ -16,11 +19,12 @@ import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
  *
  * Rules (non-admin senders):
  *  - Resident sender  → may message ONLY the managers/owners tied to their own
- *    listing(s)/lease(s), plus those managers' linked co-managers, plus Axis
+ *    listing(s)/lease(s)/tours, plus those managers' linked co-managers, plus Axis
  *    admin ops. Never other residents, never arbitrary managers.
- *  - Manager sender   → may message ONLY the residents on their own properties,
- *    plus their own linked co-managers, plus Axis admin ops. Never arbitrary
- *    residents, never unlinked managers.
+ *  - Manager sender   → may message ONLY people in their funnel (applications,
+ *    charges, leases, tour links/inquiries, listing leads in their inbox), plus
+ *    their own linked co-managers, plus Axis admin ops. Never arbitrary
+ *    strangers, never unlinked managers.
  *  - Admin sender     → unrestricted (unchanged).
  */
 
@@ -238,6 +242,128 @@ async function managerIdsFromResidentTours(db: SupabaseClient, residentUserId: s
   }
 }
 
+/** Workspace owners linked via accepted account links (mirrors resident-relationship). */
+async function relatedWorkspaceUserIds(db: SupabaseClient, requestorUserId: string): Promise<string[]> {
+  const ids = new Set<string>([requestorUserId]);
+  try {
+    const { data } = await db
+      .from("account_link_invites")
+      .select("inviter_user_id, invitee_user_id, status")
+      .eq("status", "accepted")
+      .or(`inviter_user_id.eq.${requestorUserId},invitee_user_id.eq.${requestorUserId}`);
+    for (const row of (data ?? []) as { inviter_user_id?: unknown; invitee_user_id?: unknown }[]) {
+      if (typeof row.inviter_user_id === "string" && row.inviter_user_id.trim()) ids.add(row.inviter_user_id.trim());
+      if (typeof row.invitee_user_id === "string" && row.invitee_user_id.trim()) ids.add(row.invitee_user_id.trim());
+    }
+  } catch {
+    /* table may not exist */
+  }
+  return [...ids];
+}
+
+/**
+ * True when the address is already in the manager's pre-application funnel:
+ * tour link, tour inquiry, or a listing-lead / property conversation thread.
+ * Defaults closed. Does not replace {@link managerOwnsResident}.
+ */
+async function managerConnectedToFunnelProspect(
+  db: SupabaseClient,
+  requestorUserId: string,
+  target: { email: string; residentUserId?: string | null },
+): Promise<boolean> {
+  const email = target.email.trim().toLowerCase();
+  const residentUserId = target.residentUserId?.trim() || "";
+  if (!requestorUserId || (!email && !residentUserId)) return false;
+
+  const managerIds = await relatedWorkspaceUserIds(db, requestorUserId);
+  if (managerIds.length === 0) return false;
+
+  try {
+    const orFilters: string[] = [];
+    if (email) orFilters.push(`attendee_email.eq.${email}`);
+    if (residentUserId) orFilters.push(`resident_user_id.eq.${residentUserId}`);
+    if (orFilters.length > 0) {
+      const { data, error } = await db
+        .from("resident_tour_links")
+        .select("id")
+        .in("manager_user_id", managerIds)
+        .or(orFilters.join(","))
+        .limit(1);
+      if (!error && Array.isArray(data) && data.length > 0) return true;
+    }
+  } catch {
+    /* migration may be partial */
+  }
+
+  if (email) {
+    try {
+      const { data, error } = await db
+        .from("portal_inbox_thread_records")
+        .select("id, row_data")
+        .in("owner_user_id", managerIds)
+        .eq("participant_email", email)
+        .limit(5);
+      if (!error && Array.isArray(data)) {
+        for (const row of data) {
+          const rowData = (row.row_data ?? {}) as Record<string, unknown>;
+          // Property-lead / listing conversations carry a property id; bare
+          // accidental threads do not unlock messaging.
+          if (String(rowData.propertyId ?? "").trim()) return true;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      const { data } = await db
+        .from("portal_schedule_records")
+        .select("row_data")
+        .eq("id", INQUIRIES_RECORD_ID)
+        .maybeSingle();
+      const rowData = (data?.row_data ?? {}) as Record<string, unknown>;
+      const payload = Array.isArray(rowData.payload) ? rowData.payload : [];
+      for (const item of payload) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+        const inquiry = item as Record<string, unknown>;
+        const inquiryEmail = String(inquiry.email ?? "").trim().toLowerCase();
+        if (inquiryEmail !== email) continue;
+        const hostId = String(inquiry.managerUserId ?? "").trim();
+        if (hostId && managerIds.includes(hostId)) return true;
+        const windows = Array.isArray(inquiry.requestedWindows) ? inquiry.requestedWindows : [];
+        for (const window of windows) {
+          if (!window || typeof window !== "object" || Array.isArray(window)) continue;
+          const adminId = String((window as Record<string, unknown>).adminUserId ?? "").trim();
+          if (adminId && managerIds.includes(adminId)) return true;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      const { data } = await db
+        .from("portal_schedule_records")
+        .select("row_data")
+        .in("manager_user_id", managerIds);
+      for (const row of data ?? []) {
+        const rowData = (row.row_data ?? {}) as Record<string, unknown>;
+        const attendee = String(rowData.attendeeEmail ?? rowData.guestEmail ?? "").trim().toLowerCase();
+        if (attendee === email) return true;
+        const payload = rowData.payload;
+        if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+          const nested = String((payload as Record<string, unknown>).email ?? "").trim().toLowerCase();
+          if (nested === email) return true;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return false;
+}
+
 async function managerIdsConnectedToResident(
   db: SupabaseClient,
   sender: { id: string; email: string },
@@ -301,9 +427,17 @@ export async function filterRecipientsBySenderScope<T extends InboxScopeRecipien
         if (email === ADMIN_EMAIL) return true;
         if (coManagers.has(email)) return true;
         if (vendors.has(email)) return true;
-        return managerOwnsResident(db, sender.id, {
+        if (
+          await managerOwnsResident(db, sender.id, {
+            email,
+            residentUserId: recipient.userId ?? undefined,
+          })
+        ) {
+          return true;
+        }
+        return managerConnectedToFunnelProspect(db, sender.id, {
           email,
-          residentUserId: recipient.userId ?? undefined,
+          residentUserId: recipient.userId,
         });
       }),
     );
@@ -425,6 +559,50 @@ export async function listEligibleInboxContacts(
         email,
         role: "vendor",
       });
+    }
+    // Pre-application funnel: tour links + listing-lead inbox threads.
+    try {
+      const { data: tourLinks } = await db
+        .from("resident_tour_links")
+        .select("id, attendee_email, property_id")
+        .eq("manager_user_id", sender.id);
+      for (const row of tourLinks ?? []) {
+        const email = String(row.attendee_email ?? "").trim();
+        if (!email) continue;
+        push({
+          id: `tour-${row.id}`,
+          name: email,
+          email,
+          role: "resident",
+          propertyId: String(row.property_id ?? "").trim() || undefined,
+          tenancyStatus: "applicant",
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+    try {
+      const { data: leadThreads } = await db
+        .from("portal_inbox_thread_records")
+        .select("id, participant_email, row_data")
+        .eq("owner_user_id", sender.id);
+      for (const row of leadThreads ?? []) {
+        const email = String(row.participant_email ?? "").trim();
+        if (!email) continue;
+        const rowData = (row.row_data ?? {}) as Record<string, unknown>;
+        if (!String(rowData.propertyId ?? "").trim()) continue;
+        push({
+          id: `lead-${row.id}`,
+          name: String(rowData.from ?? "").trim() || email,
+          email,
+          role: "resident",
+          propertyLabel: String(rowData.propertyTitle ?? "").trim() || undefined,
+          propertyId: String(rowData.propertyId ?? "").trim() || undefined,
+          tenancyStatus: "applicant",
+        });
+      }
+    } catch {
+      /* ignore */
     }
     return out;
   }

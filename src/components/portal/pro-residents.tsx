@@ -3096,19 +3096,21 @@ export function ManagerResidents({
         // button. Same reasoning as the Leases pipeline panel.
         sendToResidentDisabled={false}
         onMoveToManagerReview={() => {
-          const moveResult = sendLeaseBackToManager(residentLease.id, userId);
-          if (!moveResult.ok) {
-            showToast(moveResult.error);
-            return;
-          }
-          appendLeaseThreadMessage(
-            residentLease.id,
-            "manager",
-            "Moved lease back to manager review.",
-            userId,
-          );
-          setLeaseTick((n) => n + 1);
-          showToast("Lease moved to Manager Review.");
+          void (async () => {
+            const moveResult = await sendLeaseBackToManager(residentLease.id, userId);
+            if (!moveResult.ok) {
+              showToast(moveResult.error);
+              return;
+            }
+            appendLeaseThreadMessage(
+              residentLease.id,
+              "manager",
+              "Moved lease back to manager review.",
+              userId,
+            );
+            setLeaseTick((n) => n + 1);
+            showToast("Lease moved to Manager Review.");
+          })();
         }}
         canEditDocument={leaseAllowsManagerDocumentEdits(residentLease)}
         generateLeaseDisabled={!leaseGenerationSupportedForRow(residentLease).ok}
@@ -3144,35 +3146,10 @@ export function ManagerResidents({
       />
     ) : null;
 
-  // No Add payment here: the list's own dashed ADD row is the add path, and a
-  // second one in the dock was the same action twice on one screen.
-  // Settings + Setup, the same two controls (and the same words) the Payments
-  // section publishes — a resident's Payments tab is the portfolio list scoped to
-  // one person, so it should not name the same dialogs differently. Reminders live
-  // inside Settings; there is no Check here for the same reason the section has
-  // none (the receipt scan runs on its own).
-  const residentPaymentsListFooterActions = (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_DETAIL_BTN}
-        onClick={() => setResidentPaymentSettingsOpen(true)}
-        data-attr="resident-payments-settings-open"
-      >
-        Settings
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_DETAIL_BTN}
-        onClick={openResidentPaymentSetup}
-        data-attr="resident-payment-setup-open"
-      >
-        Setup
-      </Button>
-    </>
-  );
+  // Payments list: Settings + Edit live in ResidentDetailSubsectionChrome
+  // (PRP-395). A second Settings/Setup dock duplicated those controls.
+  // Detail + bulk selection still publish their own footer actions below.
+  const residentPaymentsListFooterActions = null;
 
   // Services adds through the dashed ADD row in the list itself, the same way
   // every other list in the portal does — so this tab publishes no dock action.
@@ -3348,12 +3325,17 @@ export function ManagerResidents({
                                 bucketAriaLabel="Lease pipeline stage"
                                 denseEqualRow
                                 onSettings={() => openResidentDetailSettings("lease")}
-                                onEdit={
-                                  residentLease && leaseAllowsManagerDocumentEdits(residentLease)
-                                    ? () => setEditResidentLeaseId(residentLease.id)
-                                    : undefined
+                                onEdit={() => {
+                                  if (
+                                    residentLease &&
+                                    leaseAllowsManagerDocumentEdits(residentLease)
+                                  ) {
+                                    setEditResidentLeaseId(residentLease.id);
+                                  }
+                                }}
+                                editDisabled={
+                                  !residentLease || !leaseAllowsManagerDocumentEdits(residentLease)
                                 }
-                                editDisabled={!residentLease || !leaseAllowsManagerDocumentEdits(residentLease)}
                               />
                               {residentLeaseRowsInPipelineTab.length > 1 ? (
                                 <div className="mb-3 shrink-0">
@@ -3430,11 +3412,11 @@ export function ManagerResidents({
                                 }
                                 bucketAriaLabel="Application status"
                                 onSettings={() => openResidentDetailSettings("applications")}
-                                onEdit={
-                                  selectedApplicationRow?.application
-                                    ? () => setApplicationEditOpen(true)
-                                    : undefined
-                                }
+                                onEdit={() => {
+                                  if (selectedApplicationRow?.application) {
+                                    setApplicationEditOpen(true);
+                                  }
+                                }}
                                 editDisabled={
                                   !selectedApplicationRow?.application || !applicationMatchesActiveBucket
                                 }
@@ -3531,6 +3513,7 @@ export function ManagerResidents({
                                 bucket={tourBucketProp}
                                 tourId={tourIdProp}
                                 propertyIds={managerPortfolioPropertyIds}
+                                onSettings={() => openResidentDetailSettings("tours")}
                                 buildTourListHref={
                                   selected
                                     ? (targetBucket) =>
@@ -3678,13 +3661,12 @@ export function ManagerResidents({
                                 }
                                 bucketAriaLabel="Service status"
                                 onSettings={() => openResidentDetailSettings("resident")}
-                                onEdit={
-                                  canAddResidentServiceItem
-                                    ? () => setAddResidentServiceOpen(true)
-                                    : undefined
-                                }
+                                onEdit={() => {
+                                  if (canAddResidentServiceItem) {
+                                    setAddResidentServiceOpen(true);
+                                  }
+                                }}
                                 editDisabled={!canAddResidentServiceItem}
-                                editLabel="Add"
                               />
                               {residentServicesHasRows ? (
                                 <PortalRecordListSurface isEmpty={false} className="mt-0">

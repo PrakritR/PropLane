@@ -3210,21 +3210,40 @@ export async function sendLeaseToResident(rowId: string, managerUserId?: string 
   return { ok: true };
 }
 
-export function sendLeaseBackToManager(rowId: string, managerUserId?: string | null): LeasePipelineActionResult {
+export async function sendLeaseBackToManager(
+  rowId: string,
+  managerUserId?: string | null,
+): Promise<LeasePipelineActionResult> {
   const rows = readLeasePipeline(managerUserId);
   const idx = rows.findIndex((r) => r.id === rowId);
   if (idx === -1) return { ok: false, error: "Lease not found." };
-  const row = rows[idx]!;
-  if (!leaseAccessibleToManager(row, managerUserId)) return { ok: false, error: "Lease not found." };
-  if (row.status === "Fully Signed" || row.status === "Voided") {
+  const logical = rows[idx]!;
+  if (!leaseAccessibleToManager(logical, managerUserId)) return { ok: false, error: "Lease not found." };
+  if (logical.status === "Fully Signed" || logical.status === "Voided") {
     return { ok: false, error: "This lease is already finalized." };
   }
-  const iso = new Date().toISOString();
+  if (logical.bucket === "manager" && logical.status === "Manager Review") {
+    return { ok: true };
+  }
+  // Safe recall only: once any signature exists, pulling the lease back would
+  // clear execution evidence. Managers must void / re-issue instead.
+  if (residentHasSignedLease(logical) || logical.managerSignature || rowHasAnySignature(logical)) {
+    return {
+      ok: false,
+      error: "This lease already has a signature. Void it or issue a new version instead of moving it back.",
+    };
+  }
   const raw = [...materializeLeasePipeline(managerUserId)];
   const rawIdx = findRawLeaseRowIndex(rowId, managerUserId);
   if (rawIdx === -1) return { ok: false, error: "Lease record could not be saved locally." };
-  raw[rawIdx] = normalizeLeasePipelineRow({
-    ...row,
+  // Patch the RAW stored row — never the computed pipeline view. Spreading the
+  // view row and POSTing it was treated as a document replacement after send
+  // (409 "no longer in manager review"), so the toast lied while the server
+  // kept the lease in Resident signature (PRP-393).
+  const existing = raw[rawIdx]!;
+  const iso = new Date().toISOString();
+  const updated = normalizeLeasePipelineRow({
+    ...existing,
     bucket: "manager",
     status: "Manager Review",
     currentActorRole: "manager",
@@ -3239,6 +3258,11 @@ export function sendLeaseBackToManager(rowId: string, managerUserId?: string | n
     updatedAtIso: iso,
     updated: formatUpdatedLabel(iso),
   });
+  const persisted = await persistLeaseRowToServerAwait(updated);
+  if (!persisted.ok) {
+    return persisted;
+  }
+  raw[rawIdx] = updated;
   write(raw, managerUserId);
   return { ok: true };
 }

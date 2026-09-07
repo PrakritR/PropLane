@@ -228,6 +228,26 @@ describe("PortalListControlStack", () => {
       /border-b/,
     );
   });
+
+  it("sticks destinations and Settings together in command mode (PRP-389)", () => {
+    const { container } = render(
+      <PortalListControlStack
+        variant="command"
+        stickyDestinations
+        actions={<button type="button">Settings</button>}
+        destinations={[
+          { id: "move-in", label: "Move-in", href: "/portal/inspections/move-in", count: 1 },
+          { id: "move-out", label: "Move-out", href: "/portal/inspections/move-out", count: 0 },
+        ]}
+        activeDestinationId="move-in"
+      />,
+    );
+    const stack = container.querySelector('[data-slot="portal-list-control-stack"][data-sticky]');
+    expect(stack).toBeTruthy();
+    expect(stack?.className).toMatch(/\bsticky\b/);
+    expect(stack?.querySelector('[data-attr="portal-list-command-actions"]')).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
+  });
 });
 
 describe("PortalSectionActionRow", () => {

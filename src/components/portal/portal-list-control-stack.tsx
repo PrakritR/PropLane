@@ -119,9 +119,18 @@ export function PortalListControlStack({
     const showUtilityRow = Boolean(filterRow || search);
     return (
       <div
-        className={cn("shrink-0 space-y-2", className)}
+        ref={stickyDestinations ? destinationRef : undefined}
+        className={cn(
+          "shrink-0 space-y-2",
+          // Sticky the whole command chrome (tabs + Settings/actions), not only the
+          // destination strip — Settings lived outside the old sticky wrapper (PRP-389).
+          stickyDestinations &&
+            "sticky z-[38] bg-background/95 backdrop-blur-md [top:var(--portal-mobile-top-chrome,0px)]",
+          className,
+        )}
         data-slot="portal-list-control-stack"
         data-variant="command"
+        data-sticky={stickyDestinations ? "" : undefined}
       >
         <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card/75 shadow-sm">
           {showDestinations ? (
@@ -131,7 +140,7 @@ export function PortalListControlStack({
                 showActionRow && "border-b",
               )}
             >
-              <div ref={destinationRef} data-portal-list-destination-nav>
+              <div data-portal-list-destination-nav>
                 {destinationContent}
               </div>
             </HorizontalScrollCapture>

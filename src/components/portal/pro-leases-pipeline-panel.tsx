@@ -545,8 +545,8 @@ export function ManagerLeasesPipelinePanel({
     } else showToast("Could not delete lease.");
   };
 
-  const onMoveToManagerReview = (row: LeasePipelineRow) => {
-    const result = sendLeaseBackToManager(row.id, managerUserId);
+  const onMoveToManagerReview = async (row: LeasePipelineRow) => {
+    const result = await sendLeaseBackToManager(row.id, managerUserId);
     if (!result.ok) {
       showToast(result.error);
       return;

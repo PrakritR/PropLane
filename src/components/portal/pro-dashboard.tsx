@@ -101,6 +101,16 @@ import { isSubmittedPendingApplicationRow } from "@/lib/rental-application/in-pr
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import type { DocumentExpirationSummary } from "@/lib/documents/document-expiration";
+import { useRouter } from "next/navigation";
+import {
+  firstListingDashboardRedirectStorageKey,
+  managerNeedsFirstListingOnboarding,
+  managerPortfolioNeedsFirstListingSeed,
+  readFirstListingPortfolioSnapshot,
+  shouldSkipFirstListingOnboarding,
+} from "@/lib/manager-first-listing-onboarding";
+import { syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
+import { propertyListHref } from "@/lib/portal-detail-routes";
 
 const BASE = "/portal";
 
@@ -538,7 +548,8 @@ function formatUsd(amount: number): string {
 }
 
 export function ManagerDashboard({ displayName = "there" }: { displayName?: string }) {
-  const { userId, ready: authReady } = useManagerUserId();
+  const router = useRouter();
+  const { userId, email, ready: authReady } = useManagerUserId();
   const [tick, setTick] = useState(0);
   const bump = () => setTick((n) => n + 1);
   // `nowMs` is frozen for the whole session: it only feeds the 6-month cash-flow
@@ -557,6 +568,42 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
   const { visibility, setVisible, reset } = useDashboardVisibility(userId);
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [residentAccountEmails, setResidentAccountEmails] = useState<Set<string>>(new Set());
+  const [showFirstListingBanner, setShowFirstListingBanner] = useState(false);
+
+  // PRP-396: once per session, soft-redirect empty/first-draft managers to
+  // Properties → Drafts (seed + wizard live on that page). Banner stays as a
+  // fallback when they navigate back.
+  useEffect(() => {
+    if (!authReady || !userId || shouldSkipFirstListingOnboarding({ email })) {
+      setShowFirstListingBanner(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        await syncManagerPortfolioFromServer(userId, { force: true });
+      } catch {
+        /* offline */
+      }
+      if (cancelled) return;
+      const snap = readFirstListingPortfolioSnapshot(userId);
+      const needs =
+        managerPortfolioNeedsFirstListingSeed(snap) || managerNeedsFirstListingOnboarding(snap);
+      setShowFirstListingBanner(needs);
+      if (!needs || typeof window === "undefined") return;
+      const key = firstListingDashboardRedirectStorageKey(userId);
+      try {
+        if (sessionStorage.getItem(key) === "1") return;
+        sessionStorage.setItem(key, "1");
+      } catch {
+        /* private mode */
+      }
+      router.replace(propertyListHref(BASE, "drafts"));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, userId, email, router]);
 
   // The assistant dock + AI-draft chips are live, auth-gated manager surfaces:
   // off in the /demo sandbox (which uses its own scripted assistant and must
@@ -889,6 +936,18 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
           `min-w-0` keeps the horizontally-scrolling KPI row from forcing page
           overflow. */}
       <div className={`min-w-0 ${PORTAL_DASHBOARD_STACK}`}>
+        {showFirstListingBanner ? (
+          <Link
+            href={propertyListHref(BASE, "drafts")}
+            className="block rounded-lg border border-primary/30 bg-primary/[0.06] px-4 py-3 text-sm transition-opacity hover:opacity-90"
+            data-attr="dashboard-first-listing-banner"
+          >
+            <p className="font-semibold tracking-[-0.01em] text-foreground">Finish your first listing</p>
+            <p className="mt-0.5 text-xs text-muted">
+              We started a draft for you — continue the add-property wizard to publish your first home →
+            </p>
+          </Link>
+        ) : null}
         {showDocExpiryBanner ? (
           <Link
             href={docExpiryHref}

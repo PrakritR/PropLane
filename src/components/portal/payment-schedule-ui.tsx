@@ -950,6 +950,23 @@ function PaymentAutomationSettingsForm({
     compact && variant === "payments" ? (
       <div className={embeddedInBundle ? "space-y-3" : "space-y-3 border-t border-border pt-4"}>
         <UnifiedReminderScheduleSelect draft={draft} busy={busy} onChange={applySchedulePatch} />
+        <label className="flex items-start gap-2 text-sm text-foreground">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+            checked={draft.lateFeeNoticeEnabled}
+            onChange={(e) => setDraft({ ...draft, lateFeeNoticeEnabled: e.target.checked })}
+            disabled={busy}
+            data-attr="payment-late-fee-notices"
+          />
+          <span>
+            <span className="font-medium">Late fee notices</span>
+            <span className="mt-0.5 block text-xs font-normal text-muted">
+              Account-wide gate for automatic late fees. Each listing also needs Automatic late fees
+              on in Pricing (grace days and amount are per property).
+            </span>
+          </span>
+        </label>
         <ReminderSendViaField
           showProplaneChannel
           viaInbox={draft.paymentReminderDeliverViaInbox !== false}
