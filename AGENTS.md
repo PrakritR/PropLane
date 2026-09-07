@@ -846,10 +846,12 @@ npm run seed:env -- --dry-run
 Note: the AI agent reads `ANTHROPIC_API_KEY` (via `new Anthropic()`); add it to
 `.env` if it isn't there yet. `POSTHOG_*` and `LANGFUSE_*` are optional.
 
-`seed:env` copies **every** gitignored `.env*` file, including
-`.env.production.local` if the primary checkout has one — and Next loads that
-file for any production build, so a local `npm run build` can silently target
-the **production** Supabase project. How to confirm and pin the project:
+`seed:env` copies every gitignored `.env*` file **except** `.env.production*`,
+which it withholds unless you pass `--include-production` (PRP-358): Next loads
+`.env.production.local` for any production build, so seeding it made a local
+`npm run build` silently target the **production** Supabase project. A worktree
+that already carries the file from an older seed still gets a warning — remove
+it unless you mean it. How to confirm and pin the project:
 [`docs/database-environments.md`](docs/database-environments.md#a-local-production-build-can-silently-target-production).
 
 # Database environments
