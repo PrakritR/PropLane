@@ -1121,7 +1121,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Contact</p>
           <div className="grid gap-4 sm:grid-cols-2">
             <WizardFieldGate fieldKey="fullLegalName" enabled={showWizardField}>
-            <div className="space-y-2 sm:col-span-2">
+            <div className="space-y-2 sm:col-span-2" data-wizard-field="fullLegalName">
               <Label htmlFor="fullLegalName" required>
                 Full legal name
               </Label>
@@ -1137,7 +1137,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             </div>
             </WizardFieldGate>
             <WizardFieldGate fieldKey="phone" enabled={showWizardField}>
-            <div className="space-y-2">
+            <div className="space-y-2" data-wizard-field="phone">
               <Label htmlFor="phone" required>
                 Phone number
               </Label>
@@ -1151,7 +1151,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             </div>
             </WizardFieldGate>
             <WizardFieldGate fieldKey="email" enabled={showWizardField}>
-            <div className="space-y-2">
+            <div className="space-y-2" data-wizard-field="email">
               <Label htmlFor="email" required>
                 Email address
               </Label>
@@ -1190,7 +1190,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">Identity</p>
           <div className="grid gap-4 sm:grid-cols-2">
             <WizardFieldGate fieldKey="dateOfBirth" enabled={showWizardField}>
-            <div className="space-y-2">
+            <div className="space-y-2" data-wizard-field="dateOfBirth">
               <Label htmlFor="dateOfBirth" required>
                 Date of birth
               </Label>
@@ -1204,7 +1204,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             </div>
             </WizardFieldGate>
             <WizardFieldGate fieldKey="ssn" enabled={showWizardField}>
-            <div className="space-y-2">
+            <div className="space-y-2" data-wizard-field="ssn">
               <Label htmlFor="ssn" required>
                 Social Security number
               </Label>
@@ -1221,7 +1221,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             </div>
             </WizardFieldGate>
             <WizardFieldGate fieldKey="driversLicense" enabled={showWizardField}>
-            <div className="space-y-2 sm:col-span-2">
+            <div className="space-y-2 sm:col-span-2" data-wizard-field="driversLicense">
               <Label htmlFor="driversLicense" required>
                 Driver&apos;s license or ID number
               </Label>

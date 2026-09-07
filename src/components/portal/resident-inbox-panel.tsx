@@ -248,7 +248,6 @@ export const ResidentInboxPanel = forwardRef<
   const [smsConfigured, setSmsConfigured] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeDraft, setComposeDraft] = useState<ResidentComposePrefill | null>(null);
-  const [composeScheduleLater, setComposeScheduleLater] = useState(false);
   // Threads marked read while viewing "Unopened" stay listed until the tab is
   // switched or the page is refreshed; they only move to "Opened" on reset.
   const [retainedIds, setRetainedIds] = useState<Set<string>>(() => new Set());
@@ -695,28 +694,6 @@ export const ResidentInboxPanel = forwardRef<
     const collapsed = collapsePersonInboxThreads(localRef.current, { mergeFolders: true });
     return collapsed.find((t) => inboxThreadCounterpartyEmail(t) === norm)?.id ?? null;
   }, []);
-
-  const openScheduleForThread = useCallback(
-    (thread: InboxThread) => {
-      const email = (inboxThreadCounterpartyEmail(thread) || thread.email).trim().toLowerCase();
-      if (!email) {
-        showToast("Choose your property manager.");
-        return;
-      }
-      void loadEligibleContacts();
-      const contact = eligibleContacts.find((c) => c.email.trim().toLowerCase() === email);
-      const subjectBase = thread.subject?.trim() || "";
-      setComposeDraft({
-        subject: subjectBase && !/^re:/i.test(subjectBase) ? `Re: ${subjectBase}` : subjectBase,
-        body: "",
-        recipientEmail: email,
-        managerUserId: contact?.id?.replace(/^mgr-/, ""),
-      });
-      setComposeScheduleLater(true);
-      setComposeOpen(true);
-    },
-    [eligibleContacts, loadEligibleContacts, showToast],
-  );
 
   useImperativeHandle(
     ref,
@@ -1365,17 +1342,6 @@ export const ResidentInboxPanel = forwardRef<
             ))}
           </InboxScheduledThreadList>
         ) : null}
-        {tabId !== "trash" ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="h-8 min-h-0 w-full rounded-full px-3 text-[12px]"
-            data-attr="resident-inbox-schedule-another"
-            onClick={() => openScheduleForThread(activeThread)}
-          >
-            Schedule a message
-          </Button>
-        ) : null}
       </div>
     ) : null;
 
@@ -1720,7 +1686,6 @@ export const ResidentInboxPanel = forwardRef<
         onClose={() => {
           setComposeOpen(false);
           setComposeDraft(null);
-          setComposeScheduleLater(false);
         }}
         onSend={handleComposeSend}
         portal="resident"
@@ -1728,7 +1693,6 @@ export const ResidentInboxPanel = forwardRef<
         senderEmail={session.email?.trim().toLowerCase() || "resident@example.com"}
         liveContacts={eligibleContacts}
         initialDraft={composeDraft}
-        initialScheduleLater={composeScheduleLater}
       />
 
       {tabId !== "schedule" && !suppressListPane ? (

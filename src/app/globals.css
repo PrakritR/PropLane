@@ -2572,6 +2572,11 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
     bottom: 7.5rem !important;
   }
 
+  /* Keep Mark as paid / Delete clear of the docked FAB on desktop. */
+  html[data-bulk-action-bar] [data-bulk-action-actions] {
+    padding-right: 3.5rem;
+  }
+
   html[data-bulk-action-bar] [data-communication-inbox-list] {
     padding-bottom: 4.75rem;
     scroll-padding-bottom: 4.75rem;

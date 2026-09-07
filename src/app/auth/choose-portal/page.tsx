@@ -42,6 +42,13 @@ const ROLE_META: Record<
   },
 };
 
+function choosePortalSignInNext(nextRaw: string): string {
+  if (!nextRaw.trim()) return "/auth/choose-portal";
+  const params = new URLSearchParams();
+  params.set("next", nextRaw);
+  return `/auth/choose-portal?${params.toString()}`;
+}
+
 function ChoosePortalForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -50,30 +57,60 @@ function ChoosePortalForm() {
 
   const [roles, setRoles] = useState<AuthRole[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
   const autoChooseAttemptedRef = useRef(false);
+
+  const loadRoles = useCallback(async (): Promise<
+    | { kind: "ok"; roles: AuthRole[] }
+    | { kind: "unauthorized" }
+    | { kind: "error"; message: string }
+  > => {
+    const res = await fetch("/api/auth/portal-roles", { credentials: "include" });
+    const body = (await res.json().catch(() => ({}))) as { roles?: AuthRole[]; error?: string };
+    if (!res.ok) {
+      if (res.status === 401) {
+        router.replace(
+          `/auth/sign-in?next=${encodeURIComponent(choosePortalSignInNext(nextRaw))}`,
+        );
+        return { kind: "unauthorized" };
+      }
+      return {
+        kind: "error",
+        message: body.error ?? "Could not load your account.",
+      };
+    }
+    return {
+      kind: "ok",
+      roles: (body.roles ?? []).filter((role): role is AuthRole => role in ROLE_META),
+    };
+  }, [nextRaw, router]);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      setLoadError(null);
+      setRoles(null);
       try {
-        const res = await fetch("/api/auth/portal-roles", { credentials: "include" });
-        const body = (await res.json()) as { roles?: AuthRole[]; error?: string };
-        if (!res.ok) {
-          if (!cancelled) setError(body.error ?? "Could not load your account.");
+        const result = await loadRoles();
+        if (cancelled || result.kind === "unauthorized") return;
+        if (result.kind === "error") {
+          setLoadError(result.message);
+          setRoles([]);
           return;
         }
-        if (!cancelled) {
-          setRoles((body.roles ?? []).filter((role): role is AuthRole => role in ROLE_META));
-        }
+        setRoles(result.roles);
       } catch {
-        if (!cancelled) setError("Could not load your account.");
+        if (!cancelled) {
+          setLoadError("Could not load your account.");
+          setRoles([]);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadRoles, reloadToken]);
 
   const stackOptions = useMemo(
     () =>
@@ -90,7 +127,7 @@ function ChoosePortalForm() {
   const choose = useCallback(
     async (role: AuthRole) => {
       setBusy(role);
-      setError(null);
+      setLoadError(null);
       try {
         const res = await fetch("/api/auth/set-active-portal", {
           method: "POST",
@@ -100,7 +137,7 @@ function ChoosePortalForm() {
         });
         const body = (await res.json()) as { error?: string };
         if (!res.ok) {
-          setError(body.error ?? "Could not continue.");
+          setLoadError(body.error ?? "Could not continue.");
           setBusy(null);
           return;
         }
@@ -109,7 +146,7 @@ function ChoosePortalForm() {
         // "Opening…" while Turbopack compiled the portal shell (Next "Rendering…").
         window.location.assign(dest);
       } catch {
-        setError("Network error.");
+        setLoadError("Network error.");
         setBusy(null);
       }
     },
@@ -134,6 +171,8 @@ function ChoosePortalForm() {
     router.refresh();
   };
 
+  const loadingRoles = roles === null;
+
   return (
     <AuthCard variant="blend">
       <AuthPageHeader
@@ -143,12 +182,25 @@ function ChoosePortalForm() {
         accent={false}
       />
 
-      {error ? <p className="mt-4 text-center text-sm text-rose-600">{error}</p> : null}
+      {loadError ? <p className="mt-4 text-center text-sm text-rose-600">{loadError}</p> : null}
 
-      {roles === null ? (
+      {loadingRoles ? (
         <p className="auth-role-stack text-center text-sm text-muted">Loading…</p>
       ) : roles.length === 0 ? (
-        <p className="auth-role-stack text-center text-sm text-muted">No portal roles found.</p>
+        loadError ? (
+          <div className="auth-role-stack text-center">
+            <button
+              type="button"
+              className="text-sm font-semibold text-primary hover:opacity-90"
+              onClick={() => setReloadToken((token) => token + 1)}
+              data-attr="choose-portal-retry"
+            >
+              Try again
+            </button>
+          </div>
+        ) : (
+          <p className="auth-role-stack text-center text-sm text-muted">No portal roles found.</p>
+        )
       ) : (
         <AuthRoleStack
           variant="blend"

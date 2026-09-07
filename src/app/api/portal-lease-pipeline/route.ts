@@ -16,6 +16,7 @@ import {
   leaseDocumentBody,
   leaseDocumentBodyChanged,
   leaseClaimsExecution,
+  leaseExecutionStripRefusal,
   replacesSignedLeaseDocument,
   leaseSignatureRoleForgedBy,
   leaseSignatureWriteRefusal,
@@ -477,6 +478,13 @@ export async function POST(req: Request) {
           { error: "This lease already carries a signature; its document cannot be replaced." },
           { status: 409 },
         );
+      }
+
+      if (storedRow) {
+        const executionStripRefusal = leaseExecutionStripRefusal(storedRow, normalized as unknown as LeasePipelineRow);
+        if (executionStripRefusal) {
+          return NextResponse.json({ error: executionStripRefusal }, { status: 409 });
+        }
       }
 
       // ONE trust decision, read by the resident guard below and by auto-file:

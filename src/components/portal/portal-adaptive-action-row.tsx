@@ -157,6 +157,11 @@ export function PortalAdaptiveActionRow({
   useLayoutEffect(() => {
     const row = containerRef.current;
     if (!row) return;
+    // During mount (or inside a clipped overflow-hidden ancestor) clientWidth can
+    // still be 0 while scrollWidth is the full button row. Treating that as
+    // "overflow" collapses every optional action into … — or, with no pins, into
+    // an empty-looking bulk bar. Wait until the row has a real width.
+    if (row.clientWidth <= 0) return;
     if (row.scrollWidth <= row.clientWidth + SCROLL_OVERFLOW_TOLERANCE_PX) return;
     if (optionalFitCount > 0) {
       setOptionalFitCount((count) => Math.max(0, count - 1));

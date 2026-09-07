@@ -468,24 +468,28 @@ async function runHouseholdChargesSync({
       hydrateHouseholdStateFromSession();
       let mergedCharges: HouseholdCharge[];
       let hasUpdatedCharges = false;
+      let mergedProfiles: RecurringRentProfile[];
       if (skipReconcile) {
         // Resident portal: residents never generate charges locally, so server amounts are
         // always correct. Using the local-wins merge would lock stale session data in place
         // whenever the manager updates charge amounts (e.g. switching proration methods).
         mergedCharges = dedupeCharges(serverCharges);
+        // Same for rent profiles — and never mirror back: POST /api/portal-household-charges
+        // is manager-only (403 for residents), including stale manager-session profiles.
+        mergedProfiles = dedupeRecurringRentProfiles(serverProfiles);
       } else {
         const result = mergeHouseholdChargesWithServer(serverCharges, memoryCharges);
         mergedCharges = result.merged;
         hasUpdatedCharges = result.hasUpdated;
+        mergedProfiles = mergeServerAuthoritativeRentProfiles(serverProfiles, memoryRentProfiles);
       }
-      const mergedProfiles = mergeServerAuthoritativeRentProfiles(serverProfiles, memoryRentProfiles);
       const hasLocalOnlyCharges = mergedCharges.length > serverCharges.length;
       const hasLocalOnlyProfiles = mergedProfiles.length > serverProfiles.length;
       memoryCharges = mergedCharges;
       memoryRentProfiles = mergedProfiles;
       persistHouseholdStateToSession();
       // Push to server if we have local-only rows or local amounts that differ from what the server stored.
-      if (hasLocalOnlyCharges || hasLocalOnlyProfiles || hasUpdatedCharges) {
+      if (!skipReconcile && (hasLocalOnlyCharges || hasLocalOnlyProfiles || hasUpdatedCharges)) {
         postHouseholdPayload({ action: "replace", charges: memoryCharges, rentProfiles: memoryRentProfiles });
       }
       if (!skipReconcile) {
@@ -2682,15 +2686,32 @@ export function readChargesForResident(email: string, userId: string | null): Ho
     .filter((charge) => charge.status === "paid" || !isStaleRecurringHouseholdCharge(charge, profileById, scoped));
 }
 
+/** Optional co-manager scope — same linked-property set used by `readChargesForManager`. */
+export type ChargeManagerScopeOpts = {
+  linkedPropertyIds?: Set<string>;
+};
+
 /**
  * Whether the signed-in manager may view or mutate this charge (or legacy rows with no manager id).
- * Does not allow cross-manager access when `charge.managerUserId` is set to another id.
+ * Owned rows and blank-owner legacy rows always pass. Accepted co-managers pass when
+ * `linkedPropertyIds` includes the charge's property (matches the Payments list scope).
  */
-export function chargeVisibleToManager(charge: HouseholdCharge, managerUserId: string | null): boolean {
+export function chargeVisibleToManager(
+  charge: HouseholdCharge,
+  managerUserId: string | null,
+  opts?: ChargeManagerScopeOpts,
+): boolean {
   if (managerUserId == null || managerUserId === "") return true;
   const scope = managerUserId ?? HOUSEHOLD_CHARGE_DEMO_MANAGER_SCOPE;
   if (charge.managerUserId === scope) return true;
   if (charge.managerUserId == null || charge.managerUserId === "") return true;
+  if (
+    opts?.linkedPropertyIds?.size &&
+    charge.propertyId &&
+    opts.linkedPropertyIds.has(charge.propertyId)
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -2731,10 +2752,14 @@ export function readChargesForManager(
     .filter((charge) => charge.status === "paid" || !isStaleRecurringHouseholdCharge(charge, profileById, all));
 }
 
-export function deleteHouseholdCharge(chargeId: string, managerUserId: string | null): boolean {
+export function deleteHouseholdCharge(
+  chargeId: string,
+  managerUserId: string | null,
+  opts?: ChargeManagerScopeOpts,
+): boolean {
   if (!isBrowser()) return false;
   const rows = readAll();
-  const idx = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId));
+  const idx = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId, opts));
   if (idx === -1) return false;
   deleteChargeRowFromServer(chargeId);
   writeAll(rows.filter((_, i) => i !== idx));
@@ -2775,9 +2800,13 @@ export function uncancelHouseholdChargeReminder(
   return true;
 }
 
-export function markHouseholdChargePaid(chargeId: string, managerUserId: string | null): boolean {
+export function markHouseholdChargePaid(
+  chargeId: string,
+  managerUserId: string | null,
+  opts?: ChargeManagerScopeOpts,
+): boolean {
   const rows = readAll();
-  const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId));
+  const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId, opts));
   if (i === -1) return false;
   if (rows[i]!.status === "paid") return true;
   const now = new Date().toISOString();
@@ -2799,9 +2828,13 @@ export function markHouseholdChargePaid(chargeId: string, managerUserId: string 
   return true;
 }
 
-export function markHouseholdChargePending(chargeId: string, managerUserId: string | null): boolean {
+export function markHouseholdChargePending(
+  chargeId: string,
+  managerUserId: string | null,
+  opts?: ChargeManagerScopeOpts,
+): boolean {
   const rows = readAll();
-  const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId));
+  const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId, opts));
   if (i === -1) return false;
   if (rows[i]!.status === "pending") return true;
   const next = [...rows];
@@ -4132,10 +4165,11 @@ export function updateHouseholdChargeAmount(
   managerUserId: string | null,
   newTitle?: string,
   newDueDateLabel?: string,
+  opts?: ChargeManagerScopeOpts,
 ): boolean {
   if (!isBrowser() || !Number.isFinite(newAmount) || newAmount < 0) return false;
   const rows = readAll();
-  const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId));
+  const i = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId, opts));
   if (i === -1) return false;
   const label = `$${newAmount.toFixed(2)}`;
   const next = [...rows];

@@ -288,7 +288,7 @@ export function ManagerSignupPanel({
             }}
           />
           <PhoneNumberField
-            placeholder="Phone (optional)"
+            placeholder="Phone number"
             value={phone}
             onChange={setPhone}
             disabled={locked}

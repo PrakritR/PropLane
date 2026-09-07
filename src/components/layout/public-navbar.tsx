@@ -4,6 +4,10 @@ import { AxisLogoLink } from "@/components/brand/axis-logo";
 import { Navbar1, type NavbarMenuItem } from "@/components/ui/navbar1";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { portalDashboardPath, normalizePortalRoles, parseAuthRole, type AuthRole } from "@/lib/auth/portal-roles";
+import {
+  MANAGER_GET_STARTED_HREF,
+  VENDOR_GET_STARTED_HREF,
+} from "@/lib/marketing/public-contact";
 import { RESIDENT_BROWSE_PATH } from "@/lib/resident-public-nav";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { safeBrowserGetSession } from "@/lib/supabase/safe-browser-session";
@@ -202,9 +206,19 @@ export function PublicNavbar() {
   // and only found out once they were inside the wrong portal. Role-less lands
   // on CreateAccountRoleGateway, which asks. /rent keeps its answer because a
   // visitor browsing homes has already told us what they are.
-  const signupHref = (pathname ?? "").startsWith("/rent")
-    ? "/auth/create-account?mode=create&role=resident"
-    : "/auth/create-account";
+  const signupHref = useMemo(() => {
+    const path = pathname ?? "";
+    if (path.startsWith("/rent")) {
+      return "/auth/create-account?mode=create&role=resident";
+    }
+    if (path.startsWith("/partner")) {
+      return MANAGER_GET_STARTED_HREF;
+    }
+    if (path.startsWith("/vendors")) {
+      return VENDOR_GET_STARTED_HREF;
+    }
+    return "/auth/create-account";
+  }, [pathname]);
 
   if (hideOnNative) return null;
 

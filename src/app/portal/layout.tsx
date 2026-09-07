@@ -8,6 +8,7 @@ import { ManagerMessagingSetupBanner } from "@/components/portal/messaging-setup
 import { ManagerPlanBanner } from "@/components/portal/pro-plan-banner";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSessionKeepalive } from "@/components/portal/portal-session-keepalive";
+import { PortalClientSessionGuard } from "@/components/portal/portal-client-session-guard";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalHorizontalScrollRoot } from "@/components/portal/portal-horizontal-scroll";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
@@ -45,6 +46,7 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
         <PublicHomePrefetch />
         <PortalDataPrefetch kind="pro" />
         <PortalSessionKeepalive />
+        <PortalClientSessionGuard />
         <LandlordLegalNameCacheSync />
         <PropertyPipelineAccountSync />
         <AccountLinksSync />

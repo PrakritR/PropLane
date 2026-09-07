@@ -23,6 +23,7 @@ import {
   replacesSignedLeaseDocument,
   rowHasAnySignature,
   signedDocumentHashesDiverge,
+  stripsLeaseExecutionWithoutSupersede,
 } from "@/lib/lease-execution-evidence";
 import { parseLeaseHtmlSections, rebuildLeaseHtmlFromSections } from "@/lib/lease-html-sections";
 import {
@@ -579,15 +580,41 @@ export function preserveSignedLeaseDocuments(
   let reverted = false;
   const guarded = next.map((row) => {
     const before = prevById.get(row.id);
-    if (!before || !replacesSignedLeaseDocument(before, row)) return row;
-    reverted = true;
-    console.warn(`[lease] refused to replace the document of signed lease ${row.id}; kept the executed copy.`);
-    return {
-      ...row,
-      generatedHtml: before.generatedHtml ?? null,
-      generatedAtIso: before.generatedAtIso ?? null,
-      managerUploadedPdf: before.managerUploadedPdf ?? null,
-    };
+    if (!before) return row;
+    if (replacesSignedLeaseDocument(before, row)) {
+      reverted = true;
+      console.warn(`[lease] refused to replace the document of signed lease ${row.id}; kept the executed copy.`);
+      return {
+        ...row,
+        generatedHtml: before.generatedHtml ?? null,
+        generatedAtIso: before.generatedAtIso ?? null,
+        managerUploadedPdf: before.managerUploadedPdf ?? null,
+      };
+    }
+    if (stripsLeaseExecutionWithoutSupersede(before, row)) {
+      reverted = true;
+      console.warn(`[lease] refused to strip execution from lease ${row.id}; kept the executed copy.`);
+      return normalizeLeasePipelineRow({
+        ...row,
+        generatedHtml: before.generatedHtml ?? row.generatedHtml,
+        generatedAtIso: before.generatedAtIso ?? row.generatedAtIso,
+        managerUploadedPdf: before.managerUploadedPdf ?? row.managerUploadedPdf,
+        managerSignature: before.managerSignature ?? row.managerSignature,
+        residentSignature: before.residentSignature ?? row.residentSignature,
+        signatureName: before.signatureName ?? row.signatureName,
+        signedAtIso: before.signedAtIso ?? row.signedAtIso,
+        fullySignedAt: before.fullySignedAt ?? row.fullySignedAt,
+        residentSignedAt: before.residentSignedAt ?? row.residentSignedAt,
+        managerSignedAt: before.managerSignedAt ?? row.managerSignedAt,
+        sentToResidentAt: before.sentToResidentAt ?? row.sentToResidentAt,
+        bucket: before.bucket,
+        status: before.status,
+        stageLabel: before.stageLabel,
+        currentActorRole: before.currentActorRole,
+        externallySignedLease: before.externallySignedLease ?? row.externallySignedLease,
+      });
+    }
+    return row;
   });
   return reverted ? guarded : next;
 }
@@ -1817,9 +1844,19 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
 
 export function syncLeasePipelineFromApplications(managerUserId?: string | null): LeasePipelineRow[] {
   const next = readLeasePipeline(managerUserId);
-  if (canUseStorage() && JSON.stringify(memoryRows) !== JSON.stringify(next)) {
-    write(next, managerUserId);
+  if (!canUseStorage() || JSON.stringify(memoryRows) === JSON.stringify(next)) return next;
+  // A fresh browser session materializes draft rows before the server bucket is
+  // hydrated. Defer the mirror until GET has merged executed leases into memory.
+  if (leasePipelineLastSyncedAt === 0 && !isDemoModeActive()) {
+    void syncLeasePipelineFromServer(managerUserId, { force: true }).then(() => {
+      const afterHydrate = readLeasePipeline(managerUserId);
+      if (JSON.stringify(memoryRows) !== JSON.stringify(afterHydrate)) {
+        write(afterHydrate, managerUserId);
+      }
+    });
+    return next;
   }
+  write(next, managerUserId);
   return next;
 }
 

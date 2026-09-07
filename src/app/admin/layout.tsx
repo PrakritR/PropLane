@@ -1,5 +1,6 @@
 import { AxisAssistant } from "@/components/portal/axis-assistant";
 import { PortalAssistantRail } from "@/components/portal/portal-assistant-rail";
+import { PortalClientSessionGuard } from "@/components/portal/portal-client-session-guard";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSidebar } from "@/components/portal/portal-sidebar";
 import { PortalSkipLink } from "@/components/portal/portal-skip-link";
@@ -33,6 +34,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <div className={PORTAL_SHELL_ROOT_CLASS} data-surface="admin">
         <SurfaceThemeDefault theme="dark" />
         <PublicHomePrefetch />
+        <PortalClientSessionGuard />
         <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
           <PortalSkipLink />
           <PortalSidebar definition={adminPortal} subtitle="Admin" initialCollapsed={sidebarCollapsed} />

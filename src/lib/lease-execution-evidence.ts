@@ -146,6 +146,34 @@ export function leaseClaimsExecution(
   return Boolean(row.fullySignedAt) || rowHasAnySignature(row);
 }
 
+/** True when the row carries a generated body or uploaded PDF lease document. */
+export function leaseRowHasDocumentBody(row: LeasePipelineRow): boolean {
+  const body = leaseDocumentBody(row);
+  return Boolean((body.html && body.html.trim()) || body.pdf);
+}
+
+/**
+ * True when `next` erases execution that `stored` already carries without
+ * supplying a superseding document — the shape a stale empty-browser lease
+ * mirror posts after `syncApprovedApplications` materializes draft rows.
+ *
+ * Clearing execution together with a NEW generated body or uploaded PDF is a
+ * deliberate supersede (renew, amend, send-back-with-edit) and is out of scope.
+ * Clearing execution on a row that never had a document body is also out of
+ * scope — see the manual-resident repair path in `syncApprovedApplications`.
+ */
+export function stripsLeaseExecutionWithoutSupersede(stored: LeasePipelineRow, next: LeasePipelineRow): boolean {
+  if (!leaseClaimsExecution(stored) || leaseClaimsExecution(next)) return false;
+  if (!leaseRowHasDocumentBody(stored)) return false;
+  return !leaseRowHasDocumentBody(next);
+}
+
+/** Refusal message when `stripsLeaseExecutionWithoutSupersede` is true, else null. */
+export function leaseExecutionStripRefusal(stored: LeasePipelineRow, next: LeasePipelineRow): string | null {
+  if (!stripsLeaseExecutionWithoutSupersede(stored, next)) return null;
+  return "This lease already carries a signature; its execution cannot be cleared without a superseding document.";
+}
+
 /**
  * True when `next` turns an unexecuted stored row into an executed one while
  * ALSO changing the document body — claiming execution of a document the server

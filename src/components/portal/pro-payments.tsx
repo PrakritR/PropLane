@@ -426,6 +426,11 @@ export function ManagerPayments({
     return () => window.removeEventListener("message", onMessage);
   }, [showToast]);
 
+  const linkedPaymentPropertyIds = useMemo(
+    () => collectLinkedPropertyIdsForModule(userId ?? "", "payments"),
+    [userId, propertyTick, applicationTick, ledgerDataVersion],
+  );
+
   const mergedRows = useMemo(() => {
     void ledgerDataVersion;
     const applications = readManagerApplicationRows();
@@ -433,7 +438,7 @@ export function ManagerPayments({
     // group counts exactly these rows too (F-PAY-1).
     const scoped = scopeChargesToManagerPaymentsLedger(
       readChargesForManager(userId, {
-        linkedPropertyIds: collectLinkedPropertyIdsForModule(userId ?? "", "payments"),
+        linkedPropertyIds: linkedPaymentPropertyIds,
       }),
       applications,
     );
@@ -450,7 +455,7 @@ export function ManagerPayments({
         const roomNumber = application ? ledgerRoomNumberForApplication(application) : "";
         return roomNumber ? { ...ledgerRow, roomNumber } : ledgerRow;
       });
-  }, [userId, ledgerDataVersion]);
+  }, [userId, ledgerDataVersion, linkedPaymentPropertyIds]);
 
   const propertyOptions = useMemo(
     () => buildManagerPropertyFilterOptions(userId),
@@ -797,6 +802,7 @@ export function ManagerPayments({
         direction={direction}
         onAddPayment={() => setAddOpen(true)}
         groupMode={groupMode}
+        linkedPropertyIds={linkedPaymentPropertyIds}
       />
     ) : (
       <ManagerOutgoingPaymentsPanel

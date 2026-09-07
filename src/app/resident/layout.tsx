@@ -5,6 +5,7 @@ import { PortalAssistantDockRail } from "@/components/portal/portal-assistant-do
 import { PortalDataPrefetch } from "@/components/portal/portal-data-prefetch";
 import { PortalMobileNavBar } from "@/components/portal/portal-mobile-nav-bar";
 import { PortalSessionKeepalive } from "@/components/portal/portal-session-keepalive";
+import { PortalClientSessionGuard } from "@/components/portal/portal-client-session-guard";
 import { ResidentPreApplicationGuard } from "@/components/portal/resident-pre-application-guard";
 import { ResidentTourLinkOnMount } from "@/components/portal/resident-tour-link-on-mount";
 import { ResidentProspectHandoffOnMount } from "@/components/portal/resident-prospect-handoff-on-mount";
@@ -68,6 +69,7 @@ export default async function ResidentLayout({ children }: { children: React.Rea
       <PublicHomePrefetch />
       <PortalDataPrefetch kind="resident" />
       <PortalSessionKeepalive />
+      <PortalClientSessionGuard />
       <div className="relative isolate flex min-h-0 w-full flex-1 flex-col overflow-hidden lg:flex-row">
         <PortalSkipLink />
         <PortalSidebar

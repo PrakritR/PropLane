@@ -39,4 +39,12 @@ describe("scheduled message modal layout", () => {
     expect(panel).toContain('title="Edit scheduled message"');
     expect(client).toContain('title={initialSchedule ? "Schedule message" : "New message"}');
   });
+
+  it("hides resident compose scheduling in ScopedInboxComposeModal", () => {
+    const scoped = portalSource("inbox-scoped-compose-modal.tsx");
+    const residentInbox = portalSource("resident-inbox-panel.tsx");
+
+    expect(scoped).toContain('disabled={portal === "resident"}');
+    expect(residentInbox).not.toContain("resident-inbox-schedule-another");
+  });
 });

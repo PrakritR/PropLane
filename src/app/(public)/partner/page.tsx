@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { MarketingCtaPair } from "@/components/marketing/marketing-cta";
+import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { MANAGER_PLAN_TIERS, type PlanTierId } from "@/data/manager-plan-tiers";
 import { MANAGER_TIER_MONTHLY_USD } from "@/lib/manager-access";
 import {
@@ -53,6 +54,7 @@ export default function PartnerLandingPage() {
         subtitle="PropLane drafts leases, rent work, and vendor outreach, then hands you one queue. Free to start."
       >
         <MarketingCtaPair
+          primaryHref={MANAGER_GET_STARTED_HREF}
           primaryLabel="Get started free"
           primaryAttr="partner-hero-get-started"
           secondaryAttr="partner-hero-book-demo"

@@ -328,6 +328,7 @@ export function ManagerTrialSignupForm({
               if (patch.password !== undefined) setPassword(patch.password);
             }}
             disabled={locked}
+            phonePlaceholder="Phone number"
             onSubmit={() => void submit()}
           />
           <Button

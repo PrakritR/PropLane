@@ -55,6 +55,18 @@ describe("household-charges pure helpers", () => {
     expect(chargeVisibleToManager(makeCharge({ managerUserId: "mgr-2" }), "mgr-1")).toBe(false);
   });
 
+  it("lets a co-manager mutate charges on a linked property", () => {
+    const linked = new Set(["prop-a"]);
+    const charge = makeCharge({ managerUserId: "owner-mgr", propertyId: "prop-a" });
+    expect(chargeVisibleToManager(charge, "co-mgr")).toBe(false);
+    expect(chargeVisibleToManager(charge, "co-mgr", { linkedPropertyIds: linked })).toBe(true);
+    expect(
+      chargeVisibleToManager(makeCharge({ managerUserId: "owner-mgr", propertyId: "prop-b" }), "co-mgr", {
+        linkedPropertyIds: linked,
+      }),
+    ).toBe(false);
+  });
+
   it("maps paid charges to the paid bucket even when due date is in the past", () => {
     const paid = makeCharge({
       status: "paid",
@@ -218,6 +230,67 @@ describe("syncHouseholdChargesFromServer", () => {
     // Exactly two reads served three callers.
     expect(readCount()).toBe(2);
     await firstSync;
+  });
+
+  it("skipReconcile never POSTs mirror writes (resident Payments is read-only)", async () => {
+    vi.resetModules();
+
+    const session = new Map<string, string>();
+    // Stale manager-session rent profile that is not on the server — previously
+    // triggered a forbidden resident POST on every Payments load.
+    session.set(
+      "axis:household-rent-profiles:v1",
+      JSON.stringify([
+        {
+          id: "profile-stale-local",
+          residentEmail: "resident@test.com",
+          residentName: "Resident",
+          residentUserId: "res-1",
+          propertyId: "prop-1",
+          propertyLabel: "Test Property",
+          roomLabel: "1A",
+          managerUserId: "mgr-1",
+          monthlyRent: 1500,
+          dueDay: 1,
+          startMonth: "2026-01",
+          active: true,
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ]),
+    );
+
+    vi.stubGlobal("window", {
+      sessionStorage: {
+        getItem: vi.fn((key: string) => session.get(key) ?? null),
+        setItem: vi.fn((key: string, value: string) => {
+          session.set(key, value);
+        }),
+      },
+      dispatchEvent: vi.fn(),
+    });
+
+    const fetchMock = vi.fn((_url: string, init?: { method?: string }) => {
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "POST") {
+        return Promise.resolve({ ok: false, status: 403, json: async () => ({ error: "Forbidden." }) });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          charges: [makeCharge({ id: "chg-server", managerUserId: "mgr-1" })],
+          rentProfiles: [],
+        }),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { syncHouseholdChargesFromServer } = await import("@/lib/household-charges");
+    await syncHouseholdChargesFromServer(true, { skipReconcile: true });
+
+    const postCalls = fetchMock.mock.calls.filter(
+      ([, init]) => (init?.method ?? "GET").toUpperCase() === "POST",
+    );
+    expect(postCalls).toHaveLength(0);
   });
 });
 

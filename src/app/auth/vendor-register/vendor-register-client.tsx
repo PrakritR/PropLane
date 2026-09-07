@@ -22,7 +22,7 @@ export default function VendorRegisterClient() {
 
   useEffect(() => {
     if (inviteToken) return;
-    router.replace("/auth/create-account");
+    router.replace("/auth/create-account?mode=create&role=vendor");
   }, [inviteToken, router]);
 
   useEffect(() => {
@@ -79,7 +79,7 @@ export default function VendorRegisterClient() {
         <Button
           type="button"
           className="mt-6 w-full rounded-full py-2.5 text-[15px] font-semibold"
-          onClick={() => router.push("/auth/create-account")}
+          onClick={() => router.push("/auth/create-account?mode=create&role=vendor")}
         >
           Create your account
         </Button>

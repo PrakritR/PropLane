@@ -25,17 +25,13 @@ const CSS = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8"
 const PINNED = "rental-wizard-actions--pinned";
 
 describe("apply wizard actions are reachable on a phone", () => {
-  it("marks the standalone actions row as pinned", () => {
+  it("pins the standalone and embedded actions rows on a phone", () => {
     expect(WIZARD).toContain(PINNED);
-  });
-
-  it("pins only the standalone variant, never the embedded portal one", () => {
-    // The embedded branch renders inside a modal that supplies its own footer;
-    // pinning there would produce two stacked action bars.
-    const actions = WIZARD.split("rental-wizard-actions");
-    const embeddedBranch = actions.find((chunk) => chunk.startsWith(" mt-6 flex flex-wrap"));
-    expect(embeddedBranch, "embedded actions row should still exist").toBeTruthy();
-    expect(embeddedBranch).not.toContain(PINNED);
+    const embeddedActions = WIZARD.match(
+      /embedded\s*\?\s*"rental-wizard-actions[^"]*"/,
+    )?.[0];
+    expect(embeddedActions, "embedded actions row should still exist").toBeTruthy();
+    expect(embeddedActions).toContain(PINNED);
   });
 
   it("defines the pin as sticky, phone-only, and clear of the home indicator", () => {

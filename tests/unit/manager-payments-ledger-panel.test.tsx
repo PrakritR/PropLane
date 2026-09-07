@@ -252,6 +252,43 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(rowCheckbox).toBeTruthy();
     fireEvent.click(rowCheckbox!);
     expect(screen.getByRole("button", { name: /Mark as paid/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Delete$/i })).toBeTruthy();
+    expect(document.querySelector('[data-slot="bulk-action-bar"]')).toBeTruthy();
+  });
+
+  it("keeps selection when the same charge ids reorder", () => {
+    const first = sampleRow({ id: "hc_a", chargeTitle: "Move-in cost" });
+    const second = sampleRow({
+      id: "hc_b",
+      chargeTitle: "July rent",
+      residentName: "Jordan Lee",
+      residentEmail: "jordan@example.com",
+    });
+    const { rerender } = render(
+      <ManagerPaymentsLedgerPanel
+        rows={[first, second]}
+        managerUserId="mgr-test"
+        activeBucket="pending"
+        direction="incoming"
+        onAddPayment={() => undefined}
+      />,
+    );
+
+    const boxes = screen.getAllByRole("checkbox").filter((el) => !/^Select all/i.test(el.getAttribute("aria-label") ?? ""));
+    fireEvent.click(boxes[0]!);
+    expect(screen.getByRole("button", { name: /Mark as paid/i })).toBeTruthy();
+
+    rerender(
+      <ManagerPaymentsLedgerPanel
+        rows={[second, first]}
+        managerUserId="mgr-test"
+        activeBucket="pending"
+        direction="incoming"
+        onAddPayment={() => undefined}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Mark as paid/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Delete$/i })).toBeTruthy();
   });
 
   it("renders a dashed list add row when embedded in resident", () => {

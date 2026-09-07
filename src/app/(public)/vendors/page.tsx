@@ -5,6 +5,7 @@ import {
   MarketingPageShell,
   MarketingSection,
 } from "@/components/marketing/marketing-page-shell";
+import { VENDOR_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 
 export const metadata: Metadata = {
   title: "Vendors · PropLane",
@@ -45,8 +46,6 @@ const PERKS = [
   },
 ] as const;
 
-const VENDOR_SIGNUP_HREF = "/auth/vendor-register";
-
 export default function VendorsPage() {
   return (
     <MarketingPageShell>
@@ -54,7 +53,7 @@ export default function VendorsPage() {
         title="Services, sent straight to you."
       >
         <MarketingCtaPair
-          primaryHref={VENDOR_SIGNUP_HREF}
+          primaryHref={VENDOR_GET_STARTED_HREF}
           primaryLabel="Join as a vendor"
           primaryAttr="vendors-hero-get-started"
           secondaryHref="/contact"

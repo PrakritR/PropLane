@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { GET_STARTED_HREF, MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
+import { GET_STARTED_HREF, MANAGER_GET_STARTED_HREF, VENDOR_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 
 /**
  * PRP-307. A generic "Get started" must not decide the visitor's role for them.
@@ -19,13 +19,21 @@ describe("the generic Get started CTA lands on the role picker", () => {
     expect(GET_STARTED_HREF).not.toContain("role=");
   });
 
-  it("the navbar fallback is role-less, and /rent keeps its resident answer", () => {
+  it("the navbar fallback is role-less, and audience pages carry the role", () => {
     const navbar = read("src/components/layout/public-navbar.tsx");
     // The /rent branch is deliberate: a visitor browsing homes has already
     // told us what they are.
     expect(navbar).toContain('"/auth/create-account?mode=create&role=resident"');
+    expect(navbar).toContain("MANAGER_GET_STARTED_HREF");
+    expect(navbar).toContain("VENDOR_GET_STARTED_HREF");
     // The fallback — every other page, including the landing page — must not.
-    expect(navbar).toContain(': "/auth/create-account";');
+    expect(navbar).toContain('return "/auth/create-account"');
+  });
+
+  it("PRP-313: manager and vendor entry pages skip the role picker on signup CTAs", () => {
+    expect(read("src/app/(public)/partner/page.tsx")).toContain("MANAGER_GET_STARTED_HREF");
+    expect(read("src/app/(public)/vendors/page.tsx")).toContain("VENDOR_GET_STARTED_HREF");
+    expect(VENDOR_GET_STARTED_HREF).toContain("role=vendor");
   });
 
   it("the shared marketing CTA pair defaults to the picker", () => {

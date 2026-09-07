@@ -135,6 +135,61 @@ describe("POST /api/portal-lease-pipeline: signed documents are immutable server
     expect(storedRowData().generatedHtml).toBe(EXECUTED_HTML);
   });
 
+  it("refuses replace that strips execution and document from a fully signed lease (PRP-385)", async () => {
+    const res = await post({
+      action: "replace",
+      rows: [
+        {
+          id: "lease_route_1",
+          axisId: "app-1",
+          residentName: "Jordan Lee",
+          residentEmail: "jordan.lee@example.com",
+          unit: "Unit 1",
+          stageLabel: "Draft",
+          updated: "just now",
+          bucket: "manager",
+          pdfVersion: 1,
+          notes: "Created from approved application.",
+          updatedAtIso: "2026-09-07T00:00:00.000Z",
+          thread: [],
+          generatedHtml: null,
+          managerUploadedPdf: null,
+          managerSignature: null,
+          residentSignature: null,
+          signatureName: null,
+          signedAtIso: null,
+          fullySignedAt: null,
+          status: "Draft",
+        },
+      ],
+    });
+
+    expect(res.status).toBe(409);
+    expect(storedRowData().fullySignedAt).toBeTruthy();
+    expect(storedRowData().generatedHtml).toBe(EXECUTED_HTML);
+  });
+
+  it("refuses upsert that clears execution without a superseding document", async () => {
+    const res = await post({
+      action: "upsert",
+      row: {
+        ...executedRow(),
+        generatedHtml: null,
+        managerUploadedPdf: null,
+        residentSignature: null,
+        managerSignature: null,
+        fullySignedAt: null,
+        status: "Draft",
+        bucket: "manager",
+        stageLabel: "Draft",
+      },
+    });
+
+    expect(res.status).toBe(409);
+    expect(storedRowData().fullySignedAt).toBeTruthy();
+    expect(storedRowData().generatedHtml).toBe(EXECUTED_HTML);
+  });
+
   it("refuses the same forgery from the resident, who also passes the visibility check", async () => {
     state.profile = { email: "jordan.lee@example.com", role: "resident" };
     state.user = { id: "99999999-2222-4333-8444-555555555555", email: "jordan.lee@example.com" };

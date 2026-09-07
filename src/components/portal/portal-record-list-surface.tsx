@@ -90,7 +90,7 @@ export function PortalRecordListSurface({
       </div>
       {bulkCount > 0 && bulkActions ? (
         <BulkActionBar count={bulkCount} hideCount variant="payments">
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2" data-bulk-action-actions>
+          <div className="flex min-w-0 flex-nowrap items-center justify-start gap-2" data-bulk-action-actions>
             {bulkActions}
           </div>
         </BulkActionBar>
