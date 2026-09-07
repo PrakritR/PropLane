@@ -192,6 +192,47 @@ describe("pure listing helpers", () => {
     };
     expect(summarizeListingRecord(long).marketingNotes!.length).toBeLessThanOrEqual(601);
   });
+
+  it("matches Facebook-style ad titles via alsoListedAs (PRP-426)", () => {
+    const adRec: RawPropertyRecord = {
+      id: "p-ad",
+      status: "live",
+      property_data: {
+        buildingName: "U-District house",
+        address: "5257 Brooklyn Ave NE",
+        neighborhood: "University District",
+        alsoListedAs: "Private locked room near University of Washington",
+        tagline: "Quiet shared home by campus",
+        petFriendly: true,
+      },
+      row_data: null,
+    };
+    const s = summarizeListingRecord(adRec);
+    expect(s.alsoListedAs).toMatch(/Private locked room/i);
+    expect(s.petFriendly).toBe(true);
+    expect(
+      listingSummaryMatches(s, "Private locked room near University of Washington"),
+    ).toBe(true);
+    expect(listingSummaryMatches(s, "locked room University Washington")).toBe(true);
+  });
+
+  it("exposes petFriendly on get_listing_details (PRP-426)", async () => {
+    (getPublicListings as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: "mgr-seed-pet",
+        title: "Pet house",
+        buildingName: "Pet house",
+        address: "1 Pet St",
+        neighborhood: "Ballard",
+        petFriendly: true,
+        managerUserId: "owner-other",
+      },
+    ]);
+    const ctx = ctxFor({ crossCatalog: true });
+    const details = await getListingDetailsTool.handler(ctx, { propertyId: "mgr-seed-pet" });
+    expect(details.found).toBe(true);
+    expect(details.listing?.petFriendly).toBe(true);
+  });
 });
 
 describe("proplaneSiteLinks", () => {

@@ -4223,6 +4223,19 @@ export function ManagerAddListingForm({
                 />
               </div>
               <div className="sm:col-span-2">
+                <FieldLabel optional>Also listed as</FieldLabel>
+                <Input
+                  value={sub.alsoListedAs}
+                  onChange={(e) => setSub((s) => ({ ...s, alsoListedAs: e.target.value }))}
+                  className={listingTextInputCls}
+                  placeholder="Facebook / Craigslist ad titles (so texts can match)"
+                  data-attr="listing-also-listed-as"
+                />
+                <p className="mt-1 text-xs text-muted">
+                  Marketing titles that are not the street address — used when a prospect texts an ad headline.
+                </p>
+              </div>
+              <div className="sm:col-span-2">
                 <FieldLabel optional>House overview</FieldLabel>
                 <Textarea
                   rows={3}
@@ -4691,11 +4704,17 @@ export function ManagerAddListingForm({
                         className="h-4 w-4 rounded border-border"
                         checked={sub.lateFeeEnabled !== false}
                         onChange={(e) => setSub((s) => ({ ...s, lateFeeEnabled: e.target.checked }))}
+                        data-attr="listing-late-fee-enabled"
                       />
                       Auto-charge & notify
                     </label>
                   </GridField>
                 </div>
+                <p className="mt-2 text-xs text-muted">
+                  Also turn on <span className="font-medium text-foreground">Late fee notices</span> in
+                  Payments → Settings — that account switch gates automatic late fees across listings
+                  (PRP-319).
+                </p>
 
                 <p className="mt-4 border-t border-border pt-4 text-xs text-muted">
                   Payment methods: configure in{" "}
@@ -4717,6 +4736,14 @@ export function ManagerAddListingForm({
                 : "Name, floor, furnishing, amenities, photos, video, and per-room move-in notes. Rent is set on Pricing."
             }
           >
+            <p
+              className="mb-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5 text-sm text-muted"
+              data-attr="listing-shared-spaces-amenities-hint"
+            >
+              Kitchen, laundry, lounge, yard, and other shared-area amenities belong on the{" "}
+              <span className="font-semibold text-foreground">Shared spaces</span> step — not under room
+              amenities. Prospects see those spaces on every room listing.
+            </p>
             <div
               className={`space-y-3 ${wizardSectionErrorClass(Boolean(stepFieldErrors.rooms))}`}
               data-wizard-field="rooms"

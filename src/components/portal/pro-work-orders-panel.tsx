@@ -24,6 +24,8 @@ import {
 } from "@/lib/household-charges";
 import { deleteManagerWorkOrderRow, updateManagerWorkOrder } from "@/lib/manager-work-orders-storage";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
+import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
+import { EditServiceWorkOrderModal } from "@/components/portal/edit-service-work-order-modal";
 import {
   MANAGER_VENDORS_EVENT,
   readActiveManagerVendorRows,
@@ -148,6 +150,8 @@ export function ManagerWorkOrdersPanel({
   const [vendorTick, setVendorTick] = useState(0);
   const [completeRow, setCompleteRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [completeBusy, setCompleteBusy] = useState(false);
+  const [scheduleVisitRow, setScheduleVisitRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  const [editWorkOrderRow, setEditWorkOrderRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [completeDraft, setCompleteDraft] = useState({
     category: "general" as WorkOrderCategory,
     vendorCost: "",
@@ -364,15 +368,8 @@ export function ManagerWorkOrdersPanel({
   );
 
   /** Schedule the visit (date required). Billing is optional — a charge is only created when a cost is set and a resident is linked. */
-  const saveScheduleFromOpen = async (row: DemoManagerWorkOrderRow) => {
-    const visitAt = visitAtById[row.id] ?? "";
-    const iso = fromDatetimeLocalValue(visitAt);
-    if (!iso) {
-      showToast("Choose a visit date and time to schedule.");
-      return;
-    }
-    await commitScheduledVisit(row, iso);
-  };
+  // Manual schedule from the list/detail now goes through ScheduleServiceVisitModal
+  // (scheduleServiceVisit). Keep commitScheduledVisit for auto-schedule + billing.
 
   /** Resolve the assigned vendor's next open slot from their set availability (weekly
    * windows minus blocked dates minus their other scheduled visits) and book it — same
@@ -800,9 +797,19 @@ export function ManagerWorkOrdersPanel({
             type="button"
             variant="primary"
             className={`${PORTAL_DETAIL_BTN} rounded-full`}
-            onClick={() => saveScheduleFromOpen(row)}
+            data-attr="work-order-schedule-visit"
+            onClick={() => setScheduleVisitRow(row)}
           >
             Schedule visit
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="work-order-edit"
+            onClick={() => setEditWorkOrderRow(row)}
+          >
+            Edit
           </Button>
           <Button
             type="button"
@@ -814,9 +821,26 @@ export function ManagerWorkOrdersPanel({
           </Button>
         </>
       ) : row.bucket === "scheduled" ? (
-        <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN} onClick={() => rescheduleVisit(row)}>
-          Save new time
-        </Button>
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="work-order-reschedule-visit"
+            onClick={() => setScheduleVisitRow(row)}
+          >
+            Reschedule visit
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="work-order-edit"
+            onClick={() => setEditWorkOrderRow(row)}
+          >
+            Edit
+          </Button>
+        </>
       ) : null}
       {!row.selfAssigned && row.vendorId && row.bucket !== "completed" ? (
         <Button
@@ -862,7 +886,6 @@ export function ManagerWorkOrdersPanel({
   const renderRowDetail = (row: DemoManagerWorkOrderRow, dockActions = false) => {
     const draft = billDraftById[row.id] ?? defaultBillDraft(row);
     const linkedCharge = chargeByWoId.get(row.id);
-    const visitAt = visitAtById[row.id] ?? "";
     const assignedVendor =
       !row.selfAssigned && row.vendorId
         ? activeVendors.find((v) => v.id === row.vendorId) ?? null
@@ -872,7 +895,37 @@ export function ManagerWorkOrdersPanel({
 
     return (
       <>
-                        <p className="text-sm leading-relaxed text-muted">{row.description}</p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-xs text-muted">Property</p>
+                            <p className="text-sm font-medium text-foreground">{row.propertyName || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted">Status</p>
+                            <p className="text-sm font-medium text-foreground">{row.status || row.bucket}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted">Priority</p>
+                            <p className="text-sm font-medium text-foreground">{row.priority || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted">Resident</p>
+                            <p className="text-sm font-medium text-foreground">{row.residentName?.trim() || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted">Visit</p>
+                            <p className="text-sm font-medium text-foreground">
+                              {row.scheduled && row.scheduled !== "—" ? row.scheduled : "Not scheduled"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted">Vendor</p>
+                            <p className="text-sm font-medium text-foreground">
+                              {row.selfAssigned ? "You (manager)" : row.vendorName?.trim() || "Unassigned"}
+                            </p>
+                          </div>
+                        </div>
+                        <p className="mt-4 text-sm leading-relaxed text-muted">{row.description}</p>
                         <p className="mt-1.5 text-xs text-muted">
                           Resident preferred arrival:{" "}
                           <span className="font-medium text-muted">{row.preferredArrival?.trim() || "Anytime"}</span>
@@ -1011,35 +1064,9 @@ export function ManagerWorkOrdersPanel({
                             </label>
                           ) : null}
                           {row.bucket !== "completed" ? (
-                            <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                              Visit date
-                              <Input
-                                type="datetime-local"
-                                value={visitAt}
-                                onChange={(e) =>
-                                  setVisitAtById((prev) => ({ ...prev, [row.id]: e.target.value }))
-                                }
-                                className="h-8 rounded-md text-sm"
-                              />
-                            </label>
-                          ) : null}
-                          {row.bucket !== "completed" ? (
-                            <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                              Vendor
-                              <Select
-                                className="h-8 min-w-[150px] rounded-md text-xs"
-                                value={row.selfAssigned ? "self" : row.vendorId ?? ""}
-                                onChange={(e) => assignVendor(row, e.target.value)}
-                              >
-                                <option value="">None</option>
-                                <option value="self">Self</option>
-                                {activeVendors.map((v) => (
-                                  <option key={v.id} value={v.id}>
-                                    {v.name}
-                                  </option>
-                                ))}
-                              </Select>
-                            </label>
+                            <p className="self-end pb-1.5 text-[11px] text-muted">
+                              Visit time and vendor: use Schedule visit.
+                            </p>
                           ) : row.vendorName ? (
                             <span className="pb-1.5 text-xs text-muted">
                               Vendor: <span className="font-medium text-foreground">{row.vendorName}</span>
@@ -1150,23 +1177,42 @@ export function ManagerWorkOrdersPanel({
       return <PortalDataTableEmpty icon="work-order" message="Service not found." />;
     }
     return (
-      <PortalRecordDetailPage
-        pageTitle="Services"
-        title={routeWorkOrder.title}
-        subtitle={[routeWorkOrder.reference, routeWorkOrder.propertyName, routeWorkOrder.unit].filter(Boolean).join(" · ") || undefined}
-        backHref={listBasePath ? workOrderListHref(listBasePath, bucket) : "#"}
-        hideBackText
-        dataAttrBack="work-order-detail-back"
-        footerOmitSpacer
-        footer={workOrderDetailActions(routeWorkOrder)}
-      >
-        {/*
-          On the detail ROUTE the actions dock at the bottom like every other
-          detail page; the same body rendered inline under an expanded list row
-          keeps them where they are, because there is no dock there to move to.
-        */}
-        {renderRowDetail(routeWorkOrder, true)}
-      </PortalRecordDetailPage>
+      <>
+        <PortalRecordDetailPage
+          pageTitle="Services"
+          title={routeWorkOrder.title}
+          subtitle={[routeWorkOrder.reference, routeWorkOrder.propertyName, routeWorkOrder.unit].filter(Boolean).join(" · ") || undefined}
+          backHref={listBasePath ? workOrderListHref(listBasePath, bucket) : "#"}
+          hideBackText
+          dataAttrBack="work-order-detail-back"
+          footerOmitSpacer
+          footer={workOrderDetailActions(routeWorkOrder)}
+        >
+          {/*
+            On the detail ROUTE the actions dock at the bottom like every other
+            detail page; the same body rendered inline under an expanded list row
+            keeps them where they are, because there is no dock there to move to.
+          */}
+          {renderRowDetail(routeWorkOrder, true)}
+        </PortalRecordDetailPage>
+        <ScheduleServiceVisitModal
+          open={scheduleVisitRow !== null}
+          row={scheduleVisitRow}
+          onClose={() => setScheduleVisitRow(null)}
+          onScheduled={() => {
+            onAfterSchedule?.();
+            if (workOrderIdProp) navigateToList();
+          }}
+        />
+        <EditServiceWorkOrderModal
+          open={editWorkOrderRow !== null}
+          row={editWorkOrderRow}
+          onClose={() => setEditWorkOrderRow(null)}
+          onSaved={() => {
+            void syncManagerWorkOrdersFromServer({ force: true });
+          }}
+        />
+      </>
     );
   }
 
@@ -1427,6 +1473,23 @@ export function ManagerWorkOrdersPanel({
         dataAttr="work-order-delete-confirm"
         onClose={() => setDeleteRow(null)}
         onConfirm={confirmDeleteWorkOrder}
+      />
+
+      <ScheduleServiceVisitModal
+        open={scheduleVisitRow !== null}
+        row={scheduleVisitRow}
+        onClose={() => setScheduleVisitRow(null)}
+        onScheduled={() => {
+          onAfterSchedule?.();
+        }}
+      />
+      <EditServiceWorkOrderModal
+        open={editWorkOrderRow !== null}
+        row={editWorkOrderRow}
+        onClose={() => setEditWorkOrderRow(null)}
+        onSaved={() => {
+          void syncManagerWorkOrdersFromServer({ force: true });
+        }}
       />
     </div>
   );

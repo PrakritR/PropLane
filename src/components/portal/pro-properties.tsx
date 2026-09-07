@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ManagerAddListingForm } from "@/components/portal/pro-add-listing-form";
 import {
   ManagerHousePropertiesPanel,
@@ -24,7 +24,7 @@ import {
   type DemoPropertiesStage,
 } from "@/lib/demo/demo-playback";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import { adminKpiCounts } from "@/lib/demo-admin-property-inventory";
+import { adminKpiCounts, readAdminPropertyRows } from "@/lib/demo-admin-property-inventory";
 import {
   countManagerManagedPropertiesForUser,
   mirrorLocalPropertyPipelineToServer,
@@ -40,6 +40,12 @@ import {
   maxPropertiesForManagerTier,
 } from "@/lib/manager-access";
 import { loadManagerEffectivePlanTierClient } from "@/lib/manager-subscription-client";
+import {
+  ensureManagerFirstListingDraft,
+  managerNeedsFirstListingOnboarding,
+  readFirstListingPortfolioSnapshot,
+  shouldSkipFirstListingOnboarding,
+} from "@/lib/manager-first-listing-onboarding";
 
 export function ManagerProperties({
   stage: stageProp = "listed",
@@ -58,13 +64,16 @@ export function ManagerProperties({
 }) {
   const { showToast } = useAppUi();
   const router = useRouter();
-  const { userId } = useManagerUserId();
+  const { userId, email } = useManagerUserId();
   const scopeUserId = resolveManagerScopeUserId(userId);
   const [skuLoaded, setSkuLoaded] = useState(false);
   const [skuTier, setSkuTier] = useState<string | null>(null);
   const [propCount, setPropCount] = useState(0);
   const [wizardOpen, setWizardOpen] = useState(false);
+  /** Resume the seeded / first draft in the wizard (PRP-396). */
+  const [resumeDraftId, setResumeDraftId] = useState<string | null>(null);
   const [portfolioTick, setPortfolioTick] = useState(0);
+  const firstListingSeedAttemptedRef = useRef(false);
   const [shareListingOpen, setShareListingOpen] = useState(false);
   const [shareListingPropertyId, setShareListingPropertyId] = useState<string | undefined>();
   /** Several selected listings, for a bulk share from the Properties list (AXI-140). */
@@ -131,7 +140,7 @@ export function ManagerProperties({
 
   useEffect(() => {
     queueMicrotask(() => {
-      void refreshPortfolio().then(() => {
+      void refreshPortfolio().then(async () => {
         // Only push local state up once a real sync has run (userId resolved) — otherwise
         // this re-uploads a stale locally-cached snapshot and can clobber an admin-side
         // status change (e.g. request-change) that happened since this browser last synced.
@@ -139,6 +148,26 @@ export function ManagerProperties({
           void mirrorLocalPropertyPipelineToServer(userId, collectLinkedPropertyIds(userId), {
             onError: (message) => showToast(message),
           });
+        }
+        // PRP-396: after the first successful sync, seed one draft when the
+        // owned portfolio is empty (skip demo + sandbox accounts).
+        if (
+          userId &&
+          scopeUserId &&
+          !firstListingSeedAttemptedRef.current &&
+          !shouldSkipFirstListingOnboarding({ email })
+        ) {
+          firstListingSeedAttemptedRef.current = true;
+          const seeded = await ensureManagerFirstListingDraft(userId, { email });
+          if (seeded?.created) {
+            setPropCount(countManagerManagedPropertiesForUser(scopeUserId));
+            setPortfolioTick((t) => t + 1);
+            if (activeStage !== "drafts") {
+              setActiveStage("drafts");
+            }
+            setResumeDraftId(seeded.draftId);
+            setWizardOpen(true);
+          }
         }
       });
     });
@@ -158,7 +187,14 @@ export function ManagerProperties({
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
       window.removeEventListener("axis-pro-relationships", on);
     };
-  }, [refreshPortfolio, userId, scopeUserId, showToast]);
+  }, [
+    refreshPortfolio,
+    userId,
+    scopeUserId,
+    showToast,
+    email,
+    firstListingSeedAttemptedRef,
+  ]);
 
   const stageCounts = useMemo(() => {
     void portfolioTick;
@@ -204,6 +240,17 @@ export function ManagerProperties({
       if (!isNativeRuntimeSync()) router.push(MANAGER_PLAN_PORTAL_URL);
       return;
     }
+    // Prefer resuming the first-listing draft when that is the only work left.
+    const snap = readFirstListingPortfolioSnapshot(scopeUserId);
+    if (managerNeedsFirstListingOnboarding(snap) && !shouldSkipFirstListingOnboarding({ email })) {
+      const draftId = readAdminPropertyRows(5, scopeUserId)[0]?.adminRefId?.trim() || null;
+      if (draftId) {
+        setResumeDraftId(draftId);
+        setWizardOpen(true);
+        return;
+      }
+    }
+    setResumeDraftId(null);
     setWizardOpen(true);
   };
 
@@ -228,6 +275,12 @@ export function ManagerProperties({
     setShareListingPropertyId(many.length > 0 ? many[0] : (listingIds as string | undefined));
     setShareListingOpen(true);
   };
+
+  const resumeDraftRow = useMemo(() => {
+    if (!resumeDraftId || !scopeUserId) return null;
+    void portfolioTick;
+    return readAdminPropertyRows(5, scopeUserId).find((r) => r.adminRefId === resumeDraftId) ?? null;
+  }, [resumeDraftId, scopeUserId, portfolioTick]);
 
   const isDetailView = Boolean(propertyKeyProp);
 
@@ -305,15 +358,24 @@ export function ManagerProperties({
       )}
       {wizardOpen ? (
         <ManagerAddListingForm
-          onClose={() => setWizardOpen(false)}
+          key={resumeDraftId ?? "new-listing"}
+          onClose={() => {
+            setWizardOpen(false);
+            setResumeDraftId(null);
+          }}
           onSubmitted={() => {
             setWizardOpen(false);
+            setResumeDraftId(null);
             refreshPending();
             showToast("Listing submitted and published.");
           }}
           showToast={showToast}
           skuTier={skuTier}
           propCountBeforeSubmit={propCount}
+          editDraftId={resumeDraftId}
+          initialSubmission={resumeDraftRow?.submission ?? null}
+          initialStepIndex={resumeDraftRow?.draftStepIndex ?? null}
+          initialMaxStepReached={resumeDraftRow?.draftMaxStepReached ?? null}
         />
       ) : null}
       <ShareLeadLinkModal

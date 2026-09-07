@@ -10,8 +10,10 @@
 :root {
   --pl-purple: #7c7ff2;
   --pl-purple-soft: #9a9cf5;
+  /* Deep enough for white-on-primary WCAG AA (≥4.5:1) in dark theme filled controls (PRP-392). */
   --pl-purple-deep: #5b5fd4;
-  --pl-blue: #2f6bff;
+  /* Slightly deeper than the prior #2f6bff so selected tab labels clear 4.5:1 on white (PRP-392). */
+  --pl-blue: #2863f0;
   --pl-blue-soft: #5a8cff;
   --pl-blue-deep: #1e4fd6;
   --pl-black: #08090b;
@@ -35,7 +37,7 @@
   --pl-line: rgba(8, 9, 11, 0.09);
   --pl-line-strong: rgba(8, 9, 11, 0.14);
   --pl-accent: var(--pl-blue);
-  --pl-accent-soft: rgba(47, 107, 255, 0.08);
+  --pl-accent-soft: rgba(40, 99, 240, 0.08);
   --pl-accent-soft-hex: var(--pl-blue-soft);
   --pl-accent-deep: var(--pl-blue-deep);
   --pl-ai: var(--pl-blue);
@@ -120,11 +122,13 @@
   --muted: var(--pl-muted-fg);
   --border: var(--pl-line);
   --card: var(--pl-surface-raised);
-  --primary: var(--pl-purple);
-  --primary-alt: var(--pl-purple-soft);
+  /* Filled primary controls (sent bubbles, New message) use deep purple so white
+   * label text clears WCAG AA 4.5:1 — soft #7c7ff2 only hit ~3.4:1 (PRP-392). */
+  --primary: var(--pl-purple-deep);
+  --primary-alt: var(--pl-purple);
   --primary-foreground: var(--pl-white);
   --accent: var(--pl-accent-soft);
-  --ring: rgba(124, 127, 242, 0.4);
+  --ring: rgba(91, 95, 212, 0.45);
   --auth-input-bg: var(--pl-surface-muted);
   --announce: var(--pl-ink);
   --steel-light: #c8ccf7;
@@ -133,7 +137,7 @@
   --glass-fill: var(--pl-surface-raised);
   --glass-border: var(--pl-line);
   --btn-metallic: var(--pl-surface-muted);
-  --btn-primary: var(--pl-purple);
+  --btn-primary: var(--pl-purple-deep);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-card-hover: 0 4px 14px -2px rgba(0, 0, 0, 0.5);
@@ -2824,15 +2828,25 @@ html[data-portal-sticky-chrome] .portal-list-page-scroll .portal-calendar-flow-s
   touch-action: pan-y;
 }
 
-/* A pinned footer is `position: fixed`, and `PortalPageFooterActions` renders it
-   with `omitSpacer` on these pages — "scroll clearance lives on the scroller via
-   padding". Nothing was actually adding that padding on the property-detail
-   scroller, so the last rows of the tours grid sat permanently under the Filter /
-   Link Airbnb dock: not merely covered, unreachable, because the scroller had
-   already hit its end. This is that clearance, matched to the dock's own height. */
+/* A pinned footer is `position: fixed`. Property-detail and calendar pages that
+   still omit the in-flow spacer need scroller padding so the last rows can clear
+   the dock. Calendar availability also renders an in-flow spacer via
+   PortalPageFooterActions (PRP-373); this padding remains as a backstop for other
+   pinned footers (Filter / Link Airbnb, etc.). */
 html[data-portal-sticky-chrome]:has([data-slot="portal-page-footer-actions"][data-pinned])
   .portal-list-page-scroll {
   padding-bottom: calc(
+    3.5rem + var(--portal-native-bottom-nav-inset, 0px) + env(safe-area-inset-bottom, 0px)
+  );
+}
+
+/* Extra scroll-padding so a slot under the availability dock can be scrolled fully
+   into the clear clickable area (desktop action bar, not only phone nav). */
+html[data-portal-sticky-chrome]
+  .portal-list-page-scroll:has(.portal-calendar-page-body)
+  .portal-calendar-flow-scroll
+  .portal-calendar-compact-body {
+  scroll-padding-bottom: calc(
     3.5rem + var(--portal-native-bottom-nav-inset, 0px) + env(safe-area-inset-bottom, 0px)
   );
 }

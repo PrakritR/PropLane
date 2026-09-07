@@ -185,14 +185,18 @@ describe("evidence · Payments action rows", () => {
     dump("payments-section-action-row", html);
   });
 
-  it("a resident's Payments tab publishes the SAME Settings and Setup", () => {
+  it("a resident's Payments tab publishes Settings and Edit via shared chrome (PRP-395)", () => {
     const html = renderToStaticMarkup(
       <ManagerResidents residentId={RESIDENT_ID} detailTab="payments" />,
     );
 
-    expect(html).toContain('data-attr="resident-payments-settings-open"');
-    expect(html).toContain('data-attr="resident-payment-setup-open"');
-    // The old pair is gone: neither the attribute nor the words it carried.
+    // Same Filter · Settings · Edit strip as every other resident-detail tab —
+    // not a second dock pair of Settings / Setup under the list.
+    expect(html).toContain('data-attr="resident-detail-settings"');
+    expect(html).toContain('data-attr="resident-detail-edit"');
+    expect(html).toContain('data-attr="resident-detail-filter"');
+    expect(html).not.toContain('data-attr="resident-payments-settings-open"');
+    expect(html).not.toContain('data-attr="resident-payment-setup-open"');
     expect(html).not.toContain('data-attr="resident-payments-reminder-settings"');
     expect(html).not.toMatch(/>Reminders</);
     expect(html).not.toMatch(/>Payment setup</);

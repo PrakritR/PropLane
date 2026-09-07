@@ -20,6 +20,12 @@ import { MANAGER_INLINE_WRITE_TOOLS } from "@/lib/tools";
 // must be deterministic regardless of the developer's local .env.
 process.env.RESEND_API_KEY = "";
 
+const sendResidentOutboundSmsMock = vi.fn(async () => ({ sent: true, channel: "twilio" as const }));
+vi.mock("@/lib/resident-outbound-sms.server", () => ({
+  canSendResidentOutboundSms: (from?: string | null) => Boolean(String(from ?? "").trim()),
+  sendResidentOutboundSms: (...args: unknown[]) => sendResidentOutboundSmsMock(...args),
+}));
+
 /**
  * Richer in-memory Supabase stand-in than tests/unit/tools/fake-agent-ctx.ts
  * (which we must not edit): these tools' execute paths need insert (with the
@@ -275,7 +281,10 @@ describe("send_message", () => {
     });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.preview.warnings).toEqual([LINK_WARNING]);
+    expect(res.preview.warnings).toEqual([
+      LINK_WARNING,
+      "This also sends a real text message. Only recipients with a verified phone who have not opted out will receive it.",
+    ]);
 
     const clean = await previewWrite(sendMessageTool, ctx, {
       toEmails: ["pat@x.com"],
@@ -284,7 +293,9 @@ describe("send_message", () => {
     });
     expect(clean.ok).toBe(true);
     if (!clean.ok) return;
-    expect(clean.preview.warnings).toBeUndefined();
+    expect(clean.preview.warnings).toEqual([
+      "This also sends a real text message. Only recipients with a verified phone who have not opted out will receive it.",
+    ]);
   });
 
   it("execute audits first, delivers portal inbox rows, and is idempotent per day", async () => {
@@ -726,7 +737,9 @@ describe("reply_to_thread", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.preview.fields).toContainEqual({ label: "Reply", value: LONG_BODY });
-    expect(res.preview.warnings).toBeUndefined();
+    expect(res.preview.warnings).toEqual([
+      "This also sends a real text message. Only recipients with a verified phone who have not opted out will receive it.",
+    ]);
 
     const linked = await previewWrite(replyToThreadTool, ctx, {
       threadId: "t_pat",
@@ -734,7 +747,10 @@ describe("reply_to_thread", () => {
     });
     expect(linked.ok).toBe(true);
     if (!linked.ok) return;
-    expect(linked.preview.warnings).toEqual([LINK_WARNING]);
+    expect(linked.preview.warnings).toEqual([
+      LINK_WARNING,
+      "This also sends a real text message. Only recipients with a verified phone who have not opted out will receive it.",
+    ]);
   });
 
   it("preview rejects another landlord's thread as unknown (anti-enumeration)", async () => {
@@ -754,8 +770,8 @@ describe("reply_to_thread", () => {
   it("execute appends the reply to the own thread, delivers to the resident, and audits", async () => {
     const res = await executeWrite(replyToThreadTool, ctx, { threadId: "t_pat", body: "On it — plumber tomorrow." });
     expect(res.ok).toBe(true);
-    // RESEND_API_KEY is blanked above: the reply degrades to portal-only and says so.
-    if (res.ok) expect(res.reply).toContain("portal inbox only");
+    // RESEND_API_KEY is blanked above; category delivery still reports availability.
+    if (res.ok) expect(res.reply).toContain("portal inbox + email + text when available");
 
     // Own thread gained the reply message + updated preview.
     const own = tables.portal_inbox_thread_records!.find((r) => r.id === "t_pat")!;
@@ -780,6 +796,50 @@ describe("reply_to_thread", () => {
     expect(again.ok).toBe(true);
     if (again.ok) expect(again.reply.toLowerCase()).toContain("already");
     expect(tables.portal_inbox_thread_records!.length).toBe(countBefore);
+  });
+
+  it("lets a manager reply by text to a phone-only work-number prospect thread (PRP-424)", async () => {
+    const mgr = tables.profiles!.find((row) => row.id === "manager_a");
+    if (mgr) mgr.sms_from_number = "+12065550100";
+    tables.portal_inbox_thread_records!.push({
+      id: "t_prospect_sms",
+      scope: MANAGER_INBOX_SCOPE,
+      owner_user_id: "manager_a",
+      participant_email: "+12065551234",
+      row_data: {
+        id: "t_prospect_sms",
+        folder: "inbox",
+        from: "+1 (206) 555-1234",
+        email: "+12065551234",
+        subject: "A prospect texted your work number",
+        preview: "Is Room 3 still open?",
+        body: "Is Room 3 still open?",
+        time: "Sep 7, 9:12 AM",
+        unread: true,
+      },
+    });
+    sendResidentOutboundSmsMock.mockClear();
+
+    const preview = await previewWrite(replyToThreadTool, ctx, {
+      threadId: "t_prospect_sms",
+      body: "Minimum lease is 6 months.",
+    });
+    if (!preview.ok) {
+      throw new Error(`expected SMS preview ok, got: ${preview.error}`);
+    }
+    expect(preview.preview.title).toBe("Send text reply");
+    expect(preview.preview.fields).toContainEqual({
+      label: "Delivery",
+      value: "Text from your work number to +12065551234",
+    });
+
+    const sent = await executeWrite(replyToThreadTool, ctx, {
+      threadId: "t_prospect_sms",
+      body: "Minimum lease is 6 months.",
+    });
+    expect(sent.ok).toBe(true);
+    if (sent.ok) expect(sent.reply).toContain("Texted +12065551234");
+    expect(sendResidentOutboundSmsMock).toHaveBeenCalled();
   });
 });
 

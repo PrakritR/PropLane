@@ -241,6 +241,21 @@ async function loadResolvableListing(
 export function summarizeListingRecord(rec: RawPropertyRecord) {
   const src = propertySource(rec);
   const rooms = summarizeRooms(src);
+  let alsoListedAs = str(src, "alsoListedAs") ?? "";
+  let tagline = str(src, "tagline") ?? "";
+  let petFriendly: boolean | null =
+    typeof src?.petFriendly === "boolean" ? src.petFriendly : null;
+  const subRaw = asObject(src?.listingSubmission as unknown);
+  if (subRaw) {
+    try {
+      const sub = normalizeManagerListingSubmissionV1(subRaw as never);
+      if (!alsoListedAs && sub.alsoListedAs.trim()) alsoListedAs = sub.alsoListedAs.trim();
+      if (!tagline && sub.tagline.trim()) tagline = sub.tagline.trim();
+      if (petFriendly === null) petFriendly = Boolean(sub.petFriendly);
+    } catch {
+      /* keep top-level fields */
+    }
+  }
   return {
     propertyId: rec.id,
     status: rec.status,
@@ -249,6 +264,9 @@ export function summarizeListingRecord(rec: RawPropertyRecord) {
     neighborhood: str(src, "neighborhood"),
     rentLabel: str(src, "rentLabel"),
     available: str(src, "available"),
+    tagline: tagline || null,
+    alsoListedAs: alsoListedAs || null,
+    petFriendly,
     beds: typeof src?.beds === "number" ? src.beds : null,
     baths: typeof src?.baths === "number" ? src.baths : null,
     marketingNotes: listingMarketingNotes(src),
@@ -265,6 +283,34 @@ export function summarizeListingRecord(rec: RawPropertyRecord) {
   };
 }
 
+const LISTING_MATCH_STOPWORDS = new Set([
+  "the",
+  "and",
+  "near",
+  "for",
+  "with",
+  "from",
+  "room",
+  "rooms",
+  "private",
+  "shared",
+  "home",
+  "house",
+  "apt",
+  "apartment",
+  "unit",
+  "bed",
+  "bedroom",
+]);
+
+/** Significant tokens for fuzzy ad-title matching (PRP-426). */
+export function listingSummarySignificantTokens(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 2 && !LISTING_MATCH_STOPWORDS.has(w));
+}
+
 /** True when a listing summary matches a free-text needle (address/name/room/ad title). */
 export function listingSummaryMatches(
   summary: ReturnType<typeof summarizeListingRecord>,
@@ -276,6 +322,8 @@ export function listingSummaryMatches(
     summary.title,
     summary.address,
     summary.neighborhood,
+    summary.tagline,
+    summary.alsoListedAs,
     summary.marketingNotes,
     ...summary.rooms.map((r) => r.name),
   ]
@@ -286,14 +334,30 @@ export function listingSummaryMatches(
   // Require every significant token (len > 2) so "8th Ave" does not also
   // match every other "… Ave …" listing.
   const words = n.split(/\s+/).filter((w) => w.length > 2);
-  if (words.length === 0) return false;
-  return words.every((w) => hay.includes(w));
+  if (words.length > 0 && words.every((w) => hay.includes(w))) return true;
+  // Ad / marketing titles: ≥2 significant tokens overlap (e.g. Facebook
+  // "Private locked room near University of Washington" vs alsoListedAs).
+  const needleTokens = listingSummarySignificantTokens(n);
+  if (needleTokens.length < 2) return false;
+  const hayTokenList = listingSummarySignificantTokens(hay);
+  const hayTokens = new Set(hayTokenList);
+  let hits = 0;
+  for (const token of needleTokens) {
+    if (hayTokens.has(token)) {
+      hits += 1;
+      continue;
+    }
+    if (hayTokenList.some((h) => h.includes(token) || token.includes(h))) {
+      hits += 1;
+    }
+  }
+  return hits >= 2;
 }
 
 export const listLiveListingsTool = defineTool({
   name: "list_live_listings",
   description:
-    "Search PropLane's live public listings — on the shared PropLane line this spans EVERY manager's listings (the same catalog as the public /rent site), so use it to find ANY house or room a prospect names. Returns title, address, neighborhood, rent label, room names/prices, and the manager's marketing notes (ad titles, nicknames) — pass the words a prospect quotes from an ad as the query. Use first when matching a prospect's house or room question.",
+    "Search PropLane's live public listings — on the shared PropLane line this spans EVERY manager's listings (the same catalog as the public /rent site), so use it to find ANY house or room a prospect names. Returns title, address, neighborhood, rent label, room names/prices, pet policy, and every marketing surface the manager wrote — the tagline, ad titles (alsoListedAs), and free-text notes about the home (marketingNotes) — all of which are searched, so pass the words a prospect quotes from an ad as the query. Use first when matching a prospect's house or room question.",
   kind: "read",
   inputSchema: z
     .object({
@@ -356,6 +420,19 @@ export const getListingDetailsTool = defineTool({
         baths: typeof src?.baths === "number" ? src.baths : null,
         tagline: str(src, "tagline"),
         marketingNotes: listingMarketingNotes(src),
+        alsoListedAs: str(src, "alsoListedAs"),
+        petFriendly:
+          typeof src?.petFriendly === "boolean"
+            ? src.petFriendly
+            : (() => {
+                try {
+                  const subRaw = asObject(src?.listingSubmission);
+                  if (!subRaw) return null;
+                  return Boolean(normalizeManagerListingSubmissionV1(subRaw as never).petFriendly);
+                } catch {
+                  return null;
+                }
+              })(),
         description: str(src, "description")?.slice(0, 800) ?? null,
         rooms: matchedRooms,
         allRoomCount: rooms.length,
