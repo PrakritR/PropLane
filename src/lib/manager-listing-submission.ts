@@ -1688,6 +1688,7 @@ export function normalizeManagerListingSubmissionV1(
     alsoListedAs: typeof (sub as { alsoListedAs?: unknown }).alsoListedAs === "string"
       ? (sub as { alsoListedAs: string }).alsoListedAs.trim()
       : "",
+    marketingNotes: typeof sub.marketingNotes === "string" ? sub.marketingNotes : "",
     houseRulesText: typeof sub.houseRulesText === "string" ? sub.houseRulesText : "",
     houseDescription: typeof sub.houseDescription === "string" ? sub.houseDescription : undefined,
     generalHouseInfo: typeof sub.generalHouseInfo === "string" ? sub.generalHouseInfo : "",
