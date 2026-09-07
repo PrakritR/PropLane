@@ -6,24 +6,21 @@ import { Modal, ModalFooter } from "@/components/ui/modal";
 import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
 import { DEMO_LEASE_SIGN_PREPARE_EVENT } from "@/lib/demo/demo-playback";
 import { LEASE_ESIGN_CONSENT_TEXT, LEASE_ESIGN_CONSENT_VERSION } from "@/lib/lease-execution-evidence";
-import { getLeaseDocumentHtml, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 
 /**
  * Which document the signer is agreeing to, so consent cannot outlive it.
  *
- * `row` is live in the resident portal (`resident-lease-panel.tsx` derives
- * `pipelineRow` with `useMemo` off synced rows), and this modal renders the
- * document straight from it — the uploaded PDF when there is one, otherwise the
- * generated HTML. So a manager re-uploading or regenerating while the resident
- * has the affirmation ticked would swap the document under an existing consent
- * and let them sign one they never read. `lease-execution-evidence.ts` hashes
- * whatever is current AT signature time, so it would faithfully record a
- * signature over the new document — the evidence layer cannot catch this.
+ * The resident already read the lease on the page behind this dialog (PRP-416
+ * removed the in-dialog viewer). Consent still binds to the current document
+ * identity: a manager re-upload or regenerate while the affirmation is ticked
+ * must clear the box. `lease-execution-evidence.ts` hashes whatever is current
+ * AT signature time.
  *
  * Identity is deliberately narrow: only fields that change WHICH document is
- * rendered. Widening it to the whole row would clear the box on every
- * background sync that appended a thread message.
+ * signed. Widening it to the whole row would clear the box on every background
+ * sync that appended a thread message.
  */
 function signedDocumentSubject(row: LeasePipelineRow): string {
   return [
@@ -57,7 +54,7 @@ export function LeaseSigningModal({
 
   // Drop the affirmation if the document changes under it. Done during render
   // (React's "adjust state when props change" pattern) so the new document is
-  // never painted with the old consent still ticked. Skipped once `signed` is
+  // never accepted with the old consent still ticked. Skipped once `signed` is
   // true: the affirmation has already been consumed and the modal is closing,
   // and the write itself moves the row.
   const documentSubject = signedDocumentSubject(row);
@@ -115,25 +112,6 @@ export function LeaseSigningModal({
         )
       }
     >
-      {(row.generatedHtml || row.managerUploadedPdf?.dataUrl) ? (
-        <div className="mb-4 overflow-hidden rounded-xl border border-border">
-          {row.managerUploadedPdf?.dataUrl ? (
-            <iframe
-              title="Lease document"
-              src={row.managerUploadedPdf.dataUrl}
-              className="h-[min(24vh,220px)] w-full bg-card"
-            />
-          ) : (
-            <iframe
-              title="Lease document"
-              srcDoc={getLeaseDocumentHtml(row) ?? ""}
-              sandbox="allow-same-origin"
-              className="h-[min(24vh,220px)] w-full bg-card"
-            />
-          )}
-        </div>
-      ) : null}
-
       {signed ? (
         <div className="rounded-2xl border px-5 py-5 text-center portal-banner-success">
           <p className="text-2xl font-black text-emerald-700">✓ Signed</p>
