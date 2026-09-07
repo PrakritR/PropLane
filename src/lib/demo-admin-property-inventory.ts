@@ -649,6 +649,12 @@ export type SaveManagerPropertyDraftOptions = {
    * open editor when the row key changes.
    */
   allowIdUpgrade?: boolean;
+  /**
+   * Receives the server's explanation when the write is refused, so the wizard
+   * can show WHY rather than blaming the connection. See
+   * `upsertPropertyRecordToServer`.
+   */
+  onError?: (message: string, code?: string) => void;
 };
 
 /**
@@ -695,6 +701,7 @@ export async function saveManagerPropertyDraftToServer(
     managerUserId,
     status: "draft",
     rowData: row,
+    onError: opts?.onError,
   });
   if (!ok) return null;
   // Write BEFORE delete on an id re-key: the re-keyed row is safely on the server

@@ -327,7 +327,14 @@ export async function POST(req: Request) {
     );
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    if (managerUserIdForWrite) {
+    // A draft is unvalidated by contract (docs/agents/property-drafts.md): it is
+    // saved on every wizard step, including on close, with whatever is typed so
+    // far. Validating the application-fee promo code here refused the WHOLE
+    // draft save for a half-typed code — after the record upsert above had
+    // already landed — so the wizard reported a save failure it could not
+    // explain and would not close. The code is applied when the draft is
+    // published through this same route with a listing status.
+    if (managerUserIdForWrite && body.status !== "draft") {
       const waiverCode = listingApplicationFeeWaiverCodeFromPayload(body.rowData, body.propertyData);
       if (waiverCode != null) {
         const waiverResult = await upsertPropertyApplicationFeeWaiverCode(
@@ -337,7 +344,10 @@ export async function POST(req: Request) {
           waiverCode,
         );
         if (!waiverResult.ok) {
-          return NextResponse.json({ error: waiverResult.error }, { status: 400 });
+          return NextResponse.json(
+            { error: `Application-fee promo code: ${waiverResult.error}` },
+            { status: 400 },
+          );
         }
       }
     }
