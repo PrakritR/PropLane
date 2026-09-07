@@ -34,7 +34,7 @@ import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-n
  */
 function messagingFetchMock(responses: (Response | Promise<Response>)[]) {
   const queue = [...responses];
-  const fn = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+  const fn = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async (input) => {
     if (String(input).includes("/api/manager/comms-billing")) {
       return Response.json({ paygEnabled: false });
     }
