@@ -259,6 +259,16 @@ inbound-notice fall-through that keeps texts visible while the panel is hidden,
 lives with the inbox invariants in AGENTS.md → "Communication is one unified,
 conversation-based inbox".
 
+⚠️ **Leasing inbound notices must land when the text is logged, not when the
+auto-reply succeeds.** While Status shows "Approval in progress" (`canSend`
+false), Twilio still delivers to the handset but outbound replies fail. Gating
+`upsertManagerInboxNotice` on a successful send left Communication empty
+(PRP-417). `handleClawLeasingInbound` mirrors the prospect text into the
+manager inbox immediately after `persistClawInboundSms`, and a send refusal
+after that still returns `ok: true` so Twilio does not drop the receipt.
+`resolveOwnedWorkNumber` also falls back to a unique phone match when the row
+is not yet attached to `TWILIO_MESSAGING_SERVICE_SID`.
+
 **Proxy-pair relay: manager ↔ resident text from their personal phones through
 a pooled number, neither seeing the other's real number**
 (`src/lib/sms-relay.server.ts`; schema + rationale in

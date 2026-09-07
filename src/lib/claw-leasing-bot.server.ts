@@ -45,7 +45,6 @@ import {
 } from "@/lib/proplane-sms-transport.server";
 import { buildConversationKey, type SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 import { recordScopedSmsConsent } from "@/lib/sms-consent";
-import { upsertManagerInboxNotice } from "@/lib/sms-inbox-notice.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 import { resolveManagerSmsInboundIdentity } from "@/lib/sms/manager-sms-access.server";
@@ -590,7 +589,7 @@ async function persistClawInboundSms(args: {
   return managerMessageLogged && inboundLogStored;
 }
 
-/** Run manager forwards / inbox mirrors after the reply is out the door.
+/** Run manager forwards after the reply is out the door.
  * after() needs a live request scope — outside one (tests) run inline. */
 function runAfterReply(task: () => Promise<unknown>): void {
   const safe = () => task().catch((e) => console.error("claw deferred task failed", e));
@@ -599,6 +598,58 @@ function runAfterReply(task: () => Promise<unknown>): void {
   } catch {
     void safe();
   }
+}
+
+function leasingInboundSubjectLabel(intent: LeasingIntent): string {
+  if (intent === "tour" || intent === "tour_details") return "Tour request";
+  if (intent === "apply" || intent === "bundle") return "Application";
+  if (intent === "question") return "Question";
+  return "Leasing text";
+}
+
+/**
+ * Mirror a prospect inbound into Communication as an email-channel notice.
+ *
+ * SMS_COMM_UI_ENABLED defaults OFF, so `/api/manager/sms-conversations` is not
+ * polled — managers only see inbound texts via these notices (keepSmsLike).
+ * Notices must therefore land when the inbound is logged, not only after a
+ * successful outbound reply: a work number stuck on "Approval in progress"
+ * (`canSend: false`) still receives Twilio delivery but cannot reply, and
+ * gating the notice on send success left Communication empty (PRP-417).
+ */
+async function mirrorLeasingInboundToCommunication(args: {
+  landlordId: string;
+  propertyId: string | null;
+  from: string;
+  text: string;
+  propertyLabel: string | null;
+  intent: LeasingIntent;
+}): Promise<void> {
+  const db = createSupabaseServiceRoleClient();
+  const { resolvePropertyScopedManagerRecipientIds } = await import(
+    "@/lib/co-manager-notification-recipients.server"
+  );
+  const { upsertManagerInboxNotice } = await import("@/lib/sms-inbox-notice.server");
+  const recipientIds = await resolvePropertyScopedManagerRecipientIds(db, {
+    ownerManagerUserId: args.landlordId,
+    propertyId: args.propertyId,
+    channel: "inbox",
+  });
+  const subjectLabel = leasingInboundSubjectLabel(args.intent);
+  await Promise.all(
+    recipientIds.map((managerUserId) =>
+      upsertManagerInboxNotice(db, {
+        managerUserId,
+        idPrefix: "claw_lease",
+        threadType: "claw_leasing_sms",
+        from: args.from,
+        subject: `(${subjectLabel}${args.propertyLabel ? ` — ${args.propertyLabel}` : ""}) ${args.from}`,
+        preview: args.text.slice(0, 140) || "(empty)",
+        body: args.text || "(empty message)",
+        unread: true,
+      }),
+    ),
+  );
 }
 
 /**
@@ -961,6 +1012,15 @@ export async function handleClawLeasingInbound(args: {
       releaseInboundMessageClaims(claimedMessageIds);
       return { ok: false, intent, replied: false, error: "Inbound receipt unavailable." };
     }
+    // Notice BEFORE reply attempt — see mirrorLeasingInboundToCommunication.
+    await mirrorLeasingInboundToCommunication({
+      landlordId,
+      propertyId,
+      from,
+      text,
+      propertyLabel,
+      intent,
+    }).catch((e) => console.error("claw leasing inbox notice failed", e));
   }
 
   // Claude leasing agent on the manager's work number — grounds replies on live
@@ -1008,50 +1068,16 @@ export async function handleClawLeasingInbound(args: {
           traceId: agent.traceId,
         });
         if (send.ok || send.durablyAccepted) {
-          const subjectLabel =
-            intent === "tour" || intent === "tour_details"
-              ? "Tour request"
-              : intent === "apply" || intent === "bundle"
-                ? "Application"
-                : intent === "question"
-                  ? "Question"
-                  : "Leasing text";
           runAfterReply(async () => {
-            const { resolvePropertyScopedManagerRecipientIds } = await import(
-              "@/lib/co-manager-notification-recipients.server"
-            );
-            const recipientIds = await resolvePropertyScopedManagerRecipientIds(db, {
-              ownerManagerUserId: landlordId,
-              propertyId,
-              channel: "inbox",
+            await forwardClawInboundToManagers({
+              fromResident: from,
+              text,
+              intentLabel: "leasing conversation",
+              propertyLabel,
+              managerUserId: landlordId,
+              workNumber,
+              autoReply: agent.reply,
             });
-            await Promise.all([
-              forwardClawInboundToManagers({
-                fromResident: from,
-                text,
-                intentLabel: "leasing conversation",
-                propertyLabel,
-                managerUserId: landlordId,
-                workNumber,
-                autoReply: agent.reply,
-              }),
-              ...recipientIds.map((managerUserId) =>
-                upsertManagerInboxNotice(db, {
-                  managerUserId,
-                  idPrefix: "claw_lease",
-                  threadType: "claw_leasing_sms",
-                  from: from,
-                  subject: `(${subjectLabel}${propertyLabel ? ` — ${propertyLabel}` : ""}) ${from}`,
-                  preview: text.slice(0, 140) || "(empty)",
-                  // Thread body is ONLY the prospect's words. The leasing
-                  // assistant reply already went to their phone; the manager's
-                  // AI draft card is generated separately for an optional
-                  // follow-up — never paste the auto-reply into this notice.
-                  body: text || "(empty message)",
-                  unread: true,
-                }),
-              ),
-            ]);
           });
           return {
             ok: true,
@@ -1095,8 +1121,17 @@ export async function handleClawLeasingInbound(args: {
     }),
     dedupeKey: messageId ? `inbound_reply_${messageId}` : null,
   });
+  // Inbound (and the Communication notice) already landed. A send refusal —
+  // common while Status is "Approval in progress" / canSend false — must not
+  // 503 Twilio into dropping the message after retries; the manager can still
+  // read the thread in Communication.
   if (!send.ok && !send.durablyAccepted) {
-    return { ok: false, intent, replied: false, error: send.error || "Send failed." };
+    return {
+      ok: Boolean(landlordId),
+      intent,
+      replied: false,
+      error: send.error || "Send failed.",
+    };
   }
 
   const intentLabel =
@@ -1107,58 +1142,17 @@ export async function handleClawLeasingInbound(args: {
         : intent === "question"
           ? "question"
           : "leasing message";
-  const subjectLabel =
-    intent === "tour" || intent === "tour_details"
-      ? "Tour request"
-      : intent === "apply" || intent === "bundle"
-        ? "Application"
-        : intent === "question"
-          ? "Question"
-          : "Text";
 
   runAfterReply(async () => {
-    const db = createSupabaseServiceRoleClient();
-    const { resolvePropertyScopedManagerRecipientIds } = await import(
-      "@/lib/co-manager-notification-recipients.server"
-    );
-    // Scope strictly to the RESOLVED owner of this conversation (the matched
-    // listing's manager, or the deterministic anchor when unmatched) — never
-    // every mapped manager, or a shared line with several real managers would
-    // leak each other's prospects into every manager's inbox.
-    const ownerIds = landlordId ? [landlordId] : [];
-    const recipientIdSets = await Promise.all(
-      ownerIds.map((ownerManagerUserId) =>
-        resolvePropertyScopedManagerRecipientIds(db, {
-          ownerManagerUserId,
-          propertyId,
-          channel: "inbox",
-        }),
-      ),
-    );
-    const recipientIds = [...new Set(recipientIdSets.flat())];
-    await Promise.all([
-      forwardClawInboundToManagers({
-        fromResident: from,
-        text,
-        intentLabel,
-        propertyLabel,
-        managerUserId: landlordId,
-        workNumber,
-        autoReply: reply,
-      }),
-      ...recipientIds.map((managerUserId) =>
-        upsertManagerInboxNotice(db, {
-          managerUserId,
-          idPrefix: "claw_lease",
-          threadType: "claw_leasing_sms",
-          from: from,
-          subject: `(${subjectLabel}${propertyLabel ? ` — ${propertyLabel}` : ""}) ${from}`,
-          preview: text.slice(0, 140) || "(empty)",
-          body: text || "(empty message)",
-          unread: true,
-        }),
-      ),
-    ]);
+    await forwardClawInboundToManagers({
+      fromResident: from,
+      text,
+      intentLabel,
+      propertyLabel,
+      managerUserId: landlordId,
+      workNumber,
+      autoReply: reply,
+    });
   });
 
   return {
