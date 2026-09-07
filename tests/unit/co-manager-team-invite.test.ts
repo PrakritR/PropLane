@@ -7,6 +7,10 @@ import * as proRelationships from "@/lib/pro-relationships";
 import * as propertyPipeline from "@/lib/demo-property-pipeline";
 import * as portalDataStore from "@/lib/portal-data-store";
 import { PORTAL_SECTION_CO_MANAGER_PERMISSION } from "@/lib/co-manager-permissions";
+import {
+  coManagerPermissionsExceedGrant,
+  intersectCoManagerPermissions,
+} from "@/lib/co-manager-permissions";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
@@ -27,11 +31,13 @@ describe("Team invite delegation (server contract)", () => {
     expect(INVITE_SERVER).toContain("actorUserId");
     expect(INVITE_SERVER).toContain("listInviteLinksForActor");
     expect(INVITE_SERVER).toContain("rotateInviteLinkToken");
+    expect(INVITE_SERVER).toContain("capTeamInvitePermissionsForDelegate");
   });
 
-  it("routes addressed invites through the delegate resolver", () => {
+  it("routes addressed invites through the delegate resolver and caps delegated grants", () => {
     expect(ACCOUNT_LINKS).toContain("resolveTeamInviteDelegate");
     expect(ACCOUNT_LINKS).toContain("inviterUserId = delegate.ownerUserId");
+    expect(ACCOUNT_LINKS).toContain("capTeamInvitePermissionsForDelegate");
   });
 
   it("exposes a copy route that rotates the token server-side", () => {
@@ -43,6 +49,29 @@ describe("Team invite delegation (server contract)", () => {
 describe("teams portal section maps to the Team module", () => {
   it("uses the teams permission module for the Teams nav section", () => {
     expect(PORTAL_SECTION_CO_MANAGER_PERMISSION.teams).toBe("teams");
+  });
+});
+
+describe("delegated permission caps", () => {
+  it("refuses when requested grants exceed the actor", () => {
+    expect(
+      coManagerPermissionsExceedGrant({ teams: { read: true, edit: true } }, { residents: { read: true } }),
+    ).toBe(true);
+    expect(
+      coManagerPermissionsExceedGrant(
+        { teams: { read: true, edit: true }, residents: { read: true } },
+        { residents: { read: true } },
+      ),
+    ).toBe(false);
+  });
+
+  it("intersects requested grants down to the actor ceiling", () => {
+    expect(
+      intersectCoManagerPermissions(
+        { teams: { read: true, edit: true } },
+        { teams: { read: true, edit: true }, residents: { read: true } },
+      ),
+    ).toEqual({ teams: { read: true, edit: true, notification: true } });
   });
 });
 

@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
 import {
   actorCanManageInviteLink,
+  capTeamInvitePermissionsForDelegate,
   resolveTeamInviteDelegate,
   teamInviteOwnerIdsForActor,
 } from "@/lib/auth/co-manager-team-invite.server";
@@ -169,7 +170,18 @@ export async function mintInviteLink(
     return { ok: false, status: 403, error: "One or more selected properties are not yours to share." };
   }
 
-  const permissions = normalizePropertyCoManagerPermissions(input.propertyPermissions, propertyIds);
+  const cappedPermissions = await capTeamInvitePermissionsForDelegate(
+    db,
+    actorUserId,
+    ownerUserId,
+    propertyIds,
+    normalizePropertyCoManagerPermissions(input.propertyPermissions, propertyIds),
+  );
+  if (!cappedPermissions.ok) {
+    return { ok: false, status: cappedPermissions.status, error: cappedPermissions.error };
+  }
+
+  const permissions = cappedPermissions.permissions;
   const token = mintToken();
 
   const { data, error } = await db
@@ -213,12 +225,23 @@ export async function listInviteLinksForActor(db: SupabaseClient, actorUserId: s
   if (owners.length === 0) return [];
   const { data } = await db
     .from("manager_invite_links")
-    .select(LINK_COLUMNS)
+    .select(`${LINK_COLUMNS}, owner_user_id`)
     .in("owner_user_id", owners)
     .is("revoked_at", null)
     .order("created_at", { ascending: false })
     .limit(50);
-  return (data ?? []).map((row) => toInviteLinkRow(row as DbRow));
+  const rows = (data ?? []) as (DbRow & { owner_user_id: string })[];
+  const visible: InviteLinkRow[] = [];
+  for (const row of rows) {
+    const ownerUserId = String(row.owner_user_id ?? "").trim();
+    const link = toInviteLinkRow(row);
+    const allowed = await actorCanManageInviteLink(db, actorUserId, {
+      ownerUserId,
+      assignedPropertyIds: link.assignedPropertyIds,
+    });
+    if (allowed) visible.push(link);
+  }
+  return visible;
 }
 
 type InviteLinkRowWithOwner = InviteLinkRow & { ownerUserId: string };
@@ -276,7 +299,7 @@ export async function rotateInviteLinkToken(
     .select(LINK_COLUMNS)
     .maybeSingle();
   if (error || !data) {
-    return { ok: false, status: 500, error: error?.message ?? "Could not refresh the invite link." };
+    return { ok: false, status: 500, error: "Could not refresh the invite link." };
   }
   return { ok: true, link: toInviteLinkRow(data as DbRow), token };
 }

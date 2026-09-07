@@ -353,7 +353,7 @@ export function ManagerInviteLinkModal({
                           onClick={() => void copyExistingLink(link.id)}
                         >
                           <Copy className="h-4 w-4" />
-                          <span className="ml-1.5">Copy</span>
+                          <span className="ml-1.5">Copy new link</span>
                         </Button>
                       ) : null}
                       <Button

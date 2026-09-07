@@ -3,9 +3,17 @@ import "server-only";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
 import {
   collectLinkedPropertyIdsForUser,
+  collectLinkedPropertyPermissionsForUser,
   managerHasCoManagerPermissionForProperty,
 } from "@/lib/auth/manager-lease-scope";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import {
+  coManagerPermissionsExceedGrant,
+  intersectCoManagerPermissions,
+  normalizePropertyCoManagerPermissions,
+  permissionsForProperty,
+  type PropertyCoManagerPermissions,
+} from "@/lib/co-manager-permissions";
 
 type ServiceClient = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -125,4 +133,43 @@ export async function actorCanManageInviteLink(
   if (ownerUserId === actorUserId.trim()) return true;
   const delegate = await resolveTeamInviteDelegate(db, actorUserId, input.assignedPropertyIds);
   return delegate.ok && delegate.ownerUserId === ownerUserId;
+}
+
+export type TeamInvitePermissionsCapResult =
+  | { ok: true; permissions: PropertyCoManagerPermissions }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Co-managers may invite only within their own per-property grants. Owners pass
+ * through unchanged; delegates exceeding their grant are refused.
+ */
+export async function capTeamInvitePermissionsForDelegate(
+  db: ServiceClient,
+  actorUserId: string,
+  ownerUserId: string,
+  propertyIds: string[],
+  requested: PropertyCoManagerPermissions,
+): Promise<TeamInvitePermissionsCapResult> {
+  const normalized = normalizePropertyCoManagerPermissions(requested, propertyIds);
+  if (actorUserId.trim() === ownerUserId.trim()) {
+    return { ok: true, permissions: normalized };
+  }
+
+  const linked = await collectLinkedPropertyPermissionsForUser(db, actorUserId);
+  const capped: PropertyCoManagerPermissions = {};
+
+  for (const propertyId of propertyIds) {
+    const actorFlat = permissionsForProperty(linked.get(propertyId), propertyId);
+    const requestedFlat = normalized[propertyId] ?? {};
+    if (coManagerPermissionsExceedGrant(actorFlat, requestedFlat)) {
+      return {
+        ok: false,
+        status: 403,
+        error: "You cannot grant module access beyond what you have on one or more selected properties.",
+      };
+    }
+    capped[propertyId] = intersectCoManagerPermissions(actorFlat, requestedFlat);
+  }
+
+  return { ok: true, permissions: capped };
 }

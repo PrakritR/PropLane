@@ -6,7 +6,7 @@ import {
   type AccountLinksPayload,
 } from "@/lib/account-links";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
-import { actorCanManageInviteLink, resolveTeamInviteDelegate } from "@/lib/auth/co-manager-team-invite.server";
+import { actorCanManageInviteLink, capTeamInvitePermissionsForDelegate, resolveTeamInviteDelegate } from "@/lib/auth/co-manager-team-invite.server";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type CoManagerPermissions } from "@/lib/co-manager-permissions";
@@ -176,15 +176,14 @@ export async function POST(req: Request) {
     void body?.tabKind;
     const skipInviteNotification = body?.skipInviteNotification === true;
     const assignedPropertyIds = asStringArray(body?.assignedPropertyIds);
-    const payoutPercentForManager = Math.min(
+    let payoutPercentForManager = Math.min(
       100,
       Math.max(0, Math.round(Number(body?.payoutPercentForManager ?? 15) * 10) / 10),
     );
-    const propertyCoManagerPermissions = normalizePropertyCoManagerPermissions(
+    let propertyCoManagerPermissions = normalizePropertyCoManagerPermissions(
       body?.propertyCoManagerPermissions ?? body?.coManagerPermissions,
       assignedPropertyIds,
     );
-    const coManagerPermissions: CoManagerPermissions = flatCoManagerPermissionsFromProperty(propertyCoManagerPermissions);
 
     const openInvite = !inviteeAxisId;
 
@@ -205,6 +204,32 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: delegate.error }, { status: delegate.status });
     }
     const inviterUserId = delegate.ownerUserId;
+
+    const isDelegateInvite = user.id.trim() !== inviterUserId.trim();
+    if (isDelegateInvite) {
+      const capped = await capTeamInvitePermissionsForDelegate(
+        svc,
+        user.id,
+        inviterUserId,
+        assignedPropertyIds,
+        propertyCoManagerPermissions,
+      );
+      if (!capped.ok) {
+        return NextResponse.json({ error: capped.error }, { status: capped.status });
+      }
+      propertyCoManagerPermissions = capped.permissions;
+      if (body?.payoutPercentForManager != null && payoutPercentForManager !== 15) {
+        return NextResponse.json(
+          { error: "Co-managers cannot change the payout share on behalf of the property owner." },
+          { status: 403 },
+        );
+      }
+      payoutPercentForManager = 15;
+    }
+
+    const coManagerPermissions: CoManagerPermissions = flatCoManagerPermissionsFromProperty(
+      propertyCoManagerPermissions,
+    );
 
     // Security: the inviter may only delegate properties they actually own.
     const ownership = await findPropertyIdsNotOwnedByManager(svc, inviterUserId, assignedPropertyIds);
