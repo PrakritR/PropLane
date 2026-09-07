@@ -3,6 +3,11 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
+import {
+  actorCanManageInviteLink,
+  resolveTeamInviteDelegate,
+  teamInviteOwnerIdsForActor,
+} from "@/lib/auth/co-manager-team-invite.server";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import {
@@ -110,7 +115,7 @@ export type MintInviteLinkResult =
 export async function mintInviteLink(
   db: SupabaseClient,
   input: {
-    ownerUserId: string;
+    actorUserId: string;
     kind?: string;
     label?: string;
     assignedPropertyIds: string[];
@@ -120,8 +125,8 @@ export async function mintInviteLink(
     now?: Date;
   },
 ): Promise<MintInviteLinkResult> {
-  const ownerUserId = input.ownerUserId.trim();
-  if (!ownerUserId) return { ok: false, status: 401, error: "Sign in to create an invite link." };
+  const actorUserId = input.actorUserId.trim();
+  if (!actorUserId) return { ok: false, status: 401, error: "Sign in to create an invite link." };
 
   const kind = normalizeInviteLinkKind(input.kind);
 
@@ -132,6 +137,13 @@ export async function mintInviteLink(
   if (kind !== "manager") {
     return { ok: false, status: 400, error: UNSUPPORTED_INVITE_LINK_KIND_ERROR };
   }
+
+  const propertyIds = [...new Set(input.assignedPropertyIds.map((id) => String(id).trim()).filter(Boolean))];
+  const delegate = await resolveTeamInviteDelegate(db, actorUserId, propertyIds);
+  if (!delegate.ok) {
+    return { ok: false, status: delegate.status, error: delegate.error };
+  }
+  const ownerUserId = delegate.ownerUserId;
 
   // Same paid gate the addressed invite uses. A link that cannot be redeemed is
   // worse than a refusal, because the manager only learns at the far end.
@@ -145,11 +157,6 @@ export async function mintInviteLink(
       status: 403,
       error: "Co-manager invites are available on Pro and Business. Upgrade to add a co-manager.",
     };
-  }
-
-  const propertyIds = [...new Set(input.assignedPropertyIds.map((id) => String(id).trim()).filter(Boolean))];
-  if (propertyIds.length === 0) {
-    return { ok: false, status: 400, error: "Choose at least one property this link grants access to." };
   }
 
   const ownership = await findPropertyIdsNotOwnedByManager(db, ownerUserId, propertyIds);
@@ -201,16 +208,96 @@ export async function listInviteLinks(
   return (data ?? []).map((row) => toInviteLinkRow(row as DbRow));
 }
 
+export async function listInviteLinksForActor(db: SupabaseClient, actorUserId: string): Promise<InviteLinkRow[]> {
+  const owners = [...(await teamInviteOwnerIdsForActor(db, actorUserId))];
+  if (owners.length === 0) return [];
+  const { data } = await db
+    .from("manager_invite_links")
+    .select(LINK_COLUMNS)
+    .in("owner_user_id", owners)
+    .is("revoked_at", null)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  return (data ?? []).map((row) => toInviteLinkRow(row as DbRow));
+}
+
+type InviteLinkRowWithOwner = InviteLinkRow & { ownerUserId: string };
+
+async function loadInviteLinkById(db: SupabaseClient, linkId: string): Promise<InviteLinkRowWithOwner | null> {
+  const { data } = await db
+    .from("manager_invite_links")
+    .select(`${LINK_COLUMNS}, owner_user_id`)
+    .eq("id", linkId.trim())
+    .maybeSingle();
+  if (!data) return null;
+  const row = data as DbRow & { owner_user_id: string };
+  return { ...toInviteLinkRow(row), ownerUserId: String(row.owner_user_id) };
+}
+
+export type RotateInviteLinkResult =
+  | { ok: true; link: InviteLinkRow; token: string }
+  | { ok: false; status: number; error: string };
+
+/** Rotate the token so the opener can copy a fresh URL. Invalidates the previous link. */
+export async function rotateInviteLinkToken(
+  db: SupabaseClient,
+  input: { actorUserId: string; linkId: string; now?: Date },
+): Promise<RotateInviteLinkResult> {
+  const link = await loadInviteLinkById(db, input.linkId);
+  if (!link) return { ok: false, status: 404, error: "That invite link no longer exists." };
+
+  const unusable = inviteLinkUnusableReason(
+    {
+      expiresAt: link.expiresAt,
+      revokedAt: link.revokedAt,
+      maxUses: link.maxUses,
+      usedCount: link.usedCount,
+    },
+    input.now ?? new Date(),
+  );
+  if (unusable) {
+    return { ok: false, status: 409, error: inviteLinkUnusableMessage(unusable) };
+  }
+
+  const allowed = await actorCanManageInviteLink(db, input.actorUserId, {
+    ownerUserId: link.ownerUserId,
+    assignedPropertyIds: link.assignedPropertyIds,
+  });
+  if (!allowed) {
+    return { ok: false, status: 403, error: "You do not have permission to copy this invite link." };
+  }
+
+  const token = mintToken();
+  const { data, error } = await db
+    .from("manager_invite_links")
+    .update({ token_hash: hashInviteLinkToken(token), updated_at: new Date().toISOString() })
+    .eq("id", link.id)
+    .is("revoked_at", null)
+    .select(LINK_COLUMNS)
+    .maybeSingle();
+  if (error || !data) {
+    return { ok: false, status: 500, error: error?.message ?? "Could not refresh the invite link." };
+  }
+  return { ok: true, link: toInviteLinkRow(data as DbRow), token };
+}
+
 /** Turning a link off is scoped to its owner — the id alone is not authority. */
 export async function revokeInviteLink(
   db: SupabaseClient,
-  input: { ownerUserId: string; linkId: string },
-): Promise<{ ok: boolean; error?: string }> {
+  input: { actorUserId: string; linkId: string },
+): Promise<{ ok: boolean; error?: string; status?: number }> {
+  const link = await loadInviteLinkById(db, input.linkId);
+  if (!link) return { ok: false, status: 404, error: "That invite link no longer exists." };
+  const allowed = await actorCanManageInviteLink(db, input.actorUserId, {
+    ownerUserId: link.ownerUserId,
+    assignedPropertyIds: link.assignedPropertyIds,
+  });
+  if (!allowed) return { ok: false, status: 403, error: "You do not have permission to turn off this invite link." };
+
   const { error, data } = await db
     .from("manager_invite_links")
     .update({ revoked_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("id", input.linkId.trim())
-    .eq("owner_user_id", input.ownerUserId.trim())
     .is("revoked_at", null)
     .select("id")
     .maybeSingle();

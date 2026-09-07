@@ -6,6 +6,7 @@ import {
   type AccountLinksPayload,
 } from "@/lib/account-links";
 import { findPropertyIdsNotOwnedByManager } from "@/lib/auth/co-manager-invite-scope";
+import { actorCanManageInviteLink, resolveTeamInviteDelegate } from "@/lib/auth/co-manager-team-invite.server";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type CoManagerPermissions } from "@/lib/co-manager-permissions";
@@ -199,11 +200,14 @@ export async function POST(req: Request) {
 
     const svc = createSupabaseServiceRoleClient();
 
+    const delegate = await resolveTeamInviteDelegate(svc, user.id, assignedPropertyIds);
+    if (!delegate.ok) {
+      return NextResponse.json({ error: delegate.error }, { status: delegate.status });
+    }
+    const inviterUserId = delegate.ownerUserId;
+
     // Security: the inviter may only delegate properties they actually own.
-    // Without this, any manager could name a victim's publicly-listed property
-    // id and grant themselves (via a second account) full co-manager access to
-    // it. See findPropertyIdsNotOwnedByManager.
-    const ownership = await findPropertyIdsNotOwnedByManager(svc, user.id, assignedPropertyIds);
+    const ownership = await findPropertyIdsNotOwnedByManager(svc, inviterUserId, assignedPropertyIds);
     if (!ownership.ok) {
       return NextResponse.json({ error: ownership.error }, { status: 500 });
     }
@@ -225,7 +229,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const inviterResolved = await ensureProfileProplaneId(svc, user.id);
+    const inviterResolved = await ensureProfileProplaneId(svc, inviterUserId);
     if (!inviterResolved.ok) {
       return NextResponse.json({ error: inviterResolved.error }, { status: 400 });
     }
@@ -239,7 +243,7 @@ export async function POST(req: Request) {
     };
 
     if (openInvite) {
-      const { tier: openInviterTier } = await getManagerPurchaseSku(user.id);
+      const { tier: openInviterTier } = await getManagerPurchaseSku(inviterUserId);
       if (!managerPlanAllowsCoManagerInvites({ tier: openInviterTier })) {
         return NextResponse.json(
           { error: "Upgrade to Pro or Business before linking co-managers." },
@@ -248,7 +252,7 @@ export async function POST(req: Request) {
       }
       const openLinkCap = maxAccountLinksForTier(openInviterTier);
       if (openLinkCap != null) {
-        const { count: used, error: capErr } = await countParticipantLinks(svc, user.id, tabKind);
+        const { count: used, error: capErr } = await countParticipantLinks(svc, inviterUserId, tabKind);
         if (capErr) {
           if (looksLikeAccountLinksMissingTable(capErr)) {
             return NextResponse.json(
@@ -265,7 +269,7 @@ export async function POST(req: Request) {
         const { data: existingOpen } = await svc
           .from("account_link_invites")
           .select("id")
-          .eq("inviter_user_id", user.id)
+          .eq("inviter_user_id", inviterUserId)
           .eq("tab_kind", tabKind)
           .eq("status", "pending")
           .is("invitee_user_id", null)
@@ -283,7 +287,7 @@ export async function POST(req: Request) {
 
       const minted = await mintOpenCoManagerInvite({
         svc,
-        inviterUserId: user.id,
+        inviterUserId,
         inviterAxisId,
         inviterDisplayName:
           inviterProfile.full_name?.trim() || inviterProfile.email || null,
@@ -351,7 +355,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (inviteeProfile.id === user.id) {
+    if (inviteeProfile.id === inviterUserId) {
       return NextResponse.json({ error: "You cannot invite your own workspace." }, { status: 400 });
     }
 
@@ -367,7 +371,7 @@ export async function POST(req: Request) {
       .eq("tab_kind", tabKind)
       .in("status", ["pending", "accepted"])
       .or(
-        `and(inviter_user_id.eq.${user.id},invitee_user_id.eq.${inviteeProfile.id}),and(inviter_user_id.eq.${inviteeProfile.id},invitee_user_id.eq.${user.id})`,
+        `and(inviter_user_id.eq.${inviterUserId},invitee_user_id.eq.${inviteeProfile.id}),and(inviter_user_id.eq.${inviteeProfile.id},invitee_user_id.eq.${inviterUserId})`,
       )
       .limit(1)
       .maybeSingle();
@@ -392,7 +396,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const { tier: inviterTier, billing: inviterBilling } = await getManagerPurchaseSku(user.id);
+    const { tier: inviterTier, billing: inviterBilling } = await getManagerPurchaseSku(inviterUserId);
     if (!managerPlanAllowsCoManagerInvites({ tier: inviterTier })) {
       return NextResponse.json(
         { error: "Upgrade to Pro or Business before linking co-managers." },
@@ -403,7 +407,7 @@ export async function POST(req: Request) {
 
     const inviterLinkCap = maxAccountLinksForTier(inviterTier);
     if (inviterLinkCap != null) {
-      const { count: used, error: capErr } = await countParticipantLinks(svc, user.id, tabKind);
+      const { count: used, error: capErr } = await countParticipantLinks(svc, inviterUserId, tabKind);
 
       if (capErr) {
         if (looksLikeAccountLinksMissingTable(capErr)) {
@@ -470,7 +474,7 @@ export async function POST(req: Request) {
     const { data: insertRow, error: insertErr } = await svc
       .from("account_link_invites")
       .insert({
-        inviter_user_id: user.id,
+        inviter_user_id: inviterUserId,
         invitee_user_id: inviteeProfile.id,
         tab_kind: tabKind,
         inviter_axis_id: inviterAxisId,
@@ -545,7 +549,7 @@ export async function POST(req: Request) {
             labelFromManagerPropertyRecordRow(p),
           );
           await notifyCoManagerInviteSent({
-            inviterUserId: user.id,
+            inviterUserId,
             inviteeUserId: inviteeProfile.id,
             inviterName:
               (inviterProfile as { full_name?: string | null }).full_name?.trim() ||

@@ -14,6 +14,7 @@ export const CO_MANAGER_PERMISSION_OPTIONS = [
   { id: "promotion", label: "Promotion" },
   { id: "inbox", label: "Communication" },
   { id: "calendar", label: "Calendar" },
+  { id: "teams", label: "Team" },
 ] as const;
 
 /** Legacy ids still accepted when reading stored rows. */
@@ -334,7 +335,7 @@ export const PORTAL_SECTION_CO_MANAGER_PERMISSION: Partial<Record<string, CoMana
   tasks: "calendar",
   bookings: "calendar",
   vendors: "services",
-  teams: "services",
+  teams: "teams",
 };
 
 
