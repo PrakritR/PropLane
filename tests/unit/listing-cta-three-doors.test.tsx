@@ -100,24 +100,24 @@ describe("listing price card CTAs", () => {
 });
 
 describe("messaging-setup banner", () => {
-  it("prompts the manager to set up messaging when the listing has no work number", () => {
-    render(
-      <ListingDetailSections property={property(null)} rich={rich} managerPreviewChrome />,
-    );
-    const link = screen.getByText("Set up messaging") as HTMLAnchorElement;
-    expect(link.getAttribute("href")).toBe("/portal/profile?tab=messaging");
-  });
-
-  it("does not prompt once a work number is set", () => {
-    render(
-      <ListingDetailSections property={property(WORK_NUMBER)} rich={rich} managerPreviewChrome />,
-    );
-    expect(screen.queryByText("Set up messaging")).toBeNull();
-  });
-
+  /*
+    The prompt itself moved: it is `ManagerMessagingSetupBanner` in the portal
+    layout now, so it reaches every page instead of this one tab, and
+    `tests/unit/manager-messaging-setup-banner.test.tsx` owns when it shows and
+    when it stays quiet — including that it no longer renders inside this
+    preview. What stays here is the half this file exists for: the listing page
+    a PROSPECT sees must never carry the owner's setup chrome.
+  */
   it("never reaches a prospect on the public listing page", () => {
     render(<ListingDetailSections property={property(null)} rich={rich} />);
     expect(screen.queryByText("Set up messaging")).toBeNull();
+    expect(screen.queryByText(/Set up messaging so renters/)).toBeNull();
+  });
+
+  it("does not render a second copy in the manager preview either", () => {
+    render(
+      <ListingDetailSections property={property(null)} rich={rich} managerPreviewChrome />,
+    );
     expect(screen.queryByText(/Set up messaging so renters/)).toBeNull();
   });
 });
