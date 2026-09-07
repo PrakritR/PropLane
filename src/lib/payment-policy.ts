@@ -125,14 +125,20 @@ export function listingServiceFeePayerUiValue(
 export function persistListingServiceFeePayer(
   payer: ServiceFeePayer | null | undefined,
   waiverCode: string | null | undefined,
+  accountWaiverGranted = false,
 ): { serviceFeePayer: ServiceFeePayer | null; serviceFeeWaiverCode?: string } {
   if (payer === "resident" || payer === "manager") {
     return { serviceFeePayer: payer, serviceFeeWaiverCode: undefined };
   }
-  if (payer === "proplane" && listingPaymentWaiverCodeMatches(waiverCode)) {
+  if (
+    payer === "proplane" &&
+    (listingPaymentWaiverCodeMatches(waiverCode) || accountWaiverGranted)
+  ) {
     return {
       serviceFeePayer: "proplane",
-      serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(waiverCode ?? ""),
+      serviceFeeWaiverCode: listingPaymentWaiverCodeMatches(waiverCode)
+        ? normalizeListingPaymentWaiverCode(waiverCode ?? "")
+        : LISTING_PAYMENT_WAIVER_CODE,
     };
   }
   if (payer === "proplane") {

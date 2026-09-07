@@ -69,8 +69,6 @@ import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscriptio
 import {
   LISTING_PAYMENT_WAIVER_CODE,
   LISTING_PROCESSING_FEE_WAIVER_CODE_HELP,
-  listingPaymentWaiverCodeMatches,
-  listingProplaneAbsorbNeedsWaiverCode,
   listingServiceFeePayerUiValue,
   managerCanSelectManagerAbsorbServiceFee,
   normalizeListingPaymentWaiverCode,
@@ -1453,11 +1451,6 @@ export function ManagerAddListingForm({
   const [paymentWaiverGranted, setPaymentWaiverGranted] = useState(false);
   const managerSkuTier = normalizeManagerSkuTier(skuTier) ?? "free";
   const canSelectManagerAbsorbFee = managerCanSelectManagerAbsorbServiceFee(managerSkuTier);
-  const proplaneAbsorbNeedsWaiverCode = listingProplaneAbsorbNeedsWaiverCode(
-    managerSkuTier,
-    sub.serviceFeePayer,
-    paymentWaiverGranted,
-  );
   const serviceFeePayerUi = listingServiceFeePayerUiValue(
     sub.serviceFeePayer,
     managerSkuTier,
@@ -1465,15 +1458,6 @@ export function ManagerAddListingForm({
   );
   const showProcessingFeeWaiveCode =
     serviceFeePayerUi === "proplane" && !paymentWaiverGranted;
-
-  useEffect(() => {
-    if (!paymentWaiverGranted || sub.serviceFeePayer !== "proplane") return;
-    if (listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)) return;
-    setSub((s) => ({
-      ...s,
-      serviceFeeWaiverCode: LISTING_PAYMENT_WAIVER_CODE,
-    }));
-  }, [paymentWaiverGranted, sub.serviceFeePayer, sub.serviceFeeWaiverCode]);
 
   useEffect(() => {
     if (isDemoModeActive()) return;
@@ -4477,7 +4461,7 @@ export function ManagerAddListingForm({
                   </GridField>
                   {showProcessingFeeWaiveCode ? (
                     <div className="space-y-2 sm:col-span-2">
-                      <FieldLabel optional={!proplaneAbsorbNeedsWaiverCode}>Processing fee waiver code</FieldLabel>
+                      <FieldLabel>Processing fee waiver code</FieldLabel>
                       <Input
                         value={sub.serviceFeeWaiverCode ?? ""}
                         onChange={(e) =>
@@ -4497,9 +4481,7 @@ export function ManagerAddListingForm({
                           stepFieldErrors.serviceFeeWaiverCode ? "listing-service-fee-waiver-error" : undefined
                         }
                       />
-                      {proplaneAbsorbNeedsWaiverCode ? (
-                        <p className="text-xs text-muted">{LISTING_PROCESSING_FEE_WAIVER_CODE_HELP}</p>
-                      ) : null}
+                      <p className="text-xs text-muted">{LISTING_PROCESSING_FEE_WAIVER_CODE_HELP}</p>
                       {stepFieldErrors.serviceFeeWaiverCode ? (
                         <p id="listing-service-fee-waiver-error" className="text-xs text-destructive">
                           {stepFieldErrors.serviceFeeWaiverCode}

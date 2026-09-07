@@ -14,6 +14,8 @@ import {
 import { normalizeManagerSkuTier, type ManagerSkuTier } from "@/lib/manager-access";
 import {
   LISTING_PAYMENT_WAIVER_CODE,
+  LISTING_PROCESSING_FEE_WAIVER_CODE_HELP,
+  LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
   listingPaymentWaiverCodeMatches,
   managerCanSelectManagerAbsorbServiceFee,
   managerCanSelectProplaneServiceFee,
@@ -346,6 +348,20 @@ export function ManagerPaymentSetupModal({
     // a promo code rather than by a click — the same rule the listing wizard applies per
     // listing. Ask for the code first; nothing is saved until it checks out.
     if (choice === "proplane") {
+      if (paymentWaiverGranted) {
+        setWaiverPromptOpen(false);
+        setWaiverCodeError(null);
+        setSavingFeePayer(true);
+        try {
+          await persistSettings({
+            serviceFeePayer: "proplane",
+            serviceFeeWaiverCode: LISTING_PAYMENT_WAIVER_CODE,
+          });
+        } finally {
+          setSavingFeePayer(false);
+        }
+        return;
+      }
       setWaiverCodeError(null);
       setWaiverCodeDraft(draft.serviceFeeWaiverCode ?? "");
       setWaiverPromptOpen(true);
@@ -364,7 +380,7 @@ export function ManagerPaymentSetupModal({
   async function applyWaiverCode() {
     const code = normalizeListingPaymentWaiverCode(waiverCodeDraft);
     if (!listingPaymentWaiverCodeMatches(code)) {
-      setWaiverCodeError("That promo code isn't valid.");
+      setWaiverCodeError(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID);
       return;
     }
     setWaiverCodeError(null);
@@ -526,7 +542,7 @@ export function ManagerPaymentSetupModal({
                     className="block text-xs font-semibold text-foreground"
                     htmlFor="manager-service-fee-waiver-code"
                   >
-                    Promo code
+                    Processing fee waiver code
                   </label>
                   <input
                     id="manager-service-fee-waiver-code"
@@ -535,17 +551,14 @@ export function ManagerPaymentSetupModal({
                       setWaiverCodeDraft(normalizeListingPaymentWaiverCode(event.target.value));
                       setWaiverCodeError(null);
                     }}
-                    placeholder={LISTING_PAYMENT_WAIVER_CODE}
+                    placeholder="Enter your waiver code"
                     autoComplete="off"
                     data-attr="manager-service-fee-waiver-code"
                     aria-invalid={Boolean(waiverCodeError)}
                     aria-describedby={waiverCodeError ? "manager-service-fee-waiver-error" : undefined}
                     className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground sm:max-w-xs"
                   />
-                  <p className="text-xs text-muted">
-                    Required — enter your PropLane promo code so PropLane covers Stripe&apos;s processing fee on
-                    this account.
-                  </p>
+                  <p className="text-xs text-muted">{LISTING_PROCESSING_FEE_WAIVER_CODE_HELP}</p>
                   {waiverCodeError ? (
                     <p id="manager-service-fee-waiver-error" className="text-xs text-destructive">
                       {waiverCodeError}
@@ -577,7 +590,7 @@ export function ManagerPaymentSetupModal({
                   </div>
                 </div>
               ) : (draft.serviceFeePayer ?? "resident") === "proplane" && draft.serviceFeeWaiverCode ? (
-                <p className="text-xs text-muted">Promo code {draft.serviceFeeWaiverCode} applied.</p>
+                <p className="text-xs text-muted">Processing fee waiver applied.</p>
               ) : null}
             </div>
           ) : skuTier === "free" ? (
