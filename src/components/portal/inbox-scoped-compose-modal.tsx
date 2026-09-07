@@ -20,7 +20,13 @@ import {
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { DEMO_INBOX_COMPOSE_PREFILL_EVENT } from "@/lib/demo/demo-playback";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { mergeInboxScopedContacts } from "@/lib/manager-inbox-contacts";
+import {
+  mergeInboxScopedContacts,
+  parsePropertyAudienceKey,
+  propertyAudienceLabel,
+  propertyAudienceOptions,
+  residentsForPropertyAudience,
+} from "@/lib/manager-inbox-contacts";
 import {
   composeDirectoryCategories,
   composeValidPersonKeys,
@@ -63,7 +69,12 @@ export type ScopedInboxSendPayload = {
 };
 
 type ComposeCategory = InboxComposeDirectoryCategory;
-type PersonKey = "admin" | "broadcast:management" | "broadcast:resident" | `id:${string}`;
+type PersonKey =
+  | "admin"
+  | "broadcast:management"
+  | "broadcast:resident"
+  | `broadcast:property:${string}`
+  | `id:${string}`;
 
 function contactOptionLabel(contact: InboxScopedContact): string {
   const property = contact.propertyLabel?.trim();
@@ -114,7 +125,13 @@ function peopleForCategory(
     .map((c) => ({ key: `id:${c.id}` as const, label: contactOptionLabel(c) }));
 
   if (portal === "manager" && category === "resident") {
-    return [{ key: "broadcast:resident", label: "All residents" }, ...people];
+    // "All residents" then one "All residents · <house>" per property (PRP-315),
+    // so a manager can reach one house without writing to the whole portfolio.
+    const perProperty = propertyAudienceOptions(contacts).map((option) => ({
+      key: option.key as PersonKey,
+      label: option.label,
+    }));
+    return [{ key: "broadcast:resident", label: "All residents" }, ...perProperty, ...people];
   }
   if (portal === "manager" && category === "management") {
     return [{ key: "broadcast:management", label: "All management" }, ...people];
@@ -395,6 +412,24 @@ export function ScopedInboxComposeModal({
           broadcastCategories.push("resident");
           labels.push("All residents");
           includesDirectoryRecipients = true;
+        }
+        continue;
+      }
+      const audiencePropertyId = parsePropertyAudienceKey(key);
+      if (audiencePropertyId) {
+        // A per-property audience is just that house's current residents as
+        // direct recipients — the send path needs no new broadcast category.
+        const residents = residentsForPropertyAudience(contacts, audiencePropertyId);
+        if (residents.length === 0) continue;
+        const propertyLabel = residents.find((r) => r.propertyLabel)?.propertyLabel || audiencePropertyId;
+        labels.push(propertyAudienceLabel(propertyLabel));
+        includesDirectoryRecipients = true;
+        for (const resident of residents) {
+          const email = resident.email.trim();
+          const lower = email.toLowerCase();
+          if (!lower || seenEmail.has(lower)) continue;
+          seenEmail.add(lower);
+          directEmails.push(email);
         }
         continue;
       }

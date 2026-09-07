@@ -6,6 +6,7 @@ import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access"
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveResidentFilingScope } from "@/lib/resident-manager-scope";
+import { deleteWorkOrderRecord } from "@/lib/resident-work-order-lifecycle.server";
 import {
   repairWorkOrderScopesForManager,
   shouldRunScopeRepair,
@@ -505,15 +506,14 @@ export async function POST(req: Request) {
       if (!(await actorMayWriteRecord(existing))) {
         return NextResponse.json({ error: "Forbidden." }, { status: 403 });
       }
-      const row = existing.row_data as DemoManagerWorkOrderRow | null;
-      const managerUserId = (existing.manager_user_id as string | null) ?? row?.managerUserId ?? null;
-      if (row && managerUserId) {
-        await syncWorkOrderToGoogleCalendar(db, managerUserId, { ...row, bucket: "completed", scheduledAtIso: undefined }).catch(
-          () => undefined,
-        );
-      }
-      const { error } = await db.from("portal_work_order_records").delete().eq("id", id);
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      // The same calendar-release + delete the resident assistant's
+      // cancel_work_order runs, so the two paths cannot drift.
+      const { error } = await deleteWorkOrderRecord(db, {
+        id,
+        manager_user_id: (existing.manager_user_id as string | null) ?? null,
+        row_data: existing.row_data as DemoManagerWorkOrderRow | null,
+      });
+      if (error) return NextResponse.json({ error }, { status: 500 });
       return NextResponse.json({ ok: true });
     }
 

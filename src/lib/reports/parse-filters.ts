@@ -12,6 +12,7 @@ export function parseManagerReportFilters(searchParams: URLSearchParams): Manage
     scope: scope && ["portfolio", "property", "tenant", "room"].includes(scope) ? scope : undefined,
     residentEmail: searchParams.get("residentEmail")?.trim() || undefined,
     roomLabel: searchParams.get("roomLabel")?.trim() || undefined,
+    groupBy: searchParams.get("groupBy")?.trim() || undefined,
   };
 }
 

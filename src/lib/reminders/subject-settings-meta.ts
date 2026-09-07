@@ -276,7 +276,7 @@ const SERVICE_ORDER_META: ReminderSubjectSettingsMeta = {
     body: [
       "Hi {recipientName},",
       "",
-      "Reminder: {counterpartyName}'s add-on service ({title}) at {propertyTitle} is scheduled {duePhrase}.",
+      "Reminder: {counterpartyName}'s service ({title}) at {propertyTitle} is scheduled {duePhrase}.",
       "",
       "When: {whenLabel}",
       "",
@@ -305,13 +305,13 @@ const WORK_ORDER_META: ReminderSubjectSettingsMeta = {
   timingLabel: "Remind before visit",
   notifyYouLabel: "You",
   notifyTeamLabel: "Team",
-  notifyCounterpartyLabel: "Resident",
+  notifyCounterpartyLabel: "Resident & vendor",
   defaultTemplate: {
-    subject: "Maintenance visit {duePhrase}: {title}",
+    subject: "Service visit {duePhrase}: {title}",
     body: [
       "Hi {recipientName},",
       "",
-      "Reminder: {counterpartyName}'s maintenance visit ({title}) at {propertyTitle} starts {duePhrase}.",
+      "Reminder: {counterpartyName}'s service visit ({title}) at {propertyTitle} starts {duePhrase}.",
       "",
       "When: {whenLabel}",
       "",

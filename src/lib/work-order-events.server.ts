@@ -2,6 +2,30 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { actionDeliveryPolicy, emitActionEvent } from "@/lib/action-events.server";
+import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
+import { webhookEventBuilders, type WebhookEventType } from "@/lib/webhooks/events";
+
+/**
+ * Only three transitions are published outward; the rest fold into `updated`.
+ * The payload is built by the catalog's own builder, so the transition's facts
+ * (title, property label, vendor name, resident contact) cannot leak outward.
+ */
+function outboundWebhook(
+  event: WorkOrderEventType,
+  workOrderId: string,
+  occurredAt?: string,
+): { type: WebhookEventType; payload: ReturnType<(typeof webhookEventBuilders)["work_order.updated"]> } {
+  if (event === "created") {
+    return { type: "work_order.created", payload: webhookEventBuilders["work_order.created"]({ workOrderId, status: event }) };
+  }
+  if (event === "completed") {
+    return {
+      type: "work_order.completed",
+      payload: webhookEventBuilders["work_order.completed"]({ workOrderId, completedAt: occurredAt ?? null }),
+    };
+  }
+  return { type: "work_order.updated", payload: webhookEventBuilders["work_order.updated"]({ workOrderId, status: event }) };
+}
 
 export type WorkOrderEventType =
   | "created"
@@ -105,6 +129,10 @@ export async function workOrderEvent(
     now?: Date;
   },
 ): Promise<{ eventId: string; duplicate: boolean; delivered: number; deferred: number; failed: number }> {
+  const outbound = outboundWebhook(input.event, input.workOrderId, input.occurredAt);
+  // Outbound webhooks. Never throws in here — a webhook problem must not fail
+  // the transition that produced it.
+  await enqueueWebhookEvent(input.managerUserId, outbound.type, outbound.payload);
   return emitActionEvent(db, {
     eventId: input.eventId,
     domain: "work_order",

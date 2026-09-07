@@ -67,6 +67,7 @@ export async function POST(req: Request) {
       plannedEvent: result.plannedEvent,
       message: result.message,
       tenantNotification: result.tenantNotification,
+      calendarSync: result.calendarSync,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to approve tour request.";

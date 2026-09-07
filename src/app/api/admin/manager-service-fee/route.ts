@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import {
+  listAdminServiceFeeOverrideChanges,
+  normalizeServiceFeeOverrideReason,
+  recordAdminServiceFeeOverrideChange,
+} from "@/lib/admin-service-fee-audit.server";
+import {
   loadManagerManualPaymentSettings,
   saveAdminServiceFeeOverride,
 } from "@/lib/manager-manual-payment-settings";
@@ -22,6 +27,11 @@ export const runtime = "nodejs";
  *
  * `saveAdminServiceFeeOverride` deliberately does no authorization of its own, matching every
  * other service-role writer, so this route is the boundary.
+ *
+ * Every successful write also leaves one `audit_log` row (PRP-277): who changed it, from what to
+ * what, what the resident was actually billed before and after, and an optional staff-entered
+ * reason. The last few rows come back on every read so the screen can show them under the
+ * control.
  */
 async function requireAdminActor(): Promise<{ ok: true; actorId: string } | { ok: false }> {
   const supabase = await createSupabaseServerClient();
@@ -57,8 +67,11 @@ export async function GET(req: Request) {
     if (!managerUserId) return NextResponse.json({ error: "managerUserId is required." }, { status: 400 });
 
     const db = createSupabaseServiceRoleClient();
-    const settings = await loadManagerManualPaymentSettings(db, managerUserId);
-    const { tier: rawTier } = await getManagerPurchaseSku(managerUserId);
+    const [settings, { tier: rawTier }, changes] = await Promise.all([
+      loadManagerManualPaymentSettings(db, managerUserId),
+      getManagerPurchaseSku(managerUserId),
+      listAdminServiceFeeOverrideChanges(db, managerUserId),
+    ]);
     const tier = normalizeManagerSkuTier(rawTier) ?? "free";
 
     return NextResponse.json({
@@ -73,6 +86,7 @@ export async function GET(req: Request) {
         adminOverride: settings.adminServiceFeeOverride,
         managerChoice: settings.serviceFeePayer,
       }),
+      changes,
     });
   } catch {
     return NextResponse.json({ error: "Could not load fee settings." }, { status: 500 });
@@ -98,22 +112,56 @@ export async function POST(req: Request) {
       );
     }
 
+    const reason = normalizeServiceFeeOverrideReason(body.reason);
+
     const db = createSupabaseServiceRoleClient();
-    const saved = await saveAdminServiceFeeOverride(db, managerUserId, override.value);
-    const { tier: rawTier } = await getManagerPurchaseSku(managerUserId);
+    // The "before" picture is read up front, with the same resolver the charge paths use, so the
+    // audit row records what the resident was actually billed and not merely what was stored.
+    const [before, { tier: rawTier }] = await Promise.all([
+      loadManagerManualPaymentSettings(db, managerUserId),
+      getManagerPurchaseSku(managerUserId),
+    ]);
     const tier = normalizeManagerSkuTier(rawTier) ?? "free";
+    const previousOverride = before.adminServiceFeeOverride ?? null;
+    const effectiveBefore = resolveServiceFeePayerFor({
+      tier,
+      adminOverride: before.adminServiceFeeOverride,
+      managerChoice: before.serviceFeePayer,
+    });
+
+    const saved = await saveAdminServiceFeeOverride(db, managerUserId, override.value);
+    const newOverride = saved.adminServiceFeeOverride ?? null;
+    const effectiveAfter = resolveServiceFeePayerFor({
+      tier,
+      adminOverride: saved.adminServiceFeeOverride,
+      managerChoice: saved.serviceFeePayer,
+    });
+
+    // Recorded after the write, and a failed record is a failed request: staff moving a cost onto
+    // PropLane must leave a trace. The client re-reads on any error rather than trusting its own
+    // optimistic state, so a saved-but-unrecorded change is still shown truthfully.
+    await recordAdminServiceFeeOverrideChange(db, {
+      actorUserId: actor.actorId,
+      managerUserId,
+      previousOverride,
+      newOverride,
+      effectiveBefore,
+      effectiveAfter,
+      reason,
+    });
+    const changes = await listAdminServiceFeeOverrideChanges(db, managerUserId);
 
     return NextResponse.json({
       ok: true,
       managerUserId,
-      adminOverride: saved.adminServiceFeeOverride ?? null,
-      effectivePayer: resolveServiceFeePayerFor({
-        tier,
-        adminOverride: saved.adminServiceFeeOverride,
-        managerChoice: saved.serviceFeePayer,
-      }),
+      adminOverride: newOverride,
+      effectivePayer: effectiveAfter,
+      changes,
     });
   } catch {
     return NextResponse.json({ error: "Could not save fee settings." }, { status: 500 });
   }
 }
+
+/** The documented verb; the same handler answers `POST` for the older client. */
+export const PATCH = POST;

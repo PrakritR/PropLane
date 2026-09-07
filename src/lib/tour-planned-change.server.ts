@@ -16,9 +16,9 @@
  */
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import {
-  GOOGLE_CALENDAR_WRITE_OPERATION_TIMEOUT_MS,
-  isGoogleCalendarNotLinkedError,
-} from "@/lib/google-calendar/api.server";
+  runPlannedTourCalendarSync as runCalendarSync,
+  type PlannedTourCalendarSync,
+} from "@/lib/google-calendar/planned-tour-sync.server";
 import {
   deleteProplaneGoogleCalendarEvent,
   syncPlannedTourToGoogleCalendar,
@@ -58,65 +58,12 @@ function inquiryFromPlannedEvent(event: Record<string, unknown>): Record<string,
 }
 
 /**
- * Outcome of the manager's linked-Google-Calendar side of the change.
- *
- * It is reported, never thrown: the PropLane-side change already succeeded and
- * the guest has already been told, so a Google failure must not turn a real
- * cancel into an error. But it cannot be swallowed either — public tour
- * availability now subtracts Google busy time, so a surviving ghost event
- * permanently blocks the half hour the manager just freed.
+ * Outcome of the manager's linked-Google-Calendar side of the change — the
+ * bounded, classified wait lives in `planned-tour-sync.server.ts` and is shared
+ * with the confirm paths, so a cancel, a reschedule and a confirm all wait on
+ * Google the same way and report the same shape.
  */
-export type PlannedTourCalendarSync = { ok: boolean; skipped?: boolean; error?: string };
-
-/**
- * Whole-operation ceiling on the Google side of a cancel or reschedule.
- *
- * The shared ladder's WRITE budget, unmodified — already sized above the bounded
- * worst case of the calls below it (a token hop plus one API call) and tight
- * enough to leave the rest of the handler real headroom under the smallest
- * default platform function limit. Padding it here would eat that headroom, and
- * the platform kill it invites is the exact outcome this race exists to prevent:
- * the client reporting "could not reach the server" for a change that already
- * committed and a guest who was already emailed.
- *
- * Known gap, deliberately not widened here: the guest notification that runs
- * BEFORE this (Resend email, consent-gated SMS) is unbounded. That path is
- * shared with `confirmTourInquiry`, so bounding it belongs in its own change.
- */
-const CALENDAR_SYNC_BUDGET_MS = GOOGLE_CALENDAR_WRITE_OPERATION_TIMEOUT_MS;
-
-/**
- * Run the Google side of a change and CLASSIFY the outcome, never throw it.
- *
- * "No working calendar link" is reported as SKIPPED, not as a failure: the
- * delete path throws for that state while the upsert path quietly returns null,
- * and without this the two would disagree — a manager who linked Google once and
- * later disconnected would be warned "your Google Calendar did not update" on
- * every cancel and told nothing on reschedule for the identical state.
- */
-async function runCalendarSync(run: () => Promise<unknown>): Promise<PlannedTourCalendarSync> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<PlannedTourCalendarSync>((resolve) => {
-    timer = setTimeout(
-      () => resolve({ ok: false, error: "Google Calendar did not respond in time." }),
-      CALENDAR_SYNC_BUDGET_MS,
-    );
-  });
-  try {
-    return await Promise.race([
-      run().then(
-        () => ({ ok: true }),
-        (e: unknown) => {
-          if (isGoogleCalendarNotLinkedError(e)) return { ok: true, skipped: true };
-          return { ok: false, error: e instanceof Error ? e.message : "Google Calendar update failed." };
-        },
-      ),
-      deadline,
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
+export type { PlannedTourCalendarSync };
 
 export type PlannedTourChangeResult =
   | {

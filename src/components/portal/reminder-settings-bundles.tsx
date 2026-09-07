@@ -197,14 +197,22 @@ export function LeaseRemindersSettingsBundle({
 
 const SERVICE_REMINDER_TYPES = [
   {
+    value: "service" as const,
+    label: "Service reminder",
+    description: "Before a maintenance visit or add-on service — one reminder type for all services.",
+  },
+];
+
+const SERVICE_REPLY_TEMPLATES = [
+  {
     value: "maintenance" as const,
-    label: "Maintenance visit reminders",
-    description: "Before a maintenance visit at a property.",
+    label: "Maintenance visit",
+    description: "Copy for scheduled maintenance visits (also reaches the assigned vendor).",
   },
   {
     value: "addon" as const,
-    label: "Add-on service reminders",
-    description: "Before a resident add-on service visit.",
+    label: "Add-on service",
+    description: "Copy for resident add-on service return dates.",
   },
 ];
 
@@ -387,7 +395,8 @@ export function ServiceRemindersSettingsBundle({
   workOrderFormRef?: Ref<ManagerReminderRuleSettingsHandle>;
   serviceOrderFormRef?: Ref<ManagerReminderRuleSettingsHandle>;
 }) {
-  const [type, setType] = useState<"maintenance" | "addon">("maintenance");
+  const [type, setType] = useState<"service">("service");
+  const [template, setTemplate] = useState<"maintenance" | "addon">("maintenance");
   const maintenanceRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
   const addonRef = useRef<ManagerReminderRuleSettingsHandle | null>(null);
   const maintenanceBundle = useBundledReminderSave([maintenanceRef]);
@@ -398,21 +407,29 @@ export function ServiceRemindersSettingsBundle({
 
   return (
     <div className="space-y-4">
+      <p className="text-[13.5px] font-semibold text-foreground">Service reminders</p>
       <ReminderTypePicker
         value={type}
         options={SERVICE_REMINDER_TYPES}
         onChange={setType}
         dataAttr="service-reminder-type"
       />
+      <ReminderTypePicker
+        label="Reply template"
+        value={template}
+        options={SERVICE_REPLY_TEMPLATES}
+        onChange={setTemplate}
+        dataAttr="service-reminder-template"
+      />
       <HiddenReminderRulePanel
-        hidden={type !== "maintenance"}
+        hidden={template !== "maintenance"}
         kind="work_order"
         audienceMode="both"
         teamMembers={teamMembers}
         formRef={maintenanceRef}
       />
       <HiddenReminderRulePanel
-        hidden={type !== "addon"}
+        hidden={template !== "addon"}
         kind="service_order"
         audienceMode="both"
         teamMembers={teamMembers}

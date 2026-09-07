@@ -40,6 +40,7 @@ export async function POST(req: Request) {
         start: String(body?.start ?? ""),
         end: String(body?.end ?? ""),
         notes: typeof body?.notes === "string" ? body.notes : undefined,
+        tourFormat: typeof body?.tourFormat === "string" ? body.tourFormat : undefined,
         assignee: normalizeAssignee(body?.assignee),
       },
     );

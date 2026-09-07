@@ -18,6 +18,7 @@
  * signed-in resident to the inquiry afterwards.
  */
 import "server-only";
+import { normalizeTourFormat } from "@/lib/tour-format";
 
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { recordOptIn } from "@/lib/sms-consent";
@@ -194,6 +195,9 @@ export async function createTourInquiry(
     id,
     smsConsent,
     smsConsentAt,
+    // Whoever scheduled picked in person or virtual; anything else (including
+    // an absent value from an older client) is stored as in person.
+    tourFormat: normalizeTourFormat(incoming.tourFormat),
     status: typeof incoming.status === "string" && incoming.status.trim() ? incoming.status : "pending",
     createdAt:
       typeof incoming.createdAt === "string" && incoming.createdAt.trim()

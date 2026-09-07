@@ -7,6 +7,11 @@ import {
 } from "@/lib/manager-access";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import {
+  loadManagerBillingOverrides,
+  managerPropertyCapOverrideMessage,
+  resolveManagerPropertyCap,
+} from "@/lib/manager-billing-overrides";
+import {
   LISTING_SLOT_PROPERTY_STATUSES,
   propertyStatusOccupiesListingSlot,
   type ManagerPropertyRecordStatus,
@@ -99,19 +104,33 @@ export async function assertManagerPropertyListingQuota(
   const tierResult = await getEffectiveManagerSkuTier(ownerUserId);
   if (!tierResult.ok) return { ok: false, status: 500, error: tierResult.error };
   const tier = tierResult.tier;
-  const limit = maxPropertiesForManagerTier(tier);
-  if (limit === null) return { ok: true };
+
+  // PropLane staff can pin this account's cap, which is the whole point of the admin Billing
+  // override: a comped or contract account is held to the number staff set, not to its plan.
+  // A cap we could not READ is treated exactly like a plan we could not read — a 500, never a
+  // silent fall back to the plan default, which would refuse a manager staff had explicitly
+  // comped a bigger cap. It still only ever refuses a NEW slot; nothing here removes a record.
+  const overrideResult = await loadManagerBillingOverrides(db, ownerUserId);
+  if (!overrideResult.ok) return { ok: false, status: 500, error: overrideResult.error };
+
+  const cap = resolveManagerPropertyCap({
+    planLimit: maxPropertiesForManagerTier(tier),
+    capOverride: overrideResult.overrides.propertyCap,
+  });
+  if (cap.limit === null) return { ok: true };
 
   const counted = await countManagerListingSlots(db, ownerUserId, params.recordId);
   if (!counted.ok) return { ok: false, status: 500, error: counted.error };
-  if (counted.count < limit) return { ok: true };
+  if (counted.count < cap.limit) return { ok: true };
 
   return {
     ok: false,
     status: 403,
-    error: managerPropertyLimitMessage(tier),
+    // A staff-pinned cap must not be reported with the plan's copy: "Upgrade to Pro" is false
+    // when upgrading would not move the number a staff member typed.
+    error: cap.source === "override" ? managerPropertyCapOverrideMessage(cap.limit) : managerPropertyLimitMessage(tier),
     tier,
-    limit,
+    limit: cap.limit,
     current: counted.count,
   };
 }

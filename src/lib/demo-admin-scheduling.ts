@@ -1,4 +1,5 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
 import { emitAdminUi } from "@/lib/demo-admin-ui";
 import { logDemoOutboundEmail } from "@/lib/demo-outbound-mail";
 import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
@@ -569,6 +570,8 @@ export type PartnerInquiry = {
   propertyId?: string;
   propertyTitle?: string;
   roomLabel?: string;
+  /** How the tour is held; absent on rows written before the field existed and read as in person. */
+  tourFormat?: TourFormat;
   adminUserId?: string;
   adminLabel?: string;
   requestedWindows?: PartnerInquiryWindow[];
@@ -591,6 +594,8 @@ export type PlannedEvent = {
   propertyId?: string;
   propertyTitle?: string;
   roomLabel?: string;
+  /** How the tour is held; absent on older events and read as in person. */
+  tourFormat?: TourFormat;
   adminUserId?: string;
   adminLabel?: string;
   attendeeName?: string;
@@ -718,6 +723,7 @@ export function appendManualPlannedTourLocal(
     start: string;
     end: string;
     notes?: string;
+    tourFormat?: TourFormat;
     assignee?: import("@/lib/work-assignment").WorkAssignee;
   },
 ): PlannedEvent {
@@ -732,6 +738,7 @@ export function appendManualPlannedTourLocal(
     propertyId: input.propertyId,
     propertyTitle: input.propertyTitle,
     roomLabel: input.roomLabel,
+    tourFormat: normalizeTourFormat(input.tourFormat),
     adminUserId: managerUserId,
     attendeeName: guestName || undefined,
     attendeeEmail: input.guestEmail?.trim() || undefined,
@@ -847,7 +854,13 @@ export async function acceptPartnerInquiryFromServer(
     body?: string;
     assignee?: import("@/lib/work-assignment").WorkAssignee | null;
   },
-): Promise<{ ok: boolean; error?: string; notificationSkipped?: boolean }> {
+): Promise<{
+  ok: boolean;
+  error?: string;
+  notificationSkipped?: boolean;
+  /** The manager's linked Google Calendar side of the confirm, when the route reports it. */
+  calendarSync?: { ok: boolean; skipped?: boolean; error?: string };
+}> {
   const row = readPartnerInquiries().find((r) => r.id === id);
   if (row?.kind === "tour") {
     const res = await fetch("/api/portal-tour-inquiries/accept", {
@@ -869,6 +882,7 @@ export async function acceptPartnerInquiryFromServer(
       ok?: boolean;
       error?: string;
       tenantNotification?: { ok?: boolean; skipped?: boolean; error?: string };
+      calendarSync?: { ok?: boolean; skipped?: boolean; error?: string };
     };
     if (!res.ok || !data.ok) {
       return { ok: false, error: data.error ?? "Could not approve tour request." };
@@ -878,6 +892,10 @@ export async function acceptPartnerInquiryFromServer(
       ok: true,
       notificationSkipped: data.tenantNotification?.skipped === true,
       error: data.tenantNotification?.error,
+      calendarSync:
+        data.calendarSync && typeof data.calendarSync.ok === "boolean"
+          ? { ok: data.calendarSync.ok, skipped: data.calendarSync.skipped, error: data.calendarSync.error }
+          : undefined,
     };
   }
   if (!row || !acceptPartnerInquiry(id, opts)) return { ok: false, error: "Could not approve request." };

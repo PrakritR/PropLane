@@ -188,3 +188,30 @@ and update its held balance in separate transactions. Itemization is cumulative,
 with current refund journals distinguished from prior refunds in the PDF.
 Bank matching supports one receipt or expense target and checks owner, signed
 amount and exclusive consumption in the database for every writer.
+
+# Profitability report (PRP-278)
+
+`src/lib/reports/profitability.ts` (pure aggregation) + `profitability.server.ts`
+(the reads), registered as report id `profitability` and rendered as the
+read-only **Profitability** card at the top of Finances → Income
+(`pro-profitability-card.tsx`; hidden in `/demo`). `groupBy=property` (default,
+one row per property over the range) or `groupBy=month` (one row per property
+per month); the range pills are the cash-flow chart's `CashflowRangeToggle`.
+CSV goes through the ordinary `/api/reports/profitability/export?format=csv`.
+Every column is a sum over rows a table already holds — nothing is derived from
+a rate card, and a category that cannot be sourced is 0 with the reason in
+`meta.source_<column>`:
+
+| Column | Source |
+| --- | --- |
+| Gross rent | `ledger_entries` payment rows with `category_code = rent_income` (every rent-kind charge maps there via `categoryCodeForChargeKind`), by `posted_date`. |
+| Other income | `ledger_entries` payment rows in every other **income** account (late fees, utilities, application/move-in fees, manual income). Liability accounts (security deposits) are excluded, as in `queryIncomeStatement`. |
+| Processing fees | Fees the MANAGER bore, per payment row: `stripe_fee_cents` (0 on today's Connect destination charges) plus the retained application fee, `amount_cents − net_cents` when positive. When the resident paid the service fee, `net_cents` equals the charge and the row contributes 0; a row Stripe has not enriched (`net_cents` null) contributes 0. Never the resident's fee. |
+| Vendor payouts | `vendor_payouts` rows with `status = 'paid'`, dated by `updated_at` (when the transfer settled); property via the work order's `property_id` / `assigned_property_id`. |
+| Communication | `manager_comms_usage_events.total_cents` per UTC calendar month above the plan's included allowance (`allowances.ts`, via `getEffectiveManagerSkuTier`); 0 while within it. Portfolio-wide, so it sits on the "Portfolio (unassigned)" row and is 0 when a property filter is active; 0 with a note when the plan cannot be read. |
+| Expenses | `manager_expense_entries` by `expense_date` (includes expenses created from services and paid bills). |
+| Net | gross rent + other income − processing fees − vendor payouts − communication − expenses. |
+
+PostHog: `profitability_report_viewed` `{ months, propertyCount }` fires on the
+server next to the successful read. Coverage:
+`tests/unit/reports/profitability.test.ts`.

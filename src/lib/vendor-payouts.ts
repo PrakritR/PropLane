@@ -1,12 +1,18 @@
 /** Client-side shape returned by GET /api/vendor/payouts. */
+export type VendorPayoutStatus = "pending" | "paid" | "failed" | "skipped";
+
 export type VendorPayout = {
   id: string;
   workOrderId: string;
   amountCents: number;
   stripeTransferId: string | null;
-  status: "paid" | "failed" | "skipped";
+  /** `pending` is the claim row written before the Stripe call resolves — a transfer in flight. */
+  status: VendorPayoutStatus;
   failureReason: string | null;
   createdAt: string;
+  /** When the row last changed status — the transfer-sent / failed / skipped instant. Absent on
+   * older demo seeds, which render that step's date as "—" rather than guessing. */
+  updatedAt?: string | null;
 };
 
 export async function fetchVendorPayouts(): Promise<VendorPayout[]> {

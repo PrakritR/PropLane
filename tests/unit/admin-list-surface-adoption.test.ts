@@ -20,6 +20,7 @@ const FILES = {
   properties: "src/components/portal/admin-properties-client.tsx",
   feedback: "src/components/portal/admin-bug-feedback-client.tsx",
   accounts: "src/components/portal/admin-axis-users-client.tsx",
+  billing: "src/components/portal/admin-billing-client.tsx",
 } as const;
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
@@ -132,6 +133,7 @@ describe.each([
   ["properties", "src/components/portal/admin-properties-client.tsx"],
   ["feedback", "src/components/portal/admin-bug-feedback-client.tsx"],
   ["accounts", "src/components/portal/admin-axis-users-client.tsx"],
+  ["billing", "src/components/portal/admin-billing-client.tsx"],
   ["meetings", "src/components/portal/admin-events-client.tsx"],
 ])("admin %s header", (_name, path) => {
   const src = read(path);
@@ -167,5 +169,26 @@ describe("admin Accounts", () => {
     const dock = src.slice(src.indexOf("const bulkActions ="), src.indexOf("return (\n    <ManagerPortalPageShell"));
     expect(dock).toContain('data-attr="admin-account-open"');
     expect(dock).not.toContain("Disable");
+  });
+});
+
+describe("admin Billing", () => {
+  const src = read(FILES.billing);
+
+  it("opens the SAME account editor Accounts opens, rather than a second one", () => {
+    // Billing is a different LIST over the same accounts. Two editors for one account is two sets
+    // of rules for the same write, which is exactly the drift this file exists to catch.
+    expect(src).toContain("ManagerAccountDetail");
+    expect(read(FILES.accounts)).toContain("ManagerAccountDetail");
+  });
+
+  it("never renders an unreadable plan as a plan", () => {
+    // "Free" for a plan the server could not read is the one wrong answer that matters here.
+    expect(src).toContain("planUnknown");
+    expect(src).not.toMatch(/planLabel\s*\?\?\s*"Free"/);
+  });
+
+  it("offers no ADD row — staff do not create manager accounts from a billing list", () => {
+    expect(src).not.toContain("PortalListAddRow");
   });
 });

@@ -14,7 +14,7 @@ const GOOGLE_CALENDAR_TOUR_COLOR =
 const GOOGLE_CALENDAR_WORK_ORDER_COLOR =
   "border-emerald-300 bg-emerald-100 text-emerald-950 [html[data-theme=dark]_&]:border-emerald-400/40 [html[data-theme=dark]_&]:bg-emerald-500/15 [html[data-theme=dark]_&]:text-emerald-100";
 
-/** Muted busy blocks — personal Google events (titles hidden). */
+/** Muted busy blocks — the manager's own personal Google events (title + time only). */
 export const GOOGLE_CALENDAR_BLOCKED_COLOR =
   "border-border bg-muted/50 text-muted ring-1 ring-inset ring-border/80 [html[data-theme=dark]_&]:bg-muted/30 [html[data-theme=dark]_&]:text-muted";
 
@@ -157,10 +157,32 @@ export function scheduledCalendarMeetings<
   return meetings.filter((meeting) => !isGoogleCalendarPrivateBlock(meeting));
 }
 
-/** Label for calendar grid cells — never exposes personal Google event titles. */
+/**
+ * Free/busy status of a personal Google block — the word its continuation
+ * cells carry, and the one the "N open" header agrees with.
+ */
+export function googleBusyBlockStatusLabel(
+  meeting: Pick<DemoMeeting, "blocksTourAvailability">,
+): "Free" | "Blocked" {
+  return meeting.blocksTourAvailability === false ? "Free" : "Blocked";
+}
+
+/**
+ * Label for calendar grid cells.
+ *
+ * A personal Google block reads as ITS OWN TITLE ("Dentist", "Standup") so the
+ * manager can tell which meeting is holding the half hour instead of reading a
+ * wall of identical "Blocked" cells (PRP-397). That is the manager reading their
+ * own calendar: the events route answers only for the signed-in account's
+ * linked calendar, and {@link googleCalendarEventsToMeetings} carries the
+ * summary and the times through and nothing else — no attendees, no
+ * description. Every OTHER surface that describes this manager's time
+ * (co-manager overlays, the public tour grid, the iCal feed) sees free/busy
+ * only, and must stay that way.
+ */
 export function meetingCalendarGridLabel(meeting: DemoMeeting): string {
   if (isGoogleCalendarPrivateBlock(meeting)) {
-    return meeting.blocksTourAvailability === false ? "Free" : "Blocked";
+    return meeting.title.trim() || googleBusyBlockStatusLabel(meeting);
   }
   if (meeting.source === "external" && meeting.kind === "tour") {
     return meeting.statusLabel ? `${meeting.statusLabel}: ${meeting.title}` : meeting.title;
@@ -173,10 +195,29 @@ export function meetingCalendarGridLabel(meeting: DemoMeeting): string {
 }
 
 /**
+ * Full, untruncated hover text for a grid cell. The cell clamps to one line,
+ * so this is where a long Google title survives; the caller appends the time
+ * range it already formats.
+ */
+export function meetingCalendarGridTooltip(meeting: DemoMeeting): string {
+  if (isGoogleCalendarPrivateBlock(meeting)) {
+    const title = meeting.title.trim();
+    const status = googleBusyBlockStatusLabel(meeting);
+    return title && title !== status ? `${title} · ${status}` : status;
+  }
+  return meetingCalendarGridLabel(meeting);
+}
+
+/**
  * Every Google event that blocks or is a PropLane tour/service becomes a meeting
  * the manager's calendar can draw. Free, declined, and informational Google
  * rows still exist in the list for future detail surfaces, but they no longer
  * paint grey "Blocked" cells — see {@link meetingPaintsCalendarGrid}.
+ *
+ * A personal (non-PropLane) event carries exactly its `summary` as the title
+ * plus its start and end. Attendees and the description are deliberately NOT
+ * mapped for it — the title is enough to recognise the meeting, and this shape
+ * is what the events route serialises to the browser.
  *
  * What varies is `blocksTourAvailability`, carried from the SAME
  * {@link googleEventBlocksTours} predicate the public booking route uses. Only
@@ -261,9 +302,9 @@ export function googleCalendarEventsToMeetings(events: GoogleCalendarApiEvent[])
         startSlot: Math.max(0, Math.floor((start.getHours() * 60 + start.getMinutes()) / SLOT_DURATION_MINUTES)),
         span,
         durationMinutes,
-        title: "Blocked",
+        title: event.summary.trim() || googleBusyBlockStatusLabel({ blocksTourAvailability }),
         color: GOOGLE_CALENDAR_BLOCKED_COLOR,
-        statusLabel: "Blocked",
+        statusLabel: googleBusyBlockStatusLabel({ blocksTourAvailability }),
         googleCalendarPrivate: true,
         googleCalendarInformational: informationalGoogleEvent,
         hostLabel: "Google Calendar",

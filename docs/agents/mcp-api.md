@@ -8,6 +8,11 @@ server-to-server transports:
 - `GET /api/v1/tools` and `POST /api/v1/tools/:name` — the same catalog and
   dispatcher for clients that do not speak MCP.
 
+Both are PULL transports. The PUSH half — outbound, HMAC-signed, read-only
+webhooks a manager registers in the same Settings panel — is
+[`webhooks.md`](webhooks.md); it shares this file's credential posture (no
+client grants, service-role routes, secret shown once) but not its tool layer.
+
 The source of truth is `src/lib/mcp/gateway.ts`. Never add a third dispatch or
 confirmation implementation: this gateway calls the existing registry,
 `runReadTool`, and `previewWriteTool`; a signed-in manager approves the resulting

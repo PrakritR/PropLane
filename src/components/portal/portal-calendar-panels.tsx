@@ -82,7 +82,15 @@ import {
   type ScheduledTourFilter,
 } from "@/lib/co-manager-calendar";
 import { buildScheduledTourMeetings } from "@/lib/manager-calendar-tour-meetings";
-import { isGoogleCalendarPrivateBlock, meetingCalendarGridLabel, calendarMeetingSupportsDelete, isPropPlaneGoogleTourMeeting, scheduledCalendarMeetings } from "@/lib/google-calendar/meetings";
+import {
+  calendarMeetingSupportsDelete,
+  googleBusyBlockStatusLabel,
+  isGoogleCalendarPrivateBlock,
+  isPropPlaneGoogleTourMeeting,
+  meetingCalendarGridLabel,
+  meetingCalendarGridTooltip,
+  scheduledCalendarMeetings,
+} from "@/lib/google-calendar/meetings";
 import { deleteProplaneGoogleTourFromServer } from "@/lib/google-calendar/delete-tour.client";
 import {
   cancelPlannedTourFromServer,
@@ -473,7 +481,11 @@ export type DemoMeeting = {
   sourceTaskId?: string;
   hostLabel?: string;
   isPeerTour?: boolean;
-  /** Personal Google Calendar busy time — title/details must not be shown in the UI. */
+  /**
+   * Personal Google Calendar busy time. `title` is the event's own summary and
+   * is shown ONLY to the manager whose calendar it is (the events route answers
+   * for the signed-in account alone); no attendees or description are carried.
+   */
   googleCalendarPrivate?: boolean;
   /** Google `eventType` metadata rows (working location, birthday) — never paint or block. */
   googleCalendarInformational?: boolean;
@@ -684,11 +696,14 @@ function buildTourGuestNotifyContext(
  * Availability actions live in the page-fixed footer dock on a normal page, but that dock is
  * `position: fixed` — inside a modal the buttons escape the panel and land at the bottom of the
  * page behind it. `inline` renders them as an ordinary block under the grid instead.
+ *
+ * Keep the in-flow spacer (do not `omitSpacer`): without it the last slot rows sit under the
+ * dock and stay unclickable even after scrolling (PRP-373).
  */
 function FooterShell({ inline, children }: { inline: boolean; children: React.ReactNode }) {
   if (!inline) {
     return (
-      <PortalPageFooterActions pinned rowVariant="header" omitSpacer>
+      <PortalPageFooterActions pinned rowVariant="header">
         {children}
       </PortalPageFooterActions>
     );
@@ -1218,16 +1233,30 @@ export function PortalCalendarPanels({
     [mutateAvailability, resolvedDefaultTourAvailability],
   );
 
+  /** Remove one painted open slot (or close the detail panel after the same delete). */
+  const removeAvailabilitySlotAt = useCallback(
+    (dateStr: string, slotIdx: number) => {
+      const slotKey = dateSlotKey(dateStr, slotIdx);
+      mutateAvailability((current) => {
+        const next = new Set(current);
+        next.delete(slotKey);
+        return next;
+      });
+      setSelectedBlock((prev) =>
+        prev?.kind === "availability" &&
+        prev.dateStr === dateStr &&
+        prev.slotIndex === slotIdx
+          ? null
+          : prev,
+      );
+    },
+    [mutateAvailability],
+  );
+
   const deleteAvailabilitySlot = useCallback(() => {
     if (selectedBlock?.kind !== "availability") return;
-    const slotKey = dateSlotKey(selectedBlock.dateStr, selectedBlock.slotIndex);
-    mutateAvailability((current) => {
-      const next = new Set(current);
-      next.delete(slotKey);
-      return next;
-    });
-    setSelectedBlock(null);
-  }, [mutateAvailability, selectedBlock]);
+    removeAvailabilitySlotAt(selectedBlock.dateStr, selectedBlock.slotIndex);
+  }, [removeAvailabilitySlotAt, selectedBlock]);
 
   const selectedDurationMinutes = useMemo(
     () =>
@@ -1440,7 +1469,15 @@ export function PortalCalendarPanels({
           setMeetingRefresh((n) => n + 1);
           onMeetingsChanged?.();
           reloadAvailability();
-          if (skipMessage) {
+          if (result.calendarSync?.ok === false) {
+            // Same warning the cancel path gives: the tour is booked and the
+            // guest told, but the manager's own Google Calendar has no entry.
+            showToast(
+              skipMessage
+                ? "Tour confirmed, but your Google Calendar did not update."
+                : "Tour confirmed and the guest was notified, but your Google Calendar did not update.",
+            );
+          } else if (skipMessage) {
             showToast("Tour confirmed (no guest notification sent).");
           } else if (result.notificationSkipped) {
             showToast(
@@ -2727,110 +2764,141 @@ export function PortalCalendarPanels({
               const isMeetingStart = Boolean(
                 meeting && key === dateSlotKey(meeting.dateStr, meeting.startSlot),
               );
+              // Visible per-slot remove (PRP-414): painted Open + default Open windows.
+              const showRemoveAffordance =
+                canEditAvailability && !meeting && !coManagerOpen && (active || defaultOpen);
               return (
-                <button
-                  key={key}
-                  type="button"
-                  onMouseDown={() => {
-                    if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
-                    // Weekday must come from the column's actual date, not its position in the
-                    // window — the compact view can start on any weekday, so the Nth column is
-                    // not the Nth weekday.
-                    startDragSelection(ds, mondayBasedDayIndex(new Date(`${ds}T12:00:00`)), slotIdx);
-                  }}
-                  onMouseEnter={() => {
-                    if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
-                    extendDragSelection(ds, slotIdx);
-                  }}
-                  onMouseUp={() => {
-                    if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
-                    finishDragSelection();
-                  }}
-                  onClick={(e: MouseEvent<HTMLButtonElement>) => {
-                    if (defaultOpen) {
-                      if (canEditAvailability) removeDefaultSlot(ds, slotIdx);
-                      return;
-                    }
-                    if (!readOnly && !meeting && !active && !coManagerOpen) {
-                      const drag = lastMultiDragRef.current;
-                      if (
-                        drag &&
-                        drag.dateStr === ds &&
-                        slotIdx >= drag.startSlot &&
-                        slotIdx < drag.endSlotExclusive
-                      ) {
-                        lastMultiDragRef.current = null;
+                <div key={key} className="group/slot relative min-h-9 min-w-0">
+                  <button
+                    type="button"
+                    onMouseDown={() => {
+                      if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
+                      // Weekday must come from the column's actual date, not its position in the
+                      // window — the compact view can start on any weekday, so the Nth column is
+                      // not the Nth weekday.
+                      startDragSelection(ds, mondayBasedDayIndex(new Date(`${ds}T12:00:00`)), slotIdx);
+                    }}
+                    onMouseEnter={() => {
+                      if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
+                      extendDragSelection(ds, slotIdx);
+                    }}
+                    onMouseUp={() => {
+                      if (readOnly || meeting || active || coManagerOpen || defaultOpen) return;
+                      finishDragSelection();
+                    }}
+                    onClick={(e: MouseEvent<HTMLButtonElement>) => {
+                      if (defaultOpen) {
+                        if (canEditAvailability) removeDefaultSlot(ds, slotIdx);
                         return;
                       }
-                      if (canEditAvailability) {
-                        if (vendorMode) {
-                          openBlockModalForSlot(
-                            ds,
-                            mondayBasedDayIndex(new Date(`${ds}T12:00:00`)),
-                            slotIdx,
-                          );
-                        } else {
-                          addAvailabilitySlot(ds, slotIdx);
+                      if (!readOnly && !meeting && !active && !coManagerOpen) {
+                        const drag = lastMultiDragRef.current;
+                        if (
+                          drag &&
+                          drag.dateStr === ds &&
+                          slotIdx >= drag.startSlot &&
+                          slotIdx < drag.endSlotExclusive
+                        ) {
+                          lastMultiDragRef.current = null;
+                          return;
                         }
+                        if (canEditAvailability) {
+                          if (vendorMode) {
+                            openBlockModalForSlot(
+                              ds,
+                              mondayBasedDayIndex(new Date(`${ds}T12:00:00`)),
+                              slotIdx,
+                            );
+                          } else {
+                            addAvailabilitySlot(ds, slotIdx);
+                          }
+                        }
+                        return;
                       }
-                      return;
+                      openSlotDetails(ds, slotIdx, e.currentTarget, meeting);
+                    }}
+                    className={`portal-calendar-grid-slot h-full min-h-9 w-full px-2 text-center text-[11px] font-semibold transition ${
+                      meeting
+                        ? `${meeting.color} ring-1 ring-inset`
+                        : selected
+                          ? "bg-primary/[0.14] text-primary ring-2 ring-inset ring-primary/35"
+                        : active
+                          ? CALENDAR_OPEN_SLOT
+                          : coManagerOpen
+                            ? CALENDAR_CO_MANAGER_SLOT
+                            : defaultOpen
+                              ? CALENDAR_DEFAULT_OPEN_SLOT
+                          : CALENDAR_EMPTY_SLOT
+                    }`}
+                    title={
+                      defaultOpen
+                        ? canEditAvailability
+                          ? "Open for tours by default — click to remove this time"
+                          : "Open for tours by default. Select one house to edit availability."
+                        : meeting
+                          ? `${meetingCalendarGridTooltip(meeting)} · ${formatRangeLabel(meeting.startIso, meeting.endIso)}`
+                          : undefined
                     }
-                    openSlotDetails(ds, slotIdx, e.currentTarget, meeting);
-                  }}
-                  className={`portal-calendar-grid-slot min-h-9 px-2 text-center text-[11px] font-semibold transition ${
-                    meeting
-                      ? `${meeting.color} ring-1 ring-inset`
-                      : selected
-                        ? "bg-primary/[0.14] text-primary ring-2 ring-inset ring-primary/35"
-                      : active
-                        ? CALENDAR_OPEN_SLOT
-                        : coManagerOpen
-                          ? CALENDAR_CO_MANAGER_SLOT
-                          : defaultOpen
-                            ? CALENDAR_DEFAULT_OPEN_SLOT
-                        : CALENDAR_EMPTY_SLOT
-                  }`}
-                  title={
-                    defaultOpen
-                      ? canEditAvailability
-                        ? "Open for tours by default — click to remove this time"
-                        : "Open for tours by default. Select one house to edit availability."
-                      : undefined
-                  }
-                  aria-label={
-                    defaultOpen
-                      ? canEditAvailability
-                        ? `Open for tours by default. Remove ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
-                        : `Open for tours by default at ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}. Select one house to edit availability.`
-                      : meeting || active || coManagerOpen
-                        ? `Open details for ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
-                        : canEditAvailability
-                          ? `Add ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
-                          : `Select ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
-                  }
-                >
-                  {meeting ? (
-                    isMeetingStart ? (
-                      <span className="block truncate">{meetingCalendarGridLabel(meeting)}</span>
+                    aria-label={
+                      defaultOpen
+                        ? canEditAvailability
+                          ? `Open for tours by default. Remove ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
+                          : `Open for tours by default at ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}. Select one house to edit availability.`
+                        : meeting || active || coManagerOpen
+                          ? `Open details for ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
+                          : canEditAvailability
+                            ? `Add ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
+                            : `Select ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`
+                    }
+                  >
+                    {meeting ? (
+                      isMeetingStart ? (
+                        <span className="block truncate">{meetingCalendarGridLabel(meeting)}</span>
+                      ) : (
+                        <span className="block truncate opacity-70">
+                          {isGoogleCalendarPrivateBlock(meeting)
+                            ? googleBusyBlockStatusLabel(meeting)
+                            : meeting.statusLabel}
+                        </span>
+                      )
+                    ) : selected ? (
+                      "Selected"
+                    ) : active ? (
+                      "Open"
+                    ) : coManagerOpen ? (
+                      `${coManagerOverlay!.label}`
+                    ) : defaultOpen ? (
+                      "Open"
                     ) : (
-                      <span className="block truncate opacity-70">
-                        {isGoogleCalendarPrivateBlock(meeting)
-                          ? meetingCalendarGridLabel(meeting)
-                          : meeting.statusLabel}
-                      </span>
-                    )
-                  ) : selected ? (
-                    "Selected"
-                  ) : active ? (
-                    "Open"
-                  ) : coManagerOpen ? (
-                    `${coManagerOverlay!.label}`
-                  ) : defaultOpen ? (
-                    "Open"
-                  ) : (
-                    readOnly ? "" : "Add"
-                  )}
-                </button>
+                      readOnly ? "" : "Add"
+                    )}
+                  </button>
+                  {showRemoveAffordance ? (
+                    <button
+                      type="button"
+                      data-attr="calendar-remove-availability-slot"
+                      className={cn(
+                        "absolute right-0.5 top-0.5 z-[1] flex h-5 w-5 items-center justify-center rounded-full",
+                        "bg-background/90 text-muted shadow-sm ring-1 ring-border/70",
+                        "hover:bg-background hover:text-foreground",
+                        // Always visible on coarse pointers; hover-reveal on fine pointers.
+                        "opacity-100 [@media(hover:hover)_and_(pointer:fine)]:opacity-0",
+                        "[@media(hover:hover)_and_(pointer:fine)]:group-hover/slot:opacity-100",
+                        "[@media(hover:hover)_and_(pointer:fine)]:focus-visible:opacity-100",
+                      )}
+                      aria-label={`Remove ${formatAvailabilitySlotLabel(slotIdx)} on ${ds}`}
+                      title="Remove this open slot"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (defaultOpen) removeDefaultSlot(ds, slotIdx);
+                        else removeAvailabilitySlotAt(ds, slotIdx);
+                      }}
+                    >
+                      <X className="h-3 w-3" aria-hidden />
+                    </button>
+                  ) : null}
+                </div>
               );
             };
 

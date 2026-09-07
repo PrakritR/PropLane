@@ -29,7 +29,25 @@ function makeDb(tables: Tables) {
         filters.push((row) => set.has(String(row[col] ?? "")));
         return api;
       },
-      or: () => api,
+      or: (expr: string) => {
+        // Supports "col.eq.val,col2.eq.val2" used by managerOwnsResident / funnel checks.
+        const clauses = String(expr)
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .map((part) => {
+            const match = /^([^.]+)\.eq\.(.+)$/.exec(part);
+            if (!match) return null;
+            return { col: match[1], val: match[2] };
+          })
+          .filter((item): item is { col: string; val: string } => Boolean(item));
+        if (clauses.length > 0) {
+          filters.push((row) =>
+            clauses.some((clause) => String(row[clause.col] ?? "") === clause.val),
+          );
+        }
+        return api;
+      },
       ilike: (col: string, val: string) => {
         filters.push((row) => String(row[col] ?? "").toLowerCase() === String(val).toLowerCase());
         return api;
@@ -189,5 +207,63 @@ describe("filterRecipientsBySenderScope", () => {
     expect(contacts).toEqual([
       expect.objectContaining({ email: "tour-manager@example.com", role: "manager" }),
     ]);
+  });
+
+  it("lets a manager message a tour-only prospect and a listing-lead prospect, but not a stranger (PRP-424)", async () => {
+    const db = makeDb({
+      manager_application_records: [],
+      portal_household_charge_records: [],
+      portal_lease_pipeline_records: [],
+      portal_pro_relationship_records: [],
+      account_link_invites: [],
+      resident_tour_links: [
+        {
+          id: "link_1",
+          manager_user_id: "mgr_1",
+          resident_user_id: "res_tour",
+          attendee_email: "tour-only@example.com",
+          property_id: "prop_1",
+        },
+      ],
+      portal_inbox_thread_records: [
+        {
+          id: "thread_1",
+          owner_user_id: "mgr_1",
+          participant_email: "lead-only@example.com",
+          row_data: { from: "Lead Guest", propertyTitle: "4534 Darrow", propertyId: "prop_2" },
+        },
+      ],
+      portal_schedule_records: [
+        {
+          id: "axis_admin_partner_inquiries_v1",
+          row_data: {
+            payload: [
+              { id: "inq_1", email: "inquiry-only@example.com", managerUserId: "mgr_1" },
+              { id: "inq_other", email: "other-mgr-guest@example.com", managerUserId: "mgr_other" },
+            ],
+          },
+        },
+      ],
+    });
+    const sender = { id: "mgr_1", email: "mgr@example.com", role: "manager", isAdmin: false };
+
+    const scoped = await filterRecipientsBySenderScope(db, sender, [
+      { email: "tour-only@example.com", userId: "res_tour" },
+      { email: "lead-only@example.com", userId: null },
+      { email: "inquiry-only@example.com", userId: null },
+      { email: "other-mgr-guest@example.com", userId: null },
+      { email: "stranger@example.com", userId: null },
+    ]);
+    expect(scoped.allowed.map((row) => row.email).sort()).toEqual(
+      ["inquiry-only@example.com", "lead-only@example.com", "tour-only@example.com"].sort(),
+    );
+    expect(scoped.blocked.map((row) => row.email).sort()).toEqual(
+      ["other-mgr-guest@example.com", "stranger@example.com"].sort(),
+    );
+
+    const contacts = await listEligibleInboxContacts(db, sender);
+    expect(contacts.map((c) => c.email).sort()).toEqual(
+      ["lead-only@example.com", "tour-only@example.com"].sort(),
+    );
   });
 });

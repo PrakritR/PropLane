@@ -90,11 +90,16 @@ afterAll(() => {
  * commitment. Counted by the slot each cell names in its `aria-label`, because
  * the panel renders the same slot twice (a mobile day column and the desktop
  * week grid) and a raw element count double-counts today's column.
+ *
+ * A busy cell is recognised by its hover text, not its visible label: since
+ * PRP-397 the FIRST cell of a Google block reads the event's own title
+ * ("Standup") and only the continuation cells still read "Blocked", so a
+ * text match would count 7 of these 10 half hours.
  */
 function blockedSlots(root: HTMLElement): string[] {
   const slots = new Set<string>();
   for (const el of Array.from(root.querySelectorAll("button"))) {
-    if (!/^Blocked$/i.test((el.textContent ?? "").trim())) continue;
+    if (!/· Blocked ·/.test(el.getAttribute("title") ?? "")) continue;
     const label = el.getAttribute("aria-label") ?? "";
     const match = /Open details for (.+)$/.exec(label);
     if (match) slots.add(match[1]);

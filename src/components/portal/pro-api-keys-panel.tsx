@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Copy, KeyRound, TriangleAlert } from "lucide-react";
+import { Check, Copy, KeyRound, TriangleAlert, Webhook } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +16,7 @@ import {
   toolsForProductAreas,
   type ApiKeyTransport,
 } from "@/lib/mcp/capabilities";
+import { WEBHOOK_EVENT_TYPES, type WebhookEventType } from "@/lib/webhooks/events";
 
 type ApiKey = {
   id: string;
@@ -62,6 +63,266 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       {copied ? <Check className="h-4 w-4" aria-hidden /> : <Copy className="h-4 w-4" aria-hidden />}
       {copied ? "Copied" : "Copy"}
     </Button>
+  );
+}
+
+type WebhookSubscription = {
+  id: string;
+  url: string;
+  events: WebhookEventType[];
+  enabled: boolean;
+  createdAt: string;
+  failureCount: number;
+  lastDelivery: { eventType: string; status: string; responseStatus: number | null; at: string | null } | null;
+};
+
+/**
+ * Outbound webhooks. PropLane POSTs a signed, ids-and-statuses-only event to a
+ * URL the manager owns.
+ *
+ * The signing secret is shown exactly once — on create and on rotate — for the
+ * same reason an API key is: PropLane can reproduce it to sign, but handing it
+ * back on a list read would make every later request a way to recover it.
+ */
+function ManagerWebhooksBlock() {
+  const [webhooks, setWebhooks] = useState<WebhookSubscription[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [url, setUrl] = useState("");
+  const [events, setEvents] = useState<WebhookEventType[]>([]);
+  const [freshSecret, setFreshSecret] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [testResult, setTestResult] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/portal/webhooks", { cache: "no-store" });
+      if (!res.ok) throw new Error("Could not load your webhooks.");
+      const body = (await res.json()) as { webhooks?: WebhookSubscription[] };
+      setWebhooks(body.webhooks ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load your webhooks.");
+    } finally {
+      setLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  const toggleEvent = (type: WebhookEventType) =>
+    setEvents((current) => (current.includes(type) ? current.filter((t) => t !== type) : [...current, type]));
+
+  const create = async () => {
+    setError(null);
+    setTestResult(null);
+    const res = await fetch("/api/portal/webhooks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, events }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { secret?: string; error?: string };
+    if (!res.ok || !body.secret) {
+      setError(body.error ?? "Could not save that webhook.");
+      return;
+    }
+    setFreshSecret(body.secret);
+    setAdding(false);
+    setUrl("");
+    setEvents([]);
+    await load();
+  };
+
+  const rotate = async (id: string) => {
+    setError(null);
+    const res = await fetch(`/api/portal/webhooks/${id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "rotate" }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { secret?: string; error?: string };
+    if (!res.ok || !body.secret) {
+      setError(body.error ?? "Could not rotate that secret.");
+      return;
+    }
+    setFreshSecret(body.secret);
+  };
+
+  const sendTest = async (id: string) => {
+    setError(null);
+    setTestResult(null);
+    const res = await fetch(`/api/portal/webhooks/${id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "test" }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { ok?: boolean; status?: number | null; error?: string | null };
+    setTestResult(body.ok ? `Test event delivered (HTTP ${body.status ?? 200}).` : `Test event failed: ${body.error ?? "no response"}`);
+    await load();
+  };
+
+  const remove = async (id: string) => {
+    setError(null);
+    const res = await fetch(`/api/portal/webhooks/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      setError("Could not delete that webhook.");
+      return;
+    }
+    setWebhooks((current) => current.filter((hook) => hook.id !== id));
+  };
+
+  return (
+    <PortalSettingsGroup>
+      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+        <Webhook className="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-400" aria-hidden />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-foreground">Webhooks</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-muted">
+            PropLane POSTs a signed event to your HTTPS endpoint when something happens. Events
+            carry ids and statuses only — read the details back through the API.
+          </p>
+        </div>
+        {adding ? null : (
+          <Button
+            variant="outline"
+            className="h-9 min-h-0 shrink-0 px-3 text-[13px]"
+            data-attr="webhook-add-open"
+            onClick={() => {
+              setAdding(true);
+              setFreshSecret(null);
+            }}
+          >
+            Add endpoint
+          </Button>
+        )}
+      </div>
+
+      {error ? (
+        <p role="alert" className="border-b border-border px-4 py-2 text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+      {testResult ? (
+        <p role="status" className="border-b border-border px-4 py-2 text-xs text-muted">
+          {testResult}
+        </p>
+      ) : null}
+
+      {freshSecret ? (
+        <div className="space-y-2 border-b border-border px-4 py-3">
+          <div className="flex items-start gap-2.5">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+            <p className="text-xs leading-relaxed text-muted">
+              <span className="font-semibold text-foreground">Copy this signing secret now.</span> It is
+              shown only once. Use it to verify the <code className="font-mono">PropLane-Signature</code>{" "}
+              header on every delivery.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded-lg border border-border bg-foreground/[0.03] px-3 py-2 font-mono text-xs text-foreground">
+              {freshSecret}
+            </code>
+            <CopyButton value={freshSecret} label="webhook-secret" />
+          </div>
+          <Button variant="ghost" className="h-9 min-h-0 px-3 text-[13px]" data-attr="webhook-dismiss-secret" onClick={() => setFreshSecret(null)}>
+            Done
+          </Button>
+        </div>
+      ) : null}
+
+      {adding ? (
+        <div className="space-y-4 border-b border-border p-4">
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-foreground">Endpoint URL</span>
+            <input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://example.com/proplane/webhook"
+              inputMode="url"
+              autoComplete="off"
+              spellCheck={false}
+              data-attr="webhook-url-input"
+              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition-colors focus-visible:border-primary/40 focus-visible:ring-2 focus-visible:ring-primary/20"
+            />
+          </label>
+          <fieldset>
+            <legend className="text-sm font-medium text-foreground">Events</legend>
+            <div className="mt-2 grid gap-1 sm:grid-cols-2">
+              {WEBHOOK_EVENT_TYPES.map((type) => (
+                <label key={type} className="flex min-w-0 cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-foreground/[0.03]">
+                  <input
+                    type="checkbox"
+                    checked={events.includes(type)}
+                    onChange={() => toggleEvent(type)}
+                    data-attr={`webhook-event-${type}`}
+                    className="h-3.5 w-3.5 accent-foreground"
+                  />
+                  <span className="truncate font-mono text-foreground">{type}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <div className="flex items-center gap-2">
+            <Button
+              className="h-9 min-h-0 px-4 text-[13px]"
+              disabled={!url.trim() || events.length === 0}
+              data-attr="webhook-add-submit"
+              onClick={() => create()}
+            >
+              Add endpoint
+            </Button>
+            <Button
+              variant="ghost"
+              className="h-9 min-h-0 px-3 text-[13px]"
+              data-attr="webhook-add-cancel"
+              onClick={() => {
+                setAdding(false);
+                setUrl("");
+                setEvents([]);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {!loaded ? (
+        <p className="px-4 py-6 text-sm text-muted">Loading…</p>
+      ) : webhooks.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-muted">No webhook endpoints yet.</p>
+      ) : (
+        webhooks.map((hook) => (
+          <PortalSettingsRow
+            key={hook.id}
+            label={hook.url}
+            description={
+              <>
+                {hook.events.join(", ") || "No events"} ·{" "}
+                {hook.enabled ? "Enabled" : "Disabled after repeated failures"} · Last delivery{" "}
+                {hook.lastDelivery
+                  ? `${hook.lastDelivery.status}${hook.lastDelivery.responseStatus ? ` (HTTP ${hook.lastDelivery.responseStatus})` : ""} · ${formatWhen(hook.lastDelivery.at)}`
+                  : "Never"}
+              </>
+            }
+          >
+            <div className="flex shrink-0 items-center gap-2">
+              <Button variant="outline" className="h-9 min-h-0 px-3 text-[13px]" data-attr="webhook-send-test" onClick={() => sendTest(hook.id)}>
+                Send test event
+              </Button>
+              <Button variant="outline" className="h-9 min-h-0 px-3 text-[13px]" data-attr="webhook-rotate-secret" onClick={() => rotate(hook.id)}>
+                Rotate secret
+              </Button>
+              <Button variant="danger" className="h-9 min-h-0 px-3 text-[13px]" data-attr="webhook-delete" onClick={() => remove(hook.id)}>
+                Delete
+              </Button>
+            </div>
+          </PortalSettingsRow>
+        ))
+      )}
+    </PortalSettingsGroup>
   );
 }
 
@@ -213,6 +474,8 @@ export function ManagerApiKeysPanel() {
         </div>
         <div className="flex items-center gap-2 border-t border-border px-4 py-3"><code className="min-w-0 flex-1 truncate rounded-md bg-foreground/[0.03] px-2.5 py-2 font-mono text-xs text-foreground">{mcpUrl}</code><CopyButton value={mcpUrl} label="mcp-url" /></div>
       </PortalSettingsGroup>
+
+      <ManagerWebhooksBlock />
 
       {loaded && connections.length > 0 ? (
         <PortalSettingsGroup>

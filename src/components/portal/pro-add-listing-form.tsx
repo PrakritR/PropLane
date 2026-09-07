@@ -45,6 +45,7 @@ import {
 } from "@/lib/manager-listing-draft-autosave";
 import { resolveManagerListingSubmissionForPropertyId } from "@/lib/manager-property-save-target";
 import { sortRoomIndicesByFloor } from "@/lib/listing-floor-order";
+import { autoListingSidebarQuickFacts } from "@/data/listing-rich-from-submission";
 import {
   fileListFromFiles,
   firstVideoFileFromDataTransfer,
@@ -705,7 +706,7 @@ function ShortTermRentSection({
           />
         </GridField>
         <GridField>
-          <FieldLabel>Move-in fee</FieldLabel>
+          <FieldLabel hint={MOVE_IN_FEE_HINT}>Move-in fee</FieldLabel>
           <MoneyInput
             ariaLabel={`Short-term move-in fee${suffix}`}
             value={moveInFee}
@@ -1145,6 +1146,14 @@ async function uploadVideoFile(file: File): Promise<string> {
  * weight (a plain optional input used to look identical to a required select).
  * Pass at most one of the two.
  */
+/**
+ * Why the Move-in fee field exists (PRP-320). Landlords left it blank or guessed
+ * because nothing said what it covers; every Move-in fee label — short-term,
+ * per-room and per-bundle — shares this one line so the three never drift.
+ */
+export const MOVE_IN_FEE_HINT =
+  "One-time charge at move-in for keys, cleaning and setup. Leave blank if you don't charge one.";
+
 function FieldLabel({
   children,
   hint,
@@ -1725,6 +1734,11 @@ export function ManagerAddListingForm({
   const visibleStepCount = wizardSteps.length;
   const isFinalStep = stepIndex === lastStepIndex;
   const isPreviewWizard = wizardScope === "preview";
+  // What the public "At a glance" card will show when no custom quick facts
+  // are set. Derived from the live wizard state so the manager sees the real
+  // rows before deciding whether to override them.
+  const autoQuickFacts = useMemo(() => (stepIndex === 5 ? autoListingSidebarQuickFacts(sub) : []), [stepIndex, sub]);
+  const hasCustomQuickFacts = (sub.quickFacts ?? []).some((q) => q.label.trim() || q.value.trim());
   const wizardTitlePrefix = isPreviewWizard ? "Edit preview" : isEditMode ? "Edit listing" : "New listing";
   const [savedListingId, setSavedListingId] = useState<string | null>(
     () => editDraftId?.trim() || editPendingId?.trim() || editListingId?.trim() || editRequestChangeId?.trim() || null,
@@ -3473,7 +3487,7 @@ export function ManagerAddListingForm({
                     />
                   </GridField>
                   <GridField>
-                    <FieldLabel>Move-in fee</FieldLabel>
+                    <FieldLabel hint={MOVE_IN_FEE_HINT}>Move-in fee</FieldLabel>
                     <MoneyInput
                       ariaLabel={`Move-in fee for ${roomLabel}`}
                       value={(room.moveInFee ?? "").replace(/^\$/, "").trim()}
@@ -3631,7 +3645,7 @@ export function ManagerAddListingForm({
                   />
                 </GridField>
                 <GridField>
-                  <FieldLabel>Move-in fee</FieldLabel>
+                  <FieldLabel hint={MOVE_IN_FEE_HINT}>Move-in fee</FieldLabel>
                   <MoneyInput
                     ariaLabel={`Move-in fee for ${bundle.label.trim() || "bundle"}`}
                     value={(bundle.moveInFee ?? "").replace(/^\$/, "").trim()}
@@ -4216,6 +4230,19 @@ export function ManagerAddListingForm({
                 />
               </div>
               <div className="sm:col-span-2">
+                <FieldLabel optional>Also listed as</FieldLabel>
+                <Input
+                  value={sub.alsoListedAs}
+                  onChange={(e) => setSub((s) => ({ ...s, alsoListedAs: e.target.value }))}
+                  className={listingTextInputCls}
+                  placeholder="Facebook / Craigslist ad titles (so texts can match)"
+                  data-attr="listing-also-listed-as"
+                />
+                <p className="mt-1 text-xs text-muted">
+                  Marketing titles that are not the street address — used when a prospect texts an ad headline.
+                </p>
+              </div>
+              <div className="sm:col-span-2">
                 <FieldLabel optional>House overview</FieldLabel>
                 <Textarea
                   rows={3}
@@ -4665,11 +4692,17 @@ export function ManagerAddListingForm({
                         className="h-4 w-4 rounded border-border"
                         checked={sub.lateFeeEnabled !== false}
                         onChange={(e) => setSub((s) => ({ ...s, lateFeeEnabled: e.target.checked }))}
+                        data-attr="listing-late-fee-enabled"
                       />
                       Auto-charge & notify
                     </label>
                   </GridField>
                 </div>
+                <p className="mt-2 text-xs text-muted">
+                  Also turn on <span className="font-medium text-foreground">Late fee notices</span> in
+                  Payments → Settings — that account switch gates automatic late fees across listings
+                  (PRP-319).
+                </p>
 
                 <p className="mt-4 border-t border-border pt-4 text-xs text-muted">
                   Payment methods: configure in{" "}
@@ -4691,6 +4724,14 @@ export function ManagerAddListingForm({
                 : "Name, floor, furnishing, amenities, photos, video, and per-room move-in notes. Rent is set on Pricing."
             }
           >
+            <p
+              className="mb-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5 text-sm text-muted"
+              data-attr="listing-shared-spaces-amenities-hint"
+            >
+              Kitchen, laundry, lounge, yard, and other shared-area amenities belong on the{" "}
+              <span className="font-semibold text-foreground">Shared spaces</span> step — not under room
+              amenities. Prospects see those spaces on every room listing.
+            </p>
             <div
               className={`space-y-3 ${wizardSectionErrorClass(Boolean(stepFieldErrors.rooms))}`}
               data-wizard-field="rooms"
@@ -5785,8 +5826,35 @@ export function ManagerAddListingForm({
             <div className="space-y-8">
               <ListingSubsection
                 title="Quick facts (sidebar)"
-                description="Optional. Rows here replace the auto-generated sidebar. Leave empty to use building, room count, floors, and pet policy from earlier steps."
+                description="Optional. Rows you add here replace the auto-generated card below. Leave it empty to use the room count, bathrooms, layout, and pet policy from earlier steps."
               >
+                <div
+                  className="rounded-xl border border-border bg-muted/30 p-4 sm:p-5"
+                  data-attr="listing-quickfacts-auto-preview"
+                  data-testid="listing-quickfacts-auto-preview"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">At a glance · auto-generated</p>
+                    <p className="text-xs text-muted">
+                      {hasCustomQuickFacts ? "Hidden while your rows below are set" : "What renters see on the listing"}
+                    </p>
+                  </div>
+                  {autoQuickFacts.length > 0 ? (
+                    <ul className={cn("mt-3 divide-y divide-border/50 text-sm", hasCustomQuickFacts && "opacity-60")}>
+                      {autoQuickFacts.map((q) => (
+                        <li
+                          key={q.label}
+                          className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
+                        >
+                          <span className="shrink-0 text-xs font-medium text-muted">{q.label}</span>
+                          <span className="font-semibold leading-snug text-foreground sm:text-right">{q.value}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-3 text-sm text-muted">Nothing to show yet — add rooms and bathrooms in the earlier steps.</p>
+                  )}
+                </div>
                 <div className="space-y-3">
                   {(sub.quickFacts ?? []).map((qf, i) => (
                     <ListingWizardCollapsibleCard

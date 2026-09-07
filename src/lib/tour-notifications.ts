@@ -3,6 +3,7 @@
  */
 
 import { formatPacificDateTime } from "@/lib/pacific-time";
+import { normalizeTourFormat, tourFormatDescription, type TourFormat } from "@/lib/tour-format";
 import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listing";
 
 export const TOUR_REQUEST_MANAGER_SUBJECT = "New tour request — PropLane";
@@ -28,6 +29,8 @@ export type TourNotificationContext = {
   roomLabel?: string;
   tourStartIso: string;
   tourEndIso: string;
+  /** In person or virtual; always normalized. */
+  tourFormat: TourFormat;
   notes?: string;
   managerLabel?: string;
   instructions?: string;
@@ -72,6 +75,7 @@ export function buildTourRequestManagerBody(ctx: TourNotificationContext): strin
   if (ctx.roomLabel?.trim()) lines.push(`Room: ${ctx.roomLabel.trim()}`);
   if (ctx.propertyAddress?.trim()) lines.push(`Address: ${ctx.propertyAddress.trim()}`);
   lines.push(`Requested time: ${when}`);
+  lines.push(`Format: ${tourFormatDescription(ctx.tourFormat)}`);
   if (ctx.notes?.trim()) {
     lines.push("", "Notes from guest:", ctx.notes.trim());
   }
@@ -99,6 +103,7 @@ export function buildTourRequestTenantBody(ctx: TourNotificationContext): string
     "Please do not go to the property until you receive a confirmation email from us. The manager still has to approve this time, and they may offer a different one.",
     "",
     `Requested time: ${when}`,
+    `Format: ${tourFormatDescription(ctx.tourFormat)}`,
     `Property: ${ctx.propertyTitle || "Property"}`,
   ];
   if (ctx.roomLabel?.trim()) lines.push(`Room: ${ctx.roomLabel.trim()}`);
@@ -140,6 +145,7 @@ export function buildTourConfirmedTenantBody(ctx: TourNotificationContext): stri
     "Your property tour is confirmed.",
     "",
     `When: ${when}`,
+    `Format: ${tourFormatDescription(ctx.tourFormat)}`,
     `Property: ${ctx.propertyTitle || "Property"}`,
   ];
   if (ctx.roomLabel?.trim()) lines.push(`Room: ${ctx.roomLabel.trim()}`);
@@ -382,6 +388,7 @@ export function buildTourNotificationContext(input: {
   roomLabel?: string | null;
   tourStartIso: string;
   tourEndIso: string;
+  tourFormat?: TourFormat | string | null;
   notes?: string | null;
   managerLabel?: string | null;
   instructions?: string | null;
@@ -407,6 +414,7 @@ export function buildTourNotificationContext(input: {
     roomLabel: input.roomLabel?.trim() || undefined,
     tourStartIso: input.tourStartIso,
     tourEndIso: input.tourEndIso,
+    tourFormat: normalizeTourFormat(input.tourFormat),
     notes: input.notes?.trim() || undefined,
     managerLabel: input.managerLabel?.trim() || undefined,
     instructions: input.instructions?.trim() || undefined,

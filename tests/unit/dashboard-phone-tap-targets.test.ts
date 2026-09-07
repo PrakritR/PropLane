@@ -13,12 +13,15 @@ describe("PRP-350 dashboard phone tap targets", () => {
   it("pads cash-flow month and range chips to min-h-11", () => {
     const chart = read("src/components/portal/monthly-profit-chart.tsx");
     expect(chart).toContain("monthly-profit-month-");
-    expect(chart).toContain("cashflow-range-");
+    // The range chips live in the shared CashflowRangeToggle (extracted for the
+    // profitability card, PRP-278); its default data-attr prefix is the one the
+    // cash-flow chart used to spell out inline.
+    expect(chart).toContain('dataAttrPrefix = "cashflow-range"');
     // Month + range buttons both use the 44px floor (PRP-350).
     const monthBtn = chart.slice(chart.indexOf("{points.map((p, i)"));
     expect(monthBtn).toContain("min-h-11");
     const rangeBtn = chart.slice(
-      chart.indexOf('aria-label="Chart time range"'),
+      chart.indexOf("export function CashflowRangeToggle"),
       chart.indexOf("{points.map((p, i)"),
     );
     expect(rangeBtn).toContain("min-h-11");

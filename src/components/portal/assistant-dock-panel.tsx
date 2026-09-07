@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronsRight } from "lucide-react";
+import { ChevronsRight, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { AssistantChatComposer } from "@/components/portal/assistant-chat-composer";
@@ -34,6 +34,12 @@ export type AssistantDockPanelProps = {
   composerHint?: string | null;
   /** When set, shows a collapse control in the header (desktop rail). */
   onCollapse?: () => void;
+  /**
+   * What `onCollapse` means to the user. The portal rail folds to a narrow
+   * strip ("collapse"); a modal's assistant rail is removed entirely, so it
+   * shows a labeled X ("close") that is distinct from the editor's own X.
+   */
+  collapseVariant?: "collapse" | "close";
   /** When set, shows a switch-to-popup control (desktop rail). */
   onUndockToPopup?: () => void;
   /** Stable input hook for the portal header's Ask PropLane action. */
@@ -53,6 +59,7 @@ export function AssistantDockPanel({
   pinnedComposer = false,
   composerHint = null,
   onCollapse,
+  collapseVariant = "collapse",
   onUndockToPopup,
   inputId,
 }: AssistantDockPanelProps) {
@@ -124,7 +131,7 @@ export function AssistantDockPanel({
             aria-hidden
           />
           <div className="relative flex items-center gap-3">
-            {onCollapse ? (
+            {onCollapse && collapseVariant === "collapse" ? (
               <button
                 type="button"
                 onClick={onCollapse}
@@ -174,6 +181,17 @@ export function AssistantDockPanel({
                     strokeLinejoin="round"
                   />
                 </svg>
+              </button>
+            ) : null}
+            {onCollapse && collapseVariant === "close" ? (
+              <button
+                type="button"
+                onClick={onCollapse}
+                aria-label="Close PropLane Assistant"
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-muted transition-colors duration-150 hover:bg-foreground/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                data-attr="modal-assistant-close"
+              >
+                <X className="h-4 w-4" aria-hidden />
               </button>
             ) : null}
             </div>

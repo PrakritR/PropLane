@@ -78,6 +78,7 @@ export function ManagerResidentToursPanel({
   buildTourDetailHref,
   buildTourListHref,
   propertyIds,
+  onSettings,
 }: {
   managerUserId: string | null;
   residentEmail: string;
@@ -87,6 +88,7 @@ export function ManagerResidentToursPanel({
   buildTourDetailHref?: (row: ManagerTourRow) => string;
   buildTourListHref?: (bucket: ManagerTourBucketId) => string;
   propertyIds?: string[];
+  onSettings?: () => void;
 }) {
   const navigate = usePortalNavigate();
   const normalizedEmail = residentEmail.trim().toLowerCase();
@@ -124,6 +126,11 @@ export function ManagerResidentToursPanel({
 
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(rows.length);
 
+  const selectedTourRows = useMemo(
+    () => rows.filter((row) => selectedIds.has(row.id)),
+    [rows, selectedIds],
+  );
+
   if (!managerUserId) {
     return <p className="text-sm text-muted">Sign in to view tours.</p>;
   }
@@ -148,6 +155,14 @@ export function ManagerResidentToursPanel({
           if (buildTourListHref) navigate(buildTourListHref(id as ManagerTourBucketId));
         }}
         bucketAriaLabel="Tour status"
+        onSettings={onSettings}
+        onEdit={() => {
+          const row = selectedTourRows[0];
+          if (selectedTourRows.length === 1 && row && buildTourDetailHref) {
+            navigate(buildTourDetailHref(row));
+          }
+        }}
+        editDisabled={selectedTourRows.length !== 1 || !buildTourDetailHref}
       />
 
       {rows.length === 0 ? (
