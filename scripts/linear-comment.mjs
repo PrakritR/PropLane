@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Post a Linear comment without changing issue status.
+ * Post a Linear comment (does not change issue status by itself).
  *
- * Agents must NEVER mark issues Done on a lane commit. Use this after a fix:
+ * After a verified whole-ticket fix (tsc + unit green on the tip), comment the
+ * SHA then mark Done via GraphQL / Linear UI. Partial fixes stay In Progress.
  *
  *   npm run linear:comment -- --ticket PRP-123 --body "Fix on cursor-1: \`abc1234\`"
  *   npm run linear:comment -- --ticket PRP-123 --sha abc1234 --lane cursor-1
@@ -35,7 +36,10 @@ function buildBody(args) {
   if (args.body?.trim()) return args.body.trim();
   if (args.sha?.trim()) {
     const lane = args.lane?.trim() || "agent lane";
-    return `Fix committed on \`${lane}\`: \`${args.sha.trim()}\`.\n\nNot Done — awaiting captain promote to production.`;
+    return (
+      `Verified fix on \`${lane}\`: \`${args.sha.trim()}\`.\n\n` +
+      `Whole-ticket coverage + green tsc/unit on this tip → mark **Done**.`
+    );
   }
   throw new Error("Provide --body or --sha");
 }
@@ -66,7 +70,7 @@ async function main() {
   );
 
   console.log(`commented ${issue.identifier}: ${issue.url}`);
-  console.log("(status unchanged — do not mark Done until live on production)");
+  console.log("(comment only — mark Done yourself after whole-ticket verify: tsc + unit green)");
 }
 
 main().catch((e) => {

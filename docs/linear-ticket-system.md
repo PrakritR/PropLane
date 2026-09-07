@@ -319,26 +319,26 @@ For **bugs**: role, URL, browser width, `/demo` yes/no.
 
 | Status | Meaning |
 | --- | --- |
-| **Backlog** | Default resting place — including after a lane fix is committed |
+| **Backlog** | Not actively coding; waiting or parked |
 | **Todo** | Spec complete, correct project + milestone + labels |
-| **In Progress** | Assignee is **actively** coding right now (move back when you stop) |
-| **Done** | **Live on production** — captain only; never an agent lane commit |
+| **In Progress** | Assignee is **actively** coding right now |
+| **Done** | **Verified fix on a keeper tip** — fix commit covers the whole ticket **and** `tsc` + unit tests are green on that tip |
 | **Canceled** | Won't do |
 | **Duplicate** | Link canonical PRP in comment |
 
-### Agent rule (standing order)
+### Agent rule (standing order — captain 2026-09-07)
 
-A commit on `cursor-*` / `claude-*` is **not** shipped. Agents must:
-
-1. Leave the issue in **Backlog** (or **In Progress** only while actively working it).
-2. After committing, post the commit SHA as a Linear comment — do **not** flip to Done.
-3. Never re-flip issues the captain moved from Done → Backlog.
+1. **In Progress** while you are actively coding the ticket.
+2. When the fix commit covers the **whole** ticket and verification is green on the tip that contains the fix (`npx tsc --noEmit` clean + unit suite green), mark **Done** and comment the commit SHA.
+3. A partial fix (e.g. only 1 of 4 acceptance parts) stays **Backlog** / **In Progress** — do **not** mark Done.
+4. Do **not** move issues back to Backlog after another pane (or the captain) marked them Done for a verified tip.
 
 ```bash
 npm run linear:comment -- --ticket PRP-### --sha <commit> --lane cursor-1
+# then set state to Done via GraphQL / Linear UI when the whole ticket is verified
 ```
 
-Only the captain marks **Done** after the work is live on production.
+Production promote is still captain-owned; **Done** here means verified on the agent/integration tip, not "live on prop-lane.space".
 
 ---
 
@@ -360,8 +360,8 @@ Only the captain marks **Done** after the work is live on production.
 ## Epics and children
 
 - **PRP-102** — `[Epic] Unified messaging hub` lives in **06 / Epic — Unified hub**
-- Children PRP-103–109, 150, 151 stay under that parent; when a child is **live
-  on production**, the captain moves it to the specific milestone and marks Done
+- Children PRP-103–109, 150, 151 stay under that parent; when a child is
+  **verified Done** on a keeper tip, move it to the specific milestone
 - Do not close PRP-102 until all children are Done or Canceled
 
 ---
@@ -369,12 +369,12 @@ Only the captain marks **Done** after the work is live on production.
 ## Dev / agent workflow
 
 1. Pull from **Todo** / **Backlog** in your project milestone (Urgent → High first)
-2. **In Progress** only while actively coding; return to **Backlog** when you stop
+2. **In Progress** while actively coding
 3. Code on your keeper branch → this pane's sandbox URL
 4. Read `docs/agents/<area>.md` before touching that subsystem
 5. Commit message includes `PRP-###`
-6. Happy path + edge checks on the sandbox (not `/demo` alone) — still **not Done**
-7. Comment with commit SHA + what was tested (status stays Backlog)
+6. Happy path + edge checks on the sandbox (not `/demo` alone)
+7. When the commit covers the **whole** ticket and `tsc` + unit are green on that tip → comment SHA and mark **Done**
 
 ```bash
 npm run linear:comment -- --ticket PRP-### --sha <commit> --lane <keeper>

@@ -109,9 +109,9 @@ Commit and push **only** the pane's keeper branch.
 2. **`npm run sandbox:open -- </route>`** — mandatory before handoff; opens browser + records `.proplane-review-path` (`docs/agents/sandbox-open-review.md`).
 3. Happy path + edge cases (`docs/ship-gate.md`).
 4. Targeted `npm run test:unit`; smoke e2e when UI/routes changed.
-5. Linear comment: commit SHA + what was tested + Review URL. Leave status
-   **Backlog** (In Progress only while actively coding). **Never mark Done** —
-   Done means live on production; only the captain moves issues there.
+5. Linear comment: commit SHA + what was tested + Review URL. When the fix covers
+   the **whole** ticket and `tsc` + unit are green on this tip, mark **Done**.
+   Do not move issues back to Backlog after a peer marked them Done for a verified tip.
 
 ```bash
 npm run linear:comment -- --ticket PRP-### --sha <commit> --lane <keeper>

@@ -2237,6 +2237,132 @@ export function recordWorkOrderResidentCharge(input: {
   return charge;
 }
 
+/**
+ * Expected recurring rent dollars for one profile + calendar month (same math as
+ * {@link syncAllRecurringRentCharges}). Exported for unit tests (PRP-408).
+ */
+export function expectedRecurringRentAmountForMonth(
+  profile: RecurringRentProfile,
+  rentMonth: string,
+): number | null {
+  const [candidateYear, candidateMonthNum] = rentMonth.split("-").map(Number);
+  if (!candidateYear || !candidateMonthNum) return null;
+  const daysInCandidateMonth = new Date(candidateYear, candidateMonthNum, 0).getDate();
+  const leaseEndParts = profile.leaseEnd?.trim().split("-").map(Number) ?? [];
+  const leaseEndYear = leaseEndParts[0] && Number.isFinite(leaseEndParts[0]) ? leaseEndParts[0] : null;
+  const leaseEndMonthNum = leaseEndParts[1] && Number.isFinite(leaseEndParts[1]) ? leaseEndParts[1] : null;
+  const leaseEndDay = leaseEndParts[2] && Number.isFinite(leaseEndParts[2]) ? leaseEndParts[2] : null;
+  const isLastMonth =
+    leaseEndYear !== null &&
+    leaseEndMonthNum !== null &&
+    leaseEndDay !== null &&
+    candidateYear === leaseEndYear &&
+    candidateMonthNum === leaseEndMonthNum;
+  const isPartialLastMonth = Boolean(isLastMonth && leaseEndDay! < daysInCandidateMonth);
+  const proratedFactor = isPartialLastMonth ? leaseEndDay! / daysInCandidateMonth : 1;
+  const profileDailyRate =
+    typeof profile.dailyRentPrice === "number" && profile.dailyRentPrice > 0 ? profile.dailyRentPrice : 0;
+  const profileWeeklyRate =
+    typeof profile.weeklyRentPrice === "number" && profile.weeklyRentPrice > 0 ? profile.weeklyRentPrice : 0;
+  if (!(profile.monthlyRent > 0 || profileDailyRate > 0 || profileWeeklyRate > 0)) return null;
+  const daysBilled = isPartialLastMonth ? leaseEndDay! : daysInCandidateMonth;
+  const monthlyAddon = recurringBasisMonthlyAddon(profile, proratedFactor);
+  const householdAmount =
+    profileDailyRate > 0
+      ? Number((daysBilled * profileDailyRate).toFixed(2)) + monthlyAddon
+      : profileWeeklyRate > 0
+        ? weeklyRentForBillableDays(profileWeeklyRate, daysBilled) + monthlyAddon
+        : Number((profile.monthlyRent * proratedFactor).toFixed(2));
+  const rentSplit = applyBundleGroupSplit(
+    householdAmount,
+    "Rent",
+    bundleSplitContextFromProfile(profile),
+  );
+  return rentSplit.amount;
+}
+
+/**
+ * Rewrite unpaid pending recurring rent/utilities/custom-fee amounts + due labels
+ * so they match the live rent profile (lease-aligned billing source).
+ * PRP-408 part 2.
+ */
+export function reconcilePendingRecurringChargeAmountsFromProfiles(): boolean {
+  if (!isBrowser()) return false;
+  const profiles = readRentProfiles();
+  if (profiles.length === 0) return false;
+  const profileById = new Map(profiles.map((p) => [p.id, p]));
+  const rows = readAll();
+  let changed = false;
+  const next = rows.map((charge) => {
+    if (!isUnpaidHouseholdCharge(charge)) return charge;
+    if (charge.status === "processing" || charge.status === "partially_paid") return charge;
+    if (!charge.recurringRentProfileId || !charge.rentMonth) return charge;
+    const profile = profileById.get(charge.recurringRentProfileId);
+    if (!profile?.active) return charge;
+
+    const dueDayMode = profile.dueDayMode ?? "first_of_month";
+    const dueDay = effectiveDueDayForMonth(profile.dueDay, dueDayMode, charge.rentMonth);
+    const dueLabel = formatRecurringRentDueLabel(charge.rentMonth, dueDay, dueDayMode);
+    let expected: number | null = null;
+
+    if (charge.kind === "rent" && !charge.customFeeId) {
+      expected = expectedRecurringRentAmountForMonth(profile, charge.rentMonth);
+    } else if (charge.kind === "utilities") {
+      const utilAmt = profile.monthlyUtilities ?? 0;
+      if (!(utilAmt > 0)) return charge;
+      const [y, m] = charge.rentMonth.split("-").map(Number);
+      const daysInMonth = y && m ? new Date(y, m, 0).getDate() : 30;
+      const leaseEndParts = profile.leaseEnd?.trim().split("-").map(Number) ?? [];
+      const leaseEndDay = leaseEndParts[2] && Number.isFinite(leaseEndParts[2]) ? leaseEndParts[2] : null;
+      const isPartial =
+        leaseEndParts[0] === y &&
+        leaseEndParts[1] === m &&
+        leaseEndDay != null &&
+        leaseEndDay < daysInMonth;
+      const factor = isPartial ? leaseEndDay! / daysInMonth : 1;
+      expected = applyBundleGroupSplit(
+        Number((utilAmt * factor).toFixed(2)),
+        "Utilities",
+        bundleSplitContextFromProfile(profile),
+      ).amount;
+    } else if (charge.customFeeId) {
+      const fee = (profile.monthlyFees ?? []).find((f) => f.id === charge.customFeeId);
+      if (!fee || !(fee.amount > 0)) return charge;
+      expected = applyBundleGroupSplit(
+        fee.amount,
+        fee.label || "Fee",
+        bundleSplitContextFromProfile(profile),
+      ).amount;
+    } else {
+      return charge;
+    }
+
+    if (expected == null || !(expected > 0)) return charge;
+    const label = moneyAmountLabel(expected);
+    if (
+      charge.amountLabel === label &&
+      charge.balanceLabel === label &&
+      charge.dueDay === dueDay &&
+      (charge.dueDayMode ?? "first_of_month") === dueDayMode &&
+      charge.dueDateLabel === dueLabel
+    ) {
+      return charge;
+    }
+    changed = true;
+    return {
+      ...charge,
+      amountLabel: label,
+      balanceLabel: label,
+      dueDay,
+      dueDayMode,
+      dueDateLabel: dueLabel,
+    };
+  });
+  if (!changed) return false;
+  writeAll(next, true);
+  return true;
+}
+
 function syncAllRecurringRentCharges(): boolean {
   if (!isBrowser()) return false;
   backfillMonthlyUtilitiesOnRentProfiles();
@@ -2471,12 +2597,16 @@ function syncAllRecurringRentCharges(): boolean {
 
   // Remove stale pending recurring charges that violate profile boundaries.
   const cleanedExisting = staleIds.size > 0 ? activeExisting : existing;
+  let wrote = false;
   if (newCharges.length > 0 || staleIds.size > 0) {
     writeAll([...cleanedExisting, ...newCharges], true);
-    emit();
-    return true;
+    wrote = true;
   }
-  return false;
+  // PRP-408 part 2: existing unpaid months must track the current profile rent
+  // (sync used to skip amount updates once a charge id already existed).
+  if (reconcilePendingRecurringChargeAmountsFromProfiles()) wrote = true;
+  if (wrote) emit();
+  return wrote;
 }
 
 /**
@@ -2847,6 +2977,59 @@ export function markHouseholdChargePaid(
     });
   });
   return true;
+}
+
+/**
+ * Unpaid charges whose due date is strictly before local today (same predicate as
+ * {@link isHouseholdChargeOverdue}). Pure — used by the Payments UI and the
+ * non-production past-due repair script (PRP-408 part 3).
+ */
+export function pastDueUnpaidHouseholdCharges(
+  charges: HouseholdCharge[],
+  opts?: ChargeManagerScopeOpts & { managerUserId?: string | null; now?: Date },
+): HouseholdCharge[] {
+  const now = opts?.now ?? new Date();
+  const managerUserId = opts?.managerUserId;
+  return charges.filter((charge) => {
+    if (managerUserId !== undefined && !chargeVisibleToManager(charge, managerUserId, opts)) {
+      return false;
+    }
+    return isHouseholdChargeOverdue(charge, now);
+  });
+}
+
+/**
+ * Mark every past-due unpaid charge in manager scope as paid (browser store + server replace).
+ * For Ambika / portfolio cleanup on **dev/test only**, prefer
+ * `scripts/mark-past-due-charges-paid-nonprod.ts` — this helper is for portal use / tests.
+ * PRP-408 part 3.
+ */
+export function markPastDueHouseholdChargesPaid(
+  managerUserId: string | null,
+  opts?: ChargeManagerScopeOpts & { now?: Date },
+): { markedIds: string[] } {
+  if (!isBrowser()) return { markedIds: [] };
+  const now = opts?.now ?? new Date();
+  const rows = readAll();
+  const targets = new Set(
+    pastDueUnpaidHouseholdCharges(rows, { ...opts, managerUserId, now }).map((c) => c.id),
+  );
+  if (targets.size === 0) return { markedIds: [] };
+  const paidAt = now.toISOString();
+  const next = rows.map((charge) => {
+    if (!targets.has(charge.id)) return charge;
+    return { ...charge, status: "paid" as const, paidAt, balanceLabel: "$0.00" };
+  });
+  writeAll(next);
+  const updated = next.filter((c) => targets.has(c.id));
+  void postHouseholdPayloadAwait({
+    action: "replace",
+    charges: updated,
+    rentProfiles: readRentProfiles(),
+  }).then((ok) => {
+    if (ok) emit();
+  });
+  return { markedIds: [...targets] };
 }
 
 export function markHouseholdChargePending(
