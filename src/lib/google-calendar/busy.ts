@@ -19,6 +19,10 @@
  * - **Free ("transparent") does not block — all-day included.** That is the
  *   manager explicitly marking the time available, and it is the DEFAULT Google
  *   Calendar writes for an all-day entry.
+ * - **Informational Google types never block** — `birthday`, `workingLocation`,
+ *   and `fromGmail` are metadata, not time the manager is away. Working-location
+ *   entries in particular arrive as opaque all-day rows and used to paint every
+ *   half hour "Blocked" while the day header still read "0 EVENTS".
  * - **Everything else blocks.**
  *
  * All-day entries used to block unconditionally, on the reasoning that an all-day
@@ -37,6 +41,13 @@ export function googleEventBlocksTours(event: {
   eventType?: string;
 }): boolean {
   if (event.declinedBySelf) return false;
+  if (
+    event.eventType === "birthday" ||
+    event.eventType === "workingLocation" ||
+    event.eventType === "fromGmail"
+  ) {
+    return false;
+  }
   if (event.eventType === "outOfOffice" || event.eventType === "focusTime") return true;
   if (event.transparency === "transparent") return false;
   return true;

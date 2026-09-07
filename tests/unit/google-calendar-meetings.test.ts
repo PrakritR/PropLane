@@ -11,7 +11,7 @@ import {
   googleCalendarApiEventFromListItem,
   type GoogleCalendarApiEvent,
 } from "@/lib/google-calendar/api.server";
-import { meetingConsumesTourSlot } from "@/components/portal/portal-calendar-panels";
+import { meetingConsumesTourSlot, meetingPaintsCalendarGrid } from "@/components/portal/portal-calendar-panels";
 import { slotBlocked } from "@/lib/tour-slot-math";
 import {
   PROPLANE_GOOGLE_CALENDAR_MARKER,
@@ -163,6 +163,41 @@ describe("every Google event still renders; only some count as taken", () => {
   it("counts an ordinary busy event", () => {
     const [meeting] = googleCalendarEventsToMeetings([event({ summary: "Dentist" })]);
     expect(meetingConsumesTourSlot(meeting!)).toBe(true);
+    expect(meetingPaintsCalendarGrid(meeting!)).toBe(true);
+  });
+
+  it("does not block or paint working-location metadata", () => {
+    const [meeting] = googleCalendarEventsToMeetings([
+      event({
+        summary: "Home",
+        transparency: "opaque",
+        allDay: true,
+        eventType: "workingLocation",
+      }),
+    ]);
+    expect(meetingConsumesTourSlot(meeting!)).toBe(false);
+    expect(meetingPaintsCalendarGrid(meeting!)).toBe(false);
+  });
+
+  it("does not block or paint birthday entries", () => {
+    const [meeting] = googleCalendarEventsToMeetings([
+      event({
+        summary: "Alex's birthday",
+        transparency: "opaque",
+        allDay: true,
+        eventType: "birthday",
+      }),
+    ]);
+    expect(meetingConsumesTourSlot(meeting!)).toBe(false);
+    expect(meetingPaintsCalendarGrid(meeting!)).toBe(false);
+  });
+
+  it("does not paint a Free Google block even though a meeting row exists", () => {
+    const [meeting] = googleCalendarEventsToMeetings([
+      event({ summary: "Bin day", transparency: "transparent", allDay: true }),
+    ]);
+    expect(meeting).toBeDefined();
+    expect(meetingPaintsCalendarGrid(meeting!)).toBe(false);
   });
 });
 
