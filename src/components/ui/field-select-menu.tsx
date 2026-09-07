@@ -49,9 +49,15 @@ export const FIELD_SELECT_MENU_HEADER_PX = 28;
 export const FIELD_SELECT_MENU_LIST_MAX_HEIGHT_PX =
   FIELD_SELECT_MENU_VISIBLE_ITEMS * FIELD_SELECT_MENU_ITEM_HEIGHT_PX;
 
+/**
+ * Above modal stacks (z-70–90), assistant rail (72), and toasts (10050) so an open
+ * field-select menu always paints in front of sticky modal footers and chrome.
+ */
+export const FIELD_SELECT_MENU_Z_INDEX = 10060;
+
 /** Portaled surface (border/shadow/opaque bg) that overlays the trigger. */
 export const FIELD_SELECT_MENU_SHELL_CLASS =
-  "field-dropdown-menu pointer-events-auto flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border shadow-[0_16px_40px_-12px_rgba(15,23,42,0.35)]";
+  "field-dropdown-menu pointer-events-auto z-[10060] flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border shadow-[0_16px_40px_-12px_rgba(15,23,42,0.35)]";
 
 /** Scrollable option list — a shrinkable flex child (`flex: 0 1 auto`) so the shell
  * still sizes to its real content and the list scrolls once the shell hits its cap.
@@ -179,14 +185,14 @@ export function fieldSelectMenuBoundsElement(
 }
 
 export function fieldSelectMenuZIndex(portalHost: HTMLElement): number {
-  if (portalHost === document.body) return 10000;
+  if (portalHost === document.body) return FIELD_SELECT_MENU_Z_INDEX;
   if (
     portalHost.matches('[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"]') ||
     portalHost.querySelector('[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"]')
   ) {
-    return 90;
+    return FIELD_SELECT_MENU_Z_INDEX;
   }
-  if (portalHost.matches('[data-slot="vaul-bottom-sheet"]')) return 100;
+  if (portalHost.matches('[data-slot="vaul-bottom-sheet"]')) return FIELD_SELECT_MENU_Z_INDEX;
   if (portalHost.matches('[data-slot="portal-filter-dropdown-panel"]')) return 30;
   return 80;
 }
