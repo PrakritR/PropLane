@@ -705,7 +705,7 @@ function ShortTermRentSection({
           />
         </GridField>
         <GridField>
-          <FieldLabel>Move-in fee</FieldLabel>
+          <FieldLabel hint={MOVE_IN_FEE_HINT}>Move-in fee</FieldLabel>
           <MoneyInput
             ariaLabel={`Short-term move-in fee${suffix}`}
             value={moveInFee}
@@ -1145,6 +1145,14 @@ async function uploadVideoFile(file: File): Promise<string> {
  * weight (a plain optional input used to look identical to a required select).
  * Pass at most one of the two.
  */
+/**
+ * Why the Move-in fee field exists (PRP-320). Landlords left it blank or guessed
+ * because nothing said what it covers; every Move-in fee label — short-term,
+ * per-room and per-bundle — shares this one line so the three never drift.
+ */
+export const MOVE_IN_FEE_HINT =
+  "One-time charge at move-in for keys, cleaning and setup. Leave blank if you don't charge one.";
+
 function FieldLabel({
   children,
   hint,
@@ -3474,7 +3482,7 @@ export function ManagerAddListingForm({
                     />
                   </GridField>
                   <GridField>
-                    <FieldLabel>Move-in fee</FieldLabel>
+                    <FieldLabel hint={MOVE_IN_FEE_HINT}>Move-in fee</FieldLabel>
                     <MoneyInput
                       ariaLabel={`Move-in fee for ${roomLabel}`}
                       value={(room.moveInFee ?? "").replace(/^\$/, "").trim()}
@@ -3632,7 +3640,7 @@ export function ManagerAddListingForm({
                   />
                 </GridField>
                 <GridField>
-                  <FieldLabel>Move-in fee</FieldLabel>
+                  <FieldLabel hint={MOVE_IN_FEE_HINT}>Move-in fee</FieldLabel>
                   <MoneyInput
                     ariaLabel={`Move-in fee for ${bundle.label.trim() || "bundle"}`}
                     value={(bundle.moveInFee ?? "").replace(/^\$/, "").trim()}
