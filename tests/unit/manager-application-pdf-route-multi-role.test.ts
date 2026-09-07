@@ -34,8 +34,14 @@ vi.mock("@/lib/manager-application-pdf", () => ({
   buildApplicationPdf: vi.fn(async () => new Uint8Array([0x25, 0x50, 0x44, 0x46])),
   applicationPdfFilename: () => "application.pdf",
 }));
+// A PARTIAL mock of this module, so every export the route's import chain
+// reaches has to be listed here. A missing one does not fail as a clear
+// "undefined export" at the call site — Vitest throws while building the mock
+// and takes every test in the file with it, which is how one added constant
+// turned into four unrelated-looking failures.
 vi.mock("@/lib/manager-applications-storage", () => ({
   normalizeApplicationAxisId: (id: string) => id,
+  MANAGER_APPLICATIONS_EVENT: "axis:manager-applications",
 }));
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser } }),

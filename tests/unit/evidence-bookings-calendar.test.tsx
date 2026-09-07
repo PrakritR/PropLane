@@ -8,10 +8,25 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 
+// PARTIAL mock: every export the calendar's import chain reaches must be
+// listed, or Vitest throws while building the mock and fails the whole file.
 vi.mock("@/lib/lease-pipeline-storage", () => ({
   LEASE_PIPELINE_EVENT: "lease-pipeline-changed",
   readLeasePipeline: () => LEASES,
   syncLeasePipelineFromServer: () => Promise.resolve(LEASES),
+  // Mirrors the real predicate closely enough for the fixtures here, which
+  // carry `status`/`fullySignedAt` rather than signature pairs.
+  leaseIsFullyExecuted: (row: {
+    voidedAt?: string | null;
+    status?: string;
+    externallySignedLease?: boolean;
+    fullySignedAt?: string | null;
+  }) => {
+    if (row.voidedAt || row.status === "Voided") return false;
+    if (row.externallySignedLease === true) return true;
+    if (row.status === "Fully Signed") return true;
+    return Boolean(row.fullySignedAt);
+  },
 }));
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
 vi.mock("@/lib/channel-calendar/client", () => ({

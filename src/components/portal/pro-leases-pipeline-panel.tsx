@@ -664,7 +664,17 @@ export function ManagerLeasesPipelinePanel({
           onUploadPdf={
             leaseAllowsManagerDocumentEdits(row)
               ? async (file) => {
-                  const files = { 0: file, length: 1, item: (index: number) => (index === 0 ? file : null) } as FileList;
+                  // A one-file stand-in for the FileList `onPickUpload` takes.
+                  // Via `unknown` because a real FileList is iterable and this
+                  // literal is not — the two do not overlap, so a direct
+                  // assertion fails type check and takes the whole build with
+                  // it. The callee only reads `[0]`/`length`, so the shape is
+                  // sufficient; the cast is what has to be spelled honestly.
+                  const files = {
+                    0: file,
+                    length: 1,
+                    item: (index: number) => (index === 0 ? file : null),
+                  } as unknown as FileList;
                   await onPickUpload(row.id, files);
                 }
               : undefined
