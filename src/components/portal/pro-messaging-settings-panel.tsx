@@ -212,7 +212,7 @@ export function ManagerMessagingSettingsPanel({
     null,
   );
   const [loading, setLoading] = useState(true);
-  const [pendingAction, setPendingAction] = useState<"request" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"request" | "refresh" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [areaCode, setAreaCode] = useState("");
   const [announceOpen, setAnnounceOpen] = useState(false);
@@ -302,9 +302,9 @@ export function ManagerMessagingSettingsPanel({
   );
 
   const postAction = useCallback(
-    async (action: "request_number") => {
+    async (action: "request_number" | "refresh_eligibility") => {
       setError(null);
-      setPendingAction("request");
+      setPendingAction(action === "refresh_eligibility" ? "refresh" : "request");
       try {
         const res = await fetch(ENDPOINT, {
           method: "POST",
@@ -325,7 +325,9 @@ export function ManagerMessagingSettingsPanel({
           // quarantined provisioning with canRequest: false). Apply it so Retry
           // does not stay enabled against a server that will refuse another buy.
           if (isMessagingNumberStatus(body)) setStatus(body);
-          setError(body.error ?? "Could not request a messaging number.");
+          setError(body.error ?? (action === "refresh_eligibility"
+            ? "Could not refresh messaging eligibility."
+            : "Could not request a messaging number."));
           return;
         }
         if (!isMessagingNumberStatus(body)) {
@@ -353,7 +355,9 @@ export function ManagerMessagingSettingsPanel({
               : "Messaging number assigned. Carrier registration may still be finishing.",
           );
         } else {
-          showToast("Messaging number request received.");
+          showToast(action === "refresh_eligibility"
+            ? "Messaging eligibility refreshed."
+            : "Messaging number request received.");
         }
       } catch {
         setError("Network error. Check your connection and try again.");
@@ -456,12 +460,9 @@ export function ManagerMessagingSettingsPanel({
    * and a brand-new account, which has no `sms_manager_entitlements` row and so
    * reads back as `plan_unreadable`, is exactly the account that saw it.
    *
-   * This cannot become a billing ping. The server's gate keys on the ABSENCE of
-   * the stored row and writes one on every resolved outcome, so the first
-   * successful reconcile closes it permanently; the ref keeps it to one attempt
-   * per mount even when the read itself keeps failing. Every LATER plan change
-   * arrives on its own through the Stripe and RevenueCat webhooks, which
-   * reconcile the same entitlement.
+   * One attempt per mount avoids repeated background checks. The server also
+   * throttles eligibility refreshes. A settled Free/trial snapshot can later
+   * be refreshed explicitly after a plan upgrade.
    */
   const settleAttemptedRef = useRef(false);
   const entitlementUnverified = status ? entitlementIsUnverified(status) : false;
@@ -691,6 +692,19 @@ export function ManagerMessagingSettingsPanel({
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
               <p>{error}</p>
             </div>
+          ) : null}
+
+          {!status.entitlement.eligible && !unverifiedEntitlement ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={pendingAction !== null}
+              aria-busy={pendingAction === "refresh"}
+              onClick={() => postAction("refresh_eligibility")}
+              data-attr="messaging-eligibility-refresh"
+            >
+              {pendingAction === "refresh" ? "Checking…" : "Refresh eligibility"}
+            </Button>
           ) : null}
 
           {/* They said yes during setup but cannot act on it yet — usually a
