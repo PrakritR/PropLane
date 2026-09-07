@@ -1604,7 +1604,11 @@ try {
       roomChoice3: "",
       shortTermCheckInTime: "",
       shortTermCheckOutTime: "",
-      managerRentOverride: String(p.rent),
+      // A manager override is a NEGOTIATED rent, which the ledger and the lease take as-is
+      // (no short-lease surcharge, no folded fees). Only an approved fixture carries one;
+      // a pending applicant has nothing negotiated yet, so approving one in a demo bills
+      // the listing's own price the way a real applicant's approval does.
+      managerRentOverride: p.bucket === "approved" ? String(p.rent) : "",
       managerUtilitiesOverride: "150",
       managerSecurityDepositOverride: String(p.prop.deposit),
       managerMoveInFeeOverride: "250",
