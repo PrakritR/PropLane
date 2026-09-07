@@ -1992,12 +1992,25 @@ function RentalApplicationWizardInner({
       // only after finalize upserts the Submitted row.
       const submitted = await finalizeApplicationSubmit(feeStepUserId);
       if (!submitted.ok) {
+        // PRP-428: fee may already be on Stripe with no application row — tell
+        // the server so the paid charge + manager notice are durable even if
+        // the applicant never follows up with a receipt.
+        void fetch("/api/public/application-fee-orphan-report", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, expectedEmail: em }),
+        }).catch(() => undefined);
         showToast("Payment succeeded, but the application could not be submitted. Contact the manager with your payment receipt.");
         router.replace(applyPathWithProperty);
         return;
       }
       const marked = markApplicationFeePaidAfterStripe(form.email, pid, feeStepUserId);
       if (!marked) {
+        void fetch("/api/public/application-fee-orphan-report", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, expectedEmail: em }),
+        }).catch(() => undefined);
         showToast("Payment succeeded, but the application fee line could not be updated.");
         router.replace(applyPathWithProperty);
         return;
