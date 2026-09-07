@@ -197,6 +197,42 @@ describe("pure listing helpers", () => {
     expect(details.found).toBe(true);
     expect(details.listing?.petFriendly).toBe(true);
   });
+
+  // PRP-426: a prospect quotes the Facebook ad title, which is not the PropLane
+  // building name. The manager's marketing notes (Promotion tab) carry it.
+  it("matches a Facebook ad title stored in the manager's marketing notes", () => {
+    const withNotes: RawPropertyRecord = {
+      id: "p2",
+      status: "live",
+      property_data: {
+        buildingName: "4709A 8th Ave NE",
+        address: "4709A 8th Ave NE, Seattle, WA",
+        neighborhood: "University District",
+        listingSubmission: {
+          marketingNotes: 'Facebook: "Private locked room near University of Washington" — furnished, utilities included',
+        },
+      },
+      row_data: null,
+    };
+    const s = summarizeListingRecord(withNotes);
+    expect(s.marketingNotes).toContain("Private locked room near University of Washington");
+    expect(listingSummaryMatches(s, "Private locked room near University of Washington")).toBe(true);
+    expect(listingSummaryMatches(s, "locked room utilities included")).toBe(true);
+    expect(listingSummaryMatches(s, "Ballard bungalow")).toBe(false);
+    // a listing without notes still does not match the ad title
+    expect(listingSummaryMatches(summarizeListingRecord(rec), "Private locked room near University of Washington")).toBe(false);
+    expect(summarizeListingRecord(rec).marketingNotes).toBeNull();
+  });
+
+  it("caps marketing notes so a long essay does not ride along on every list call", () => {
+    const long: RawPropertyRecord = {
+      id: "p3",
+      status: "live",
+      property_data: { buildingName: "Long", listingSubmission: { marketingNotes: "x".repeat(5000) } },
+      row_data: null,
+    };
+    expect(summarizeListingRecord(long).marketingNotes!.length).toBeLessThanOrEqual(601);
+  });
 });
 
 describe("proplaneSiteLinks", () => {

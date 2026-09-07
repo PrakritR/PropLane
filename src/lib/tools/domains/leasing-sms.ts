@@ -58,6 +58,22 @@ function propertyLabel(src: Record<string, unknown> | null): string | null {
   return str(src, "buildingName") ?? str(src, "title") ?? str(src, "address") ?? str(src, "name");
 }
 
+/** Cap so a manager's whole marketing essay does not ride along on every list call. */
+const MARKETING_NOTES_MAX_CHARS = 600;
+
+/**
+ * The manager's free-text marketing notes for the home (Promotion tab): the
+ * Facebook / Craigslist ad title and copy, nicknames, landmarks. Read straight
+ * off the stored submission — it is public listing metadata — so a prospect who
+ * quotes the ad instead of the PropLane address still lands on the listing.
+ */
+function listingMarketingNotes(src: Record<string, unknown> | null): string | null {
+  const subRaw = asObject(src?.listingSubmission as unknown);
+  const notes = str(subRaw, "marketingNotes")?.trim();
+  if (!notes) return null;
+  return notes.length > MARKETING_NOTES_MAX_CHARS ? `${notes.slice(0, MARKETING_NOTES_MAX_CHARS)}…` : notes;
+}
+
 function summarizeRooms(src: Record<string, unknown> | null) {
   const subRaw = asObject(src?.listingSubmission as unknown);
   if (!subRaw) {
@@ -253,6 +269,7 @@ export function summarizeListingRecord(rec: RawPropertyRecord) {
     petFriendly,
     beds: typeof src?.beds === "number" ? src.beds : null,
     baths: typeof src?.baths === "number" ? src.baths : null,
+    marketingNotes: listingMarketingNotes(src),
     rooms: rooms.map((r) => ({
       id: r.id,
       name: r.name,
@@ -307,6 +324,7 @@ export function listingSummaryMatches(
     summary.neighborhood,
     summary.tagline,
     summary.alsoListedAs,
+    summary.marketingNotes,
     ...summary.rooms.map((r) => r.name),
   ]
     .filter(Boolean)
@@ -339,14 +357,14 @@ export function listingSummaryMatches(
 export const listLiveListingsTool = defineTool({
   name: "list_live_listings",
   description:
-    "Search PropLane's live public listings — on the shared PropLane line this spans EVERY manager's listings (the same catalog as the public /rent site), so use it to find ANY house or room a prospect names. Returns title, address, neighborhood, rent label, and room names/prices. Use first when matching a prospect's house or room question.",
+    "Search PropLane's live public listings — on the shared PropLane line this spans EVERY manager's listings (the same catalog as the public /rent site), so use it to find ANY house or room a prospect names. Returns title, address, neighborhood, rent label, room names/prices, and the manager's marketing notes (ad titles, nicknames) — pass the words a prospect quotes from an ad as the query. Use first when matching a prospect's house or room question.",
   kind: "read",
   inputSchema: z
     .object({
       query: z
         .string()
         .optional()
-        .describe("Optional free-text filter (address fragment, house name, room name)."),
+        .describe("Optional free-text filter (address fragment, house name, room name, or the title of an ad the prospect saw)."),
     })
     .strict(),
   handler: async (ctx, input) => {
@@ -414,6 +432,7 @@ export const getListingDetailsTool = defineTool({
                   return null;
                 }
               })(),
+        marketingNotes: listingMarketingNotes(src),
         description: str(src, "description")?.slice(0, 800) ?? null,
         rooms: matchedRooms,
         allRoomCount: rooms.length,
