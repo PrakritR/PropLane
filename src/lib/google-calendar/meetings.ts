@@ -159,7 +159,9 @@ export function scheduledCalendarMeetings<
 
 /** Label for calendar grid cells — never exposes personal Google event titles. */
 export function meetingCalendarGridLabel(meeting: DemoMeeting): string {
-  if (isGoogleCalendarPrivateBlock(meeting)) return "Blocked";
+  if (isGoogleCalendarPrivateBlock(meeting)) {
+    return meeting.blocksTourAvailability === false ? "Free" : "Blocked";
+  }
   if (meeting.source === "external" && meeting.kind === "tour") {
     return meeting.statusLabel ? `${meeting.statusLabel}: ${meeting.title}` : meeting.title;
   }
@@ -188,6 +190,8 @@ export function googleCalendarEventsToMeetings(events: GoogleCalendarApiEvent[])
       const end = new Date(event.end);
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
       const blocksTourAvailability = googleEventBlocksTours(event);
+      const informationalGoogleEvent =
+        event.eventType === "birthday" || event.eventType === "workingLocation";
       const dateStr = toLocalDateStr(start);
       const durationMinutes = Math.max(SLOT_DURATION_MINUTES, Math.round((end.getTime() - start.getTime()) / 60_000));
       const span = Math.max(1, Math.ceil(durationMinutes / SLOT_DURATION_MINUTES));
@@ -221,6 +225,7 @@ export function googleCalendarEventsToMeetings(events: GoogleCalendarApiEvent[])
           instructions: details.instructions,
           hostLabel: "Google Calendar",
           blocksTourAvailability,
+          googleCalendarInformational: informationalGoogleEvent,
         } satisfies DemoMeeting;
       }
 
@@ -261,6 +266,7 @@ export function googleCalendarEventsToMeetings(events: GoogleCalendarApiEvent[])
         color: GOOGLE_CALENDAR_BLOCKED_COLOR,
         statusLabel: "Blocked",
         googleCalendarPrivate: true,
+        googleCalendarInformational: informationalGoogleEvent,
         hostLabel: "Google Calendar",
         blocksTourAvailability,
       } satisfies DemoMeeting;

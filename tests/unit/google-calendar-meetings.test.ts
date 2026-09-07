@@ -197,7 +197,8 @@ describe("every Google event still renders; only some count as taken", () => {
       event({ summary: "Bin day", transparency: "transparent", allDay: true }),
     ]);
     expect(meeting).toBeDefined();
-    expect(meetingPaintsCalendarGrid(meeting!)).toBe(false);
+    expect(meetingPaintsCalendarGrid(meeting!)).toBe(true);
+    expect(meetingCalendarGridLabel(meeting!)).toBe("Free");
   });
 });
 
