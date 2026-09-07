@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   cleanup,
   fireEvent,
@@ -136,20 +138,49 @@ describe("ManagerMessagingSettingsPanel", () => {
     showToast.mockClear();
     let finishRefresh!: (response: Response) => void;
     const pendingRefresh = new Promise<Response>((resolve) => { finishRefresh = resolve; });
-    const fetchMock = messagingFetchMock([Response.json(stale), pendingRefresh]);
+    const assigned: ManagerMessagingNumberStatus = {
+      ...refreshed,
+      canRequest: false,
+      number: {
+        state: "active",
+        registrationState: "approved",
+        carrierRegistrationState: "registered",
+        attachmentState: "attached",
+        phoneNumber: "+15105550199",
+        lastError: null,
+      },
+    };
+    const fetchMock = messagingFetchMock([Response.json(stale), pendingRefresh, Response.json(assigned)]);
     vi.stubGlobal("fetch", fetchMock);
-    render(<ManagerMessagingSettingsPanel />);
+    const { container } = render(<ManagerMessagingSettingsPanel />);
+    const stages: string[] = [];
+    const capture = (label: string) => stages.push(`<section><h2>${label}</h2>${container.innerHTML}</section>`);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Refresh eligibility" }));
+    const refresh = await screen.findByRole("button", { name: "Refresh eligibility" });
+    capture("1. Settled stale eligibility");
+    fireEvent.click(refresh);
     const checking = await screen.findByRole("button", { name: "Checking…" });
     expect(checking.getAttribute("aria-busy")).toBe("true");
     expect((checking as HTMLButtonElement).disabled).toBe(true);
+    capture("2. Checking eligibility");
     expect(showToast).not.toHaveBeenCalled();
     finishRefresh(Response.json(refreshed));
     expect(await screen.findByRole("button", { name: "Request work number" })).toBeTruthy();
     expect(showToast).toHaveBeenCalledWith("Messaging eligibility refreshed.");
     expect(numberCalls(fetchMock)).toHaveLength(2);
     expect(JSON.parse(String(numberCalls(fetchMock)[1]?.[1]?.body)).action).toBe("refresh_eligibility");
+    capture("3. Recovered eligibility permits setup");
+    fireEvent.click(screen.getByRole("button", { name: "Request work number" }));
+    expect(await screen.findByText("+1 (510) 555-0199")).toBeTruthy();
+    expect(numberCalls(fetchMock)).toHaveLength(3);
+    expect(JSON.parse(String(numberCalls(fetchMock)[2]?.[1]?.body))).toEqual({ action: "request_number", areaCode: "510" });
+    expect(screen.queryByRole("button", { name: "Request work number" })).toBeNull();
+    capture("4. Assigned work number; texting runtime remains off");
+    if (process.env.WORK_NUMBER_EVIDENCE_DIR) {
+      mkdirSync(process.env.WORK_NUMBER_EVIDENCE_DIR, { recursive: true });
+      writeFileSync(join(process.env.WORK_NUMBER_EVIDENCE_DIR, `recovery-${reason}.html`),
+        `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Work-number recovery: ${reason}</title><link rel="stylesheet" href="product.css"><style>body{padding:24px;font-family:Arial,sans-serif}main{max-width:800px;margin:auto}section{margin:32px 0;padding:20px;border:1px solid #ddd}h2{margin-bottom:20px;font-size:20px}</style><body><main><h1>Work-number recovery: ${reason}</h1><p>Actual component rendered during interaction tests. Billing and provisioning responses are fixtures; this is not a live provider transaction.</p>${stages.join("")}</main></body></html>`);
+    }
   });
 
   it("shows a recoverable error for a malformed API payload", async () => {

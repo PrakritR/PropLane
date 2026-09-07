@@ -12,20 +12,32 @@ runtime, carrier registration, or provider configuration gates.
 
 Trial grants remain `status=trialing` in `sms_manager_entitlements`, with a
 finite `valid_until`: signup date plus the existing trial duration, or Stripe's
-`trial_end`. Missing or expired trial dates fail closed. Setup and status
-refresh remain explicit manager actions; status GET never purchases a number.
+`trial_end`. Missing or expired trial dates fail closed. In Settings → Messaging,
+an unverified plan gets one automatic eligibility check per mount. For a settled
+ineligible snapshot after an upgrade, use **Refresh eligibility**, even if no
+number exists yet. Refreshes are rate-limited per manager; they never purchase
+a number. Number setup still requires **Request work number**, and status GET
+remains read-only.
 
 To stop enrolling new trials, unset the flag (or set it to `0`) and redeploy
 through staging QA. Already enrolled trial grants remain usable only through
-their original expiry; reconciliation cannot extend them while enrollment is
-closed. No number is automatically released by this flag. Paid subscriptions
+the earlier of their original expiry and the current trial expiry;
+reconciliation cannot extend them while enrollment is closed, and a changed
+source or inactive trial revokes the trial grant. Signup trial reads also check
+the current signup expiry before reconciliation. No number is automatically
+released by this flag. Paid subscriptions
 and intentional admin/waiver grants retain their normal access.
+
+The exception covers work-number/SMS access only. Assistant-email provisioning
+and use still require a paid or intentional admin/waiver grant. Its entitlement
+lookup prefers a paid inviter grant over a pure co-manager's own trial without
+overwriting that trial snapshot to deny SMS access.
 
 The independent PAYG policy still applies when `COMMS_PAYG_BILLING_ENABLED=1`;
 this trial flag does not redefine its allowances or payment requirements.
 
 Coverage: `manager-sms-entitlement.test.ts`,
-`manager-messaging-number-route.test.ts`, and
+`manager-messaging-number-route.test.ts`, `manager-assistant-email-route.test.ts`, and
 `manager-messaging-settings-panel.test.tsx` in `tests/unit/`.
 
 ## Two switches, and they are not the same switch
