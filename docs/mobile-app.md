@@ -532,9 +532,12 @@ This app already includes genuine native features — **push notifications** and
   [`docs/agents/apple-iap.md`](agents/apple-iap.md).
 
 ### A credential screen must survive iOS Password AutoFill (Guideline 2.1(a))
-Build 69 was rejected because sign-in answered "Enter email and password." over
-credentials the reviewer could plainly see on an iPad. Two rules for any
-credential form the WebView renders:
+Build 69 (and the Sep 2026 App Store rejection tracked as **PRP-420**) failed
+because sign-in answered "Enter email and password." over credentials the
+reviewer could plainly see on an iPad Air (iPadOS 26.6). The WebView fix is on
+production (`NativeAuthHub` + `resolveFormCredentials`); a new App Review
+submission picks it up on next launch without a native shell rebuild. Two rules
+for any credential form the WebView renders:
 
 - **A real `<form>` with `name`d fields**, not loose inputs in a `div`. iOS
   Password AutoFill and password managers identify credential fields by form

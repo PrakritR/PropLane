@@ -29,6 +29,7 @@ function source(relativePath: string): string {
 }
 
 const SIGN_IN = "src/components/auth/native-auth-hub.tsx";
+const MOBILE_EMAIL_SIGN_IN = "src/components/auth/mobile-email-sign-in.tsx";
 
 describe("sign-in credential fields", () => {
   const src = source(SIGN_IN);
@@ -67,6 +68,20 @@ describe("sign-in credential fields", () => {
       /signInWithPassword\(\{\s*email: (?:normalizeAuthEmail\()?credentials\.email\)?,\s*password: credentials\.password,?\s*\}\)/;
     expect(src).toMatch(signInCall);
     expect(src).not.toMatch(/signInWithPassword\(\{\s*email: (?:normalizeAuthEmail\()?email/);
+  });
+});
+
+describe("MobileEmailSignIn credential fields (PRP-420 parity)", () => {
+  const src = source(MOBILE_EMAIL_SIGN_IN);
+
+  it("uses a real named form and DOM-resolved credentials", () => {
+    expect(src).toMatch(/<form\b/);
+    expect(src).toMatch(/name="email"/);
+    expect(src).toMatch(/name="password"/);
+    expect(src).toMatch(/type="submit"/);
+    expect(src).toMatch(/resolveFormCredentials/);
+    expect(src).toMatch(/if \(!credentials\.email \|\| !credentials\.password\)/);
+    expect(src).not.toMatch(/if \(!email\.trim\(\) \|\| !password\) \{/);
   });
 });
 
