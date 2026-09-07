@@ -13,10 +13,10 @@ import { PortalRecordListSurface } from "@/components/portal/portal-record-list-
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/input";
+import { Input, Select } from "@/components/ui/input";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import { formatPacificDate } from "@/lib/pacific-time";
+import { formatPacificDate, formatPacificDateTime } from "@/lib/pacific-time";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 
 type ManagerRow = {
@@ -118,6 +118,37 @@ const FEE_PAYER_LABELS: Record<string, string> = {
   proplane: "PropLane",
 };
 
+/**
+ * One staff change to who pays a manager's processing fees, as `GET /api/admin/manager-service-fee`
+ * returns it (the last ten, newest first). `null` on either side means "manager's own setting".
+ */
+type FeeOverrideChange = {
+  id: string;
+  at: string;
+  actorEmail: string | null;
+  actorUserId: string;
+  previousOverride: string | null;
+  newOverride: string | null;
+  effectiveBefore: string;
+  effectiveAfter: string;
+  reason: string | null;
+};
+
+type FeeSnapshot = { adminOverride?: string | null; effectivePayer?: string; changes?: FeeOverrideChange[] };
+
+function feeOverrideChangeLabel(value: string | null): string {
+  if (value === null) return "Manager's own setting";
+  return FEE_OVERRIDE_OPTIONS.find((opt) => opt.value === value)?.label ?? value;
+}
+
+/**
+ * Staff need to know the override is the exception, not the default: PropLane charges exactly what
+ * Stripe charges and the launch posture is to let each manager's own Payment setup decide. Shown
+ * beside the control so nobody reaches for "PropLane absorbs" as a courtesy.
+ */
+const FEE_OVERRIDE_HELP_TEXT =
+  "PropLane does not mark up processing fees. The launch default is the manager's own setting; set an override only for an agreed exception.";
+
 function ManagerDetailContent({
   row,
   onRefresh,
@@ -143,6 +174,25 @@ function ManagerDetailContent({
   const [feeOverride, setFeeOverride] = useState<FeeOverrideValue>("inherit");
   const [effectivePayer, setEffectivePayer] = useState<string>("");
   const [feeBusy, setFeeBusy] = useState(false);
+  // An optional note that rides along with the NEXT change and is stored on its audit row.
+  const [feeReason, setFeeReason] = useState("");
+  const [feeChanges, setFeeChanges] = useState<FeeOverrideChange[]>([]);
+
+  const applyFeeSnapshot = useCallback((data: FeeSnapshot) => {
+    setFeeOverride((data.adminOverride as FeeOverrideValue) ?? "inherit");
+    setEffectivePayer(data.effectivePayer ?? "");
+    setFeeChanges(Array.isArray(data.changes) ? data.changes : []);
+  }, []);
+
+  // The server is the only truth for this control: it is re-read on mount and after any failed
+  // save, because a save can have been applied and still answered an error (the audit row could
+  // not be written), and restoring the previous selection locally would then show a lie.
+  const loadFee = useCallback(async () => {
+    const res = await fetch(`/api/admin/manager-service-fee?managerUserId=${encodeURIComponent(row.id)}`);
+    if (!res.ok) return false;
+    applyFeeSnapshot((await res.json()) as FeeSnapshot);
+    return true;
+  }, [row.id, applyFeeSnapshot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -150,10 +200,9 @@ function ManagerDetailContent({
       try {
         const res = await fetch(`/api/admin/manager-service-fee?managerUserId=${encodeURIComponent(row.id)}`);
         if (!res.ok || cancelled) return;
-        const data = (await res.json()) as { adminOverride?: string | null; effectivePayer?: string };
+        const data = (await res.json()) as FeeSnapshot;
         if (cancelled) return;
-        setFeeOverride((data.adminOverride as FeeOverrideValue) ?? "inherit");
-        setEffectivePayer(data.effectivePayer ?? "");
+        applyFeeSnapshot(data);
       } catch {
         // Leave the control showing "inherit"; saving still works and re-reads the truth.
       }
@@ -161,7 +210,7 @@ function ManagerDetailContent({
     return () => {
       cancelled = true;
     };
-  }, [row.id]);
+  }, [row.id, applyFeeSnapshot]);
 
   const saveFeeOverride = async (next: FeeOverrideValue) => {
     setFeeBusy(true);
@@ -169,26 +218,31 @@ function ManagerDetailContent({
     setFeeOverride(next);
     try {
       const res = await fetch("/api/admin/manager-service-fee", {
-        method: "POST",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         // "inherit" is sent as null, which CLEARS the override and returns this manager to the
         // plan-and-choice rule — a different act from pinning "resident".
-        body: JSON.stringify({ managerUserId: row.id, adminOverride: next === "inherit" ? null : next }),
+        body: JSON.stringify({
+          managerUserId: row.id,
+          adminOverride: next === "inherit" ? null : next,
+          reason: feeReason.trim() || undefined,
+        }),
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string; effectivePayer?: string };
+      const data = (await res.json().catch(() => ({}))) as FeeSnapshot & { error?: string };
       if (!res.ok) {
-        setFeeOverride(previous);
+        if (!(await loadFee().catch(() => false))) setFeeOverride(previous);
         showToast(data.error || "Could not update processing fees.");
         return;
       }
-      setEffectivePayer(data.effectivePayer ?? "");
+      applyFeeSnapshot({ ...data, adminOverride: data.adminOverride ?? (next === "inherit" ? null : next) });
+      setFeeReason("");
       showToast(
         next === "inherit"
           ? "Processing fees follow the manager's own setting again."
           : `Processing fees now charged to ${FEE_OVERRIDE_LABELS[next]}.`,
       );
     } catch {
-      setFeeOverride(previous);
+      if (!(await loadFee().catch(() => false))) setFeeOverride(previous);
       showToast("Could not update processing fees.");
     } finally {
       setFeeBusy(false);
@@ -283,28 +337,64 @@ function ManagerDetailContent({
         </Select>
       </div>
 
-      <div className="flex items-center gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Processing fees</p>
-        <Select
-          className="h-9 min-h-0 w-auto min-w-[11rem] rounded-full px-3 py-1.5 text-sm"
-          value={feeOverride}
-          onChange={(e) => void saveFeeOverride(e.target.value as FeeOverrideValue)}
-          disabled={feeBusy}
-          aria-label="Who pays this manager's processing fees"
-        >
-          {FEE_OVERRIDE_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </Select>
-        {/* The NET answer, which can differ from the selection above: a free-tier manager who
-            chose to absorb fees still cannot, and showing only the selection would disagree with
-            what the resident is actually charged. */}
-        {effectivePayer ? (
-          <span className="text-xs text-muted">
-            Currently paid by {FEE_PAYER_LABELS[effectivePayer] ?? effectivePayer}
-          </span>
+      <div className="flex w-full flex-col gap-1.5" data-testid="admin-fee-override">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Processing fees</p>
+          <Select
+            className="h-9 min-h-0 w-auto min-w-[11rem] rounded-full px-3 py-1.5 text-sm"
+            value={feeOverride}
+            onChange={(e) => void saveFeeOverride(e.target.value as FeeOverrideValue)}
+            disabled={feeBusy}
+            aria-label="Who pays this manager's processing fees"
+          >
+            {FEE_OVERRIDE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </Select>
+          {/* Stored on the audit row of the next change; optional, staff-authored. */}
+          <Input
+            className="h-9 min-h-0 w-auto min-w-[14rem] rounded-full px-3 py-1.5 text-sm"
+            value={feeReason}
+            onChange={(e) => setFeeReason(e.target.value)}
+            maxLength={240}
+            placeholder="Reason for the change (optional)"
+            aria-label="Reason for changing who pays processing fees"
+            disabled={feeBusy}
+          />
+          {/* The NET answer, which can differ from the selection above: a free-tier manager who
+              chose to absorb fees still cannot, and showing only the selection would disagree with
+              what the resident is actually charged. */}
+          {effectivePayer ? (
+            <span className="text-xs text-muted">
+              Currently paid by {FEE_PAYER_LABELS[effectivePayer] ?? effectivePayer}
+            </span>
+          ) : null}
+        </div>
+        <p className="text-xs text-muted">{FEE_OVERRIDE_HELP_TEXT}</p>
+        {feeChanges.length > 0 ? (
+          <div className="text-xs text-muted">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Changes</p>
+            <ul className="mt-1 flex flex-col gap-0.5">
+              {feeChanges.map((change) => (
+                <li key={change.id} className="flex flex-wrap items-baseline gap-x-1.5">
+                  <span className="font-medium text-foreground">{change.actorEmail ?? "Former staff"}</span>
+                  <span>{formatPacificDateTime(change.at)}</span>
+                  <span>
+                    {feeOverrideChangeLabel(change.previousOverride)} → {feeOverrideChangeLabel(change.newOverride)}
+                  </span>
+                  {change.effectiveBefore !== change.effectiveAfter ? (
+                    <span>
+                      (paid by {FEE_PAYER_LABELS[change.effectiveBefore] ?? change.effectiveBefore} →{" "}
+                      {FEE_PAYER_LABELS[change.effectiveAfter] ?? change.effectiveAfter})
+                    </span>
+                  ) : null}
+                  {change.reason ? <span className="italic">“{change.reason}”</span> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : null}
       </div>
 

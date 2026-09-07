@@ -127,6 +127,29 @@ per-property application fee). Coverage:
 `tests/unit/admin-service-fee-override-ownership.test.ts`,
 `tests/unit/admin-manager-service-fee-route.test.ts`.
 
+**Every staff change to the override is audited** (PRP-277). The override is
+staff spending PropLane's money, so `PATCH /api/admin/manager-service-fee`
+writes one `audit_log` row per successful save through
+`recordAdminServiceFeeOverrideChange` (`src/lib/admin-service-fee-audit.server.ts`):
+`actor_user_id` is the staff member, `landlord_id` the manager,
+`action = "admin_service_fee_override"`, `input_summary` carries
+`previousOverride` / `newOverride` (`null` = no override) and the optional
+staff-entered `reason` (trimmed, capped at 240 chars — the only free text on
+the row, and never resident or applicant input), and `result_summary` carries
+`effectiveBefore` / `effectiveAfter` from `resolveServiceFeePayerFor`, so the
+trail says whether the change actually moved the bill (pinning `manager` on a
+Free plan changes nothing until the plan does). The row is written AFTER the
+override save, and a failed write is a 500 — the admin screen re-reads the
+server on any error rather than restoring its previous selection, because the
+override may already be applied. `GET` (and the write response) return the
+last ten as `changes`, newest first, with the actor's email resolved from
+`profiles` (`null` once that staff profile is gone); the Accounts screen
+renders them as a "Changes" list under the dropdown beside the reason field
+and the launch-default help text. No new table: `audit_log` is service-role
+only and already classified in the purge manifest — the trail is keyed on the
+MANAGER, so it goes with the manager's account (`landlord_id` in `ids`) while a
+deleted staff member only has `actor_user_id` detached.
+
 **The rental application fee follows the SAME plan-based rule** (captain
 decision, 2026-07-26, superseding the earlier "out of scope, always face
 value" carve-out): `/api/stripe/application-fee-checkout`
