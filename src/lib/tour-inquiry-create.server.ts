@@ -252,6 +252,39 @@ export async function createTourInquiry(
         };
       }
     }
+
+    /**
+     * The claimable host set, RE-DERIVED rather than trusted.
+     *
+     * The browser sends every host the public grid showed for the slot, and
+     * `confirmTourInquiry` lets any of them claim the tour — so an unchecked
+     * list would let a booking name a manager the property never granted, and
+     * that manager could then take a tour on a house they have no part in.
+     * Each candidate is put through the same two questions as the filed host:
+     * may they host this property, and did they publish this slot.
+     */
+    const filedHost = textValue(row.managerUserId) || textValue(requestedWindows[0]?.adminUserId);
+    const propertyIdForHosts = textValue(row.propertyId);
+    const slotKeyForHosts = textValue(requestedWindows[0]?.slotKey);
+    const claimed = Array.isArray(row.eligibleHostUserIds)
+      ? row.eligibleHostUserIds.filter((item): item is string => typeof item === "string")
+      : [];
+    const eligible = new Set<string>(filedHost ? [filedHost] : []);
+    if (propertyIdForHosts && slotKeyForHosts) {
+      for (const candidate of new Set(claimed.map((item) => item.trim()).filter(Boolean))) {
+        if (eligible.has(candidate)) continue;
+        const [mayHost, hasSlot] = await Promise.all([
+          managerMayHostPropertyTour(db, { managerUserId: candidate, propertyId: propertyIdForHosts }),
+          managerHasPublishedSlot(db, {
+            managerUserId: candidate,
+            slotKey: slotKeyForHosts,
+            propertyId: propertyIdForHosts,
+          }),
+        ]);
+        if (mayHost && hasSlot) eligible.add(candidate);
+      }
+    }
+    row.eligibleHostUserIds = [...eligible];
   }
 
   const { data, error: readError } = await db

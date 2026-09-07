@@ -35,6 +35,12 @@ function textField(row: Record<string, unknown> | null | undefined, key: string)
   return typeof value === "string" ? value.trim() : "";
 }
 
+function stringArrayField(row: Record<string, unknown> | null | undefined, key: string): string[] {
+  const value = row?.[key];
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
+}
+
 export function rowsFromRecord(rowData: unknown): Record<string, unknown>[] {
   const payload = asObject(rowData)?.payload;
   return Array.isArray(payload) ? payload.filter((item): item is Record<string, unknown> => Boolean(asObject(item))) : [];
@@ -144,8 +150,19 @@ export type ConfirmTourOptions = {
    * When true (the auto-approve/tool path), refuse to book a slot a confirmed
    * tour already occupies — the stale-proposal double-book guard. The manual
    * accept route leaves this off to preserve its existing override behavior.
+   *
+   * Note that handing the tour to SOMEONE ELSE always refuses a clash, whatever
+   * this says: overriding your own calendar is your business, overriding a
+   * peer's is not.
    */
   guardDoubleBook?: boolean;
+  /**
+   * Who ends up hosting. Absent, approving CLAIMS the tour for the approver —
+   * a pending request belongs to nobody until someone acts on it, so the act of
+   * approving is the act of taking it. Naming a different host hands it over,
+   * and that host must be eligible for the property and free at the time.
+   */
+  hostUserId?: string;
   /** Team member assigned to show the tour. */
   assignee?: WorkAssignee | null;
   /** Origin source for notification links; a prod-origin request is synthesized when absent. */
@@ -175,10 +192,35 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     return { ok: false, status: 404, error: "Tour request not found." };
   }
 
-  const managerUserId = textField(row, "managerUserId");
-  if (!managerUserId || (!opts.isAdmin && managerUserId !== opts.actorUserId)) {
+  /**
+   * A pending request is hostless: every eligible manager sees it, and whoever
+   * approves it takes it. `eligibleHostUserIds` is the set the booking recorded
+   * (the hosts who had that slot open); the row's own `managerUserId` is the
+   * one it was filed under and is always eligible, so a request booked before
+   * this shipped still behaves.
+   */
+  const filedManagerUserId = textField(row, "managerUserId");
+  const eligibleHostUserIds = new Set(
+    [...stringArrayField(row, "eligibleHostUserIds"), filedManagerUserId].filter(Boolean),
+  );
+  if (eligibleHostUserIds.size === 0) {
+    return { ok: false, status: 400, error: "This tour request has no eligible host." };
+  }
+  if (!opts.isAdmin && !eligibleHostUserIds.has(opts.actorUserId)) {
     return { ok: false, status: 403, error: "Unauthorized." };
   }
+
+  // Approving claims it. An admin acting on someone's behalf changes nothing.
+  const requestedHostUserId = opts.hostUserId?.trim() ?? "";
+  const managerUserId =
+    requestedHostUserId || (opts.isAdmin ? filedManagerUserId : opts.actorUserId);
+  if (!managerUserId) {
+    return { ok: false, status: 400, error: "A host is required to confirm a tour." };
+  }
+  if (!eligibleHostUserIds.has(managerUserId)) {
+    return { ok: false, status: 403, error: "That host cannot host tours at this property." };
+  }
+  const handingToSomeoneElse = managerUserId !== opts.actorUserId;
 
   const requestedStart = opts.requestedStart?.trim() ?? "";
   const requestedEnd = opts.requestedEnd?.trim() ?? "";
@@ -209,11 +251,20 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
   if (plannedReadError) return { ok: false, status: 500, error: plannedReadError.message };
   const plannedRows = rowsFromRecord(plannedRecord?.row_data);
 
-  if (opts.guardDoubleBook && plannedTourOccupiesWindow(plannedRows, managerUserId, start, windowEnd)) {
+  // Handing a tour to a peer ALWAYS re-checks their calendar: a request can sit
+  // in Pending for days, and committing somebody else's afternoon on stale
+  // information is exactly what this refusal exists to stop. Claiming it
+  // yourself keeps the route's long-standing override behavior.
+  if (
+    (opts.guardDoubleBook || handingToSomeoneElse) &&
+    plannedTourOccupiesWindow(plannedRows, managerUserId, start, windowEnd)
+  ) {
     return {
       ok: false,
       status: 409,
-      error: "That time was already booked. Review this tour and pick another slot.",
+      error: handingToSomeoneElse
+        ? "That host already has a tour at this time. Pick another host or another slot."
+        : "That time was already booked. Review this tour and pick another slot.",
     };
   }
 
