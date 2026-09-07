@@ -1193,7 +1193,10 @@ function StepFieldError({ msg }: { msg?: string }) {
 
 /**
  * The one checkbox-group used for every preset list (amenities, furniture, …). A
- * "Select all" checkbox comes FIRST with a real indeterminate state; the presets follow
+ * "Select all" checkbox comes FIRST — plainly checked or unchecked, never the dashed
+ * indeterminate state. A manager who ticks one amenity reads that dash as "something is
+ * wrong with my selection" rather than "some are selected", so it is deliberately not
+ * used here (reported twice from manager QA). The presets follow
  * in a compact borderless grid; "Other" comes LAST and reveals a SMALL input holding ONLY
  * the custom (non-preset) values — no permanent notes box, nothing echoed. Value is the
  * stored newline list; the component preserves custom lines when presets toggle and vice
@@ -1221,7 +1224,6 @@ function PresetCheckboxGroup({
   const checked = new Set(lines.filter((l) => presetLabels.includes(l)));
   const custom = lines.filter((l) => !presetLabels.includes(l));
   const allChecked = presets.length > 0 && checked.size === presets.length;
-  const someChecked = checked.size > 0 && !allChecked;
   const otherOpen = otherForcedOpen || custom.length > 0;
   const write = (nextChecked: Set<string>, nextCustom: string[]) =>
     onChange(
@@ -1241,9 +1243,6 @@ function PresetCheckboxGroup({
             type="checkbox"
             className="h-4 w-4 shrink-0 rounded border-border"
             checked={allChecked}
-            ref={(el) => {
-              if (el) el.indeterminate = someChecked;
-            }}
             onChange={(e) => write(new Set(e.target.checked ? presetLabels : []), custom)}
           />
           <span className="font-medium text-muted">Select all</span>
@@ -1293,10 +1292,14 @@ function PresetCheckboxGroup({
 
 /**
  * The select-all row for a room/item SELECTION group (bundle rooms, shared-space room
- * access). It is the FIRST checkbox in the grid with a genuine `indeterminate` state and
- * replaces the old "All rooms" / "Clear rooms" header buttons (round 18): one control that
- * checks everything, clears everything, and shows the partial state — keyboard and
- * screen-reader correct, matching PresetCheckboxGroup's own select-all above.
+ * access). It is the FIRST checkbox in the grid and replaces the old "All rooms" /
+ * "Clear rooms" header buttons (round 18): one control that checks everything and clears
+ * everything. It shows no dashed indeterminate state, matching PresetCheckboxGroup above —
+ * the partial state is already legible from the item boxes themselves, and the dash read
+ * as a defect to the managers who reported it.
+ *
+ * `someChecked` is still accepted and still drives the accessible state for screen
+ * readers; it simply no longer paints the dash.
  */
 function SelectAllCheckbox({
   allChecked,
@@ -1318,9 +1321,7 @@ function SelectAllCheckbox({
         className="h-4 w-4 shrink-0 rounded border-border disabled:opacity-60"
         checked={allChecked}
         disabled={disabled}
-        ref={(el) => {
-          if (el) el.indeterminate = someChecked;
-        }}
+        aria-checked={allChecked ? "true" : someChecked ? "mixed" : "false"}
         onChange={(e) => onToggle(e.target.checked)}
       />
       <span className="font-medium text-muted">{label}</span>
