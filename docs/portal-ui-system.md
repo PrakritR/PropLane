@@ -260,6 +260,14 @@ set, so the resident-detail Communication tab does not qualify and passes
 `threadReading: false`. Coverage:
 `tests/unit/resident-detail-communication-chrome.test.ts`.
 
+On phones, a thread uses its parent's available flex height, including any
+messaging-setup or plan banner above it. Reserve the shared
+`--portal-native-bottom-nav-inset` on `#portal-main-content`; do not give
+`.portal-main-inner` a viewport-based height that ignores those banners. That
+put the reply composer underneath the navigation even though it was technically
+visible. `tests/e2e/communication-reply-composer.spec.ts` checks actual clicks at
+phone, tablet, and desktop widths with an extra banner.
+
 ## Field dropdowns: base standard (forms + toolbars)
 
 Every portal single-select — property type, answer type, tour hours, lease

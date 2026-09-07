@@ -90,3 +90,59 @@ This patch does not make transcript read-modify-upsert atomic and does not prove
 that an externally accepted SMS/email ultimately reached its recipient. Those
 pre-existing delivery and concurrency concerns must not be inferred to be solved
 from the corrected toast or this review.
+
+## Follow-up review — mobile composer clearance
+
+Reviewed on 2026-09-07 against checkout HEAD
+`989120505af8d3747f7c02bbf278b8e626c91a1a`, with an uncommitted change to
+`src/app/globals.css` and new
+`tests/e2e/communication-reply-composer.spec.ts`.
+CSS diff SHA-256:
+`4e9742b6898c3edd86d578105b6464d36a2ffbf28017387f6aeacfe8b3e3845c`.
+New test file SHA-256:
+`d9876f83a053f7caf61d3d4fdb1c6456669b54155e815c608ac62b681524ff00`.
+
+**No security or native-parity blocker identified.** The CSS changes are scoped
+to thread-reading surfaces below 1024px. The inner pane uses its parent's flex
+space instead of independently claiming a viewport height, allowing portal
+banners to consume their actual height. Main-content padding reserves the shared
+bottom-navigation inset. Existing safe-area variables and composer safe-area
+padding are retained. This follows the clipped-surface guidance in
+`docs/portal-ui-system.md` and affects the shared web/WebView implementation.
+There are no route, nav-registry, push, authentication, permission, transport,
+native-plugin, or secret-handling code changes.
+
+The added browser test signs in through the existing manager helper, adds a
+synthetic banner only to the current page DOM, and checks real composer clicks
+and focus at 375px, 768px, and 1280px after asserting the assistant-thread URL.
+Its final scope is layout only: it sends no message and makes no assertion about
+503 responses, draft retention, or bot delivery. The test requires
+`E2E_TESTS_ENABLED=1` and the existing dev/test fixtures. It does not establish
+physical-device keyboard behavior; dedicated staging tests remain necessary.
+
+The implementer removed attempted combined 503 assertions after a fast browser
+run observed neither an outgoing send request nor a refusal toast. Separate
+manual/staging 503 checks reportedly retained the draft; this reviewer did not
+independently repeat those browser checks. The existing
+`src/components/portal/pro-inbox.tsx:699` returns silently from `handleReply` when
+the thread is absent from the browser's current persisted inbox snapshot. That
+is a plausible explanation for the combined test observation, **not an
+established root cause or a resolved failure**. The bounded layout regression
+must not be cited as coverage for that residual send-path uncertainty.
+
+Reviewer validation:
+
+```sh
+npx vitest run tests/unit/platform-parity.test.ts tests/unit/portal-mobile-shell.test.ts tests/unit/resident-detail-communication-chrome.test.ts
+```
+
+Result: **3 files passed, 43 tests passed**. Browser execution and staging
+sign-off are owned by the dedicated QA pass, not inferred from these unit tests.
+
+The implementer reports replacing an invalid inherited Anthropic credential
+with a working local/dev credential in the sensitive Vercel Preview variable
+scoped specifically to branch `staging`, leaving Production settings unchanged.
+This reviewer did not read credential values or independently verify the remote
+environment change. No secret value appears in the reviewed patch or this
+report. Staging's actual bot-response check must validate the newly deployed
+configuration before production promotion.

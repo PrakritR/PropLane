@@ -60,3 +60,35 @@ Canonical recovery does not permit delegated access to run the owner's bot: `/ap
 - Changed implementation, new tests, current route interactions, pending-action persistence/confirmation, notification subtype consumers, and current co-manager access code were inspected.
 - The reviewing subagent did not execute the test suite, lint, browser QA, production requests, or external sends. The root agent owns fresh validation for this base; earlier test counts from the pre-stash workspace are not asserted as results for this restored worktree.
 - Only this report was written by this reviewer. Any subsequent production-code changes require an affected-scope re-review and an updated revision/diff identity.
+
+## Staging QA follow-up — mobile composer clearance
+
+### Additional reviewed revision
+
+The original messaging patch has now landed as `989120505af8d3747f7c02bbf278b8e626c91a1a`. This follow-up reviews that HEAD plus the uncommitted `src/app/globals.css` change and new `tests/e2e/communication-reply-composer.spec.ts`. It does not replace the earlier base/diff identity with an assertion about unrelated changes.
+
+- SHA-256 of `git diff --binary HEAD -- src/app/globals.css`: `4e9742b6898c3edd86d578105b6464d36a2ffbf28017387f6aeacfe8b3e3845c`.
+- SHA-256 of the final new E2E file, limited to route-settled composer click/focus checks: `d9876f83a053f7caf61d3d4fdb1c6456669b54155e815c608ac62b681524ff00`.
+- `git diff --check` passed on this follow-up.
+
+### Finding and resolution evidence
+
+**Medium — a phone composer becomes unreachable when a portal banner consumes vertical space.** The root agent reported reproducing this on staging in a real browser: the fixed bottom navigation covered the reply composer when the manager setup banner was present. The mobile thread-reading rule independently sized `.portal-main-inner` from `100dvh`, ignoring the height already consumed by its parent's sibling banner, and zeroed the main container's bottom-nav clearance.
+
+The reviewed change restores the existing measured `--portal-native-bottom-nav-inset` as the main container's bottom padding and lets the inner flex child use available parent height (`height: auto; max-height: 100%`). This matches the surrounding shared fixed-chrome flex rules and their `min-height: 0` contract. The rule is limited to thread-reading at widths below 1024px. Desktop and non-thread surfaces retain their existing sizing; no per-panel bottom offset, extra observer, fetch, or native-specific duplicate UI was introduced.
+
+The root agent reported that injecting these declarations in the failing browser moved the composer up by the banner's 54px and restored actual clicking. That is reported browser evidence, not a browser run independently performed by this reviewer. The final authenticated E2E case waits for the selected conversation URL, inserts a 54px non-shrinking sibling banner, and tests actual composer click/focus at 375, 768, and 1280px. It uses the seeded manager login rather than `/demo` and sends no message. The combined 503 assertion was removed after an unexplained no-request failure; this final spec does not verify Send, error toasts, or draft retention.
+
+**No new blocking bug or security regression found in this follow-up.** The CSS adds no data access, identity, or authorization change. It reuses the inset already measured for browser and Capacitor bottom navigation; existing safe-area handling in the thread header/composer remains intact. There is no route, navigation registry, deep-link, push payload, or native asset change. Code review supports shared web/native behavior, but this E2E case does not exercise an iOS/Android virtual keyboard, nonzero device safe areas, or resident/vendor sessions. Fresh browser/test execution remains with the root agent.
+
+### Follow-up test failure under investigation
+
+The root agent subsequently reported that the built-localhost test passed actual composer clicking at all three widths, whereas the old CSS had failed with navigation intercepting the click. The final Send click initially produced no request or toast. A manual browser run of the fixed build successfully received the intercepted 503 and retained the draft, and its form passed `checkValidity()`. The final E2E was bounded to the independently reproduced CSS reachability defect: it waits for the selected conversation URL and tests actual click/focus only. The root agent reports that final case passed in 7.1 seconds, the rebuilt CSS build succeeded, and 8,434 unit tests passed. These are root-reported validation results, not runs executed by this reviewer. Independent manual/staging intercepted-503 checks passed, but the combined automated Send/503 case did not pass and is not represented as passing.
+
+**Medium, pre-existing — synthesized assistant placeholders can silently ignore Send before stored-row hydration.** Source inspection found a concrete path consistent with that symptom: `resolveCommunicationInboxThread` can return a canonical assistant placeholder absent from the raw inbox rows, so the composer renders. `handleReply` in `pro-inbox.tsx` then searches only `localRef.current` and returns without an outcome when that row is absent; `sendActiveReply` silently returns on that missing outcome. This yields no network request, no toast, and an unchanged draft. The reviewer reported this immediately to the root agent. Correlating the failed browser trace's inbox-load timing and row contents is still needed to identify it as the cause of that particular failure. Waiting for a URL alone does not prove stored-row hydration, and no placeholder-send correction is included in the reviewed CSS patch.
+
+### Separate staging configuration failure
+
+The root agent also reported a real bot turn failing because staging inherited an invalid preview provider API key, then replacing it with a branch-scoped staging development key through Vercel. No key material was inspected, recorded, or changed by this reviewer. This is separate from composer reachability and the stored-message acceptance fixes. A successful bot response after the resulting staging deployment is still needed to establish resolution; an environment update or an intercepted-response E2E test alone is not that evidence.
+
+Final handoff: the root agent is landing the bounded CSS correction through main and staging. The placeholder silent-return issue above remains unclosed; hydration causality for the failed combined test remains tentative. Production remains held until dedicated QA clears the remaining concerns.
