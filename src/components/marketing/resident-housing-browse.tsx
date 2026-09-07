@@ -58,7 +58,9 @@ function formatRent(card: PropertyBrowseCard): string {
 }
 
 function periodSuffix(card: PropertyBrowseCard): string {
-  return card.pricePeriod === "day" ? " / day" : " / month";
+  if (card.pricePeriod === "day") return " / day";
+  if (card.pricePeriod === "week") return " / week";
+  return " / month";
 }
 
 function BrowseSkeleton() {
@@ -131,7 +133,7 @@ function HousingBrowseCard({ card }: { card: PropertyBrowseCard }) {
         </p>
       </div>
       <div className="sr-only">
-        {card.headlineAddress}, {card.neighborhood}, {rent}{card.pricePeriod === "day" ? " per day" : " per month"}
+        {card.headlineAddress}, {card.neighborhood}, {rent}{card.pricePeriod === "day" ? " per day" : card.pricePeriod === "week" ? " per week" : " per month"}
       </div>
     </Link>
   );

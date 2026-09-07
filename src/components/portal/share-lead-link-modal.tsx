@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Input, Select } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -724,12 +725,11 @@ export function ShareLeadLinkModal({
                         <label htmlFor="share-lead-phone" className={FIELD_LABEL_CLASS}>
                           Phone
                         </label>
-                        <Input
+                        <PhoneNumberField
                           id="share-lead-phone"
-                          type="tel"
                           value={prospectPhone}
-                          onChange={(e) => setProspectPhone(e.target.value)}
-                          placeholder="(555) 555-5555"
+                          onChange={setProspectPhone}
+                          dataAttr="share-lead-phone"
                         />
                       </div>
                     ) : null}
@@ -739,12 +739,11 @@ export function ShareLeadLinkModal({
                       <label htmlFor="share-lead-phone" className={FIELD_LABEL_CLASS}>
                         Phone (SMS)
                       </label>
-                      <Input
+                      <PhoneNumberField
                         id="share-lead-phone"
-                        type="tel"
                         value={prospectPhone}
-                        onChange={(e) => setProspectPhone(e.target.value)}
-                        placeholder="(555) 555-5555"
+                        onChange={setProspectPhone}
+                        dataAttr="share-lead-phone"
                       />
                     </div>
                   ) : null}

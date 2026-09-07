@@ -11,6 +11,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { managerSignupFinishPhrase } from "@/lib/manager-access";
 import { nativeAwarePath } from "@/lib/auth/native-auth-entry";
 import { MANAGER_PRICING_ENTRY_PATH } from "@/lib/auth/manager-pricing-entry-path";
@@ -754,15 +755,12 @@ export default function CreateAccountClient() {
               <label className={FIELD_LABEL_CLASS} htmlFor="mgr-phone-input">
                 Phone number <Req />
               </label>
-              <Input
+              <PhoneNumberField
                 id="mgr-phone-input"
                 className="mt-1.5"
-                type="tel"
-                inputMode="tel"
-                placeholder="(555) 555-0100"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                autoComplete="tel"
+                onChange={setPhone}
+                dataAttr="mgr-phone-input"
               />
               <p className="mt-1 text-xs text-muted/70">Used for account and tenancy text updates. Reply STOP anytime.</p>
             </div>
@@ -889,15 +887,12 @@ export default function CreateAccountClient() {
                 Phone number
                 {isProspectHandoff && tourInquiryFromUrl ? <Req /> : null}
               </label>
-              <Input
+              <PhoneNumberField
                 id="signup-phone"
                 className="mt-1.5"
-                type="tel"
-                inputMode="tel"
-                placeholder="(555) 555-0100"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                autoComplete="tel"
+                onChange={setPhone}
+                dataAttr="signup-phone"
               />
               <p className="mt-1 text-xs text-muted/70">Used for account and tenancy text updates. Reply STOP anytime.</p>
             </div>

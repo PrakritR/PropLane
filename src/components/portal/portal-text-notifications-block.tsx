@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import { coercePhoneInput, formatSmsPhoneLabel, normalizeE164 } from "@/lib/phone-e164";
 import {
   PortalSettingsFormBody,
   PortalSettingsGroup,
@@ -105,14 +107,14 @@ export function PortalTextNotificationsBlock({
         // Reopen it for a code the server says is still live.
         const pending = data.pendingVerification;
         if (pending?.phone && !data.phoneVerifiedAt) {
-          setPhoneInput((current) => current || pending.phone);
+          setPhoneInput((current) => current || coercePhoneInput(pending.phone));
           setCodeSent(true);
         } else if (data.phone && !data.phoneVerifiedAt) {
           // The number is already on the profile — do not make them type it a
           // second time. Verification still stands: this prefills the field,
           // it does not skip the code, because a number on file is not proof
           // the person holds that handset.
-          setPhoneInput((current) => current || data.phone!);
+          setPhoneInput((current) => current || coercePhoneInput(data.phone));
         }
       });
     return () => {
@@ -200,7 +202,9 @@ export function PortalTextNotificationsBlock({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             <p className="text-sm font-semibold text-foreground">Mobile number</p>
-            <span className="font-mono text-sm text-foreground">{settings.phone}</span>
+            <span className="font-mono text-sm text-foreground">
+              {formatSmsPhoneLabel(settings.phone) || coercePhoneInput(settings.phone) || "—"}
+            </span>
             <Badge tone="success">Verified</Badge>
           </div>
           <Button
@@ -229,23 +233,20 @@ export function PortalTextNotificationsBlock({
               Mobile number
             </label>
             <div className="flex flex-wrap items-center gap-2">
-              <Input
+              <PhoneNumberField
                 id={`${dataAttrPrefix}-text-notifications-phone`}
-                className="max-w-56"
-                placeholder="(206) 555-0123"
-                inputMode="tel"
-                autoComplete="tel"
-                type="tel"
+                className="max-w-80 min-w-0 flex-1"
                 value={phoneInput}
-                onChange={(e) => setPhoneInput(e.target.value)}
+                onChange={setPhoneInput}
                 disabled={busy !== null || !smsConfigured}
+                dataAttr={`${dataAttrPrefix}-text-notifications-phone`}
               />
               <Button
                 type="button"
                 variant="outline"
                 className="h-10 min-h-10 shrink-0 rounded-full px-4 text-xs"
                 data-attr={`${dataAttrPrefix}-text-notifications-send-code`}
-                disabled={busy !== null || !smsConfigured || !phoneInput.trim()}
+                disabled={busy !== null || !smsConfigured || !normalizeE164(phoneInput)}
                 onClick={() => sendCode()}
               >
                 {busy === "send" ? "Sending…" : codeSent ? "Resend code" : "Send code"}

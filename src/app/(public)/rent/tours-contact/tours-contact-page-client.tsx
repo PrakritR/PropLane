@@ -10,6 +10,7 @@ import { ManagerLinkGate } from "@/components/marketing/manager-link-gate";
 import { SmsConsentCheckbox } from "@/components/marketing/sms-consent-checkbox";
 import Link from "next/link";
 import { SegmentedTwo } from "@/components/ui/segmented-control";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { useProspectContactAutofill } from "@/hooks/use-prospect-contact-autofill";
 import {
   residentCreateAccountHref,
@@ -583,7 +584,7 @@ function MessageFlow({
               </Field>
             </div>
             <Field label="Phone">
-              <input type="tel" placeholder="(206) 555-0100" className={inputCls} value={phone} onChange={(e) => setPhone(e.target.value)} />
+              <PhoneNumberField value={phone} onChange={setPhone} dataAttr="tours-contact-phone" />
             </Field>
             <Field label="Message *">
               <textarea rows={4} placeholder="Tell us more so we can help…" className={`${inputCls} resize-none`} value={message} onChange={(e) => setMessage(e.target.value)} />

@@ -137,12 +137,33 @@ export function roomMonthlyEquivalent(room: RoomPricingLike | null | undefined):
 export function rentMonthlyEquivalent(
   monthlyRent: number | null | undefined,
   dailyRentPrice: number | null | undefined,
+  weeklyRentPrice?: number | null | undefined,
 ): number {
+  if ((weeklyRentPrice ?? 0) > 0) {
+    return Number(((weeklyRentPrice ?? 0) * WEEKLY_RENT_MONTH_ESTIMATE_WEEKS).toFixed(2));
+  }
   return roomMonthlyEquivalent({
     monthlyRent,
     rentBasis: (dailyRentPrice ?? 0) > 0 ? "daily" : "monthly",
     dailyRentPrice,
   });
+}
+
+/**
+ * Monthly-equivalent for a recurring rent profile, including fold-in surcharge/fees
+ * billed atop a daily/weekly basis rate.
+ */
+export function rentProfileMonthlyEquivalent(
+  monthlyRent: number | null | undefined,
+  dailyRentPrice: number | null | undefined,
+  weeklyRentPrice?: number | null | undefined,
+): number {
+  const basisEquivalent = rentMonthlyEquivalent(monthlyRent, dailyRentPrice, weeklyRentPrice);
+  const hasBasis = (dailyRentPrice ?? 0) > 0 || (weeklyRentPrice ?? 0) > 0;
+  if (!hasBasis) return basisEquivalent;
+  const foldIn = monthlyRent ?? 0;
+  if (!(foldIn > 0) || (basisEquivalent > 0 && foldIn >= basisEquivalent)) return basisEquivalent;
+  return Number((basisEquivalent + foldIn).toFixed(2));
 }
 
 /**
@@ -268,6 +289,36 @@ export function roomShortLeaseSurcharge(room: RoomPricingLike | null | undefined
   return Number.isFinite(amount) && amount > 0 ? amount : 0;
 }
 
+/** Prospect-facing note when a room charges extra on short tenancies. */
+export function roomShortLeaseListingNote(room: RoomPricingLike | null | undefined): string | null {
+  const surcharge = roomShortLeaseSurcharge(room);
+  const maxMonths = room?.shortLeaseMaxMonths;
+  if (surcharge <= 0 || maxMonths === undefined || !Number.isInteger(maxMonths) || maxMonths < 1) {
+    return null;
+  }
+  const monthWord = maxMonths === 1 ? "month" : "months";
+  return `+${formatRoomPriceAmount(surcharge)}/mo on leases of ${maxMonths} ${monthWord} or less`;
+}
+
+/** Billable rent for a weekly-priced room over a span of days. */
+export function weeklyRentForBillableDays(weeklyRate: number, billableDays: number): number {
+  if (!(weeklyRate > 0) || !(billableDays > 0)) return 0;
+  return Number(((billableDays / 7) * weeklyRate).toFixed(2));
+}
+
+/** Weekly headline rate with any short-lease surcharge folded in (lease + ledger parity). */
+export function weeklyRentWithFoldedShortLeaseSurcharge(
+  room: RoomPricingLike | null | undefined,
+  application: { rentalType?: string | null; leaseStart?: string | null; leaseEnd?: string | null } | null | undefined,
+  baseWeekly?: number,
+): number | undefined {
+  const weekly = baseWeekly ?? roomWeeklyRentPrice(room);
+  if (weekly === undefined) return undefined;
+  const surcharge = tenancyPaysShortLeaseSurcharge(room, application) ? roomShortLeaseSurcharge(room) : 0;
+  const weeklySurcharge = surcharge > 0 ? Number(((surcharge * 12) / 52).toFixed(2)) : 0;
+  return Number((weekly + weeklySurcharge).toFixed(2));
+}
+
 /**
  * Whether THIS tenancy pays the room's short-lease surcharge.
  *
@@ -302,8 +353,9 @@ export type StayKind = "short" | "long";
  */
 export type StayPricing = {
   stayKind: StayKind;
-  basis: "monthly" | "daily";
+  basis: "monthly" | "daily" | "weekly";
   dailyRate: number | undefined;
+  weeklyRate: number | undefined;
   monthlyRate: number | undefined;
   deposit: number | undefined;
   source: "room" | "listing" | "application_override";
@@ -433,9 +485,10 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
         stayKind: "short",
         basis: "daily",
         dailyRate: negotiatedNightly,
+        weeklyRate: undefined,
         monthlyRate: undefined,
         deposit,
-      shortLeaseSurcharge: 0,
+        shortLeaseSurcharge: 0,
         source: "application_override",
       };
     }
@@ -450,6 +503,7 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
       stayKind: "short",
       basis: "daily",
       dailyRate,
+      weeklyRate: undefined,
       monthlyRate: undefined,
       deposit,
       // A nightly stay is already priced for being short; a monthly short-lease
@@ -465,6 +519,7 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
       stayKind: "long",
       basis: "monthly",
       dailyRate: undefined,
+      weeklyRate: undefined,
       monthlyRate: negotiated,
       deposit,
       shortLeaseSurcharge: 0,
@@ -484,6 +539,7 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
       stayKind: "long",
       basis: "monthly",
       dailyRate: undefined,
+      weeklyRate: undefined,
       monthlyRate: undefined,
       deposit,
       shortLeaseSurcharge: 0,
@@ -504,9 +560,26 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
         offersShortStays && isIntraMonthStay(app?.leaseStart, app?.leaseEnd) ? "short" : "long",
       basis: "daily",
       dailyRate: roomDaily,
+      weeklyRate: undefined,
       monthlyRate: undefined,
       deposit,
       shortLeaseSurcharge: 0,
+      source: "room",
+    };
+  }
+
+  const roomWeekly = roomWeeklyRentPrice(room);
+  if (roomWeekly !== undefined) {
+    const surcharge = tenancyPaysShortLeaseSurcharge(room, app) ? roomShortLeaseSurcharge(room) : 0;
+    const foldedWeekly = weeklyRentWithFoldedShortLeaseSurcharge(room, app, roomWeekly)!;
+    return {
+      stayKind: "long",
+      basis: "weekly",
+      dailyRate: undefined,
+      weeklyRate: foldedWeekly,
+      monthlyRate: undefined,
+      deposit,
+      shortLeaseSurcharge: surcharge,
       source: "room",
     };
   }
@@ -522,6 +595,7 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
     stayKind: "long",
     basis: "monthly",
     dailyRate: undefined,
+    weeklyRate: undefined,
     monthlyRate: baseMonthly === undefined ? undefined : Number((baseMonthly + surcharge).toFixed(2)),
     deposit,
     shortLeaseSurcharge: surcharge,

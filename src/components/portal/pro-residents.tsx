@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import {Input, Textarea, Select, NativeSelect} from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import {
   Modal,
   ModalFooter,
@@ -3885,7 +3886,7 @@ export function ManagerResidents({
             </label>
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <span className="font-medium text-muted">Phone</span>
-              <Input type="tel" value={arPhone} onChange={(e) => setArPhone(e.target.value)} placeholder="(555) 555-0100" />
+              <PhoneNumberField value={arPhone} onChange={setArPhone} dataAttr="add-resident-phone" />
             </label>
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <PortalFormSingleSelect
@@ -4153,7 +4154,7 @@ export function ManagerResidents({
             </label>
             <label className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <span className="font-medium text-muted">Phone</span>
-              <Input type="tel" value={erPhone} onChange={(e) => setErPhone(e.target.value)} placeholder="(555) 555-0100" />
+              <PhoneNumberField value={erPhone} onChange={setErPhone} dataAttr="edit-resident-phone" />
             </label>
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <PortalFormSingleSelect

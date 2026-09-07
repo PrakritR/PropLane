@@ -12,10 +12,13 @@ import {
   roomHeadlineAmount,
   roomHeadlinePriceLabel,
   roomIsDailyPriced,
+  roomIsWeeklyPriced,
   roomMonthlyEquivalent,
+  roomPricePeriod,
   roomPricingIsFlexible,
   roomAdvertisedPriceLabel,
   roomFlexibleSortAmount,
+  roomShortLeaseListingNote,
 } from "@/lib/room-pricing";
 
 export type RoomListingSlide = {
@@ -40,8 +43,8 @@ export type RoomListingRow = {
   rentNumeric: number | null;
   /** The headline number to display: the daily price for daily rooms, the monthly rent otherwise. */
   headlineRent: number | null;
-  /** "day" when priced by the day (priceLabel already carries "/day"); "month" (default) otherwise. */
-  pricePeriod: "day" | "month";
+  /** "day" / "week" / "month" — which period priceLabel uses. */
+  pricePeriod: "day" | "week" | "month";
   availabilityLabel: string;
   bathroomHint: string;
   zip: string;
@@ -57,6 +60,8 @@ export type RoomListingRow = {
   priceOverlayLabel: string;
   /** Raw listing availability string (for traffic-light styling on search cards). */
   availabilityRaw: string;
+  /** Prospect-facing short-lease surcharge note when configured on the room. */
+  shortLeaseNote?: string;
   /** Property-wide room media for search card carousel (Room 1, Room 2, … when uploaded). */
   mediaSlides: RoomListingSlide[];
 };
@@ -322,24 +327,25 @@ function browseRoomEntries(
           utilitiesEstimate: r.utilitiesEstimate?.trim() || undefined,
           price: roomPricingIsFlexible(r)
             ? roomAdvertisedPriceLabel(r)
-            : roomIsDailyPriced(r)
+            : roomIsDailyPriced(r) || roomIsWeeklyPriced(r)
               ? roomHeadlinePriceLabel(r)
               : r.monthlyRent > 0
                 ? `$${r.monthlyRent}/mo`
                 : property.rentLabel || "—",
-          pricePeriod: roomIsDailyPriced(r) ? "day" : "month",
+          pricePeriod: roomPricePeriod(r),
           // A flexible room ranks and budget-filters on its advertised minimum, so a
           // prospect searching "under $700" still sees a $600-$900 room they may be
           // able to agree. With no bounds it stays undefined — shown, but never
           // sorted or filtered as if it were free.
           priceMonthlyEquivalent: roomPricingIsFlexible(r)
             ? roomFlexibleSortAmount(r)
-            : roomIsDailyPriced(r)
+            : roomIsDailyPriced(r) || roomIsWeeklyPriced(r)
               ? roomMonthlyEquivalent(r)
               : undefined,
           priceHeadlineAmount: roomPricingIsFlexible(r)
             ? roomFlexibleSortAmount(r)
             : (roomHeadlineAmount(r) ?? undefined),
+          shortLeaseNote: roomShortLeaseListingNote(r) ?? undefined,
           availability: "Available now",
           modal: BROWSE_ROOM_MODAL_STUB,
         };
@@ -419,7 +425,8 @@ export function filterRoomListings(
       // Daily-priced rooms carry a monthly-equivalent for budget/sort comparisons; their
       // priceLabel already reads "$X/day" so we never parse the daily number as a monthly rent.
       const rentNumeric =
-        room.pricePeriod === "day" && typeof room.priceMonthlyEquivalent === "number"
+        (room.pricePeriod === "day" || room.pricePeriod === "week") &&
+        typeof room.priceMonthlyEquivalent === "number"
           ? room.priceMonthlyEquivalent
           : parseMonthlyRent(room.price.replace("/month", "/ mo"));
       const budgetOk =
@@ -439,7 +446,7 @@ export function filterRoomListings(
         neighborhood: p.neighborhood,
         priceLabel: room.price,
         rentNumeric,
-        pricePeriod: room.pricePeriod === "day" ? "day" : "month",
+        pricePeriod: room.pricePeriod ?? "month",
         // Carried through as an exact number: re-parsing the formatted label would
         // truncate cents (a $39.50/day room would read "$39 / day" on the card).
         headlineRent:
@@ -447,6 +454,8 @@ export function filterRoomListings(
             ? room.priceHeadlineAmount
             : room.pricePeriod === "day"
               ? parseMonthlyRent(room.price.replace("/day", ""))
+              : room.pricePeriod === "week"
+                ? parseMonthlyRent(room.price.replace("/week", ""))
               : rentNumeric,
         availabilityLabel: availabilityLabel(room, `${p.id}${LISTING_ROOM_CHOICE_SEP}${room.id}`),
         bathroomHint: bathroomHintFromRoom(room),
@@ -456,10 +465,11 @@ export function filterRoomListings(
         propertyBeds: p.beds,
         propertyBaths: p.baths,
         petFriendly: p.petFriendly,
-        descriptionBlurb: descriptionBlurb(p, room),
+        descriptionBlurb: [descriptionBlurb(p, room), room.shortLeaseNote].filter(Boolean).join(" · "),
         listingTags: listingTags(p),
         priceOverlayLabel: priceOverlayLabelForProperty(p),
         availabilityRaw: room.availability,
+        shortLeaseNote: room.shortLeaseNote,
         mediaSlides,
       });
     }
@@ -500,8 +510,8 @@ export type PropertyBrowseCard = {
   rentNumeric: number | null;
   /** Headline number to display (daily price for daily rooms, monthly rent otherwise). */
   headlineRent: number | null;
-  /** "day" when the cheapest room is priced by the day; "month" (default) otherwise. */
-  pricePeriod: "day" | "month";
+  /** "day" / "week" / "month" — which period the cheapest room is priced by. */
+  pricePeriod: "day" | "week" | "month";
   priceLabel: string;
   roomCount: number;
   petFriendly: boolean;

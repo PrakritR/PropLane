@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { MockProperty } from "@/data/types";
 import { PROPERTY_PIPELINE_EVENT } from "@/lib/property-pipeline-events";
@@ -1025,16 +1026,15 @@ function Step3({
         </Field>
       </div>
       <Field label="Phone *" fieldKey="phone" error={fieldErrors.phone}>
-        <input
+        <PhoneNumberField
           id="tour-phone"
-          type="tel"
           value={phone}
-          onChange={(e) => {
+          onChange={(next) => {
             onFieldChange("phone");
-            setPhone(e.target.value);
+            setPhone(next);
           }}
-          placeholder="(206) 555-0100"
-          className={wizardFieldErrorClass(Boolean(fieldErrors.phone), inputCls)}
+          inputClassName={wizardFieldErrorClass(Boolean(fieldErrors.phone), "")}
+          dataAttr="tour-phone"
         />
       </Field>
       <Field label="Notes (optional)">

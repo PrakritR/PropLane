@@ -58,6 +58,12 @@ function copyRoomPricingFields(
     dailyUtilitiesRate: source.dailyUtilitiesRate,
     rentBasis: source.rentBasis,
     dailyRentPrice: source.dailyRentPrice,
+    weeklyRentPrice: source.weeklyRentPrice,
+    shortLeaseSurchargeMonthly: source.shortLeaseSurchargeMonthly,
+    shortLeaseMaxMonths: source.shortLeaseMaxMonths,
+    pricingMode: source.pricingMode,
+    flexibleRentMin: source.flexibleRentMin,
+    flexibleRentMax: source.flexibleRentMax,
   };
 }
 
