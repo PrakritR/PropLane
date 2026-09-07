@@ -7,19 +7,23 @@ import { samePhone, detectManagerSelfReply } from "@/lib/sms/manager-relay.serve
 import { filterSmsInboxOwnerIds, type ManagerSmsAccess } from "@/lib/sms/manager-sms-access";
 import type { AgentContext } from "@/lib/tools/context";
 import { normalizeE164 } from "@/lib/phone-e164";
+import { normalizePropertyCoManagerPermissions, type PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
 
 type LinkRow = {
   inviter_user_id?: string | null;
   assigned_property_ids?: unknown;
+  property_co_manager_permissions?: unknown;
+  co_manager_permissions?: unknown;
 };
 
 async function loadIncomingAssignedProperties(
   db: SupabaseClient,
   inviteeUserId: string,
   inviterUserId?: string,
-): Promise<{ ownerIds: string[]; propertyIds: string[] }> {
+): Promise<{ ownerIds: string[]; propertyIds: string[]; permissionsByOwner?: Record<string, PropertyCoManagerPermissions> }> {
   const ownerIds = new Set<string>();
   const propertyIds = new Set<string>();
+  const permissionsByOwner: Record<string, PropertyCoManagerPermissions> = {};
   const invitee = inviteeUserId.trim();
   if (!invitee) return { ownerIds: [], propertyIds: [] };
 
@@ -28,18 +32,18 @@ async function loadIncomingAssignedProperties(
     .select("email")
     .eq("id", invitee)
     .maybeSingle();
-  if (viewerError) return { ownerIds: [], propertyIds: [] };
+  if (viewerError) throw new Error("Manager assignment identity unavailable.");
   const viewerEmail = String(viewerProfile?.email ?? "").trim();
 
   let query = db
     .from("account_link_invites")
-    .select("inviter_user_id, assigned_property_ids")
+    .select("inviter_user_id, assigned_property_ids, property_co_manager_permissions, co_manager_permissions")
     .eq("status", "accepted")
     .eq("invitee_user_id", invitee);
   if (inviterUserId?.trim()) query = query.eq("inviter_user_id", inviterUserId.trim());
 
   const { data: linkRows, error } = await query;
-  if (error) return { ownerIds: [], propertyIds: [] };
+  if (error) throw new Error("Manager assignments unavailable.");
 
   const inviterIds = [
     ...new Set(
@@ -54,7 +58,7 @@ async function loadIncomingAssignedProperties(
       .from("profiles")
       .select("id, email")
       .in("id", inviterIds);
-    if (profileError) return { ownerIds: [], propertyIds: [] };
+    if (profileError) throw new Error("Manager assignment profiles unavailable.");
     for (const profile of profiles ?? []) {
       const id = String(profile.id ?? "").trim();
       const email = String(profile.email ?? "").trim();
@@ -73,10 +77,13 @@ async function loadIncomingAssignedProperties(
       : [];
     if (assigned.length === 0) continue;
     ownerIds.add(ownerId);
+    permissionsByOwner[ownerId] = normalizePropertyCoManagerPermissions(
+      row.property_co_manager_permissions ?? row.co_manager_permissions, assigned,
+    );
     for (const id of assigned) propertyIds.add(id);
   }
 
-  return { ownerIds: [...ownerIds], propertyIds: [...propertyIds] };
+  return { ownerIds: [...ownerIds], propertyIds: [...propertyIds], permissionsByOwner };
 }
 
 export async function resolveManagerSmsAccess(
@@ -104,6 +111,7 @@ export async function resolveManagerSmsAccess(
       actorUserId,
       dataOwnerIds: [actorUserId, ...linked.ownerIds.filter((id) => id !== actorUserId)],
       assignedPropertyIds: linked.propertyIds,
+      permissionsByOwner: linked.permissionsByOwner,
     };
   }
 
@@ -115,6 +123,7 @@ export async function resolveManagerSmsAccess(
     actorUserId,
     dataOwnerIds: [workNumberOwnerId],
     assignedPropertyIds: delegated.propertyIds,
+    permissionsByOwner: delegated.permissionsByOwner,
   };
 }
 
@@ -147,6 +156,33 @@ export async function resolveManagerSmsInboundIdentity(
     fromPhone: args.fromPhone,
     toPhone: args.toPhone,
   });
+
+  const { data: inviteRows, error: inviteError } = await db
+    .from("account_link_invites")
+    .select("invitee_user_id")
+    .eq("status", "accepted")
+    .eq("inviter_user_id", workNumberOwnerId);
+  if (inviteError) throw new Error("Manager invitee identity unavailable.");
+  const inviteeIds = [
+    ...new Set(
+      (inviteRows ?? [])
+        .map((row) => String((row as { invitee_user_id?: string }).invitee_user_id ?? "").trim())
+        .filter((id) => id && id !== workNumberOwnerId),
+    ),
+  ];
+
+
+  const { data: profiles, error: profileError } = inviteeIds.length
+    ? await db.from("profiles").select("id, phone, phone_verified_at").in("id", inviteeIds)
+    : { data: [], error: null };
+  if (profileError) throw new Error("Manager invitee profiles unavailable.");
+
+  const matches = (profiles ?? []).filter((row) => {
+    if (!row.phone_verified_at) return false;
+    return samePhone(String(row.phone ?? ""), args.fromPhone);
+  });
+  // Never pick owner privileges when another linked account claims the same cell.
+  if (self && matches.length > 0) return null;
   if (self) {
     const access = await resolveManagerSmsAccess(db, {
       actorUserId: self.managerUserId,
@@ -162,31 +198,6 @@ export async function resolveManagerSmsInboundIdentity(
     };
   }
 
-  const { data: inviteRows, error: inviteError } = await db
-    .from("account_link_invites")
-    .select("invitee_user_id")
-    .eq("status", "accepted")
-    .eq("inviter_user_id", workNumberOwnerId);
-  if (inviteError) return null;
-  const inviteeIds = [
-    ...new Set(
-      (inviteRows ?? [])
-        .map((row) => String((row as { invitee_user_id?: string }).invitee_user_id ?? "").trim())
-        .filter((id) => id && id !== workNumberOwnerId),
-    ),
-  ];
-  if (inviteeIds.length === 0) return null;
-
-  const { data: profiles, error: profileError } = await db
-    .from("profiles")
-    .select("id, phone, phone_verified_at")
-    .in("id", inviteeIds);
-  if (profileError) return null;
-
-  const matches = (profiles ?? []).filter((row) => {
-    if (!row.phone_verified_at) return false;
-    return samePhone(String(row.phone ?? ""), args.fromPhone);
-  });
   if (matches.length !== 1) return null;
   const actorUserId = String(matches[0]?.id ?? "").trim();
   if (!actorUserId) return null;

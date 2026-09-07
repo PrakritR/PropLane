@@ -268,8 +268,10 @@ route — and they must never be crossed:
   Identity is `resolveManagerSmsInboundIdentity`: `To` pins the work-number
   owner; `From` is that owner's verified cell or a verified invitee of that
   owner. Combined (own number + assigned co-managed houses) vs delegated
-  (owner's number, assigned houses only). Pure co-managers do not get a work
-  number. Landlord-wide tools that cannot be property-filtered are withheld on
+  (owner's number, assigned houses only). Pure co-managers can provision their
+  own work number with effective eligibility; setup and dispatch share that
+  check. Per-property module grants are required, and only delegation-aware
+  tools are reachable on an owner's number. Landlord-wide tools are withheld on
   delegated turns. Portal Communication uses inbox `read`/`edit`/`delete` via
   `viewerAndLinkedOwnerIdsForModule`.
 - **The prospect leasing SMS agent inline-allows exactly two writes**

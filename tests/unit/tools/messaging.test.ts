@@ -801,3 +801,38 @@ describe("registry acceptance", () => {
     expect(MANAGER_INLINE_WRITE_TOOLS).toContain("update_thread");
   });
 });
+
+describe("co-manager SMS message ownership", () => {
+  function coManagerCtx(canEdit: boolean) {
+    const tables = seedRecipientTables();
+    tables.profiles = [
+      ...(tables.profiles ?? []),
+      { id: "manager_a", email: "mgr@axis.test", full_name: "Owner" },
+      { id: "co", email: "co@axis.test", full_name: "Co-manager" },
+    ];
+    tables.account_link_invites = [{
+      status: "accepted", inviter_user_id: "manager_a", invitee_user_id: "co", assigned_property_ids: ["house"],
+      property_co_manager_permissions: { house: { inbox: { read: true, edit: canEdit } } },
+    }];
+    const ctx = makeCtx(tables, { userId: "co", email: "co@axis.test", managerSmsAccess: {
+      mode: "delegated", workNumberOwnerId: "manager_a", actorUserId: "co", dataOwnerIds: ["manager_a"], assignedPropertyIds: ["house"],
+    } });
+    return { ctx, tables };
+  }
+
+  it("requires Communication edit permission before proposing a send", async () => {
+    const { ctx } = coManagerCtx(false);
+    await expect(sendMessageTool.preview(ctx, { toEmails: ["pat@x.com"], subject: "Update", body: "Hello" })).rejects.toThrow("Communication edit");
+  });
+
+  it("sends from the owner's account and reply address while attributing the actor", async () => {
+    const { ctx, tables } = coManagerCtx(true);
+    const delivery = await import("@/lib/portal-inbox-delivery");
+    const spy = vi.spyOn(delivery, "deliverPortalInboxMessage").mockResolvedValue({ ok: true, recipientCount: 1 } as never);
+    try {
+      await sendMessageTool.handler(ctx, { toEmails: ["pat@x.com"], subject: "Update", body: "Hello", deliverViaEmail: false });
+      expect(spy).toHaveBeenCalledWith(ctx.db, expect.objectContaining({ senderUserId: "manager_a", senderEmail: "mgr@axis.test", fromName: "Co-manager" }));
+      expect(tables.audit_log).toEqual(expect.arrayContaining([expect.objectContaining({ actor_user_id: "co", landlord_id: "manager_a" })]));
+    } finally { spy.mockRestore(); }
+  });
+});

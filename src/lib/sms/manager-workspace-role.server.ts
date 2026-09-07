@@ -4,13 +4,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export async function getAcceptedCoManagerInviterIds(
   db: SupabaseClient,
   userId: string,
+  opts: { throwOnError?: boolean } = {},
 ): Promise<string[]> {
   const { data, error } = await db
     .from("account_link_invites")
     .select("inviter_user_id")
     .eq("invitee_user_id", userId)
     .eq("status", "accepted");
-  if (error) return [];
+  if (error) {
+    if (opts.throwOnError) throw new Error("Co-manager workspace links unavailable.");
+    return [];
+  }
   return [
     ...new Set(
       (data ?? [])
@@ -37,8 +41,13 @@ export async function managerHasOwnedProperties(
 export async function isPureCoManagerWorkspace(
   db: SupabaseClient,
   userId: string,
+  opts: { throwOnError?: boolean } = {},
 ): Promise<boolean> {
-  if (await managerHasOwnedProperties(db, userId)) return false;
-  const inviters = await getAcceptedCoManagerInviterIds(db, userId);
+  const { data, error } = await db.from("manager_property_records")
+    .select("id").eq("manager_user_id", userId).limit(1);
+  // Unknown ownership is not evidence of eligibility inherited from another account.
+  if (error && opts.throwOnError) throw new Error("Co-manager workspace ownership unavailable.");
+  if (error || (data ?? []).length > 0) return false;
+  const inviters = await getAcceptedCoManagerInviterIds(db, userId, opts);
   return inviters.length > 0;
 }

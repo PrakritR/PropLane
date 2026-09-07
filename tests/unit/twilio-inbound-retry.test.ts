@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   resolveManagerCtx: vi.fn(),
   runManagerTurn: vi.fn(),
   deliverManagerReply: vi.fn(),
+  replyConsent: vi.fn(async () => "allowed"),
 }));
 
 vi.mock("twilio", () => ({ default: { validateRequest: vi.fn(() => true) } }));
@@ -36,6 +37,7 @@ vi.mock("@/lib/sms/manager-relay.server", () => ({
 vi.mock("@/lib/sms/manager-sms-access.server", () => ({
   resolveManagerSmsInboundIdentity: mocks.detectSelfReply,
 }));
+vi.mock("@/lib/sms/manager-conversation-consent.server", () => ({ ensureManagerInboundReplyConsent: mocks.replyConsent }));
 vi.mock("@/lib/tools/manager-sms-context", () => ({
   resolveManagerSmsAgentContext: mocks.resolveManagerCtx,
 }));
@@ -129,6 +131,7 @@ beforeEach(() => {
   mocks.resolveManagerCtx.mockReset();
   mocks.runManagerTurn.mockReset();
   mocks.deliverManagerReply.mockReset();
+  mocks.replyConsent.mockResolvedValue("allowed");
   vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", "MG11111111111111111111111111111111");
   vi.stubEnv("SMS_RUNTIME_ENABLED", "1");
   mocks.rpc.mockImplementation(async (name: string) => {
@@ -142,6 +145,31 @@ beforeEach(() => {
 });
 
 describe("managed Twilio inbound retry", () => {
+  it("keeps the co-manager actor on a prepared reply retry without rerunning the agent", async () => {
+    mocks.receipt = { status: "processing", route_kind: "manager_agent", reply_body: "Your assigned house has one request.", counterparty_user_id: "co-manager" };
+    mocks.detectSelfReply.mockResolvedValue({ actorUserId: "co-manager", workNumberOwnerId: "11111111-1111-4111-8111-111111111111" });
+    mocks.deliverManagerReply.mockResolvedValue({ ok: true, durablyAccepted: true });
+    expect((await POST(inboundRequest())).status).toBe(200);
+    expect(mocks.deliverManagerReply).toHaveBeenCalledWith(expect.objectContaining({ actorUserId: "co-manager" }));
+    expect(mocks.runManagerTurn).not.toHaveBeenCalled();
+  });
+
+  it("retains retryability when identity lookup fails for a prepared manager reply", async () => {
+    mocks.receipt = { status: "processing", route_kind: "manager_agent", reply_body: "Prepared reply", counterparty_user_id: "co-manager" };
+    mocks.detectSelfReply.mockRejectedValueOnce(new Error("Database temporarily unavailable"));
+    expect((await POST(inboundRequest())).status).toBe(503);
+    expect(mocks.deliverManagerReply).not.toHaveBeenCalled();
+    expect(mocks.receiptUpdates).toEqual(expect.arrayContaining([expect.objectContaining({ status: "retryable" })]));
+  });
+
+  it("does not send a saved reply after the co-manager's assignment is revoked", async () => {
+    mocks.receipt = { status: "processing", route_kind: "manager_agent", reply_body: "Prepared reply", counterparty_user_id: "co-manager" };
+    expect((await POST(inboundRequest())).status).toBe(200);
+    expect(mocks.deliverManagerReply).not.toHaveBeenCalled();
+    expect(mocks.handleInbound).not.toHaveBeenCalled();
+  });
+
+
   it.each([
     ["legacy relay", "0", true],
     ["unknown work number", "1", false],

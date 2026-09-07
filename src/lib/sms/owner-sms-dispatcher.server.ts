@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { readSmsSuppressionState } from "@/lib/sms-consent";
 import { ensureApplicationScopedSmsConsent } from "@/lib/sms/application-consent.server";
-import { getStoredManagerSmsEntitlement } from "@/lib/sms/manager-sms-entitlement.server";
+import { getEffectiveManagerSmsEntitlement } from "@/lib/sms/manager-sms-entitlement.server";
 import {
   estimateSmsSegments,
   evaluateManagerSmsNumberSendability,
@@ -133,7 +133,7 @@ async function loadSendPolicy(
     return { allowed: false, reason: "provider_identity_mismatch" };
   }
 
-  const entitlement = await getStoredManagerSmsEntitlement(db, ownerId);
+  const entitlement = await getEffectiveManagerSmsEntitlement(db, ownerId);
   if (isCommsPaygBillingEnabled()) {
     const billing = await evaluateManagerCommsBillingGate(db, ownerId);
     if (!billing.allowed) return { allowed: false, reason: `comms_billing_${billing.reason}` };

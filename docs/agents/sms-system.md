@@ -511,6 +511,28 @@ reachable.
 Resident-facing SMS **sent by the product for a house** still goes from the
 house owner's number; a co-manager's number is how people reach *them*.
 
+Texting a manager's **personal cellphone** is ordinary person-to-person SMS;
+PropLane only receives texts to its registered work numbers. Personal phones
+must be verified separately from provisioning a work number. Phone matching uses
+canonical E.164 equality (including country code), and a phone shared by the
+owner and an invitee is ambiguous, never an owner authorization.
+
+Setup and outbound dispatch both use effective SMS eligibility, including a
+pure co-manager's accepted paid-owner link. Removing the link removes inherited
+eligibility. PAYG billing remains attached to the number's own account and its
+allowance/payment gate; a co-manager invitation does not authorize billing an
+inviter for the co-manager's personal line.
+
+An authenticated inbound manager text records scoped reply-consent evidence
+for that exact owner + actor assistant conversation. Existing STOP and scoped
+revocations take precedence. Prepared reply retries retain the original actor;
+identity lookup failures return 503 instead of completing and dropping a reply.
+
+An external sender on a pure co-manager's line receives guidance to contact the
+property manager through PropLane/the listing contact, using the existing logged,
+durable template reply path. It does not grant resident access or choose a property
+owner. New applicants and tenants remain attributed to the listing/property owner.
+
 **Three access modes** (`ManagerSmsAccess` in `src/lib/sms/manager-sms-access.ts`):
 
 | Who texts | What number | Mode | Assistant scope |
@@ -525,12 +547,23 @@ Delegated turns set `landlordId` to the work-number owner (data tenant) and
 owned-house tools stay unchanged. Landlord-wide tools that cannot be
 property-filtered (`DELEGATED_SMS_UNSCOPED_TOOLS`: financial reports, dashboard,
 calendar list/create, co-managers list, …) are withheld on **delegated** turns
-only. Combined writes against another owner's row still fail closed if the write
-keys on `ctx.landlordId` (the actor); act on those houses by texting **that
-owner's** number. Inbox tools on an SMS turn intersect Communication grants
+only. `CO_MANAGER_SCOPED_TOOLS` additionally admits only tools whose loaders
+enforce delegation. Unreviewed tools fail closed on delegated turns; on combined
+turns they retain own-account scope. The shared row loader checks the relevant
+module grant as well as the assigned property; missing grants deny access.
+Inbox tools on an SMS turn intersect Communication grants
 with the number's data owners (`smsInboxOwnerIds`), so an assignment without
-inbox cannot dump the owner's threads. `book_tour` re-checks assigned
-properties on delegated/combined turns.
+inbox cannot dump the owner's threads. New-message composition on an owner's
+number requires Communication edit and uses that owner's recipients and sender
+address. From their own number, co-managers can reply to a permitted existing
+owner thread; composing a new message for that owner requires texting the owner's
+work number. Tenant routing retains the owner; the audit records the actual actor.
+Other delegated writes stay unavailable until preview and execution both enforce
+the relevant per-property edit grant. Merely confirming is not authorization.
+
+Regression coverage: `manager-co-manager-sms-regression.test.ts`,
+`manager-sms-access.test.ts`, `twilio-inbound-retry.test.ts`, and
+`tools/messaging.test.ts`.
 
 **Communication in the portal** is a separate grant: inbox `read` views the
 owner's SMS and email threads, `edit` replies/sends, `delete` deletes. Empty

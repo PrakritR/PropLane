@@ -51,6 +51,15 @@ function normalizeEmail(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
+async function messageOwnerEmail(ctx: AgentContext): Promise<string> {
+  if (ctx.landlordId === ctx.userId) return ctx.email;
+  const { data, error } = await ctx.db.from("profiles").select("email")
+    .eq("id", ctx.landlordId).maybeSingle();
+  const email = String(data?.email ?? "").trim().toLowerCase();
+  if (error || !email.includes("@")) throw new Error("The sending manager's address is unavailable; nothing was sent.");
+  return email;
+}
+
 type ResolvedRecipient = { email: string; userId: string | null; name: string };
 
 /** email -> display name from the landlord's own approved application records. */
@@ -81,6 +90,9 @@ async function resolveMessageRecipients(
   ctx: AgentContext,
   input: { toEmails?: string[]; toAllResidents?: boolean },
 ): Promise<{ allowed: ResolvedRecipient[]; blocked: ResolvedRecipient[] }> {
+  if (ctx.managerSmsAccess && !(await smsInboxOwnerIds(ctx, "edit")).includes(ctx.landlordId)) {
+    throw new Error("You do not have Communication edit permission on this manager's number.");
+  }
   const senderEmail = normalizeEmail(ctx.email);
   const byEmail = new Map<string, { email: string; userId: string | null }>();
   for (const raw of input.toEmails ?? []) {
@@ -118,7 +130,12 @@ async function resolveMessageRecipients(
     userId: c.userId ?? idByEmail.get(c.email) ?? null,
     name: nameByEmail.get(c.email) ?? c.email,
   }));
-  return filterRecipientsBySenderScope(ctx.db, managerSender(ctx), enriched);
+  // A delegated actor may message the number owner's contacts only after the
+  // Communication grant above. Never use the actor's combined portfolio here:
+  // texting A's number must not send to a resident belonging only to B.
+  return filterRecipientsBySenderScope(ctx.db, {
+    ...managerSender(ctx), id: ctx.landlordId,
+  }, enriched);
 }
 
 function recipientLabel(r: { name: string; email: string }): string {
@@ -235,6 +252,7 @@ export const sendMessageTool = defineWriteTool({
     // Re-resolve + re-authorize every recipient at execute time — the stored
     // emails are never trusted as scope proof.
     const { allowed } = await resolveMessageRecipients(ctx, input);
+    const senderEmail = await messageOwnerEmail(ctx);
     if (allowed.length === 0) {
       throw new Error("No authorized recipients remain for this message; nothing was sent.");
     }
@@ -280,7 +298,7 @@ export const sendMessageTool = defineWriteTool({
     const toEmails = allowed.filter((r) => !r.userId).map((r) => r.email);
     const delivery = await deliverPortalInboxMessage(ctx.db, {
       senderUserId: ctx.landlordId,
-      senderEmail: ctx.email,
+      senderEmail,
       fromName,
       subject,
       text: body,
@@ -348,6 +366,7 @@ export const replyToThreadTool = defineWriteTool({
     if (!row) {
       throw new Error(`No inbox thread ${input.threadId} for this landlord. Use list_inbox_threads to get valid thread ids.`);
     }
+    ctx = { ...ctx, landlordId: row.owner_user_id };
     const thread = row.row_data;
     if (thread.folder === "trash") {
       throw new Error("This thread is in the trash — restore it before replying.");
@@ -388,6 +407,8 @@ export const replyToThreadTool = defineWriteTool({
     // Re-resolve the thread AND re-authorize the counterparty at execute time.
     const row = await loadOwnInboxThread(ctx, input.threadId);
     if (!row) throw new Error("No inbox thread with that id for this landlord.");
+    ctx = { ...ctx, landlordId: row.owner_user_id };
+    const senderEmail = await messageOwnerEmail(ctx);
     const thread = row.row_data;
     const counterparty = threadCounterpartyEmail(thread);
     const { allowed } = await resolveMessageRecipients(ctx, { toEmails: [counterparty] });
@@ -458,7 +479,7 @@ export const replyToThreadTool = defineWriteTool({
     const emailConfigured = Boolean(process.env.RESEND_API_KEY?.trim());
     const delivery = await deliverPortalInboxMessage(ctx.db, {
       senderUserId: ctx.landlordId,
-      senderEmail: ctx.email,
+      senderEmail,
       fromName,
       subject,
       text: body,

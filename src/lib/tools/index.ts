@@ -15,6 +15,7 @@ import { reviewInspectionDepositTool, disposeInspectionDepositTool } from "./dom
 import { suggestStatementMatchesTool } from "./domains/statement-matching";
 import { buildRegistry, type ToolRegistry } from "./registry";
 import type { AgentContext } from "./context";
+import { CO_MANAGER_SCOPED_TOOLS, scopeManagerTool } from "./manager-co-manager-tool-scope";
 import {
   delegatedSmsWithholdsTool,
   type ManagerSmsAccess,
@@ -256,7 +257,7 @@ export const agentRegistry = buildRegistry([
   // makes it safe to expose — the model can propose, only the landlord can
   // execute.
   ...managerFinancialsWriteTools,
-]);
+].map((tool) => scopeManagerTool(tool as Parameters<typeof scopeManagerTool>[0])));
 
 /**
  * Write tools the MANAGER chat surfaces let the model run inline, without a
@@ -302,7 +303,7 @@ export function buildManagerSmsRegistry(
   );
   if (access?.mode !== "delegated") return managerSmsRegistry;
   return buildRegistry(
-    [...managerSmsRegistry.values()].filter((tool) => !delegatedSmsWithholdsTool(tool.name)),
+    [...managerSmsRegistry.values()].filter((tool) => CO_MANAGER_SCOPED_TOOLS.has(tool.name) && !delegatedSmsWithholdsTool(tool.name)),
   );
 }
 

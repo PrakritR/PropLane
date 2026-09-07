@@ -1,5 +1,6 @@
 import type { AgentContext } from "../context";
 import { smsAccessAllowsRow, smsDataOwnerIds } from "@/lib/sms/manager-sms-access";
+import type { CoManagerPermissionId } from "@/lib/co-manager-permissions";
 
 const PAGE_SIZE = 1000;
 
@@ -18,6 +19,7 @@ export async function loadAllManagerRows<T>(
   ctx: Pick<AgentContext, "db" | "landlordId" | "managerSmsAccess">,
   table: string,
   map: (rowData: unknown) => T,
+  module?: CoManagerPermissionId,
 ): Promise<T[]> {
   const out: T[] = [];
   const ownerIds = smsDataOwnerIds(ctx);
@@ -37,6 +39,7 @@ export async function loadAllManagerRows<T>(
             dataOwnerId: String(r.manager_user_id ?? ownerId).trim() || ownerId,
             rowData: r.row_data,
             table,
+            module,
           })
         ) {
           continue;

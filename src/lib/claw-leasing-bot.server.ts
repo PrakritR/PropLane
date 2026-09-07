@@ -621,6 +621,8 @@ export async function handleClawLeasingInbound(args: {
   workNumber?: string | null;
   /** The caller owns a distributed, leased MessageSid receipt. */
   durablyClaimed?: boolean;
+  /** Server-selected routing guidance; never sourced from the texter. */
+  routingReply?: string;
   /** Persist the exact reply before any provider/outbox handoff. */
   onPreparedReply?: (prepared: {
     routeKind: "leasing_agent" | "leasing_template";
@@ -726,7 +728,7 @@ export async function handleClawLeasingInbound(args: {
 
   // Existing resident (payment/lease thread or known profile) → two-way messaging,
   // not the leasing auto-reply menu.
-  {
+  if (!args.routingReply) {
     const [profileHit, existingThread] = await Promise.all([
       findResidentProfileByPhone(from),
       findThreadByResidentPhone(from),
@@ -967,7 +969,7 @@ export async function handleClawLeasingInbound(args: {
   // listings, matches house/room, and mints apply links with phone/room prefills.
   // Keyword templates remain the fallback when the API key is missing or the
   // turn fails (keeps SMS responsive).
-  if (landlordId) {
+  if (landlordId && !args.routingReply) {
     try {
       const { runLeasingSmsAgentTurn, deliverLeasingSmsReply } = await import(
         "@/lib/agent/leasing-sms-agent.server"
@@ -1067,7 +1069,7 @@ export async function handleClawLeasingInbound(args: {
     }
   }
 
-  const reply = replyForIntent({
+  const reply = args.routingReply ?? replyForIntent({
     intent,
     origin,
     propertyId,
