@@ -4,6 +4,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import {
   PortalContactDetailsModal,
   type PortalContactDetailsValues,
@@ -1835,12 +1836,9 @@ export const ManagerInbox = forwardRef<
   );
 
   const rowCheckbox = (thread: InboxThread) => (
-    <input
-      type="checkbox"
-      className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+    <RowSelectCheckbox
       checked={threadSelection.selectedIds.has(thread.id)}
       onChange={() => threadSelection.toggleSelected(thread.id)}
-      onClick={(e) => e.stopPropagation()}
       aria-label={`Select message ${thread.subject}`}
     />
   );

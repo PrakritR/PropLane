@@ -404,7 +404,11 @@ exactly how the gutters drifted apart across tabs before. The shape is:
    from `portal-record-row.tsx` (`PortalPropertyRecordRow` for
    address/asset rows, `PortalPersonRecordRow` for people,
    `PortalServiceRecordRow` for jobs/tickets). Bold title, muted detail lines
-   under it, `Badge` last. Selection is a leading checkbox; a selected row gets
+   under it, `Badge` last. Selection is a leading checkbox — always
+   `RowSelectCheckbox` (`src/components/ui/row-select-checkbox.tsx`), whose
+   padded label is the 40 px hit area around the 16 px box, so a thumb toggles
+   selection instead of opening the row (PRP-369/378); a bare `<input
+   type="checkbox">` on a list row is the bug. A selected row gets
    the `border-l-primary` rail and tinted fill. Tables stay for *detail* views
    and the admin record tables, not the list itself.
 3. **Dashed ADD footer** — `PortalListAddRow`, uppercase `ADD`, `inline` once
