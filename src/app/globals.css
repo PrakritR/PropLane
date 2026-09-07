@@ -799,7 +799,7 @@ html {
   background: #ffffff !important;
   background-color: #ffffff !important;
   opacity: 1;
-  isolation: isolate;
+  z-index: 10060 !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
