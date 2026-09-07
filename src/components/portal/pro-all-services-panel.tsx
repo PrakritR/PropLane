@@ -55,16 +55,19 @@ import {
 } from "@/lib/manager-portfolio-access";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import {
+  deleteManagerWorkOrderRow,
   readManagerWorkOrderRows,
   syncManagerWorkOrdersFromServer,
   MANAGER_WORK_ORDERS_EVENT,
 } from "@/lib/manager-work-orders-storage";
 import {
+  deleteServiceRequest,
   readAllServiceRequests,
   syncServiceRequestsFromServer,
   SERVICE_REQUESTS_EVENT,
   type ServiceRequest,
 } from "@/lib/service-requests-storage";
+import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import type { DemoManagerWorkOrderRow, ManagerWorkOrderBucket } from "@/data/demo-portal";
 import { ManagerWorkOrdersPanel } from "@/components/portal/pro-work-orders-panel";
 import {
@@ -134,6 +137,8 @@ export function ManagerAllServicesPanel({
   const [serviceState, setServiceState] = useState<ServiceRowState>("open");
   const [editServiceRequestsOpen, setEditServiceRequestsOpen] = useState(false);
   const [servicesSettingsOpen, setServicesSettingsOpen] = useState(false);
+  const [bulkDeleteWorkOrder, setBulkDeleteWorkOrder] = useState<DemoManagerWorkOrderRow | null>(null);
+  const [bulkDeleteRequest, setBulkDeleteRequest] = useState<ServiceRequest | null>(null);
   const typeFilter: FilterType = tabId;
 
   const propertyOptions = useMemo(() => {
@@ -326,58 +331,149 @@ export function ManagerAllServicesPanel({
   const { selectedIds, toggleSelected, clearSelection } = usePortalRowSelection(
     `${serviceState}:${groupMode}`,
   );
+  const selectedSingleRow = useMemo(() => {
+    if (selectedIds.size !== 1) return null;
+    const rowKey = [...selectedIds][0];
+    return visibleUnifiedRows.find((candidate) => unifiedServiceRowKey(candidate) === rowKey) ?? null;
+  }, [selectedIds, visibleUnifiedRows]);
+  const selectedWorkOrder = useMemo(() => {
+    if (!selectedSingleRow || selectedSingleRow.kind !== "maintenance") return null;
+    return filteredWorkOrders.find((workOrder) => workOrder.id === selectedSingleRow.id) ?? null;
+  }, [selectedSingleRow, filteredWorkOrders]);
+  const selectedServiceRequest = useMemo(() => {
+    if (!selectedSingleRow || selectedSingleRow.kind !== "add-on") return null;
+    return filteredRequests.find((request) => request.id === selectedSingleRow.id) ?? null;
+  }, [selectedSingleRow, filteredRequests]);
   const serviceClusters = useMemo(
     () => clusterPortalListRows(visibleUnifiedRows, groupMode, (row) => row.propertyLabel),
     [visibleUnifiedRows, groupMode],
   );
 
-  // PortalAdaptiveAction carries the rendered nodes, not a label/onClick pair:
-  // the row needs both an inline control and a menu item so it can tuck the
-  // action into the … menu when horizontal space runs out.
-  /**
-   * Open the selected service, rather than delete it from here.
-   *
-   * The detail page already carries Approve / Deny / Edit / Delete beside the
-   * service they act on; a Delete in the floating bar was the destructive one
-   * of those four, reachable from a row ticked by accident, on a bar showing
-   * nothing about what is going.
-   */
+  const workOrderDetailHref = (workOrderId: string, bucket = woBucket) =>
+    `${basePath}/services/work-orders/${bucket}/${encodeURIComponent(workOrderId)}`;
+
   const openSelectedService = () => {
-    const rowKey = [...selectedIds][0];
-    const row = rowKey ? visibleUnifiedRows.find((candidate) => unifiedServiceRowKey(candidate) === rowKey) : null;
+    const row = selectedSingleRow;
     if (!row) return;
     clearSelection();
     navigate(
       row.kind === "add-on"
         ? serviceRequestDetailHref(basePath, reqBucket, row.id)
-        : `${basePath}/services/work-orders/${woBucket}/${encodeURIComponent(row.id)}`,
+        : workOrderDetailHref(row.id, selectedWorkOrder?.bucket ?? woBucket),
     );
   };
 
+  const openSelectedForSchedule = () => {
+    const row = selectedSingleRow;
+    if (!row || row.kind !== "maintenance") return;
+    clearSelection();
+    navigate(workOrderDetailHref(row.id, selectedWorkOrder?.bucket ?? woBucket));
+  };
+
+  const confirmBulkDeleteWorkOrder = () => {
+    const row = bulkDeleteWorkOrder;
+    if (!row) return;
+    if (deleteManagerWorkOrderRow(row.id)) {
+      showToast("Service removed.");
+      clearSelection();
+      setDataTick((tick) => tick + 1);
+    } else {
+      showToast("Could not delete service.");
+    }
+    setBulkDeleteWorkOrder(null);
+  };
+
+  const confirmBulkDeleteRequest = () => {
+    const row = bulkDeleteRequest;
+    if (!row) return;
+    deleteServiceRequest(row.id);
+    showToast("Request deleted.");
+    clearSelection();
+    setDataTick((tick) => tick + 1);
+    setBulkDeleteRequest(null);
+  };
+
+  const bulkDeleteButtonClass = `${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`;
+
   const bulkSelectionActions: PortalAdaptiveAction[] =
-    selectedIds.size === 1
-      ? [
-          {
-            id: "edit",
+    selectedIds.size !== 1 || !selectedSingleRow
+      ? []
+      : (() => {
+          const actions: PortalAdaptiveAction[] = [
+            {
+              id: "edit",
+              node: (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={PORTAL_BULK_BAR_BTN}
+                  data-attr="services-bulk-edit"
+                  onClick={openSelectedService}
+                >
+                  Edit
+                </Button>
+              ),
+              menuItem: (
+                <DropdownMenuItem data-attr="services-bulk-edit" onSelect={openSelectedService}>
+                  Edit
+                </DropdownMenuItem>
+              ),
+            },
+          ];
+
+          if (selectedSingleRow.kind === "maintenance" && selectedWorkOrder?.bucket === "open") {
+            actions.push({
+              id: "schedule-visit",
+              node: (
+                <Button
+                  type="button"
+                  variant="primary"
+                  className={`${PORTAL_BULK_BAR_BTN} rounded-full`}
+                  data-attr="services-bulk-schedule-visit"
+                  onClick={openSelectedForSchedule}
+                >
+                  Schedule visit
+                </Button>
+              ),
+              menuItem: (
+                <DropdownMenuItem data-attr="services-bulk-schedule-visit" onSelect={openSelectedForSchedule}>
+                  Schedule visit
+                </DropdownMenuItem>
+              ),
+            });
+          }
+
+          actions.push({
+            id: "delete",
             node: (
               <Button
                 type="button"
                 variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="services-bulk-edit"
-                onClick={openSelectedService}
+                className={bulkDeleteButtonClass}
+                data-attr="services-bulk-delete"
+                onClick={() => {
+                  if (selectedWorkOrder) setBulkDeleteWorkOrder(selectedWorkOrder);
+                  else if (selectedServiceRequest) setBulkDeleteRequest(selectedServiceRequest);
+                }}
               >
-                Edit
+                Delete
               </Button>
             ),
             menuItem: (
-              <DropdownMenuItem data-attr="services-bulk-edit" onSelect={openSelectedService}>
-                Edit
+              <DropdownMenuItem
+                data-attr="services-bulk-delete"
+                onSelect={() => {
+                  if (selectedWorkOrder) setBulkDeleteWorkOrder(selectedWorkOrder);
+                  else if (selectedServiceRequest) setBulkDeleteRequest(selectedServiceRequest);
+                }}
+              >
+                Delete
               </DropdownMenuItem>
             ),
-          },
-        ]
-      : [];
+          });
+
+          return actions;
+        })();
 
   const renderServiceRow = (row: (typeof visibleUnifiedRows)[number], omitPropertyInSubtitle: boolean) => {
     const rowKey = unifiedServiceRowKey(row);
@@ -609,6 +705,32 @@ export function ManagerAllServicesPanel({
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
         </BulkActionBar>
       ) : null}
+
+      <ConfirmDeleteModal
+        open={bulkDeleteWorkOrder !== null}
+        title="Delete service"
+        description={
+          bulkDeleteWorkOrder
+            ? `Delete “${bulkDeleteWorkOrder.title}”? This cannot be undone.`
+            : null
+        }
+        confirmLabel="Delete"
+        onClose={() => setBulkDeleteWorkOrder(null)}
+        onConfirm={confirmBulkDeleteWorkOrder}
+        dataAttr="services-bulk-delete-confirm"
+      />
+
+      <ConfirmDeleteModal
+        open={bulkDeleteRequest !== null}
+        title="Delete request"
+        description={
+          bulkDeleteRequest ? `Delete “${bulkDeleteRequest.offerName}”?` : null
+        }
+        confirmLabel="Delete request"
+        onClose={() => setBulkDeleteRequest(null)}
+        onConfirm={confirmBulkDeleteRequest}
+        dataAttr="services-bulk-delete-request-confirm"
+      />
     </ManagerPortalPageShell>
   );
 }
