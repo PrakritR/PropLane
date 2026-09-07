@@ -4217,6 +4217,19 @@ export function ManagerAddListingForm({
                 />
               </div>
               <div className="sm:col-span-2">
+                <FieldLabel optional>Also listed as</FieldLabel>
+                <Input
+                  value={sub.alsoListedAs}
+                  onChange={(e) => setSub((s) => ({ ...s, alsoListedAs: e.target.value }))}
+                  className={listingTextInputCls}
+                  placeholder="Facebook / Craigslist ad titles (so texts can match)"
+                  data-attr="listing-also-listed-as"
+                />
+                <p className="mt-1 text-xs text-muted">
+                  Marketing titles that are not the street address — used when a prospect texts an ad headline.
+                </p>
+              </div>
+              <div className="sm:col-span-2">
                 <FieldLabel optional>House overview</FieldLabel>
                 <Textarea
                   rows={3}
