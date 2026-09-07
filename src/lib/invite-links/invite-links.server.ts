@@ -24,20 +24,19 @@ import {
   normalizePropertyCoManagerPermissions,
   type PropertyCoManagerPermissions,
 } from "@/lib/co-manager-permissions";
+import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
+import { primaryRoleWhenAddingVendor } from "@/lib/auth/profile-primary-role";
 
 const TOKEN_BYTES = 32;
 
 /**
- * A redeemed link lands in exactly one of two places, decided by its kind:
- * `manager` mints an `account_link_invites` row (co-manager), `resident` files
- * a `resident_invite_claims` row (an assertion the manager then approves).
- *
- * `vendor` has neither. It would have nowhere to land but the co-manager table,
- * so a vendor link could only ever hand its opener manager access under a
- * different label — refused at both ends rather than quietly honoured.
+ * A redeemed link lands by kind:
+ * `manager` → pending `account_link_invites` (co-manager),
+ * `resident` → `resident_invite_claims` (manager must confirm),
+ * `vendor` → directory row + `profile_roles` vendor (linked immediately).
  */
 export const UNSUPPORTED_INVITE_LINK_KIND_ERROR =
-  "Shareable links are only available for co-manager and resident invites. Send a vendor invite by email instead.";
+  "That invite link kind is not supported.";
 
 /**
  * The token is a credential, so only its digest is stored.
@@ -139,14 +138,12 @@ export async function mintInviteLink(
 
   const kind = normalizeInviteLinkKind(input.kind);
 
-  // `vendor` has no redemption path of its own, so it could only ever land in
-  // the co-manager table — manager access under a different label, minted
-  // around the paid gate below. Refuse at the source.
-  if (kind === "vendor") {
-    return { ok: false, status: 400, error: UNSUPPORTED_INVITE_LINK_KIND_ERROR };
-  }
-
-  const propertyIds = [...new Set(input.assignedPropertyIds.map((id) => String(id).trim()).filter(Boolean))];
+  // Vendor links need no property grant — they link a tradesperson into the
+  // manager's vendor directory, not into co-manager module access.
+  const propertyIds =
+    kind === "vendor"
+      ? []
+      : [...new Set(input.assignedPropertyIds.map((id) => String(id).trim()).filter(Boolean))];
   // Who this link is really FOR. A co-manager with Team edit may mint on the
   // owner's behalf (PRP-400), so the owner is resolved and authorized here
   // rather than taken from the caller — for every kind, resident included.
@@ -175,14 +172,16 @@ export async function mintInviteLink(
     }
   }
 
-  const ownership = await findPropertyIdsNotOwnedByManager(db, ownerUserId, propertyIds);
-  if (!ownership.ok) {
-    return { ok: false, status: 500, error: "Could not verify property ownership. Try again." };
-  }
-  if (ownership.unowned.length > 0) {
-    // Refuse the whole request rather than silently dropping ids: a partial
-    // grant is the failure mode, not the safe outcome.
-    return { ok: false, status: 403, error: "One or more selected properties are not yours to share." };
+  if (propertyIds.length > 0) {
+    const ownership = await findPropertyIdsNotOwnedByManager(db, ownerUserId, propertyIds);
+    if (!ownership.ok) {
+      return { ok: false, status: 500, error: "Could not verify property ownership. Try again." };
+    }
+    if (ownership.unowned.length > 0) {
+      // Refuse the whole request rather than silently dropping ids: a partial
+      // grant is the failure mode, not the safe outcome.
+      return { ok: false, status: 403, error: "One or more selected properties are not yours to share." };
+    }
   }
 
   // A resident link grants no modules, so it stores an EMPTY permission map and
@@ -434,17 +433,17 @@ export async function previewInviteLink(
 export type RedeemInviteLinkResult =
   | { ok: true; kind: "manager"; inviteId: string; alreadyRedeemed: boolean }
   | { ok: true; kind: "resident"; claimId: string; alreadyRedeemed: boolean }
+  | { ok: true; kind: "vendor"; vendorDirectoryId: string; alreadyRedeemed: boolean }
   | { ok: false; status: number; error: string };
 
 /**
- * Spend a use and produce an ADDRESSED invite the opener then accepts.
+ * Spend a use and honour the invite for the signed-in opener.
  *
- * Redeeming does not itself grant anything. It mints a pending
- * `account_link_invites` row naming the opener, and the existing accept path —
- * which re-derives ownership, re-checks both plans and writes the relationship
- * mirrors — is what actually links the accounts. That keeps one implementation
- * of "become a co-manager" instead of a second one reachable only by link, and
- * it means the opener still sees and agrees to what they are joining.
+ * - **manager** — mints a pending `account_link_invites` row; the existing
+ *   accept path is what actually links the accounts.
+ * - **resident** — files a pending claim the manager must approve (grants nothing).
+ * - **vendor** — upserts the opener into `manager_vendor_records` and ensures
+ *   the vendor role (immediate directory join).
  */
 export async function redeemInviteLink(
   db: SupabaseClient,
@@ -461,11 +460,10 @@ export async function redeemInviteLink(
     return { ok: false, status: 400, error: "This is your own invite link." };
   }
 
-  // Refused BEFORE a use is spent: a link that can never be honoured must not
-  // burn the budget its owner set, and it must never fall through to the
-  // co-manager insert below.
+  // Refused BEFORE a use is spent: unknown kinds must not burn the budget or
+  // fall through to the co-manager insert below.
   const linkKind = normalizeInviteLinkKind(link.kind);
-  if (linkKind === "vendor") {
+  if (linkKind !== "manager" && linkKind !== "resident" && linkKind !== "vendor") {
     return { ok: false, status: 400, error: UNSUPPORTED_INVITE_LINK_KIND_ERROR };
   }
 
@@ -498,10 +496,12 @@ export async function redeemInviteLink(
   const verifyOwnershipStillHolds = async (): Promise<
     { ok: true } | { ok: false; status: number; error: string }
   > => {
+    const ids = link.assigned_property_ids ?? [];
+    if (ids.length === 0) return { ok: true };
     const ownership = await findPropertyIdsNotOwnedByManager(
       db,
       String(link.owner_user_id),
-      link.assigned_property_ids ?? [],
+      ids,
     );
     if (!ownership.ok) {
       return { ok: false, status: 500, error: "Could not verify this invite. Try again in a moment." };
@@ -558,6 +558,17 @@ export async function redeemInviteLink(
       redeemerUserId,
       alreadyRedeemed: Boolean(existingRedemption),
       verifyOwnershipStillHolds,
+      spendUse,
+      releaseSpentUse,
+    });
+  }
+
+  if (linkKind === "vendor") {
+    return redeemVendorLink({
+      db,
+      link,
+      redeemerUserId,
+      alreadyRedeemed: Boolean(existingRedemption),
       spendUse,
       releaseSpentUse,
     });
@@ -709,6 +720,125 @@ function toResidentInviteClaim(row: DbClaimRow, linkLabel: string | null): Resid
     linkedApplicationId: row.linked_application_id?.trim() || null,
     createdAt: row.created_at,
   };
+}
+
+/**
+ * Link the opener into the manager's vendor directory and grant the vendor role.
+ *
+ * Unlike co-manager redeem (pending accept) or resident redeem (pending claim),
+ * a vendor link grants immediately: the opener is already signed in, and the
+ * directory row is how work orders find them. Re-opening is idempotent.
+ */
+async function redeemVendorLink(args: {
+  db: SupabaseClient;
+  link: { id: string; owner_user_id: string; label?: string | null };
+  redeemerUserId: string;
+  alreadyRedeemed: boolean;
+  spendUse: () => Promise<{ ok: true } | { ok: false; status: number; error: string }>;
+  releaseSpentUse: () => Promise<void>;
+}): Promise<RedeemInviteLinkResult> {
+  const { db, link, redeemerUserId } = args;
+  const ownerUserId = String(link.owner_user_id);
+
+  const { data: existingDir } = await db
+    .from("manager_vendor_records")
+    .select("id")
+    .eq("manager_user_id", ownerUserId)
+    .eq("vendor_user_id", redeemerUserId)
+    .maybeSingle();
+  if (existingDir?.id) {
+    return {
+      ok: true,
+      kind: "vendor",
+      vendorDirectoryId: String(existingDir.id),
+      alreadyRedeemed: true,
+    };
+  }
+
+  const { data: claimant } = await db
+    .from("profiles")
+    .select("email, full_name, role")
+    .eq("id", redeemerUserId)
+    .maybeSingle();
+  const claimantEmail = String(claimant?.email ?? "").trim().toLowerCase();
+  if (!claimantEmail) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Your account has no email address on it. Add one before joining as a vendor.",
+    };
+  }
+
+  const spent = await args.spendUse();
+  if (!spent.ok) return spent;
+
+  const { error: redemptionError } = await db
+    .from("manager_invite_link_redemptions")
+    .insert({ link_id: link.id, redeemed_by_user_id: redeemerUserId });
+  if (redemptionError && redemptionError.code !== "23505") {
+    await args.releaseSpentUse();
+    return { ok: false, status: 500, error: "Could not record this invite. Try again." };
+  }
+  const recordedRedemption = !args.alreadyRedeemed && !redemptionError;
+
+  try {
+    await ensureProfileRoleRow(db, redeemerUserId, "vendor");
+    await db
+      .from("profiles")
+      .update({ role: primaryRoleWhenAddingVendor(claimant?.role as string | undefined) })
+      .eq("id", redeemerUserId);
+
+    const directoryId = `vendor-${randomBytes(8).toString("hex")}`;
+    const displayName =
+      String(claimant?.full_name ?? "").trim() ||
+      link.label?.trim() ||
+      claimantEmail;
+    const nowIso = new Date().toISOString();
+    const { error: upsertError } = await db.from("manager_vendor_records").upsert(
+      {
+        id: directoryId,
+        manager_user_id: ownerUserId,
+        vendor_user_id: redeemerUserId,
+        row_data: {
+          id: directoryId,
+          managerUserId: ownerUserId,
+          name: displayName,
+          trade: link.label?.trim() || "",
+          phone: "",
+          email: claimantEmail,
+          notes: "",
+          active: true,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+        updated_at: nowIso,
+      },
+      { onConflict: "id" },
+    );
+    if (upsertError) {
+      throw new Error(upsertError.message);
+    }
+    return {
+      ok: true,
+      kind: "vendor",
+      vendorDirectoryId: directoryId,
+      alreadyRedeemed: false,
+    };
+  } catch (error) {
+    if (recordedRedemption) {
+      await db
+        .from("manager_invite_link_redemptions")
+        .delete()
+        .eq("link_id", link.id)
+        .eq("redeemed_by_user_id", redeemerUserId);
+    }
+    await args.releaseSpentUse();
+    return {
+      ok: false,
+      status: 500,
+      error: error instanceof Error ? error.message : "Could not link you as a vendor.",
+    };
+  }
 }
 
 /**

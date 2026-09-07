@@ -85,6 +85,7 @@ export default function InviteLinkClient({ token }: { token: string }) {
         kind?: string;
         inviteId?: string;
         claimId?: string;
+        vendorDirectoryId?: string;
         error?: string;
       };
       if (!res.ok) {
@@ -101,6 +102,14 @@ export default function InviteLinkClient({ token }: { token: string }) {
           return;
         }
         setClaimed(true);
+        return;
+      }
+      if (body.kind === "vendor") {
+        if (!body.vendorDirectoryId) {
+          setError(body.error ?? "Could not join as a vendor.");
+          return;
+        }
+        router.replace("/vendor");
         return;
       }
       if (!body.inviteId) {
@@ -215,7 +224,7 @@ export default function InviteLinkClient({ token }: { token: string }) {
               router.push(`/auth/sign-in?next=${encodeURIComponent(`/invite/${token}`)}`)
             }
           >
-            {isResident ? "Sign in or create an account" : "Sign in to accept"}
+            {isResident ? "Sign in or create an account" : isVendor ? "Sign in or create an account" : "Sign in to accept"}
           </Button>
         ) : (
           <Button
@@ -225,7 +234,7 @@ export default function InviteLinkClient({ token }: { token: string }) {
             loading={busy}
             onClick={() => accept()}
           >
-            {isResident ? "This is my home" : "Continue"}
+            {isResident ? "This is my home" : isVendor ? "Join as vendor" : "Continue"}
           </Button>
         )}
       </div>
@@ -233,7 +242,9 @@ export default function InviteLinkClient({ token }: { token: string }) {
       <p className="mt-4 text-center text-xs text-muted">
         {isResident
           ? "This sends a request to your property manager. Nothing on your account changes until they confirm it."
-          : "You will see exactly what you are being given access to before anything is linked."}
+          : isVendor
+            ? "Accepting adds you to their vendor directory so they can send you services."
+            : "You will see exactly what you are being given access to before anything is linked."}
       </p>
     </AuthCard>
   );

@@ -33,6 +33,7 @@ type Link = {
 
 let link: Link;
 let inviteInsertError: { message: string; code?: string } | null;
+let existingVendorDirectoryId: string | null;
 const inserted: Record<string, unknown[]> = {};
 const linkUpdates: Record<string, unknown>[] = [];
 const deletes: string[] = [];
@@ -65,7 +66,14 @@ function makeDb(): SupabaseClient {
       if (name === "manager_property_records") {
         return link.assigned_property_ids.map((id) => ({ id, manager_user_id: link.owner_user_id }));
       }
-      if (name === "profiles") return [{ axis_id: "AX-1", full_name: "Someone" }];
+      if (name === "profiles") {
+        return [{ id: "peer-1", email: "vendor@example.com", full_name: "Someone", role: "resident", axis_id: "AX-1" }];
+      }
+      if (name === "manager_vendor_records") {
+        return existingVendorDirectoryId
+          ? [{ id: existingVendorDirectoryId, manager_user_id: link.owner_user_id, vendor_user_id: "peer-1" }]
+          : [];
+      }
       return [];
     };
     const result = () => {
@@ -74,6 +82,12 @@ function makeDb(): SupabaseClient {
         return { data: { id: "invite-1" }, error: null };
       }
       if (state.payload && name === "manager_invite_link_redemptions") {
+        return { data: null, error: null };
+      }
+      if (state.payload && name === "manager_vendor_records") {
+        return { data: null, error: null };
+      }
+      if (state.payload && name === "profile_roles") {
         return { data: null, error: null };
       }
       if (name === "manager_invite_links" && state.payload) {
@@ -108,6 +122,11 @@ function makeDb(): SupabaseClient {
         (inserted[name] ??= []).push(payload);
         return q;
       },
+      upsert: (payload: Record<string, unknown>) => {
+        state.payload = payload;
+        (inserted[name] ??= []).push(payload);
+        return q;
+      },
       delete: () => {
         deletes.push(name);
         return { eq: () => ({ eq: async () => ({ data: null, error: null }) }) };
@@ -128,6 +147,7 @@ function makeDb(): SupabaseClient {
 beforeEach(() => {
   link = makeLink();
   inviteInsertError = null;
+  existingVendorDirectoryId = null;
   for (const key of Object.keys(inserted)) delete inserted[key];
   linkUpdates.length = 0;
   deletes.length = 0;
@@ -157,22 +177,34 @@ describe("redeeming a manager invite link", () => {
   });
 });
 
-describe("a link that cannot be honoured", () => {
-  it("refuses a vendor link instead of minting co-manager access", async () => {
-    link = makeLink({ kind: "vendor" });
+describe("redeeming a vendor invite link", () => {
+  it("joins the opener into the owner's vendor directory without co-manager access", async () => {
+    link = makeLink({ kind: "vendor", assigned_property_ids: [], property_permissions: {} });
 
     const result = await redeemInviteLink(makeDb(), { token: "t", redeemerUserId: "peer-1" });
 
-    expect(result).toMatchObject({ ok: false, status: 400 });
+    expect(result).toMatchObject({ ok: true, kind: "vendor", alreadyRedeemed: false });
     expect(inserted.account_link_invites).toBeUndefined();
+    expect(inserted.manager_vendor_records).toHaveLength(1);
+    const row = inserted.manager_vendor_records![0] as Record<string, unknown>;
+    expect(row.manager_user_id).toBe("owner-1");
+    expect(row.vendor_user_id).toBe("peer-1");
+    expect(link.used_count).toBe(1);
   });
 
-  it("refuses it BEFORE spending a use", async () => {
-    link = makeLink({ kind: "vendor" });
+  it("is idempotent when the vendor is already in the directory", async () => {
+    link = makeLink({ kind: "vendor", assigned_property_ids: [], property_permissions: {} });
+    existingVendorDirectoryId = "vendor-existing";
 
-    await redeemInviteLink(makeDb(), { token: "t", redeemerUserId: "peer-1" });
+    const result = await redeemInviteLink(makeDb(), { token: "t", redeemerUserId: "peer-1" });
 
+    expect(result).toEqual({
+      ok: true,
+      kind: "vendor",
+      vendorDirectoryId: "vendor-existing",
+      alreadyRedeemed: true,
+    });
+    expect(inserted.manager_vendor_records).toBeUndefined();
     expect(link.used_count).toBe(0);
-    expect(linkUpdates).toHaveLength(0);
   });
 });
