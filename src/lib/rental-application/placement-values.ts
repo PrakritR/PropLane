@@ -19,6 +19,8 @@ import {
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
 import { resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
 import { parseMoneyAmount } from "@/lib/parse-money";
+import { monthlyRentFoldInTotal } from "@/lib/rent-fold-in";
+import { roomIsDailyPriced, roomIsWeeklyPriced, roomShortLeaseSurcharge, tenancyPaysShortLeaseSurcharge } from "@/lib/room-pricing";
 import { utilitiesBillableMonthlyAmount } from "@/lib/listing-utilities-payment";
 import { residentLeaseTermToApplicationFields } from "@/lib/resident-manual-lease-terms";
 import { shortTermNightlyRate } from "@/lib/short-term-stay-pricing";
@@ -95,8 +97,33 @@ export function resolvePlacementValuesForRow(
   const signedRent = Number(row.signedMonthlyRent ?? 0);
   let signedMonthlyRent = rentOverride > 0 ? rentOverride : signedRent > 0 ? signedRent : 0;
   if (signedMonthlyRent <= 0 && sub) {
-    if (isEntireHomeListing(sub)) signedMonthlyRent = entireHomeMonthlyRentAmount(sub);
-    else if (room?.monthlyRent && room.monthlyRent > 0) signedMonthlyRent = room.monthlyRent;
+    // The LISTING-derived rent is the rent the ledger bills (`selectedRoomRentAmount`): the
+    // room's figure plus the short-lease surcharge this tenancy pays plus every monthly fee
+    // folded into rent (all of them on a Seattle listing). Quoting the bare room rent here
+    // put one number on the lease and a higher one on the ledger. A negotiated rent above
+    // takes NO fold-in, exactly as it takes none on the ledger. Daily- and weekly-priced
+    // rooms carry their fold-in on the basis charge, so only a monthly room adds it here.
+    const foldIn = monthlyRentFoldInTotal(sub, prop, {
+      leaseStart: dates.leaseStart,
+      leaseEnd: dates.leaseEnd,
+      leaseTerm: dates.leaseTerm,
+      rentalType: app?.rentalType,
+    });
+    if (isEntireHomeListing(sub)) {
+      const entireHomeRent = entireHomeMonthlyRentAmount(sub);
+      if (entireHomeRent > 0) signedMonthlyRent = Number((entireHomeRent + foldIn).toFixed(2));
+    } else if (room?.monthlyRent && room.monthlyRent > 0 && !roomIsDailyPriced(room) && !roomIsWeeklyPriced(room)) {
+      const surcharge = tenancyPaysShortLeaseSurcharge(room, {
+        rentalType: app?.rentalType,
+        leaseStart: dates.leaseStart,
+        leaseEnd: dates.leaseEnd,
+      })
+        ? roomShortLeaseSurcharge(room)
+        : 0;
+      signedMonthlyRent = Number((room.monthlyRent + surcharge + foldIn).toFixed(2));
+    } else if (room?.monthlyRent && room.monthlyRent > 0) {
+      signedMonthlyRent = room.monthlyRent;
+    }
   }
 
   const utilOverride = app?.managerUtilitiesOverride?.trim();

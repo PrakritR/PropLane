@@ -298,7 +298,7 @@ export function listingRoomPricingSummaryLabel(room: ManagerRoomSubmission, sub:
 
 /** Active long-term "Other fees" preset/custom lines for wizard preview copy. */
 export function listingOtherFeesPreviewLines(sub: ManagerListingSubmissionV1): string[] {
-  const { oneTime, monthly } = leaseDocumentFeeLines(sub, "long-term");
+  const { oneTime, monthly, foldedIntoRent } = leaseDocumentFeeLines(sub, "long-term");
   const lines: string[] = [];
   for (const fee of oneTime) {
     const amount = parseMoneyAmount(fee.amount);
@@ -307,6 +307,12 @@ export function listingOtherFeesPreviewLines(sub: ManagerListingSubmissionV1): s
   for (const fee of monthly) {
     const amount = parseMoneyAmount(fee.amount);
     if (amount > 0) lines.push(`${fee.label.trim() || "Fee"}: $${amount % 1 === 0 ? amount : amount.toFixed(2)}/mo`);
+  }
+  // A Seattle listing's monthly fees are rent, and the preview says so rather than
+  // implying a separate monthly charge the resident will never see.
+  for (const fee of foldedIntoRent) {
+    const amount = parseMoneyAmount(fee.amount);
+    if (amount > 0) lines.push(`${fee.label.trim() || "Fee"}: $${amount % 1 === 0 ? amount : amount.toFixed(2)}/mo (added to rent)`);
   }
   return lines;
 }

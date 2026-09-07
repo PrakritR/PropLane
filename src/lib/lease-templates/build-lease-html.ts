@@ -48,7 +48,8 @@ import {
   type ProratedLastMonthRateBasis,
   type ProratedLastMonthTotals,
 } from "@/lib/lease-first-period-proration";
-import { resolveStayPricing } from "@/lib/room-pricing";
+import { resolveStayPricing, roomShortLeaseSurcharge, tenancyPaysShortLeaseSurcharge } from "@/lib/room-pricing";
+import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import { resolveSubmissionRoom, submissionRoomRentLabel } from "@/lib/listing-room-resolution";
 import {
   intraMonthStaySpan,
@@ -591,18 +592,110 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   // ── Rent & financials ─────────────────────────────────────────────────────
   const bundleRentLabel = leasedBundle?.price.trim() || "";
   const entireHomeRent = wholeHome && subNorm ? entireHomeMonthlyRentAmount(subNorm) : 0;
+
+  // The fee schedule is resolved here, before the rent figure, because on a Seattle listing
+  // every monthly fee is INSIDE the rent (`leaseDocFees.foldedIntoRent`) and the rent this
+  // document quotes has to be the rent the ledger bills.
+  const leaseBasicsSection = stay.stayKind === "short" ? "short-term" : "long-term";
+  const leaseFeeBillingContext = {
+    leaseStart: a.leaseStart,
+    leaseEnd: a.leaseEnd,
+    leaseTerm: a.leaseTerm,
+    rentalType: a.rentalType,
+  };
+  const leaseDocFees = !subNorm
+    ? { oneTime: [], monthly: [], foldedIntoRent: [] }
+    : leaseDocumentFeeLines(subNorm, leaseBasicsSection, leaseFeeBillingContext, {
+        excludeHoldingDeposit: !propertyTemplatePreview,
+        listingProperty: list,
+      });
+  const rentFoldsMonthlyFees = listingFoldsAllMonthlyFeesIntoRent(subNorm, list);
+  const foldedIntoRentFees = leaseDocFees.foldedIntoRent
+    .map((line) => ({ label: line.label.trim() || "Fee", amount: parseAmount(line.amount) ?? 0 }))
+    .filter((line) => line.amount > 0);
+  const foldedIntoRentTotal = foldedIntoRentFees.reduce((sum, line) => sum + line.amount, 0);
+
+  // A rent the manager typed for THIS resident is the rent, full stop: it takes no fold-in
+  // and no surcharge, on the ledger and so here. A signed rent is different — it was
+  // derived from the listing at approval and already carries both, so the composition
+  // below still explains it.
+  const managerRentOverrideLabel = overrideFeeLabel(a.managerRentOverride, "");
+  const rentIsManagerOverride = Boolean(managerRentOverrideLabel);
+  const monthlyListingRent = !isDailyBasis && stay.basis === "monthly" && !rentIsManagerOverride && !bundleRentLabel;
+  // The room's BARE listing rent — what the fold-in and the surcharge are added to.
+  const roomBareRent = monthlyListingRent
+    ? entireHomeRent > 0
+      ? entireHomeRent
+      : (parseAmount(String(specificRoom?.monthlyRent ?? "")) ?? 0) > 0
+        ? (parseAmount(String(specificRoom?.monthlyRent ?? "")) as number)
+        : undefined
+    : undefined;
+  const rentShortLeaseSurcharge =
+    monthlyListingRent && !wholeHome
+      ? tenancyPaysShortLeaseSurcharge(specificRoom, a)
+        ? roomShortLeaseSurcharge(specificRoom)
+        : 0
+      : 0;
+  const listingQuotedRentNum =
+    roomBareRent !== undefined
+      ? Number((roomBareRent + rentShortLeaseSurcharge + foldedIntoRentTotal).toFixed(2))
+      : undefined;
+  const listingQuotedRentLabel =
+    listingQuotedRentNum !== undefined && listingQuotedRentNum > 0 ? `$${listingQuotedRentNum.toFixed(2)} / month` : "";
+  // A signed-rent label on a lease that is still being prepared is DERIVED from the
+  // application, and it has been seen carrying the bare room rent while the ledger already
+  // billed the folded figure. When it says exactly the bare rent and this tenancy adds a
+  // surcharge or folded fees on top, it is that stale derivation, not a negotiated rent:
+  // quote the listing figure the ledger bills instead. A genuinely negotiated rent is a
+  // manager override, which wins above and is never touched here.
+  const signedRentLabelNum = parseAmount(signedRentLabel ?? "");
+  const signedRentLabelIsStaleDerivation =
+    monthlyListingRent &&
+    roomBareRent !== undefined &&
+    signedRentLabelNum != null &&
+    Math.abs(signedRentLabelNum - roomBareRent) < 0.005 &&
+    rentShortLeaseSurcharge + foldedIntoRentTotal > 0;
   const monthlyRentBaseStr =
     (isDailyBasis ? `${fmtUsd(dailyBasisRate!)} / day` : "") ||
-      overrideFeeLabel(a.managerRentOverride, "") ||
-      signedRentLabel ||
+      managerRentOverrideLabel ||
+      (signedRentLabelIsStaleDerivation ? "" : signedRentLabel) ||
       bundleRentLabel ||
+      listingQuotedRentLabel ||
       (entireHomeRent > 0 ? `$${entireHomeRent.toFixed(2)} / month` : "") ||
       submissionRoomRentLabel(specificRoom) ||
       room?.rentLabel ||
       list?.rentLabel ||
       "As set forth in the Rent Schedule";
-  // A per-day figure never sits under a "Monthly" label.
-  const rentRowLabel = isDailyBasis ? "Daily base rent" : "Monthly base rent";
+
+  // What the quoted rent is made of, when it is more than the room's base figure. The
+  // resident is billed ONE rent line, so the document says why that line is higher than
+  // the base rate rather than listing the parts as fees that would read as extra charges.
+  const rentCompositionParts: { label: string; amount: number }[] = [
+    ...(rentShortLeaseSurcharge > 0 ? [{ label: "Short-lease surcharge", amount: rentShortLeaseSurcharge }] : []),
+    ...(!isDailyBasis && stay.basis === "monthly" && !rentIsManagerOverride ? foldedIntoRentFees : []),
+  ];
+  const quotedMonthlyRentNum = parseAmount(monthlyRentBaseStr);
+  const rentCompositionTotal = rentCompositionParts.reduce((sum, part) => sum + part.amount, 0);
+  // The clause explains the quoted rent as base + parts, so it renders ONLY when the quoted
+  // figure IS base + parts. A rent that came from anywhere else (a signed figure, a bundle)
+  // gets no explanation rather than an invented base that makes the arithmetic work.
+  const rentCompositionBase =
+    quotedMonthlyRentNum != null && roomBareRent !== undefined &&
+    Math.abs(quotedMonthlyRentNum - (roomBareRent + rentCompositionTotal)) < 0.01
+      ? roomBareRent
+      : null;
+  const rentCompositionHtml =
+    !isDailyBasis && rentCompositionParts.length > 0 && quotedMonthlyRentNum != null && rentCompositionBase != null && rentCompositionBase > 0
+      ? `<p class="rent-composition" data-rent-composition="true">Monthly rent of <strong>${escapeHtml(fmtUsd(quotedMonthlyRentNum))}</strong> is made up of <strong>${escapeHtml(fmtUsd(rentCompositionBase))}</strong> base rent plus ${rentCompositionParts
+          .map((part) => `${escapeHtml(fmtUsd(part.amount))} ${escapeHtml(part.label.toLowerCase())}`)
+          .join(", ")}. These amounts are part of the rent, not separate fees: no separate monthly charge is billed for them, and they are stated here so Resident can see why the rent is higher than the base rate.</p>`
+      : "";
+  const rentIncludesSummary = rentCompositionHtml
+    ? `includes ${rentCompositionParts.map((part) => `${fmtUsd(part.amount)} ${part.label.toLowerCase()}`).join(", ")}`
+    : "";
+  // A per-day figure never sits under a "Monthly" label, and a figure that carries a
+  // surcharge or folded fee is the rent, not the base rent.
+  const rentRowLabel = isDailyBasis ? "Daily base rent" : rentCompositionHtml ? "Monthly rent" : "Monthly base rent";
   const monthlyRentStr = monthlyRentBaseStr;
 
   const rentNum = parseAmount(monthlyRentStr);
@@ -661,20 +754,9 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
   const customFeeSigningRows = billableOneTimeCustomFees
     .map((f) => `  <tr><th>${escapeHtml(f.label?.trim() || "Custom fee")}</th><td class="amount">${escapeHtml(fmtUsd(parseAmount(f.amount) ?? 0))}</td></tr>`)
     .join("\n");
-  const leaseBasicsSection = stay.stayKind === "short" ? "short-term" : "long-term";
-  const leaseFeeBillingContext = {
-    leaseStart: a.leaseStart,
-    leaseEnd: a.leaseEnd,
-    leaseTerm: a.leaseTerm,
-    rentalType: a.rentalType,
-  };
-  const leaseDocFees = !subNorm
-    ? { oneTime: [], monthly: [] }
-    : leaseDocumentFeeLines(subNorm, leaseBasicsSection, leaseFeeBillingContext, {
-        excludeHoldingDeposit: !propertyTemplatePreview,
-      });
-  // Monthly preset + custom fees (parking, MTM surcharge, custom lease, etc.) bill recurring
-  // and must appear in the lease — not only genuinely-custom rows.
+  // Monthly preset + custom fees (parking, MTM surcharge, custom lease, etc.) that bill as
+  // their own recurring charge must appear in the lease — not only genuinely-custom rows.
+  // Fees folded into rent are NOT here: they are already inside the rent figure above.
   const billableMonthlyCustomFees = leaseDocFees.monthly;
   const supplementalOneTimeLeaseFees = leaseDocFees.oneTime.filter((line) => {
     const amount = parseAmount(line.amount);
@@ -936,9 +1018,13 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
    */
   const rollsOverToMonthToMonth = subNorm?.rolloverToMonthToMonth === true;
   const rolloverSurchargeAmount = parseAmount(subNorm?.monthToMonthSurcharge ?? "") ?? 0;
+  // On a Seattle listing the surcharge is rent, so the clause says the rent rises rather
+  // than that a fee is added — the ledger bills exactly one rent line either way.
   const rolloverSurchargeClause =
     rollsOverToMonthToMonth && rolloverSurchargeAmount > 0
-      ? ` A month-to-month surcharge of <strong>${fmtUsd(rolloverSurchargeAmount)}</strong> per month applies during that period.`
+      ? rentFoldsMonthlyFees
+        ? ` During that period the monthly rent increases by <strong>${fmtUsd(rolloverSurchargeAmount)}</strong>; that increase is a month-to-month surcharge that is part of the rent, not a separate fee.`
+        : ` A month-to-month surcharge of <strong>${fmtUsd(rolloverSurchargeAmount)}</strong> per month applies during that period.`
       : "";
 
   // Same guard the ledger uses: a term that begins and ends inside one calendar month is
@@ -1413,6 +1499,9 @@ ${customTermsAddendumHtml(subNorm, "Additional Provisions from Owner/Host", prop
       })),
       billableMonthlyCustomFees,
       supplementalOneTimeLeaseFees,
+      rentCompositionHtml,
+      rentIncludesSummary,
+      rentFoldsMonthlyFees,
       paymentAtSigningIncludes: subNorm?.paymentAtSigningIncludes,
       paymentMethod,
       monthlyDueDay,
@@ -1538,6 +1627,7 @@ ${config.renewalOfferParagraph ? `<p>${escapeHtml(config.renewalOfferParagraph)}
   ${monthlyCustomFeeSummaryRows}
   ${documentTotalMonthly ? `<tr class="total-row"><th>Total monthly payment</th><td><strong>${documentTotalMonthly}</strong></td></tr>` : ""}
 </table>
+${rentCompositionHtml}
 ${isDailyBasis ? `<p>Rent for this Premises is charged <strong>by the day</strong>. Each month's rent is the actual number of days of the term falling in that month multiplied by the daily base rent above. No fixed monthly rent total applies. The utilities estimate is billed monthly and is prorated for any partial month.</p>` : ""}
 <p>Rent is due on the <strong>${monthlyDueDay}</strong> of each month. ${paymentMethod}</p>
 ${lateFeeHtml}
