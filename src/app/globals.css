@@ -64,9 +64,9 @@
   --glass-border: var(--pl-line);
   --portal-surface-dark: #0b1120;
   --portal-surface-light: var(--pl-white-muted);
-  --status-pending-fg: #b45309;
+  --status-pending-fg: #a34a06; /* 5.3:1 on --status-pending-bg (PRP-184 #2) */
   --status-pending-bg: #fdf0d5;
-  --status-approved-fg: var(--pl-blue);
+  --status-approved-fg: #2456d6; /* 5.3:1 on --status-approved-bg; --pl-blue measured 3.8 (PRP-184 #2) */
   --status-approved-bg: #e6edff;
   --status-confirmed-fg: #15803d;
   --status-confirmed-bg: #dcfce7;
@@ -203,9 +203,9 @@
   --btn-metallic: linear-gradient(135deg, #ffffff 0%, #bcd4ff 100%);
   --shadow-card: 0 20px 50px -38px rgba(15, 23, 42, 0.22), 0 2px 8px -4px rgba(15, 23, 42, 0.06);
   --shadow-card-hover: 0 28px 56px -36px rgba(47, 107, 255, 0.18), 0 8px 24px -12px rgba(15, 23, 42, 0.1);
-  --status-pending-fg: #a06b15;
+  --status-pending-fg: #a34a06;
   --status-pending-bg: #fdeccb;
-  --status-approved-fg: #2f6bff;
+  --status-approved-fg: #2456d6;
   --status-approved-bg: #e2ebff;
   --status-confirmed-fg: #1f8a5b;
   --status-confirmed-bg: #d8f3e4;
