@@ -319,12 +319,26 @@ For **bugs**: role, URL, browser width, `/demo` yes/no.
 
 | Status | Meaning |
 | --- | --- |
-| **Backlog** | Idea or screenshot-only; not scheduled |
+| **Backlog** | Default resting place — including after a lane fix is committed |
 | **Todo** | Spec complete, correct project + milestone + labels |
-| **In Progress** | Assignee actively coding |
-| **Done** | Shipped + verified on localhost:3011 or staging |
+| **In Progress** | Assignee is **actively** coding right now (move back when you stop) |
+| **Done** | **Live on production** — captain only; never an agent lane commit |
 | **Canceled** | Won't do |
 | **Duplicate** | Link canonical PRP in comment |
+
+### Agent rule (standing order)
+
+A commit on `cursor-*` / `claude-*` is **not** shipped. Agents must:
+
+1. Leave the issue in **Backlog** (or **In Progress** only while actively working it).
+2. After committing, post the commit SHA as a Linear comment — do **not** flip to Done.
+3. Never re-flip issues the captain moved from Done → Backlog.
+
+```bash
+npm run linear:comment -- --ticket PRP-### --sha <commit> --lane cursor-1
+```
+
+Only the captain marks **Done** after the work is live on production.
 
 ---
 
@@ -346,25 +360,25 @@ For **bugs**: role, URL, browser width, `/demo` yes/no.
 ## Epics and children
 
 - **PRP-102** — `[Epic] Unified messaging hub` lives in **06 / Epic — Unified hub**
-- Children PRP-103–109, 150, 151 stay under that parent; when a child ships, move
-  it to the specific milestone (SMS, Automation, etc.) and mark Done
+- Children PRP-103–109, 150, 151 stay under that parent; when a child is **live
+  on production**, the captain moves it to the specific milestone and marks Done
 - Do not close PRP-102 until all children are Done or Canceled
 
 ---
 
 ## Dev / agent workflow
 
-1. Pull from **Todo** in your project milestone (Urgent → High first)
-2. **In Progress** + assign yourself
-3. Code on `cursor-2` → http://localhost:3011
+1. Pull from **Todo** / **Backlog** in your project milestone (Urgent → High first)
+2. **In Progress** only while actively coding; return to **Backlog** when you stop
+3. Code on your keeper branch → this pane's sandbox URL
 4. Read `docs/agents/<area>.md` before touching that subsystem
 5. Commit message includes `PRP-###`
-6. **Done** after happy path + edge checks (not `/demo` alone)
-7. Comment on issue: what shipped, how tested
+6. Happy path + edge checks on the sandbox (not `/demo` alone) — still **not Done**
+7. Comment with commit SHA + what was tested (status stays Backlog)
 
 ```bash
-cursor agent mcp login linear          # once per machine
-cursor agent mcp list                  # linear: ready
+npm run linear:comment -- --ticket PRP-### --sha <commit> --lane <keeper>
+# GraphQL via LINEAR_API_KEY — do not use Linear MCP for tickets/status
 ```
 
 ---

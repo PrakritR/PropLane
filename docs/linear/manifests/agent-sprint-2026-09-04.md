@@ -136,7 +136,9 @@ bin/fm-prakrit-sync-agent-branches.sh claude-1
 bin/fm-proplane-promote-to-prakrit.sh cursor-1
 ```
 
-**Done when:** `origin/prakrit` contains all three keeper tips; open Linear tickets moved to Done or split children filed.
+**Done when:** `origin/prakrit` contains all three keeper tips; open Linear tickets
+get a commit-SHA comment (status stays Backlog — **Done** is captain-only when live
+on production). Split children filed if needed.
 
 ---
 

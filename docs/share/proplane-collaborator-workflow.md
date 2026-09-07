@@ -39,6 +39,8 @@ reviewed plan. This doc is for anyone joining the team (engineers, designers, QA
 
 **Backlog sort (Linear view):** Project (category) → Priority → Assignee. Pull Todo in that order.
 
+**Status:** Agents leave issues in **Backlog** (In Progress only while actively coding). After a lane commit they comment the SHA (`npm run linear:comment`) — they never mark **Done**. **Done = live on production**, captain only.
+
 Re-run triage anytime: `npm run linear:triage` (needs `LINEAR_API_KEY` in `.env.local`).
 Full rules: `docs/linear-ticket-system.md` → **Priority & backlog sort**.
 
