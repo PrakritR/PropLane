@@ -18,6 +18,7 @@ import {
   Megaphone,
   MessageSquare,
   MessagesSquare,
+  Receipt,
   ScrollText,
   ShieldCheck,
   UserCog,
@@ -54,6 +55,8 @@ const SECTION_ICONS: Record<string, LucideIcon> = {
   "background-check": ShieldCheck,
   "background-checks": ShieldCheck,
   payments: CreditCard,
+  // Distinct from Payments (a manager's resident charges): this is what PropLane bills.
+  billing: Receipt,
   documents: Folder,
   financials: BarChart3,
   services: Wrench,

@@ -11,6 +11,7 @@ import { ManagerProfile } from "@/components/portal/pro-profile";
 import { AdminCreateManagerClient } from "@/components/portal/admin-create-manager-client";
 import { AdminCreateResidentClient } from "@/components/portal/admin-create-resident-client";
 import { AdminAxisUsersClient } from "@/components/portal/admin-axis-users-client";
+import { AdminBillingClient } from "@/components/portal/admin-billing-client";
 import { AdminPropertiesClient } from "@/components/portal/admin-properties-client";
 import { AdminEventsClient } from "@/components/portal/admin-events-client";
 import { AdminProfileSection } from "@/components/portal/admin-profile-section";
@@ -472,6 +473,11 @@ export async function renderPortalSection(
   if (kind === "admin" && section === "axis-users") {
     if (tabParts?.length) notFound();
     return <AdminAxisUsersClient />;
+  }
+
+  if (kind === "admin" && section === "billing") {
+    if (tabParts?.length) notFound();
+    return <AdminBillingClient />;
   }
 
   if (kind === "admin" && section === "leases") {
