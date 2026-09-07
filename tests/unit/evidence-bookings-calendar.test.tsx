@@ -57,6 +57,9 @@ import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { ManagerPropertyBookingsPanel } from "@/components/portal/pro-property-bookings-panel";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
+// PRP-398: Bookings draws only FULLY EXECUTED leases — an offer still out for
+// signature no longer holds the room. `stageLabel` is display copy the predicate
+// never reads, so the executed state has to be stated as `status`/`fullySignedAt`.
 const LEASES = [
   {
     id: "lease-1",
@@ -64,6 +67,8 @@ const LEASES = [
     residentName: "Cv Ponce",
     roomChoice: "mgr-house-1::room-a",
     stageLabel: "Signed",
+    status: "Fully Signed",
+    fullySignedAt: "2026-08-01T12:00:00.000Z",
     application: { leaseStart: "2026-08-04", leaseEnd: "2026-08-12" },
   },
 ] as never[];

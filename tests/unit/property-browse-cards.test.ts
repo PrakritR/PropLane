@@ -170,6 +170,9 @@ describe("buildPropertyBrowseCards", () => {
     expect(rows.length).toBeGreaterThan(0);
   });
 
+  // PRP-398: an approved application does NOT hold a room on the public listing.
+  // Only a manager-added resident (`manuallyAdded`) or a fully executed lease does,
+  // so the fixture below has to be a genuine hold rather than a bare approval.
   it("hides rooms occupied during the requested move-in window", () => {
     const property = mockProperty({
       id: "brooklyn",
@@ -186,6 +189,7 @@ describe("buildPropertyBrowseCards", () => {
       {
         id: "resident-1",
         bucket: "approved",
+        manuallyAdded: true,
         assignedPropertyId: "brooklyn",
         assignedRoomChoice: `brooklyn${LISTING_ROOM_CHOICE_SEP}r3`,
         manualResidentDetails: {
@@ -213,6 +217,44 @@ describe("buildPropertyBrowseCards", () => {
       moveIn: "2026-09-14",
     });
     expect(available.some((r) => r.roomId === "r3")).toBe(true);
+  });
+
+  it("keeps a room browsable while an approved application is still unsigned (PRP-398)", () => {
+    const property = mockProperty({
+      id: "brooklyn",
+      listingSubmission: {
+        v: 1,
+        rooms: [{ id: "r3", name: "Room 3", monthlyRent: 825, floor: "", detail: "", furnishing: "", roomAmenitiesText: "", utilitiesEstimate: "", photoDataUrls: [] }],
+        bathrooms: [],
+        buildingPhotos: [],
+        entireHome: false,
+      } as MockProperty["listingSubmission"],
+    });
+
+    // Same window as above, but a plain approval with no executed lease and no
+    // manager-added resident. Public availability must not move for it.
+    writeManagerApplicationRows([
+      {
+        id: "resident-1",
+        bucket: "approved",
+        assignedPropertyId: "brooklyn",
+        assignedRoomChoice: `brooklyn${LISTING_ROOM_CHOICE_SEP}r3`,
+        manualResidentDetails: {
+          moveInDate: "2026-05-23",
+          moveOutDate: "2026-09-05",
+          roomNumber: "Room 3",
+        },
+      } as never,
+    ]);
+
+    const rows = filterRoomListings([property], {
+      zipRaw: "",
+      radiusMiles: 50,
+      maxBudgetNum: null,
+      bathroom: "any",
+      moveIn: "2026-06-01",
+    });
+    expect(rows.some((r) => r.roomId === "r3")).toBe(true);
   });
 });
 
