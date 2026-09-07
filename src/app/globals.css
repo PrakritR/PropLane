@@ -2766,6 +2766,18 @@ html[data-portal-sticky-chrome] .portal-calendar-compact-body {
   touch-action: pan-y;
 }
 
+/* PRP-371: vendor (and other nested) calendars scroll inside this body, not
+   #portal-main-content — so the page's bottom-nav padding never clears the last
+   slot rows. Reuse the shared mobile scroll inset (nav + gap [+ FAB]), never a
+   per-panel `bottom`. flowScroll pages already extend the outer scroller, so
+   skip them to avoid stacking a second pad. */
+html[data-portal-sticky-chrome]
+  .portal-calendar-compact:not(.portal-calendar-flow-scroll)
+  .portal-calendar-compact-body {
+  padding-bottom: var(--portal-mobile-scroll-bottom-inset);
+  scroll-padding-bottom: var(--portal-mobile-scroll-bottom-inset);
+}
+
 html[data-portal-sticky-chrome] .portal-calendar-grid-slot {
   touch-action: pan-y;
 }
