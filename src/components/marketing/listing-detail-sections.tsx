@@ -29,22 +29,8 @@ import { buildSmsDeepLink, isClawMessagingPubliclyEnabled } from "@/lib/claw-lea
 import { ProspectListingCta } from "@/components/marketing/prospect-listing-cta";
 import type { MockProperty } from "@/data/types";
 import { DEFAULT_LISTING_HOUSE_RULES_FALLBACK, type ListingRichContent } from "@/data/listing-rich-content";
+import { filterListingSidebarQuickFacts } from "@/data/listing-rich-from-submission";
 import { NoImagePlaceholder } from "@/components/ui/no-image-placeholder";
-
-function filterSidebarQuickFacts(
-  facts: { label: string; value: string }[],
-  property: MockProperty,
-): { label: string; value: string }[] {
-  const title = property.title?.trim().toLowerCase() ?? "";
-  const skip = new Set(["Neighborhood", "Overview", "Bedrooms"]);
-  return facts.filter((q) => {
-    const label = q.label.trim();
-    const value = q.value.trim();
-    if (!value || value === "—" || skip.has(label)) return false;
-    if (label === "Building" && value.toLowerCase() === title) return false;
-    return true;
-  });
-}
 
 const listingSectionScroll =
   "scroll-mt-[var(--listing-sticky-stack,calc(env(safe-area-inset-top,0px)+9.5rem))]";
@@ -250,7 +236,7 @@ function Sidebar({
   rich: ListingRichContent;
   className?: string;
 }) {
-  const sidebarFacts = filterSidebarQuickFacts(rich.quickFacts, property);
+  const sidebarFacts = filterListingSidebarQuickFacts(rich.quickFacts, property);
   return (
     <aside
       className={`order-2 space-y-5 lg:sticky lg:top-[var(--listing-sticky-stack,calc(env(safe-area-inset-top,0px)+7.5rem))] lg:self-start ${className}`}

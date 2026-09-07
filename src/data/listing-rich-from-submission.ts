@@ -946,11 +946,75 @@ function buildDefaultMultiRoomBundleCard(
   };
 }
 
+/** The four `MockProperty` fields the auto-generated sidebar actually reads. */
+type ListingSidebarPropertyFacts = Pick<MockProperty, "buildingName" | "title" | "beds" | "baths">;
+
+export type ListingSidebarQuickFact = { label: string; value: string };
+
+/**
+ * The rooms the listing page counts: a row with a name or a rent. The entry
+ * builder and the wizard's sidebar preview share this so "Rooms listed" cannot
+ * disagree between the two.
+ */
+function listedRoomsFromSubmission(sub: ManagerListingSubmissionV1): ManagerRoomSubmission[] {
+  return sub.rooms
+    .filter((r) => r.name.trim() || r.monthlyRent > 0)
+    .map((r, index) => ({
+      ...r,
+      name: r.name.trim() || `Room ${index + 1}`,
+    }));
+}
+
+/**
+ * The public "At a glance" card's own filter: blank rows, rows the page already
+ * says elsewhere (Neighborhood / Overview / Bedrooms), and a Building row that
+ * merely repeats the title. The listing page and the wizard preview both run
+ * it, so the preview shows exactly the rows a renter will.
+ */
+export function filterListingSidebarQuickFacts(
+  facts: ListingSidebarQuickFact[],
+  property: Pick<MockProperty, "title">,
+): ListingSidebarQuickFact[] {
+  const title = property.title?.trim().toLowerCase() ?? "";
+  const skip = new Set(["Neighborhood", "Overview", "Bedrooms"]);
+  return facts.filter((q) => {
+    const label = q.label.trim();
+    const value = q.value.trim();
+    if (!value || value === "—" || skip.has(label)) return false;
+    if (label === "Building" && value.toLowerCase() === title) return false;
+    return true;
+  });
+}
+
+/**
+ * The sidebar rows the listing page derives when the manager adds no custom
+ * quick facts, computed from the submission alone so the wizard can show them
+ * before anything is saved. The property shape mirrors
+ * `buildMockPropertyFromDraft`: the title is `Building · Unit`, and the
+ * bed/bath fallbacks are only consulted when the submission lists no rooms or
+ * bathrooms, where a draft has nothing better either.
+ */
+export function autoListingSidebarQuickFacts(incoming: ManagerListingSubmissionV1): ListingSidebarQuickFact[] {
+  const sub = normalizeManagerListingSubmissionV1(incoming);
+  const rooms = listedRoomsFromSubmission(sub);
+  const buildingName = sub.buildingName.trim();
+  // The submission carries no unit label; the pipeline title is always
+  // `Building · Unit`, so it never equals the bare building name and the
+  // Building row survives the filter exactly as it does on the listing page.
+  const property: ListingSidebarPropertyFacts = {
+    buildingName,
+    title: `${buildingName || "Property"} · Unit`,
+    beds: rooms.length,
+    baths: 0,
+  };
+  return filterListingSidebarQuickFacts(deriveQuickFacts(sub, rooms, property), property);
+}
+
 function deriveQuickFacts(
   sub: ManagerListingSubmissionV1,
   rooms: ManagerRoomSubmission[],
-  property: MockProperty,
-): { label: string; value: string }[] {
+  property: ListingSidebarPropertyFacts,
+): ListingSidebarQuickFact[] {
   const building = property.buildingName?.trim();
   const title = property.title?.trim();
   const facts: { label: string; value: string }[] = [
@@ -1057,12 +1121,7 @@ export function listingRichFromManagerSubmission(
   incoming: ManagerListingSubmissionV1,
 ): ListingRichContent {
   const sub = normalizeManagerListingSubmissionV1(incoming);
-  const rooms = sub.rooms
-    .filter((r) => r.name.trim() || r.monthlyRent > 0)
-    .map((r, index) => ({
-      ...r,
-      name: r.name.trim() || `Room ${index + 1}`,
-    }));
+  const rooms = listedRoomsFromSubmission(sub);
   const floorsMap = new Map<string, typeof rooms>();
   for (const r of rooms) {
     const fl = r.floor.trim() || "Floor plan";
