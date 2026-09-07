@@ -65,18 +65,38 @@ const testRunId = process.argv[2]?.trim() || `seed-${Date.now()}`;
 
 // `?.trim() ||` (never `??`): CI injects a missing secret as an empty string,
 // which must fall back to the same defaults tests/fixtures/index.ts resolves.
-const adminEmail = (process.env.E2E_ADMIN_EMAIL?.trim() || "admin@test.proplane.local").toLowerCase();
+/**
+ * The canonical accounts live at `@test.proplane.local`. A worktree's copied `.env.test` can
+ * still name the retired `@test.axis.local` family (the pre-rebrand domain), and seeding THAT
+ * family collides with the canonical one on `profiles.manager_id` (the AXIS ids are unique
+ * and shared), which surfaces as "duplicate key value violates unique constraint
+ * profiles_manager_id_key" and a portal with no applications. The seed therefore refuses the
+ * legacy domain and maps it to the canonical one, loudly, rather than seeding a ghost.
+ */
+const LEGACY_TEST_ACCOUNT_DOMAIN = "@test.axis.local";
+const CANONICAL_TEST_ACCOUNT_DOMAIN = "@test.proplane.local";
+function canonicalTestEmail(envName, fallback) {
+  const raw = (process.env[envName]?.trim() || fallback).toLowerCase();
+  if (!raw.endsWith(LEGACY_TEST_ACCOUNT_DOMAIN)) return raw;
+  const mapped = raw.slice(0, -LEGACY_TEST_ACCOUNT_DOMAIN.length) + CANONICAL_TEST_ACCOUNT_DOMAIN;
+  console.warn(
+    `[seed] ${envName}=${raw} names the retired ${LEGACY_TEST_ACCOUNT_DOMAIN} family; seeding ${mapped} instead. ` +
+      `Update .env.test to the ${CANONICAL_TEST_ACCOUNT_DOMAIN} accounts.`,
+  );
+  return mapped;
+}
+const adminEmail = canonicalTestEmail("E2E_ADMIN_EMAIL", "admin@test.proplane.local");
 const adminPassword = process.env.E2E_ADMIN_PASSWORD?.trim() || "TestAdmin123!";
-const managerEmail = (process.env.E2E_MANAGER_EMAIL?.trim() || "manager@test.proplane.local").toLowerCase();
+const managerEmail = canonicalTestEmail("E2E_MANAGER_EMAIL", "manager@test.proplane.local");
 const managerPassword = process.env.E2E_MANAGER_PASSWORD?.trim() || "TestManager123!";
-const residentEmail = (process.env.E2E_RESIDENT_EMAIL?.trim() || "resident@test.proplane.local").toLowerCase();
+const residentEmail = canonicalTestEmail("E2E_RESIDENT_EMAIL", "resident@test.proplane.local");
 const residentPassword = process.env.E2E_RESIDENT_PASSWORD?.trim() || "TestResident123!";
 // Must match E2E_RESIDENT_AXIS_ID in tests/fixtures/index.ts. The application
 // record id IS the resident's axis id (see normalizeApplicationAxisId), and the
 // resident's `profiles.manager_id` stores the same axis id — that is where the
 // app reads it (resident-portal-access.ts, resident-profile-panel.tsx).
 const residentAxisId = process.env.E2E_RESIDENT_AXIS_ID?.trim() || "AXIS-TESTRSID";
-const vendorEmail = (process.env.E2E_VENDOR_EMAIL?.trim() || "vendor@test.proplane.local").toLowerCase();
+const vendorEmail = canonicalTestEmail("E2E_VENDOR_EMAIL", "vendor@test.proplane.local");
 const vendorPassword = process.env.E2E_VENDOR_PASSWORD?.trim() || "TestVendor123!";
 // All-portals sandbox account for manual testing: one login that can open every
 // portal (admin + manager + resident + vendor) via the sign-in role picker.
