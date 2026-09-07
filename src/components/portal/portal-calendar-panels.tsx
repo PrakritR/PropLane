@@ -475,6 +475,8 @@ export type DemoMeeting = {
   isPeerTour?: boolean;
   /** Personal Google Calendar busy time — title/details must not be shown in the UI. */
   googleCalendarPrivate?: boolean;
+  /** Google `eventType` metadata rows (working location, birthday) — never paint or block. */
+  googleCalendarInformational?: boolean;
   /**
    * Does this meeting make the manager unavailable for a tour? Absent means yes.
    *
@@ -492,14 +494,14 @@ export function meetingConsumesTourSlot(meeting: DemoMeeting): boolean {
 }
 
 /**
- * Whether a meeting paints a grid cell. Personal Google blocks that do not
- * consume tour capacity (Free, declined, working location, birthdays) must not
+ * Whether a meeting paints a grid cell. Informational Google metadata must not
  * render as grey "Blocked" — that was the linked-calendar "everything blocked"
- * regression while day headers still read "0 EVENTS".
+ * regression while day headers still read "0 EVENTS". Free and declined events
+ * still draw (labelled "Free") so the manager can see them.
  */
 export function meetingPaintsCalendarGrid(meeting: DemoMeeting): boolean {
   if (!isGoogleCalendarPrivateBlock(meeting)) return true;
-  return meetingConsumesTourSlot(meeting);
+  return !meeting.googleCalendarInformational;
 }
 
 function shiftDateStr(dateStr: string, days: number): string {
@@ -2806,7 +2808,7 @@ export function PortalCalendarPanels({
                       <span className="block truncate">{meetingCalendarGridLabel(meeting)}</span>
                     ) : (
                       <span className="block truncate opacity-70">
-                        {isGoogleCalendarPrivateBlock(meeting) ? "Blocked" : meeting.statusLabel}
+                        {meetingCalendarGridLabel(meeting)}
                       </span>
                     )
                   ) : selected ? (
@@ -3214,7 +3216,9 @@ export function PortalCalendarPanels({
                   </div>
                   <div className="grid grid-cols-[72px_minmax(0,1fr)] gap-px bg-accent/30">
                     {visibleSlotIndices.map((slotIdx) => {
-                      const meeting = meetings.find((m) => m.dateStr === ds && m.startSlot === slotIdx);
+                      const meeting = meetings.find(
+                        (m) => m.dateStr === ds && m.startSlot === slotIdx && meetingPaintsCalendarGrid(m),
+                      );
                       return (
                         <Fragment key={`${ds}-${slotIdx}`}>
                           <div className={`bg-card px-3 py-2 text-[11px] ${CALENDAR_TIME_CELL}`}>{formatAvailabilitySlotLabel(slotIdx)}</div>
@@ -3251,7 +3255,9 @@ export function PortalCalendarPanels({
             </div>
             {visibleSlotIndices.map((slotIdx) => {
               const ds = toLocalDateStr(anchorDate);
-              const meeting = meetings.find((m) => m.dateStr === ds && m.startSlot === slotIdx);
+              const meeting = meetings.find(
+                (m) => m.dateStr === ds && m.startSlot === slotIdx && meetingPaintsCalendarGrid(m),
+              );
               return (
                 <Fragment key={slotIdx}>
                   <div className={`bg-card px-2 py-2 text-[11px] ${CALENDAR_TIME_CELL}`}>{formatAvailabilitySlotLabel(slotIdx)}</div>

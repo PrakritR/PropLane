@@ -86,13 +86,14 @@ remove the last place two definitions of "open" can drift.
   window the cached read actually COVERS, since busy time is subtracted across
   the whole range of slots the response offers, not just the default horizon
   (`googleBusyWindowEndMs`). What counts as busy is `googleEventBlocksTours`
-  (`google-calendar/busy.ts`) — declined never blocks, all-day always does
-  (Google defaults all-day entries to Free), Free does not. The MANAGER's
-  calendar runs the SAME predicate, but as a tag rather than a filter:
-  `googleCalendarEventsToMeetings` draws every Google event and carries
-  `blocksTourAvailability`, which only the "N open" math reads — so a declined or
-  Free event stays visible on the grid without the headers disagreeing with what
-  a prospect is offered.
+  (`google-calendar/busy.ts`) — declined never blocks, informational types
+  (`birthday`, `workingLocation`) never block, Free ("transparent") does not,
+  out-of-office/focus-time always do. The MANAGER calendar runs the SAME
+  predicate, but as a tag rather than a filter: `googleCalendarEventsToMeetings`
+  carries `blocksTourAvailability`, which only the "N open" math reads. Free and
+  declined private Google rows still draw on the grid (labelled "Free") without
+  the headers disagreeing with what a prospect is offered; informational metadata
+  rows do not draw at all.
 - **The route is IP rate-limited** (`rateLimit`, 60/min) because it is public,
   unauthenticated and uncached, and each request fans out one Google read per
   host manager — a read that can also refresh and write back that manager's
