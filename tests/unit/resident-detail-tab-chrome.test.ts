@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   RESIDENT_DETAIL_TABS,
+  residentDetailTabsForStage,
 } from "@/lib/portal-detail-routes";
 import {
   RESIDENT_DETAIL_APPLICATION_BUCKET_TABS,
@@ -39,13 +40,21 @@ describe("resident detail tab chrome", () => {
     ]);
   });
 
-  it("manager resident detail always includes tours in the tab strip", () => {
+  it("puts tours on a prospect's tab strip and takes it off a tenant's", () => {
+    // Tours used to be unconditional here. It is now a stage decision: a
+    // potential resident is the person who tours, and a tenant is past it.
+    // Asserted through the shared table rather than by grepping the component,
+    // so a refactor of the component cannot fail this while the rule holds.
+    expect(residentDetailTabsForStage("potential")).toContain("tours");
+    expect(residentDetailTabsForStage("current")).not.toContain("tours");
+    expect(residentDetailTabsForStage("past")).not.toContain("tours");
+
+    // Whichever stage shows it, the panel must still be handed the manager's
+    // portfolio property ids — without them a resident's tours do not load.
     const src = readFileSync(
       `${process.cwd()}/src/components/portal/pro-residents.tsx`,
       "utf8",
     );
-    expect(src).toContain('const tabs: ResidentDetailTabId[] = ["tours"]');
-    expect(src).not.toContain("showResidentTours");
     expect(src).toContain("propertyIds={managerPortfolioPropertyIds}");
     // The bucket strip moved into the tours panel this file hands off to, so read
     // it where it now lives — asserting on this file would pass again only if the
