@@ -190,7 +190,7 @@ import {
   syncLeasePipelineFromServer,
   runLeaseDownload,
   hasBothLeaseSignatures,
-  residentHasSignedLease,
+  leaseAwaitingManagerCountersign,
   countManagerLeaseTabs,
   leaseRowMatchesManagerTab,
   type LeasePipelineRow,
@@ -2802,7 +2802,7 @@ export function ManagerResidents({
     : null;
 
   function signLeaseAsManager(row: LeasePipelineRow) {
-    if (!residentHasSignedLease(row)) {
+    if (!leaseAwaitingManagerCountersign(row)) {
       showToast("The resident must sign the lease before you can countersign.");
       return;
     }

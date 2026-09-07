@@ -16,9 +16,9 @@ import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
   hasBothLeaseSignatures,
   leaseNeedsUploadedLeaseReviewAction,
+  leaseAwaitingManagerCountersign,
   leaseUploadedImportFooterLabel,
   managerLeaseSignButtonLabel,
-  residentHasSignedLease,
 } from "@/lib/lease-pipeline-storage";
 import { cn } from "@/lib/utils";
 
@@ -113,7 +113,7 @@ export function LeasePrimaryHeaderActions({
     hasDocument &&
     (row.status === "Manager Review" || row.status === "Draft") &&
     Boolean(onSendToResident);
-  const showSign = !row.managerSignature && residentHasSignedLease(row) && Boolean(onSignManager);
+  const showSign = leaseAwaitingManagerCountersign(row) && Boolean(onSignManager);
   const showSigningReminder = row.status === "Resident Signature Pending" && Boolean(onSigningReminder);
   const showMoveToReview = row.status === "Resident Signature Pending" && Boolean(onMoveToManagerReview);
   const showGenerate = canEditDocument && Boolean(onGenerateLease);
