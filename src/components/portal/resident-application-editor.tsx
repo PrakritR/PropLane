@@ -1,7 +1,7 @@
 "use client";
 
 import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { RentalWizardStepBody } from "@/components/marketing/rental-wizard-steps";
@@ -62,6 +62,13 @@ type Props = {
 
 export function ResidentApplicationEditor({ row, residentEmail, onCancel, onSaved, preserveReviewStatus = false }: Props) {
   const { showToast } = useAppUi();
+  // Latest row for the reload effect below, which keys on the application's
+  // identity rather than this object's. Synced in an effect declared BEFORE
+  // that one, so it already holds the new row when the reload runs.
+  const rowRef = useRef(row);
+  useEffect(() => {
+    rowRef.current = row;
+  }, [row]);
   const [step, setStep] = useState(1);
   const [maxStepReached, setMaxStepReached] = useState<number>(EDIT_STEP_COUNT);
   const [form, setForm] = useState<RentalWizardFormState>(() => ({
@@ -261,18 +268,25 @@ export function ResidentApplicationEditor({ row, residentEmail, onCancel, onSave
     setErrors({});
   }, [firstActiveStep, onCancel, prevActiveStep, step]);
 
+  // Reload only when this is a DIFFERENT application — never on a new `row`
+  // object for the same one. The parent rebuilds that object from storage on
+  // every applications/household-charges sync event, so an identity dependency
+  // reset the form and jumped back to step 1 mid-edit: answers already given
+  // reverted and Continue looked broken. The editor is unmounted with its
+  // modal, so a fresh open still starts from the stored application.
+  const rowKey = row.id;
   useEffect(() => {
     void Promise.resolve().then(() => {
       setForm({
         ...createInitialRentalWizardState(),
-        ...(row.application ?? {}),
+        ...(rowRef.current.application ?? {}),
         email: residentEmail,
       });
       setStep(1);
       setMaxStepReached(EDIT_STEP_COUNT);
       setErrors({});
     });
-  }, [residentEmail, row]);
+  }, [residentEmail, rowKey]);
 
   const meta = EDIT_STEP_META[step - 1] ?? EDIT_STEP_META[0];
   const applicationFeeGate = { needsFee: false, paid: true, displayLabel: "", amount: 0 };
