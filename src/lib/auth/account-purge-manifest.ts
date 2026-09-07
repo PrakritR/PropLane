@@ -92,6 +92,12 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     // No ownership column; cascades from manager_bank_statements.
   },
   {
+    table: "webhook_deliveries",
+    phase: 1,
+    // No ownership column: the attempt journal cascades from webhook_subscriptions,
+    // which is deleted with the manager below.
+  },
+  {
     table: "manager_invite_link_redemptions",
     phase: 1,
     manager: { ids: ["redeemed_by_user_id"] },
@@ -330,6 +336,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "manager_api_keys",
     phase: 2,
     manager: { ids: ["user_id"] },
+  },
+  {
+    // The endpoint AND its encrypted signing secret go with the account; the
+    // delivery journal cascades from here.
+    table: "webhook_subscriptions",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
   },
   {
     table: "manager_assistant_emails",
