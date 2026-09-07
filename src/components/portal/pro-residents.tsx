@@ -3344,7 +3344,7 @@ export function ManagerResidents({
                                   activeBucketId={chargeBucket}
                                   onBucketChange={(id) => setChargeBucket(id as ManagerPaymentBucket)}
                                   bucketAriaLabel="Payment status"
-                                  onSettings={() => setResidentReminderSettingsOpen(true)}
+                                  onSettings={() => setResidentPaymentSettingsOpen(true)}
                                   onEdit={() => openResidentPaymentSetup()}
                                 />
                               ) : null}

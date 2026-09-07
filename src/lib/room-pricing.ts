@@ -293,7 +293,7 @@ export function roomShortLeaseSurcharge(room: RoomPricingLike | null | undefined
 export function roomShortLeaseListingNote(room: RoomPricingLike | null | undefined): string | null {
   const surcharge = roomShortLeaseSurcharge(room);
   const maxMonths = room?.shortLeaseMaxMonths;
-  if (surcharge <= 0 || maxMonths === undefined || !Number.isInteger(maxMonths) || maxMonths < 1) {
+  if (surcharge <= 0 || maxMonths == null || !Number.isInteger(maxMonths) || maxMonths < 1) {
     return null;
   }
   const monthWord = maxMonths === 1 ? "month" : "months";
