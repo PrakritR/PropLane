@@ -10,6 +10,7 @@
  * drift apart on double-booking protection.
  */
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
+import { normalizeTourFormat } from "@/lib/tour-format";
 import { syncPlannedTourToGoogleCalendar } from "@/lib/google-calendar/sync.server";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -280,6 +281,7 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     propertyId: textField(row, "propertyId") || undefined,
     propertyTitle: textField(row, "propertyTitle") || undefined,
     roomLabel: textField(row, "roomLabel") || undefined,
+    tourFormat: normalizeTourFormat(row.tourFormat),
     adminUserId: managerUserId,
     adminLabel: selectedWindow.adminLabel ?? (textField(row, "adminLabel") || undefined),
     slotKey: selectedWindow.slotKey ?? undefined,

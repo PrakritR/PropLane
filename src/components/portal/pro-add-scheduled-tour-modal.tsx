@@ -18,6 +18,7 @@ import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import { compactTaskPropertyLabel } from "@/lib/manager-task-display";
 import { createManualPlannedTourClient } from "@/lib/manual-planned-tour.client";
+import { DEFAULT_TOUR_FORMAT, TOUR_FORMAT_OPTIONS, normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import {
   createScheduledWorkTask,
@@ -71,6 +72,7 @@ const EMPTY_FORM = {
   scheduleDate: "",
   startTime: "",
   durationMinutes: "60",
+  tourFormat: DEFAULT_TOUR_FORMAT as TourFormat,
   notes: "",
 };
 
@@ -154,6 +156,7 @@ export function ManagerAddScheduledTourModal({
         start,
         end,
         notes: form.notes.trim() || undefined,
+        tourFormat: form.tourFormat,
         assignee,
       });
 
@@ -317,6 +320,25 @@ export function ManagerAddScheduledTourModal({
             data-attr="manual-tour-duration"
           >
             {DURATION_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manual-tour-format">
+            Tour format
+          </label>
+          <Select
+            id="manual-tour-format"
+            value={form.tourFormat}
+            onChange={(e) =>
+              setForm((current) => ({ ...current, tourFormat: normalizeTourFormat(e.target.value) }))
+            }
+            data-attr="manual-tour-format"
+          >
+            {TOUR_FORMAT_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>

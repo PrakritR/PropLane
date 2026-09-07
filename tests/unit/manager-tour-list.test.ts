@@ -28,6 +28,7 @@ const baseRow = (
   endIso: "2026-08-03T21:30:00.000Z",
   endMs: 2,
   statusLabel: "Confirmed",
+  tourFormat: "in_person",
   ...overrides,
 });
 

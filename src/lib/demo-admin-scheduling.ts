@@ -1,4 +1,5 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
 import { emitAdminUi } from "@/lib/demo-admin-ui";
 import { logDemoOutboundEmail } from "@/lib/demo-outbound-mail";
 import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
@@ -569,6 +570,8 @@ export type PartnerInquiry = {
   propertyId?: string;
   propertyTitle?: string;
   roomLabel?: string;
+  /** How the tour is held; absent on rows written before the field existed and read as in person. */
+  tourFormat?: TourFormat;
   adminUserId?: string;
   adminLabel?: string;
   requestedWindows?: PartnerInquiryWindow[];
@@ -591,6 +594,8 @@ export type PlannedEvent = {
   propertyId?: string;
   propertyTitle?: string;
   roomLabel?: string;
+  /** How the tour is held; absent on older events and read as in person. */
+  tourFormat?: TourFormat;
   adminUserId?: string;
   adminLabel?: string;
   attendeeName?: string;
@@ -718,6 +723,7 @@ export function appendManualPlannedTourLocal(
     start: string;
     end: string;
     notes?: string;
+    tourFormat?: TourFormat;
     assignee?: import("@/lib/work-assignment").WorkAssignee;
   },
 ): PlannedEvent {
@@ -732,6 +738,7 @@ export function appendManualPlannedTourLocal(
     propertyId: input.propertyId,
     propertyTitle: input.propertyTitle,
     roomLabel: input.roomLabel,
+    tourFormat: normalizeTourFormat(input.tourFormat),
     adminUserId: managerUserId,
     attendeeName: guestName || undefined,
     attendeeEmail: input.guestEmail?.trim() || undefined,

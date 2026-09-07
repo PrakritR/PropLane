@@ -33,6 +33,7 @@ import {
   type PropertySearchOption,
 } from "@/components/marketing/property-search-picker";
 import { canNavigateToWizardStep, nextWizardMaxReached } from "@/lib/wizard-step-nav";
+import { DEFAULT_TOUR_FORMAT, TOUR_FORMAT_OPTIONS, type TourFormat } from "@/lib/tour-format";
 import {
   TOUR_STEP_FIELD_ORDER,
   scrollToFirstWizardFieldError,
@@ -584,7 +585,7 @@ export function TourScheduleFlow({
                 return next;
               })
             }
-            onSubmit={async ({ name, email, phone, notes, smsConsent }) => {
+            onSubmit={async ({ name, email, phone, notes, smsConsent, tourFormat }) => {
               if (bookingTour) return;
               const errs = validateTourContactFields({ name, email, phone });
               if (Object.keys(errs).length > 0) {
@@ -655,6 +656,7 @@ export function TourScheduleFlow({
                     propertyId: manager.propertyId || property.id,
                     propertyTitle: property.title,
                     roomLabel: selectedRoomLabel,
+                    tourFormat,
                     notes: [propertyContext, notes.trim()].filter(Boolean).join("\n\n"),
                     adminUserId: manager.userId,
                     adminLabel: manager.label,
@@ -948,12 +950,13 @@ function Step3({
   embeddedModalLayout?: boolean;
   onEmbeddedBookFooterChange?: (footer: ReactNode | null) => void;
   onFieldChange: (key: string) => void;
-  onSubmit: (payload: { name: string; email: string; phone: string; notes: string; smsConsent: boolean }) => void | Promise<void>;
+  onSubmit: (payload: { name: string; email: string; phone: string; notes: string; smsConsent: boolean; tourFormat: TourFormat }) => void | Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
+  const [tourFormat, setTourFormat] = useState<TourFormat>(DEFAULT_TOUR_FORMAT);
   // Signed-in residents consented when their account was created; the tick is
   // not shown to them, so it must not silently submit as "declined".
   const [smsConsent, setSmsConsent] = useState(signedIn);
@@ -980,7 +983,7 @@ function Step3({
         variant="primary"
         className="h-9 min-h-0 rounded-full px-6 text-[13px]"
         disabled={submitting}
-        onClick={() => onSubmitRef.current({ name, email, phone, notes, smsConsent })}
+        onClick={() => onSubmitRef.current({ name, email, phone, notes, smsConsent, tourFormat })}
         data-attr="tour-book-submit"
       >
         {submitting ? "Booking…" : "Book tour"}
@@ -996,6 +999,7 @@ function Step3({
     phone,
     smsConsent,
     submitting,
+    tourFormat,
   ]);
 
   return (
@@ -1060,6 +1064,35 @@ function Step3({
           dataAttr="tour-phone"
         />
       </Field>
+      <Field label="Tour format">
+        <div role="radiogroup" aria-label="Tour format" className="grid gap-2 sm:grid-cols-2" data-attr="tour-format">
+          {TOUR_FORMAT_OPTIONS.map((option) => {
+            const selected = tourFormat === option.value;
+            return (
+              <label
+                key={option.value}
+                className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3.5 py-2.5 text-sm transition-colors ${
+                  selected ? "border-primary bg-primary/5" : "border-border bg-accent/30 hover:border-primary/40"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="tour-format"
+                  value={option.value}
+                  checked={selected}
+                  onChange={() => setTourFormat(option.value)}
+                  className="mt-0.5 h-4 w-4 accent-[var(--primary)]"
+                  data-attr={`tour-format-${option.value}`}
+                />
+                <span>
+                  <span className="block font-semibold text-foreground">{option.label}</span>
+                  <span className="block text-xs text-muted">{option.hint}</span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </Field>
       <Field label="Notes (optional)">
         <textarea id="tour-notes" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything we should prepare in advance?" className={`${inputCls} resize-none`} />
       </Field>
@@ -1079,7 +1112,7 @@ function Step3({
         <button
           type="button"
           disabled={submitting}
-          onClick={() => onSubmit({ name, email, phone, notes, smsConsent })}
+          onClick={() => onSubmit({ name, email, phone, notes, smsConsent, tourFormat })}
           className="w-full rounded-2xl py-3.5 text-sm font-semibold text-white shadow-[0_0_20px_rgba(0,122,255,0.28)] transition-all hover:brightness-105 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
           style={{ background: "linear-gradient(135deg, var(--primary), var(--primary-alt))" }}
           data-attr="tour-book-submit"

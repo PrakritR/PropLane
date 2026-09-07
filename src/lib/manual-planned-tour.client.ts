@@ -4,6 +4,7 @@ import {
   syncScheduleRecordsFromServer,
 } from "@/lib/demo-admin-scheduling";
 import type { ManualPlannedTourInput } from "@/lib/manual-planned-tour.server";
+import { normalizeTourFormat } from "@/lib/tour-format";
 
 export async function createManualPlannedTourClient(
   managerUserId: string,
@@ -15,6 +16,7 @@ export async function createManualPlannedTourClient(
   if (isDemoModeActive()) {
     const event = appendManualPlannedTourLocal(managerUserId, {
       ...input,
+      tourFormat: normalizeTourFormat(input.tourFormat),
       assignee: input.assignee ?? undefined,
     });
     return { ok: true, message: "Tour scheduled.", plannedEvent: event ?? null };

@@ -21,6 +21,7 @@
  * use `tour-slot-math.ts`, which is what `listOpenTourSlots` already does.
  */
 import { z } from "zod";
+import { normalizeTourFormat } from "@/lib/tour-format";
 import { defineTool, defineWriteTool } from "../registry";
 import type { AgentContext } from "../context";
 import type { ResidentAgentContext } from "../resident-context";
@@ -122,6 +123,10 @@ const requestTourInputSchema = z
     email: z.string().min(3).describe("Their email address."),
     phone: z.string().min(7).describe("Their 10-digit phone number."),
     notes: z.string().max(1000).optional().describe("Anything they want the manager to know."),
+    tourFormat: z
+      .enum(["in_person", "virtual"])
+      .optional()
+      .describe("How the tour is held. Omit for an in-person tour at the property; \"virtual\" for a video call or live walkthrough."),
   })
   .strict();
 
@@ -146,6 +151,7 @@ function tourInquiryRowFrom(input: RequestTourInput): Record<string, unknown> {
     email: input.email.trim(),
     phone: input.phone.trim(),
     notes: input.notes?.trim() || undefined,
+    tourFormat: normalizeTourFormat(input.tourFormat),
     slotKey: input.slotKey,
     proposedStart: input.start,
     proposedEnd: input.end,
@@ -272,6 +278,10 @@ const bookTourInputSchema = z
     start: z.string().min(1).describe("ISO start, copied verbatim from list_open_tour_slots."),
     end: z.string().min(1).describe("ISO end, copied verbatim from list_open_tour_slots."),
     notes: z.string().max(1000).optional().describe("Notes for the tour."),
+    tourFormat: z
+      .enum(["in_person", "virtual"])
+      .optional()
+      .describe("How the tour is held. Omit for an in-person tour at the property; \"virtual\" for a video call or live walkthrough."),
   })
   .strict();
 
@@ -366,6 +376,7 @@ export const bookTourTool = defineWriteTool<BookTourInput, { reply: string }>({
       start: input.start,
       end: input.end,
       notes: input.notes,
+      tourFormat: input.tourFormat,
     });
     if (!result.ok) {
       await updateAuditResult(ctx, dedupeKey, { booked: false }, { clearDedupeKey: true });

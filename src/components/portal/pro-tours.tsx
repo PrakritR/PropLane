@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { tourFormatLabel } from "@/lib/tour-format";
 import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
@@ -197,6 +198,7 @@ function buildTourNotifyContext(row: ManagerTourRow) {
     propertyTitle: row.propertyTitle || property?.title || "Property",
     propertyAddress: property?.address || null,
     roomLabel: row.roomLabel || null,
+    tourFormat: row.tourFormat,
     tourStartIso: row.startIso,
     tourEndIso: row.endIso,
     notes: row.notes || null,
@@ -534,6 +536,7 @@ export function ManagerTours({
       propertyTitle: row.propertyTitle || property?.title || "Property",
       propertyAddress: property?.address || null,
       roomLabel: row.roomLabel || null,
+      tourFormat: row.tourFormat,
       tourStartIso: times.newStartIso,
       tourEndIso: times.newEndIso,
       notes: row.notes || null,
@@ -866,6 +869,10 @@ export function ManagerTours({
         <div>
           <p className="text-xs font-medium text-muted">When</p>
           <p className="text-foreground">{row.whenLabel}</p>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-muted">Format</p>
+          <p className="text-foreground" data-attr="tour-detail-format">{tourFormatLabel(row.tourFormat)}</p>
         </div>
         {row.guestEmail ? (
           <div>
