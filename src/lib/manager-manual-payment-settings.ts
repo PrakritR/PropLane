@@ -1,7 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { sanitizePaymentContactInput } from "@/lib/listing-form-inputs";
-import { normalizeServiceFeeChoice, type ServiceFeePayer } from "@/lib/payment-policy";
+import {
+  listingPaymentWaiverCodeMatches,
+  normalizeListingPaymentWaiverCode,
+  normalizeServiceFeeChoice,
+  type ServiceFeePayer,
+} from "@/lib/payment-policy";
 
 export type ManagerManualPaymentSettings = {
   /**
@@ -24,6 +29,15 @@ export type ManagerManualPaymentSettings = {
    * the manager.
    */
   serviceFeePayer: ServiceFeePayer;
+  /**
+   * The promo code that unlocked `serviceFeePayer: "proplane"`.
+   *
+   * PropLane absorbing Stripe's cost is PropLane spending its own money, so a manager
+   * turns it on by entering the code — the same rule the listing wizard already applies
+   * per listing (`persistListingServiceFeePayer`). Stored so a later save carries the
+   * grant with it instead of re-asking.
+   */
+  serviceFeeWaiverCode?: string;
   /**
    * PropLane staff's override of who pays the service fee for this manager — the only place
    * `proplane` (PropLane absorbing Stripe's cost, so neither party is charged) can be selected.
@@ -63,6 +77,41 @@ export function isValidZelleContact(value: string): boolean {
   return email || (phoneDigits.length >= 10 && phoneDigits.length <= 15);
 }
 
+type ServiceFeeSelection = { serviceFeePayer: ServiceFeePayer; serviceFeeWaiverCode?: string };
+
+/**
+ * Which fee-payer a save is allowed to keep.
+ *
+ * Selecting `proplane` — PropLane, not the manager and not the resident, bearing Stripe's
+ * cost — requires the promo code, because it spends PropLane's own money. Two cases are
+ * deliberately different:
+ *
+ * - A NEW selection with no valid code falls back to `resident`, exactly like
+ *   {@link persistListingServiceFeePayer} does per listing.
+ * - A save that merely CARRIES FORWARD an account already on `proplane` keeps it, so an
+ *   unrelated save (toggling Stripe off, say) can never quietly move Stripe's cost back
+ *   onto that manager's residents.
+ */
+export function resolveSavedServiceFeeSelection(
+  incoming: ServiceFeeSelection,
+  stored: ServiceFeeSelection | null,
+): ServiceFeeSelection {
+  if (incoming.serviceFeePayer !== "proplane") return { serviceFeePayer: incoming.serviceFeePayer };
+  if (listingPaymentWaiverCodeMatches(incoming.serviceFeeWaiverCode)) {
+    return {
+      serviceFeePayer: "proplane",
+      serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(incoming.serviceFeeWaiverCode ?? ""),
+    };
+  }
+  if (stored?.serviceFeePayer === "proplane") {
+    return {
+      serviceFeePayer: "proplane",
+      ...(stored.serviceFeeWaiverCode ? { serviceFeeWaiverCode: stored.serviceFeeWaiverCode } : {}),
+    };
+  }
+  return { serviceFeePayer: "resident" };
+}
+
 export function normalizeManagerManualPaymentSettings(raw: unknown): ManagerManualPaymentSettings {
   const row = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
   const zelleContact = sanitizePaymentContactInput(String(row.zelleContact ?? "")).trim();
@@ -78,6 +127,12 @@ export function normalizeManagerManualPaymentSettings(raw: unknown): ManagerManu
     ...(paymentInboxToken ? { paymentInboxToken } : {}),
     receiptAutoMarkEnabled: row.receiptAutoMarkEnabled === false ? false : true,
     serviceFeePayer: normalizeServiceFeeChoice(row.serviceFeePayer),
+    // Kept only while it is actually a valid code; a garbage value is not evidence of a
+    // grant. The payer itself is NOT downgraded here — this function is also the READ
+    // path, and an account already absorbing fees must not silently flip who pays them.
+    ...(listingPaymentWaiverCodeMatches(row.serviceFeeWaiverCode as string | null | undefined)
+      ? { serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(String(row.serviceFeeWaiverCode ?? "")) }
+      : {}),
     // Absent means staff have not intervened, which is different from staff choosing `resident`.
     // The key is OMITTED rather than set to null in that case, so an untouched manager's settings
     // are byte-identical to what they were before this field existed.
@@ -163,6 +218,10 @@ export async function saveManagerManualPaymentSettings(
   // the caller's own value would survive — which is precisely the hole this guards.
   delete normalized.adminServiceFeeOverride;
   if (stored?.adminServiceFeeOverride) normalized.adminServiceFeeOverride = stored.adminServiceFeeOverride;
+  const feeSelection = resolveSavedServiceFeeSelection(normalized, stored);
+  normalized.serviceFeePayer = feeSelection.serviceFeePayer;
+  if (feeSelection.serviceFeeWaiverCode) normalized.serviceFeeWaiverCode = feeSelection.serviceFeeWaiverCode;
+  else delete normalized.serviceFeeWaiverCode;
   const mode = await resolveStorageMode(db);
 
   if (mode === "column") {

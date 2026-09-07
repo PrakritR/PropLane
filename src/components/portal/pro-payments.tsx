@@ -657,19 +657,13 @@ export function ManagerPayments({
     </Button>
   );
 
-  const paymentsCheckButton =
-    direction === "incoming" ? (
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
-        data-attr="manager-check-manual-payments"
-        disabled={checkingManualPayments}
-        onClick={() => runCheckManualPayments()}
-      >
-        {checkingManualPayments ? "Checking…" : "Check"}
-      </Button>
-    ) : null;
+  /*
+    No "Check" button.
+    Confirming forwarded receipts is not a thing a manager should have to press:
+    the same scan already runs on its own whenever there are open charges to
+    match (see the silent run below), so the control only ever repeated work the
+    page had already done.
+  */
 
   const paymentsSetupButton = (
     <Button
@@ -687,7 +681,6 @@ export function ManagerPayments({
     <>
       {paymentsFilterSort}
       {paymentsSettingsMenu}
-      {paymentsCheckButton}
       {paymentsSetupButton}
     </>
   );

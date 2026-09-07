@@ -5,6 +5,7 @@ import {
   managerManualPaymentSettingsPublic,
   isValidZelleContact,
   normalizeManagerManualPaymentSettings,
+  resolveSavedServiceFeeSelection,
   saveManagerManualPaymentSettings,
 } from "@/lib/manager-manual-payment-settings";
 import { applyManagerManualPaymentsToListings } from "@/lib/manager-manual-payment-settings.server";
@@ -53,6 +54,20 @@ export async function PATCH(req: Request) {
     const normalized = normalizeManagerManualPaymentSettings(rest);
     if (normalized.zellePaymentsEnabled && !isValidZelleContact(normalized.zelleContact)) {
       return NextResponse.json({ error: "Enter a valid Zelle phone number or email address." }, { status: 400 });
+    }
+    // Refuse a PropLane-absorbed selection without the promo code instead of saving a
+    // quietly downgraded one: `saveManagerManualPaymentSettings` would store `resident`
+    // and answer 200, so the manager would be told their fees are covered when they are
+    // not. The save keeps its own guard; this only makes the refusal visible.
+    const storedSettings = await loadManagerManualPaymentSettings(ctx.db, ctx.userId).catch(() => null);
+    if (
+      normalized.serviceFeePayer === "proplane" &&
+      resolveSavedServiceFeeSelection(normalized, storedSettings).serviceFeePayer !== "proplane"
+    ) {
+      return NextResponse.json(
+        { error: "Enter your PropLane promo code to have PropLane cover the processing fee." },
+        { status: 400 },
+      );
     }
     const settings = await saveManagerManualPaymentSettings(
       ctx.db,

@@ -261,6 +261,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
 import { ManagerPaymentSetupModal } from "@/components/portal/pro-payment-setup-modal";
+import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
 import type { ManagerServiceResidentOption } from "@/components/portal/pro-create-service-request-modal";
 import {
@@ -382,6 +383,7 @@ export function ManagerResidents({
   const residentsTab = parseResidentsTab(tabIdProp);
   const [chargeBucket, setChargeBucket] = useState<ManagerPaymentBucket>("pending");
   const [residentReminderSettingsOpen, setResidentReminderSettingsOpen] = useState(false);
+  const [residentPaymentSettingsOpen, setResidentPaymentSettingsOpen] = useState(false);
   const [prevSelectedId, setPrevSelectedId] = useState<string | null>(null);
   const [residentAccountEmails, setResidentAccountEmails] = useState<Set<string>>(new Set());
   const [uploadingLeaseRowId, setUploadingLeaseRowId] = useState<string | null>(null);
@@ -2806,16 +2808,21 @@ export function ManagerResidents({
 
   // No Add payment here: the list's own dashed ADD row is the add path, and a
   // second one in the dock was the same action twice on one screen.
+  // Settings + Setup, the same two controls (and the same words) the Payments
+  // section publishes — a resident's Payments tab is the portfolio list scoped to
+  // one person, so it should not name the same dialogs differently. Reminders live
+  // inside Settings; there is no Check here for the same reason the section has
+  // none (the receipt scan runs on its own).
   const residentPaymentsListFooterActions = (
     <>
       <Button
         type="button"
         variant="outline"
         className={PORTAL_DETAIL_BTN}
-        onClick={() => setResidentReminderSettingsOpen(true)}
-        data-attr="resident-payments-reminder-settings"
+        onClick={() => setResidentPaymentSettingsOpen(true)}
+        data-attr="resident-payments-settings-open"
       >
-        Reminders
+        Settings
       </Button>
       <Button
         type="button"
@@ -2824,7 +2831,7 @@ export function ManagerResidents({
         onClick={openResidentPaymentSetup}
         data-attr="resident-payment-setup-open"
       >
-        Payment setup
+        Setup
       </Button>
     </>
   );
@@ -3650,6 +3657,13 @@ export function ManagerResidents({
         }}
       />
 
+      <ManagerPortalSettingsModal
+        open={residentPaymentSettingsOpen}
+        onClose={() => setResidentPaymentSettingsOpen(false)}
+        initialTab="payments"
+        scopedTitle="Payments"
+        paymentsMode="incoming"
+      />
       <ManagerPaymentSetupModal
         open={residentPaymentSetupOpen}
         onClose={() => {
