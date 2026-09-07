@@ -36,13 +36,13 @@ describe("listing service fee payer UI helpers", () => {
     expect(listingProplaneAbsorbNeedsWaiverCode("pro", "resident", false)).toBe(false);
   });
 
-  it("persists PropLane absorb only with FREE100; otherwise resident pays", () => {
+  it("persists PropLane absorb with FREE100, account grant, or preserved codeless proplane", () => {
     expect(persistListingServiceFeePayer("proplane", "FREE100")).toEqual({
       serviceFeePayer: "proplane",
       serviceFeeWaiverCode: "FREE100",
     });
     expect(persistListingServiceFeePayer("proplane", "")).toEqual({
-      serviceFeePayer: "resident",
+      serviceFeePayer: "proplane",
       serviceFeeWaiverCode: undefined,
     });
     expect(persistListingServiceFeePayer("proplane", "WRONG")).toEqual({
@@ -51,6 +51,10 @@ describe("listing service fee payer UI helpers", () => {
     });
     expect(persistListingServiceFeePayer("proplane", "", true)).toEqual({
       serviceFeePayer: "proplane",
+      serviceFeeWaiverCode: undefined,
+    });
+    expect(persistListingServiceFeePayer("proplane", "", false)).toEqual({
+      serviceFeePayer: "resident",
       serviceFeeWaiverCode: undefined,
     });
     expect(persistListingServiceFeePayer(null, "FREE100")).toEqual({

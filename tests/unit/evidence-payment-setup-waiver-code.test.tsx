@@ -147,7 +147,7 @@ describe("evidence · PropLane covers it requires the promo code", () => {
     await typeCode("NOPE123");
     await click("manager-service-fee-waiver-apply");
     expect(patches).toHaveLength(0);
-    expect(document.body.textContent).toContain("That promo code isn't valid.");
+    expect(document.body.textContent).toContain("Enter the waiver code PropLane gave you.");
     shot(
       "payment-setup-03-wrong-code",
       "A wrong code is refused inline — still 0 PATCH requests, so nothing was stored.",

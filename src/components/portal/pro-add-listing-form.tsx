@@ -1448,31 +1448,26 @@ export function ManagerAddListingForm({
    */
   const [draftSaveError, setDraftSaveError] = useState<string | null>(null);
   const [demoAutofillSubmitPending, setDemoAutofillSubmitPending] = useState(false);
-  const [paymentWaiverGranted, setPaymentWaiverGranted] = useState(false);
+  const [paymentWaiverGranted, setPaymentWaiverGranted] = useState<boolean | null>(
+    isDemoModeActive() ? false : null,
+  );
   const managerSkuTier = normalizeManagerSkuTier(skuTier) ?? "free";
   const canSelectManagerAbsorbFee = managerCanSelectManagerAbsorbServiceFee(managerSkuTier);
   const serviceFeePayerUi = listingServiceFeePayerUiValue(
     sub.serviceFeePayer,
     managerSkuTier,
-    paymentWaiverGranted,
+    paymentWaiverGranted === true,
   );
   const showProcessingFeeWaiveCode = listingProplaneAbsorbNeedsWaiverCode(
     managerSkuTier,
     sub.serviceFeePayer,
-    paymentWaiverGranted,
+    paymentWaiverGranted === true,
   );
 
   useEffect(() => {
     if (isDemoModeActive()) return;
     void loadManagerPaymentWaiverGrantedClient().then(setPaymentWaiverGranted);
   }, []);
-
-  useEffect(() => {
-    if (!paymentWaiverGranted) return;
-    setSub((current) =>
-      normalizeManagerListingSubmissionV1(current, { accountPaymentWaiverGranted: true }),
-    );
-  }, [paymentWaiverGranted]);
   const [assistantTriggerTarget, setAssistantTriggerTarget] = useState<HTMLSpanElement | null>(null);
   const resumedStepIndex = clampWizardStep(initialStepIndex);
   const resumedMaxStepReached = Math.max(clampWizardStep(initialMaxStepReached), resumedStepIndex);
@@ -1932,7 +1927,7 @@ export function ManagerAddListingForm({
       stFeeToggles,
       ltFeeToggles,
       managerSkuTier,
-      accountPaymentWaiverGranted: paymentWaiverGranted,
+      accountPaymentWaiverGranted: paymentWaiverGranted ?? undefined,
     });
 
   const advanceFromCurrentStep = () => {
@@ -2759,7 +2754,7 @@ export function ManagerAddListingForm({
       name: bath.name.trim() || emptyBathroom(i).name,
     }));
     return normalizeManagerListingSubmissionV1(submission, {
-      accountPaymentWaiverGranted: paymentWaiverGranted,
+      accountPaymentWaiverGranted: paymentWaiverGranted ?? undefined,
     });
   }, [sub, serviceOffers, paymentWaiverGranted]);
 
@@ -3076,7 +3071,7 @@ export function ManagerAddListingForm({
       stFeeToggles,
       ltFeeToggles,
       managerSkuTier,
-      accountPaymentWaiverGranted: paymentWaiverGranted,
+      accountPaymentWaiverGranted: paymentWaiverGranted ?? undefined,
     };
     const invalid = (() => {
       if (!isPreviewWizard) return firstInvalidListingStep(sub, validateOpts, 5);
@@ -4457,7 +4452,7 @@ export function ManagerAddListingForm({
                           serviceFeePayer: next,
                           serviceFeeWaiverCode:
                             next === "proplane"
-                              ? paymentWaiverGranted
+                              ? paymentWaiverGranted === true
                                 ? undefined
                                 : s.serviceFeeWaiverCode
                               : undefined,

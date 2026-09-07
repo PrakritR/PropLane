@@ -161,7 +161,7 @@ describe("payment setup: PropLane covers it", () => {
     await click("manager-service-fee-waiver-apply");
 
     expect(patches).toHaveLength(0);
-    expect(screen.getByText("That promo code isn't valid.")).toBeTruthy();
+    expect(screen.getByText("Enter the waiver code PropLane gave you.")).toBeTruthy();
   });
 
   it("saves the choice with the code once it checks out", async () => {

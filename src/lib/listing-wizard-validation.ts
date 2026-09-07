@@ -155,7 +155,7 @@ export function validateListingWizardStep(
 
     if (
       sub.serviceFeePayer === "proplane" &&
-      !opts.accountPaymentWaiverGranted &&
+      opts.accountPaymentWaiverGranted === false &&
       !listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
     ) {
       errs.serviceFeeWaiverCode = LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID;

@@ -119,13 +119,14 @@ export function listingServiceFeePayerUiValue(
 }
 
 /**
- * Per-listing storage: `proplane` is kept only with a valid FREE100 waiver code;
- * otherwise fall back to resident pays (never persist absorb without the code).
+ * Per-listing storage: `proplane` with a valid FREE100 code, or without a code when the
+ * account grant is known. When grant status is unknown (normalize/read paths), a
+ * codeless `proplane` is preserved rather than downgraded to resident.
  */
 export function persistListingServiceFeePayer(
   payer: ServiceFeePayer | null | undefined,
   waiverCode: string | null | undefined,
-  accountWaiverGranted = false,
+  accountWaiverGranted?: boolean,
 ): { serviceFeePayer: ServiceFeePayer | null; serviceFeeWaiverCode?: string } {
   if (payer === "resident" || payer === "manager") {
     return { serviceFeePayer: payer, serviceFeeWaiverCode: undefined };
@@ -137,10 +138,18 @@ export function persistListingServiceFeePayer(
         serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(waiverCode ?? ""),
       };
     }
-    if (accountWaiverGranted) {
+    const hasNonemptyCode =
+      typeof waiverCode === "string" && waiverCode.trim().length > 0;
+    if (hasNonemptyCode) {
+      return { serviceFeePayer: "resident", serviceFeeWaiverCode: undefined };
+    }
+    if (accountWaiverGranted === true) {
       return { serviceFeePayer: "proplane", serviceFeeWaiverCode: undefined };
     }
-    return { serviceFeePayer: "resident", serviceFeeWaiverCode: undefined };
+    if (accountWaiverGranted === false) {
+      return { serviceFeePayer: "resident", serviceFeeWaiverCode: undefined };
+    }
+    return { serviceFeePayer: "proplane", serviceFeeWaiverCode: undefined };
   }
   return { serviceFeePayer: null, serviceFeeWaiverCode: undefined };
 }

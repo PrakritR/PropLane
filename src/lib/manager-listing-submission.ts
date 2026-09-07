@@ -1796,7 +1796,7 @@ export function normalizeManagerListingSubmissionV1(
       const persisted = persistListingServiceFeePayer(
         sub.serviceFeePayer,
         sub.serviceFeeWaiverCode,
-        opts.accountPaymentWaiverGranted === true,
+        opts.accountPaymentWaiverGranted,
       );
       return {
         serviceFeePayer: persisted.serviceFeePayer,
