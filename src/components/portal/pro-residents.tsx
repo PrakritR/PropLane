@@ -275,6 +275,7 @@ import {
 import { ManagerAddPaymentModal } from "@/components/portal/pro-add-payment-modal";
 import { ManagerPaymentSetupModal } from "@/components/portal/pro-payment-setup-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
+import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
 import type { ManagerServiceResidentOption } from "@/components/portal/pro-create-service-request-modal";
 import {
@@ -400,6 +401,8 @@ export function ManagerResidents({
   const residentsTab = parseResidentsTab(tabIdProp);
   const [chargeBucket, setChargeBucket] = useState<ManagerPaymentBucket>("pending");
   const [residentPaymentSettingsOpen, setResidentPaymentSettingsOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteBusy, setBulkDeleteBusy] = useState(false);
   const [prevSelectedId, setPrevSelectedId] = useState<string | null>(null);
   const [residentAccountEmails, setResidentAccountEmails] = useState<Set<string>>(new Set());
   const [uploadingLeaseRowId, setUploadingLeaseRowId] = useState<string | null>(null);
@@ -2572,6 +2575,26 @@ export function ManagerResidents({
     setResidentPaymentSetupOpen(true);
   }
 
+  /**
+   * Whether this resident exists ONLY in the browser — absent from the manager's
+   * own server-scoped applications list. A read failure answers `false`, so an
+   * unreachable server never turns into permission to delete.
+   */
+  async function residentIsLocalOnly(resident: ActiveResident): Promise<boolean> {
+    try {
+      const res = await fetch("/api/manager-applications", { credentials: "include" });
+      if (!res.ok) return false;
+      const data = (await res.json().catch(() => null)) as { rows?: { id?: string; email?: string }[] } | null;
+      if (!Array.isArray(data?.rows)) return false;
+      const email = resident.email.trim().toLowerCase();
+      return !data.rows.some(
+        (row) => row?.id === resident.id || (email.length > 0 && row?.email?.trim().toLowerCase() === email),
+      );
+    } catch {
+      return false;
+    }
+  }
+
   async function executeResidentDelete(selectedResident: ActiveResident): Promise<boolean> {
     const allRows = readManagerApplicationRows();
     if (!allRows.some((row) => row.id === selectedResident.id)) {
@@ -2600,8 +2623,21 @@ export function ManagerResidents({
     }
 
     if (serverDeleteError) {
-      showToast(serverDeleteError);
-      return false;
+      /*
+        A record the server has never seen is refused the same way one belonging
+        to another manager is — the route cannot say which without becoming an
+        oracle for whether an address has an account. That left a resident that
+        only ever existed in this browser (added offline, or never mirrored)
+        stuck in the list forever, refusing every Delete with "not in your
+        portfolio". So ask the manager's OWN server-side list: if the row is not
+        there either, there is nothing on the server to protect, and clearing the
+        local copy is the whole job. Anything the server does know about keeps
+        its refusal.
+      */
+      if (!(await residentIsLocalOnly(selectedResident))) {
+        showToast(serverDeleteError);
+        return false;
+      }
     }
 
     writeManagerApplicationRows(allRows.filter((row) => row.id !== selectedResident.id));
@@ -2645,6 +2681,55 @@ export function ManagerResidents({
     setWorkOrderTick((n) => n + 1);
     setInboxTick((n) => n + 1);
     return true;
+  }
+
+  /**
+   * The ticked rows, in the order the list shows them. Delete names every one of
+   * them before it runs — the objection to putting Delete on a bulk bar was that
+   * the bar says nothing about who is about to go, and a confirmation that lists
+   * them is what answers it.
+   */
+  const listSelectedResidents = useMemo(
+    () => residentDirectoryRows.filter((row) => selectedIds.has(row.id)),
+    [residentDirectoryRows, selectedIds],
+  );
+
+  async function deleteSelectedResidents() {
+    if (listSelectedResidents.length === 0) return;
+    setBulkDeleteBusy(true);
+    let deleted = 0;
+    const failed: string[] = [];
+    try {
+      // Serial on purpose: each delete rewrites the same local application,
+      // lease and inbox stores, so overlapping runs would race each other's
+      // read-modify-write and leave rows behind.
+      for (const resident of listSelectedResidents) {
+        if (await executeResidentDelete(resident)) deleted += 1;
+        else failed.push(resident.name || resident.email || resident.id);
+      }
+    } finally {
+      setBulkDeleteBusy(false);
+    }
+    setBulkDeleteOpen(false);
+    clearSelection();
+    if (activeResidentId && listSelectedResidents.some((row) => row.id === activeResidentId)) {
+      navigate(`${portalBase}/residents/${residentsTab}`);
+    }
+    if (deleted > 0) {
+      showToast(
+        failed.length > 0
+          ? `Deleted ${deleted} resident${deleted === 1 ? "" : "s"}; ${failed.length} could not be deleted.`
+          : `Deleted ${deleted} resident${deleted === 1 ? "" : "s"} and all related portal data.`,
+      );
+    } else if (failed.length > 0) {
+      // Never finish a destructive action in silence: each attempt already
+      // toasted its own reason, but a run that deleted nothing must say so.
+      showToast(
+        failed.length === 1
+          ? `${failed[0]} could not be deleted.`
+          : `None of the ${failed.length} selected residents could be deleted.`,
+      );
+    }
   }
 
   /**
@@ -3753,9 +3838,10 @@ export function ManagerResidents({
         }}
         bulkCount={listSelectedCount}
         bulkActions={
-          // Delete lives inside Edit resident, beside the record it would
-          // destroy — not one click from a row that may have been ticked by
-          // accident, on a bar showing nothing about who is about to go.
+          // Delete is here, and it is also inside Edit resident. What made it
+          // unsafe on a bar was that the bar names nobody, so a row ticked by
+          // accident went without ever being read back; the confirmation below
+          // lists every resident it is about to destroy.
           <>
             <Button
               type="button"
@@ -3794,6 +3880,16 @@ export function ManagerResidents({
               }}
             >
               Edit
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+              data-attr="residents-bulk-delete"
+              disabled={listSelectedResidents.length === 0}
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              Delete
             </Button>
           </>
         }
@@ -3843,6 +3939,36 @@ export function ManagerResidents({
         }}
       />
 
+      <ConfirmDeleteModal
+        open={bulkDeleteOpen}
+        busy={bulkDeleteBusy}
+        title={listSelectedResidents.length === 1 ? "Delete resident" : "Delete residents"}
+        confirmLabel={
+          listSelectedResidents.length === 1 ? "Delete resident" : `Delete ${listSelectedResidents.length} residents`
+        }
+        dataAttr="residents-bulk-delete-confirm"
+        onClose={() => setBulkDeleteOpen(false)}
+        onConfirm={() => void deleteSelectedResidents()}
+        description={
+          <>
+            Delete{" "}
+            {listSelectedResidents.length === 1
+              ? listSelectedResidents[0]?.name || listSelectedResidents[0]?.email || "this resident"
+              : `these ${listSelectedResidents.length} residents`}
+            , and every application, lease, charge, service and message that belongs to them?
+            <span className="mt-2 block space-y-0.5">
+              {listSelectedResidents.map((resident) => (
+                <span key={resident.id} className="block text-xs text-muted">
+                  {/* A row with no name of its own carries the email as its name,
+                      so printing both spells the same address twice. */}
+                  {resident.name && resident.name !== resident.email ? `${resident.name} · ` : ""}
+                  {resident.email || resident.name || resident.id}
+                </span>
+              ))}
+            </span>
+          </>
+        }
+      />
       <ManagerPortalSettingsModal
         open={residentPaymentSettingsOpen}
         onClose={() => setResidentPaymentSettingsOpen(false)}
