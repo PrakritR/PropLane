@@ -26,6 +26,8 @@ test.describe("Manager FREE100 signup", () => {
     await expect(page.getByPlaceholder("Full name")).toBeVisible();
     await expect(page.getByPlaceholder("Email")).toBeVisible();
     await expect(page.getByPlaceholder(/Password \(8\+/)).toBeVisible();
-    await expect(page.getByRole("button", { name: /create account/i })).toBeVisible();
+    // "Choose Pro" carries role=manager, and this spec runs signed out, so the
+    // submit button is the CREATE label (see manager-trial-signup-form.tsx).
+    await expect(page.getByRole("button", { name: /create property account/i })).toBeVisible();
   });
 });

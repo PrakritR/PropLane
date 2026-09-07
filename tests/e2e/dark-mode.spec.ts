@@ -95,9 +95,10 @@ test.describe("Dark mode — auth surfaces", () => {
 
   test("auth create-account is readable in dark mode", async ({ page }) => {
     await page.goto("/auth/create-account");
-    // Generic create surface: Google OAuth, placeholder inputs, and "Create account".
-    await expect(page.getByPlaceholder("Email")).toBeVisible();
-    await expect(page.getByRole("button", { name: /create account/i })).toBeVisible();
+    // PRP-307: the bare create surface is the role chooser, not a form — the
+    // fields live behind Property / Resident / Vendor.
+    await expect(page.getByRole("heading", { name: /create your account/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /^property/i })).toBeVisible();
     await assertDarkThemeActive(page);
     await assertMainContentNotLightThemed(page, 0);
   });
