@@ -33,6 +33,11 @@ import {
   createServiceRequestTool,
   addServiceRequestNoteTool,
 } from "./domains/resident/services";
+import {
+  cancelWorkOrderTool,
+  nudgeManagerOnWorkOrderTool,
+  updateWorkOrderTool,
+} from "./domains/resident/work-order-lifecycle";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ResidentTool = ToolDefinition<any, any, ResidentAgentContext>;
@@ -57,6 +62,9 @@ const ALL_RESIDENT_TOOLS: ResidentTool[] = [
   createServiceRequestTool,
   addServiceRequestNoteTool,
   reportMaintenanceIssueTool,
+  updateWorkOrderTool,
+  cancelWorkOrderTool,
+  nudgeManagerOnWorkOrderTool,
   // Documents shared with the resident
   listMySharedDocumentsTool,
   // Inbox / messaging
@@ -85,6 +93,9 @@ const TOOL_SECTION: Record<string, string> = {
   [createServiceRequestTool.name]: "services",
   [addServiceRequestNoteTool.name]: "services",
   [reportMaintenanceIssueTool.name]: "services",
+  [updateWorkOrderTool.name]: "services",
+  [cancelWorkOrderTool.name]: "services",
+  [nudgeManagerOnWorkOrderTool.name]: "services",
   [listMySharedDocumentsTool.name]: "documents",
   [listMyInboxThreadsTool.name]: "communication",
   [getMyScheduledMessagesTool.name]: "communication",

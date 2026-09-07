@@ -24,6 +24,11 @@ const SERVICES_TOOLS = [
   // Maintenance filing is a Services capability and a separate model from
   // add-on service requests (AGENTS.md, "Add-on services vs. work orders").
   "report_maintenance_issue",
+  // Lifecycle of the resident's own open work order (PRP-268): the Services
+  // screen's Edit / Cancel / Send reminder, so they gate with Services.
+  "update_work_order",
+  "cancel_work_order",
+  "nudge_manager_on_work_order",
 ];
 
 /** Documents is Pro-gated for residents exactly like Services and Inbox. */
