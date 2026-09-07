@@ -314,11 +314,7 @@ Reads: `get_my_balance`, `list_my_charges`, `get_my_lease`,
 `change_inspection_status`, `file_inspection_photo` (the same shared inspection
 service the manager uses, scoped to this resident's own residency),
 `create_service_request`, `add_service_request_note`,
-`report_maintenance_issue`, `update_work_order`, `cancel_work_order`,
-`nudge_manager_on_work_order` (the Services screen's Edit / Cancel / Send
-reminder on an OPEN request — one shared reminder helper with the route, 24h
-cooldown; a scheduled or completed request refuses all three),
-`send_message_to_manager`, `report_manual_payment`,
+`report_maintenance_issue`, `send_message_to_manager`, `report_manual_payment`,
 `request_lease_extension`, `schedule_message`, `cancel_scheduled_message`,
 `request_tour` (files a pending inquiry; the manager still confirms),
 `start_rent_payment` (returns a hosted Stripe Checkout link — the agent never
