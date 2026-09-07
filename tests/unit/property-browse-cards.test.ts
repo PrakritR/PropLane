@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { MockProperty } from "@/data/types";
 import {
   buildPropertyBrowseCards,
@@ -8,6 +8,31 @@ import {
 } from "@/lib/room-listings-catalog";
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
 import { writeManagerApplicationRows } from "@/lib/manager-applications-storage";
+
+const leaseRows: Record<string, unknown>[] = [];
+
+vi.mock("@/lib/lease-pipeline-storage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/lease-pipeline-storage")>();
+  return {
+    ...actual,
+    readLeasePipeline: () => leaseRows.map((row) => actual.normalizeLeasePipelineRow(row)),
+  };
+});
+
+function executedLease(appId: string) {
+  leaseRows.push({
+    id: `lease_${appId}`,
+    axisId: appId,
+    status: "Fully Signed",
+    fullySignedAt: "2026-01-01T00:00:00.000Z",
+    managerSignature: { role: "manager", name: "Manager", signedAtIso: "2026-01-01" },
+    residentSignature: { role: "resident", name: "Resident", signedAtIso: "2026-01-01" },
+  });
+}
+
+beforeEach(() => {
+  leaseRows.length = 0;
+});
 
 function mockProperty(overrides: Partial<MockProperty> & Pick<MockProperty, "id">): MockProperty {
   return {
@@ -170,6 +195,9 @@ describe("buildPropertyBrowseCards", () => {
     expect(rows.length).toBeGreaterThan(0);
   });
 
+  // PRP-398: an approved application does NOT hold a room on the public listing.
+  // Only a manager-added resident (`manuallyAdded`) or a fully executed lease does,
+  // so the fixture below has to be a genuine hold rather than a bare approval.
   it("hides rooms occupied during the requested move-in window", () => {
     const property = mockProperty({
       id: "brooklyn",
@@ -186,6 +214,7 @@ describe("buildPropertyBrowseCards", () => {
       {
         id: "resident-1",
         bucket: "approved",
+        manuallyAdded: true,
         assignedPropertyId: "brooklyn",
         assignedRoomChoice: `brooklyn${LISTING_ROOM_CHOICE_SEP}r3`,
         manualResidentDetails: {
@@ -195,6 +224,7 @@ describe("buildPropertyBrowseCards", () => {
         },
       } as never,
     ]);
+    executedLease("resident-1");
 
     const blocked = filterRoomListings([property], {
       zipRaw: "",
@@ -213,6 +243,44 @@ describe("buildPropertyBrowseCards", () => {
       moveIn: "2026-09-14",
     });
     expect(available.some((r) => r.roomId === "r3")).toBe(true);
+  });
+
+  it("keeps a room browsable while an approved application is still unsigned (PRP-398)", () => {
+    const property = mockProperty({
+      id: "brooklyn",
+      listingSubmission: {
+        v: 1,
+        rooms: [{ id: "r3", name: "Room 3", monthlyRent: 825, floor: "", detail: "", furnishing: "", roomAmenitiesText: "", utilitiesEstimate: "", photoDataUrls: [] }],
+        bathrooms: [],
+        buildingPhotos: [],
+        entireHome: false,
+      } as MockProperty["listingSubmission"],
+    });
+
+    // Same window as above, but a plain approval with no executed lease and no
+    // manager-added resident. Public availability must not move for it.
+    writeManagerApplicationRows([
+      {
+        id: "resident-1",
+        bucket: "approved",
+        assignedPropertyId: "brooklyn",
+        assignedRoomChoice: `brooklyn${LISTING_ROOM_CHOICE_SEP}r3`,
+        manualResidentDetails: {
+          moveInDate: "2026-05-23",
+          moveOutDate: "2026-09-05",
+          roomNumber: "Room 3",
+        },
+      } as never,
+    ]);
+
+    const rows = filterRoomListings([property], {
+      zipRaw: "",
+      radiusMiles: 50,
+      maxBudgetNum: null,
+      bathroom: "any",
+      moveIn: "2026-06-01",
+    });
+    expect(rows.some((r) => r.roomId === "r3")).toBe(true);
   });
 });
 

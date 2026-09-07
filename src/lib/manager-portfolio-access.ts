@@ -26,6 +26,7 @@ import {
   coManagerModuleAllowed,
   hasCoManagerPermission,
   hasCoManagerPermissionForProperty,
+  hasCoManagerPermissionLevelForProperty,
   permissionsForProperty,
   type CoManagerPermissionId,
   type CoManagerPermissionLevel,
@@ -530,6 +531,36 @@ export function readLinkedListingsForUser(userId: string): { listing: MockProper
     });
   }
   return result;
+}
+
+/** Property ids a user may include on a co-manager invite link (owned or Team edit on a link). */
+export function teamInviteEligiblePropertyIds(userId: string): Set<string> {
+  const eligible = new Set(ownedPropertyIdsForUser(userId));
+  for (const inv of readCachedAccountLinkInvites()) {
+    if (inv.status !== "accepted" || inv.direction !== "incoming") continue;
+    for (const propertyId of inv.assignedPropertyIds) {
+      const pid = propertyId.trim();
+      if (!pid) continue;
+      if (
+        hasCoManagerPermissionLevelForProperty(inv.propertyCoManagerPermissions, pid, "teams", "edit")
+      ) {
+        eligible.add(pid);
+      }
+    }
+  }
+  for (const rel of readProRelationships(userId)) {
+    if (rel.linkDirection === "outgoing") continue;
+    for (const propertyId of rel.assignedPropertyIds) {
+      const pid = propertyId.trim();
+      if (!pid) continue;
+      if (
+        hasCoManagerPermissionLevelForProperty(rel.propertyCoManagerPermissions, pid, "teams", "edit")
+      ) {
+        eligible.add(pid);
+      }
+    }
+  }
+  return eligible;
 }
 
 export const MANAGER_PORTFOLIO_REFRESH_EVENTS = [

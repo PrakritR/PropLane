@@ -8,10 +8,25 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 
+// PARTIAL mock: every export the calendar's import chain reaches must be
+// listed, or Vitest throws while building the mock and fails the whole file.
 vi.mock("@/lib/lease-pipeline-storage", () => ({
   LEASE_PIPELINE_EVENT: "lease-pipeline-changed",
   readLeasePipeline: () => LEASES,
   syncLeasePipelineFromServer: () => Promise.resolve(LEASES),
+  // Mirrors the real predicate closely enough for the fixtures here, which
+  // carry `status`/`fullySignedAt` rather than signature pairs.
+  leaseIsFullyExecuted: (row: {
+    voidedAt?: string | null;
+    status?: string;
+    externallySignedLease?: boolean;
+    fullySignedAt?: string | null;
+  }) => {
+    if (row.voidedAt || row.status === "Voided") return false;
+    if (row.externallySignedLease === true) return true;
+    if (row.status === "Fully Signed") return true;
+    return Boolean(row.fullySignedAt);
+  },
 }));
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
 vi.mock("@/lib/channel-calendar/client", () => ({
@@ -42,6 +57,9 @@ import { AppUiProvider } from "@/components/providers/app-ui-provider";
 import { ManagerPropertyBookingsPanel } from "@/components/portal/pro-property-bookings-panel";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
+// PRP-398: Bookings draws only FULLY EXECUTED leases — an offer still out for
+// signature no longer holds the room. `stageLabel` is display copy the predicate
+// never reads, so the executed state has to be stated as `status`/`fullySignedAt`.
 const LEASES = [
   {
     id: "lease-1",
@@ -49,6 +67,8 @@ const LEASES = [
     residentName: "Cv Ponce",
     roomChoice: "mgr-house-1::room-a",
     stageLabel: "Signed",
+    status: "Fully Signed",
+    fullySignedAt: "2026-08-01T12:00:00.000Z",
     application: { leaseStart: "2026-08-04", leaseEnd: "2026-08-12" },
   },
 ] as never[];

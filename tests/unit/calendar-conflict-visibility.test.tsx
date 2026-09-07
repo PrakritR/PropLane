@@ -149,10 +149,21 @@ describe("property availability calendar shows the same conflicts (F-CAL-6)", ()
     // to just over 49 by Sunday night. A flat `> 50` therefore failed every
     // Sunday CI run (measured 49.93) while passing the rest of the week.
     // Assert the guaranteed floor derived from the constants instead.
+    //
+    // PRP-401: both ends carry an hour of slack because the window is built
+    // with local-calendar arithmetic (`setDate`), so a span that crosses a
+    // daylight-saving boundary is 63 days ± 1 HOUR of real time — the extra
+    // hour pushed the upper bound to 56.014 in the first hours of a Monday
+    // whose window reached past the November fall-back, and the missing hour
+    // does the same to the floor on a March Sunday night. That drift is in the
+    // clock, not the product: the fetched window is still the intended width.
+    const dstSlackDays = 1 / 24;
     expect(GOOGLE_BUSY_DEFAULT_DAYS_AHEAD).toBeGreaterThanOrEqual(56);
     const reachDays = (timeMax.getTime() - now) / day;
-    expect(reachDays).toBeGreaterThan(GOOGLE_BUSY_DEFAULT_DAYS_AHEAD - GOOGLE_BUSY_DAYS_BEFORE);
-    expect(reachDays).toBeLessThanOrEqual(GOOGLE_BUSY_DEFAULT_DAYS_AHEAD);
+    expect(reachDays).toBeGreaterThan(
+      GOOGLE_BUSY_DEFAULT_DAYS_AHEAD - GOOGLE_BUSY_DAYS_BEFORE - dstSlackDays,
+    );
+    expect(reachDays).toBeLessThanOrEqual(GOOGLE_BUSY_DEFAULT_DAYS_AHEAD + dstSlackDays);
   });
 
   it("asks Google for nothing when there is no signed-in manager", async () => {

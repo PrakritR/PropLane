@@ -14,6 +14,7 @@ export const CO_MANAGER_PERMISSION_OPTIONS = [
   { id: "promotion", label: "Promotion" },
   { id: "inbox", label: "Communication" },
   { id: "calendar", label: "Calendar" },
+  { id: "teams", label: "Team" },
 ] as const;
 
 /** Legacy ids still accepted when reading stored rows. */
@@ -102,6 +103,59 @@ function unionGrants(
   }
   if (merged.read && merged.edit && merged.delete && merged.notification) return true;
   return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function intersectGrant(
+  actor: CoManagerPermissionGrant | undefined,
+  requested: CoManagerPermissionGrant | undefined,
+): CoManagerPermissionGrant | undefined {
+  if (!requested) return undefined;
+  if (actor === true) {
+    return requested === true ? true : normalizeGrant(requested);
+  }
+  if (!actor) return undefined;
+
+  const out: { read?: boolean; edit?: boolean; delete?: boolean; notification?: boolean } = {};
+  for (const level of ["read", "edit", "delete", "notification"] as const) {
+    if (!grantAllows(requested, level) || !grantAllows(actor, level)) continue;
+    if (level === "notification") out.notification = true;
+    else out[level] = true;
+  }
+  if (requested && typeof requested === "object" && requested.notification === false && grantAllows(actor, "notification")) {
+    out.notification = false;
+  }
+  if (Object.keys(out).length === 0) return undefined;
+  if (out.read && out.edit && out.delete && out.notification !== false) return true;
+  return out;
+}
+
+/** True when `requested` grants any module level the actor does not hold. */
+export function coManagerPermissionsExceedGrant(
+  actor: CoManagerPermissions | undefined,
+  requested: CoManagerPermissions | undefined,
+): boolean {
+  for (const { id } of CO_MANAGER_PERMISSION_OPTIONS) {
+    const req = requested?.[id];
+    if (!req) continue;
+    for (const level of ["read", "edit", "delete", "notification"] as const) {
+      if (grantAllows(req, level) && !grantAllows(actor?.[id], level)) return true;
+    }
+  }
+  return false;
+}
+
+/** Per-module intersection — delegated invites may not exceed the actor's own grant. */
+export function intersectCoManagerPermissions(
+  actor: CoManagerPermissions | undefined,
+  requested: CoManagerPermissions | undefined,
+): CoManagerPermissions {
+  const out: CoManagerPermissions = {};
+  for (const { id } of CO_MANAGER_PERMISSION_OPTIONS) {
+    const grant = intersectGrant(actor?.[id], requested?.[id]);
+    if (grant !== undefined) out[id] = grant;
+  }
+  if (out.editListings && !out.properties) out.properties = out.editListings;
+  return out;
 }
 
 /** Per-property permission grants on an account link. */
@@ -334,7 +388,7 @@ export const PORTAL_SECTION_CO_MANAGER_PERMISSION: Partial<Record<string, CoMana
   tasks: "calendar",
   bookings: "calendar",
   vendors: "services",
-  teams: "services",
+  teams: "teams",
 };
 
 

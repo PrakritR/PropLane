@@ -143,7 +143,7 @@ export function ManagerLeasesPipelinePanel({
   const handleAmendLeaseSuccess = useCallback(async () => {
     await syncLeasePipelineFromServer(managerUserId, { force: true });
     setAmendLeaseRow(null);
-  }, [managerUserId]);
+  }, [managerUserId, setAmendLeaseRow]);
 
   function leaseSentToResidentBody(row: LeasePipelineRow): string {
     const unit = row.unit.trim() || "your unit";
@@ -594,31 +594,38 @@ export function ManagerLeasesPipelinePanel({
     }
   };
 
+  const handleLeaseFileUpload = useCallback(
+    async (rowId: string, file: File) => {
+      setPendingRowId(rowId);
+      const res = await uploadAndParseLeasePdf(rowId, file, managerUserId);
+      setPendingRowId(null);
+      if (!res.ok) {
+        showToast(res.error ?? "Upload failed.");
+        return;
+      }
+      if (res.saveError) {
+        showToast(`PDF saved, but its PropLane reading was not stored: ${res.saveError}`);
+        return;
+      }
+      if (!res.parse) {
+        showToast("PDF saved. Resident sees this on their Lease tab.");
+        return;
+      }
+      setImportReviewRowId(rowId);
+      showToast(
+        res.parse.status === "parsed"
+          ? `Lease imported into PropLane format (${res.parse.sections.length} sections). ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`
+          : `Lease PDF saved, but PropLane could not read its text. ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`,
+      );
+    },
+    [managerUserId, showToast],
+  );
+
   const onPickUpload = async (rowId: string, files: FileList | null) => {
     const f = files?.[0];
     if (!f) return;
-    setPendingRowId(rowId);
-    const res = await uploadAndParseLeasePdf(rowId, f, managerUserId);
-    setPendingRowId(null);
+    await handleLeaseFileUpload(rowId, f);
     if (uploadRef.current) uploadRef.current.value = "";
-    if (!res.ok) {
-      showToast(res.error ?? "Upload failed.");
-      return;
-    }
-    if (res.saveError) {
-      showToast(`PDF saved, but its PropLane reading was not stored: ${res.saveError}`);
-      return;
-    }
-    if (!res.parse) {
-      showToast("PDF saved. Resident sees this on their Lease tab.");
-      return;
-    }
-    setImportReviewRowId(rowId);
-    showToast(
-      res.parse.status === "parsed"
-        ? `Lease imported into PropLane format (${res.parse.sections.length} sections). ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`
-        : `Lease PDF saved, but PropLane could not read its text. ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`,
-    );
   };
 
   const renderLeaseDetailFooterActions = (row: LeasePipelineRow) => {
@@ -663,10 +670,12 @@ export function ManagerLeasesPipelinePanel({
           onReviewImportedLease={() => setImportReviewRowId(row.id)}
           onUploadPdf={
             leaseAllowsManagerDocumentEdits(row)
-              ? async (file) => {
-                  const files = { 0: file, length: 1, item: (index: number) => (index === 0 ? file : null) } as FileList;
-                  await onPickUpload(row.id, files);
-                }
+              // RETURN the promise rather than `void`-ing it: `onUploadPdf` is
+              // typed `(file: File) => Promise<void>`, and the header action
+              // awaits it to drive its own busy state. Discarding it made the
+              // callback `void`, which fails type check and took the whole
+              // production build down with it.
+              ? (file) => handleLeaseFileUpload(row.id, file)
               : undefined
           }
           uploadPdfBusy={pendingRowId === row.id}

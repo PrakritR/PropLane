@@ -133,6 +133,17 @@ describe("minting a link", () => {
     expect(MODAL).toContain('method: "DELETE"');
   });
 
+  it("can copy an active link from the list after minting", () => {
+    expect(MODAL).toContain('data-attr="invite-link-copy-existing"');
+    expect(MODAL).toContain("/api/pro/invite-links/");
+    expect(MODAL).toContain("/link");
+  });
+
+  it("gates team invites on Team permission in the managers panel", () => {
+    expect(PANEL).toContain("teamInviteEligiblePropertyIds");
+    expect(PANEL).toContain("canSendTeamInvites");
+  });
+
   it("opens the add dialog from the ADD row and routes invite links to the mint modal", () => {
     expect(PANEL).not.toContain('data-attr="co-manager-invite-link-open"');
     expect(PANEL).toContain("onCreateInviteLink={openInviteLinkModal}");

@@ -1769,6 +1769,8 @@ export function ManagerApplications({
             ? `Approving ${applicantDisplayName(approvePreviewRow)} will update their application status and can send their PropLane resident account setup email.`
             : undefined
         }
+        hideSendViaFooterNote
+        showWorkNumberHint={false}
         confirmLabel="Approve & send setup email"
         confirmLabelWithoutMessage="Approve only"
         deliverViaKind="applications"

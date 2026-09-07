@@ -6,11 +6,20 @@
  * decision, not a client copy that drifts from the gate that enforces it.
  */
 
-export type InviteLinkKind = "manager" | "vendor";
+export type InviteLinkKind = "manager" | "vendor" | "resident";
 
-/** `kind` arrives from a request body — only the two real kinds are honoured. */
+/**
+ * `kind` arrives from a request body — only the real kinds are honoured.
+ *
+ * An ALLOWLIST, and it must stay one. The fallback is `manager`, which is the
+ * kind with the strictest gates in front of it (ownership re-derivation and a
+ * paid-plan check), so an unrecognised value lands somewhere refusals happen
+ * rather than on the resident path, which by design has no plan gate.
+ */
 export function normalizeInviteLinkKind(raw: unknown): InviteLinkKind {
-  return raw === "vendor" ? "vendor" : "manager";
+  if (raw === "vendor") return "vendor";
+  if (raw === "resident") return "resident";
+  return "manager";
 }
 
 /**

@@ -21,9 +21,15 @@ describe("lease send is gated on a generated document", () => {
     expect(pipelinePanel).toContain("showBulkGenerateButton");
   });
 
-  it("lease pipeline detail footer only shows Send when a document exists", () => {
-    expect(pipelinePanel).toMatch(
-      /const showSendToResident\s*=\s*\n?\s*hasDocument && \(row\.status === "Manager Review"/,
+  // The detail footer does not re-implement the gate — it renders the SAME
+  // `LeasePrimaryHeaderActions` the header uses, so the assertion above is the
+  // one place the rule lives. Asserting a second copy of the literal here is
+  // what rotted when the footer was migrated onto the shared component.
+  it("lease pipeline detail footer delegates Send to the shared gated actions", () => {
+    expect(pipelinePanel).toContain(
+      'import { LeasePrimaryHeaderActions } from "@/components/portal/lease-primary-header-actions"',
     );
+    expect(pipelinePanel).toContain("<LeasePrimaryHeaderActions");
+    expect(pipelinePanel).not.toMatch(/const showSendToResident\s*=/);
   });
 });

@@ -137,7 +137,7 @@ describe("redeeming a manager invite link", () => {
   it("creates the addressed invite with the tab_kind the column requires", async () => {
     const result = await redeemInviteLink(makeDb(), { token: "t", redeemerUserId: "peer-1" });
 
-    expect(result).toEqual({ ok: true, inviteId: "invite-1", alreadyRedeemed: false });
+    expect(result).toEqual({ ok: true, kind: "manager", inviteId: "invite-1", alreadyRedeemed: false });
     const invite = inserted.account_link_invites?.[0] as Record<string, unknown>;
     expect(invite.tab_kind).toBe("manager");
     expect(invite.status).toBe("pending");

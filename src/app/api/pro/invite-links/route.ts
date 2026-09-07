@@ -4,7 +4,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { inviteLinkUrl } from "@/lib/invite-links/invite-link-model";
 import {
-  listInviteLinks,
+  listInviteLinksForActor,
   mintInviteLink,
   revokeInviteLink,
 } from "@/lib/invite-links/invite-links.server";
@@ -23,7 +23,7 @@ async function sessionUserId(): Promise<string | null> {
 export async function GET() {
   const userId = await sessionUserId();
   if (!userId) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  const links = await listInviteLinks(createSupabaseServiceRoleClient(), userId);
+  const links = await listInviteLinksForActor(createSupabaseServiceRoleClient(), userId);
   return NextResponse.json({ links });
 }
 
@@ -35,18 +35,20 @@ export async function POST(req: Request) {
     kind?: string;
     label?: string;
     assignedPropertyIds?: unknown;
+    assignedRoomId?: string;
     propertyPermissions?: unknown;
     expiry?: string;
     uses?: string;
   };
 
   const result = await mintInviteLink(createSupabaseServiceRoleClient(), {
-    ownerUserId: userId,
+    actorUserId: userId,
     kind: body.kind,
     label: body.label,
     assignedPropertyIds: Array.isArray(body.assignedPropertyIds)
       ? body.assignedPropertyIds.map((id) => String(id))
       : [],
+    assignedRoomId: typeof body.assignedRoomId === "string" ? body.assignedRoomId : undefined,
     propertyPermissions: body.propertyPermissions,
     expiryOption: body.expiry,
     usesOption: body.uses,
@@ -68,9 +70,9 @@ export async function DELETE(req: Request) {
   const linkId = searchParams.get("id")?.trim() ?? "";
   if (!linkId) return NextResponse.json({ error: "id required" }, { status: 400 });
   const result = await revokeInviteLink(createSupabaseServiceRoleClient(), {
-    ownerUserId: userId,
+    actorUserId: userId,
     linkId,
   });
-  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 404 });
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status ?? 404 });
   return NextResponse.json({ ok: true });
 }

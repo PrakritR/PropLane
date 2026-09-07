@@ -70,13 +70,27 @@ function serviceClient(ownedByInviter: string[], invite?: Record<string, unknown
   return {
     from: vi.fn((table: string) => {
       if (table === "manager_property_records") {
+        const rowsForIds = (ids: string[]) =>
+          ids
+            .filter((id) => ownedByInviter.includes(id))
+            .map((id) => ({ id, manager_user_id: INVITER }));
         return {
           select: vi.fn(() => ({
-            eq: vi.fn((_col: string, managerUserId: string) => ({
+            eq: vi.fn((col: string, value: string) => ({
               in: vi.fn((_idCol: string, ids: string[]) =>
-                Promise.resolve({ data: propertyRows(managerUserId, ids), error: null }),
+                col === "manager_user_id"
+                  ? Promise.resolve({ data: propertyRows(value, ids), error: null })
+                  : Promise.resolve({ data: [], error: null }),
+              ),
+              maybeSingle: vi.fn().mockResolvedValue(
+                col === "id" && ownedByInviter.includes(value)
+                  ? { data: { manager_user_id: INVITER }, error: null }
+                  : { data: null, error: null },
               ),
             })),
+            in: vi.fn((_idCol: string, ids: string[]) =>
+              Promise.resolve({ data: rowsForIds(ids), error: null }),
+            ),
           })),
         };
       }
