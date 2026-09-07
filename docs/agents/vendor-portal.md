@@ -238,6 +238,23 @@ still set a price when there's no bid, or the bid is merely `"submitted"` (not y
 regression here shipped after the fix commits (`e07b70c`, `eac1439`) added this exact anchoring
 invariant — see `tests/integration/portal/set-vendor-price.test.ts` for the guarding tests.
 
+## The payout timeline, and the one way to pay a vendor twice (PRP-276)
+
+The vendor's Payments row shows a dated timeline rather than a bare status
+label: **invoice approved → payout created → transfer sent → paid out /
+failed / skipped**, built by `vendorPayoutTimeline` (`src/lib/vendor-payout-timeline.ts`)
+from data already on the `vendor_payouts` row and its work order. A step whose
+timestamp is genuinely unknown renders as "—"; nothing here guesses a date.
+
+Because exactly one `vendor_payouts` row exists per work order, the only way to
+pay a vendor twice is to ALSO record an off-platform payment. That is now
+refused rather than merely warned about: `approve-pay` answers **409** naming
+the existing payout when one is `pending` or `paid`, and proceeds only with
+`acknowledgeExistingPayout: true`, which writes a
+`vendor_double_pay_acknowledged` row to `audit_log` before the write runs. The
+client's warning card is the courtesy; the 409 is the guard
+(`src/lib/vendor-payout-guard.ts`).
+
 ## A failed payout is told to somebody
 
 `payoutVendorForWorkOrder` returns a `VendorPayoutOutcome` (`paid` / `failed` /
