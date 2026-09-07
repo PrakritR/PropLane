@@ -2852,8 +2852,8 @@ html[data-communication-surface] .portal-inbox-thread-pane > * {
   html[data-communication-thread-reading] #portal-main-content {
     overflow: hidden;
     padding-top: 0;
-    padding-bottom: 0;
-    scroll-padding-bottom: 0;
+    padding-bottom: var(--portal-native-bottom-nav-inset, 0px);
+    scroll-padding-bottom: var(--portal-native-bottom-nav-inset, 0px);
   }
 
   html[data-communication-thread-reading] .portal-main-inner {
@@ -2861,8 +2861,10 @@ html[data-communication-surface] .portal-inbox-thread-pane > * {
     min-height: 0;
     flex: 1;
     flex-direction: column;
-    height: calc(100dvh - var(--portal-native-bottom-nav-inset, 0px));
-    max-height: calc(100dvh - var(--portal-native-bottom-nav-inset, 0px));
+    /* The parent already accounts for portal banners. A viewport-sized child
+       ignores that space and places the composer behind the fixed bottom nav. */
+    height: auto;
+    max-height: 100%;
   }
 
   /* Thread view uses the inbox back header — hide duplicate section chrome.
