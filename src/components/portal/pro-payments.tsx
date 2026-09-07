@@ -691,8 +691,19 @@ export function ManagerPayments({
     checkingManualPaymentsRef.current = checkingManualPayments;
   }, [checkingManualPayments]);
 
+  // One scan on arrival, then the interval. With no Check button, an interval-only
+  // scan would leave a manager who has just forwarded a receipt watching an unpaid
+  // charge for up to a minute with no way to ask now; the same visibility and
+  // in-flight guards keep it from doubling up with the timer.
+  const didInitialManualCheckRef = useRef(false);
   useEffect(() => {
     if (!hasIncomingManualCandidates || isDemoModeActive()) return;
+    if (!didInitialManualCheckRef.current) {
+      didInitialManualCheckRef.current = true;
+      if (document.visibilityState === "visible" && !checkingManualPaymentsRef.current) {
+        runCheckManualPayments({ silent: true });
+      }
+    }
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "visible" || checkingManualPaymentsRef.current) return;
       runCheckManualPayments({ silent: true });

@@ -51,6 +51,7 @@ function HubRow({
   allowed,
   onAllowedChange,
   allowDataAttr,
+  allowDisabled = false,
 }: {
   label: string;
   connected: boolean;
@@ -65,14 +66,17 @@ function HubRow({
   allowed: boolean;
   onAllowedChange: (allowed: boolean) => void;
   allowDataAttr: string;
+  /** Stored settings could not be read — a save now would write defaults over them. */
+  allowDisabled?: boolean;
 }) {
   return (
     <div className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
-      <label className="flex min-w-0 cursor-pointer items-center gap-3">
+      <label className={`flex min-w-0 items-center gap-3 ${allowDisabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
         <input
           type="checkbox"
           className="h-4 w-4 shrink-0 rounded border-border"
           checked={allowed}
+          disabled={allowDisabled}
           onChange={(e) => onAllowedChange(e.target.checked)}
           data-attr={allowDataAttr}
         />
@@ -129,6 +133,14 @@ export function ManagerPaymentSetupModal({
   const demo = isDemoModeActive();
   const [draft, setDraft] = useState<ManagerManualPaymentSettingsView>(() => draftFromSettings(null));
   const [loading, setLoading] = useState(false);
+  /*
+    Nothing may be written back before the stored settings have actually been read.
+    A failed GET leaves `draft` at the defaults, whose `serviceFeePayer` is
+    "resident" — and every save sends the whole draft, so one click on the Stripe
+    checkbox would have moved Stripe's cost onto an account that was absorbing it.
+    The server cannot catch that: switching to "resident" is a legitimate choice.
+  */
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [stripeBusy, setStripeBusy] = useState(false);
   const [stripeState, setStripeState] = useState<StripeSetupState>("unlinked");
   const [stripeIssue, setStripeIssue] = useState<string | null>(null);
@@ -193,6 +205,7 @@ export function ManagerPaymentSetupModal({
   const loadSettings = useCallback(async () => {
     if (demo) {
       setDraft(draftFromSettings({ ...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS, paymentInboxAddress: DEMO_INBOX }));
+      setSettingsLoaded(true);
       return;
     }
     setLoading(true);
@@ -207,6 +220,7 @@ export function ManagerPaymentSetupModal({
         return;
       }
       setDraft(draftFromSettings(data.settings ?? null));
+      setSettingsLoaded(true);
     } catch {
       showToast("Could not load payment setup.");
     } finally {
@@ -242,6 +256,7 @@ export function ManagerPaymentSetupModal({
       setWaiverPromptOpen(false);
       setWaiverCodeDraft("");
       setWaiverCodeError(null);
+      setSettingsLoaded(false);
       return;
     }
     void loadStripeStatus();
@@ -269,6 +284,10 @@ export function ManagerPaymentSetupModal({
   }, [open, loadStripeStatus]);
 
   async function persistSettings(patch: Partial<ManagerManualPaymentSettingsView>) {
+    if (!settingsLoaded && !demo) {
+      showToast("Couldn't read your current payment setup, so nothing was changed. Reopen this window to try again.");
+      return;
+    }
     if (demo) {
       setDraft((prev) => draftFromSettings({ ...prev, ...patch }));
       showToast("Saved (demo).");
@@ -445,6 +464,7 @@ export function ManagerPaymentSetupModal({
             busy={stripeBusy}
             allowed={draft.axisPaymentsEnabled !== false}
             allowDataAttr="manager-payment-stripe-allowed"
+            allowDisabled={!settingsLoaded && !demo}
             onAllowedChange={(allowed) => void persistSettings({ axisPaymentsEnabled: allowed })}
           />
           {isCoManagerForPayout ? (
@@ -483,7 +503,7 @@ export function ManagerPaymentSetupModal({
                     <button
                       key={option.id}
                       type="button"
-                      disabled={savingFeePayer}
+                      disabled={savingFeePayer || (!settingsLoaded && !demo)}
                       onClick={() => void changeFeePayer(option.id)}
                       data-attr={`manager-service-fee-payer-${option.id}`}
                       className={`flex flex-col rounded-xl border px-3 py-2.5 text-left transition disabled:opacity-60 ${

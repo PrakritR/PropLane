@@ -59,7 +59,13 @@ export async function PATCH(req: Request) {
     // quietly downgraded one: `saveManagerManualPaymentSettings` would store `resident`
     // and answer 200, so the manager would be told their fees are covered when they are
     // not. The save keeps its own guard; this only makes the refusal visible.
-    const storedSettings = await loadManagerManualPaymentSettings(ctx.db, ctx.userId).catch(() => null);
+    // Only a PropLane-absorbed selection needs the stored value, and the save loads it
+    // again anyway — so every ordinary save keeps its single read (egress is a real
+    // constraint here, see AGENTS.md).
+    const storedSettings =
+      normalized.serviceFeePayer === "proplane"
+        ? await loadManagerManualPaymentSettings(ctx.db, ctx.userId).catch(() => null)
+        : null;
     if (
       normalized.serviceFeePayer === "proplane" &&
       resolveSavedServiceFeeSelection(normalized, storedSettings).serviceFeePayer !== "proplane"

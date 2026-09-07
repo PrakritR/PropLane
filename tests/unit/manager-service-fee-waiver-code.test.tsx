@@ -71,6 +71,7 @@ vi.mock("@/components/ui/modal", () => ({
 import { ManagerPaymentSetupModal } from "@/components/portal/pro-payment-setup-modal";
 
 let patches: Record<string, unknown>[] = [];
+let settingsReadFails = false;
 
 function respond(url: string, init?: RequestInit) {
   if (url.startsWith("/api/stripe/connect/status")) {
@@ -85,6 +86,9 @@ function respond(url: string, init?: RequestInit) {
       patches.push(body);
       return { ok: true, status: 200, json: async () => ({ settings: { ...body } }) };
     }
+    if (settingsReadFails) {
+      return { ok: false, status: 500, json: async () => ({ error: "Could not load payment setup." }) };
+    }
     return {
       ok: true,
       status: 200,
@@ -97,6 +101,7 @@ function respond(url: string, init?: RequestInit) {
 beforeEach(() => {
   vi.clearAllMocks();
   patches = [];
+  settingsReadFails = false;
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => respond(String(input), init)),
@@ -168,5 +173,26 @@ describe("payment setup: PropLane covers it", () => {
 
     expect(patches).toHaveLength(1);
     expect(patches[0]).toMatchObject({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" });
+  });
+});
+
+describe("payment setup: settings that could not be read", () => {
+  /**
+   * A failed GET leaves the draft at the defaults, whose `serviceFeePayer` is
+   * "resident" — and every save sends the whole draft. Writing that back would move
+   * Stripe's cost onto an account that was absorbing it, and the server cannot refuse
+   * it, because switching to "resident" is a legitimate choice.
+   */
+  it("writes nothing when the stored settings could not be read", async () => {
+    settingsReadFails = true;
+    await mountModal();
+
+    const allow = document.querySelector<HTMLInputElement>('[data-attr="manager-payment-stripe-allowed"]')!;
+    expect(allow.disabled).toBe(true);
+    await act(async () => {
+      allow.click();
+    });
+
+    expect(patches).toHaveLength(0);
   });
 });
