@@ -201,6 +201,17 @@ export function anchorTourWindowToSlotKey<T extends { start: string; end: string
   };
 }
 
+/**
+ * The 30-minute ISO window a `slotKey` names, or `null` for a key that names
+ * no slot. A thin, client-blind form of {@link anchorTourWindowToSlotKey} —
+ * the two PRP-368 lanes met on `prakrit`, and this is the name the other
+ * lane's coverage (`tests/unit/tour-slotkey-iso-window.test.ts`) reads.
+ */
+export function isoWindowFromSlotKey(slotKey: string): { start: string; end: string } | null {
+  const anchored = anchorTourWindowToSlotKey({ start: "", end: "", slotKey });
+  return anchored ? { start: anchored.start, end: anchored.end } : null;
+}
+
 export function overlaps(slot: string, block: TourBlock): boolean {
   const startMs = slotStartMs(slot);
   if (startMs === null) return false;
