@@ -171,10 +171,9 @@ export async function GET() {
       : null,
     forwardInbound: data?.sms_forward_inbound !== false,
     workNumber,
-    // Number this manager's OWN listing CTAs text — production routes to their
-    // verified personal phone, dev/preview to the shared Claw line. `null` when
-    // they have none, so preview CTAs fall back to the web links exactly like a
-    // published listing would.
+    // Number this manager's OWN listing CTAs text — their Twilio work number.
+    // `null` when they have none (or only the retired shared Claw stamp), so
+    // preview CTAs omit Text exactly like a published listing would.
     listingCtaPhone: resolveListingCtaSmsPhone({
       phone: data?.phone ?? null,
       phone_verified_at: data?.phone_verified_at ?? null,

@@ -810,19 +810,17 @@ a new inbound entry point that skips it will silently render as a one-sided
 ("outbound only") thread in the portal, which is exactly the bug this system
 was built to fix.
 
-**Public listing CTAs split by environment (interim, until A2P clears).** The
-Twilio A2P campaign is still in carrier review, so the shared Claw line cannot
-reliably carry production leasing traffic. `resolveListingCtaSmsPhone`
-(`src/lib/listing-cta-phone.server.ts`) is the ONE place that branch is made,
-keyed on the existing `isProductionRuntime()`:
+**Public listing CTAs text the manager's work number.**
+`resolveListingCtaSmsPhone` (`src/lib/listing-cta-phone.server.ts`) is the ONE
+place that number is chosen:
 
-- **production** → that listing's OWN manager's `profiles.phone`, and only when
-  `phone_verified_at` is set (an unverified phone is user-editable and
-  forgeable — same rule as `resolveRegisteredClawManagers`). Resolved per row
-  from the owning `manager_user_id`, never a catalog-wide default, so a
-  multi-manager fleet cannot cross-route a prospect to the wrong manager.
-- **localhost / preview / test** → the shared Claw leasing line, unchanged, so
-  the leasing-agent flow stays exercisable in development.
+- Every environment → that listing's OWN manager's `profiles.sms_from_number`
+  (Twilio work number), resolved per row from the owning `manager_user_id`,
+  never a catalog-wide default. Rejects fictional 555 placeholders and the
+  retired shared Claw line. The manager's personal `profiles.phone` is never
+  used — a prospect texting a cell skips the work-number inbound path.
+- No usable work number → `null`. The **Text** button is simply absent; the
+  always-present **Schedule tour** and **Apply** web CTAs remain.
 
 Everything downstream just carries the resolved number: `getPublicListings()`
 and `/api/public/property-lead` stamp it onto `contactSmsPhone` (overwriting,
@@ -830,15 +828,12 @@ never defaulting — the stored property JSON's own `contactSmsPhone` is
 manager-editable and is deliberately ignored), `/api/manager/phone` returns it
 as `listingCtaPhone` for manager-side previews, and the browser's
 `listingCtaSmsPhone` only normalizes/rejects. The browser must NEVER substitute
-a number of its own: `null` means the listing's **Text** button is simply absent,
-not an `sms:` to the shared line. Texting is a third door beside the always-present
-**Schedule tour** and **Apply** web CTAs — it never replaces them, so a prospect on a
-desktop browser still reaches the booking form and the application directly. In the
-manager's OWN preview of the listing (`managerPreviewChrome`) a missing work number
-also raises a "Set up messaging" banner, which a prospect never sees. Note
-`managerContactSmsPhoneForPublicCta` still collapses everything onto
-the Claw line — it backs the SEND transport (`proplane-sms-transport.server.ts`)
-and work-number UI, not CTAs. Coverage:
+a number of its own. In the manager's OWN preview of the listing
+(`managerPreviewChrome`) a missing work number also raises a "Set up messaging"
+banner, which a prospect never sees. Note `managerContactSmsPhoneForPublicCta`
+still collapses everything onto the Claw line under the shared-line bridge — it
+backs the SEND transport (`proplane-sms-transport.server.ts`) and work-number
+UI, not CTAs. Coverage:
 `tests/unit/listing-cta-manager-phone.test.ts`,
 `tests/unit/public-listings-cta-phone.test.ts`.
 
@@ -897,7 +892,7 @@ campaign rejected on resubmit:
 The shared Claw phone and transport are disabled. Environment flags cannot
 reactivate them, new managers are never stamped with the shared number, and the
 cleanup migration removes the legacy number from existing profiles. Public
-listing SMS uses the listing manager's verified phone; managed messaging uses
+listing SMS uses the listing manager's Twilio work number; managed messaging uses
 the manager's own registered Twilio number. The Claw sections below are retained
 only as historical implementation notes while the old modules and tables are
 removed incrementally.
