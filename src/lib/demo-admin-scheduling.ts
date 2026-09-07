@@ -555,6 +555,16 @@ export type PartnerInquiry = {
   smsConsentAt?: string;
   kind?: "partner" | "tour";
   managerUserId?: string;
+  /**
+   * Every manager who had this slot open when the prospect booked — the set a
+   * pending request may be claimed from. A tour request belongs to nobody until
+   * somebody approves it, and approving it takes it (`confirmTourInquiry`);
+   * `managerUserId` is only who it was filed under.
+   *
+   * Absent on rows booked before that shipped, which is why the confirm path
+   * always folds `managerUserId` into the eligible set.
+   */
+  eligibleHostUserIds?: string[];
   tourGroupId?: string;
   propertyId?: string;
   propertyTitle?: string;

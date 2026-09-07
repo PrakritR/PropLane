@@ -618,9 +618,32 @@ export function TourScheduleFlow({
                 .join("\n");
               setBookingTour(true);
               const tourGroupId = crypto.randomUUID();
+              /**
+               * ONE request, however many managers could host it.
+               *
+               * This used to file one inquiry per eligible host, so a single
+               * prospect picking a single time produced N pending rows for the
+               * same guest at the same hour — the manager's Pending count was
+               * hosts, not requests — and whoever clicked Approve first won a
+               * race the others could not see.
+               *
+               * A request is hostless instead: it is filed under one host for
+               * record keeping, carries every host who had that slot open, and
+               * whoever approves it takes it (`confirmTourInquiry`).
+               */
+              const eligibleHostUserIds = [
+                ...new Set(managersAtSelectedSlot.map((manager) => manager.userId).filter(Boolean)),
+              ];
+              // Filed under the host whose own listing this is, when one of them
+              // is; otherwise the first. Only bookkeeping — it does not decide
+              // who hosts, and every eligible host sees it either way.
+              const filedHost =
+                managersAtSelectedSlot.find((manager) => manager.propertyId === property.id) ??
+                managersAtSelectedSlot[0]!;
               const results = await Promise.all(
-                managersAtSelectedSlot.map((manager) =>
+                [filedHost].map((manager) =>
                   appendPartnerInquiryToServer({
+                    eligibleHostUserIds,
                     name: name.trim(),
                     email: email.trim(),
                     phone: normalizedPhone,
