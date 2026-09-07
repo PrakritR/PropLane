@@ -17,11 +17,13 @@
  *
  * The product already renders every tour time through `formatPacificDateTime`,
  * so Pacific is the zone the whole tour surface already means. Anchor here.
- * (Known gap, deliberately not widened in this pass: the PUBLIC booking client
- * still turns the chosen slot into an instant with the PROSPECT's browser zone,
- * so an out-of-region guest sends a slotKey and an ISO that disagree. Blocking
- * survives it because a planned tour carries its `slotKey` and
- * {@link slotBlocked} matches on that first.)
+ * The PUBLIC booking client still turns the chosen slot into an instant with
+ * the PROSPECT's browser zone, so an out-of-region guest sends a slotKey and an
+ * ISO that disagree. Blocking survives it because a planned tour carries its
+ * `slotKey` and {@link slotBlocked} matches on that first — and since PRP-368
+ * the stored ISO is made to agree too: `createTourInquiry` passes every window
+ * through {@link anchorTourWindowToSlotKey}, so the time every human-facing
+ * surface reads is the slot's, never the browser's.
  */
 
 /** The wall clock every published slotKey is painted and read on. */
@@ -146,6 +148,68 @@ export function slotStartMs(slot: string): number | null {
   const [year, month, day] = dateStr.split("-").map(Number);
   if (!year || !month || !day) return null;
   return zonedWallTimeMs(year, month, day, slotIndex * 30);
+}
+
+/** One published slot is half an hour of the tour calendar. */
+export const TOUR_SLOT_DURATION_MS = 30 * 60 * 1000;
+
+/**
+ * Longest window a request may keep around its slot. A tour is one slot; a
+ * client asking for a longer window (a tour-plus-walk) is honored, but a
+ * duration that is not positive, or runs past a day, is not a tour window and
+ * collapses to the slot itself.
+ */
+const MAX_TOUR_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The instant a request window really names, anchored to its `slotKey`.
+ *
+ * The public booking client turns the chosen slot into an ISO instant with the
+ * PROSPECT's browser zone, so an out-of-region guest sends a `slotKey` and a
+ * `start` that disagree — by hours. Blocking survives that because
+ * {@link slotBlocked} matches the key first, but every HUMAN-facing surface
+ * (the manager's events list, the resident's tour panel, the confirmation
+ * email and SMS) reads the ISO, so the manager and the prospect were both told
+ * a time nobody had held (PRP-368). The slot key is what the server published
+ * and what blocking trusts, so it is the authority: the window's `start` is
+ * rewritten to the slot's Pacific instant whenever the two disagree, and the
+ * requested duration is kept. Returns `null` for a key that names no slot.
+ */
+export function anchorTourWindowToSlotKey<T extends { start: string; end: string; slotKey?: string }>(
+  window: T,
+): (T & { anchored: boolean }) | null {
+  const slotKey = window.slotKey?.trim();
+  if (!slotKey) return { ...window, anchored: false };
+  const slotStart = slotStartMs(slotKey);
+  if (slotStart === null) return null;
+  const requestedStart = Date.parse(window.start);
+  const requestedEnd = Date.parse(window.end);
+  const requestedDuration =
+    Number.isFinite(requestedStart) && Number.isFinite(requestedEnd) ? requestedEnd - requestedStart : Number.NaN;
+  const duration =
+    Number.isFinite(requestedDuration) && requestedDuration > 0 && requestedDuration <= MAX_TOUR_WINDOW_MS
+      ? requestedDuration
+      : TOUR_SLOT_DURATION_MS;
+  const startsInsideSlot =
+    Number.isFinite(requestedStart) && requestedStart >= slotStart && requestedStart < slotStart + TOUR_SLOT_DURATION_MS;
+  if (startsInsideSlot && requestedDuration === duration) return { ...window, anchored: false };
+  return {
+    ...window,
+    start: new Date(slotStart).toISOString(),
+    end: new Date(slotStart + duration).toISOString(),
+    anchored: true,
+  };
+}
+
+/**
+ * The 30-minute ISO window a `slotKey` names, or `null` for a key that names
+ * no slot. A thin, client-blind form of {@link anchorTourWindowToSlotKey} —
+ * the two PRP-368 lanes met on `prakrit`, and this is the name the other
+ * lane's coverage (`tests/unit/tour-slotkey-iso-window.test.ts`) reads.
+ */
+export function isoWindowFromSlotKey(slotKey: string): { start: string; end: string } | null {
+  const anchored = anchorTourWindowToSlotKey({ start: "", end: "", slotKey });
+  return anchored ? { start: anchored.start, end: anchored.end } : null;
 }
 
 export function overlaps(slot: string, block: TourBlock): boolean {

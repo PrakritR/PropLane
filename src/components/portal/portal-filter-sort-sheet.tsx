@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/field-select-menu";
 import { useIsClient } from "@/hooks/use-is-client";
 import {
+  FIELD_SELECT_MENU_DATA_ATTR,
   FILTER_SHEET_DISMISS_GUARD_MS,
   FILTER_SHEET_OPEN_SUPPRESS_MS,
   registerFilterSheetDismissGuard,
@@ -260,6 +261,7 @@ export function PortalFilterSortSheet({
   const openSuppressUntilRef = useRef(0);
   const deferControllerRef = useRef<PortalFilterDeferController | null>(null);
   const openRef = useRef(false);
+  const dropdownPanelRef = useRef<HTMLDivElement | null>(null);
   const isMobile = useSmallPortalViewport();
 
   // Synced in a layout effect, not during render: the dismiss-guard callbacks
@@ -317,6 +319,19 @@ export function PortalFilterSortSheet({
     setFilterOpen(false, { bypassDismissGuard: true });
   }, [setFilterOpen]);
 
+  /**
+   * Close from a POINTER — the trigger or the backdrop. A multi-select pick
+   * inside a portaled field menu can be followed by a synthesized "ghost"
+   * click that lands wherever the finger was, and if that is the Filter button
+   * or the dim behind the panel it must not throw the sheet away mid-filter.
+   * The field menus arm `dismissGuardUntilRef` on every pick for exactly this;
+   * ✕ and Escape are deliberate and bypass it.
+   */
+  const closeFromPointer = useCallback(() => {
+    if (Date.now() < dismissGuardUntilRef.current) return;
+    close();
+  }, [close]);
+
   const handleSheetOpenChange = useCallback(
     (next: boolean) => {
       setFilterOpen(next, { bypassDismissGuard: true });
@@ -326,9 +341,20 @@ export function PortalFilterSortSheet({
 
   const handleFilterShellOpenChange = useCallback(
     (next: boolean) => {
-      if (next) setFilterOpen(true);
+      if (next) {
+        setFilterOpen(true);
+        return;
+      }
+      // `false` here is the shell hook's Escape (outside-pointer dismissal is
+      // off for the shell). A portaled field menu open INSIDE the panel owns
+      // that Escape — its own listener closes it in this same event — so the
+      // panel only closes when no menu is on screen; the next Escape then
+      // reaches the panel. Closing here is the same commit as the header ✕,
+      // so nothing a manager picked is lost (PRP-386).
+      if (document.querySelector(`[${FIELD_SELECT_MENU_DATA_ATTR}]`)) return;
+      close();
     },
-    [setFilterOpen],
+    [close, setFilterOpen],
   );
 
   const isClient = useIsClient();
@@ -366,8 +392,32 @@ export function PortalFilterSortSheet({
     constrainToTitleBand: constrainDropdownToTitleBand,
     filterDropdownAlign: dropdownAlign,
     closeOnOutsidePointerDown: false,
-    closeOnEscape: false,
+    // Escape is the one universally expected way out of a dialog; the shell
+    // hook returns focus to the Filter button as it closes.
+    closeOnEscape: true,
   });
+
+  // A dialog takes focus when it opens: a keyboard or screen-reader user
+  // otherwise lands nowhere and cannot reach the controls (PRP-386). The
+  // panel itself is the target (`tabIndex={-1}`), so the "Filter" dialog is
+  // announced and the first Tab reaches Reset.
+  useEffect(() => {
+    if (!dropdownOpen || !menuRect) return;
+    const panel = dropdownPanelRef.current;
+    if (!panel || panel.contains(document.activeElement)) return;
+    panel.focus({ preventScroll: true });
+  }, [dropdownOpen, menuRect]);
+
+  // Focus returns to the trigger when the desktop dropdown closes by ✕, the
+  // backdrop, or the trigger — the Escape path already does this in the hook.
+  const wasDropdownOpenRef = useRef(false);
+  useEffect(() => {
+    if (wasDropdownOpenRef.current && !dropdownOpen) {
+      const active = document.activeElement;
+      if (!active || active === document.body) buttonRef.current?.focus({ preventScroll: true });
+    }
+    wasDropdownOpenRef.current = dropdownOpen;
+  }, [buttonRef, dropdownOpen]);
   /* Both branches leave the height to the sheet — see PORTAL_FILTER_COMPACT_MOBILE_SHEET_CLASS. */
   const resolvedMobileSheetClass = mobileSheetClassName ?? PORTAL_FILTER_COMPACT_MOBILE_SHEET_CLASS;
   /* `filterMenuOpen` is set from the mobile sheet or desktop dropdown scroll-lock provider
@@ -390,13 +440,15 @@ export function PortalFilterSortSheet({
 
   const filterDropdownPanel = (
     <div
+      ref={dropdownPanelRef}
       role="dialog"
       aria-label="Filter"
+      tabIndex={-1}
       data-slot="portal-filter-dropdown-panel"
         className={cn(
         panelSizeClass,
         isMobile && "max-lg:!w-screen max-lg:!max-w-[100vw] max-lg:border-x-0",
-        "portal-filter-dropdown-panel relative z-50 flex flex-col overflow-visible overscroll-contain rounded-2xl border border-border bg-card shadow-[0_12px_40px_rgba(15,23,42,0.12)]",
+        "portal-filter-dropdown-panel relative z-50 flex flex-col overflow-visible overscroll-contain rounded-2xl border border-border bg-card shadow-[0_12px_40px_rgba(15,23,42,0.12)] outline-none",
         isMobile && "max-lg:rounded-xl",
       )}
       style={
@@ -474,7 +526,9 @@ export function PortalFilterSortSheet({
           data-attr={dataAttr}
           aria-expanded={compactTrigger ? open : undefined}
           onClick={() => {
-            setFilterOpen(true);
+            // The trigger toggles: a second press closes (same commit as ✕).
+            if (open) closeFromPointer();
+            else setFilterOpen(true);
           }}
         >
           <SlidersHorizontal className={PORTAL_FILTER_ICON_CLASS} strokeWidth={2} aria-hidden />
@@ -485,10 +539,17 @@ export function PortalFilterSortSheet({
         {dropdownOpen && isClient && menuRect && portalHost
           ? createPortal(
               <>
+                {/* The dim reads as modal, so a click on it closes the panel —
+                    committing the draft filters exactly as ✕ does. Portaled
+                    field menus sit above it, so a click inside one never lands
+                    here; the outside-pointerdown dismissal stays off in the
+                    shell hook for that same reason. */}
                 <div
-                  className="pointer-events-none fixed inset-0 bg-black/20"
+                  className="fixed inset-0 cursor-default bg-black/20"
                   style={{ zIndex: fieldSelectMenuZIndex(portalHost) - 1 }}
                   aria-hidden
+                  data-attr="portal-filter-dropdown-backdrop"
+                  onClick={closeFromPointer}
                 />
                 {filterDropdownPanel}
               </>,

@@ -68,9 +68,9 @@ export function PublicApplyAccountPrompt({
   return (
     <div className="mx-auto w-full max-w-3xl py-2 sm:py-4">
       <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-primary">Before you apply</p>
-      <h2 className="mt-2 text-lg font-bold tracking-tight text-foreground sm:text-xl">
+      <h1 className="mt-2 text-lg font-bold tracking-tight text-foreground sm:text-xl">
         Create your resident account
-      </h2>
+      </h1>
       <p className="mt-2 text-sm leading-relaxed text-muted">
         We recommend a resident account for {listing} — create one and apply from your portal, where you can track your
         application, messages, and payments. Already have an account? Sign in. Or apply as a guest and we&apos;ll email

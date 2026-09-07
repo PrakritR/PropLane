@@ -31,7 +31,7 @@ import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings
 import { proposeTourConfirmation } from "@/lib/tour-proposal.server";
 import { createApproveTourRequestTask } from "@/lib/manager-default-tasks.server";
 import { normalizeTourContactPhone, validateTourContactFields } from "@/lib/tour-contact-quality";
-import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
+import { anchorTourWindowToSlotKey, isActivePlannedTourEvent } from "@/lib/tour-slot-math";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -201,10 +201,44 @@ export async function createTourInquiry(
         : new Date().toISOString(),
   };
   const propertyId = typeof row["propertyId"] === "string" ? row["propertyId"] : null;
+  const isTour = textValue(row.kind) === "tour";
+
+  // A window's `slotKey` is the authority for WHEN (PRP-368). The client
+  // builds `start`/`end` in the prospect's own browser zone, so a guest booking
+  // from another region sends an instant hours away from the slot the grid
+  // showed them. The key is what the server published and what blocking
+  // already trusts; the stored ISO — read by every calendar surface and every
+  // notification — is rewritten to match it here, before the double-book check
+  // runs and before anything is written or sent. A key naming no slot is a
+  // request for a time that was never on offer.
+  const requestedWindows: RequestedWindow[] = [];
+  for (const window of requestedWindowsFromRow(row)) {
+    const anchored = anchorTourWindowToSlotKey(window);
+    if (!anchored) {
+      return { ok: false, reason: "slot_unavailable", error: "That tour time is not available." };
+    }
+    requestedWindows.push({
+      start: anchored.start,
+      end: anchored.end,
+      adminUserId: anchored.adminUserId,
+      slotKey: anchored.slotKey,
+    });
+  }
+  if (Array.isArray(row.requestedWindows) && requestedWindows.length > 0) {
+    row.requestedWindows = row.requestedWindows.map((original, index) => {
+      const normalized = requestedWindows[index];
+      return isObject(original) && normalized
+        ? { ...original, start: normalized.start, end: normalized.end }
+        : original;
+    });
+  }
+  const firstWindow = requestedWindows[0];
+  if (firstWindow && typeof row["proposedStart"] === "string") {
+    row.proposedStart = firstWindow.start;
+    row.proposedEnd = firstWindow.end;
+  }
   const proposedStart = typeof row["proposedStart"] === "string" ? row["proposedStart"] : null;
   const proposedEnd = typeof row["proposedEnd"] === "string" ? row["proposedEnd"] : null;
-  const requestedWindows = requestedWindowsFromRow(row);
-  const isTour = textValue(row.kind) === "tour";
 
   if (isTour) {
     const contactErrors = validateTourContactFields({

@@ -82,6 +82,24 @@ describe("resolveOwnedWorkNumber", () => {
     vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", SERVICE_SID);
     expect(await resolveOwnedWorkNumber(seed(), "+19998887777")).toBeNull();
   });
+
+  it("falls back to a unique phone match when Messaging Service SID is not yet stored (approval in progress)", async () => {
+    vi.stubEnv("TWILIO_MESSAGING_SERVICE_SID", SERVICE_SID);
+    const db = seed({
+      manager_sms_numbers: [
+        {
+          manager_user_id: OWNER,
+          phone_number: WORK,
+          messaging_service_sid: null,
+          provision_state: "active",
+          grace_expires_at: null,
+          updated_at: "2026-08-25T00:00:00.000Z",
+        },
+      ],
+    });
+    const owned = await resolveOwnedWorkNumber(db, WORK);
+    expect(owned).toEqual({ managerId: OWNER, messagingServiceSid: SERVICE_SID });
+  });
 });
 
 describe("resolveVoiceCallRoute", () => {
