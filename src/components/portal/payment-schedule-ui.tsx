@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { GMAIL_PAYMENTS_ENABLED } from "@/lib/gmail-payments/enabled";
 import { Button } from "@/components/ui/button";
 import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Input, Textarea } from "@/components/ui/input";
@@ -984,7 +985,19 @@ function PaymentAutomationSettingsForm({
       ) : null}
 
       {compact ? (
-        paymentsReminderSection
+        <>
+          {paymentsReminderSection}
+          {!GMAIL_PAYMENTS_ENABLED ? (
+            // Recorded decision (Sep 3, PRP-322): Gmail-based Zelle/Venmo tracking
+            // stays switched off but is FLAGGED as incomplete, not hidden — a
+            // landlord whose residents pay by Zelle must not be left guessing
+            // why nothing is being tracked.
+            <p className="text-xs leading-relaxed text-muted" data-attr="payments-manual-zelle-venmo-note">
+              Zelle and Venmo payments are recorded by hand for now — open the payment and mark it paid. Automatic
+              tracking from a connected Gmail inbox is not finished yet.
+            </p>
+          ) : null}
+        </>
       ) : (
         <>
           <ReminderPresetDropdown activePreset={activePreset} busy={busy} onSelect={selectPreset} />
