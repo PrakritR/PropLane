@@ -19,10 +19,14 @@ describe("portal invite choice step", () => {
     expect(CHOICE).toContain("Create Invite Link");
   });
 
-  it("defaults manager invites to open links with a direct-ID option", () => {
-    expect(PANEL).toContain('useState<"link" | "axis">("link")');
-    expect(PANEL).toContain('data-attr="co-manager-copy-open-invite"');
-    expect(PANEL).toContain('data-attr="co-manager-use-proplane-id"');
+  it("defaults manager invites to the PropLane ID path in the add dialog", () => {
+    expect(PANEL).toContain("PortalInviteChoiceStep");
+    expect(PANEL).toContain('secondaryTitle="Link with PropLane ID"');
+    expect(PANEL).toContain('data-attr="co-manager-proplane-id-input"');
+    expect(PANEL).toContain('data-attr="co-manager-link-continue"');
+    expect(PANEL).not.toContain('data-attr="co-manager-copy-open-invite"');
+    expect(PANEL).not.toContain('data-attr="co-manager-use-proplane-id"');
+    expect(PANEL).not.toContain('useState<"link" | "axis">("link")');
   });
 
   // A redeemed link can only ever create an `account_link_invites` co-manager row,
@@ -32,6 +36,14 @@ describe("portal invite choice step", () => {
     expect(VENDOR).not.toContain("onCreateInviteLink");
     expect(VENDOR).not.toContain("ManagerInviteLinkModal");
     expect(VENDOR).not.toContain('kind="vendor"');
+    expect(VENDOR).toContain('secondaryTitle="Invite by email"');
+    expect(VENDOR).toContain("ManagerVendorEssentialFields");
+    expect(VENDOR).toContain("ManagerVendorOptionalFields");
+    expect(VENDOR).toContain('data-attr="vendor-form-continue"');
+    expect(VENDOR).toContain('data-attr="vendor-form-back"');
+    expect(VENDOR).toContain('"vendor-form-send-invite"');
+    expect(VENDOR).toContain('"vendor-form-add-only"');
+    expect(VENDOR).not.toContain('data-attr="vendor-form-preview-invite"');
   });
 
   it("draws no invite-link card when the surface passes no link handler", () => {
