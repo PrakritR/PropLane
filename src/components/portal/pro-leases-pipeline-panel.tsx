@@ -670,9 +670,12 @@ export function ManagerLeasesPipelinePanel({
           onReviewImportedLease={() => setImportReviewRowId(row.id)}
           onUploadPdf={
             leaseAllowsManagerDocumentEdits(row)
-              ? (file) => {
-                  void handleLeaseFileUpload(row.id, file);
-                }
+              // RETURN the promise rather than `void`-ing it: `onUploadPdf` is
+              // typed `(file: File) => Promise<void>`, and the header action
+              // awaits it to drive its own busy state. Discarding it made the
+              // callback `void`, which fails type check and took the whole
+              // production build down with it.
+              ? (file) => handleLeaseFileUpload(row.id, file)
               : undefined
           }
           uploadPdfBusy={pendingRowId === row.id}
