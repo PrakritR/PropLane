@@ -25,6 +25,7 @@ import {
 import { deleteManagerWorkOrderRow, updateManagerWorkOrder } from "@/lib/manager-work-orders-storage";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
+import { EditServiceWorkOrderModal } from "@/components/portal/edit-service-work-order-modal";
 import {
   MANAGER_VENDORS_EVENT,
   readActiveManagerVendorRows,
@@ -150,6 +151,7 @@ export function ManagerWorkOrdersPanel({
   const [completeRow, setCompleteRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [completeBusy, setCompleteBusy] = useState(false);
   const [scheduleVisitRow, setScheduleVisitRow] = useState<DemoManagerWorkOrderRow | null>(null);
+  const [editWorkOrderRow, setEditWorkOrderRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [completeDraft, setCompleteDraft] = useState({
     category: "general" as WorkOrderCategory,
     vendorCost: "",
@@ -803,6 +805,15 @@ export function ManagerWorkOrdersPanel({
           <Button
             type="button"
             variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="work-order-edit"
+            onClick={() => setEditWorkOrderRow(row)}
+          >
+            Edit
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
             className={`${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)]`}
             onClick={() => onDeleteWorkOrder(row)}
           >
@@ -810,9 +821,26 @@ export function ManagerWorkOrdersPanel({
           </Button>
         </>
       ) : row.bucket === "scheduled" ? (
-        <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN} onClick={() => rescheduleVisit(row)}>
-          Save new time
-        </Button>
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="work-order-reschedule-visit"
+            onClick={() => setScheduleVisitRow(row)}
+          >
+            Reschedule visit
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className={PORTAL_DETAIL_BTN}
+            data-attr="work-order-edit"
+            onClick={() => setEditWorkOrderRow(row)}
+          >
+            Edit
+          </Button>
+        </>
       ) : null}
       {!row.selfAssigned && row.vendorId && row.bucket !== "completed" ? (
         <Button
@@ -858,7 +886,6 @@ export function ManagerWorkOrdersPanel({
   const renderRowDetail = (row: DemoManagerWorkOrderRow, dockActions = false) => {
     const draft = billDraftById[row.id] ?? defaultBillDraft(row);
     const linkedCharge = chargeByWoId.get(row.id);
-    const visitAt = visitAtById[row.id] ?? "";
     const assignedVendor =
       !row.selfAssigned && row.vendorId
         ? activeVendors.find((v) => v.id === row.vendorId) ?? null
@@ -868,7 +895,37 @@ export function ManagerWorkOrdersPanel({
 
     return (
       <>
-                        <p className="text-sm leading-relaxed text-muted">{row.description}</p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <p className="text-xs text-muted">Property</p>
+                            <p className="text-sm font-medium text-foreground">{row.propertyName || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted">Status</p>
+                            <p className="text-sm font-medium text-foreground">{row.status || row.bucket}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted">Priority</p>
+                            <p className="text-sm font-medium text-foreground">{row.priority || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted">Resident</p>
+                            <p className="text-sm font-medium text-foreground">{row.residentName?.trim() || "—"}</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted">Visit</p>
+                            <p className="text-sm font-medium text-foreground">
+                              {row.scheduled && row.scheduled !== "—" ? row.scheduled : "Not scheduled"}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted">Vendor</p>
+                            <p className="text-sm font-medium text-foreground">
+                              {row.selfAssigned ? "You (manager)" : row.vendorName?.trim() || "Unassigned"}
+                            </p>
+                          </div>
+                        </div>
+                        <p className="mt-4 text-sm leading-relaxed text-muted">{row.description}</p>
                         <p className="mt-1.5 text-xs text-muted">
                           Resident preferred arrival:{" "}
                           <span className="font-medium text-muted">{row.preferredArrival?.trim() || "Anytime"}</span>
@@ -1007,35 +1064,9 @@ export function ManagerWorkOrdersPanel({
                             </label>
                           ) : null}
                           {row.bucket !== "completed" ? (
-                            <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                              Visit date
-                              <Input
-                                type="datetime-local"
-                                value={visitAt}
-                                onChange={(e) =>
-                                  setVisitAtById((prev) => ({ ...prev, [row.id]: e.target.value }))
-                                }
-                                className="h-8 rounded-md text-sm"
-                              />
-                            </label>
-                          ) : null}
-                          {row.bucket !== "completed" ? (
-                            <label className="flex flex-col gap-1 text-[11px] font-medium text-muted">
-                              Vendor
-                              <Select
-                                className="h-8 min-w-[150px] rounded-md text-xs"
-                                value={row.selfAssigned ? "self" : row.vendorId ?? ""}
-                                onChange={(e) => assignVendor(row, e.target.value)}
-                              >
-                                <option value="">None</option>
-                                <option value="self">Self</option>
-                                {activeVendors.map((v) => (
-                                  <option key={v.id} value={v.id}>
-                                    {v.name}
-                                  </option>
-                                ))}
-                              </Select>
-                            </label>
+                            <p className="self-end pb-1.5 text-[11px] text-muted">
+                              Visit time and vendor: use Schedule visit.
+                            </p>
                           ) : row.vendorName ? (
                             <span className="pb-1.5 text-xs text-muted">
                               Vendor: <span className="font-medium text-foreground">{row.vendorName}</span>
@@ -1171,6 +1202,14 @@ export function ManagerWorkOrdersPanel({
           onScheduled={() => {
             onAfterSchedule?.();
             if (workOrderIdProp) navigateToList();
+          }}
+        />
+        <EditServiceWorkOrderModal
+          open={editWorkOrderRow !== null}
+          row={editWorkOrderRow}
+          onClose={() => setEditWorkOrderRow(null)}
+          onSaved={() => {
+            void syncManagerWorkOrdersFromServer({ force: true });
           }}
         />
       </>
@@ -1442,6 +1481,14 @@ export function ManagerWorkOrdersPanel({
         onClose={() => setScheduleVisitRow(null)}
         onScheduled={() => {
           onAfterSchedule?.();
+        }}
+      />
+      <EditServiceWorkOrderModal
+        open={editWorkOrderRow !== null}
+        row={editWorkOrderRow}
+        onClose={() => setEditWorkOrderRow(null)}
+        onSaved={() => {
+          void syncManagerWorkOrdersFromServer({ force: true });
         }}
       />
     </div>
