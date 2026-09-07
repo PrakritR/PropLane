@@ -53,6 +53,8 @@ import {
   RESIDENT_DETAIL_TAB_LABELS,
   RESIDENT_DETAIL_TAB_SHORT_LABELS,
   RESIDENT_DIRECTORY_TABS,
+  RESIDENT_DIRECTORY_TAB_LABELS,
+  RESIDENT_DETAIL_TABS_BY_STAGE,
   PAYMENT_BUCKETS,
   managerResidentItemDetailHref,
   residentDetailHref,
@@ -69,7 +71,6 @@ import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
-import { buildManagerTourRows } from "@/lib/manager-tour-list";
 import { buildResidentListClustersByMode } from "@/lib/manager-resident-list-grouping";
 import {
   PORTAL_LIST_GROUP_MODE_LABELS,
@@ -130,7 +131,12 @@ import {
   collectLinkedPropertyIdsForModule,
   MANAGER_PORTFOLIO_REFRESH_EVENTS,
 } from "@/lib/manager-portfolio-access";
-import { isPreviousResidentDirectoryRow, isResidentDirectoryRow } from "@/lib/current-resident";
+import {
+  isPreviousResidentDirectoryRow,
+  isResidentDirectoryRow,
+  residentDirectoryStage,
+  type ResidentDirectoryStage,
+} from "@/lib/current-resident";
 import { getPropertyById, getBundleOptionsForProperty, isEntireHomeProperty, isPropertyRentedByRoom, getRoomChoiceLabel, LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
 import { computeLeaseEndDate, shouldAutoComputeLeaseEnd } from "@/lib/rental-application/lease-dates";
 import { resolveManualResidentAssignment, resolveManualResidentPlacementValues } from "@/lib/rental-application/placement-values";
@@ -169,6 +175,7 @@ import {
   leaseLandlordNameWarning,
   leaseSendGateBlocker,
   UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE,
+  executedLeaseIdentities,
   readLeasePipeline,
   residentCanViewLeaseRow,
   sendLeaseBackToManager,
@@ -206,6 +213,7 @@ import {
   buildApplicationCompletionReminderBody,
 } from "@/lib/application-completion-reminder-email";
 import {
+  applicationStageDisplayLabel,
   inProgressApplicationResumeUrl,
   isInProgressApplicationRow,
   shouldOfferApplicationCompletionReminder,
@@ -335,6 +343,9 @@ type ActiveResident = {
   moveInInstructions?: string;
   manualResidentDetails?: NonNullable<import("@/data/demo-portal").DemoApplicantRow["manualResidentDetails"]>;
   isPrevious: boolean;
+  stage: ResidentDirectoryStage;
+  /** "Incomplete" / "Pending review" / "Approved" — what this person's application says today. */
+  statusLabel: string;
 };
 
 export function ManagerResidents({
@@ -665,6 +676,14 @@ export function ManagerResidents({
     };
   }, [authReady, userId]);
 
+  // Whose lease is actually executed. Read once per pipeline change and reused
+  // for the whole list — `residentDirectoryStage` needs the answer for every
+  // row, and re-reading the pipeline per resident would be the same scan N times.
+  const executedLeaseKeys = useMemo(() => {
+    void leaseTick;
+    return executedLeaseIdentities(userId);
+  }, [leaseTick, userId]);
+
   const residentDirectoryRows = useMemo<ActiveResident[]>(() => {
     void hcTick;
     // `propertyTick` is a cache-invalidation signal, not a value read here:
@@ -684,9 +703,17 @@ export function ManagerResidents({
         const propertyLabel = (prop?.buildingName?.trim() || prop?.title?.trim()?.replace(/\s*·\s*\d+\s*rooms?\s*$/i, "") || row.property || "").trim();
         const leaseStart = (row.manualResidentDetails?.moveInDate?.trim() || row.application?.leaseStart?.trim() || "");
         const leaseEnd = (row.manualResidentDetails?.moveOutDate?.trim() || row.application?.leaseEnd?.trim() || "");
+        const axisId = normalizeApplicationAxisId(row.id);
+        const leaseExecuted =
+          executedLeaseKeys.axisIds.has(axisId) ||
+          Boolean(row.email?.trim() && executedLeaseKeys.emails.has(row.email.trim().toLowerCase()));
+        const stage = residentDirectoryStage(row, { leaseExecuted });
         return {
           id: row.id,
-          name: row.name,
+          // An unfinished application often has no name yet — every other
+          // display site falls back to the address rather than printing a
+          // blank row, and this list is now one of them.
+          name: row.name?.trim() || (row.email ?? "").trim() || "Applicant",
           email: (row.email ?? "").trim(),
           propertyId: propId,
           propertyLabel,
@@ -695,18 +722,24 @@ export function ManagerResidents({
           signedMonthlyRent: row.signedMonthlyRent ?? null,
           leaseStart,
           leaseEnd,
-          axisId: normalizeApplicationAxisId(row.id),
+          axisId,
           manuallyAdded: row.manuallyAdded,
           moveInInstructions: row.moveInInstructions,
           manualResidentDetails: row.manualResidentDetails,
           isPrevious: isPreviousResidentDirectoryRow(row),
+          stage,
+          statusLabel: applicationStageDisplayLabel(row),
         };
       });
     if (built.length === 0 && shouldShowDevResidentListFixtures()) {
-      return DEV_RESIDENT_LIST_FIXTURES.map((row) => ({ ...row }));
+      return DEV_RESIDENT_LIST_FIXTURES.map((row) => ({
+        ...row,
+        stage: (row.isPrevious ? "past" : "current") as ResidentDirectoryStage,
+        statusLabel: "",
+      }));
     }
     return built;
-  }, [userId, hcTick, propertyTick]);
+  }, [userId, hcTick, propertyTick, executedLeaseKeys]);
 
   const residents = useMemo(
     () => dedupeResidentsByEmail(residentDirectoryRows),
@@ -1063,8 +1096,12 @@ export function ManagerResidents({
   }
 
   const filtered = useMemo(() => {
-    const inTab = residentDirectoryRows.filter((resident) =>
-      residentsTab === "past" ? resident.isPrevious : !resident.isPrevious,
+    // Deduped WITHIN the stage, not across it: two applications from one person
+    // are one prospect, but a current tenant who has also started an
+    // application for another room is legitimately both, and collapsing the
+    // pair would hide whichever row lost.
+    const inTab = dedupeResidentsByEmail(
+      residentDirectoryRows.filter((resident) => resident.stage === residentsTab),
     );
     const base = propertyFilters.length > 0
       ? inTab.filter((r) => propertyFilters.includes(r.propertyId))
@@ -1086,29 +1123,28 @@ export function ManagerResidents({
   }, [residentDirectoryRows, propertyFilters, residentsTab]);
 
   const hasResidentsInOtherTab = useMemo(
-    () =>
-      residentDirectoryRows.some((row) =>
-        residentsTab === "past" ? !row.isPrevious : row.isPrevious,
-      ),
+    () => residentDirectoryRows.some((row) => row.stage !== residentsTab),
     [residentDirectoryRows, residentsTab],
   );
 
   const residentsListEmptyMessage = useMemo(() => {
     if (propertyFilters.length > 0) return "No residents match this filter.";
     if (hasResidentsInOtherTab) {
-      return residentsTab === "past" ? "No past residents yet." : "No current residents yet.";
+      if (residentsTab === "past") return "No past residents yet.";
+      if (residentsTab === "potential") return "No potential residents yet.";
+      return "No current residents yet.";
     }
     return "No residents yet.";
   }, [hasResidentsInOtherTab, propertyFilters.length, residentsTab]);
 
   const residentTabCounts = useMemo(() => {
-    let current = 0;
-    let past = 0;
-    for (const row of residentDirectoryRows) {
-      if (row.isPrevious) past += 1;
-      else current += 1;
+    const counts: Record<ResidentsTabId, number> = { potential: 0, current: 0, past: 0 };
+    for (const stage of RESIDENT_DIRECTORY_TABS) {
+      counts[stage] = dedupeResidentsByEmail(
+        residentDirectoryRows.filter((row) => row.stage === stage),
+      ).length;
     }
-    return { current, past };
+    return counts;
   }, [residentDirectoryRows]);
 
   const applicationGroups = useMemo(() => {
@@ -1128,6 +1164,7 @@ export function ManagerResidents({
           roomLabel: res.roomLabel,
           leaseStart: res.leaseStart,
           groupId: res.groupId,
+          statusLabel: res.stage === "potential" ? res.statusLabel : "",
         })),
         applicationGroups,
         groupMode,
@@ -1151,6 +1188,21 @@ export function ManagerResidents({
         : null,
     [residentDirectoryRows, singleListSelectedId],
   );
+
+  // The completion reminder is per-application (it carries that application's
+  // own resume link), so it is offered on a single ticked row — the same shape
+  // as Edit and Email setup beside it — rather than fanning out over a
+  // selection whose rows would each need their own preview.
+  const singleListSelectedReminderRow = useMemo(() => {
+    // Cache-invalidation signal, not a value: the application cache
+    // `readManagerApplicationRows` consults is module-level, so React cannot
+    // see it change on its own.
+    void hcTick;
+    if (!singleListSelectedId) return null;
+    const row = readManagerApplicationRows().find((app) => app.id === singleListSelectedId);
+    if (!row || !shouldOfferApplicationCompletionReminder(row)) return null;
+    return row;
+  }, [singleListSelectedId, hcTick]);
 
   const activeResidentId = residentIdProp ? decodeURIComponent(residentIdProp) : null;
   const selected = useMemo(
@@ -1321,35 +1373,34 @@ export function ManagerResidents({
     return collectLinkedPropertyIdsForModule(userId, "leases").has(pid);
   }, [selected, userId, hcTick]);
 
-  // Hoisted so the memo's inferred dependency matches its declared one: reading
-  // `selected.email` inside the body makes the compiler infer the whole
-  // `selected`, which is broader than the `[selected?.email, userId]` intended.
-  const selectedEmail = selected?.email;
-  const residentTourRows = useMemo(() => {
-    if (!userId || !selectedEmail?.trim()) return [];
-    const email = selectedEmail.trim().toLowerCase();
-    return buildManagerTourRows({ viewerUserId: userId, propertyIds: [] }).filter(
-      (row) => row.guestEmail?.trim().toLowerCase() === email,
-    );
-  }, [selectedEmail, userId]);
+  // The person's OWN stage decides their profile tabs, not the list segment
+  // the manager happened to arrive from — a deep link into
+  // /residents/current/<id> for someone whose lease is unsigned must still show
+  // the prospect's tabs.
+  const selectedStage: ResidentsTabId = selected?.stage ?? residentsTab;
 
-  const showResidentTours = residentTourRows.length > 0;
+  // Tours belong to the prospect surface. A tenant is past touring, so the tab
+  // is gone from Current/Past even when they toured before signing; that
+  // history stays on the Tours section. Shown for every prospect, tours on
+  // file or not — the panel states the empty case, and a tab that appears only
+  // once a tour exists is a tab a manager cannot find.
+  const showResidentTours = selectedStage === "potential";
 
   const residentDetailTabsAvailable = useMemo((): ResidentDetailTabId[] => {
     const tabs: ResidentDetailTabId[] = [];
-    if (showResidentApplication) tabs.push("application");
-    if (
-      showResidentApplication &&
-      selectedApplicationRow &&
-      applicationShowsBackgroundCheck(selectedApplicationRow)
-    ) {
-      tabs.push("background-check");
+    for (const tab of RESIDENT_DETAIL_TABS_BY_STAGE[selectedStage]) {
+      if (tab === "application" && !showResidentApplication) continue;
+      if (tab === "lease" && !showResidentLease) continue;
+      if (
+        tab === "background-check" &&
+        !(showResidentApplication && selectedApplicationRow && applicationShowsBackgroundCheck(selectedApplicationRow))
+      ) {
+        continue;
+      }
+      tabs.push(tab);
     }
-    if (showResidentLease) tabs.push("lease");
-    if (showResidentTours) tabs.push("tours");
-    tabs.push("payments", "services", "inspections", "communication");
     return tabs;
-  }, [showResidentApplication, showResidentLease, showResidentTours, selectedApplicationRow]);
+  }, [selectedStage, showResidentApplication, showResidentLease, selectedApplicationRow]);
 
   const resolvedDetailTab = residentDetailTabsAvailable.includes(activeDetailTab)
     ? activeDetailTab
@@ -2944,23 +2995,7 @@ export function ManagerResidents({
                               >
                                 <PortalDetailDestinationNav
                                   denseEqualRow
-                                  items={(
-                                    [
-                                      showResidentApplication ? "application" : null,
-                                      showResidentApplication &&
-                                      selectedApplicationRow &&
-                                      applicationShowsBackgroundCheck(selectedApplicationRow)
-                                        ? "background-check"
-                                        : null,
-                                      showResidentLease ? "lease" : null,
-                                      showResidentTours ? "tours" : null,
-                                      "payments",
-                                      "services",
-                                      "inspections",
-                                      "communication",
-                                    ] as const
-                                  )
-                                    .filter((tab): tab is ResidentDetailTabId => tab !== null)
+                                  items={residentDetailTabsAvailable
                                     .map((tab) => ({
                                       id: tab,
                                       label: RESIDENT_DETAIL_TAB_LABELS[tab],
@@ -3513,9 +3548,9 @@ export function ManagerResidents({
         variant="command"
         destinations={RESIDENT_DIRECTORY_TABS.map((tab) => ({
           id: tab,
-          label: tab === "current" ? "Current" : "Past",
+          label: RESIDENT_DIRECTORY_TAB_LABELS[tab],
           href: residentListHref(portalBase, tab),
-          count: tab === "current" ? residentTabCounts.current : residentTabCounts.past,
+          count: residentTabCounts[tab],
           dataAttr: `manager-residents-tab-${tab}`,
         }))}
         activeDestinationId={residentsTab}
@@ -3579,6 +3614,20 @@ export function ManagerResidents({
               }}
             >
               Email setup
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="residents-bulk-completion-reminder"
+              disabled={!singleListSelectedReminderRow || applicationReminderPreviewBusyId !== null}
+              onClick={() => {
+                if (singleListSelectedReminderRow) {
+                  void openApplicationCompletionReminderPreview(singleListSelectedReminderRow);
+                }
+              }}
+            >
+              Remind to finish
             </Button>
             <Button
               type="button"

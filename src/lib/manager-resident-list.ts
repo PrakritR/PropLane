@@ -11,6 +11,12 @@ export type ManagerResidentListRow = {
   propertyLabel: string;
   roomLabel: string;
   leaseStart: string;
+  /**
+   * Where this person is in the application — "Incomplete", "Pending review",
+   * "Approved". Only the Potential stage sets it: a current tenant's row is
+   * about a tenancy, and repeating "Approved" on every one of them is noise.
+   */
+  statusLabel?: string;
 };
 
 export type ManagerResidentListCluster = ResidentCluster<ManagerResidentListRow>;

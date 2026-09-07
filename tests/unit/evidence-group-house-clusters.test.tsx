@@ -295,13 +295,20 @@ describe("household and resident list shells", () => {
     dump("applications-resident-clusters", container.innerHTML);
   });
 
-  it("Residents groups approved residents under property headers by default", () => {
-    const html = renderToStaticMarkup(<ManagerResidents />);
+  it("Residents groups people under property headers, on the stage they belong to", () => {
+    // These fixtures are APPROVED applications with no executed lease, so the
+    // directory files them as potential residents — approval is not a tenancy.
+    // What this test is about is the house CLUSTERING, which is the same shell
+    // on every stage.
+    const html = renderToStaticMarkup(<ManagerResidents tabId="potential" />);
 
     expect(html).toContain('data-attr="residents-house-groups"');
     expect(html).toContain("Jordan Reyes");
     expect(html).toContain("Taylor Brooks");
     dump("residents-house-clusters", html);
+
+    const currentHtml = renderToStaticMarkup(<ManagerResidents tabId="current" />);
+    expect(currentHtml).toContain("No current residents yet.");
   });
 
   it("Leases clusters each resident in the Tours-style table shell", async () => {
