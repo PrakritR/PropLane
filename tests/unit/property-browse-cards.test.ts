@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { MockProperty } from "@/data/types";
 import {
   buildPropertyBrowseCards,
@@ -8,6 +8,31 @@ import {
 } from "@/lib/room-listings-catalog";
 import { LISTING_ROOM_CHOICE_SEP } from "@/lib/rental-application/data";
 import { writeManagerApplicationRows } from "@/lib/manager-applications-storage";
+
+const leaseRows: Record<string, unknown>[] = [];
+
+vi.mock("@/lib/lease-pipeline-storage", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/lease-pipeline-storage")>();
+  return {
+    ...actual,
+    readLeasePipeline: () => leaseRows.map((row) => actual.normalizeLeasePipelineRow(row)),
+  };
+});
+
+function executedLease(appId: string) {
+  leaseRows.push({
+    id: `lease_${appId}`,
+    axisId: appId,
+    status: "Fully Signed",
+    fullySignedAt: "2026-01-01T00:00:00.000Z",
+    managerSignature: { role: "manager", name: "Manager", signedAtIso: "2026-01-01" },
+    residentSignature: { role: "resident", name: "Resident", signedAtIso: "2026-01-01" },
+  });
+}
+
+beforeEach(() => {
+  leaseRows.length = 0;
+});
 
 function mockProperty(overrides: Partial<MockProperty> & Pick<MockProperty, "id">): MockProperty {
   return {
@@ -199,6 +224,7 @@ describe("buildPropertyBrowseCards", () => {
         },
       } as never,
     ]);
+    executedLease("resident-1");
 
     const blocked = filterRoomListings([property], {
       zipRaw: "",

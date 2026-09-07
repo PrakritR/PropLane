@@ -143,7 +143,7 @@ export function ManagerLeasesPipelinePanel({
   const handleAmendLeaseSuccess = useCallback(async () => {
     await syncLeasePipelineFromServer(managerUserId, { force: true });
     setAmendLeaseRow(null);
-  }, [managerUserId]);
+  }, [managerUserId, setAmendLeaseRow]);
 
   function leaseSentToResidentBody(row: LeasePipelineRow): string {
     const unit = row.unit.trim() || "your unit";
@@ -594,31 +594,38 @@ export function ManagerLeasesPipelinePanel({
     }
   };
 
+  const handleLeaseFileUpload = useCallback(
+    async (rowId: string, file: File) => {
+      setPendingRowId(rowId);
+      const res = await uploadAndParseLeasePdf(rowId, file, managerUserId);
+      setPendingRowId(null);
+      if (!res.ok) {
+        showToast(res.error ?? "Upload failed.");
+        return;
+      }
+      if (res.saveError) {
+        showToast(`PDF saved, but its PropLane reading was not stored: ${res.saveError}`);
+        return;
+      }
+      if (!res.parse) {
+        showToast("PDF saved. Resident sees this on their Lease tab.");
+        return;
+      }
+      setImportReviewRowId(rowId);
+      showToast(
+        res.parse.status === "parsed"
+          ? `Lease imported into PropLane format (${res.parse.sections.length} sections). ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`
+          : `Lease PDF saved, but PropLane could not read its text. ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`,
+      );
+    },
+    [managerUserId, showToast],
+  );
+
   const onPickUpload = async (rowId: string, files: FileList | null) => {
     const f = files?.[0];
     if (!f) return;
-    setPendingRowId(rowId);
-    const res = await uploadAndParseLeasePdf(rowId, f, managerUserId);
-    setPendingRowId(null);
+    await handleLeaseFileUpload(rowId, f);
     if (uploadRef.current) uploadRef.current.value = "";
-    if (!res.ok) {
-      showToast(res.error ?? "Upload failed.");
-      return;
-    }
-    if (res.saveError) {
-      showToast(`PDF saved, but its PropLane reading was not stored: ${res.saveError}`);
-      return;
-    }
-    if (!res.parse) {
-      showToast("PDF saved. Resident sees this on their Lease tab.");
-      return;
-    }
-    setImportReviewRowId(rowId);
-    showToast(
-      res.parse.status === "parsed"
-        ? `Lease imported into PropLane format (${res.parse.sections.length} sections). ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`
-        : `Lease PDF saved, but PropLane could not read its text. ${UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE}`,
-    );
   };
 
   const renderLeaseDetailFooterActions = (row: LeasePipelineRow) => {
@@ -663,19 +670,8 @@ export function ManagerLeasesPipelinePanel({
           onReviewImportedLease={() => setImportReviewRowId(row.id)}
           onUploadPdf={
             leaseAllowsManagerDocumentEdits(row)
-              ? async (file) => {
-                  // A one-file stand-in for the FileList `onPickUpload` takes.
-                  // Via `unknown` because a real FileList is iterable and this
-                  // literal is not — the two do not overlap, so a direct
-                  // assertion fails type check and takes the whole build with
-                  // it. The callee only reads `[0]`/`length`, so the shape is
-                  // sufficient; the cast is what has to be spelled honestly.
-                  const files = {
-                    0: file,
-                    length: 1,
-                    item: (index: number) => (index === 0 ? file : null),
-                  } as unknown as FileList;
-                  await onPickUpload(row.id, files);
+              ? (file) => {
+                  void handleLeaseFileUpload(row.id, file);
                 }
               : undefined
           }

@@ -66,7 +66,7 @@ export async function resolveTeamInviteDelegate(
       return {
         ok: false,
         status: 403,
-        error: "One or more selected properties are not available for team invites.",
+        error: `One selected property isn't on your account yet (${propertyId}). Open Properties to let it finish saving, then try again.`,
       };
     }
     if (!ownerUserId) ownerUserId = propertyOwnerId;
