@@ -8,6 +8,8 @@ import { normalizeConsentPhone, readSmsSuppressionState } from "@/lib/sms-consen
 import { isClawSharedLineBridgeEnabled } from "@/lib/claw-leasing-links";
 import { forwardResidentInboundToManagerCell } from "@/lib/sms/manager-relay.server";
 import { resolveManagerSmsInboundIdentity } from "@/lib/sms/manager-sms-access.server";
+import { ensureManagerInboundReplyConsent } from "@/lib/sms/manager-conversation-consent.server";
+import { isPureCoManagerWorkspace } from "@/lib/sms/manager-workspace-role.server";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 import {
   deliverManagerSmsReply,
@@ -309,6 +311,27 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: delivered.error ?? "Reply delivery failed." }, { status: 503 });
   };
 
+  let managerInbound;
+  try {
+    managerInbound = await resolveManagerSmsInboundIdentity(db, {
+      workNumberOwnerId: managerId, fromPhone, toPhone,
+    });
+  } catch {
+    await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+    return NextResponse.json({ error: "Manager identity unavailable." }, { status: 503 });
+  }
+  if (managerInbound) {
+    const consent = await ensureManagerInboundReplyConsent(db, managerInbound, messageSid);
+    if (consent === "unavailable") {
+      await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+      return NextResponse.json({ error: "Reply consent unavailable." }, { status: 503 });
+    }
+    if (consent === "suppressed") {
+      await finishInboundClaim(db, messageSid, inboundWorkerId, "completed");
+      return twimlOk();
+    }
+  }
+
   // A prior worker completed the model/tool phase and persisted the exact
   // reply before transport. Re-send only that reply; never rerun the turn.
   if (replay.receipt?.replyBody) {
@@ -320,8 +343,13 @@ export async function POST(req: Request) {
       });
     }
     if (replay.receipt.routeKind === "manager_agent") {
+      if (!managerInbound || managerInbound.actorUserId !== replay.receipt.counterpartyUserId) {
+        await finishInboundClaim(db, messageSid, inboundWorkerId, "completed");
+        return twimlOk();
+      }
       const delivered = await deliverManagerSmsReply({
         managerUserId: managerId,
+        actorUserId: managerInbound.actorUserId,
         toPhone: fromPhone,
         text: replay.receipt.replyBody,
         workNumber: normalizeE164(toPhone) ?? toPhone,
@@ -368,11 +396,6 @@ export async function POST(req: Request) {
   // or an assigned co-manager); the context resolver only fills in roles. On any
   // failure stay silent rather than texting an error to a phone we could not
   // attribute.
-  const managerInbound = await resolveManagerSmsInboundIdentity(db, {
-    workNumberOwnerId: managerId,
-    fromPhone,
-    toPhone,
-  });
   if (managerInbound) {
     const managerIdentity = await resolveManagerSmsAgentContext(db, {
       managerUserId: managerInbound.workNumberOwnerId,
@@ -604,6 +627,11 @@ export async function POST(req: Request) {
       workNumber,
       service: "SMS",
       durablyClaimed: true,
+      // Tenant records remain with the property owner. Do not guess an owner
+      // or start leasing someone else's property through a teammate's line.
+      routingReply: await isPureCoManagerWorkspace(db, managerId, { throwOnError: true })
+        ? "This is a co-manager's PropLane assistant number. For your rental or application, please message your property manager through PropLane or use the contact number on your listing."
+        : undefined,
       onPreparedReply: (prepared) =>
         prepareInboundReply(db, {
           messageSid,

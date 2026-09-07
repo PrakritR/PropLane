@@ -29,14 +29,10 @@ function managerForwardConversationKey(managerUserId: string): string {
  * explicit, named proposal the manager confirms.
  */
 
-/** Last-10-digits comparison so `+1XXXXXXXXXX`, `1XXXXXXXXXX`, `(XXX) …` all match. */
+/** Canonical equality: US formatting may vary, but country codes are identity. */
 export function samePhone(a: string | null | undefined, b: string | null | undefined): boolean {
-  const da = String(a ?? "").replace(/\D/g, "");
-  const db = String(b ?? "").replace(/\D/g, "");
-  if (!da || !db) return false;
-  const na = da.length === 11 && da.startsWith("1") ? da.slice(1) : da;
-  const nb = db.length === 11 && db.startsWith("1") ? db.slice(1) : db;
-  return na.length >= 10 && nb.length >= 10 && na.slice(-10) === nb.slice(-10);
+  const first = normalizeE164(String(a ?? ""));
+  return first !== null && first === normalizeE164(String(b ?? ""));
 }
 
 /** Masked handle for a phone we must not reveal in full: `Texter ····1234`. */
@@ -60,11 +56,12 @@ export async function detectManagerSelfReply(
 ): Promise<ManagerSelfReply | null> {
   const managerUserId = args.managerUserId.trim();
   if (!managerUserId) return null;
-  const { data } = await db
+  const { data, error } = await db
     .from("profiles")
     .select("phone, phone_verified_at, sms_from_number")
     .eq("id", managerUserId)
     .maybeSingle();
+  if (error) throw new Error("Manager phone identity unavailable.");
   const managerPhone = String(data?.phone ?? "").trim();
   const verified = !!data?.phone_verified_at;
   if (!managerPhone || !verified) return null;

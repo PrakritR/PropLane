@@ -29,6 +29,7 @@ export async function loadManagerApplications(ctx: AgentContext): Promise<DemoAp
     ctx,
     "manager_application_records",
     (rowData) => rowData as DemoApplicantRow,
+    "residents",
   );
 }
 

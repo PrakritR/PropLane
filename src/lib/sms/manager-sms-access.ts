@@ -1,4 +1,5 @@
 import type { AgentContext } from "@/lib/tools/context";
+import { coManagerModuleAllowed, type CoManagerPermissionId, type PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
 
 /**
  * How a manager-SMS turn is scoped. The work-number owner is always the
@@ -24,6 +25,8 @@ export type ManagerSmsAccess = {
   dataOwnerIds: string[];
   /** Assigned co-managed property ids in this turn. Empty for unrestricted owner. */
   assignedPropertyIds: string[];
+  /** Server-resolved grants, keyed by owner as well as property. Missing means deny. */
+  permissionsByOwner?: Record<string, PropertyCoManagerPermissions>;
 };
 
 /** Landlord ids to query for manager-scoped tables. */
@@ -72,13 +75,34 @@ export function propertyIdFromToolRow(rowData: unknown): string | null {
  */
 const OWNER_KEYED_TABLES = new Set(["manager_vendor_records"]);
 
+const TABLE_MODULE: Record<string, CoManagerPermissionId> = {
+  manager_application_records: "applications",
+  portal_household_charge_records: "payments",
+  portal_lease_pipeline_records: "leases",
+  portal_work_order_records: "services",
+  portal_service_request_records: "services",
+  manager_vendor_records: "services",
+};
+
 export function smsAccessAllowsRow(
   access: ManagerSmsAccess | null | undefined,
-  args: { dataOwnerId: string; rowData: unknown; table: string },
+  args: { dataOwnerId: string; rowData: unknown; table: string; module?: CoManagerPermissionId },
 ): boolean {
   if (!access || access.mode === "owner") return true;
   const assigned = new Set(access.assignedPropertyIds);
   const propertyId = propertyIdFromToolRow(args.rowData);
+  if (access.mode === "combined" && args.dataOwnerId === access.actorUserId) return true;
+  if (!access.dataOwnerIds.includes(args.dataOwnerId)) return false;
+  const permissionModule = args.module ?? TABLE_MODULE[args.table];
+  if (!permissionModule) return false;
+  const permissions = access.permissionsByOwner?.[args.dataOwnerId];
+  if (propertyId) {
+    if (!coManagerModuleAllowed(permissions, propertyId, permissionModule, "read")) return false;
+  } else {
+    return OWNER_KEYED_TABLES.has(args.table) && access.assignedPropertyIds.some(
+      (id) => coManagerModuleAllowed(permissions, id, permissionModule, "read"),
+    );
+  }
   if (access.mode === "combined") {
     if (args.dataOwnerId === access.actorUserId) return true;
     if (!propertyId) return false;
@@ -94,6 +118,8 @@ export function smsAccessAllowsProperty(
   args: { propertyId: string; recordOwnerId: string; actorUserId: string },
 ): boolean {
   if (!access || access.mode === "owner") return args.recordOwnerId === args.actorUserId;
+  if (access.mode === "combined" && args.recordOwnerId === args.actorUserId) return true;
+  if (!coManagerModuleAllowed(access.permissionsByOwner?.[args.recordOwnerId], args.propertyId, "properties", "read")) return false;
   if (access.mode === "combined") {
     if (args.recordOwnerId === access.actorUserId) return true;
     return (
@@ -145,13 +171,15 @@ export function managerSmsScopePrompt(access: ManagerSmsAccess): string {
     return [
       "This text is on another manager's PropLane number. Answer only about the houses they assigned to you.",
       "Do not mention or act on houses you personally own or houses from any other owner.",
+      "Each module requires its own permission. Some owner-only actions are unavailable by delegated SMS; direct the user to PropLane for those.",
       "If a tool returns nothing, say you cannot see that from this number.",
     ].join(" ");
   }
   if (access.mode === "combined") {
     return [
       "You can answer about houses you own and houses you co-manage.",
-      "Changes to a co-managed house that belongs to another owner are only available when that house is in the tool results.",
+      "Co-managed records require the relevant module grant. Most changes remain limited to your own account; do not promise an unavailable action.",
+      "To message a co-managed resident, reply to their existing permitted inbox thread, or text that owner's work number to compose a new message. Never switch the sender's account by guessing.",
     ].join(" ");
   }
   return "";

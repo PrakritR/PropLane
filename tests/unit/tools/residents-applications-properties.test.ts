@@ -270,6 +270,7 @@ describe("manager SMS property scope", () => {
           actorUserId: "co_mgr",
           dataOwnerIds: ["owner_1"],
           assignedPropertyIds: ["p_assigned"],
+          permissionsByOwner: { owner_1: { p_assigned: { properties: true, applications: true, residents: true } } },
         },
       },
     );
@@ -304,6 +305,7 @@ describe("manager SMS property scope", () => {
           actorUserId: "co_mgr",
           dataOwnerIds: ["co_mgr", "owner_1"],
           assignedPropertyIds: ["p_assigned"],
+          permissionsByOwner: { owner_1: { p_assigned: { properties: true, applications: true, residents: true } } },
         },
       },
     );
@@ -346,6 +348,7 @@ describe("manager SMS application row scope", () => {
           actorUserId: "co_mgr",
           dataOwnerIds: ["owner_1"],
           assignedPropertyIds: ["p_assigned"],
+          permissionsByOwner: { owner_1: { p_assigned: { properties: true, applications: true, residents: true } } },
         },
       },
     );

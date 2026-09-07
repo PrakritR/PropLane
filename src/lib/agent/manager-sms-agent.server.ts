@@ -77,6 +77,8 @@ export function managerSmsTraceActor(ctx: AgentContext): TraceActor {
       activeManagerId: ctx.landlordId,
       channel: "sms",
       smsAccessMode: ctx.managerSmsAccess?.mode ?? "owner",
+      workNumberOwnerId: ctx.managerSmsAccess?.workNumberOwnerId ?? ctx.landlordId,
+      dataOwnerIds: ctx.managerSmsAccess?.dataOwnerIds ?? [ctx.landlordId],
     },
   };
 }

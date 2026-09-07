@@ -230,6 +230,21 @@ describe("handleClawLeasingInbound — known resident thread", () => {
     expect(sendFromManager).not.toHaveBeenCalled();
   });
 
+  it("logs routing guidance on a co-manager line without opening a resident action", async () => {
+    const { handleClawLeasingInbound } = await import("@/lib/claw-leasing-bot.server");
+    const routingReply = "Please contact your property manager through PropLane.";
+    const prepared = vi.fn(async () => true);
+    const result = await handleClawLeasingInbound({
+      from: "+15105794001", text: "What rent do I owe?", messageId: "co-manager-routing-test",
+      workNumber: "+12053690702", managerUserId: "mgr-1", routingReply, onPreparedReply: prepared,
+    });
+    expect(result.ok).toBe(true);
+    expect(runResidentSmsAction).not.toHaveBeenCalled();
+    expect(prepared).toHaveBeenCalledWith({ routeKind: "leasing_template", replyBody: routingReply });
+    expect(sendFromManager).toHaveBeenCalledWith(expect.objectContaining({ managerUserId: "mgr-1", text: routingReply }));
+    expect(logManagerSmsMessage).toHaveBeenCalled();
+  });
+
   it("answers a work-number text instead of stranding it when the resident thread cannot open", async () => {
     // Regression: `openClawResidentThread` refuses for ordinary reasons — the
     // texter's own number is a registered manager/admin cell, or the owning

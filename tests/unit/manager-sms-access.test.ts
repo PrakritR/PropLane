@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { createMemoryDb } from "./support/memory-supabase";
+import { buildAllModulesGrant } from "@/lib/co-manager-permissions";
 import {
   DELEGATED_SMS_UNSCOPED_TOOLS,
   filterSmsInboxOwnerIds,
@@ -75,6 +76,7 @@ const delegated: ManagerSmsAccess = {
   actorUserId: CO,
   dataOwnerIds: [OWNER],
   assignedPropertyIds: [ASSIGNED],
+  permissionsByOwner: { [OWNER]: { [ASSIGNED]: buildAllModulesGrant("full") } },
 };
 
 const combined: ManagerSmsAccess = {
@@ -83,6 +85,7 @@ const combined: ManagerSmsAccess = {
   actorUserId: CO,
   dataOwnerIds: [CO, OWNER],
   assignedPropertyIds: [ASSIGNED],
+  permissionsByOwner: { [OWNER]: { [ASSIGNED]: buildAllModulesGrant("full") } },
 };
 
 const ownerOnly: ManagerSmsAccess = {
