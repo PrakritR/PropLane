@@ -11,6 +11,7 @@
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID } from "@/lib/payment-policy";
 
 const OUT = process.env.EVIDENCE_DIR ?? "";
 const transcript: string[] = [];
@@ -101,7 +102,10 @@ describe("evidence · PATCH manager-manual-payment-settings", () => {
       serviceFeePayer: "proplane",
     });
     expect(refused.status).toBe(400);
-    expect(refused.json.error).toContain("promo code");
+    // Assert the SHIPPED string, not a paraphrase of it: this asserted the word
+    // "promo code" while the product had been reworded to "waiver code", so a
+    // deliberate copy change read as a broken refusal.
+    expect(refused.json.error).toBe(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID);
     // Nothing was written — not even a downgraded `resident`.
     expect(stored).toBeNull();
 

@@ -162,10 +162,10 @@ the entire "co-manager does nothing" bug. `20260716120000` restores the column.
 The panel now defaults to remote mode and only downgrades on a confirmed
 missing table (`migrationRequired`), never on transient errors.
 
-**Work numbers and Communication.** Every manager account that clears the plan
-check provisions its **own** PropLane number and its **own** `assist-…@`
-assistant address — a pure co-manager included, inheriting plan eligibility from
-an inviter. Product-sent SMS *for a house* still goes from the house owner's
+**Work numbers and Communication.** Provisioning eligibility for a manager's
+own number and assistant address, including pure co-managers, is described in
+[`sms-system.md`](sms-system.md#a-manager-texting-a-work-number-gets-the-ai).
+Product-sent SMS *for a house* still goes from the house owner's
 number; a co-manager's own number and address are how people reach **them**, and
 resolve to the houses assigned to them across every owner. A co-manager with Communication
 (`inbox`) on ≥1 assigned property of that owner can view those threads

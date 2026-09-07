@@ -18,12 +18,19 @@ import {
 import { resolveServiceFeePayerFor } from "@/lib/payment-policy";
 
 /** Normalize a real submission with one field varied — the normalizer walks the whole shape. */
-const withFeePayer = (raw: unknown, waiverCode?: string) =>
-  normalizeManagerListingSubmissionV1({
-    ...createDefaultListingSubmission(),
-    serviceFeePayer: raw,
-    serviceFeeWaiverCode: waiverCode,
-  } as never).serviceFeePayer;
+const withFeePayer = (
+  raw: unknown,
+  waiverCode?: string,
+  opts?: { accountPaymentWaiverGranted?: boolean },
+) =>
+  normalizeManagerListingSubmissionV1(
+    {
+      ...createDefaultListingSubmission(),
+      serviceFeePayer: raw,
+      serviceFeeWaiverCode: waiverCode,
+    } as never,
+    opts,
+  ).serviceFeePayer;
 
 describe("the stored value", () => {
   it("keeps a real choice", () => {
@@ -32,9 +39,12 @@ describe("the stored value", () => {
     expect(withFeePayer("proplane", "FREE100")).toBe("proplane");
   });
 
-  it("does not persist PropLane absorb without a valid waiver code", () => {
-    expect(withFeePayer("proplane")).toBe("resident");
+  it("preserves grant-backed PropLane absorb without a per-listing code on read paths", () => {
+    expect(withFeePayer("proplane")).toBe("proplane");
     expect(withFeePayer("proplane", "WRONG")).toBe("resident");
+    expect(
+      withFeePayer("proplane", undefined, { accountPaymentWaiverGranted: false }),
+    ).toBe("resident");
   });
 
   it("reads absence as null, not as a payer", () => {

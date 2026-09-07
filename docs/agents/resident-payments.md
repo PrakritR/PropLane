@@ -32,9 +32,10 @@ selectable and honoured. Two independent sources satisfy it
 `manager_purchases.promo_code` grant (`isWaiverGrantedManagerPurchase`, surfaced
 to the client as `paymentWaiverGranted` on `GET /api/manager/subscription` and
 cached by `loadManagerPaymentWaiverGrantedClient`), and a per-listing
-`serviceFeeWaiverCode` typed on the listing wizard's Pricing step, which must
-equal `LISTING_PAYMENT_WAIVER_CODE` (`FREE100`). Storing `proplane` on a listing
-without that code is not persisted — `persistListingServiceFeePayer` falls back
+`serviceFeeWaiverCode` entered on the listing wizard's Pricing step when the
+account does not already have a grant. The comp code is never shown in product
+UI — PropLane shares it directly. Storing `proplane` on a listing without a
+valid waiver is not persisted — `persistListingServiceFeePayer` falls back
 to `resident` rather than saving an absorb the code does not back.
 
 **The money still lands in the manager's own connected account.** Every resident
@@ -85,8 +86,8 @@ precedence the money paths do, so the payer a resident is shown before checkout
 cannot disagree with the one they are billed under; it resolves without a
 `propertyChoice` because the account-wide disclosure has no property in hand.
 
-**Choosing `proplane` for the ACCOUNT needs the same `FREE100` code the listing
-wizard asks for per listing**, because it spends PropLane's own money either way.
+**Choosing `proplane` for the ACCOUNT also requires a valid waiver code** (or an
+account-level grant), because it spends PropLane's own money either way.
 `resolveSavedServiceFeeSelection` (`manager-manual-payment-settings.ts`) is the one
 decision: a NEW `proplane` selection with no valid `serviceFeeWaiverCode` falls back
 to `resident`, exactly as `persistListingServiceFeePayer` does, while a save that

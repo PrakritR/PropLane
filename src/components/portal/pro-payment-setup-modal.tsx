@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Modal, ModalFooter } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { CreditCard } from "lucide-react";
+import { Modal } from "@/components/ui/modal";
+import { Badge } from "@/components/ui/badge";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { openStripeConnectOnboarding } from "@/lib/stripe-connect-onboarding-client";
@@ -13,107 +15,26 @@ import {
 } from "@/lib/manager-manual-payment-settings";
 import { normalizeManagerSkuTier, type ManagerSkuTier } from "@/lib/manager-access";
 import {
-  LISTING_PAYMENT_WAIVER_CODE,
-  listingPaymentWaiverCodeMatches,
   managerCanSelectManagerAbsorbServiceFee,
   managerCanSelectProplaneServiceFee,
-  normalizeListingPaymentWaiverCode,
+  resolveServiceFeePayerFor,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
 import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
 import { stripeSetupStateFromStatus, type StripeSetupState } from "@/lib/stripe-setup-state";
 
 const DEMO_INBOX = "payments+demo-token@prop-lane.space";
-
-const SERVICE_FEE_PAYER_OPTIONS: {
-  id: ServiceFeePayer;
-  title: string;
-  detail: string;
-}[] = [
-  { id: "resident", title: "Resident pays", detail: "Added at checkout" },
-  { id: "manager", title: "I'll cover it", detail: "Deducted from your payout" },
-  { id: "proplane", title: "PropLane covers it", detail: "No fee to you or residents" },
-];
+const SELECT_ALL_PROPERTIES = "__select_all_properties__";
 
 function draftFromSettings(settings: ManagerManualPaymentSettingsView | null): ManagerManualPaymentSettingsView {
   return settings ?? { ...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS, paymentInboxAddress: DEMO_INBOX };
 }
 
-function HubRow({
-  label,
-  connected,
-  onLink,
-  dataAttr,
-  busy,
-  linkLabel = "Link",
-  pending = false,
-  pendingLabel = "Finish setup",
-  allowed,
-  onAllowedChange,
-  allowDataAttr,
-  allowDisabled = false,
-}: {
-  label: string;
-  connected: boolean;
-  onLink: () => void;
-  dataAttr: string;
-  busy?: boolean;
-  linkLabel?: string;
-  /** Account exists but Stripe reports it cannot yet receive money (onboarding incomplete). */
-  pending?: boolean;
-  pendingLabel?: string;
-  /** Whether residents may use this method. */
-  allowed: boolean;
-  onAllowedChange: (allowed: boolean) => void;
-  allowDataAttr: string;
-  /** Stored settings could not be read — a save now would write defaults over them. */
-  allowDisabled?: boolean;
-}) {
-  return (
-    <div className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3.5">
-      <label className={`flex min-w-0 items-center gap-3 ${allowDisabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}>
-        <input
-          type="checkbox"
-          className="h-4 w-4 shrink-0 rounded border-border"
-          checked={allowed}
-          disabled={allowDisabled}
-          onChange={(e) => onAllowedChange(e.target.checked)}
-          data-attr={allowDataAttr}
-        />
-        <span className="text-sm font-semibold text-foreground">{label}</span>
-      </label>
-      {connected ? (
-        <button
-          type="button"
-          onClick={onLink}
-          data-attr={dataAttr}
-          className="shrink-0 text-sm font-medium text-[var(--status-confirmed-fg)] hover:underline"
-        >
-          Connected · Manage
-        </button>
-      ) : pending ? (
-        <button
-          type="button"
-          onClick={onLink}
-          disabled={busy}
-          data-attr={dataAttr}
-          className="shrink-0 text-sm font-medium text-[var(--status-pending-fg)] hover:underline disabled:opacity-50"
-        >
-          {busy ? "Opening…" : `${pendingLabel} →`}
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={onLink}
-          disabled={busy}
-          data-attr={dataAttr}
-          className="shrink-0 text-sm font-medium text-primary hover:underline disabled:opacity-50"
-        >
-          {busy ? "Opening…" : linkLabel}
-        </button>
-      )}
-    </div>
-  );
+function feePayerLabel(payer: ServiceFeePayer, skuTier: ManagerSkuTier | null, paymentWaiverGranted: boolean): string {
+  if (payer === "resident") return "Resident pays";
+  if (payer === "manager") return "I'll cover it";
+  if (payer === "proplane" && skuTier === "free" && paymentWaiverGranted) return "PropLane covers it";
+  return "PropLane covers it";
 }
 
 export function ManagerPaymentSetupModal({
@@ -126,20 +47,13 @@ export function ManagerPaymentSetupModal({
   onClose: () => void;
   portalBase: string;
   propertyOptions: { id: string; label: string }[];
-  /** When set, skip the property picker and scope saves to these ids (e.g. resident detail). */
+  /** When set, scope the fee table to these ids (e.g. resident detail). */
   presetPropertyIds?: string[];
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
   const [draft, setDraft] = useState<ManagerManualPaymentSettingsView>(() => draftFromSettings(null));
   const [loading, setLoading] = useState(false);
-  /*
-    Nothing may be written back before the stored settings have actually been read.
-    A failed GET leaves `draft` at the defaults, whose `serviceFeePayer` is
-    "resident" — and every save sends the whole draft, so one click on the Stripe
-    checkbox would have moved Stripe's cost onto an account that was absorbing it.
-    The server cannot catch that: switching to "resident" is a legitimate choice.
-  */
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [stripeBusy, setStripeBusy] = useState(false);
   const [stripeState, setStripeState] = useState<StripeSetupState>("unlinked");
@@ -148,12 +62,25 @@ export function ManagerPaymentSetupModal({
   const [paymentWaiverGranted, setPaymentWaiverGranted] = useState(false);
   const [canEditBankAccount, setCanEditBankAccount] = useState(true);
   const [isCoManagerForPayout, setIsCoManagerForPayout] = useState(false);
-  const [savingFeePayer, setSavingFeePayer] = useState(false);
-  const [waiverPromptOpen, setWaiverPromptOpen] = useState(false);
-  const [waiverCodeDraft, setWaiverCodeDraft] = useState("");
-  const [waiverCodeError, setWaiverCodeError] = useState<string | null>(null);
-  const [selectedPropertyIds, setSelectedPropertyIds] = useState<Set<string>>(() => new Set());
-  const [propertySelectionComplete, setPropertySelectionComplete] = useState(false);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [propertyFeePayers, setPropertyFeePayers] = useState<Record<string, ServiceFeePayer | null>>({});
+  const [selectedPropertyIds, setSelectedPropertyIds] = useState<string[]>([]);
+
+  const visibleProperties = useMemo(() => {
+    if (presetPropertyIds?.length) {
+      const allowed = new Set(presetPropertyIds);
+      return propertyOptions.filter((property) => allowed.has(property.id));
+    }
+    return propertyOptions;
+  }, [presetPropertyIds, propertyOptions]);
+
+  const lockPropertySelection =
+    Boolean(presetPropertyIds?.length === 1) && visibleProperties.length <= 1;
+
+  const propertyIdsKey = useMemo(
+    () => visibleProperties.map((property) => property.id).join(","),
+    [visibleProperties],
+  );
 
   const loadStripeStatus = useCallback(async () => {
     if (demo) {
@@ -178,9 +105,6 @@ export function ManagerPaymentSetupModal({
         error?: string;
       };
       if (!res.ok) {
-        // A refused status answers `{ error }` alone, so the optional fields are
-        // absent — reading them first would leave bank editing enabled and throw
-        // away the only sentence that says why it cannot work.
         setCanEditBankAccount(false);
         setIsCoManagerForPayout(body.isCoManagerForPayout === true);
         setStripeState("unknown");
@@ -194,7 +118,9 @@ export function ManagerPaymentSetupModal({
       setStripeIssue(
         nextState === "unknown"
           ? body.stripeError ?? body.message ?? "Couldn't check your Stripe status. Try again."
-          : null,
+          : nextState === "incomplete"
+            ? "Finish onboarding (identity + bank details) so resident payments can deposit."
+            : null,
       );
     } catch {
       setStripeState("unknown");
@@ -205,14 +131,26 @@ export function ManagerPaymentSetupModal({
   const loadSettings = useCallback(async () => {
     if (demo) {
       setDraft(draftFromSettings({ ...DEFAULT_MANAGER_MANUAL_PAYMENT_SETTINGS, paymentInboxAddress: DEMO_INBOX }));
+      setPropertyFeePayers(
+        Object.fromEntries(visibleProperties.map((property) => [property.id, null] as const)),
+      );
+      setSettingsLoaded(true);
+      return;
+    }
+    if (!propertyIdsKey) {
+      setPropertyFeePayers({});
       setSettingsLoaded(true);
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch("/api/portal/manager-manual-payment-settings", { credentials: "include" });
+      const res = await fetch(
+        `/api/portal/manager-manual-payment-settings?propertyIds=${encodeURIComponent(propertyIdsKey)}`,
+        { credentials: "include" },
+      );
       const data = (await res.json().catch(() => ({}))) as {
         settings?: ManagerManualPaymentSettingsView;
+        propertyServiceFeePayers?: Record<string, ServiceFeePayer | null>;
         error?: string;
       };
       if (!res.ok) {
@@ -220,13 +158,14 @@ export function ManagerPaymentSetupModal({
         return;
       }
       setDraft(draftFromSettings(data.settings ?? null));
+      setPropertyFeePayers(data.propertyServiceFeePayers ?? {});
       setSettingsLoaded(true);
     } catch {
       showToast("Could not load payment setup.");
     } finally {
       setLoading(false);
     }
-  }, [demo, showToast]);
+  }, [demo, propertyIdsKey, showToast, visibleProperties]);
 
   const loadTier = useCallback(async () => {
     if (demo) {
@@ -245,17 +184,12 @@ export function ManagerPaymentSetupModal({
       setSkuTier(normalizeManagerSkuTier(data.tier ?? null));
       if (data.paymentWaiverGranted === true) setPaymentWaiverGranted(true);
     } catch {
-      /* leave null — the fee-payer chooser simply stays hidden */
+      /* fee controls stay hidden until tier loads */
     }
   }, [demo]);
 
   useEffect(() => {
     if (!open) {
-      setPropertySelectionComplete(false);
-      setSelectedPropertyIds(new Set());
-      setWaiverPromptOpen(false);
-      setWaiverCodeDraft("");
-      setWaiverCodeError(null);
       setSettingsLoaded(false);
       return;
     }
@@ -265,16 +199,16 @@ export function ManagerPaymentSetupModal({
   }, [open, loadStripeStatus, loadSettings, loadTier]);
 
   useEffect(() => {
-    if (!open) return;
-    if (presetPropertyIds?.length) {
-      setSelectedPropertyIds(new Set(presetPropertyIds));
-      setPropertySelectionComplete(true);
+    if (!open) {
+      setSelectedPropertyIds([]);
       return;
     }
-    if (!propertySelectionComplete && selectedPropertyIds.size === 0 && propertyOptions.length > 0) {
-      setSelectedPropertyIds(new Set(propertyOptions.map((property) => property.id)));
+    if (lockPropertySelection && presetPropertyIds?.[0]) {
+      setSelectedPropertyIds([presetPropertyIds[0]]);
+      return;
     }
-  }, [open, presetPropertyIds, propertyOptions, propertySelectionComplete, selectedPropertyIds.size]);
+    setSelectedPropertyIds(visibleProperties.map((property) => property.id));
+  }, [lockPropertySelection, open, presetPropertyIds, visibleProperties]);
 
   useEffect(() => {
     if (!open) return;
@@ -283,14 +217,32 @@ export function ManagerPaymentSetupModal({
     return () => window.removeEventListener("focus", onFocus);
   }, [open, loadStripeStatus]);
 
-  async function persistSettings(patch: Partial<ManagerManualPaymentSettingsView>) {
+  async function persistSettings(
+    patch: Partial<ManagerManualPaymentSettingsView> & {
+      propertyServiceFeePayers?: Array<{ propertyId: string; serviceFeePayer: ServiceFeePayer | null }>;
+    },
+    savingId: string,
+  ) {
     if (!settingsLoaded && !demo) {
       showToast("Couldn't read your current payment setup, so nothing was changed. Reopen this window to try again.");
       return;
     }
+    setSavingKey(savingId);
     if (demo) {
-      setDraft((prev) => draftFromSettings({ ...prev, ...patch }));
+      if (patch.propertyServiceFeePayers?.length) {
+        setPropertyFeePayers((prev) => {
+          const next = { ...prev };
+          for (const row of patch.propertyServiceFeePayers ?? []) {
+            next[row.propertyId] = row.serviceFeePayer;
+          }
+          return next;
+        });
+      }
+      if (patch.serviceFeePayer) {
+        setDraft((prev) => draftFromSettings({ ...prev, ...patch, axisPaymentsEnabled: true }));
+      }
       showToast("Saved (demo).");
+      setSavingKey(null);
       return;
     }
     try {
@@ -301,29 +253,31 @@ export function ManagerPaymentSetupModal({
         body: JSON.stringify({
           ...draft,
           ...patch,
+          axisPaymentsEnabled: true,
           receiptAutoMarkEnabled: patch.receiptAutoMarkEnabled ?? draft.receiptAutoMarkEnabled !== false,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         settings?: ManagerManualPaymentSettingsView;
+        propertyServiceFeePayers?: Record<string, ServiceFeePayer | null>;
         error?: string;
-        chargesUpdated?: number;
       };
       if (!res.ok) {
         showToast(data.error ?? "Could not save payment setup.");
         return;
       }
       if (data.settings) {
-        setDraft(draftFromSettings(data.settings));
+        setDraft(draftFromSettings({ ...data.settings, axisPaymentsEnabled: true }));
         window.dispatchEvent(new CustomEvent(MANAGER_MANUAL_PAYMENT_SETTINGS_EVENT));
       }
-      const chargeNote =
-        typeof data.chargesUpdated === "number" && data.chargesUpdated > 0
-          ? ` Updated ${data.chargesUpdated} open charge${data.chargesUpdated === 1 ? "" : "s"}.`
-          : "";
-      showToast(`Payment setup saved.${chargeNote}`);
+      if (data.propertyServiceFeePayers) {
+        setPropertyFeePayers((prev) => ({ ...prev, ...data.propertyServiceFeePayers }));
+      }
+      showToast("Payment setup saved.");
     } catch {
       showToast("Could not save payment setup.");
+    } finally {
+      setSavingKey(null);
     }
   }
 
@@ -340,258 +294,229 @@ export function ManagerPaymentSetupModal({
     }
   }
 
-  async function changeFeePayer(choice: ServiceFeePayer) {
-    if ((draft.serviceFeePayer ?? "resident") === choice) return;
-    // PropLane covering the fee is PropLane spending its own money, so it is unlocked by
-    // a promo code rather than by a click — the same rule the listing wizard applies per
-    // listing. Ask for the code first; nothing is saved until it checks out.
-    if (choice === "proplane") {
-      setWaiverCodeError(null);
-      setWaiverCodeDraft(draft.serviceFeeWaiverCode ?? "");
-      setWaiverPromptOpen(true);
+  const tier = skuTier ?? "free";
+  const canSelectManagerAbsorb = managerCanSelectManagerAbsorbServiceFee(tier);
+  const canSelectProplane = managerCanSelectProplaneServiceFee(tier, paymentWaiverGranted);
+  const showFeePayerSection =
+    tier === "pro" || tier === "business" || (tier === "free" && paymentWaiverGranted);
+  const accountDefaultPayer = draft.serviceFeePayer ?? (tier === "free" ? "resident" : "proplane");
+
+  const stripeStatus =
+    stripeState === "ready"
+      ? { label: "Connected", tone: "confirmed" as const }
+      : stripeState === "incomplete"
+        ? { label: "Finish setup", tone: "pending" as const }
+        : stripeState === "unknown"
+          ? { label: "Unavailable", tone: "warning" as const }
+          : { label: "Not linked", tone: "info" as const };
+
+  const stripeAction =
+    stripeState === "ready"
+      ? "Manage"
+      : stripeState === "incomplete"
+        ? busyLabel(stripeBusy, "Finish setup")
+        : busyLabel(stripeBusy, "Link Stripe");
+
+  const feePayerOptions = useMemo(
+    () =>
+      [
+        { value: "resident" as const, label: "Resident pays" },
+        {
+          value: "manager" as const,
+          label: "I'll cover it",
+          disabled: !canSelectManagerAbsorb,
+        },
+        ...(canSelectProplane
+          ? [{ value: "proplane" as const, label: feePayerLabel("proplane", tier, paymentWaiverGranted) }]
+          : []),
+      ],
+    [canSelectManagerAbsorb, canSelectProplane, paymentWaiverGranted, tier],
+  );
+
+  const propertyMultiOptions = useMemo(() => {
+    const rows = visibleProperties.map((property) => ({ value: property.id, label: property.label }));
+    if (visibleProperties.length <= 1) return rows;
+    return [{ value: SELECT_ALL_PROPERTIES, label: "Select all" }, ...rows];
+  }, [visibleProperties]);
+
+  const propertySelectionTriggerLabel = useMemo(() => {
+    if (selectedPropertyIds.length === 0) return undefined;
+    if (
+      visibleProperties.length > 1 &&
+      selectedPropertyIds.length === visibleProperties.length
+    ) {
+      return "All properties";
+    }
+    if (selectedPropertyIds.length === 1) {
+      return visibleProperties.find((property) => property.id === selectedPropertyIds[0])?.label;
+    }
+    return `${selectedPropertyIds.length} properties`;
+  }, [selectedPropertyIds, visibleProperties]);
+
+  const propertyCheckboxSelected = useMemo(() => {
+    if (visibleProperties.length <= 1) return selectedPropertyIds;
+    const allSelected =
+      selectedPropertyIds.length === visibleProperties.length && visibleProperties.length > 0;
+    return allSelected ? [SELECT_ALL_PROPERTIES, ...selectedPropertyIds] : selectedPropertyIds;
+  }, [selectedPropertyIds, visibleProperties.length]);
+
+  const handlePropertySelectionChange = (next: string[]) => {
+    const allIds = visibleProperties.map((property) => property.id);
+    const includesSelectAll = next.includes(SELECT_ALL_PROPERTIES);
+    const wasAllSelected = selectedPropertyIds.length === allIds.length && allIds.length > 0;
+    if (includesSelectAll !== wasAllSelected) {
+      setSelectedPropertyIds(includesSelectAll ? allIds : []);
       return;
     }
-    setWaiverPromptOpen(false);
-    setWaiverCodeError(null);
-    setSavingFeePayer(true);
-    try {
-      await persistSettings({ serviceFeePayer: choice, serviceFeeWaiverCode: undefined });
-    } finally {
-      setSavingFeePayer(false);
-    }
-  }
-
-  async function applyWaiverCode() {
-    const code = normalizeListingPaymentWaiverCode(waiverCodeDraft);
-    if (!listingPaymentWaiverCodeMatches(code)) {
-      setWaiverCodeError("That promo code isn't valid.");
-      return;
-    }
-    setWaiverCodeError(null);
-    setSavingFeePayer(true);
-    try {
-      await persistSettings({ serviceFeePayer: "proplane", serviceFeeWaiverCode: code });
-      setWaiverPromptOpen(false);
-    } finally {
-      setSavingFeePayer(false);
-    }
-  }
-
-  const allPropertiesSelected = propertyOptions.length > 0 && selectedPropertyIds.size === propertyOptions.length;
-  const toggleAllProperties = (checked: boolean) => {
-    setSelectedPropertyIds(checked ? new Set(propertyOptions.map((property) => property.id)) : new Set());
+    setSelectedPropertyIds(next.filter((id) => id !== SELECT_ALL_PROPERTIES));
   };
-  const toggleProperty = (id: string, checked: boolean) => {
-    setSelectedPropertyIds((previous) => {
-      const next = new Set(previous);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
-    });
+
+  const effectivePayerForProperty = useCallback(
+    (propertyId: string): ServiceFeePayer =>
+      resolveServiceFeePayerFor({
+        tier,
+        managerChoice: accountDefaultPayer,
+        propertyChoice: propertyFeePayers[propertyId] ?? null,
+        waiverGranted: paymentWaiverGranted,
+      }),
+    [accountDefaultPayer, paymentWaiverGranted, propertyFeePayers, tier],
+  );
+
+  const selectedPropertiesFeeValue = useMemo((): ServiceFeePayer | "" => {
+    if (selectedPropertyIds.length === 0) return "";
+    const values = selectedPropertyIds.map((propertyId) => effectivePayerForProperty(propertyId));
+    const first = values[0];
+    if (!values.every((value) => value === first)) return "";
+    return first;
+  }, [effectivePayerForProperty, selectedPropertyIds]);
+
+  const applyFeeToSelectedProperties = (raw: ServiceFeePayer) => {
+    if (selectedPropertyIds.length === 0) {
+      showToast("Select at least one property.");
+      return;
+    }
+    if (raw === "manager" && !canSelectManagerAbsorb) return;
+    if (raw === "proplane" && !canSelectProplane) return;
+    const alreadyApplied =
+      raw === accountDefaultPayer &&
+      selectedPropertyIds.every((propertyId) => (propertyFeePayers[propertyId] ?? null) === null);
+    if (alreadyApplied) return;
+    void persistSettings(
+      {
+        serviceFeePayer: raw,
+        propertyServiceFeePayers: selectedPropertyIds.map((propertyId) => ({
+          propertyId,
+          serviceFeePayer: null,
+        })),
+      },
+      "fee-payer",
+    );
   };
 
   return (
-    <>
-      <Modal
-        open={open && !propertySelectionComplete && !presetPropertyIds?.length}
-        title="Choose properties for payment setup"
-        description="Stripe payout settings apply to residents and applicants for these properties."
-        onClose={onClose}
-        dense
-        assistantContext="Payment setup"
-        panelClassName="max-w-md"
-        footer={
-          <ModalFooter>
-            <Button
-              type="button"
-              variant="primary"
-              className="rounded-full"
-              disabled={selectedPropertyIds.size === 0 || propertyOptions.length === 0}
-              data-attr="manager-payment-properties-continue"
-              onClick={() => setPropertySelectionComplete(true)}
-            >
-              Continue
-            </Button>
-          </ModalFooter>
-        }
-      >
-        <div className="space-y-3">
-          <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-border bg-accent/20 px-3 py-2.5">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-border text-primary"
-              checked={allPropertiesSelected}
-              disabled={propertyOptions.length === 0}
-              data-attr="manager-payment-all-properties"
-              onChange={(event) => toggleAllProperties(event.target.checked)}
-            />
-            <span className="text-sm font-semibold text-foreground">All properties</span>
-          </label>
-          <div className="max-h-[min(40vh,16rem)] space-y-1 overflow-y-auto rounded-xl border border-border p-2">
-            {propertyOptions.length === 0 ? (
-              <p className="px-2 py-3 text-sm text-muted">No properties in portfolio yet.</p>
-            ) : (
-              propertyOptions.map((property) => (
-                <label
-                  key={property.id}
-                  className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 hover:bg-accent/30"
-                >
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 shrink-0 rounded border-border text-primary"
-                    checked={selectedPropertyIds.has(property.id)}
-                    data-attr={`manager-payment-property-${property.id}`}
-                    onChange={(event) => toggleProperty(property.id, event.target.checked)}
-                  />
-                  <span className="min-w-0 text-sm text-foreground">{property.label}</span>
-                </label>
-              ))
-            )}
-          </div>
-        </div>
-      </Modal>
+    <Modal
+      open={open}
+      title="Payment setup"
+      onClose={onClose}
+      dense
+      assistantContext="Payment setup"
+      panelClassName="max-w-lg"
+    >
+      <div className="space-y-4">
+        {loading ? <p className="text-sm text-muted">Loading…</p> : null}
 
-      <Modal open={open && propertySelectionComplete} title="Payment setup" onClose={onClose} assistantContext="Payment setup">
-        <div className="space-y-3">
-          {loading ? <p className="text-sm text-muted">Loading…</p> : null}
-          <HubRow
-            label="Stripe (ACH & card)"
-            connected={stripeState === "ready"}
-            pending={stripeState === "incomplete"}
-            pendingLabel="Finish setup"
-            onLink={() => void linkStripe()}
-            dataAttr="manager-payment-stripe-link"
-            busy={stripeBusy}
-            allowed={draft.axisPaymentsEnabled !== false}
-            allowDataAttr="manager-payment-stripe-allowed"
-            allowDisabled={!settingsLoaded && !demo}
-            onAllowedChange={(allowed) => void persistSettings({ axisPaymentsEnabled: allowed })}
-          />
-          {isCoManagerForPayout ? (
-            <p className="text-xs text-muted">
-              {canEditBankAccount
-                ? "You are updating the property owner&apos;s payout bank account."
-                : "Payout bank details belong to the property owner. Grant Bank account write access in Co-managers to change them."}
-            </p>
-          ) : null}
-          {stripeState === "incomplete" ? (
-            <p className="text-xs text-[var(--status-pending-fg)]">
-              Your Stripe account isn&apos;t ready to receive money yet. Finish onboarding (identity + bank details) so
-              resident payments can be deposited.
-            </p>
-          ) : null}
-          {stripeState === "unknown" && stripeIssue ? (
-            <p className="text-xs text-[var(--status-pending-fg)]">{stripeIssue}</p>
-          ) : null}
-          {skuTier === "pro" || skuTier === "business" || (skuTier === "free" && paymentWaiverGranted) ? (
-            <div className="space-y-2 rounded-xl border border-border bg-card px-4 py-3.5">
-              <p className="text-sm font-semibold text-foreground">Online payment service fee</p>
-              <p className="text-xs text-muted">
-                Choose who pays Stripe&apos;s processing fee on resident online payments (card, bank, Link). Rent still
-                deposits into the property owner&apos;s bank account either way.
-              </p>
-              <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-3">
-                {SERVICE_FEE_PAYER_OPTIONS.filter((option) => {
-                  const tier = skuTier ?? "free";
-                  if (option.id === "proplane") return managerCanSelectProplaneServiceFee(tier, paymentWaiverGranted);
-                  if (option.id === "manager") return managerCanSelectManagerAbsorbServiceFee(tier);
-                  return true;
-                }).map((option) => {
-                  const selected =
-                    (draft.serviceFeePayer ?? (skuTier === "free" ? "resident" : "proplane")) === option.id;
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      disabled={savingFeePayer || (!settingsLoaded && !demo)}
-                      onClick={() => void changeFeePayer(option.id)}
-                      data-attr={`manager-service-fee-payer-${option.id}`}
-                      className={`flex flex-col rounded-xl border px-3 py-2.5 text-left transition disabled:opacity-60 ${
-                        selected
-                          ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                          : "border-border bg-background hover:border-primary/30"
-                      }`}
-                    >
-                      <span className="text-sm font-semibold text-foreground">
-                        {option.id === "proplane" && skuTier === "free" ? "PropLane covers it (FREE100)" : option.title}
-                      </span>
-                      <span className="mt-0.5 text-xs text-muted">{option.detail}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              {waiverPromptOpen ? (
-                <div className="space-y-2 rounded-xl border border-primary/40 bg-primary/5 px-3 py-3">
-                  <label
-                    className="block text-xs font-semibold text-foreground"
-                    htmlFor="manager-service-fee-waiver-code"
-                  >
-                    Promo code
-                  </label>
-                  <input
-                    id="manager-service-fee-waiver-code"
-                    value={waiverCodeDraft}
-                    onChange={(event) => {
-                      setWaiverCodeDraft(normalizeListingPaymentWaiverCode(event.target.value));
-                      setWaiverCodeError(null);
-                    }}
-                    placeholder={LISTING_PAYMENT_WAIVER_CODE}
-                    autoComplete="off"
-                    data-attr="manager-service-fee-waiver-code"
-                    aria-invalid={Boolean(waiverCodeError)}
-                    aria-describedby={waiverCodeError ? "manager-service-fee-waiver-error" : undefined}
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground sm:max-w-xs"
-                  />
-                  <p className="text-xs text-muted">
-                    Required — enter your PropLane promo code so PropLane covers Stripe&apos;s processing fee on
-                    this account.
-                  </p>
-                  {waiverCodeError ? (
-                    <p id="manager-service-fee-waiver-error" className="text-xs text-destructive">
-                      {waiverCodeError}
-                    </p>
-                  ) : null}
-                  <div className="flex items-center gap-2 pt-0.5">
-                    <Button
-                      type="button"
-                      variant="primary"
-                      className="h-9 min-h-0 rounded-full px-4 text-[13px]"
-                      disabled={savingFeePayer}
-                      data-attr="manager-service-fee-waiver-apply"
-                      onClick={() => applyWaiverCode()}
-                    >
-                      Apply code
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-9 min-h-0 rounded-full px-4 text-[13px]"
-                      data-attr="manager-service-fee-waiver-cancel"
-                      onClick={() => {
-                        setWaiverPromptOpen(false);
-                        setWaiverCodeError(null);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                </div>
-              ) : (draft.serviceFeePayer ?? "resident") === "proplane" && draft.serviceFeeWaiverCode ? (
-                <p className="text-xs text-muted">Promo code {draft.serviceFeeWaiverCode} applied.</p>
-              ) : null}
-            </div>
-          ) : skuTier === "free" ? (
-            <p className="text-xs text-muted">
-              On the Free plan, residents cover the payment processing fee unless your account has the FREE100 waiver
-              code or you upgrade to Pro or Business.
-            </p>
-          ) : null}
-          <p className="text-xs text-muted">
-            Residents pay rent and fees through PropLane secure checkout — bank transfer (ACH) or card. Zelle and Venmo
-            are no longer supported.
-          </p>
+        <div
+          className="flex items-center justify-between gap-3 rounded-xl border border-border px-3 py-2.5"
+          data-testid="payment-setup-stripe-card"
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <CreditCard className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+            <span className="text-sm font-semibold text-foreground">Stripe payouts</span>
+            {stripeState !== "unlinked" ? <Badge tone={stripeStatus.tone}>{stripeStatus.label}</Badge> : null}
+          </div>
+          <button
+            type="button"
+            onClick={() => void linkStripe()}
+            disabled={stripeBusy}
+            data-attr="manager-payment-stripe-link"
+            className="shrink-0 text-sm font-semibold text-primary hover:underline disabled:opacity-50"
+          >
+            {stripeAction} →
+          </button>
         </div>
-      </Modal>
-    </>
+
+        {stripeIssue ? (
+          <p className="text-xs leading-relaxed text-[var(--status-pending-fg)]">{stripeIssue}</p>
+        ) : (
+          <p className="text-xs leading-relaxed text-muted">
+            ACH and card checkout only — rent deposits through Stripe Connect.
+          </p>
+        )}
+
+        {isCoManagerForPayout ? (
+          <p className="text-xs leading-relaxed text-muted">
+            {canEditBankAccount
+              ? "You are updating the property owner's payout bank account."
+              : "Payout bank details belong to the property owner."}
+          </p>
+        ) : null}
+
+        {showFeePayerSection ? (
+          <section className="space-y-4">
+            {lockPropertySelection ? (
+              <p className="text-sm text-foreground">
+                <span className="text-xs font-bold uppercase tracking-[0.12em] text-muted">Property · </span>
+                {visibleProperties[0]?.label ?? "Property"}
+              </p>
+            ) : (
+              <CheckboxMultiSelect
+                label="Properties"
+                options={propertyMultiOptions}
+                selected={propertyCheckboxSelected}
+                onChange={handlePropertySelectionChange}
+                selectionTriggerLabel={propertySelectionTriggerLabel}
+                disabled={loading || Boolean(savingKey) || visibleProperties.length === 0}
+                emptyLabel="Select properties…"
+                searchPlaceholder="Search properties…"
+                dataAttr="manager-payment-setup-properties"
+              />
+            )}
+
+            <FieldSingleSelect
+              label="Processing fee paid by"
+              value={selectedPropertiesFeeValue}
+              options={feePayerOptions}
+              placeholder={
+                selectedPropertyIds.length > 1 && selectedPropertiesFeeValue === ""
+                  ? "Mixed — choose to apply"
+                  : "Select…"
+              }
+              onChange={(next) => applyFeeToSelectedProperties(next as ServiceFeePayer)}
+              disabled={
+                loading ||
+                (!settingsLoaded && !demo) ||
+                selectedPropertyIds.length === 0 ||
+                savingKey === "fee-payer"
+              }
+              dataAttr="manager-service-fee-payer-select"
+            />
+
+            <p className="text-xs leading-relaxed text-muted">
+              Processing fee applies to every selected property. Rent still deposits to the owner&apos;s bank either
+              way.
+            </p>
+          </section>
+        ) : (
+          <p className="text-xs leading-relaxed text-muted">
+            On the Free plan, residents cover the processing fee unless your account has a processing-fee waiver or you
+            upgrade to Pro or Business.
+          </p>
+        )}
+      </div>
+    </Modal>
   );
+}
+
+function busyLabel(busy: boolean, label: string) {
+  return busy ? "Opening…" : label;
 }

@@ -95,6 +95,7 @@ type ServiceFeeSelection = { serviceFeePayer: ServiceFeePayer; serviceFeeWaiverC
 export function resolveSavedServiceFeeSelection(
   incoming: ServiceFeeSelection,
   stored: ServiceFeeSelection | null,
+  accountWaiverGranted = false,
 ): ServiceFeeSelection {
   if (incoming.serviceFeePayer !== "proplane") return { serviceFeePayer: incoming.serviceFeePayer };
   if (listingPaymentWaiverCodeMatches(incoming.serviceFeeWaiverCode)) {
@@ -102,6 +103,9 @@ export function resolveSavedServiceFeeSelection(
       serviceFeePayer: "proplane",
       serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(incoming.serviceFeeWaiverCode ?? ""),
     };
+  }
+  if (accountWaiverGranted) {
+    return { serviceFeePayer: "proplane" };
   }
   if (stored?.serviceFeePayer === "proplane") {
     return {
@@ -207,6 +211,7 @@ export async function saveManagerManualPaymentSettings(
   db: SupabaseClient,
   managerUserId: string,
   settings: ManagerManualPaymentSettings,
+  opts?: { accountWaiverGranted?: boolean },
 ): Promise<ManagerManualPaymentSettings> {
   // The staff override is deliberately NOT taken from the caller: this function is what the
   // manager's own settings route writes through, so honouring an inbound value would let a
@@ -222,6 +227,7 @@ export async function saveManagerManualPaymentSettings(
   // the caller's own value would survive — which is precisely the hole this guards.
   delete normalized.adminServiceFeeOverride;
   if (stored?.adminServiceFeeOverride) normalized.adminServiceFeeOverride = stored.adminServiceFeeOverride;
+  const accountWaiverGranted = opts?.accountWaiverGranted === true;
   // A failed read is not evidence of a new selection. Without the stored value a legacy
   // account already absorbing fees is indistinguishable from a code-less new choice, and
   // resolving to `resident` would silently move Stripe's cost onto that manager's residents
@@ -229,11 +235,12 @@ export async function saveManagerManualPaymentSettings(
   if (
     storedReadFailed &&
     normalized.serviceFeePayer === "proplane" &&
-    !listingPaymentWaiverCodeMatches(normalized.serviceFeeWaiverCode)
+    !listingPaymentWaiverCodeMatches(normalized.serviceFeeWaiverCode) &&
+    !accountWaiverGranted
   ) {
     throw new Error("Could not read stored payment settings; refusing to change who pays the service fee.");
   }
-  const feeSelection = resolveSavedServiceFeeSelection(normalized, stored);
+  const feeSelection = resolveSavedServiceFeeSelection(normalized, stored, accountWaiverGranted);
   normalized.serviceFeePayer = feeSelection.serviceFeePayer;
   if (feeSelection.serviceFeeWaiverCode) normalized.serviceFeeWaiverCode = feeSelection.serviceFeeWaiverCode;
   else delete normalized.serviceFeeWaiverCode;

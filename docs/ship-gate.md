@@ -264,7 +264,7 @@ Before pushing:
    identifying the reviewed base/head (and any uncommitted diff), findings,
    severity and resolution evidence. Re-review affected changes after fixes.
    **Unresolved Critical or High findings block landing.**
-2. `no-mistakes axi run --skip=push,pr,ci` (review, test, document, lint)
+2. Review the change, test the affected behavior, update relevant documentation, and run lint. No specific pipeline tool is required.
 3. `npm run test:unit`
 
 The former `bin/fm-proplane-security-review.sh` command was a dangling reference
@@ -277,8 +277,6 @@ Never open a GitHub PR unless the captain explicitly asks. Never push `fm/*`
 branches.
 
 Scripts restart dev servers and open the browser via `bin/fm-proplane-open-localhost.sh`.
-
-If no-mistakes parks at a gate, drive `no-mistakes axi respond` then re-run with `--validate-only`.
 
 ## Promote main → staging (QA)
 
