@@ -83,10 +83,10 @@ describe("residentDetailTabsForStage", () => {
     expect(tabs).not.toContain("services");
   });
 
-  it("takes Tours off a tenant and leaves everything else", () => {
+  it("keeps Tours on a tenant and leaves Services (PRP-394)", () => {
     for (const stage of ["current", "past"] as const) {
       const tabs = residentDetailTabsForStage(stage);
-      expect(tabs).not.toContain("tours");
+      expect(tabs[0]).toBe("tours");
       expect(tabs).toContain("services");
       expect(tabs).toContain("payments");
       expect(tabs).toContain("inspections");

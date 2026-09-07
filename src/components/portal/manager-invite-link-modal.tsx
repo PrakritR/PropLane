@@ -179,7 +179,9 @@ export function ManagerInviteLinkModal({
     setMintedUrl(null);
   };
 
-  const mintDisabled = selectedPropIds.length === 0;
+  // With houses on the account, require at least one grant. With none yet, allow
+  // minting an empty-scope link so a brand-new manager can still invite (PRP-419).
+  const mintDisabled = propertyOptions.length > 0 && selectedPropIds.length === 0;
 
   return (
     <Modal
@@ -238,16 +240,22 @@ export function ManagerInviteLinkModal({
         ) : (
           <>
             <div>
-              <CheckboxMultiSelect
-                label="Properties this link grants access to"
-                labelClassName="text-xs font-semibold uppercase tracking-wide text-muted"
-                options={propertyOptions}
-                selected={selectedPropIds}
-                onChange={setPropertySelection}
-                emptyLabel="Select properties…"
-                searchPlaceholder="Search properties…"
-                dataAttr="invite-link-properties"
-              />
+              {propertyOptions.length === 0 ? (
+                <p className="rounded-xl border border-border bg-accent/30 px-4 py-3 text-sm text-muted">
+                  No properties yet. You can still create a link and assign houses later.
+                </p>
+              ) : (
+                <CheckboxMultiSelect
+                  label="Properties this link grants access to"
+                  labelClassName="text-xs font-semibold uppercase tracking-wide text-muted"
+                  options={propertyOptions}
+                  selected={selectedPropIds}
+                  onChange={setPropertySelection}
+                  emptyLabel="Select properties…"
+                  searchPlaceholder="Search properties…"
+                  dataAttr="invite-link-properties"
+                />
+              )}
             </div>
 
             {renderPermissionsEditor

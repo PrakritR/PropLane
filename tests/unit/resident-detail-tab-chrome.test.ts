@@ -40,17 +40,17 @@ describe("resident detail tab chrome", () => {
     ]);
   });
 
-  it("puts tours on a prospect's tab strip and takes it off a tenant's", () => {
-    // Tours used to be unconditional here. It is now a stage decision: a
-    // potential resident is the person who tours, and a tenant is past it.
-    // Asserted through the shared table rather than by grepping the component,
-    // so a refactor of the component cannot fail this while the rule holds.
-    expect(residentDetailTabsForStage("potential")).toContain("tours");
-    expect(residentDetailTabsForStage("current")).not.toContain("tours");
-    expect(residentDetailTabsForStage("past")).not.toContain("tours");
+  it("puts tours first on every directory stage (PRP-394)", () => {
+    // Current/Past used to drop Tours ("tenant is past touring"). The ticket
+    // asks for the same strip on Current so tour history stays on the profile.
+    expect(residentDetailTabsForStage("potential")[0]).toBe("tours");
+    expect(residentDetailTabsForStage("current")[0]).toBe("tours");
+    expect(residentDetailTabsForStage("past")[0]).toBe("tours");
+    expect(residentDetailTabsForStage("potential")).not.toContain("services");
+    expect(residentDetailTabsForStage("current")).toContain("services");
 
-    // Whichever stage shows it, the panel must still be handed the manager's
-    // portfolio property ids — without them a resident's tours do not load.
+    // The panel must still be handed the manager's portfolio property ids —
+    // without them a resident's tours do not load.
     const src = readFileSync(
       `${process.cwd()}/src/components/portal/pro-residents.tsx`,
       "utf8",
