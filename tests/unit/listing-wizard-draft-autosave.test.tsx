@@ -13,6 +13,7 @@ import { readExtraListingsForUser, seedDemoManagerProperties } from "@/lib/demo-
 import { LEASE_TEMPLATE_ROUTE } from "@/lib/lease-template-storage";
 import {
   createDefaultListingSubmission,
+  emptySharedSpace,
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import { LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS } from "@/lib/manager-listing-draft-autosave";
@@ -531,6 +532,157 @@ describe("editing an existing listing", () => {
       expect(saved?.listingSubmission?.lateFeeGraceDays).toBe(7);
     });
     expect(calls.some((c) => c.action === "upsert" && c.id === listingId)).toBe(true);
+  });
+
+  function clickContinue() {
+    const btn = document.querySelector('[data-attr="listing-wizard-continue"]');
+    if (!btn) throw new Error("no wizard continue button");
+    fireEvent.click(btn);
+  }
+
+  it("advances from Shared spaces without re-saving when nothing changed", async () => {
+    SESSION_USER_ID = "supabase-user-1";
+    const listingId = `mgr-edit-continue-${MANAGER_ID}`;
+    const initial = validEditSubmission();
+    seedDemoManagerProperties(MANAGER_ID, [
+      {
+        id: listingId,
+        buildingName: initial.buildingName,
+        address: initial.address,
+        zip: initial.zip,
+        rentLabel: "$1200",
+        listingSubmission: initial,
+        adminPublishLive: true,
+      } as import("@/data/types").MockProperty,
+    ]);
+
+    renderWizard({
+      editListingId: listingId,
+      initialSubmission: initial,
+      initialStepIndex: 3,
+      initialMaxStepReached: 4,
+    });
+
+    clickContinue();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { current: "step" }).textContent).toMatch(/Pricing/i);
+    });
+    expect(calls.filter((c) => c.action === "upsert")).toHaveLength(0);
+  });
+
+  it("continues after a partial photo upload failure instead of blocking silently", async () => {
+    SESSION_USER_ID = "supabase-user-1";
+    uploadFails = (contentType) => contentType === "image/jpeg";
+    const listingId = `mgr-edit-photo-${MANAGER_ID}`;
+    const spaceId = "test-laundry-space";
+    const initial = {
+      ...validEditSubmission(),
+      sharedSpaces: [
+        {
+          ...emptySharedSpace(0),
+          id: spaceId,
+          name: "Laundry",
+          photoDataUrls: ["data:image/jpeg;base64,AAAA"],
+        },
+      ],
+    };
+    seedDemoManagerProperties(MANAGER_ID, [
+      {
+        id: listingId,
+        buildingName: initial.buildingName,
+        address: initial.address,
+        zip: initial.zip,
+        rentLabel: "$1200",
+        listingSubmission: initial,
+        adminPublishLive: true,
+      } as import("@/data/types").MockProperty,
+    ]);
+
+    const showToast = vi.fn();
+    renderWizard({
+      editListingId: listingId,
+      initialSubmission: initial,
+      initialStepIndex: 3,
+      initialMaxStepReached: 4,
+      showToast,
+    });
+
+    const toggle = document.querySelector(`[data-attr="listing-shared-toggle-${spaceId}"]`);
+    if (!toggle) throw new Error("shared space toggle missing");
+    fireEvent.click(toggle);
+    fireEvent.change(screen.getByPlaceholderText(/kitchen & dining/i), {
+      target: { value: "Laundry room" },
+    });
+    clickContinue();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { current: "step" }).textContent).toMatch(/Pricing/i);
+    });
+    expect(showToast).toHaveBeenCalledWith(
+      expect.stringMatching(/some photos couldn't be uploaded/i),
+    );
+    expect(calls.some((c) => c.action === "upsert" && c.id === listingId)).toBe(true);
+  });
+
+  it("shows a save error when closing an edit that cannot be persisted", async () => {
+    SESSION_USER_ID = "supabase-user-1";
+    const listingId = `mgr-edit-close-${MANAGER_ID}`;
+    const spaceId = "test-laundry-space";
+    const initial = {
+      ...validEditSubmission(),
+      sharedSpaces: [
+        {
+          ...emptySharedSpace(0),
+          id: spaceId,
+          name: "Laundry",
+          photoDataUrls: ["data:image/jpeg;base64,AAAA"],
+        },
+      ],
+    };
+    seedDemoManagerProperties(MANAGER_ID, [
+      {
+        id: listingId,
+        buildingName: initial.buildingName,
+        address: initial.address,
+        zip: initial.zip,
+        rentLabel: "$1200",
+        listingSubmission: initial,
+        adminPublishLive: true,
+      } as import("@/data/types").MockProperty,
+    ]);
+
+    const { onClose, showToast } = renderWizard({
+      editListingId: listingId,
+      initialSubmission: initial,
+      initialStepIndex: 3,
+      initialMaxStepReached: 4,
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: { body?: string }) => {
+        if (typeof url === "string" && url.startsWith("data:")) {
+          const mime = url.slice("data:".length, url.indexOf(";")) || "application/octet-stream";
+          return { ok: true, blob: async () => new Blob(["bytes"], { type: mime }) } as unknown as Response;
+        }
+        const body = init?.body ? (JSON.parse(init.body) as RecordedCall) : ({} as RecordedCall);
+        if (body.action) return { ok: false, status: 500, json: async () => ({ error: "fail" }) } as unknown as Response;
+        return { ok: true, status: 200, json: async () => ({ records: [] }) } as unknown as Response;
+      }),
+    );
+
+    const toggle = document.querySelector(`[data-attr="listing-shared-toggle-${spaceId}"]`);
+    if (!toggle) throw new Error("shared space toggle missing");
+    fireEvent.click(toggle);
+    fireEvent.change(screen.getByPlaceholderText(/kitchen & dining/i), {
+      target: { value: "Laundry room" },
+    });
+    clickClose();
+
+    await waitFor(() => expect(draftSaveErrorText()).toMatch(/could not save changes/i));
+    expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/could not save changes/i));
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
 
