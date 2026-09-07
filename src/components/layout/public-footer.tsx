@@ -22,6 +22,7 @@ const FOOTER_COLUMNS: { heading: string; links: { href: string; label: string }[
       { href: "/docs", label: "Docs" },
       { href: "/docs/mcp", label: "MCP & API" },
       { href: "/app", label: "Mobile app" },
+      { href: "/security", label: "Security" },
       { href: "/about", label: "About us" },
     ],
   },
