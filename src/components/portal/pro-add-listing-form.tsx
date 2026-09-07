@@ -1466,6 +1466,13 @@ export function ManagerAddListingForm({
     if (isDemoModeActive()) return;
     void loadManagerPaymentWaiverGrantedClient().then(setPaymentWaiverGranted);
   }, []);
+
+  useEffect(() => {
+    if (!paymentWaiverGranted) return;
+    setSub((current) =>
+      normalizeManagerListingSubmissionV1(current, { accountPaymentWaiverGranted: true }),
+    );
+  }, [paymentWaiverGranted]);
   const [assistantTriggerTarget, setAssistantTriggerTarget] = useState<HTMLSpanElement | null>(null);
   const resumedStepIndex = clampWizardStep(initialStepIndex);
   const resumedMaxStepReached = Math.max(clampWizardStep(initialMaxStepReached), resumedStepIndex);

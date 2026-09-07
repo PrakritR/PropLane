@@ -1,12 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { sanitizePaymentContactInput } from "@/lib/listing-form-inputs";
 import {
   listingPaymentWaiverCodeMatches,
   normalizeListingPaymentWaiverCode,
   normalizeServiceFeeChoice,
-  waiverGrantedFromPromoCode,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
 
@@ -213,6 +211,7 @@ export async function saveManagerManualPaymentSettings(
   db: SupabaseClient,
   managerUserId: string,
   settings: ManagerManualPaymentSettings,
+  opts?: { accountWaiverGranted?: boolean },
 ): Promise<ManagerManualPaymentSettings> {
   // The staff override is deliberately NOT taken from the caller: this function is what the
   // manager's own settings route writes through, so honouring an inbound value would let a
@@ -228,8 +227,7 @@ export async function saveManagerManualPaymentSettings(
   // the caller's own value would survive — which is precisely the hole this guards.
   delete normalized.adminServiceFeeOverride;
   if (stored?.adminServiceFeeOverride) normalized.adminServiceFeeOverride = stored.adminServiceFeeOverride;
-  const purchase = await getManagerPurchaseSku(managerUserId).catch(() => null);
-  const accountWaiverGranted = waiverGrantedFromPromoCode(purchase?.promoCode ?? null);
+  const accountWaiverGranted = opts?.accountWaiverGranted === true;
   // A failed read is not evidence of a new selection. Without the stored value a legacy
   // account already absorbing fees is indistinguishable from a code-less new choice, and
   // resolving to `resident` would silently move Stripe's cost onto that manager's residents

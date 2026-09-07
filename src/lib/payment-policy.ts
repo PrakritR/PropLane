@@ -130,18 +130,16 @@ export function persistListingServiceFeePayer(
   if (payer === "resident" || payer === "manager") {
     return { serviceFeePayer: payer, serviceFeeWaiverCode: undefined };
   }
-  if (
-    payer === "proplane" &&
-    (listingPaymentWaiverCodeMatches(waiverCode) || accountWaiverGranted)
-  ) {
-    return listingPaymentWaiverCodeMatches(waiverCode)
-      ? {
-          serviceFeePayer: "proplane",
-          serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(waiverCode ?? ""),
-        }
-      : { serviceFeePayer: "proplane", serviceFeeWaiverCode: undefined };
-  }
   if (payer === "proplane") {
+    if (listingPaymentWaiverCodeMatches(waiverCode)) {
+      return {
+        serviceFeePayer: "proplane",
+        serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(waiverCode ?? ""),
+      };
+    }
+    if (accountWaiverGranted) {
+      return { serviceFeePayer: "proplane", serviceFeeWaiverCode: undefined };
+    }
     return { serviceFeePayer: "resident", serviceFeeWaiverCode: undefined };
   }
   return { serviceFeePayer: null, serviceFeeWaiverCode: undefined };

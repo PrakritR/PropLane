@@ -10,7 +10,7 @@ import {
 } from "@/lib/manager-manual-payment-settings";
 import { applyManagerManualPaymentsToListings } from "@/lib/manager-manual-payment-settings.server";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
-import { waiverGrantedFromPromoCode } from "@/lib/payment-policy";
+import { waiverGrantedFromPromoCode, LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID } from "@/lib/payment-policy";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -64,26 +64,30 @@ export async function PATCH(req: Request) {
     // Only a PropLane-absorbed selection needs the stored value, and the save loads it
     // again anyway — so every ordinary save keeps its single read (egress is a real
     // constraint here, see AGENTS.md).
+    let accountWaiverGranted = false;
+    if (normalized.serviceFeePayer === "proplane") {
+      const purchase = await getManagerPurchaseSku(ctx.userId);
+      if (purchase.readFailed) {
+        return NextResponse.json({ error: "Could not read account payment waiver status." }, { status: 500 });
+      }
+      accountWaiverGranted = waiverGrantedFromPromoCode(purchase.promoCode);
+    }
     const storedSettings =
       normalized.serviceFeePayer === "proplane"
         ? await loadManagerManualPaymentSettings(ctx.db, ctx.userId)
         : null;
-    const purchase = await getManagerPurchaseSku(ctx.userId).catch(() => null);
-    const accountWaiverGranted = waiverGrantedFromPromoCode(purchase?.promoCode ?? null);
     if (
       normalized.serviceFeePayer === "proplane" &&
       resolveSavedServiceFeeSelection(normalized, storedSettings, accountWaiverGranted).serviceFeePayer !==
         "proplane"
     ) {
-      return NextResponse.json(
-        { error: "Enter the processing fee waiver code PropLane gave you." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID }, { status: 400 });
     }
     const settings = await saveManagerManualPaymentSettings(
       ctx.db,
       ctx.userId,
       normalized,
+      { accountWaiverGranted },
     );
     const requestedPropertyIds = Array.isArray(propertyIds)
       ? propertyIds.filter((id): id is string => typeof id === "string")
