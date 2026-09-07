@@ -104,6 +104,7 @@ export function ProPortalSettingsModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [propertyId, setPropertyId] = useState("");
+  const [propertyIds, setPropertyIds] = useState<string[]>([]);
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
   const [waiverCode, setWaiverCode] = useState("");
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
@@ -117,14 +118,16 @@ export function ProPortalSettingsModal({
     if (!open) return;
     const preferred = initialPropertyId?.trim() || propertyOptions[0]?.id || "";
     setPropertyId(preferred);
+    setPropertyIds(preferred ? [preferred] : []);
   }, [open, initialPropertyId, propertyOptions]);
 
   useEffect(() => {
     setPanelFooter(null);
-  }, [tab, propertyId]);
+  }, [tab, propertyId, propertyIds.join("|")]);
 
   const loadApplications = useCallback(async () => {
-    if (!propertyId) {
+    const loadId = propertyIds[0] || propertyId;
+    if (!loadId) {
       setAutomation(DEFAULT_APPLICATION_AUTOMATION);
       return;
     }
@@ -136,7 +139,7 @@ export function ProPortalSettingsModal({
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/portal/manager-application-settings?propertyId=${encodeURIComponent(propertyId)}`,
+        `/api/portal/manager-application-settings?propertyId=${encodeURIComponent(loadId)}`,
         { credentials: "include" },
       );
       const data = (await res.json().catch(() => ({}))) as {
@@ -155,7 +158,7 @@ export function ProPortalSettingsModal({
     } finally {
       setLoading(false);
     }
-  }, [demo, propertyId, showToast]);
+  }, [demo, propertyId, propertyIds, showToast]);
 
   useEffect(() => {
     if (!open) return;
@@ -175,29 +178,43 @@ export function ProPortalSettingsModal({
    * touched, and racing the load that triggered it.
    */
   const saveApplicationAutomationSettings = useCallback(
-    async (next: ApplicationAutomationPreferences, nextWaiverCode: string) => {
-      if (!propertyId || demo) return;
+    async (next: ApplicationAutomationPreferences, nextWaiverCode: string, targetPropertyIds: string[]) => {
+      const ids = targetPropertyIds.map((id) => id.trim()).filter(Boolean);
+      if (ids.length === 0 || demo) return;
       setSaving(true);
       try {
-        const res = await fetch("/api/portal/manager-application-settings", {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ propertyId, automation: next, waiverCode: nextWaiverCode }),
-        });
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        let failed = false;
+        for (const id of ids) {
+          const res = await fetch("/api/portal/manager-application-settings", {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ propertyId: id, automation: next, waiverCode: nextWaiverCode }),
+          });
+          if (!res.ok) {
+            failed = true;
+            const data = (await res.json().catch(() => ({}))) as { error?: string };
+            showToast(data.error ?? "Could not save settings.");
+            break;
+          }
+        }
         // Silent on success — a toast per checkbox is noise when the toggle is
         // its own feedback. A failure still speaks, or the switch sits there
         // looking saved when nothing was written.
-        if (!res.ok) showToast(data.error ?? "Could not save settings.");
+        void failed;
       } catch {
         showToast("Could not save settings.");
       } finally {
         setSaving(false);
       }
     },
-    [demo, propertyId, showToast],
+    [demo, showToast],
   );
+
+  const commitWaiverCode = useCallback(() => {
+    const ids = propertyIds.length > 0 ? propertyIds : propertyId ? [propertyId] : [];
+    void saveApplicationAutomationSettings(automation, waiverCode, ids);
+  }, [automation, propertyId, propertyIds, saveApplicationAutomationSettings, waiverCode]);
 
   /**
    * Payments and Tours settings autosave on close — closing the dialog commits changes.
@@ -253,9 +270,10 @@ export function ProPortalSettingsModal({
   const changeAutomation = useCallback(
     (next: ApplicationAutomationPreferences) => {
       setAutomation(next);
-      void saveApplicationAutomationSettings(next, waiverCode);
+      const ids = propertyIds.length > 0 ? propertyIds : propertyId ? [propertyId] : [];
+      void saveApplicationAutomationSettings(next, waiverCode, ids);
     },
-    [saveApplicationAutomationSettings, waiverCode],
+    [propertyId, propertyIds, saveApplicationAutomationSettings, waiverCode],
   );
 
   // Applications and Lease publish no footer at all; the other tabs still own
@@ -311,11 +329,15 @@ export function ProPortalSettingsModal({
           loading={loading}
           saving={saving}
           propertyOptions={propertyOptions}
-          propertyId={propertyId}
-          onPropertyIdChange={setPropertyId}
+          propertyIds={propertyIds}
+          onPropertyIdsChange={(next) => {
+            setPropertyIds(next);
+            setPropertyId(next[0] ?? "");
+          }}
           onAutomationChange={changeAutomation}
           waiverCode={waiverCode}
           onWaiverCodeChange={setWaiverCode}
+          onWaiverCodeCommit={commitWaiverCode}
           hidePropertyField={lockPropertyField}
           teamMembers={teamMembers}
           reminderFormRef={applicationsReminderFormRef}

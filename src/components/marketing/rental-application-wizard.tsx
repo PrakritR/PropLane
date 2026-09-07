@@ -1605,8 +1605,8 @@ function RentalApplicationWizardInner({
   }, [form.applicationFeeWaiverCode, form.email, form.propertyId, showToast]);
 
   const finalizeApplicationSubmit = useCallback(
-    async (residentUserId: string | null) => {
-      if (submitting) return;
+    async (residentUserId: string | null): Promise<{ ok: boolean }> => {
+      if (submitting) return { ok: false };
       const pid = form.propertyId.trim();
       const emailTrim = form.email.trim();
       const block = residentApplicationSubmitBlocked({
@@ -1616,7 +1616,7 @@ function RentalApplicationWizardInner({
       });
       if (block.blocked) {
         showToast(block.reason ?? "You cannot submit another application for this listing.");
-        return;
+        return { ok: false };
       }
       setSubmitting(true);
       const prop = pid ? getPropertyById(pid) : undefined;
@@ -1635,7 +1635,7 @@ function RentalApplicationWizardInner({
         if (!preview.ok) {
           setSubmitting(false);
           showToast(preview.message);
-          return;
+          return { ok: false };
         }
         formForGroup = {
           ...form,
@@ -1800,7 +1800,7 @@ function RentalApplicationWizardInner({
           window.dispatchEvent(
             new CustomEvent(DEMO_APPLICATION_SUBMITTED_EVENT, { detail: { axisId } }),
           );
-          return;
+          return { ok: true };
         }
         setPostSubmit({
           axisId,
@@ -1822,7 +1822,7 @@ function RentalApplicationWizardInner({
           hasCosigner: submittedForm.hasCosigner,
         });
         showToast("Application submitted.");
-        return;
+        return { ok: true };
       }
       setPostSubmit({
         axisId,
@@ -1847,6 +1847,7 @@ function RentalApplicationWizardInner({
       } else {
         showToast(sync.error ?? "Application saved locally but could not sync to server. Try again.");
       }
+      return { ok: sync.ok };
     },
     [form, mode, router, setStep, showToast, submitting],
   );
@@ -1897,7 +1898,8 @@ function RentalApplicationWizardInner({
     const feeCheckout = searchParams.get("fee_checkout");
     if (feeCheckout === "cancel") {
       showToast("Checkout cancelled. You can try again when you are ready.");
-      router.replace(wizardApplyPath);
+      const keepPid = (searchParams.get("propertyId") ?? form.propertyId).trim();
+      router.replace(keepPid ? `${wizardApplyPath}?propertyId=${encodeURIComponent(keepPid)}` : wizardApplyPath);
       return;
     }
     // "return" is the inline (embedded) completion redirect; "success" is the
@@ -1907,16 +1909,19 @@ function RentalApplicationWizardInner({
     const sessionId = searchParams.get("session_id")?.trim();
     if (!sessionId) return;
 
-    const pid = form.propertyId.trim();
+    // Stripe return URLs used to drop `propertyId` (checkout stripped the query).
+    // Prefer the live form, then the URL param the checkout route now stamps.
+    const pid = form.propertyId.trim() || searchParams.get("propertyId")?.trim() || "";
     const em = form.email.trim();
     if (!pid || !em.includes("@")) return;
 
     if (processedApplicationFeeSessions.has(sessionId)) {
-      router.replace(wizardApplyPath);
+      router.replace(`${wizardApplyPath}?propertyId=${encodeURIComponent(pid)}`);
       return;
     }
 
     void (async () => {
+      const applyPathWithProperty = `${wizardApplyPath}?propertyId=${encodeURIComponent(pid)}`;
       const managerUserIdForFee = getPropertyById(pid)?.managerUserId?.trim() ?? "";
       const feeResult = await fetchApplicationFeePreview({
         propertyId: pid,
@@ -1940,7 +1945,7 @@ function RentalApplicationWizardInner({
       };
       if (!res.ok) {
         showToast(typeof data.error === "string" ? data.error : "Could not verify payment.");
-        router.replace(wizardApplyPath);
+        router.replace(applyPathWithProperty);
         return;
       }
       if (!data.paid) {
@@ -1958,12 +1963,12 @@ function RentalApplicationWizardInner({
           });
           processedApplicationFeeSessions.add(sessionId);
           showToast("Bank transfer submitted. Your application fee will be marked paid when the transfer clears.");
-          finalizeApplicationSubmit(feeStepUserId);
-          router.replace(wizardApplyPath);
+          await finalizeApplicationSubmit(feeStepUserId);
+          router.replace(applyPathWithProperty);
           return;
         }
         showToast(typeof data.error === "string" ? data.error : "Payment not completed yet.");
-        router.replace(wizardApplyPath);
+        router.replace(applyPathWithProperty);
         return;
       }
       if (
@@ -1973,7 +1978,7 @@ function RentalApplicationWizardInner({
         data.emailMatches !== true
       ) {
         showToast("Payment confirmation does not match this application. Use the same email and listing as before checkout.");
-        router.replace(wizardApplyPath);
+        router.replace(applyPathWithProperty);
         return;
       }
       ensurePendingApplicationFeeCharge({
@@ -1983,16 +1988,23 @@ function RentalApplicationWizardInner({
         propertyId: pid,
         feeAmountOverride,
       });
+      // PRP-427 / PRP-381: application write is the gate — mark the fee paid
+      // only after finalize upserts the Submitted row.
+      const submitted = await finalizeApplicationSubmit(feeStepUserId);
+      if (!submitted.ok) {
+        showToast("Payment succeeded, but the application could not be submitted. Contact the manager with your payment receipt.");
+        router.replace(applyPathWithProperty);
+        return;
+      }
       const marked = markApplicationFeePaidAfterStripe(form.email, pid, feeStepUserId);
       if (!marked) {
         showToast("Payment succeeded, but the application fee line could not be updated.");
-        router.replace(wizardApplyPath);
+        router.replace(applyPathWithProperty);
         return;
       }
       setChargeTick((n) => n + 1);
       processedApplicationFeeSessions.add(sessionId);
-      finalizeApplicationSubmit(feeStepUserId);
-      router.replace(wizardApplyPath);
+      router.replace(applyPathWithProperty);
     })();
   }, [draftReady, searchParams, form.propertyId, form.email, form.fullLegalName, form.applicationFeeWaived, feeStepUserId, router, showToast, finalizeApplicationSubmit, wizardApplyPath]);
 
@@ -2309,7 +2321,31 @@ function RentalApplicationWizardInner({
         </div>
       ) : null}
 
-      {form.applicantRole === "cosigner" ? null : !canRenderWizard ? (
+      {/*
+        Finish panel MUST win over the manager-link gate (PRP-427). After Stripe
+        fee return, finalize clears the form (and often the URL propertyId), so
+        canRenderWizard is false — checking the gate first showed "Open your
+        manager's apply link" instead of thank-you / create account even when
+        the application row and SMS already landed.
+      */}
+      {postSubmit ? (
+          <RentalApplicationFinishPanel
+            axisId={postSubmit.axisId}
+            email={postSubmit.email}
+            emailSent={postSubmit.emailSent}
+            syncError={postSubmit.syncError}
+            guestFlow={postSubmit.guestFlow}
+            portalFlow={postSubmit.portalFlow}
+            mailtoHref={postSubmit.mailtoHref}
+            setupHref={postSubmit.setupHref}
+            groupLeaderAppId={postSubmit.groupLeaderAppId}
+            groupRole={postSubmit.groupRole}
+            groupSize={postSubmit.groupSize}
+            groupPropertyId={postSubmit.groupPropertyId}
+            hasCosigner={postSubmit.hasCosigner}
+            onDone={() => setPostSubmit(null)}
+          />
+        ) : form.applicantRole === "cosigner" ? null : !canRenderWizard ? (
           <div className="mt-8">
             <ManagerLinkGate
               title="Open your manager’s apply link"
@@ -2328,23 +2364,6 @@ function RentalApplicationWizardInner({
               managerPhone={linkedProperty?.contactSmsPhone}
             />
           </div>
-        ) : postSubmit ? (
-          <RentalApplicationFinishPanel
-            axisId={postSubmit.axisId}
-            email={postSubmit.email}
-            emailSent={postSubmit.emailSent}
-            syncError={postSubmit.syncError}
-            guestFlow={postSubmit.guestFlow}
-            portalFlow={postSubmit.portalFlow}
-            mailtoHref={postSubmit.mailtoHref}
-            setupHref={postSubmit.setupHref}
-            groupLeaderAppId={postSubmit.groupLeaderAppId}
-            groupRole={postSubmit.groupRole}
-            groupSize={postSubmit.groupSize}
-            groupPropertyId={postSubmit.groupPropertyId}
-            hasCosigner={postSubmit.hasCosigner}
-            onDone={() => setPostSubmit(null)}
-          />
         ) : (
           <div
             className={
