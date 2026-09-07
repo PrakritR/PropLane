@@ -317,6 +317,22 @@ export function leaseNeedsUploadedLeaseReviewAction(row: LeasePipelineRow): bool
 }
 
 /**
+ * Label for the uploaded-lease footer CTA, or null when manager countersign
+ * should own that slot (never show "Imported lease" beside "Sign lease").
+ */
+export function leaseUploadedImportFooterLabel(row: LeasePipelineRow): string | null {
+  if (!row.uploadedLeaseParse) return null;
+  if (leaseNeedsUploadedLeaseReviewAction(row)) return "Review import";
+  if (!row.managerSignature && residentHasSignedLease(row)) return null;
+  return "View import";
+}
+
+/** Manager countersign CTA — one label everywhere (list bar, detail, residents). */
+export function managerLeaseSignButtonLabel(): string {
+  return "Sign lease";
+}
+
+/**
  * True when the review is what stands between this row and a signature — the
  * predicate any SENDABILITY claim must read.
  *
