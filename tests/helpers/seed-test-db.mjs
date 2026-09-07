@@ -505,6 +505,26 @@ async function ensureUser(
     userId = created.user.id;
   }
 
+  // `profiles.manager_id` is UNIQUE and the upsert conflicts on `id`, so an id parked on
+  // some OTHER profile (a retired-domain twin of this account, a stale QA run) aborts the
+  // whole seed with profiles_manager_id_key. Reclaim it first — null the squatter's id,
+  // never delete the row — and say who held it. Same treatment the resident AXIS id gets.
+  if (managerId) {
+    const { data: squatters, error: squatErr } = await supabase
+      .from("profiles")
+      .select("id,email")
+      .eq("manager_id", managerId)
+      .neq("id", userId);
+    if (squatErr) throw new Error(`profiles(reclaim ${managerId}): ${squatErr.message}`);
+    for (const squatter of squatters ?? []) {
+      console.warn(`[seed] ${managerId} was held by ${squatter.email ?? squatter.id}; reclaiming it for ${email}.`);
+      await must(
+        supabase.from("profiles").update({ manager_id: null }).eq("id", squatter.id),
+        `profiles(release ${managerId} from ${squatter.email ?? squatter.id})`,
+      );
+    }
+  }
+
   await must(
     supabase.from("profiles").upsert(
       {
@@ -966,6 +986,8 @@ try {
         name: r.name,
         floor: r.floor,
         monthlyRent: r.rent,
+        // Beds in the room. Absent means one; the capacity trigger reads exactly this field.
+        ...(r.occupancyCapacity ? { occupancyCapacity: r.occupancyCapacity } : {}),
         availability: "Now",
         moveInAvailableDate: isoDate(NOW),
         moveInInstructions: "Lockbox at front door; code shared after signing.",
@@ -1130,6 +1152,10 @@ try {
           name: "Studio",
           floor: "6th floor",
           rent: 1800,
+          // Two beds: the primary e2e resident AND Ava Nguyen are both approved here, which
+          // the shared-room capacity trigger refuses on a one-bed room (PRP-372). It also
+          // gives the seed one genuinely shared room to demonstrate that feature on.
+          occupancyCapacity: 2,
           detail: "Open studio with kitchenette and lake views.",
           furnishing: "Fully furnished",
           roomAmenitiesText: "Kitchenette\nLake views\nCloset",
@@ -1444,7 +1470,10 @@ try {
     { axisId: "AXIS-DEMOJORDL", first: "Jordan", last: "Lee", propId: "mgr-demo-pioneer", roomId: "room-1", bucket: "approved", leaseStage: "signed", income: 96000 },
     { axisId: "AXIS-DEMOGRAP1", first: "Riley", last: "Group Lead", email: "riley.group.lead.workflow@test.proplane.local", propId: "mgr-demo-ballard", roomId: "room-2", bucket: "approved", leaseStage: "signed", income: 92000, demoGroupId: "PROPLANE-DEMOGRP2", groupRole: "first" },
     { axisId: "AXIS-DEMOGRAP2", first: "Sam", last: "Group Mate", email: "sam.group.mate.workflow@test.proplane.local", propId: "mgr-demo-ballard", roomId: "room-3", bucket: "approved", leaseStage: "signed", income: 88000, demoGroupId: "PROPLANE-DEMOGRP2", groupRole: "joining" },
-    { axisId: "AXIS-DEMOCOSAP", first: "Casey", last: "Cosigner Host", email: "casey.cosigner.host.workflow@test.proplane.local", propId: "mgr-demo-cascade", roomId: "room-1", bucket: "approved", leaseStage: "signed", income: 82000, hasCosigner: true },
+    // room-2, not room-1: Diego Morales already holds room-1's one bed, and the shared-room
+    // capacity trigger (20260906070000) refuses a second approved placement there — which
+    // killed the whole seed at manager_application_records(catalog). PRP-372.
+    { axisId: "AXIS-DEMOCOSAP", first: "Casey", last: "Cosigner Host", email: "casey.cosigner.host.workflow@test.proplane.local", propId: "mgr-demo-cascade", roomId: "room-2", bucket: "approved", leaseStage: "signed", income: 82000, hasCosigner: true },
     { axisId: "AXIS-DEMOAVAN", first: "Ava", last: "Nguyen", propId: "mgr-demo-lakeview", roomId: "room-1", bucket: "approved", leaseStage: "manager_sign", income: 88000 },
     { axisId: "AXIS-DEMODIEGM", first: "Diego", last: "Morales", propId: "mgr-demo-cascade", roomId: "room-1", bucket: "approved", leaseStage: "resident_sign", income: 91000 },
     { axisId: "AXIS-DEMOSOFID", first: "Sofia", last: "Diaz", propId: "mgr-demo-ballard", roomId: "room-1", bucket: "approved", leaseStage: "signed", income: 104000 },
@@ -1793,6 +1822,27 @@ try {
       },
       updated_at: NOW.toISOString(),
     };
+  }
+
+  // The database arbitrates the last bed (shared-room capacity trigger), so two approved
+  // fixtures on one room do not "just both seed" — the upsert is refused and the seed dies
+  // half-written. Catch it here, by name, before any row is sent. Rooms default to one bed;
+  // a fixture that wants more must set occupancyCapacity on the room, not rely on this.
+  const bedsByRoom = new Map();
+  for (const p of people) {
+    if (p.bucket !== "approved") continue;
+    const key = `${p.propId}::${p.roomId}`;
+    const entry = bedsByRoom.get(key) ?? { capacity: Number(p.room?.occupancyCapacity) || 1, holders: [] };
+    entry.holders.push(`${p.first} ${p.last}`);
+    bedsByRoom.set(key, entry);
+  }
+  const overbooked = [...bedsByRoom.entries()].filter(([, { capacity, holders }]) => holders.length > capacity);
+  if (overbooked.length > 0) {
+    throw new Error(
+      `seed fixture places more approved residents in a room than it has beds: ${overbooked
+        .map(([room, { capacity, holders }]) => `${room} has ${capacity} bed(s) for ${holders.join(", ")}`)
+        .join("; ")}. Move one of them or raise that room's occupancyCapacity.`,
+    );
   }
 
   const applicationRows = [
