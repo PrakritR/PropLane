@@ -36,6 +36,7 @@ import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility
 import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
 import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
 import { estimateSmsSegments } from "@/lib/sms/number-registration-policy";
+import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.server";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -49,52 +50,6 @@ export const maxDuration = 60;
 const SMS_STOP_KEYWORDS = new Set(["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"]);
 const SMS_START_KEYWORDS = new Set(["START", "YES", "UNSTOP"]);
 const SMS_HELP_KEYWORDS = new Set(["HELP", "INFO"]);
-
-function digitsOf(raw: string): string {
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1);
-  return digits;
-}
-
-/** Common storage formats for one US number, for direct-column matching. */
-function phoneVariants(raw: string): string[] {
-  const d = digitsOf(raw);
-  if (d.length !== 10) return [raw.trim()].filter(Boolean);
-  return [
-    `+1${d}`,
-    d,
-    `1${d}`,
-    `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`,
-    `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`,
-    raw.trim(),
-  ].filter(Boolean);
-}
-
-async function resolveOwnedWorkNumber(
-  db: ReturnType<typeof createSupabaseServiceRoleClient>,
-  toPhone: string,
-): Promise<{ managerId: string; messagingServiceSid: string } | null> {
-  const expectedServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
-  if (!expectedServiceSid) return null;
-  const { data, error } = await db
-    .from("manager_sms_numbers")
-    .select("manager_user_id, messaging_service_sid, provision_state, grace_expires_at, updated_at")
-    .in("phone_number", phoneVariants(toPhone))
-    .eq("messaging_service_sid", expectedServiceSid)
-    .order("updated_at", { ascending: false })
-    .limit(10);
-  if (error) return null;
-  const candidates = (data ?? []).filter((row) => {
-    const graceActive = row.grace_expires_at && Date.parse(String(row.grace_expires_at)) > Date.now();
-    return row.provision_state === "active" || row.provision_state === "provisioning" || graceActive;
-  });
-  // A recycled or duplicated assignment is unsafe to guess. Fail closed until
-  // the control plane has one authoritative current owner.
-  if (candidates.length !== 1) return null;
-  const row = candidates[0];
-  const managerId = String(row.manager_user_id ?? "").trim();
-  return managerId ? { managerId, messagingServiceSid: expectedServiceSid } : null;
-}
 
 /** Empty TwiML — replies are sent asynchronously via the Messaging API. */
 function twimlOk(reply?: string): NextResponse {

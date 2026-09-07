@@ -89,4 +89,28 @@ describe("handleClawLeasingInbound via Twilio work number", () => {
     expect(call.fromNumber).toBe("+14258909021");
     expect(call.text).toMatch(/tour/i);
   });
+
+  it("still surfaces Communication notice and ok:true when outbound reply cannot send (approval in progress)", async () => {
+    sendFromManager.mockResolvedValue({ ok: false, channel: "twilio", error: "number_not_sendable" });
+    const { upsertManagerInboxNotice } = await import("@/lib/sms-inbox-notice.server");
+    const { handleClawLeasingInbound } = await import("@/lib/claw-leasing-bot.server");
+    const result = await handleClawLeasingInbound({
+      from: "+15551234567",
+      text: "Hey",
+      messageId: `test-nosend-${Date.now()}`,
+      managerUserId: "mgr-1",
+      workNumber: "+12066781909",
+    });
+    expect(result.ok).toBe(true);
+    expect(result.replied).toBe(false);
+    expect(upsertManagerInboxNotice).toHaveBeenCalled();
+    const notice = (upsertManagerInboxNotice as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[1] as {
+      managerUserId: string;
+      from: string;
+      threadType: string;
+    };
+    expect(notice.managerUserId).toBe("mgr-1");
+    expect(notice.from).toBe("+15551234567");
+    expect(notice.threadType).toBe("claw_leasing_sms");
+  });
 });
