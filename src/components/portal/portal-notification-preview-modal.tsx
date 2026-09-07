@@ -68,6 +68,8 @@ export function PortalNotificationPreviewModal({
   warningLead = "AI-generated draft.",
   footerNote,
   hideSendViaFooterNote = false,
+  /** When false, omit the work-number copy field (lease send preview, etc.). SMS still sends from the work number. */
+  showWorkNumberHint = true,
   showSkipMessage = true,
   skipMessageLabel = "Don't message resident",
   showChannelPicker = true,
@@ -113,6 +115,7 @@ export function PortalNotificationPreviewModal({
   footerNote?: string;
   /** When true, no helper copy under Send via (lease send preview, etc.). */
   hideSendViaFooterNote?: boolean;
+  showWorkNumberHint?: boolean;
   showSkipMessage?: boolean;
   skipMessageLabel?: string;
   showChannelPicker?: boolean;
@@ -343,7 +346,7 @@ export function PortalNotificationPreviewModal({
         </div>
 
         <ManagerSmsWorkNumberHint
-          show={Boolean(showChannelPicker && !skipMessage && viaSms)}
+          show={Boolean(showWorkNumberHint && showChannelPicker && !skipMessage && viaSms)}
           phone={smsSetup?.phone ?? null}
           canSend={smsSetup?.canSend === true}
         />

@@ -953,6 +953,7 @@ export function ManagerLeasesPipelinePanel({
         }
         warningLead={null}
         hideSendViaFooterNote
+        showWorkNumberHint={false}
         confirmLabel="Send lease & notification"
         confirmLabelWithoutMessage="Send lease only"
         confirmBusy={Boolean(leaseSentPreview && sendingToResidentRowId === leaseSentPreview.row.id)}

@@ -4544,6 +4544,7 @@ export function ManagerResidents({
         }
         warningLead={null}
         hideSendViaFooterNote
+        showWorkNumberHint={false}
         confirmLabel="Send lease & notification"
         confirmLabelWithoutMessage="Send lease only"
         confirmBusy={leaseSendBusy}
