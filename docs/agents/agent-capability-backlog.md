@@ -43,14 +43,17 @@ not a widening — do not bolt a `photoDataUrls` string array onto the schema.
 
 ## Resident work-order lifecycle
 
-The resident can do all of this in `resident-services-panel.tsx`; the agent
-cannot do any of it.
+Closed for maintenance requests (PRP-268): `update_work_order`,
+`cancel_work_order`, and `nudge_manager_on_work_order` in
+`src/lib/tools/domains/resident/work-order-lifecycle.ts` mirror the panel's
+Edit / Cancel / Send reminder on the resident's own OPEN request, through the
+shared `resident-work-order-lifecycle.server.ts` and the same reminder path
+`/api/portal/work-orders/send-reminder` runs. Still open, on the ADD-ON
+service-request side of the Services section:
 
-- Edit an existing work order — title, priority, preferred arrival, entry
-  permission, entry notes, details (`:808`)
-- Cancel / delete a work order (`:828`); delete a service request (`:269`)
-- Nudge the manager on a work order (`:835`, `/api/portal/work-orders/send-reminder`)
-  or a service request (`:864`, `/api/portal/service-requests/send-reminder`)
+- Delete a service request (`resident-services-panel.tsx` `:269`)
+- Nudge the manager on a service request (`:864`,
+  `/api/portal/service-requests/send-reminder`)
 - Custom add-on price limit on `create_service_request` (`:239-276`)
 
 ## Resident, everything else

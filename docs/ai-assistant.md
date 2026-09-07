@@ -314,7 +314,14 @@ Reads: `get_my_balance`, `list_my_charges`, `get_my_lease`,
 `change_inspection_status`, `file_inspection_photo` (the same shared inspection
 service the manager uses, scoped to this resident's own residency),
 `create_service_request`, `add_service_request_note`,
-`report_maintenance_issue`, `send_message_to_manager`, `report_manual_payment`,
+`report_maintenance_issue`, `update_work_order`, `cancel_work_order`
+(destructive — the request is removed, exactly as the panel's Cancel service
+does; there is no cancelled status on this model),
+`nudge_manager_on_work_order` (the panel's Send reminder: one per request per
+24 hours, enforced by the shared reminder path and refused in preview), all
+three only on the resident's own request while it is still OPEN — a scheduled
+or completed request is the manager's to change (PRP-268),
+`send_message_to_manager`, `report_manual_payment`,
 `request_lease_extension`, `schedule_message`, `cancel_scheduled_message`,
 `request_tour` (files a pending inquiry; the manager still confirms),
 `start_rent_payment` (returns a hosted Stripe Checkout link — the agent never
@@ -354,8 +361,9 @@ W-9/tax, and document uploads stay on the Profile page (deep-link only).
 
 ## What the agent still cannot do
 
-The audited gap list — resident maintenance depth, the resident work-order
-lifecycle, the remaining tour tools, and the ceilings that are deliberate — is
+The audited gap list — resident maintenance depth, the add-on service-request
+side of the resident lifecycle, the remaining tour tools, and the ceilings that
+are deliberate — is
 [`docs/agents/agent-capability-backlog.md`](agents/agent-capability-backlog.md).
 Check it before adding a tool, and prune the row you close.
 
