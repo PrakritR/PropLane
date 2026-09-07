@@ -211,13 +211,28 @@ export async function saveManagerManualPaymentSettings(
   // The staff override is deliberately NOT taken from the caller: this function is what the
   // manager's own settings route writes through, so honouring an inbound value would let a
   // manager hand their processing fees to PropLane by adding one field to their save.
-  const stored = await loadManagerManualPaymentSettings(db, managerUserId).catch(() => null);
+  let storedReadFailed = false;
+  const stored = await loadManagerManualPaymentSettings(db, managerUserId).catch(() => {
+    storedReadFailed = true;
+    return null;
+  });
   const normalized: ManagerManualPaymentSettings = normalizeManagerManualPaymentSettings(settings);
   // Drop whatever the caller supplied BEFORE restoring what is stored. Spreading the stored value
   // over the caller's is not enough: when staff have set nothing there is nothing to spread, and
   // the caller's own value would survive — which is precisely the hole this guards.
   delete normalized.adminServiceFeeOverride;
   if (stored?.adminServiceFeeOverride) normalized.adminServiceFeeOverride = stored.adminServiceFeeOverride;
+  // A failed read is not evidence of a new selection. Without the stored value a legacy
+  // account already absorbing fees is indistinguishable from a code-less new choice, and
+  // resolving to `resident` would silently move Stripe's cost onto that manager's residents
+  // while the route answered 200. The caller's 500 is the honest answer.
+  if (
+    storedReadFailed &&
+    normalized.serviceFeePayer === "proplane" &&
+    !listingPaymentWaiverCodeMatches(normalized.serviceFeeWaiverCode)
+  ) {
+    throw new Error("Could not read stored payment settings; refusing to change who pays the service fee.");
+  }
   const feeSelection = resolveSavedServiceFeeSelection(normalized, stored);
   normalized.serviceFeePayer = feeSelection.serviceFeePayer;
   if (feeSelection.serviceFeeWaiverCode) normalized.serviceFeeWaiverCode = feeSelection.serviceFeeWaiverCode;

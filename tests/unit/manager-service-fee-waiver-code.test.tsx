@@ -10,7 +10,12 @@ import type { ReactNode } from "react";
  * out, and the save itself must not accept a new `proplane` without one.
  */
 
-import { resolveSavedServiceFeeSelection } from "@/lib/manager-manual-payment-settings";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import {
+  resolveSavedServiceFeeSelection,
+  saveManagerManualPaymentSettings,
+} from "@/lib/manager-manual-payment-settings";
 
 describe("resolveSavedServiceFeeSelection", () => {
   it("keeps PropLane absorb when the promo code is valid", () => {
@@ -194,5 +199,115 @@ describe("payment setup: settings that could not be read", () => {
     });
 
     expect(patches).toHaveLength(0);
+  });
+});
+
+function stubSettingsDb(options: { readFails?: boolean; storedPayer?: "proplane" | "resident" }) {
+  const upserts: Record<string, unknown>[] = [];
+  const db = {
+    from: () => ({
+      select: () => ({
+        limit: async () => ({ error: null }),
+        eq: () => ({
+          maybeSingle: async () =>
+            options.readFails
+              ? { data: null, error: { message: "read failed" } }
+              : {
+                  data: { manual_payments: { serviceFeePayer: options.storedPayer ?? "resident" }, row_data: null },
+                  error: null,
+                },
+        }),
+      }),
+      upsert: async (row: Record<string, unknown>) => {
+        upserts.push(row);
+        return { error: null };
+      },
+    }),
+  };
+  return { db: db as unknown as SupabaseClient, upserts };
+}
+
+function savedPayer(upserts: Record<string, unknown>[]) {
+  const written = upserts.at(-1)?.manual_payments as { serviceFeePayer?: string } | undefined;
+  return written?.serviceFeePayer;
+}
+
+describe("saveManagerManualPaymentSettings: who pays the service fee", () => {
+  /**
+   * Without the stored settings a legacy account already absorbing fees is
+   * indistinguishable from a code-less new selection, so resolving to "resident" would
+   * move Stripe's cost onto that manager's residents while the route answered 200.
+   */
+  it("refuses a code-less proplane save when the stored settings could not be read", async () => {
+    const { db, upserts } = stubSettingsDb({ readFails: true });
+    await expect(
+      saveManagerManualPaymentSettings(db, "manager-1", {
+        axisPaymentsEnabled: true,
+        zellePaymentsEnabled: false,
+        zelleContact: "",
+        venmoPaymentsEnabled: false,
+        venmoContact: "",
+        receiptAutoMarkEnabled: true,
+        serviceFeePayer: "proplane",
+      }),
+    ).rejects.toThrow();
+    expect(upserts).toHaveLength(0);
+  });
+
+  it("still writes a proplane save that carries a valid code when the read fails", async () => {
+    const { db, upserts } = stubSettingsDb({ readFails: true });
+    await saveManagerManualPaymentSettings(db, "manager-1", {
+      axisPaymentsEnabled: true,
+      zellePaymentsEnabled: false,
+      zelleContact: "",
+      venmoPaymentsEnabled: false,
+      venmoContact: "",
+      receiptAutoMarkEnabled: true,
+      serviceFeePayer: "proplane",
+      serviceFeeWaiverCode: "free100",
+    });
+    expect(savedPayer(upserts)).toBe("proplane");
+  });
+
+  it("still lets a failed read save the other choices", async () => {
+    const { db, upserts } = stubSettingsDb({ readFails: true });
+    await saveManagerManualPaymentSettings(db, "manager-1", {
+      axisPaymentsEnabled: true,
+      zellePaymentsEnabled: false,
+      zelleContact: "",
+      venmoPaymentsEnabled: false,
+      venmoContact: "",
+      receiptAutoMarkEnabled: true,
+      serviceFeePayer: "resident",
+    });
+    expect(savedPayer(upserts)).toBe("resident");
+  });
+
+  it("keeps downgrading a code-less NEW selection when the read succeeds", async () => {
+    const { db, upserts } = stubSettingsDb({ storedPayer: "resident" });
+    await saveManagerManualPaymentSettings(db, "manager-1", {
+      axisPaymentsEnabled: true,
+      zellePaymentsEnabled: false,
+      zelleContact: "",
+      venmoPaymentsEnabled: false,
+      venmoContact: "",
+      receiptAutoMarkEnabled: true,
+      serviceFeePayer: "proplane",
+    });
+    expect(savedPayer(upserts)).toBe("resident");
+  });
+
+  it("carries a stored proplane forward when the read succeeds", async () => {
+    const { db, upserts } = stubSettingsDb({ storedPayer: "proplane" });
+    await saveManagerManualPaymentSettings(db, "manager-1", {
+      axisPaymentsEnabled: true,
+      zellePaymentsEnabled: false,
+      zelleContact: "",
+      venmoPaymentsEnabled: false,
+      venmoContact: "",
+      receiptAutoMarkEnabled: true,
+      serviceFeePayer: "proplane",
+    });
+    expect(savedPayer(upserts)).toBe("proplane");
   });
 });

@@ -602,6 +602,24 @@ export function ManagerPayments({
     onGroupModeChange: setGroupMode,
   };
 
+  // A silent scan still has to be able to say it is broken. Nothing is left to press
+  // once the Check button is gone, so an expired Gmail link would otherwise stop
+  // confirming receipts with no signal at all; the first failure of a mount speaks,
+  // the repeats stay quiet.
+  const manualCheckFailureReportedRef = useRef(false);
+  const reportManualCheckFailure = useCallback(
+    (silent: boolean | undefined, message: string) => {
+      if (!silent) {
+        showToast(message);
+        return;
+      }
+      if (manualCheckFailureReportedRef.current) return;
+      manualCheckFailureReportedRef.current = true;
+      showToast(message);
+    },
+    [showToast],
+  );
+
   const runCheckManualPayments = useCallback((options?: { silent?: boolean }) => {
     void (async () => {
       setCheckingManualPayments(true);
@@ -612,9 +630,10 @@ export function ManagerPayments({
           error?: string;
         };
         if (!response.ok) {
-          if (!options?.silent) {
-            showToast(body.error ?? "Could not check payments. Link Gmail in Payment setup first.");
-          }
+          reportManualCheckFailure(
+            options?.silent,
+            body.error ?? "Could not check payments. Link Gmail in Payment setup first.",
+          );
           return;
         }
         const result = body.result;
@@ -629,12 +648,12 @@ export function ManagerPayments({
         await syncHouseholdChargesFromServer(true);
         setHcTick((n) => n + 1);
       } catch {
-        if (!options?.silent) showToast("Could not check payments.");
+        reportManualCheckFailure(options?.silent, "Could not check payments.");
       } finally {
         setCheckingManualPayments(false);
       }
     })();
-  }, [showToast]);
+  }, [reportManualCheckFailure, showToast]);
 
   const paymentsFilterSort = <PaymentsFilterSheet {...paymentsFilterSheetProps} />;
 
@@ -698,11 +717,13 @@ export function ManagerPayments({
   const didInitialManualCheckRef = useRef(false);
   useEffect(() => {
     if (!hasIncomingManualCandidates || isDemoModeActive()) return;
-    if (!didInitialManualCheckRef.current) {
+    if (
+      !didInitialManualCheckRef.current &&
+      document.visibilityState === "visible" &&
+      !checkingManualPaymentsRef.current
+    ) {
       didInitialManualCheckRef.current = true;
-      if (document.visibilityState === "visible" && !checkingManualPaymentsRef.current) {
-        runCheckManualPayments({ silent: true });
-      }
+      runCheckManualPayments({ silent: true });
     }
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "visible" || checkingManualPaymentsRef.current) return;
