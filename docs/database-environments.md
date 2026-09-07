@@ -16,15 +16,106 @@ loaded — the app code never switches databases by itself.
 migrations. It is **not** the live production database. `assertNonProdDatabase()`
 still refuses the live production project on the `staging` git branch.
 
-A full **data** copy from production (auth users, tenant rows, storage) is
+A **data** refresh from production (auth users, tenant rows) is
 `npm run db:sync:staging` (`scripts/sync-prod-to-staging.mjs`). It is
 read-only against production and writes only to `xwszcafaontidfgznlxd`.
 `--apply` requires `ALLOW_STAGING_PROD_CLONE=1`. The dump uses the logged-in
-Supabase CLI (read-only); `PROD_DB_PASSWORD` is optional. The first apply is a
-full clone. Later refreshes keep staging-only rows and take production on
-conflicts (`decideRowFate`). Production listing restore
-migrations (Brooklyn / 4709A) were skipped on purpose. Do not write those
-live rows back to production from staging.
+Supabase CLI (read-only); `PROD_DB_PASSWORD` is optional. **Push migrations
+first** — the sync is `pg_dump --data-only` and dies against a stale schema.
+Production listing restore migrations (Brooklyn / 4709A) were skipped on
+purpose. Do not write those live rows back to production from staging.
+
+**Push the schema from a checkout of `origin/staging`**, never a feature branch,
+and always with `--include-all` (Supabase records apply-time versions, so repo
+files routinely sort *before* the last applied one):
+
+```
+supabase db push --project-ref xwszcafaontidfgznlxd --include-all
+```
+
+**Compare migration history between projects by NAME, never by version.**
+Production's history was rebuilt under apply-time bundled versions, so its
+`version` strings do not line up with repo filenames or with staging's — a
+version-wise diff reports drift that is not there, and hides drift that is.
+
+**Two migration files must never share a version prefix.**
+`supabase_migrations.schema_migrations.version` is the primary key, so the
+second file to be applied dies on a duplicate-key error and can then *never* be
+applied to that project — while a project whose history was bundled looks
+perfectly healthy. It also means a brand-new environment cannot finish
+provisioning. `tests/unit/migration-version-uniqueness.test.ts` guards the
+filenames; renaming the later file to a free timestamp is the whole fix.
+
+### The refresh is incremental — staging-only data survives
+
+`--apply` is a three-way merge (`decideRowFate`, applied by
+`scripts/lib/staging-merge-apply.sql`) across three schemas on staging:
+`public`/`auth` (live), `prod_import*` (the dump that just came off production)
+and `prod_snapshot*` (production as of the previous refresh). Per row, keyed on
+the live primary key:
+
+| state | outcome |
+| --- | --- |
+| in production, not on staging | insert |
+| in both, production changed it since the snapshot | production wins |
+| in both, production unchanged | **staging keeps its edit** |
+| gone from production, was in the snapshot | delete |
+| gone from production, never in a snapshot | **staging-only row, kept** |
+
+The last two rows are the point: QA data created on staging is never in a
+production snapshot, so it survives every refresh, and an edit QA makes to a
+production-origin row is kept until production itself changes that row.
+
+Two structural safeguards, both learned from a failed refresh on 2026-09-06:
+
+- **The dump is restored into the import schemas, never over live.** A dump that
+  fails to load leaves staging untouched. The old path wiped first, so a restore
+  that died under `ON_ERROR_STOP=1` left staging *empty*.
+- **The merge and the snapshot rotation are one transaction.** A committed merge
+  with a stale snapshot would resurrect deleted rows on the next run.
+
+`--apply --full-replace` is the escape hatch: wipe staging and restore
+production wholesale, discarding every staging-only row. It re-seeds the merge
+baseline afterwards. Use it only to deliberately reset staging.
+
+The sync covers the `public` and `auth` schemas. **Storage objects are not
+copied**, so uploaded files 404 on staging.
+
+`prod_snapshot` and `prod_snapshot_auth` on the staging project are that
+baseline. They are not junk — dropping them costs the merge its memory of what
+production looked like last time, which turns the next refresh into
+"insert/update everything, delete nothing".
+
+### Signing in to staging
+
+The refresh clones the whole `auth` schema, `encrypted_password` included, so
+**a production email/password login works unchanged on staging** once that
+account has been through a refresh. Two things follow, and both have already
+been mistaken for "staging auth is broken":
+
+- **An account created on production since the last refresh does not exist on
+  staging at all.** Sign-in fails with `invalid_credentials`, which looks
+  identical to a wrong password. Run a refresh; do not go hunting in the code.
+- **A Google- or Apple-only account has no password to check, in either
+  environment.** `auth.users.encrypted_password` is null for it, so email and
+  password can never work for that account — on staging *or* production. Most
+  of the team's own logins are Google-only. Use the provider button, or set a
+  password through Forgot password first.
+
+To tell those two apart, read `auth.users` on the staging project rather than
+guessing from the sign-in error:
+
+```sql
+select email,
+       (encrypted_password is not null and encrypted_password <> '') as has_password,
+       (select array_agg(provider) from auth.identities i where i.user_id = u.id) as providers
+from auth.users u where lower(email) = lower('…');
+```
+
+**Apple sign-in is deliberately disabled on the staging Supabase project** while
+production has it enabled, so "Continue with Apple" returns
+`Unsupported provider: provider is not enabled` on staging. That is a decision,
+not drift — Google and email/password are enough for QA. Do not "fix" it.
 
 The default Preview `NEXT_PUBLIC_SUPABASE_URL` record is shared with Production
 and currently still names the live project. Do not copy that default onto
