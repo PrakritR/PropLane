@@ -78,6 +78,7 @@ import {
 import { ManagerAddServiceModal } from "@/components/portal/pro-add-service-modal";
 import { ManagerEditServiceRequestsModal } from "@/components/portal/pro-edit-service-requests-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
+import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -139,6 +140,7 @@ export function ManagerAllServicesPanel({
   const [servicesSettingsOpen, setServicesSettingsOpen] = useState(false);
   const [bulkDeleteWorkOrder, setBulkDeleteWorkOrder] = useState<DemoManagerWorkOrderRow | null>(null);
   const [bulkDeleteRequest, setBulkDeleteRequest] = useState<ServiceRequest | null>(null);
+  const [scheduleVisitRow, setScheduleVisitRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const typeFilter: FilterType = tabId;
 
   const propertyOptions = useMemo(() => {
@@ -364,10 +366,8 @@ export function ManagerAllServicesPanel({
   };
 
   const openSelectedForSchedule = () => {
-    const row = selectedSingleRow;
-    if (!row || row.kind !== "maintenance") return;
-    clearSelection();
-    navigate(workOrderDetailHref(row.id, selectedWorkOrder?.bucket ?? woBucket));
+    if (!selectedWorkOrder || selectedWorkOrder.bucket !== "open") return;
+    setScheduleVisitRow(selectedWorkOrder);
   };
 
   const confirmBulkDeleteWorkOrder = () => {
@@ -698,6 +698,18 @@ export function ManagerAllServicesPanel({
         onClose={() => setServicesSettingsOpen(false)}
         initialTab="services"
         scopedTitle="Services"
+      />
+
+      <ScheduleServiceVisitModal
+        open={scheduleVisitRow !== null}
+        row={scheduleVisitRow}
+        onClose={() => setScheduleVisitRow(null)}
+        onScheduled={() => {
+          clearSelection();
+          setDataTick((tick) => tick + 1);
+          setServiceState("scheduled");
+          setWoBucket("scheduled");
+        }}
       />
 
       {selectedIds.size > 0 ? (

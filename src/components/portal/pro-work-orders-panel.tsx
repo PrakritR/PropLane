@@ -24,6 +24,7 @@ import {
 } from "@/lib/household-charges";
 import { deleteManagerWorkOrderRow, updateManagerWorkOrder } from "@/lib/manager-work-orders-storage";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
+import { ScheduleServiceVisitModal } from "@/components/portal/schedule-service-visit-modal";
 import {
   MANAGER_VENDORS_EVENT,
   readActiveManagerVendorRows,
@@ -148,6 +149,7 @@ export function ManagerWorkOrdersPanel({
   const [vendorTick, setVendorTick] = useState(0);
   const [completeRow, setCompleteRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [completeBusy, setCompleteBusy] = useState(false);
+  const [scheduleVisitRow, setScheduleVisitRow] = useState<DemoManagerWorkOrderRow | null>(null);
   const [completeDraft, setCompleteDraft] = useState({
     category: "general" as WorkOrderCategory,
     vendorCost: "",
@@ -364,15 +366,8 @@ export function ManagerWorkOrdersPanel({
   );
 
   /** Schedule the visit (date required). Billing is optional — a charge is only created when a cost is set and a resident is linked. */
-  const saveScheduleFromOpen = async (row: DemoManagerWorkOrderRow) => {
-    const visitAt = visitAtById[row.id] ?? "";
-    const iso = fromDatetimeLocalValue(visitAt);
-    if (!iso) {
-      showToast("Choose a visit date and time to schedule.");
-      return;
-    }
-    await commitScheduledVisit(row, iso);
-  };
+  // Manual schedule from the list/detail now goes through ScheduleServiceVisitModal
+  // (scheduleServiceVisit). Keep commitScheduledVisit for auto-schedule + billing.
 
   /** Resolve the assigned vendor's next open slot from their set availability (weekly
    * windows minus blocked dates minus their other scheduled visits) and book it — same
@@ -800,7 +795,8 @@ export function ManagerWorkOrdersPanel({
             type="button"
             variant="primary"
             className={`${PORTAL_DETAIL_BTN} rounded-full`}
-            onClick={() => saveScheduleFromOpen(row)}
+            data-attr="work-order-schedule-visit"
+            onClick={() => setScheduleVisitRow(row)}
           >
             Schedule visit
           </Button>
@@ -1150,23 +1146,34 @@ export function ManagerWorkOrdersPanel({
       return <PortalDataTableEmpty icon="work-order" message="Service not found." />;
     }
     return (
-      <PortalRecordDetailPage
-        pageTitle="Services"
-        title={routeWorkOrder.title}
-        subtitle={[routeWorkOrder.reference, routeWorkOrder.propertyName, routeWorkOrder.unit].filter(Boolean).join(" · ") || undefined}
-        backHref={listBasePath ? workOrderListHref(listBasePath, bucket) : "#"}
-        hideBackText
-        dataAttrBack="work-order-detail-back"
-        footerOmitSpacer
-        footer={workOrderDetailActions(routeWorkOrder)}
-      >
-        {/*
-          On the detail ROUTE the actions dock at the bottom like every other
-          detail page; the same body rendered inline under an expanded list row
-          keeps them where they are, because there is no dock there to move to.
-        */}
-        {renderRowDetail(routeWorkOrder, true)}
-      </PortalRecordDetailPage>
+      <>
+        <PortalRecordDetailPage
+          pageTitle="Services"
+          title={routeWorkOrder.title}
+          subtitle={[routeWorkOrder.reference, routeWorkOrder.propertyName, routeWorkOrder.unit].filter(Boolean).join(" · ") || undefined}
+          backHref={listBasePath ? workOrderListHref(listBasePath, bucket) : "#"}
+          hideBackText
+          dataAttrBack="work-order-detail-back"
+          footerOmitSpacer
+          footer={workOrderDetailActions(routeWorkOrder)}
+        >
+          {/*
+            On the detail ROUTE the actions dock at the bottom like every other
+            detail page; the same body rendered inline under an expanded list row
+            keeps them where they are, because there is no dock there to move to.
+          */}
+          {renderRowDetail(routeWorkOrder, true)}
+        </PortalRecordDetailPage>
+        <ScheduleServiceVisitModal
+          open={scheduleVisitRow !== null}
+          row={scheduleVisitRow}
+          onClose={() => setScheduleVisitRow(null)}
+          onScheduled={() => {
+            onAfterSchedule?.();
+            if (workOrderIdProp) navigateToList();
+          }}
+        />
+      </>
     );
   }
 
@@ -1427,6 +1434,15 @@ export function ManagerWorkOrdersPanel({
         dataAttr="work-order-delete-confirm"
         onClose={() => setDeleteRow(null)}
         onConfirm={confirmDeleteWorkOrder}
+      />
+
+      <ScheduleServiceVisitModal
+        open={scheduleVisitRow !== null}
+        row={scheduleVisitRow}
+        onClose={() => setScheduleVisitRow(null)}
+        onScheduled={() => {
+          onAfterSchedule?.();
+        }}
       />
     </div>
   );
