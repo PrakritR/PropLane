@@ -119,6 +119,18 @@ export function buildTourRequestTenantBody(ctx: TourNotificationContext): string
   return lines.join("\n");
 }
 
+/**
+ * A prospect is never told WHO is showing them the house.
+ *
+ * Hosting is an internal assignment: a request belongs to nobody until a
+ * manager approves it, any eligible co-manager may claim it, and it can be
+ * handed to another one afterwards. Naming the host in guest-facing mail made
+ * every one of those an outward-facing change — a handover would either send a
+ * correction nobody asked for or leave the guest holding a wrong name.
+ *
+ * `managerLabel` stays on the context because MANAGER-facing copy still uses
+ * it; it simply never reaches the tenant builders.
+ */
 export function buildTourConfirmedTenantBody(ctx: TourNotificationContext): string {
   const greeting = ctx.guestName.trim() ? `Hi ${ctx.guestName.trim()},` : "Hi,";
   const when = formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso);
@@ -132,7 +144,6 @@ export function buildTourConfirmedTenantBody(ctx: TourNotificationContext): stri
   ];
   if (ctx.roomLabel?.trim()) lines.push(`Room: ${ctx.roomLabel.trim()}`);
   if (ctx.propertyAddress?.trim()) lines.push(`Address: ${ctx.propertyAddress.trim()}`);
-  if (ctx.managerLabel?.trim()) lines.push(`Host: ${ctx.managerLabel.trim()}`);
   if (ctx.instructions?.trim()) {
     lines.push("", "Before you arrive:", ctx.instructions.trim());
   }
@@ -291,7 +302,6 @@ export function buildTourRescheduledTenantBody(
   ];
   if (ctx.roomLabel?.trim()) lines.push(`Room: ${ctx.roomLabel.trim()}`);
   if (ctx.propertyAddress?.trim()) lines.push(`Address: ${ctx.propertyAddress.trim()}`);
-  if (ctx.managerLabel?.trim()) lines.push(`Host: ${ctx.managerLabel.trim()}`);
   if (reason?.trim()) lines.push("", "Note from the property team:", reason.trim());
   if (ctx.instructions?.trim()) lines.push("", "Before you arrive:", ctx.instructions.trim());
   lines.push(
@@ -323,9 +333,6 @@ export function buildTourConfirmedTenantHtml(ctx: TourNotificationContext): stri
   const room = ctx.roomLabel?.trim()
     ? `<p style="margin:0 0 8px 0"><strong>Room:</strong> ${escapeHtmlText(ctx.roomLabel.trim())}</p>`
     : "";
-  const host = ctx.managerLabel?.trim()
-    ? `<p style="margin:0 0 8px 0"><strong>Host:</strong> ${escapeHtmlText(ctx.managerLabel.trim())}</p>`
-    : "";
   const instructions = ctx.instructions?.trim()
     ? `<p style="margin:12px 0 8px 0"><strong>Before you arrive:</strong><br/>${escapeHtmlText(ctx.instructions.trim()).replace(/\n/g, "<br/>")}</p>`
     : "";
@@ -353,7 +360,7 @@ export function buildTourConfirmedTenantHtml(ctx: TourNotificationContext): stri
 <p style="margin:0 0 12px 0">Your property tour is confirmed.</p>
 <p style="margin:0 0 8px 0"><strong>When:</strong> ${when}</p>
 <p style="margin:0 0 8px 0"><strong>Property:</strong> ${property}</p>
-${room}${address}${host}${instructions}
+${room}${address}${instructions}
 <p style="margin:16px 0 8px 0"><strong>Next step — apply for this home</strong></p>
 <p style="margin:0 0 12px 0">If you are interested after your tour, submit your rental application using the link below.</p>
 ${cta}
