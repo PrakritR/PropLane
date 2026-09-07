@@ -90,9 +90,12 @@ describe("manager Applications — no Approve on a withdrawn row", () => {
     expect(screen.queryByText("Approve")).toBeNull();
     expect(screen.queryByText("Send reminder")).toBeNull();
     expect(screen.getAllByText("Reject").length).toBeGreaterThan(0);
-    // Delete is rejected-only after 3c23cfc2 ("status-specific actions"); this
-    // row is still on Pending, so Reject is the destructive action on offer.
-    expect(screen.queryByText("Delete")).toBeNull();
+    // What this file guards is that a WITHDRAWN row cannot be approved or chased.
+    // Which destructive action the footer offers is a separate, moving decision —
+    // 5532486a ("contextual bulk bar with reject-tab undo actions") made Delete
+    // available on every row, so asserting its absence here was testing that
+    // commit's predecessor, not this rule.
+    expect(screen.queryByText("Approve")).toBeNull();
   });
 
   it("still offers Approve on a normal (non-withdrawn) pending row — the control", async () => {

@@ -1,6 +1,8 @@
 import "server-only";
 
+import { asStringArray, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import { filterAdminUserIds } from "@/lib/auth/admin-role";
+import { hasCoManagerPermissionLevelForProperty } from "@/lib/co-manager-permissions";
 import { resolveTourOfferingSlots } from "@/lib/tour-slot-math";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -14,7 +16,26 @@ function payloadSlots(rowData: unknown): string[] {
   return Array.isArray(payload) ? payload.filter((item): item is string => typeof item === "string") : [];
 }
 
-/** True when the manager owns the property or has property-scoped availability for it. */
+/**
+ * May this manager be the host of a tour on this property?
+ *
+ * Owner of the LIVE property, or an accepted co-manager who was assigned that
+ * property and may act on it. Nothing else — in particular, **publishing
+ * availability against a property id confers nothing**.
+ *
+ * That used to be the second half of this predicate, and it was a hole rather
+ * than a convenience: `manager_property_availability` rows are written by the
+ * manager themselves, so anyone who knew a property id could write a row naming
+ * it and become a bookable host on somebody else's house — taking their tours,
+ * their prospects' contact details, and a slot on their calendar. The public
+ * booking route calls this with a host supplied by the browser, so it is the
+ * only thing standing between a stranger and that house.
+ *
+ * Permission is read at either `calendar` or `applications` edit, because those
+ * are the two grants that already imply tour work today (the Tours nav section
+ * is gated on `applications`, the calendar on `calendar`) — narrowing to one
+ * would silently remove hosting from co-managers who have it now.
+ */
 export async function managerMayHostPropertyTour(
   db: SupabaseClient,
   input: { managerUserId: string; propertyId: string },
@@ -29,23 +50,50 @@ export async function managerMayHostPropertyTour(
     .eq("id", propertyId)
     .maybeSingle();
 
-  if (propertyRow?.status?.trim().toLowerCase() === "live" && text(propertyRow.manager_user_id) === managerUserId) {
-    return true;
-  }
+  if (!propertyRow) return false;
+  if (text(propertyRow.status).toLowerCase() !== "live") return false;
 
-  const { data: availabilityRows } = await db
-    .from("portal_schedule_records")
-    .select("manager_user_id, property_id, record_type")
-    .eq("manager_user_id", managerUserId)
-    .in("record_type", ["manager_property_availability", "manager_availability"]);
+  const ownerUserId = text(propertyRow.manager_user_id);
+  if (!ownerUserId) return false;
+  if (ownerUserId === managerUserId) return true;
 
-  for (const row of availabilityRows ?? []) {
-    if (text(row.manager_user_id) !== managerUserId) continue;
-    const rowPropertyId = text(row.property_id);
-    if (row.record_type === "manager_property_availability" && rowPropertyId === propertyId) return true;
-    if (row.record_type === "manager_availability" && propertyRow && text(propertyRow.manager_user_id) === managerUserId) {
-      return true;
+  return coManagerMayHostPropertyTour(db, { managerUserId, propertyId, ownerUserId });
+}
+
+/**
+ * The co-manager half, split out so the ownership fast path costs one read.
+ * Any failure to read the link table answers NO — a host is a person who takes
+ * a stranger to a house, so an unreadable grant is not a grant.
+ */
+async function coManagerMayHostPropertyTour(
+  db: SupabaseClient,
+  input: { managerUserId: string; propertyId: string; ownerUserId: string },
+): Promise<boolean> {
+  try {
+    const { data: links, error } = await db
+      .from("account_link_invites")
+      .select(
+        "invitee_user_id, assigned_property_ids, property_co_manager_permissions, co_manager_permissions",
+      )
+      .eq("status", "accepted")
+      .eq("inviter_user_id", input.ownerUserId)
+      .eq("invitee_user_id", input.managerUserId);
+
+    if (error) return false;
+
+    for (const row of links ?? []) {
+      if (!asStringArray(row.assigned_property_ids).includes(input.propertyId)) continue;
+      const permissions = readPropertyPermissionsFromRow(
+        row as Parameters<typeof readPropertyPermissionsFromRow>[0],
+      );
+      const mayAct =
+        hasCoManagerPermissionLevelForProperty(permissions, input.propertyId, "calendar", "edit") ||
+        hasCoManagerPermissionLevelForProperty(permissions, input.propertyId, "applications", "edit");
+      if (mayAct) return true;
     }
+  } catch {
+    // The link table may not exist in every environment; absent grants are no grants.
+    return false;
   }
 
   return false;

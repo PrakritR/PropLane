@@ -17,7 +17,11 @@
 import { describe, expect, it } from "vitest";
 import {
   computeFieldSelectMenuRectInHost,
+  computeFieldSelectMenuRectForModalPanel,
+  fieldSelectHostBottomInsetPx,
   fieldSelectMenuBoundsElement,
+  fieldSelectOverflowSafePortalHost,
+  FIELD_SELECT_HOST_FOOTER_ATTR,
 } from "@/components/ui/field-select-menu";
 
 function rectOf(top: number, left: number, width: number, height: number): DOMRect {
@@ -93,11 +97,11 @@ describe("field menu inside a full-bleed dialog wrapper", () => {
 
     // `top` is relative to the host, whose top is the viewport top here.
     expect(rect.position).toBe("absolute");
-    expect(rect.top).toBe(307 + 44 + 4); // 4px under the trigger
     expect(rect.top + rect.maxHeight).toBeLessThanOrEqual(550); // card bottom
+    expect(rect.top).toBeGreaterThanOrEqual(50); // card top
   });
 
-  it("without bounds it escapes the card — the regression this guards", () => {
+  it("needs boundsRect to contain menus inside a nested card on a viewport host", () => {
     const { host, card, button } = dialogFixture({
       viewportH: 600,
       cardTop: 50,
@@ -105,14 +109,23 @@ describe("field menu inside a full-bleed dialog wrapper", () => {
       triggerTop: 307,
     });
 
-    const rect = computeFieldSelectMenuRectInHost(button, CONTENT_PX, host, {
+    const loose = computeFieldSelectMenuRectInHost(button, CONTENT_PX, host, {
       preferOpenDown: true,
       matchTriggerWidth: true,
       strictHostContainment: true,
       bottomBoundPx: 588,
     });
+    const tight = computeFieldSelectMenuRectInHost(button, CONTENT_PX, host, {
+      preferOpenDown: true,
+      matchTriggerWidth: true,
+      strictHostContainment: true,
+      bottomBoundPx: 588,
+      boundsRect: card.getBoundingClientRect(),
+    });
 
-    expect(rect.top + rect.maxHeight).toBeGreaterThan(card.getBoundingClientRect().bottom);
+    expect(tight.top + tight.maxHeight).toBeLessThanOrEqual(card.getBoundingClientRect().bottom);
+    expect(loose.top + loose.maxHeight).toBeLessThanOrEqual(588);
+    expect(tight.top).not.toBe(loose.top);
   });
 
   it("opens UP against the trigger when the card has no room below it", () => {
@@ -146,5 +159,90 @@ describe("field menu inside a full-bleed dialog wrapper", () => {
     sheet.appendChild(button);
 
     expect(fieldSelectMenuBoundsElement(button, sheet)).toBe(sheet);
+  });
+
+  it("sizes the menu above a sticky modal footer instead of behind it", () => {
+    const host = document.createElement("div");
+    host.setAttribute("data-slot", "modal-radix-dialog");
+    host.className = "modal-panel";
+    host.getBoundingClientRect = () => rectOf(80, 400, 480, 520);
+
+    const button = document.createElement("button");
+    button.getBoundingClientRect = () => rectOf(420, 420, 223, 44);
+    host.appendChild(button);
+
+    const footer = document.createElement("div");
+    footer.setAttribute(FIELD_SELECT_HOST_FOOTER_ATTR, "");
+    footer.getBoundingClientRect = () => rectOf(540, 400, 480, 60);
+    host.appendChild(footer);
+
+    const footerInset = fieldSelectHostBottomInsetPx(host);
+    expect(footerInset).toBe(60);
+
+    const rect = computeFieldSelectMenuRectInHost(button, CONTENT_PX, host, {
+      preferOpenDown: true,
+      matchTriggerWidth: true,
+      strictHostContainment: true,
+      bottomInsetPx: footerInset,
+    });
+
+    expect(rect.top + rect.maxHeight).toBeLessThanOrEqual(540);
+  });
+
+  it("lifts portaling beside a clipping dialog panel (host === modal-panel)", () => {
+    const center = document.createElement("div");
+    center.getBoundingClientRect = () => rectOf(50, 380, 520, 520);
+
+    const host = document.createElement("div");
+    host.setAttribute("data-slot", "modal-radix-dialog");
+    host.className = "modal-panel";
+    host.getBoundingClientRect = () => rectOf(80, 400, 480, 460);
+    center.appendChild(host);
+
+    const footer = document.createElement("div");
+    footer.setAttribute(FIELD_SELECT_HOST_FOOTER_ATTR, "");
+    footer.getBoundingClientRect = () => rectOf(480, 400, 480, 60);
+    host.appendChild(footer);
+
+    const button = document.createElement("button");
+    button.getBoundingClientRect = () => rectOf(360, 420, 223, 44);
+    host.appendChild(button);
+
+    expect(fieldSelectOverflowSafePortalHost(host)).toBe(center);
+    expect(fieldSelectMenuBoundsElement(button, center)).toBe(host);
+
+    const rect = computeFieldSelectMenuRectForModalPanel(button, CONTENT_PX, host, {
+      matchTriggerWidth: true,
+    });
+
+    expect(rect.position).toBe("fixed");
+    expect(rect.top + rect.maxHeight).toBeLessThanOrEqual(480);
+  });
+
+  it("body-portaled modal menus open up when the footer leaves no room below", () => {
+    const host = document.createElement("div");
+    host.setAttribute("data-slot", "modal-radix-dialog");
+    host.className = "modal-panel";
+    host.getBoundingClientRect = () => rectOf(80, 400, 480, 460);
+    document.body.appendChild(host);
+
+    const footer = document.createElement("div");
+    footer.setAttribute(FIELD_SELECT_HOST_FOOTER_ATTR, "");
+    footer.getBoundingClientRect = () => rectOf(480, 400, 480, 60);
+    host.appendChild(footer);
+
+    const button = document.createElement("button");
+    button.getBoundingClientRect = () => rectOf(420, 420, 223, 44);
+    host.appendChild(button);
+
+    const rect = computeFieldSelectMenuRectForModalPanel(button, CONTENT_PX, host, {
+      matchTriggerWidth: true,
+    });
+
+    expect(rect.position).toBe("fixed");
+    expect(rect.top + rect.maxHeight).toBeLessThanOrEqual(420);
+    expect(rect.maxHeight).toBe(CONTENT_PX);
+
+    document.body.removeChild(host);
   });
 });

@@ -25,6 +25,7 @@ export async function POST(req: Request) {
       messageBody?: unknown;
       body?: unknown;
       assignee?: unknown;
+      hostUserId?: unknown;
     };
     const id = typeof body.id === "string" ? body.id.trim() : "";
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -50,6 +51,10 @@ export async function POST(req: Request) {
       notificationSubject: typeof body.subject === "string" ? body.subject.trim() : undefined,
       notificationBody: customBody || undefined,
       assignee: normalizeAssignee(body.assignee),
+      // Absent, approving claims the tour for the caller. Naming a host hands it
+      // over; the confirm path re-checks that they may host this property and
+      // are free at that hour, and refuses rather than warning.
+      hostUserId: typeof body.hostUserId === "string" ? body.hostUserId.trim() : undefined,
       req,
     });
 
