@@ -156,11 +156,12 @@ import {
   sanitizePortalPropertyFilterIds,
 } from "@/lib/portal-property-list-filters";
 function isApprovableApplicationRow(row: DemoApplicantRow): boolean {
-  return (
-    row.bucket === "pending" &&
-    !isWithdrawnApplicationRow(row) &&
-    !isInProgressApplicationRow(row)
-  );
+  if (isWithdrawnApplicationRow(row) || isInProgressApplicationRow(row)) return false;
+  return row.bucket === "pending" || row.bucket === "rejected";
+}
+
+function applicationRowCanMoveToPending(row: DemoApplicantRow): boolean {
+  return row.bucket === "approved" || row.bucket === "rejected";
 }
 
 function applicationRowPropertyId(row: DemoApplicantRow): string {
@@ -806,26 +807,21 @@ export function ManagerApplications({
         : null,
     [selectedListRows, singleListSelectedId],
   );
-  const selectedPendingRows = useMemo(
-    () =>
-      selectedListRows.filter(
-        (row) =>
-          row.bucket === "pending" &&
-          !isWithdrawnApplicationRow(row) &&
-          !isInProgressApplicationRow(row),
-      ),
+  const selectedApprovableRows = useMemo(
+    () => selectedListRows.filter(isApprovableApplicationRow),
     [selectedListRows],
   );
   const selectedRejectableRows = useMemo(
     () => selectedListRows.filter((row) => row.bucket === "pending" || row.bucket === "approved"),
     [selectedListRows],
   );
-  const canBulkApprove = selectedPendingRows.length === 1;
+  const canBulkApprove = selectedApprovableRows.length === 1;
   const canBulkReject = selectedRejectableRows.length > 0;
   const canBulkHoldingFee =
     singleListSelectedRow != null &&
-    singleListSelectedRow.bucket === "pending" &&
+    singleListSelectedRow.bucket !== "rejected" &&
     !isWithdrawnApplicationRow(singleListSelectedRow);
+  const canBulkDelete = listSelectedCount > 0;
 
   const openDetailScreeningModal = useCallback((row: DemoApplicantRow, opts?: { showPackagePicker?: boolean; cosignerSubmissionId?: string }) => {
     setCheckrScreeningShowPicker(Boolean(opts?.showPackagePicker));
@@ -839,7 +835,12 @@ export function ManagerApplications({
 
   const showCompletionReminderForRow = useCallback(
     (row: DemoApplicantRow) => {
-      if (viewingIncompleteApplicationDetail && row.bucket === "pending") return true;
+      if (
+        (viewingIncompleteApplicationDetail || bucket === "incomplete") &&
+        row.bucket === "pending"
+      ) {
+        return true;
+      }
       if (row.bucket !== "pending" || isWithdrawnApplicationRow(row)) return false;
       const canApprove = !isInProgressApplicationRow(row);
       if (!canApprove) return true;
@@ -849,8 +850,19 @@ export function ManagerApplications({
         shouldOfferApplicationCompletionReminder(row)
       );
     },
-    [viewingIncompleteApplicationDetail],
+    [viewingIncompleteApplicationDetail, bucket],
   );
+
+  const canBulkSendReminder =
+    singleListSelectedRow != null && showCompletionReminderForRow(singleListSelectedRow);
+  const canBulkShare = singleListSelectedRow != null;
+  const canBulkDownload = singleListSelectedRow != null;
+  const canBulkMoveToPending =
+    singleListSelectedRow != null && applicationRowCanMoveToPending(singleListSelectedRow);
+  const bulkShareRecordTitle =
+    singleListSelectedRow?.name?.trim() ||
+    singleListSelectedRow?.application?.fullLegalName?.trim() ||
+    singleListSelectedRow?.property?.trim();
 
   // The detail view renders full applicant PII — name, contact, income, screening
   // results — so it resolves out of `scopedRows`, the SAME already-scoped list the
@@ -1358,7 +1370,7 @@ export function ManagerApplications({
       ),
     });
 
-    if (isPending && !isWithdrawnApplicationRow(row) && !isInProgressApplicationRow(row)) {
+    if (isApprovableApplicationRow(row)) {
       actions.push({
         id: "approve",
         button: (
@@ -1442,7 +1454,7 @@ export function ManagerApplications({
       ),
     });
 
-    if (row.bucket === "approved") {
+    if (applicationRowCanMoveToPending(row)) {
       actions.push({
         id: "move-pending",
         button: (
@@ -1467,31 +1479,29 @@ export function ManagerApplications({
       });
     }
 
-    if (row.bucket === "rejected") {
-      actions.push({
-        id: "delete",
-        button: (
-          <Button
-            type="button"
-            variant="outline"
-            className={`${actionBtnClass} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
-            data-attr="application-delete"
-            onClick={() => deleteApplication(row.id)}
-          >
-            Delete
-          </Button>
-        ),
-        menuItem: (
-          <DropdownMenuItem
-            className="text-rose-800 focus:text-rose-800"
-            data-attr="application-delete"
-            onSelect={() => deleteApplication(row.id)}
-          >
-            Delete
-          </DropdownMenuItem>
-        ),
-      });
-    }
+    actions.push({
+      id: "delete",
+      button: (
+        <Button
+          type="button"
+          variant="outline"
+          className={`${actionBtnClass} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+          data-attr="application-delete"
+          onClick={() => deleteApplication(row.id)}
+        >
+          Delete
+        </Button>
+      ),
+      menuItem: (
+        <DropdownMenuItem
+          className="text-rose-800 focus:text-rose-800"
+          data-attr="application-delete"
+          onSelect={() => deleteApplication(row.id)}
+        >
+          Delete
+        </DropdownMenuItem>
+      ),
+    });
 
     return (
       <div
@@ -2026,42 +2036,95 @@ export function ManagerApplications({
           }}
           bulkCount={listSelectedCount}
           bulkActions={
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="applications-bulk-approve"
-                disabled={!canBulkApprove}
-                onClick={() => {
-                  if (selectedPendingRows.length === 1) setApprovePreviewRow(selectedPendingRows[0]!);
-                }}
-              >
-                Approve
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="applications-bulk-reject"
-                disabled={!canBulkReject}
-                onClick={() => setRejectPreviewRows(selectedRejectableRows)}
-              >
-                Reject
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className={PORTAL_BULK_BAR_BTN}
-                data-attr="applications-bulk-holding-fee"
-                disabled={!canBulkHoldingFee}
-                onClick={() => {
-                  if (singleListSelectedRow) setHoldingFeeRowId(singleListSelectedRow.id);
-                }}
-              >
-                Holding fee
-              </Button>
-            </>
+            selectedListRows.length > 0 ? (
+              <>
+                {canBulkSendReminder && singleListSelectedRow ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={PORTAL_BULK_BAR_BTN}
+                    data-attr="applications-bulk-send-reminder"
+                    disabled={reminderPreviewBusyId !== null || reminderBusyId !== null}
+                    onClick={() => openReminderPreview(singleListSelectedRow)}
+                  >
+                    {reminderPreviewBusyId === singleListSelectedRow.id ? "Loading…" : "Send reminder"}
+                  </Button>
+                ) : null}
+                {canBulkShare && singleListSelectedRow ? (
+                  <PortalRecordShareLinkButton
+                    kind="application"
+                    recordId={singleListSelectedRow.id}
+                    className={PORTAL_BULK_BAR_BTN}
+                    dataAttr="applications-bulk-share"
+                    recordTitle={bulkShareRecordTitle}
+                  />
+                ) : null}
+                {canBulkApprove ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={PORTAL_BULK_BAR_BTN}
+                    data-attr="applications-bulk-approve"
+                    onClick={() => {
+                      if (selectedApprovableRows.length === 1) setApprovePreviewRow(selectedApprovableRows[0]!);
+                    }}
+                  >
+                    Approve
+                  </Button>
+                ) : null}
+                {canBulkReject ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={PORTAL_BULK_BAR_BTN}
+                    data-attr="applications-bulk-reject"
+                    onClick={() => setRejectPreviewRows(selectedRejectableRows)}
+                  >
+                    Reject
+                  </Button>
+                ) : null}
+                {canBulkHoldingFee && singleListSelectedRow ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={PORTAL_BULK_BAR_BTN}
+                    data-attr="applications-bulk-holding-fee"
+                    onClick={() => setHoldingFeeRowId(singleListSelectedRow.id)}
+                  >
+                    Holding fee
+                  </Button>
+                ) : null}
+                {canBulkDownload && singleListSelectedRow ? (
+                  <ApplicationPdfDownloadButton
+                    row={singleListSelectedRow}
+                    label="Download"
+                    className={PORTAL_BULK_BAR_BTN}
+                  />
+                ) : null}
+                {canBulkMoveToPending && singleListSelectedRow ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={PORTAL_BULK_BAR_BTN}
+                    data-attr="applications-bulk-move-pending"
+                    onClick={() => void setRowBucket(singleListSelectedRow.id, "pending")}
+                  >
+                    Move to pending
+                  </Button>
+                ) : null}
+                {canBulkDelete ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
+                    data-attr="applications-bulk-delete"
+                    onClick={() => void deleteListSelectedApplications()}
+                  >
+                    Delete
+                  </Button>
+                ) : null}
+              </>
+            ) : null
           }
         >
           {rowsForBucket.length > 0 ? (
