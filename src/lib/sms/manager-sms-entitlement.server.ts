@@ -20,7 +20,7 @@ export type SmsEntitlementReason =
   | "plan_unreadable";
 
 export type SmsEntitlement =
-  | { eligible: true; tier: "pro" | "business"; source: "stripe" | "apple" }
+  | { eligible: true; tier: "pro" | "business"; source: "stripe" | "apple"; trial?: true }
   | { eligible: false; reason: SmsEntitlementReason };
 
 type PurchaseSku = Awaited<ReturnType<typeof getManagerPurchaseSku>>;
@@ -84,7 +84,7 @@ async function reconcileTrialEntitlement(
   if (trialEndMs === null || !Number.isFinite(trialEndMs)) {
     return { eligible: false, reason: "plan_unreadable" };
   }
-  const validUntil = new Date(trialEndMs).toISOString();
+  let grantEndMs = trialEndMs;
   let enrolled = isTrialWorkNumberOnboardingEnabled();
   if (!enrolled && trialEndMs > Date.now()) {
     const { data, error } = await db.from("sms_manager_entitlements")
@@ -93,16 +93,18 @@ async function reconcileTrialEntitlement(
     if (error) return { eligible: false, reason: "plan_unreadable" };
     // Closing enrollment does not cut off an already granted trial. It cannot
     // extend the original grant or carry it into another trial period.
+    const storedEndMs = Date.parse(String(data?.valid_until));
     enrolled = data?.eligible === true && data.status === "trialing" &&
-      data.source === source && Date.parse(String(data.valid_until)) === trialEndMs;
+      data.source === source && Number.isFinite(storedEndMs) && storedEndMs > Date.now();
+    if (enrolled) grantEndMs = Math.min(storedEndMs, trialEndMs);
   }
   const eligible = enrolled && trialEndMs > Date.now();
   const persisted = await persistEntitlement(db, ownerId, {
-    tier, source, status: "trialing", eligible, validUntil,
+    tier, source, status: "trialing", eligible, validUntil: new Date(grantEndMs).toISOString(),
   });
   if (!persisted) return { eligible: false, reason: "plan_unreadable" };
   return eligible
-    ? { eligible: true, tier, source: "stripe" }
+    ? { eligible: true, tier, source: "stripe", trial: true }
     : { eligible: false, reason: trialEndMs <= Date.now() ? "canceled" : "trialing" };
 }
 
@@ -119,16 +121,17 @@ export async function reconcileManagerSmsEntitlement(
   db: SupabaseClient,
   managerUserId: string,
   deps: {
+    preferPaid?: boolean;
     loadPurchase?: (id: string) => Promise<PurchaseSku>;
     loadStripeSubscription?: (id: string) => Promise<Stripe.Subscription>;
   } = {},
 ): Promise<SmsEntitlement> {
   const own = await reconcileManagerSmsEntitlementDirect(db, managerUserId, deps);
-  if (own.eligible) return own;
+  if (own.eligible && (deps.preferPaid !== true || !own.trial)) return own;
   if (!(await isPureCoManagerWorkspace(db, managerUserId))) return own;
   for (const inviterId of await getAcceptedCoManagerInviterIds(db, managerUserId)) {
     const inherited = await reconcileManagerSmsEntitlementDirect(db, inviterId, deps);
-    if (inherited.eligible) return inherited;
+    if (inherited.eligible && (deps.preferPaid !== true || !inherited.trial)) return inherited;
   }
   return own;
 }
@@ -237,13 +240,14 @@ async function reconcileManagerSmsEntitlementDirect(
 export async function getEffectiveManagerSmsEntitlement(
   db: SupabaseClient,
   managerUserId: string,
+  options: { preferPaid?: boolean } = {},
 ): Promise<SmsEntitlement> {
   const own = await getStoredManagerSmsEntitlement(db, managerUserId);
-  if (own.eligible) return own;
+  if (own.eligible && (options.preferPaid !== true || !own.trial)) return own;
   if (!(await isPureCoManagerWorkspace(db, managerUserId))) return own;
   for (const inviterId of await getAcceptedCoManagerInviterIds(db, managerUserId)) {
     const inherited = await getStoredManagerSmsEntitlement(db, inviterId);
-    if (inherited.eligible) return inherited;
+    if (inherited.eligible && (options.preferPaid !== true || !inherited.trial)) return inherited;
   }
   return own;
 }
@@ -266,17 +270,20 @@ export async function getStoredManagerSmsEntitlement(
   if (data.eligible === true && data.status === "trialing" && tier) {
     const trialEnd = Date.parse(String(data.valid_until ?? ""));
     if (!Number.isFinite(trialEnd)) return { eligible: false, reason: "plan_unreadable" };
-    if (data.source === "stripe") return { eligible: true, tier, source: "stripe" };
+    if (data.source === "stripe") return { eligible: true, tier, source: "stripe", trial: true };
     if (data.source === "none") {
       const { data: purchase, error: purchaseError } = await db.from("manager_purchases")
         .select("tier, billing, paid_at, stripe_subscription_id")
         .eq("user_id", managerUserId).maybeSingle();
+      const currentTrialEnd = purchase ? managerPurchasePeriodEndMs(purchase) : null;
       if (purchaseError || !purchase || purchase.tier !== tier ||
-        !isSignupTrialManagerPurchase(purchase.billing) ||
-        managerPurchasePeriodEndMs(purchase) !== trialEnd) {
+        !isSignupTrialManagerPurchase(purchase.billing) || currentTrialEnd === null) {
         return { eligible: false, reason: "plan_unreadable" };
       }
-      return { eligible: true, tier, source: "stripe" };
+      if (currentTrialEnd <= Date.now()) {
+        return { eligible: false, reason: "canceled" };
+      }
+      return { eligible: true, tier, source: "stripe", trial: true };
     }
     return { eligible: false, reason: "plan_unreadable" };
   }

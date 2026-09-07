@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const MANAGER = "mgr-assistant-email";
 
@@ -75,6 +75,8 @@ function dbFor(options: { entitlementRow?: boolean } = {}) {
   };
 }
 
+afterEach(() => vi.unstubAllEnvs());
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireManagerRouteUser.mockResolvedValue({ db: dbFor(), userId: MANAGER });
@@ -98,6 +100,31 @@ beforeEach(() => {
   mocks.isAssistantEmailProvisioningEnabled.mockReturnValue(true);
   mocks.probeAssistantEmailStorageReady.mockResolvedValue(true);
   mocks.isPureCoManagerWorkspace.mockResolvedValue(false);
+});
+
+describe("assistant-email trial isolation", () => {
+  it.each([false, true])("excludes trial SMS grants with existing address=%s", async (existing) => {
+    vi.stubEnv("RESEND_API_KEY", "test-key");
+    const trial = { eligible: true, tier: "pro", source: "stripe", trial: true };
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue(trial);
+    mocks.reconcileManagerSmsEntitlement.mockResolvedValue(trial);
+    mocks.loadManagerAssistantEmail.mockResolvedValue(existing ? { address: "assistant@test.invalid" } : null);
+    expect(await (await GET()).json()).toMatchObject({
+      canRequest: false, canUse: false, entitlement: { eligible: false, reason: "trialing" },
+    });
+    const response = await POST(new Request("https://prop-lane.test/api/manager/assistant-email", {
+      method: "POST", body: JSON.stringify({ action: "request_address" }),
+    }));
+    expect(response.status).toBe(403);
+    expect(mocks.ensureManagerAssistantEmail).not.toHaveBeenCalled();
+  });
+
+  it.each(["stripe", "apple"])("preserves use for active %s paid or comp grants", async (source) => {
+    vi.stubEnv("RESEND_API_KEY", "test-key");
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "business", source });
+    mocks.loadManagerAssistantEmail.mockResolvedValue({ address: "assistant@test.invalid" });
+    expect(await (await GET()).json()).toMatchObject({ canUse: true });
+  });
 });
 
 describe("GET /api/manager/assistant-email", () => {
