@@ -57,14 +57,6 @@ type EmailColumnTable = {
   requireCol?: { column: string; equals: string };
 };
 
-/** Read a dynamic email column without TS7053 (Supabase row types are not indexable by union keys). */
-function emailFromRow(
-  row: Record<string, unknown>,
-  emailCol: EmailColumnTable["emailCol"],
-): string {
-  return normalizeEmail(row[emailCol]);
-}
-
 const MANAGER_EMAIL_TABLES: readonly EmailColumnTable[] = [
   { table: "portal_household_charge_records", emailCol: "resident_email" },
   { table: "portal_recurring_rent_profile_records", emailCol: "resident_email" },
@@ -143,16 +135,22 @@ export async function purgeManagerResidentOrphans(
       query = query.eq(spec.requireCol.column, spec.requireCol.equals);
     }
     const { data: records } = await query;
-    const orphanIds = (records ?? [])
+    // The select string carries a UNION column name, so PostgREST infers a
+    // union of row shapes that cannot be indexed by that union (TS7053). The
+    // column is whichever `spec.emailCol` names; read it through a plain
+    // record and let `normalizeEmail` take the unknown.
+    const rows = (records ?? []) as Array<Record<string, unknown>>;
+    const emailOf = (row: Record<string, unknown>) => normalizeEmail(row[spec.emailCol]);
+    const orphanIds = rows
       .filter((r) => {
-        const email = emailFromRow(r as Record<string, unknown>, spec.emailCol);
+        const email = emailOf(r);
         if (!email || isProtectedOccupancyImportEmail(email)) return false;
         return !activeEmails.has(email);
       })
       .map((r) => {
-        const email = emailFromRow(r as Record<string, unknown>, spec.emailCol);
+        const email = emailOf(r);
         if (email) orphanedEmails.add(email);
-        return r.id as string;
+        return typeof r.id === "string" ? r.id : "";
       })
       .filter(Boolean);
 
