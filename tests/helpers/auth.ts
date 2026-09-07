@@ -77,6 +77,18 @@ export async function establishActivePortal(page: Page, role: PortalRole, next: 
   const nextPathRe = new RegExp(`^${escapeRegExp(nextPath)}(/|$)`);
   if (nextPathRe.test(new URL(page.url()).pathname)) return;
 
+  let lastPortalRolesStatus: number | null = null;
+  const onResponse = (response: { url: () => string; status: () => number }) => {
+    try {
+      if (response.url().includes("/api/auth/portal-roles")) {
+        lastPortalRolesStatus = response.status();
+      }
+    } catch {
+      /* ignore */
+    }
+  };
+  page.on("response", onResponse);
+
   await page.goto(`/auth/choose-portal?next=${encodeURIComponent(next)}`, { waitUntil: "domcontentloaded" });
 
   const option = page.getByRole("button", { name: new RegExp(`^${PORTAL_CHOOSER_LABEL[role]}\\b`) });
@@ -84,19 +96,36 @@ export async function establishActivePortal(page: Page, role: PortalRole, next: 
   // Single-role accounts auto-choose on the client (`choose-portal/page.tsx`) and
   // hard-navigate with `window.location.assign` — the chooser button may never
   // paint. Poll for either the destination or a visible chooser option.
-  await expect
-    .poll(
-      async () => {
-        const pathname = new URL(page.url()).pathname;
-        if (nextPathRe.test(pathname)) return "arrived";
-        if ((await option.count()) > 0 && (await option.first().isEnabled().catch(() => false))) {
-          return "chooser";
-        }
-        return "pending";
-      },
-      { timeout: 45_000 },
-    )
-    .not.toBe("pending");
+  try {
+    await expect
+      .poll(
+        async () => {
+          const pathname = new URL(page.url()).pathname;
+          if (nextPathRe.test(pathname)) return "arrived";
+          if ((await option.count()) > 0 && (await option.first().isEnabled().catch(() => false))) {
+            return "chooser";
+          }
+          return "pending";
+        },
+        { timeout: 45_000 },
+      )
+      .not.toBe("pending");
+  } catch (err) {
+    const bodyText = await page.locator("body").innerText().catch(() => "");
+    const loadError = await page.locator(".text-rose-600").first().textContent().catch(() => null);
+    const detail = [
+      `establishActivePortal(${role}) timed out on ${page.url()}`,
+      lastPortalRolesStatus != null ? `portal-roles HTTP ${lastPortalRolesStatus}` : "portal-roles response not observed",
+      loadError ? `UI error: ${loadError.trim()}` : null,
+      /Loading…/i.test(bodyText) ? "chooser still showed Loading…" : null,
+      /rate limit/i.test(bodyText) ? "page mentions rate limit — see PRP-363" : null,
+    ]
+      .filter(Boolean)
+      .join("; ");
+    throw new Error(detail, { cause: err });
+  } finally {
+    page.off("response", onResponse);
+  }
 
   if (nextPathRe.test(new URL(page.url()).pathname)) return;
 

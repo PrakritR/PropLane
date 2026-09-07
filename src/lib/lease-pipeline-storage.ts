@@ -892,6 +892,60 @@ function normalizeManagerSectionEdits(raw: unknown): Record<string, LeaseSection
   return Object.keys(edits).length ? edits : null;
 }
 
+function normalizePendingRenewal(
+  raw: unknown,
+): NonNullable<LeasePipelineRow["pendingRenewal"]> | null | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === null) return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const leaseTerm = typeof r.leaseTerm === "string" ? r.leaseTerm.trim() : "";
+  const leaseStart = typeof r.leaseStart === "string" ? r.leaseStart.trim() : "";
+  const leaseEnd = typeof r.leaseEnd === "string" ? r.leaseEnd.trim() : "";
+  const requestedAtIso = typeof r.requestedAtIso === "string" ? r.requestedAtIso.trim() : "";
+  if (!leaseTerm || !leaseStart || !leaseEnd || !requestedAtIso) return null;
+  const monthlyRent =
+    typeof r.monthlyRent === "number" && Number.isFinite(r.monthlyRent)
+      ? r.monthlyRent
+      : r.monthlyRent === null
+        ? null
+        : null;
+  return {
+    leaseTerm,
+    leaseStart,
+    leaseEnd,
+    monthlyRent,
+    rentalType: r.rentalType === "short_term" ? "short_term" : r.rentalType === "standard" ? "standard" : undefined,
+    requestedAtIso,
+  };
+}
+
+function normalizeSignedLeaseSnapshots(raw: unknown): SignedLeaseSnapshot[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: SignedLeaseSnapshot[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const s = item as Partial<SignedLeaseSnapshot>;
+    const id = typeof s.id === "string" ? s.id.trim() : "";
+    const label = typeof s.label === "string" ? s.label.trim() : "";
+    const fullySignedAt = typeof s.fullySignedAt === "string" ? s.fullySignedAt.trim() : "";
+    const archivedAtIso = typeof s.archivedAtIso === "string" ? s.archivedAtIso.trim() : "";
+    if (!id || !label || !fullySignedAt || !archivedAtIso) continue;
+    out.push({
+      id,
+      label,
+      fullySignedAt,
+      archivedAtIso,
+      leaseTerm: typeof s.leaseTerm === "string" ? s.leaseTerm : undefined,
+      leaseStart: typeof s.leaseStart === "string" ? s.leaseStart : undefined,
+      leaseEnd: typeof s.leaseEnd === "string" ? s.leaseEnd : undefined,
+      generatedHtml: typeof s.generatedHtml === "string" ? s.generatedHtml : s.generatedHtml === null ? null : undefined,
+      managerUploadedPdf: s.managerUploadedPdf ?? undefined,
+    });
+  }
+  return out;
+}
+
 /** Coerce partial rows from localStorage so UI never reads undefined thread / notes / bucket. */
 export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
   const r = (raw && typeof raw === "object" ? raw : {}) as Partial<LeasePipelineRow>;
@@ -1043,6 +1097,11 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     bundleGroupKey: typeof r.bundleGroupKey === "string" ? r.bundleGroupKey : null,
     leaseGenerationTemplateId:
       typeof r.leaseGenerationTemplateId === "string" ? r.leaseGenerationTemplateId : null,
+    // Renewal / prior-term evidence must survive normalize — otherwise client
+    // writes drop pendingRenewal and the server wipe-guard (PRP-385) cannot tell
+    // a renew from an approval stub.
+    pendingRenewal: normalizePendingRenewal(r.pendingRenewal),
+    signedLeaseSnapshots: normalizeSignedLeaseSnapshots(r.signedLeaseSnapshots),
   };
 }
 
@@ -1335,6 +1394,7 @@ function write(unguardedRows: LeasePipelineRow[], scopeUserId?: string | null) {
   // empty baseline disables the guard. Resident-side writes pass no scope at
   // all, so rehydrate before comparing.
   hydrateLeasePipelineFromSession(scopeUserId ?? activeLeasePipelineScopeUserId);
+  const prevBaseline = memoryRows;
   const rows = preserveSignedLeaseDocuments(memoryRows, unguardedRows);
   if (!leaseRowsChanged(memoryRows, rows)) return;
   memoryRows = rows;
@@ -1344,6 +1404,19 @@ function write(unguardedRows: LeasePipelineRow[], scopeUserId?: string | null) {
   // Demo sandbox is local-only: keep the in-memory/session write but never
   // mirror to the server.
   if (isDemoModeActive()) return;
+  // PRP-385: an empty local baseline + approval sync used to POST action:replace
+  // with Draft stubs for every approved application id, upserting over Fully Signed
+  // rows on the server. Never replace-all from empty; hydrate from server, then
+  // upsert only ids the server does not already hold.
+  if (prevBaseline.length === 0) {
+    void syncLeasePipelineFromServer(scopeUserId, { force: true }).then((serverRows) => {
+      const serverIds = new Set(serverRows.map((row) => row.id));
+      for (const row of rows) {
+        if (!serverIds.has(row.id)) persistLeaseRowToServer(row);
+      }
+    });
+    return;
+  }
   const payload = JSON.stringify({ action: "replace", rows });
   const byteLength = new TextEncoder().encode(payload).length;
   const shouldUseRowUpserts = byteLength > 3_500_000 || rows.some((row) => Boolean(row.managerUploadedPdf?.dataUrl));
@@ -1359,10 +1432,11 @@ function write(unguardedRows: LeasePipelineRow[], scopeUserId?: string | null) {
   })
     .then(async (res) => {
       if (res.ok) return;
-      for (const row of rows) persistLeaseRowToServer(row);
+      // Do not fall back to upserting the whole collection after a failed
+      // replace (PRP-385) — that re-applied Draft stubs over executed leases.
     })
     .catch(() => {
-      for (const row of rows) persistLeaseRowToServer(row);
+      /* leave local state; next sync from server reconciles */
     });
 }
 

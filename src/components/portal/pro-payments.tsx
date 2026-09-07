@@ -462,6 +462,7 @@ export function ManagerPayments({
     [userId, propertyTick, applicationTick],
   );
 
+
   const propertyLabelById = useMemo(
     () => new Map(propertyOptions.map((option) => [option.id, option.label])),
     [propertyOptions],

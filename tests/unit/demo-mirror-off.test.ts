@@ -59,20 +59,43 @@ describe("demo portal mirror flag", () => {
   });
 });
 
-/** Minimal recording stub — every seeder write funnels through `.upsert()`. */
+/**
+ * Minimal recording stub. Every seeder WRITE funnels through `.upsert()`; the
+ * only READ is the AXIS-id reclaim (PRP-357), which looks for another profile
+ * holding the resident's axis id. This stub answers "nobody else holds it"
+ * (`data: null`), the case that must still write exactly one `profiles` row.
+ *
+ * `reads` is asserted below so a future seeder read cannot silently pass
+ * through a stub that does not model it — that is how this double last drifted.
+ */
 function recordingDb() {
   const upserts: { table: string; rows: unknown[] }[] = [];
+  const reads: string[] = [];
   const db = {
     from(table: string) {
+      const rowQuery = {
+        eq: () => rowQuery,
+        neq: () => rowQuery,
+        maybeSingle: () => Promise.resolve({ data: null, error: null }),
+        then: (resolve: (value: { data: null; error: null }) => unknown) =>
+          Promise.resolve({ data: null, error: null }).then(resolve),
+      };
       return {
         upsert(rows: unknown[]) {
           upserts.push({ table, rows: Array.isArray(rows) ? rows : [rows] });
           return Promise.resolve({ data: null, error: null });
         },
+        select(columns: string) {
+          reads.push(`${table}(${columns})`);
+          return rowQuery;
+        },
+        update() {
+          return rowQuery;
+        },
       };
     },
   };
-  return { db, upserts };
+  return { db, upserts, reads };
 }
 
 describe("seeding the empty demo portfolio", () => {
@@ -86,10 +109,12 @@ describe("seeding the empty demo portfolio", () => {
   };
 
   it("writes only the account profile rows — no portfolio records", async () => {
-    const { db, upserts } = recordingDb();
+    const { db, upserts, reads } = recordingDb();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await seedCanonicalDemoPortfolio(db as any, ctx);
     expect(upserts.map((u) => u.table)).toEqual(["profiles"]);
+    // The one read the seeder makes: the AXIS-id reclaim (PRP-357).
+    expect(reads).toEqual(["profiles(id, email)"]);
   });
 
   it("never upserts the deployment-wide schedule singletons with an empty payload", async () => {

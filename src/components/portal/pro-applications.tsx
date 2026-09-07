@@ -544,6 +544,7 @@ export function ManagerApplications({
     typeof window === "undefined" ? 0 : hasCachedPropertyPipeline() ? 1 : 0,
   );
   const [approvePreviewRow, setApprovePreviewRow] = useState<DemoApplicantRow | null>(null);
+  const [approveError, setApproveError] = useState<string | null>(null);
   const [rejectPreviewRows, setRejectPreviewRows] = useState<DemoApplicantRow[] | null>(null);
   const [rejectBusy, setRejectBusy] = useState(false);
   const [approveBusyId, setApproveBusyId] = useState<string | null>(null);
@@ -1048,19 +1049,19 @@ export function ManagerApplications({
       skipWelcomeEmail: opts?.skipWelcomeEmail,
       automation: applicationAutomation.forProperty(row ? applicationRowPropertyId(row) : ""),
     });
-    if (!result) return;
+    if (!result) return null;
     setRows(readManagerApplicationRows());
     if (result.blocked) {
       if (!opts?.quiet) {
         showToast(result.message ?? "That change could not be saved.");
       }
-      return;
+      return result;
     }
 
     if (!opts?.skipNavigate) {
       router.push(applicationsListHref(nextBucket));
     }
-    if (opts?.quiet) return;
+    if (opts?.quiet) return result;
     const msg =
       nextBucket === "approved"
         ? opts?.skipWelcomeEmail
@@ -1072,6 +1073,7 @@ export function ManagerApplications({
           ? "Application rejected."
           : "Moved to Pending.";
     showToast(msg);
+    return result;
   };
 
   // Declared AFTER `setRowBucket`, which it calls. It used to sit above the
@@ -1379,13 +1381,22 @@ export function ManagerApplications({
             variant="outline"
             className={actionBtnClass}
             data-attr="application-approve"
-            onClick={() => setApprovePreviewRow(row)}
+            onClick={() => {
+              setApproveError(null);
+              setApprovePreviewRow(row);
+            }}
           >
             Approve
           </Button>
         ),
         menuItem: (
-          <DropdownMenuItem data-attr="application-approve" onSelect={() => setApprovePreviewRow(row)}>
+          <DropdownMenuItem
+            data-attr="application-approve"
+            onSelect={() => {
+              setApproveError(null);
+              setApprovePreviewRow(row);
+            }}
+          >
             Approve
           </DropdownMenuItem>
         ),
@@ -1752,7 +1763,11 @@ export function ManagerApplications({
       <PortalNotificationPreviewModal
         open={approvePreviewRow !== null}
         title="Approve application: account setup email"
-        onClose={() => setApprovePreviewRow(null)}
+        onClose={() => {
+          if (approveBusyId) return;
+          setApprovePreviewRow(null);
+          setApproveError(null);
+        }}
         recipient={approvePreviewRow?.email ?? ""}
         subject={RESIDENT_WELCOME_EMAIL_SUBJECT}
         body={
@@ -1769,6 +1784,8 @@ export function ManagerApplications({
             ? `Approving ${applicantDisplayName(approvePreviewRow)} will update their application status and can send their PropLane resident account setup email.`
             : undefined
         }
+        warning={approveError ?? undefined}
+        warningLead={approveError ? "Could not approve." : null}
         hideSendViaFooterNote
         showWorkNumberHint={false}
         confirmLabel="Approve & send setup email"
@@ -1780,9 +1797,20 @@ export function ManagerApplications({
         onConfirm={(skipMessage) => {
           if (!approvePreviewRow) return;
           const row = approvePreviewRow;
-          setApprovePreviewRow(null);
+          setApproveError(null);
           setApproveBusyId(row.id);
-          void setRowBucket(row.id, "approved", { skipWelcomeEmail: skipMessage }).finally(() => setApproveBusyId(null));
+          // Keep the dialog open until the server confirms (PRP-381). Closing
+          // first made a 500 look identical to success.
+          void setRowBucket(row.id, "approved", { skipWelcomeEmail: skipMessage, skipNavigate: true }).then((result) => {
+            setApproveBusyId(null);
+            if (!result || result.blocked) {
+              setApproveError(result?.message ?? "Approval could not be saved. Refresh and retry.");
+              return;
+            }
+            setApprovePreviewRow(null);
+            setApproveError(null);
+            router.push(applicationsListHref("approved"));
+          });
         }}
       />
       <ConfirmDeleteModal

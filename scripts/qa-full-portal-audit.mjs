@@ -107,6 +107,48 @@ const VENDOR_PATHS = [
 const findings = [];
 let findingSeq = 0;
 
+/** Run-level stop: further path findings would be rate-limit cascade noise (PRP-364). */
+class AuthRateLimitedError extends Error {
+  constructor(detail) {
+    super(detail);
+    this.name = "AuthRateLimitedError";
+  }
+}
+
+/** Mid-portal bounce to sign-in — do not re-authenticate (PRP-364). */
+class SessionLostError extends Error {
+  constructor(detail) {
+    super(detail);
+    this.name = "SessionLostError";
+  }
+}
+
+let authRateLimitedDetail = null;
+
+function noteAuthRateLimit(detail) {
+  authRateLimitedDetail = detail;
+}
+
+function assertAuthBudget(context) {
+  if (authRateLimitedDetail) {
+    throw new AuthRateLimitedError(`${context}: ${authRateLimitedDetail}`);
+  }
+}
+
+function watchAuthRateLimit(page) {
+  page.on("response", (response) => {
+    try {
+      if (response.status() !== 429) return;
+      const url = response.url();
+      // Supabase GoTrue password / refresh grants — the shared project budget.
+      if (!/\/auth\/v1\//i.test(url)) return;
+      noteAuthRateLimit(`HTTP 429 from ${url}`);
+    } catch {
+      /* ignore observer errors */
+    }
+  });
+}
+
 function addFinding(portal, path, severity, title, detail) {
   const duplicate =
     KNOWN_ISSUE_PATTERNS.some((re) => re.test(title) || re.test(detail)) ||
@@ -125,6 +167,7 @@ function addFinding(portal, path, severity, title, detail) {
 }
 
 async function signIn(page, { email, password }, nextPath, portalRole) {
+  assertAuthBudget(`before sign-in as ${portalRole}`);
   const port = new URL(BASE).port || "80";
   const next = `${nextPath}`;
   await page.goto(`${BASE}/auth/sign-in?next=${encodeURIComponent(next)}`, {
@@ -141,6 +184,8 @@ async function signIn(page, { email, password }, nextPath, portalRole) {
     () => !window.location.pathname.includes("/auth/sign-in"),
     { timeout: 60_000 },
   ).catch(() => {});
+
+  assertAuthBudget(`after sign-in as ${portalRole}`);
 
   const landed = new URL(page.url());
   if (landed.port && landed.port !== port && landed.hostname === "localhost") {
@@ -170,7 +215,14 @@ async function signIn(page, { email, password }, nextPath, portalRole) {
   }
 }
 
-async function auditPath(page, portal, { label, path }, account, role, nextPath) {
+/**
+ * Audit one path using the existing browser session.
+ * Never calls signIn — re-auth mid-catalog burned the Supabase budget and filed
+ * false "session lost" / Failed to fetch / 429 findings (PRP-364).
+ */
+async function auditPath(page, portal, { label, path }) {
+  assertAuthBudget(`before ${portal} ${path}`);
+
   const consoleErrors = [];
   const pageErrors = [];
   const onConsole = (msg) => {
@@ -206,22 +258,23 @@ async function auditPath(page, portal, { label, path }, account, role, nextPath)
   if (response) httpStatus = response.status();
   await page.waitForTimeout(1200);
 
-  let finalUrl = page.url();
-  let pathname = new URL(finalUrl).pathname;
+  const finalUrl = page.url();
+  const pathname = new URL(finalUrl).pathname;
+  const bouncedToSignIn = pathname.includes("/auth/sign-in");
 
-  if (pathname.includes("/auth/sign-in")) {
-    await signIn(page, account, nextPath, role);
-    await page.goto(`${BASE}${path}`, { waitUntil: "domcontentloaded", timeout: 45_000 });
-    await page.waitForTimeout(1200);
-    finalUrl = page.url();
-    pathname = new URL(finalUrl).pathname;
-    if (pathname.includes("/auth/sign-in")) {
-      addFinding(portal, path, "high", `${label}: session lost — bounced to sign-in`, finalUrl);
-      page.off("console", onConsole);
-      page.off("pageerror", onPageError);
-      return;
-    }
+  if (bouncedToSignIn) {
+    addFinding(portal, path, "high", `${label}: session lost — bounced to sign-in`, finalUrl);
+    page.off("console", onConsole);
+    page.off("pageerror", onPageError);
+    throw new SessionLostError(`${portal} ${path} bounced to ${finalUrl}`);
   }
+
+  if (authRateLimitedDetail) {
+    page.off("console", onConsole);
+    page.off("pageerror", onPageError);
+    throw new AuthRateLimitedError(`${portal} ${path}: ${authRateLimitedDetail}`);
+  }
+
   if (httpStatus >= 400) {
     addFinding(portal, path, "high", `${label}: HTTP ${httpStatus}`, finalUrl);
   }
@@ -249,9 +302,13 @@ async function auditPath(page, portal, { label, path }, account, role, nextPath)
     // See scripts/qa-exhaustive-portal-audit.mjs for the full note.
     if (/favicon|hydration|devtools|posthog|ResizeObserver/is.test(err)) continue;
     if (/Failed to fetch[\s\S]*auth-js/is.test(err)) continue;
+    // Auth 429 / aborted fetch after a bounce are run-level, not page defects.
+    if (/\b429\b/.test(err) && /auth|token|Failed to load resource/i.test(err)) continue;
+    if (/TypeError:\s*Failed to fetch/i.test(err)) continue;
     addFinding(portal, path, "medium", `${label}: console error`, err.slice(0, 300));
   }
   for (const err of pageErrors.slice(0, 3)) {
+    if (/TypeError:\s*Failed to fetch/i.test(err)) continue;
     addFinding(portal, path, "high", `${label}: uncaught exception`, err.slice(0, 300));
   }
 
@@ -415,20 +472,48 @@ async function main() {
   async function runPortal(portal, account, nextPath, paths, interactions) {
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await context.newPage();
+    watchAuthRateLimit(page);
     console.log(`\n=== ${portal.charAt(0).toUpperCase() + portal.slice(1)} ===`);
-    await signIn(page, account, nextPath, portal);
-    for (const p of paths) {
-      process.stdout.write(`  ${p.label}… `);
-      await auditPath(page, portal, p, account, portal, nextPath);
-      console.log("ok");
+    try {
+      // One sign-in per portal role; reuse this context for every path (PRP-364).
+      await signIn(page, account, nextPath, portal);
+      for (const p of paths) {
+        process.stdout.write(`  ${p.label}… `);
+        await auditPath(page, portal, p);
+        console.log("ok");
+      }
+      if (interactions) await interactions(page);
+    } catch (err) {
+      if (err instanceof AuthRateLimitedError || err instanceof SessionLostError) {
+        addFinding(
+          portal,
+          nextPath,
+          "high",
+          `${portal}: audit aborted — ${err.name}`,
+          err.message,
+        );
+        console.log(`\nABORT ${portal}: ${err.message}`);
+        console.log("Further paths skipped (would only manufacture false findings).");
+      } else {
+        throw err;
+      }
+    } finally {
+      await context.close();
     }
-    if (interactions) await interactions(page);
-    await context.close();
   }
 
-  await runPortal("manager", ACCOUNTS.manager, "/portal/dashboard", MANAGER_PATHS, auditManagerInteractions);
-  await runPortal("resident", ACCOUNTS.resident, "/resident/dashboard", RESIDENT_PATHS, auditResidentInteractions);
-  await runPortal("vendor", ACCOUNTS.vendor, "/vendor/dashboard", VENDOR_PATHS, auditVendorInteractions);
+  try {
+    await runPortal("manager", ACCOUNTS.manager, "/portal/dashboard", MANAGER_PATHS, auditManagerInteractions);
+    await runPortal("resident", ACCOUNTS.resident, "/resident/dashboard", RESIDENT_PATHS, auditResidentInteractions);
+    await runPortal("vendor", ACCOUNTS.vendor, "/vendor/dashboard", VENDOR_PATHS, auditVendorInteractions);
+  } catch (err) {
+    if (err instanceof AuthRateLimitedError) {
+      addFinding("infra", "/", "high", "audit aborted — auth rate limited", err.message);
+      console.error(`\nABORT run: ${err.message}`);
+    } else {
+      throw err;
+    }
+  }
 
   await browser.close();
 

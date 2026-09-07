@@ -20,6 +20,11 @@ function aad(context: EncryptionContext, keyId: string): Buffer {
 }
 
 function keyFor(id: string): Buffer {
+  if (!id.trim()) {
+    throw new Error(
+      "DATA_ENCRYPTION_ACTIVE_KEY_ID is not configured. Run `npm run ensure:data-encryption` (or set DATA_ENCRYPTION_* in .env.local).",
+    );
+  }
   if (!KEY_ID.test(id)) throw new Error("Invalid encryption key identifier.");
   let keys: unknown;
   try {

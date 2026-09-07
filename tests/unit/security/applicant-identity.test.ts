@@ -73,4 +73,17 @@ describe("applicant identity boundary", () => {
     expect(() => sealApplicantRow(source, source.id, "manager-a")).toThrow();
     expect(sealApplicantRow({ id: source.id }, source.id, null)).toEqual({ id: source.id });
   });
+  it("soft-opens an undecryptable identity so one bad row cannot 500 the list (PRP-387)", () => {
+    const sealed = sealApplicantRow(source, source.id, "manager-a") as Record<string, unknown>;
+    const meta = sealed._applicantIdentity as { ciphertext: string; originOwnerId: string; version: 1 };
+    const broken = {
+      ...sealed,
+      _applicantIdentity: { ...meta, ciphertext: meta.ciphertext.replace(/.$/, meta.ciphertext.endsWith("A") ? "B" : "A") },
+    };
+    expect(() => openApplicantRow(broken, source.id)).toThrow(/Unable to open/);
+    const soft = openApplicantRow(broken, source.id, undefined, { soft: true });
+    expect(soft.id).toBe(source.id);
+    expect(soft.application?.ssn).toBeUndefined();
+    expect((soft as Record<string, unknown>)._applicantIdentity).toBeUndefined();
+  });
 });

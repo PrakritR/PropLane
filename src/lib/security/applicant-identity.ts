@@ -35,11 +35,26 @@ function identityFrom(app: Row | null): Identity {
 }
 
 /** Only call after current actor/token/property authorization. Never serialize stored rows. */
-export function openApplicantRow(raw: unknown, recordId: string, allowLegacy = process.env.APPLICANT_IDENTITY_REQUIRE_ENCRYPTED_READS !== "true"): DemoApplicantRow {
+export function openApplicantRow(
+  raw: unknown,
+  recordId: string,
+  allowLegacy = process.env.APPLICANT_IDENTITY_REQUIRE_ENCRYPTED_READS !== "true",
+  opts?: { soft?: boolean },
+): DemoApplicantRow {
   const row = asObject(raw);
   if (!row) throw new Error("Invalid applicant record.");
   const app = asObject(row.application);
-  const meta = metadata(row);
+  let meta: ReturnType<typeof metadata>;
+  try {
+    meta = metadata(row);
+  } catch (error) {
+    if (opts?.soft) {
+      const result = { ...row };
+      delete result[META];
+      return result as DemoApplicantRow;
+    }
+    throw error;
+  }
   const result = { ...row };
   delete result[META];
   if (!meta) {
@@ -55,6 +70,8 @@ export function openApplicantRow(raw: unknown, recordId: string, allowLegacy = p
     if (!identityObject || FIELDS.some((field) => typeof identityObject[field] !== "string")) throw new Error();
     identity = identityFrom(identityObject);
   } catch {
+    // PRP-387: one undecryptable row must not 500 the entire applications list.
+    if (opts?.soft) return result as DemoApplicantRow;
     throw new Error("Unable to open protected applicant identity.");
   }
   return { ...result, application: { ...app, ...identity } } as DemoApplicantRow;
