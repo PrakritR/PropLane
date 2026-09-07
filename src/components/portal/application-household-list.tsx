@@ -2,6 +2,7 @@
 
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import { Badge } from "@/components/ui/badge";
+import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
 import { ApplicationCosignerPlannedCard } from "@/components/portal/pro-application-readonly-review";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
@@ -72,16 +73,16 @@ export function PortalListClusterSelectCheckbox({
   const allSelected = ids.length > 0 && selectedCount === ids.length;
   const indeterminate = selectedCount > 0 && !allSelected;
 
+  // The group "Select all …" box was the one bare 16 px checkbox left on the
+  // Payments list (PRP-351); the row boxes already had the padded label.
   return (
-    <input
-      type="checkbox"
-      className="h-4 w-4 shrink-0 accent-primary"
+    <RowSelectCheckbox
+      className="rounded-none"
       checked={allSelected}
       ref={(el) => {
         if (el) el.indeterminate = indeterminate;
       }}
       aria-label={ariaLabel}
-      onClick={(event) => event.stopPropagation()}
       onChange={() => onToggleCluster(ids)}
     />
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import type { InputHTMLAttributes, MouseEvent } from "react";
+import type { InputHTMLAttributes, MouseEvent, Ref } from "react";
 import { PORTAL_LIST_CHECKBOX_HIT_CLASS } from "@/components/ui/data-list";
 import { cn } from "@/lib/utils";
 
@@ -39,8 +39,13 @@ export function RowSelectCheckbox({
   className,
   wrapperClassName,
   onClick,
+  ref,
   ...props
-}: Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & { wrapperClassName?: string }) {
+}: Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & {
+  wrapperClassName?: string;
+  /** Reaches the `<input>` — a group checkbox sets `indeterminate` through it. */
+  ref?: Ref<HTMLInputElement>;
+}) {
   return (
     <label
       className={cn(ROW_SELECT_HIT_PAD_CLASS, wrapperClassName)}
@@ -49,6 +54,7 @@ export function RowSelectCheckbox({
       data-row-select-hit-pad
     >
       <input
+        ref={ref}
         type="checkbox"
         className={cn(ROW_SELECT_INPUT_CLASS, className)}
         onClick={(event: MouseEvent<HTMLInputElement>) => {
