@@ -69,15 +69,35 @@ describe("manager-first-listing-onboarding (PRP-396)", () => {
     expect(shouldSkipFirstListingOnboarding({ email: "owner@prop-lane.space" })).toBe(false);
   });
 
-  it("seeds once when the portfolio is empty", async () => {
+  it("seeds once when the portfolio is empty AND the sync confirmed it", async () => {
     // Empty local snapshot: adminKpiCounts / count helpers read real local store.
     // Use a throwaway user id unlikely to have residual side buckets in this process.
     const userId = `mgr-first-listing-test-${Date.now()}`;
     const result = await ensureManagerFirstListingDraft(userId, {
       email: "fresh@prop-lane.space",
+      portfolioSynced: true,
     });
     expect(result).toEqual({ draftId: "mgr-listing-seeded1", created: true });
     expect(saveManagerPropertyDraftToServer).toHaveBeenCalledTimes(1);
+  });
+
+  // PRP-429: an established account got a phantom "Property · New listing" draft
+  // because a failed/pending portfolio sync leaves the same empty local snapshot
+  // a brand-new account has. Unloaded is not empty.
+  it("refuses to seed when the portfolio sync did not land", async () => {
+    const userId = `mgr-unsynced-test-${Date.now()}`;
+    expect(
+      await ensureManagerFirstListingDraft(userId, {
+        email: "established@prop-lane.space",
+        portfolioSynced: false,
+      }),
+    ).toBeNull();
+    expect(
+      await ensureManagerFirstListingDraft(`${userId}-b`, {
+        email: "established@prop-lane.space",
+      }),
+    ).toBeNull();
+    expect(saveManagerPropertyDraftToServer).not.toHaveBeenCalled();
   });
 
   it("does not seed for sandbox accounts", async () => {

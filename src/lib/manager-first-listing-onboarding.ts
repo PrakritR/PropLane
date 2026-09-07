@@ -68,13 +68,24 @@ export function firstListingDashboardRedirectStorageKey(userId: string): string 
 }
 
 /**
- * Idempotent seed: when the local snapshot is empty, create one provisional
+ * Idempotent seed: when the portfolio is CONFIRMED empty, create one provisional
  * draft via the normal client save path. Returns the draft id and whether this
  * call minted it (so callers can open the wizard only on first seed).
+ *
+ * `portfolioSynced` is the caller's report from `syncManagerPortfolioFromServer`
+ * and is REQUIRED to be true before anything is minted. The snapshot below reads
+ * the local store, which is also empty when the sync never landed — offline, a
+ * recompiling dev server, a 500, or simply a page opened before the first fetch
+ * resolved. Trusting it unconditionally made "I could not load your properties"
+ * indistinguishable from "you have none", and seeded a phantom
+ * "Property · New listing" draft on established portfolios, which then dragged
+ * the Properties tab onto Drafts (PRP-429). Failing to seed a genuinely new
+ * account is recoverable — the manager clicks ADD PROPERTY — while inventing a
+ * draft on an account with real listings is not.
  */
 export async function ensureManagerFirstListingDraft(
   managerUserId: string,
-  opts?: { email?: string | null },
+  opts?: { email?: string | null; portfolioSynced?: boolean },
 ): Promise<{ draftId: string; created: boolean } | null> {
   const userId = managerUserId.trim();
   if (!userId) return null;
@@ -85,6 +96,8 @@ export async function ensureManagerFirstListingDraft(
     const draftId = existing[0]?.adminRefId?.trim() || "";
     return draftId ? { draftId, created: false } : null;
   }
+
+  if (opts?.portfolioSynced !== true) return null;
 
   const snap = readFirstListingPortfolioSnapshot(userId);
   if (!managerPortfolioNeedsFirstListingSeed(snap)) return null;

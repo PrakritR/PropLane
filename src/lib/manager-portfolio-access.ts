@@ -218,18 +218,34 @@ export function moduleRowVisibleToPortalUser(
 }
 
 /** Refresh co-manager relationships and property pipeline (includes linked owner listings). */
-export async function syncManagerPortfolioFromServer(userId: string, opts?: { force?: boolean }): Promise<void> {
-  if (!userId.trim()) return;
+/**
+ * Pull this manager's portfolio into the local store.
+ *
+ * Resolves TRUE only when the property pipeline actually came back from the
+ * server (or was already inside its freshness window), so a caller can tell a
+ * genuinely empty portfolio apart from one it simply failed to load. That
+ * distinction is load-bearing: the first-listing onboarding seeds a draft when
+ * the portfolio reads as empty, and an offline / recompiling / 500 sync used to
+ * be indistinguishable from a brand-new account — which minted a phantom
+ * "New listing" draft on established accounts (PRP-429). Errors are still
+ * swallowed rather than thrown; the boolean is the whole report.
+ */
+export async function syncManagerPortfolioFromServer(
+  userId: string,
+  opts?: { force?: boolean },
+): Promise<boolean> {
+  if (!userId.trim()) return false;
   try {
     await syncProRelationshipsFromServer(userId, { force: opts?.force === true });
     const linkedPropertyIds = collectLinkedPropertyIds(userId);
-    await syncPropertyPipelineFromServer({
+    return await syncPropertyPipelineFromServer({
       force: opts?.force === true,
       userId,
       linkedPropertyIds,
     });
   } catch {
     /* offline or dev server recompiling */
+    return false;
   }
 }
 
