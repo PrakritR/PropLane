@@ -57,6 +57,14 @@ type EmailColumnTable = {
   requireCol?: { column: string; equals: string };
 };
 
+/** Read a dynamic email column without TS7053 (Supabase row types are not indexable by union keys). */
+function emailFromRow(
+  row: Record<string, unknown>,
+  emailCol: EmailColumnTable["emailCol"],
+): string {
+  return normalizeEmail(row[emailCol]);
+}
+
 const MANAGER_EMAIL_TABLES: readonly EmailColumnTable[] = [
   { table: "portal_household_charge_records", emailCol: "resident_email" },
   { table: "portal_recurring_rent_profile_records", emailCol: "resident_email" },
@@ -137,12 +145,12 @@ export async function purgeManagerResidentOrphans(
     const { data: records } = await query;
     const orphanIds = (records ?? [])
       .filter((r) => {
-        const email = normalizeEmail(r[spec.emailCol]);
+        const email = emailFromRow(r as Record<string, unknown>, spec.emailCol);
         if (!email || isProtectedOccupancyImportEmail(email)) return false;
         return !activeEmails.has(email);
       })
       .map((r) => {
-        const email = normalizeEmail(r[spec.emailCol]);
+        const email = emailFromRow(r as Record<string, unknown>, spec.emailCol);
         if (email) orphanedEmails.add(email);
         return r.id as string;
       })

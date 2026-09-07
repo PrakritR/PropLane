@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { showToast } from "@/lib/toast";
+import { useAppUi } from "@/components/providers/app-ui-provider";
 import { setScreeningTestModeActive } from "@/lib/screening/screening-test-mode";
 
 /** In-header Test mode switch — never a bottom-left overlay under the sidebar (PRP-383). */
@@ -12,6 +12,7 @@ export function ScreeningTestModeToggle({
   active: boolean;
   onChanged?: () => void;
 }) {
+  const { showToast } = useAppUi();
   return (
     <div className="flex shrink-0 items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs shadow-sm">
       <span className="font-medium text-foreground">Test mode</span>
