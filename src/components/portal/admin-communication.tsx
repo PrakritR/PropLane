@@ -97,7 +97,12 @@ export function AdminCommunication({
 
   return (
     <PortalCommunicationShell title="Communication" titleAside={titleAside}>
-      <div className="space-y-6">
+      {/*
+        Communication chrome clips #portal-main-content (no page scroll). Admin
+        stacks email + SMS, so this column must be the scroller — otherwise the
+        Text messages card is cut off with nothing to reach it (PRP-375).
+      */}
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
         <AdminInboxClient
           ref={inboxRef}
           tabId={view}
@@ -122,6 +127,7 @@ export function AdminCommunication({
               endpoint="/api/admin/sms-conversations"
               allowInlineCompose
               allowDelete={false}
+              pageScroll
             />
           </section>
         ) : null}

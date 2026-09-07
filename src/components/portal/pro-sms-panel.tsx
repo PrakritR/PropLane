@@ -836,8 +836,8 @@ export const ManagerSmsPanel = forwardRef<
         <h2 className="text-sm font-semibold tracking-tight text-foreground">Messages</h2>
       </header>
 
-      <div className="portal-inbox-list-toolbar flex shrink-0 items-center gap-2 border-b border-border px-3 pb-2.5">
-        <label className="relative block min-w-0 flex-1">
+      <div className="portal-inbox-list-toolbar flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 pb-2.5">
+        <label className="relative block min-w-[9rem] flex-1">
           <span className="sr-only">Search conversations</span>
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
           <input
@@ -857,7 +857,7 @@ export const ManagerSmsPanel = forwardRef<
           id="sms-sort"
           value={sort}
           onChange={(e) => setSort(e.target.value as ManagerSmsSortId)}
-          className="h-10 shrink-0 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground outline-none focus:border-primary/40"
+          className="h-10 w-auto max-w-[11rem] shrink-0 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground outline-none focus:border-primary/40"
           data-attr="sms-messages-sort"
           aria-label="Sort conversations"
         >
@@ -1104,7 +1104,12 @@ export const ManagerSmsPanel = forwardRef<
       {suppressListPane ? (
         <div className={pageScroll ? "flex flex-col" : "flex h-full min-h-0 flex-1 flex-col overflow-hidden"}>{threadPane}</div>
       ) : (
-        <InboxTwoPane threadOpen={showThread} list={listPane} thread={threadPane} />
+        <InboxTwoPane
+          threadOpen={showThread}
+          list={listPane}
+          thread={threadPane}
+          heightMode={pageScroll ? "flow" : "viewport"}
+        />
       )}
     </div>
   );

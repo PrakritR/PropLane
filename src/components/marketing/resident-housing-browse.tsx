@@ -500,7 +500,11 @@ export function ResidentHousingBrowse({ propertyIds }: { propertyIds?: string[] 
       ) : null}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 sm:mb-8">
         <p className="text-sm font-semibold text-foreground">
-          {loading ? "Loading homes…" : `${cards.length} homes available`}
+          {loading
+            ? "Loading homes…"
+            : cards.length === 0
+              ? "No homes available"
+              : `${cards.length} home${cards.length === 1 ? "" : "s"} available`}
         </p>
         <PortalFilterSortSheet
           activeCount={filterActiveCount}

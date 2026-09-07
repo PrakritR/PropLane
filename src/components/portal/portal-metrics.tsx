@@ -400,7 +400,11 @@ export const PORTAL_DASHBOARD_SECTION_CARD =
   "rounded-2xl border border-border bg-card p-5 shadow-[0_1px_3px_rgba(15,23,42,0.05)] [html[data-native]_&]:rounded-xl [html[data-native]_&]:p-3";
 
 /** Vertical stack spacing for dashboard sections — tighter on native. */
-export const PORTAL_DASHBOARD_STACK = "space-y-5 max-lg:space-y-3 [html[data-native]_&]:space-y-3";
+/** Bottom pad clears the Ask PropLane FAB (and phone bottom nav) so the last
+ *  Needs-attention control stays clickable (PRP-377). Uses the shared floating
+ *  gap knob — do not invent a per-panel `bottom`. */
+export const PORTAL_DASHBOARD_STACK =
+  "space-y-5 max-lg:space-y-3 [html[data-native]_&]:space-y-3 pb-[calc(var(--portal-floating-bottom-gap)+3.5rem)] max-lg:pb-[calc(var(--portal-native-bottom-nav-inset,0px)+var(--portal-floating-bottom-gap)+3.5rem)]";
 
 /** KPI row: 2×3 grid on all breakpoints (six manager stats). */
 export function PortalDashboardKpiRow({ children }: { children: ReactNode }) {

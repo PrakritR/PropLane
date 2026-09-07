@@ -382,8 +382,42 @@ export function ManagerBackgroundChecks({
     </Button>
   );
 
+  const screeningTestModeToggle = (
+    <div className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs shadow-sm">
+      <span className="font-medium text-foreground">Test mode</span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={screeningTestMode}
+        className={cn(
+          "relative h-6 w-11 rounded-full transition",
+          screeningTestMode ? "bg-amber-400" : "bg-muted",
+        )}
+        onClick={() => {
+          const next = !screeningTestMode;
+          setScreeningTestModeActive(next);
+          showToast(
+            next
+              ? "Screening test mode on — simulated reports, no charges."
+              : "Live screening mode — real Checkr orders.",
+          );
+          handleScreeningUpdated();
+        }}
+        data-attr="screening-test-mode-toggle"
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition",
+            screeningTestMode ? "left-[22px]" : "left-0.5",
+          )}
+        />
+      </button>
+    </div>
+  );
+
   const listActions = (
     <>
+      {screeningTestModeToggle}
       {filterSheet}
       {settingsButton}
     </>
@@ -591,39 +625,6 @@ export function ManagerBackgroundChecks({
           )}
         </div>
       </ManagerPortalPageShell>
-
-      <div
-        className="fixed bottom-[calc(var(--portal-floating-bottom-gap)+3.5rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))] left-4 z-40 flex items-center gap-2 rounded-full border border-border bg-card px-3 py-2 text-xs shadow-lg lg:bottom-[calc(var(--portal-floating-bottom-gap)+env(safe-area-inset-bottom,0px))]"
-      >
-        <span className="font-medium text-foreground">Test mode</span>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={screeningTestMode}
-          className={cn(
-            "relative h-6 w-11 rounded-full transition",
-            screeningTestMode ? "bg-amber-400" : "bg-muted",
-          )}
-          onClick={() => {
-            const next = !screeningTestMode;
-            setScreeningTestModeActive(next);
-            showToast(
-              next
-                ? "Screening test mode on — simulated reports, no charges."
-                : "Live screening mode — real Checkr orders.",
-            );
-            handleScreeningUpdated();
-          }}
-          data-attr="screening-test-mode-toggle"
-        >
-          <span
-            className={cn(
-              "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition",
-              screeningTestMode ? "left-[22px]" : "left-0.5",
-            )}
-          />
-        </button>
-      </div>
     </>
   );
 }

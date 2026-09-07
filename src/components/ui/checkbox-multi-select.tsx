@@ -285,7 +285,7 @@ export function CheckboxMultiSelect({
     ) : null;
 
   return (
-    <div ref={wrapRef} className={`relative ${pill ? "w-auto shrink-0" : "w-full"} ${wrapperClassName}`.trim()}>
+    <div ref={wrapRef} className={`relative ${pill ? "w-auto shrink-0" : /\bw-/.test(wrapperClassName) ? "" : "w-full"} ${wrapperClassName}`.trim()}>
       {!hideLabel && !pill ? (
         <label className={labelClassName ?? FIELD_SELECT_LABEL_CLASS}>{label}</label>
       ) : null}
@@ -513,8 +513,16 @@ export function FieldSingleSelect({
       </div>
     ) : null;
 
+  // Toolbar Selects often pass `w-auto shrink-0` via className → wrapperClassName.
+  // Do not force `w-full` on top of that — it crushed sibling search fields (PRP-376).
+  const defaultWidthClass = pill
+    ? "w-auto shrink-0"
+    : /\bw-/.test(wrapperClassName)
+      ? ""
+      : "w-full";
+
   return (
-    <div ref={wrapRef} className={`relative ${pill ? "w-auto shrink-0" : "w-full"} ${wrapperClassName}`.trim()}>
+    <div ref={wrapRef} className={`relative ${defaultWidthClass} ${wrapperClassName}`.trim()}>
       {!hideLabel && !pill ? (
         <label className={labelClassName ?? FIELD_SELECT_LABEL_CLASS}>{label}</label>
       ) : null}
