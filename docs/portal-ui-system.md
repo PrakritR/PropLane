@@ -383,16 +383,30 @@ or resize the panel.
   escapes its sheet onto the dimmed page reads as broken, so whenever the HOST can
   hold the whole menu BELOW ITS OWN CHROME it is slid back inside that box — even when
   neither side of the trigger alone has room, which can overlap the trigger by the
-  shortfall. Only a host too short to seat the menu at all (a one-field sheet) falls
-  back to `bottomBoundPx` and overhangs, because showing five rows outranks staying
-  inside a box that cannot fit them. Both hosts are `overflow-visible` so that fallback
-  can render at all.
+  shortfall. Under `strictHostContainment`, too little room BELOW the trigger opens the
+  menu UP against it first — pinning is only for when neither side fits, because a
+  pinned menu detaches from the field that opened it, which is exactly what reads as
+  "the dropdown opened in the wrong place". Only a host too short to seat the menu at
+  all (a one-field sheet) falls back to `bottomBoundPx` and overhangs, because showing
+  five rows outranks staying inside a box that cannot fit them. Both hosts are
+  `overflow-visible` so that fallback can render at all.
+- **The containment box is the VISIBLE card, which is not always the portal host.** A
+  `Modal` portals its field menus into a full-bleed `pointer-events-none fixed inset-0`
+  wrapper (the opaque card is `overflow-hidden` and would clip them), so the host is the
+  whole VIEWPORT and containing against it contains nothing — the menu landed on the
+  dimmed page below the card. `fieldSelectMenuBoundsElement` resolves the box from the
+  TRIGGER's own `.modal-panel`, so nested or stacked dialogs each measure their own, and
+  passes it as `boundsRect`; coordinates still come from the host, which is the offset
+  parent, and the chrome inset is measured on that same box. A host that is already the
+  visible box — bottom sheets, filter panels, `document.body` — is untouched. Coverage:
+  `tests/unit/field-select-menu-dialog-bounds.test.ts`.
 - **TAG YOUR HOST'S FIXED CHROME OR A MENU WILL COVER YOUR CLOSE CONTROL.** Put
   `FIELD_SELECT_HOST_CHROME_ATTR` (`data-field-select-host-chrome`) on the host's drag
   handle + title/close row, and `fieldSelectHostTopInsetPx` measures it at RUNTIME (a
   stale constant would silently start hiding the control again). EVERY placement —
-  contained and spilled, up and down, in a sheet (`computeFieldSelectMenuRectInHost`)
-  and in a modal/dialog (`computeFieldSelectMenuRect`) — then starts at
+  contained and spilled, up and down — a sheet, a filter panel and a modal/dialog all
+  go through `computeFieldSelectMenuRectInHost`, a body-portaled menu through
+  `computeFieldSelectMenuRect` — then starts at
   `topInset + gap`. There is no "except in a modal" carve-out: a host that is tall
   enough today is a coincidence, not a guarantee. Untagged, the clamp treats chrome as
   free space; that shipped a 1-field mobile sheet whose close ✕, title, handle and
