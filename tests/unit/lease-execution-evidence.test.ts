@@ -7,6 +7,7 @@ import {
   documentFingerprintLabel,
   leaseDocumentSha256,
   signedDocumentHashesDiverge,
+  wipesExecutedLeaseWithoutSupersedeIntent,
 } from "@/lib/lease-execution-evidence";
 import {
   applyLeaseSignaturesToHtml,
@@ -247,5 +248,68 @@ describe("signing records the hash of what was signed", () => {
     // Jurisdiction and template version are written by later agents.
     expect(row.executedJurisdiction).toBeNull();
     expect(row.templateVersion).toBeNull();
+  });
+});
+
+describe("wipesExecutedLeaseWithoutSupersedeIntent (PRP-385)", () => {
+  it("flags a Draft stub that clears an executed lease", () => {
+    const stored = baseRow({
+      status: "Fully Signed",
+      bucket: "signed",
+      fullySignedAt: "2026-07-02T00:00:00.000Z",
+      residentSignature: {
+        name: "Jordan",
+        signedAtIso: "2026-07-01T12:00:00.000Z",
+        documentSha256: HASH_A,
+        consentText: LEASE_ESIGN_CONSENT_TEXT,
+        consentVersion: LEASE_ESIGN_CONSENT_VERSION,
+      },
+      managerSignature: {
+        name: "Manager",
+        signedAtIso: "2026-07-02T00:00:00.000Z",
+        documentSha256: HASH_A,
+        consentText: LEASE_ESIGN_CONSENT_TEXT,
+        consentVersion: LEASE_ESIGN_CONSENT_VERSION,
+      },
+    });
+    const next = baseRow({
+      status: "Draft",
+      bucket: "manager",
+      generatedHtml: null,
+      fullySignedAt: null,
+      residentSignature: null,
+      managerSignature: null,
+      notes: "Created from approved application.",
+    });
+    expect(wipesExecutedLeaseWithoutSupersedeIntent(stored, next)).toBe(true);
+  });
+
+  it("allows renewals that carry pendingRenewal", () => {
+    const stored = baseRow({
+      status: "Fully Signed",
+      fullySignedAt: "2026-07-02T00:00:00.000Z",
+      residentSignature: {
+        name: "Jordan",
+        signedAtIso: "2026-07-01T12:00:00.000Z",
+        documentSha256: HASH_A,
+        consentText: LEASE_ESIGN_CONSENT_TEXT,
+        consentVersion: LEASE_ESIGN_CONSENT_VERSION,
+      },
+    });
+    const next = baseRow({
+      status: "Manager Review",
+      fullySignedAt: null,
+      residentSignature: null,
+      managerSignature: null,
+      generatedHtml: "<html><body>RENEWAL</body></html>",
+      pendingRenewal: {
+        leaseTerm: "12 months",
+        leaseStart: "2026-10-01",
+        leaseEnd: "2027-09-30",
+        monthlyRent: 1200,
+        requestedAtIso: "2026-09-07T00:00:00.000Z",
+      },
+    });
+    expect(wipesExecutedLeaseWithoutSupersedeIntent(stored, next)).toBe(false);
   });
 });

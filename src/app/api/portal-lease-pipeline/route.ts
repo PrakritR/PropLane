@@ -17,6 +17,7 @@ import {
   leaseDocumentBodyChanged,
   leaseClaimsExecution,
   replacesSignedLeaseDocument,
+  wipesExecutedLeaseWithoutSupersedeIntent,
   leaseSignatureRoleForgedBy,
   leaseSignatureWriteRefusal,
   rowHasAnySignature,
@@ -549,6 +550,22 @@ export async function POST(req: Request) {
       // after the lease left manager review, even before the first signature lands.
       const nextRow = normalized as unknown as LeasePipelineRow;
       const documentChanged = Boolean(storedRow && leaseDocumentBodyChanged(storedRow, nextRow));
+
+      // PRP-385: a Draft stub that clears signatures + body must NEVER overwrite
+      // an executed lease. Renew/void set pendingRenewal, signedLeaseSnapshots, or Voided.
+      if (
+        storedRow &&
+        ctx.user.role !== "resident" &&
+        wipesExecutedLeaseWithoutSupersedeIntent(storedRow, nextRow)
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "This lease is executed; its document and signatures cannot be cleared by a routine save. Use renew or void.",
+          },
+          { status: 409 },
+        );
+      }
 
       // A resident may legitimately replace a body (uploading their own signed PDF, seeding
       // the onboarding lease), so the refusal is scoped to the MANAGER's editing window
