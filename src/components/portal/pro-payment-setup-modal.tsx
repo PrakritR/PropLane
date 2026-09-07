@@ -15,8 +15,12 @@ import {
 } from "@/lib/manager-manual-payment-settings";
 import { normalizeManagerSkuTier, type ManagerSkuTier } from "@/lib/manager-access";
 import {
+  LISTING_PROCESSING_FEE_WAIVER_CODE_HELP,
+  LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
+  listingPaymentWaiverCodeMatches,
   managerCanSelectManagerAbsorbServiceFee,
   managerCanSelectProplaneServiceFee,
+  normalizeListingPaymentWaiverCode,
   resolveServiceFeePayerFor,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
@@ -65,6 +69,16 @@ export function ManagerPaymentSetupModal({
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [propertyFeePayers, setPropertyFeePayers] = useState<Record<string, ServiceFeePayer | null>>({});
   const [selectedPropertyIds, setSelectedPropertyIds] = useState<string[]>([]);
+  /*
+    A manager PropLane has given a code to, but whose grant is not on the account
+    yet, still needs a door. The option itself only appears once the grant is
+    server-verified, so without this the code is unusable — and the server has
+    always accepted one (`resolveSavedServiceFeeSelection`). The field asks for a
+    code; it never prints one, which is the rule the rest of this dialog follows.
+  */
+  const [waiverPromptOpen, setWaiverPromptOpen] = useState(false);
+  const [waiverCodeDraft, setWaiverCodeDraft] = useState("");
+  const [waiverCodeError, setWaiverCodeError] = useState<string | null>(null);
 
   const visibleProperties = useMemo(() => {
     if (presetPropertyIds?.length) {
@@ -390,6 +404,32 @@ export function ManagerPaymentSetupModal({
     return first;
   }, [effectivePayerForProperty, selectedPropertyIds]);
 
+  async function applyWaiverCode() {
+    const code = normalizeListingPaymentWaiverCode(waiverCodeDraft);
+    if (!listingPaymentWaiverCodeMatches(code)) {
+      setWaiverCodeError(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID);
+      return;
+    }
+    if (selectedPropertyIds.length === 0) {
+      showToast("Select at least one property.");
+      return;
+    }
+    setWaiverCodeError(null);
+    await persistSettings(
+      {
+        serviceFeePayer: "proplane",
+        serviceFeeWaiverCode: code,
+        propertyServiceFeePayers: selectedPropertyIds.map((propertyId) => ({
+          propertyId,
+          serviceFeePayer: null,
+        })),
+      },
+      "fee-payer",
+    );
+    setPaymentWaiverGranted(true);
+    setWaiverPromptOpen(false);
+  }
+
   const applyFeeToSelectedProperties = (raw: ServiceFeePayer) => {
     if (selectedPropertyIds.length === 0) {
       showToast("Select at least one property.");
@@ -397,6 +437,18 @@ export function ManagerPaymentSetupModal({
     }
     if (raw === "manager" && !canSelectManagerAbsorb) return;
     if (raw === "proplane" && !canSelectProplane) return;
+    /*
+      Ask for the code rather than saving a choice the server will refuse.
+      `resolveSavedServiceFeeSelection` keeps `proplane` only for a valid code, a
+      verified account grant, or an account already on it — so an ungranted
+      manager picking it here would get a 400, or silently fall back to resident.
+    */
+    if (raw === "proplane" && !paymentWaiverGranted && draft.serviceFeePayer !== "proplane") {
+      setWaiverCodeDraft("");
+      setWaiverCodeError(null);
+      setWaiverPromptOpen(true);
+      return;
+    }
     const alreadyApplied =
       raw === accountDefaultPayer &&
       selectedPropertyIds.every((propertyId) => (propertyFeePayers[propertyId] ?? null) === null);
@@ -505,6 +557,71 @@ export function ManagerPaymentSetupModal({
               Processing fee applies to every selected property. Rent still deposits to the owner&apos;s bank either
               way.
             </p>
+
+            {!paymentWaiverGranted ? (
+              waiverPromptOpen ? (
+                <div className="space-y-2 rounded-xl border border-primary/40 bg-primary/5 px-3 py-3">
+                  <label className="block text-xs font-semibold text-foreground" htmlFor="manager-service-fee-waiver-code">
+                    Waiver code
+                  </label>
+                  <input
+                    id="manager-service-fee-waiver-code"
+                    value={waiverCodeDraft}
+                    onChange={(event) => {
+                      setWaiverCodeDraft(normalizeListingPaymentWaiverCode(event.target.value));
+                      setWaiverCodeError(null);
+                    }}
+                    placeholder="Waiver code"
+                    autoComplete="off"
+                    data-attr="manager-service-fee-waiver-code"
+                    aria-invalid={Boolean(waiverCodeError)}
+                    aria-describedby={waiverCodeError ? "manager-service-fee-waiver-error" : undefined}
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground sm:max-w-xs"
+                  />
+                  <p className="text-xs text-muted">{LISTING_PROCESSING_FEE_WAIVER_CODE_HELP}</p>
+                  {waiverCodeError ? (
+                    <p id="manager-service-fee-waiver-error" className="text-xs text-destructive">
+                      {waiverCodeError}
+                    </p>
+                  ) : null}
+                  <div className="flex items-center gap-2 pt-0.5">
+                    <button
+                      type="button"
+                      disabled={savingKey === "fee-payer" || (!settingsLoaded && !demo)}
+                      data-attr="manager-service-fee-waiver-apply"
+                      onClick={() => void applyWaiverCode()}
+                      className="rounded-full bg-primary px-4 py-1.5 text-[13px] font-semibold text-primary-foreground disabled:opacity-60"
+                    >
+                      Apply code
+                    </button>
+                    <button
+                      type="button"
+                      data-attr="manager-service-fee-waiver-cancel"
+                      onClick={() => {
+                        setWaiverPromptOpen(false);
+                        setWaiverCodeError(null);
+                      }}
+                      className="rounded-full border border-border px-4 py-1.5 text-[13px] font-semibold text-foreground"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  data-attr="manager-service-fee-waiver-open"
+                  onClick={() => {
+                    setWaiverCodeDraft("");
+                    setWaiverCodeError(null);
+                    setWaiverPromptOpen(true);
+                  }}
+                  className="text-xs font-semibold text-primary hover:underline"
+                >
+                  Have a processing-fee waiver code?
+                </button>
+              )
+            ) : null}
           </section>
         ) : (
           <p className="text-xs leading-relaxed text-muted">

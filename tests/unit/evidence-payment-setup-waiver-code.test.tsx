@@ -134,13 +134,14 @@ describe("evidence · PropLane covers it requires the promo code", () => {
       feeCard(),
     );
 
-    // 1. Picking "PropLane covers it" opens the code field and saves NOTHING.
-    await click("manager-service-fee-payer-proplane");
+    // 1. The code entry is the door, because the dialog only OFFERS the choice
+    //    outright once the account grant is server-verified. Opening it saves NOTHING.
+    await click("manager-service-fee-waiver-open");
     expect(document.querySelector('[data-attr="manager-service-fee-waiver-code"]')).toBeTruthy();
     expect(patches).toHaveLength(0);
     shot(
       "payment-setup-02-code-required",
-      "Clicking 'PropLane covers it' opens the inline promo-code field. No save was sent (0 PATCH requests).",
+      "Asking for PropLane to cover the fee opens the inline waiver-code field. No save was sent (0 PATCH requests).",
       feeCard(),
     );
 

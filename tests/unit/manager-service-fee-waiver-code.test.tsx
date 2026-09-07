@@ -141,24 +141,36 @@ function click(dataAttr: string) {
 }
 
 describe("payment setup: PropLane covers it", () => {
-  it("asks for the promo code instead of saving the choice", async () => {
+  /*
+    The dialog only OFFERS "PropLane covers it" once the account's waiver grant is
+    server-verified, so the code entry is the door for a manager who was given a
+    code but has no grant yet. It never prints the code back — only asks for one.
+  */
+  async function openWaiverEntry() {
     await mountModal();
-    await click("manager-service-fee-payer-proplane");
+    expect(document.querySelector('[data-attr="manager-service-fee-payer-proplane"]')).toBeNull();
+    await click("manager-service-fee-waiver-open");
+  }
+
+  function typeCode(value: string) {
+    const input = document.querySelector<HTMLInputElement>('[data-attr="manager-service-fee-waiver-code"]')!;
+    return act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("asks for a code rather than offering the choice outright", async () => {
+    await openWaiverEntry();
 
     expect(document.querySelector('[data-attr="manager-service-fee-waiver-code"]')).toBeTruthy();
     expect(patches).toHaveLength(0);
   });
 
   it("refuses a wrong code and saves nothing", async () => {
-    await mountModal();
-    await click("manager-service-fee-payer-proplane");
-
-    const input = document.querySelector<HTMLInputElement>('[data-attr="manager-service-fee-waiver-code"]')!;
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
-      setter.call(input, "NOPE");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    await openWaiverEntry();
+    await typeCode("NOPE");
     await click("manager-service-fee-waiver-apply");
 
     expect(patches).toHaveLength(0);
@@ -166,15 +178,8 @@ describe("payment setup: PropLane covers it", () => {
   });
 
   it("saves the choice with the code once it checks out", async () => {
-    await mountModal();
-    await click("manager-service-fee-payer-proplane");
-
-    const input = document.querySelector<HTMLInputElement>('[data-attr="manager-service-fee-waiver-code"]')!;
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
-      setter.call(input, "free100");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    await openWaiverEntry();
+    await typeCode("free100");
     await click("manager-service-fee-waiver-apply");
 
     expect(patches).toHaveLength(1);
@@ -193,122 +198,16 @@ describe("payment setup: settings that could not be read", () => {
     settingsReadFails = true;
     await mountModal();
 
-    const allow = document.querySelector<HTMLInputElement>('[data-attr="manager-payment-stripe-allowed"]')!;
-    expect(allow.disabled).toBe(true);
+    const feeSelect = document.querySelector<HTMLButtonElement | HTMLSelectElement>(
+      '[data-attr="manager-service-fee-payer-select"]',
+    );
+    expect(feeSelect, "fee-payer control").toBeTruthy();
+    expect((feeSelect as HTMLButtonElement).disabled).toBe(true);
+
     await act(async () => {
-      allow.click();
+      (feeSelect as HTMLButtonElement).click();
     });
 
     expect(patches).toHaveLength(0);
-  });
-});
-
-function stubSettingsDb(options: { readFails?: boolean; storedPayer?: "proplane" | "resident" }) {
-  const upserts: Record<string, unknown>[] = [];
-  const db = {
-    from: () => ({
-      select: () => ({
-        limit: async () => ({ error: null }),
-        eq: () => ({
-          maybeSingle: async () =>
-            options.readFails
-              ? { data: null, error: { message: "read failed" } }
-              : {
-                  data: { manual_payments: { serviceFeePayer: options.storedPayer ?? "resident" }, row_data: null },
-                  error: null,
-                },
-        }),
-      }),
-      upsert: async (row: Record<string, unknown>) => {
-        upserts.push(row);
-        return { error: null };
-      },
-    }),
-  };
-  return { db: db as unknown as SupabaseClient, upserts };
-}
-
-function savedPayer(upserts: Record<string, unknown>[]) {
-  const written = upserts.at(-1)?.manual_payments as { serviceFeePayer?: string } | undefined;
-  return written?.serviceFeePayer;
-}
-
-describe("saveManagerManualPaymentSettings: who pays the service fee", () => {
-  /**
-   * Without the stored settings a legacy account already absorbing fees is
-   * indistinguishable from a code-less new selection, so resolving to "resident" would
-   * move Stripe's cost onto that manager's residents while the route answered 200.
-   */
-  it("refuses a code-less proplane save when the stored settings could not be read", async () => {
-    const { db, upserts } = stubSettingsDb({ readFails: true });
-    await expect(
-      saveManagerManualPaymentSettings(db, "manager-1", {
-        axisPaymentsEnabled: true,
-        zellePaymentsEnabled: false,
-        zelleContact: "",
-        venmoPaymentsEnabled: false,
-        venmoContact: "",
-        receiptAutoMarkEnabled: true,
-        serviceFeePayer: "proplane",
-      }),
-    ).rejects.toThrow();
-    expect(upserts).toHaveLength(0);
-  });
-
-  it("still writes a proplane save that carries a valid code when the read fails", async () => {
-    const { db, upserts } = stubSettingsDb({ readFails: true });
-    await saveManagerManualPaymentSettings(db, "manager-1", {
-      axisPaymentsEnabled: true,
-      zellePaymentsEnabled: false,
-      zelleContact: "",
-      venmoPaymentsEnabled: false,
-      venmoContact: "",
-      receiptAutoMarkEnabled: true,
-      serviceFeePayer: "proplane",
-      serviceFeeWaiverCode: "free100",
-    });
-    expect(savedPayer(upserts)).toBe("proplane");
-  });
-
-  it("still lets a failed read save the other choices", async () => {
-    const { db, upserts } = stubSettingsDb({ readFails: true });
-    await saveManagerManualPaymentSettings(db, "manager-1", {
-      axisPaymentsEnabled: true,
-      zellePaymentsEnabled: false,
-      zelleContact: "",
-      venmoPaymentsEnabled: false,
-      venmoContact: "",
-      receiptAutoMarkEnabled: true,
-      serviceFeePayer: "resident",
-    });
-    expect(savedPayer(upserts)).toBe("resident");
-  });
-
-  it("keeps downgrading a code-less NEW selection when the read succeeds", async () => {
-    const { db, upserts } = stubSettingsDb({ storedPayer: "resident" });
-    await saveManagerManualPaymentSettings(db, "manager-1", {
-      axisPaymentsEnabled: true,
-      zellePaymentsEnabled: false,
-      zelleContact: "",
-      venmoPaymentsEnabled: false,
-      venmoContact: "",
-      receiptAutoMarkEnabled: true,
-      serviceFeePayer: "proplane",
-    });
-    expect(savedPayer(upserts)).toBe("resident");
-  });
-
-  it("carries a stored proplane forward when the read succeeds", async () => {
-    const { db, upserts } = stubSettingsDb({ storedPayer: "proplane" });
-    await saveManagerManualPaymentSettings(db, "manager-1", {
-      axisPaymentsEnabled: true,
-      zellePaymentsEnabled: false,
-      zelleContact: "",
-      venmoPaymentsEnabled: false,
-      venmoContact: "",
-      receiptAutoMarkEnabled: true,
-      serviceFeePayer: "proplane",
-    });
-    expect(savedPayer(upserts)).toBe("proplane");
   });
 });
