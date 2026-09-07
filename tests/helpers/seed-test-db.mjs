@@ -1649,6 +1649,20 @@ try {
   for (const p of people) {
     if (p.primaryE2e) {
       p.residentUserId = residentUserId;
+      // Same reclaim as provisionSeedResidentAccount / PRP-357 — otherwise a
+      // leftover @test.proplane.local row can still hold AXIS-TESTRSID.
+      const { data: stalePrimary } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("manager_id", residentAxisId)
+        .neq("id", residentUserId)
+        .maybeSingle();
+      if (stalePrimary?.id) {
+        await must(
+          supabase.from("profiles").update({ manager_id: null }).eq("id", stalePrimary.id),
+          `profiles(reclaim primary axis ${residentAxisId})`,
+        );
+      }
       await must(
         supabase.from("profiles").upsert(
           {

@@ -88,7 +88,36 @@ export async function seedCanonicalDemoPortfolio(
 ): Promise<void> {
   const snapshot = opts.snapshot ?? remapDemoSnapshotForDb(buildDemoIdleSnapshot(), ctx);
 
+  /**
+   * `profiles.manager_id` is UNIQUE. A leftover row (often
+   * resident@test.proplane.local after `.env.test` retargeted the email to
+   * @test.axis.local while keeping AXIS-TESTRSID) still holds the axis id, so
+   * the resident upsert below would abort the whole portfolio (PRP-357 / PRP-370).
+   * Clear the id from any other profile first — same reclaim idea as
+   * `provisionSeedResidentAccount` in seed-test-db.mjs (null, not delete: the
+   * stale account may still be on the keep-list).
+   */
+  async function reclaimResidentAxisId() {
+    const axisId = ctx.residentAxisId?.trim();
+    if (!axisId || !ctx.residentUserId) return;
+    const { data: stale, error } = await db
+      .from("profiles")
+      .select("id, email")
+      .eq("manager_id", axisId)
+      .neq("id", ctx.residentUserId)
+      .maybeSingle();
+    if (error) {
+      throw new Error(`profiles(reclaim axis ${axisId}): ${error.message}`);
+    }
+    if (!stale?.id) return;
+    await must(
+      db.from("profiles").update({ manager_id: null }).eq("id", stale.id),
+      `profiles(reclaim axis ${axisId} from ${stale.email ?? stale.id})`,
+    );
+  }
+
   async function upsertProfiles() {
+    await reclaimResidentAxisId();
     await must(
       db.from("profiles").upsert(
         [

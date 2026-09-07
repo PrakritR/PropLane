@@ -237,6 +237,42 @@ export function replacesSignedLeaseDocument(stored: LeasePipelineRow, next: Leas
   return true;
 }
 
+/**
+ * True when `next` would destroy an executed lease's evidence without an
+ * intentional renew/void supersession (PRP-385).
+ *
+ * The generic document-replacement guard requires BOTH sides to claim
+ * execution, so a Draft stub that clears signatures + body slipped through
+ * (`clearingSignatures` exempted it). Renewals set `pendingRenewal` and/or
+ * grow `signedLeaseSnapshots`; voids set `status: "Voided"`. Empty approval
+ * mirrors set neither.
+ */
+export function wipesExecutedLeaseWithoutSupersedeIntent(
+  stored: LeasePipelineRow,
+  next: LeasePipelineRow,
+): boolean {
+  if (!leaseClaimsExecution(stored)) return false;
+  if (next.status === "Voided" || Boolean(next.voidedAt)) return false;
+  if (next.pendingRenewal) return false;
+  const beforeSnapshots = stored.signedLeaseSnapshots?.length ?? 0;
+  const afterSnapshots = next.signedLeaseSnapshots?.length ?? 0;
+  if (afterSnapshots > beforeSnapshots) return false;
+  if (leaseClaimsExecution(next)) return false;
+
+  const before = leaseDocumentBody(stored);
+  const after = leaseDocumentBody(next);
+  const hadBody = Boolean(before.html || before.pdf);
+  const lostBody = hadBody && !after.html && !after.pdf;
+  const bodyChanged = before.html !== after.html || before.pdf !== after.pdf;
+  const emptyDraft =
+    (next.status === "Draft" || next.bucket === "manager") &&
+    !after.html &&
+    !after.pdf &&
+    !rowHasAnySignature(next);
+
+  return lostBody || bodyChanged || emptyDraft;
+}
+
 
 
 

@@ -49,4 +49,8 @@ describe("application encryption", () => {
   it.each(["plaintext", "proplane:v2:key-1:AAAA", "proplane:v1:key-1:AAAA", "proplane:v1:key-1:!"])("rejects invalid ciphertext format", (value) => {
     expect(() => decryptSensitiveValue(value, context)).toThrow();
   });
+  it("names the missing active key id instead of 'Invalid encryption key identifier' (PRP-381/382)", () => {
+    vi.stubEnv("DATA_ENCRYPTION_ACTIVE_KEY_ID", "");
+    expect(() => encryptSensitiveValue("secret", context)).toThrow(/DATA_ENCRYPTION_ACTIVE_KEY_ID is not configured/);
+  });
 });

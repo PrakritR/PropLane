@@ -843,8 +843,16 @@ export function writeManagerApplicationRows(rows: DemoApplicantRow[], opts?: { s
     managerApplicationsLastSyncedAt = Date.now();
     emit();
     if (!opts?.serverConfirmed) mirrorApplicationsToServer(normalizedRows);
-    void import("@/lib/lease-pipeline-storage").then(({ syncLeasePipelineFromApplications }) => {
-      syncLeasePipelineFromApplications(activeApplicationsScopeUserId ?? null);
+    void import("@/lib/lease-pipeline-storage").then(async ({ syncLeasePipelineFromApplications, syncLeasePipelineFromServer }) => {
+      const scope = activeApplicationsScopeUserId ?? null;
+      // Hydrate leases from the server before seeding from applications so an
+      // empty local store cannot replace-all executed rows (PRP-385).
+      try {
+        await syncLeasePipelineFromServer(scope, { force: true });
+      } catch {
+        /* still attempt local seed; server guard refuses executed wipes */
+      }
+      syncLeasePipelineFromApplications(scope);
     });
   } catch {
     /* ignore */

@@ -620,7 +620,7 @@ export async function GET(req: Request) {
       const storedRow = record.row_data as DemoApplicantRow;
       if ((selfScope || role === "resident") && !residentOwnsApplicationRow(storedRow, { email, userId: user.id }, { recordEmail })) return null;
       // Resolve aliases in the lookup, but authenticate against the exact stored PK.
-      let row = normalizeRow(openApplicantRow(storedRow, record.id));
+      let row = normalizeRow(openApplicantRow(storedRow, record.id, undefined, { soft: true }));
       if ((selfScope || role === "resident") && recordEmail) {
         row = { ...row, email: recordEmail };
       }
