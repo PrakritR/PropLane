@@ -49,7 +49,7 @@ export function ManagerMessagingSetupBanner() {
         <Link
           href={MANAGER_MESSAGING_SETTINGS_HREF}
           data-attr="manager-messaging-setup-banner-link"
-          className="font-semibold text-red-700 underline underline-offset-2 hover:text-red-900"
+          className="inline-flex min-h-11 items-center font-semibold text-red-700 underline underline-offset-2 hover:text-red-900"
         >
           Set up messaging
         </Link>

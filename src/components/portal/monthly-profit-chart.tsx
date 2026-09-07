@@ -265,7 +265,7 @@ export function MonthlyProfitChart({
                 aria-selected={rangeMonths === months}
                 data-attr={`cashflow-range-${months}`}
                 className={cn(
-                  "portal-pressable min-h-11 rounded-full px-3 py-2 text-[11px] font-semibold tabular-nums transition-colors sm:px-3.5 sm:text-xs",
+                  "portal-pressable min-h-11 min-w-11 rounded-full px-3 py-2 text-[11px] font-semibold tabular-nums transition-colors sm:px-3.5 sm:text-xs",
                   rangeMonths === months
                     ? "bg-foreground text-background"
                     : "text-muted hover:bg-accent/40 hover:text-foreground",
@@ -287,9 +287,10 @@ export function MonthlyProfitChart({
                 onClick={() => setActiveIndex(i)}
                 aria-label={showLabel ? undefined : `${p.label} ${metric}`}
                 className={cn(
-                  "min-w-0 flex-1 rounded-md py-1 text-center text-[10px] font-medium transition-colors sm:text-[11px]",
+                  // PRP-350: month chips were ~23px tall on a phone — pad to 44px hit height.
+                  "min-h-11 min-w-0 flex-1 rounded-md px-0.5 py-2 text-center text-[10px] font-medium transition-colors sm:text-[11px]",
                   activeIndex === i ? "bg-primary/10 text-foreground" : "text-muted hover:text-foreground",
-                  !showLabel && "text-transparent [html[data-native]_&]:min-h-[1.25rem]",
+                  !showLabel && "text-transparent",
                 )}
                 data-attr={`monthly-profit-month-${p.key}`}
               >

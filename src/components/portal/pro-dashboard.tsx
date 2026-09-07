@@ -375,7 +375,8 @@ function AttentionGroup<T>({
               <div className="border-t border-border/80 px-3.5 py-2 [html[data-native]_&]:px-3">
                 <Link
                   href={href}
-                  className="inline-block text-xs font-semibold hover:underline underline-offset-2"
+                  data-attr="dashboard-attention-view-all"
+                  className="inline-flex min-h-11 items-center text-xs font-semibold hover:underline underline-offset-2"
                   style={{ color: accent.fg }}
                 >
                   {isNative ? `View all (${count}) →` : `View all ${count} →`}
