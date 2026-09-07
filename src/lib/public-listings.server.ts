@@ -91,6 +91,8 @@ const PUBLIC_SUBMISSION_KEYS = [
   "tagline",
   "petFriendly",
   "houseOverview",
+  // Ad titles / marketing notes the leasing SMS assistant matches on (PRP-426).
+  "marketingNotes",
   "houseRulesText",
   "amenitiesText",
   "housePhotoDataUrls",
