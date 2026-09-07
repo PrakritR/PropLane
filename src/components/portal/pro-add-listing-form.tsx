@@ -45,6 +45,7 @@ import {
 } from "@/lib/manager-listing-draft-autosave";
 import { resolveManagerListingSubmissionForPropertyId } from "@/lib/manager-property-save-target";
 import { sortRoomIndicesByFloor } from "@/lib/listing-floor-order";
+import { autoListingSidebarQuickFacts } from "@/data/listing-rich-from-submission";
 import {
   fileListFromFiles,
   firstVideoFileFromDataTransfer,
@@ -1733,6 +1734,11 @@ export function ManagerAddListingForm({
   const visibleStepCount = wizardSteps.length;
   const isFinalStep = stepIndex === lastStepIndex;
   const isPreviewWizard = wizardScope === "preview";
+  // What the public "At a glance" card will show when no custom quick facts
+  // are set. Derived from the live wizard state so the manager sees the real
+  // rows before deciding whether to override them.
+  const autoQuickFacts = useMemo(() => (stepIndex === 5 ? autoListingSidebarQuickFacts(sub) : []), [stepIndex, sub]);
+  const hasCustomQuickFacts = (sub.quickFacts ?? []).some((q) => q.label.trim() || q.value.trim());
   const wizardTitlePrefix = isPreviewWizard ? "Edit preview" : isEditMode ? "Edit listing" : "New listing";
   const [savedListingId, setSavedListingId] = useState<string | null>(
     () => editDraftId?.trim() || editPendingId?.trim() || editListingId?.trim() || editRequestChangeId?.trim() || null,
@@ -5820,8 +5826,35 @@ export function ManagerAddListingForm({
             <div className="space-y-8">
               <ListingSubsection
                 title="Quick facts (sidebar)"
-                description="Optional. Rows here replace the auto-generated sidebar. Leave empty to use building, room count, floors, and pet policy from earlier steps."
+                description="Optional. Rows you add here replace the auto-generated card below. Leave it empty to use the room count, bathrooms, layout, and pet policy from earlier steps."
               >
+                <div
+                  className="rounded-xl border border-border bg-muted/30 p-4 sm:p-5"
+                  data-attr="listing-quickfacts-auto-preview"
+                  data-testid="listing-quickfacts-auto-preview"
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">At a glance · auto-generated</p>
+                    <p className="text-xs text-muted">
+                      {hasCustomQuickFacts ? "Hidden while your rows below are set" : "What renters see on the listing"}
+                    </p>
+                  </div>
+                  {autoQuickFacts.length > 0 ? (
+                    <ul className={cn("mt-3 divide-y divide-border/50 text-sm", hasCustomQuickFacts && "opacity-60")}>
+                      {autoQuickFacts.map((q) => (
+                        <li
+                          key={q.label}
+                          className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between sm:gap-4"
+                        >
+                          <span className="shrink-0 text-xs font-medium text-muted">{q.label}</span>
+                          <span className="font-semibold leading-snug text-foreground sm:text-right">{q.value}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-3 text-sm text-muted">Nothing to show yet — add rooms and bathrooms in the earlier steps.</p>
+                  )}
+                </div>
                 <div className="space-y-3">
                   {(sub.quickFacts ?? []).map((qf, i) => (
                     <ListingWizardCollapsibleCard

@@ -94,6 +94,42 @@ export const LEASE_TERM_DISPLAY_ORDER: string[] = [
   CUSTOM_LEASE_TERM,
 ];
 
+/**
+ * What a human is OFFERED for a listing, given whatever that listing stored.
+ *
+ * A listing configured before AXI-143 still carries 3/6/9/12-Month, and the
+ * applicant's dropdown echoed them verbatim — so a prospect was offered lengths
+ * the manager can no longer pick and the product retired, while Month-to-Month
+ * and Custom were nowhere in sight. Each retired length collapses onto
+ * Long-term, whose move-in / move-out dates ARE the term.
+ *
+ * This is a PRESENTATION rule only. The stored listing value is untouched, and
+ * {@link acceptedLeaseTermsFromStored} is what validation must use, so an
+ * application already carrying "12-Month" keeps validating.
+ */
+export function offeredLeaseTermsFromStored(stored: readonly string[]): string[] {
+  const mapped = stored
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((t) => (isLegacyFixedLeaseTerm(t) ? LONG_TERM_LEASE_TERM : t));
+  return sortLeaseTermsCanonical([...new Set(mapped)]);
+}
+
+/**
+ * Everything a listing ACCEPTS: what it stored PLUS what it now offers.
+ *
+ * Validation has to be the union, never just one side. A listing storing only
+ * "12-Month" now offers "Long-term", so checking against the stored set alone
+ * would reject the very answer the form just handed the applicant; checking
+ * against the offered set alone would reject an application filed earlier that
+ * legitimately holds "12-Month". The union can only ever be wider than what
+ * validation accepted before, so no existing application starts failing.
+ */
+export function acceptedLeaseTermsFromStored(stored: readonly string[]): string[] {
+  const merged = [...stored.map((t) => t.trim()).filter(Boolean), ...offeredLeaseTermsFromStored(stored)];
+  return sortLeaseTermsCanonical([...new Set(merged)]);
+}
+
 export function isAirbnbRentalType(rentalType?: string | null): boolean {
   return rentalType === "airbnb";
 }

@@ -36,6 +36,7 @@ function storedListing(): MockProperty {
       tagline: "Bright rooms",
       petFriendly: true,
       houseOverview: "Lovely",
+      marketingNotes: "Facebook: Private locked room near University of Washington",
       houseRulesText: "No smoking",
       amenitiesText: "Laundry",
       housePhotoDataUrls: ["https://cdn/photo.jpg"],
@@ -234,6 +235,11 @@ describe("publicListingProjection", () => {
     expect(projected.adminPublishLive).toBe(true);
     expect(sub.rooms[0]).toMatchObject({ id: "r1", monthlyRent: 900, availability: "Now", occupancyCapacity: 2 });
     expect(sub.quickFacts[0]).toEqual({ id: "q1", label: "Built", value: "1998" });
+  });
+
+  it("publishes the manager's marketing notes so the leasing SMS assistant can match an ad title (PRP-426)", () => {
+    const sub = publicListingProjection(storedListing()).listingSubmission!;
+    expect(sub.marketingNotes).toBe("Facebook: Private locked room near University of Washington");
   });
 
   it("passes through a listing with no submission", () => {

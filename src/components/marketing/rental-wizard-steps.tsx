@@ -32,9 +32,10 @@ import {
   isPropertyRentedByRoom,
   isRoomApprovedConflict,
   isRoomPendingConflict,
-  listingAllowedLeaseTerms,
+  listingOfferedLeaseTerms,
   roomSelectOptionsWithNone,
 } from "@/lib/rental-application/data";
+import { sortLeaseTermsCanonical } from "@/lib/rental-application/lease-terms";
 import {
   paymentAtSigningPriceLabel,
   utilitiesListingEstimateLabel,
@@ -673,12 +674,23 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     // A single lease-term dropdown carries short-term too: listingAllowedLeaseTerms
     // includes "Short-Term Stay" exactly when the listing permits it, so there is no
     // separate "Application type" toggle that could contradict the term.
-    const leaseTermOptions = form.propertyId.trim()
-      ? listingAllowedLeaseTerms(form.propertyId)
-      // The four offered choices, not every accepted value — a listing that
-      // still stores "12-Month" surfaces it through listingAllowedLeaseTerms,
-      // but nobody is offered the old lengths afresh (AXI-143).
+    // The OFFERED terms, not every accepted value. A listing configured before
+    // AXI-143 still stores 3/6/9/12-Month, and echoing those verbatim offered a
+    // prospect lengths the manager can no longer pick while hiding
+    // Month-to-Month and Custom entirely; listingOfferedLeaseTerms collapses
+    // them onto Long-term, whose move-in / move-out dates ARE the term.
+    const offeredLeaseTerms = form.propertyId.trim()
+      ? listingOfferedLeaseTerms(form.propertyId)
       : [...LEASE_TERM_CHOICES];
+    // A resumed draft — or an application started while a retired length was
+    // still offered — keeps its OWN answer selectable. Dropping it would blank
+    // what they already chose without a word, the same reason an already-picked
+    // room stays in the ranked choices below.
+    const chosenLeaseTerm = form.leaseTerm.trim();
+    const leaseTermOptions =
+      chosenLeaseTerm && !offeredLeaseTerms.includes(chosenLeaseTerm)
+        ? sortLeaseTermsCanonical([...offeredLeaseTerms, chosenLeaseTerm])
+        : offeredLeaseTerms;
     /**
      * The ranked 1st/2nd/3rd choices offer only rooms that are ACTUALLY
      * AVAILABLE. This list used to pass `includeUnavailable: true`, so an

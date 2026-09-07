@@ -21,12 +21,15 @@ import { bundleShortTermPriceLabel } from "@/lib/listing-bundle-short-term";
 import {
   LEASE_TERM_CHOICES,
   LEASE_TERM_OPTIONS,
+  offeredLeaseTermsFromStored,
+  acceptedLeaseTermsFromStored,
   SHORT_TERM_LEASE_TERM,
   type LeaseTermOption,
 } from "@/lib/rental-application/lease-terms";
 import { roomDailyRentPrice } from "@/lib/room-pricing";
 
 export { LEASE_TERM_CHOICES, LEASE_TERM_OPTIONS, SHORT_TERM_LEASE_TERM, type LeaseTermOption };
+export { offeredLeaseTermsFromStored, acceptedLeaseTermsFromStored };
 
 function normFloorLabel(raw: string): string {
   if (!raw.trim()) return "";
@@ -40,6 +43,18 @@ export function listingAllowedLeaseTerms(propertyId: string): string[] {
   if (!sub) return [...LEASE_TERM_CHOICES];
   const terms = resolveAllowedLeaseTerms(sub);
   return terms.length > 0 ? terms : [...LEASE_TERM_CHOICES];
+}
+
+/**
+ * The lease terms a HUMAN is offered for this listing — every picker uses this.
+ *
+ * {@link listingAllowedLeaseTerms} stays the ACCEPTED set (it still carries a
+ * listing's retired 3/6/9/12-Month lengths, and validation needs them); this is
+ * the OFFERED set, where those lengths collapse onto Long-term.
+ */
+export function listingOfferedLeaseTerms(propertyId: string): string[] {
+  const offered = offeredLeaseTermsFromStored(listingAllowedLeaseTerms(propertyId));
+  return offered.length > 0 ? offered : [...LEASE_TERM_CHOICES];
 }
 
 /**

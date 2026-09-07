@@ -16,7 +16,7 @@ const wizard = readFileSync(
   "utf8",
 );
 
-const block = wizard.split("const listingTerms = listingAllowedLeaseTerms(pid);")[1]?.slice(0, 700) ?? "";
+const block = wizard.split("const listingTerms = listingOfferedLeaseTerms(pid);")[1]?.slice(0, 700) ?? "";
 
 describe("lease term prefill from the listing", () => {
   it("only prefills when the listing offers exactly one term", () => {
@@ -32,7 +32,11 @@ describe("lease term prefill from the listing", () => {
     expect(block).toContain("SHORT_TERM_LEASE_TERM");
   });
 
-  it("reads the terms the LISTING allows, not the global option list", () => {
-    expect(wizard).toContain("listingAllowedLeaseTerms(pid)");
+  it("reads the terms the LISTING offers, not the global option list", () => {
+    // The OFFERED resolver, not the accepted one: a listing still storing
+    // "12-Month" prefills "Long-term" rather than a retired length, and the
+    // accepted set stays wider so validation keeps taking the stored value.
+    expect(wizard).toContain("listingOfferedLeaseTerms(pid)");
+    expect(wizard).not.toContain("listingAllowedLeaseTerms(pid)");
   });
 });
