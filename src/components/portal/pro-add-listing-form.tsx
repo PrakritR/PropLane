@@ -4711,6 +4711,14 @@ export function ManagerAddListingForm({
                 : "Name, floor, furnishing, amenities, photos, video, and per-room move-in notes. Rent is set on Pricing."
             }
           >
+            <p
+              className="mb-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5 text-sm text-muted"
+              data-attr="listing-shared-spaces-amenities-hint"
+            >
+              Kitchen, laundry, lounge, yard, and other shared-area amenities belong on the{" "}
+              <span className="font-semibold text-foreground">Shared spaces</span> step — not under room
+              amenities. Prospects see those spaces on every room listing.
+            </p>
             <div
               className={`space-y-3 ${wizardSectionErrorClass(Boolean(stepFieldErrors.rooms))}`}
               data-wizard-field="rooms"
