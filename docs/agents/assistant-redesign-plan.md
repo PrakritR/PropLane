@@ -260,3 +260,53 @@ An authenticated read-only request to the existing local development API returne
 HTTP 200 in 19.55s with a reply, no tool calls, and no pending action. Chromium
 checks exercise replies with simulated API responses inside a transformed, clipped
 thread; Chromium and WebKit also verify the real listing editor and the shared rail.
+
+## Delivered — 2026-09-07 (PRP-310 remaining bullets)
+
+Everything below sits on the one existing framework: the shared `Modal`
+workspace, `ModalAssistantStrip`, `AssistantDockPanel`, and
+`useAssistantConversation`. No second conversation component, no new endpoint.
+
+- **Independent close controls + outside-click dismissal.** The modal rail's
+  assistant now renders a labeled X (`Close PropLane Assistant`,
+  `data-attr="modal-assistant-close"`, `AssistantDockPanel
+  collapseVariant="close"`) distinct from the editor's `Close`. Closing the
+  assistant keeps the editor and its draft and returns focus to the Ask
+  PropLane pill; closing the editor keeps the assistant on a fresh, context-free
+  thread; a pointer-down outside both panels — or Escape — dismisses both, while
+  a pointer-down inside the rail never counts as outside. The portal rail's
+  `Collapse PropLane Assistant` control is unchanged.
+- **Context hygiene.** A modal's or Communication thread's seeded context
+  travels only as the request's `contextHint` (server: untrusted block of the
+  system prompt via `withAssistantTaskContext`). It never appears in the
+  rendered transcript, the request's `messages`, the persisted task thread, or
+  the proposed message body, and a confirm posts only `{ confirmActionId }`.
+- **Typed send confirmation.** `parseTypedConfirmation` /
+  `typedConfirmationTarget` (`src/lib/axis-assistant/typed-confirmation.ts`)
+  are the pure decision: only a standalone `send` / `send it` / `send the
+  message|reply|email` / `send this`, optionally prefixed `yes,`, approves the
+  ONE pending immediate-message proposal (`send_message`, `reply_to_thread`,
+  `send_message_to_manager`), with no attachment. `useAssistantConversation.send`
+  routes it through the existing `resolvePendingAction("confirm")`; any other
+  text is an ordinary message.
+- **Phone behaviour.** Below `lg` no dock composer exists, so the strip's own
+  full-width sheet is the assistant, opened with the same `contextHint` and the
+  same close semantics. Opening it closes an already-open FAB popup
+  (`closeAxisAssistant()`) and the FAB stays hidden while a task assistant is
+  active, so two presentations never stack. The strip deliberately does NOT
+  call `openAxisAssistant()`: the popup is the portal-wide archived
+  conversation with no task context, and it renders at `z-[65]` outside the
+  modal's `z-[70]` focus boundary, so routing there would lose the context and
+  land behind the editor.
+
+Tests: `tests/unit/assistant-typed-confirmation.test.ts`,
+`tests/unit/assistant-modal-close-controls.test.tsx`,
+`tests/unit/assistant-context-hygiene.test.tsx`,
+`tests/unit/assistant-strip-mobile.test.tsx` (real Modal, strip, panel and
+composer; only `fetch` simulated). Existing coverage kept green:
+`modal-assistant-workspace`, `assistant-conversation-context-send`,
+`assistant-conversation-confirm`, `assistant-display-mode-toggle`,
+`assistant-display-preferences`, `agent/assistant-turn-context`.
+Not done here: authenticated browser QA of the custom listing / lease / Vaul
+embeddings, and the manager and vendor reply paths still append before
+authorization (see "Communication & inbox" in `AGENTS.md`).
