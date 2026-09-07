@@ -14,6 +14,10 @@
  */
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { resolveShareableAppOrigin } from "@/lib/app-url";
+import {
+  runPlannedTourCalendarSync,
+  type PlannedTourCalendarSync,
+} from "@/lib/google-calendar/planned-tour-sync.server";
 import { syncPlannedTourToGoogleCalendar } from "@/lib/google-calendar/sync.server";
 import { notifyTenantTourConfirmed } from "@/lib/tour-notification-delivery.server";
 
@@ -116,6 +120,8 @@ export type AcceptTourInquiryResult =
       plannedEvent: Record<string, unknown>;
       message: string;
       tenantNotification: { ok: boolean; skipped?: boolean; error?: string } | null;
+      /** The push onto the manager's linked Google Calendar; `skipped` when none is linked. */
+      calendarSync: PlannedTourCalendarSync;
     }
   | { ok: false; status: 400 | 403 | 404 | 500; error: string };
 
@@ -274,18 +280,22 @@ export async function acceptTourInquiry(
     );
   }
 
-  void syncPlannedTourToGoogleCalendar(db, rowManagerUserId, {
-    plannedEventId: String(plannedEvent.id),
-    title: String(plannedEvent.title),
-    start,
-    end,
-    propertyTitle: textField(row, "propertyTitle") || undefined,
-    attendeeName: textField(row, "name") || undefined,
-    attendeeEmail: textField(row, "email") || undefined,
-    attendeePhone: textField(row, "phone") || undefined,
-    notes: textField(row, "notes") || undefined,
-    instructions: instructions || undefined,
-  }).catch(() => undefined);
+  // Awaited for the same reason as `confirmTourInquiry`: a fire-and-forget
+  // push can be frozen with the serverless instance before Google hears of it.
+  const calendarSync = await runPlannedTourCalendarSync(() =>
+    syncPlannedTourToGoogleCalendar(db, rowManagerUserId, {
+      plannedEventId: String(plannedEvent.id),
+      title: String(plannedEvent.title),
+      start,
+      end,
+      propertyTitle: textField(row, "propertyTitle") || undefined,
+      attendeeName: textField(row, "name") || undefined,
+      attendeeEmail: textField(row, "email") || undefined,
+      attendeePhone: textField(row, "phone") || undefined,
+      notes: textField(row, "notes") || undefined,
+      instructions: instructions || undefined,
+    }),
+  );
 
-  return { ok: true, plannedEvent, message: formatTourRangeLabel(start, end), tenantNotification };
+  return { ok: true, plannedEvent, message: formatTourRangeLabel(start, end), tenantNotification, calendarSync };
 }

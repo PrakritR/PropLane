@@ -13,7 +13,11 @@ import {
 import { resolvePropertyScopedManagerRecipientIds } from "@/lib/co-manager-notification-recipients.server";
 import { prepareDispatch } from "@/lib/work-order-dispatch.server";
 import { workOrderEvent } from "@/lib/work-order-events.server";
-import { workOrderCategoryForResidentLabel } from "@/lib/work-order-taxonomy";
+import {
+  workOrderCategoryForResidentLabel,
+  type ResidentMaintenanceCategoryLabel,
+  type WorkOrderPriority,
+} from "@/lib/work-order-taxonomy";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { residentPortalUrl } from "@/lib/claw-resident-links";
 
@@ -44,6 +48,22 @@ export type CreateWorkOrderFromResidentSmsResult =
       alreadyOpen: true;
     }
   | { created: false; error: string };
+
+/**
+ * Fields the resident set explicitly (the Services form or the assistant's
+ * confirm card). Anything omitted is inferred from the text exactly as an SMS
+ * is, so a one-line "the heater is broken" still files a complete row.
+ */
+export type ResidentMaintenanceDetails = {
+  title?: string;
+  priority?: WorkOrderPriority;
+  categoryLabel?: ResidentMaintenanceCategoryLabel;
+  preferredArrival?: string;
+  entryPermission?: DemoManagerWorkOrderRow["entryPermission"];
+  entryNotes?: string;
+  /** Same shape the Services form writes: data URLs on `row_data.photoDataUrls`. */
+  photoDataUrls?: string[];
+};
 
 async function resolveResidentContext(
   db: SupabaseClient,
@@ -146,6 +166,8 @@ export async function createWorkOrderFromResidentSms(args: {
    * would only produce false negatives there.
    */
   skipIntentCheck?: boolean;
+  /** Explicit form fields; each one set here overrides the text inference. */
+  details?: ResidentMaintenanceDetails;
 }): Promise<CreateWorkOrderFromResidentSmsResult> {
   const managerUserId = args.managerUserId.trim();
   const residentEmail = args.residentEmail.trim().toLowerCase();
@@ -158,10 +180,12 @@ export async function createWorkOrderFromResidentSms(args: {
   }
 
   const db = createSupabaseServiceRoleClient();
-  const categoryLabel = inferMaintenanceCategoryLabel(text);
+  const details = args.details ?? {};
+  const categoryLabel = details.categoryLabel ?? inferMaintenanceCategoryLabel(text);
   const category = workOrderCategoryForResidentLabel(categoryLabel);
-  const title = inferMaintenanceTitle(text);
-  const priority = inferMaintenancePriority(text);
+  const title = details.title?.trim() || inferMaintenanceTitle(text);
+  const priority = details.priority ?? inferMaintenancePriority(text);
+  const photoDataUrls = (details.photoDataUrls ?? []).filter((url) => url.trim().length > 0);
 
   // Dedupe near-identical opens from the same resident.
   const cutoff = new Date(Date.now() - DEDUPE_WINDOW_MS).toISOString();
@@ -214,11 +238,13 @@ export async function createWorkOrderFromResidentSms(args: {
     description: text,
     scheduled: "—",
     cost: "—",
-    preferredArrival: "Anytime",
-    entryPermission: "call_first",
+    preferredArrival: details.preferredArrival?.trim() || "Anytime",
+    entryPermission: details.entryPermission ?? "call_first",
+    ...(details.entryNotes?.trim() ? { entryNotes: details.entryNotes.trim() } : {}),
     managerUserId,
     residentName: ctx.residentName,
     residentEmail,
+    ...(photoDataUrls.length > 0 ? { photoDataUrls } : {}),
   };
 
   const { data: persisted, error } = await db

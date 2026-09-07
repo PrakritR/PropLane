@@ -21,7 +21,9 @@ import {
 } from "@/lib/portals/resident-sections";
 import { vendorPortal, VENDOR_PORTAL_SMOKE_PATHS } from "@/lib/portals/vendor";
 import { proPortal, MANAGER_PORTAL_SMOKE_PATHS } from "@/lib/portals/pro";
+import { adminPortal, ADMIN_PORTAL_SMOKE_PATHS } from "@/lib/portals/admin";
 import {
+  NATIVE_BOTTOM_NAV_ADMIN_PRIMARY,
   NATIVE_BOTTOM_NAV_PRO_MANAGER_PRIMARY,
   NATIVE_BOTTOM_NAV_RESIDENT_PRE_APPLICATION_PRIMARY,
   NATIVE_BOTTOM_NAV_RESIDENT_PRIMARY,
@@ -159,6 +161,29 @@ describe("platform parity (web + native WebView)", () => {
     for (const { path } of MANAGER_PORTAL_SMOKE_PATHS) {
       expect(isInAppPath(path)).toBe(true);
       expect(isNativeDeepLinkPath(path)).toBe(true);
+    }
+  });
+
+  it("every admin portal section has a render handler", () => {
+    // The registry decides what the sidebar offers; render-portal-section decides what the URL
+    // resolves to. A section in one and not the other is a live nav row that lands nowhere, and
+    // nothing about it fails a build.
+    for (const { section } of adminPortal.sections) {
+      expect(RENDER_PORTAL_SECTION_SOURCE).toContain(`section === "${section}"`);
+    }
+  });
+
+  it("admin smoke-test paths are valid in-app routes for web and native", () => {
+    for (const { path } of ADMIN_PORTAL_SMOKE_PATHS) {
+      expect(isInAppPath(path)).toBe(true);
+      expect(isNativeDeepLinkPath(path)).toBe(true);
+    }
+  });
+
+  it("admin native bottom bar primary items are real admin sections", () => {
+    const sectionIds = new Set(adminPortal.sections.map((s) => s.section));
+    for (const section of NATIVE_BOTTOM_NAV_ADMIN_PRIMARY) {
+      expect(sectionIds.has(section)).toBe(true);
     }
   });
 

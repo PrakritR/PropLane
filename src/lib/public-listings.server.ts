@@ -89,6 +89,7 @@ const PUBLIC_SUBMISSION_KEYS = [
   "listingBedroomSlots",
   // Marketing copy + media.
   "tagline",
+  "alsoListedAs",
   "petFriendly",
   "houseOverview",
   "houseRulesText",

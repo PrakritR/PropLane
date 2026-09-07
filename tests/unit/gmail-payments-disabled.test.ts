@@ -78,3 +78,20 @@ describe("Gmail payment receipts are off", () => {
     expect(scopes).not.toContain("gmail");
   });
 });
+
+/**
+ * PRP-322 — while Gmail tracking is off, the manager must be TOLD that Zelle
+ * and Venmo are recorded by hand; hiding the feature without a word left
+ * landlords guessing why nothing was tracked.
+ */
+describe("Zelle/Venmo by-hand note while Gmail tracking is off (PRP-322)", () => {
+  it("the compact Payments settings dialog carries the note, gated on the flag", () => {
+    const src = read("src/components/portal/payment-schedule-ui.tsx");
+    const at = src.indexOf('data-attr="payments-manual-zelle-venmo-note"');
+    expect(at).toBeGreaterThan(-1);
+    const gate = src.lastIndexOf("!GMAIL_PAYMENTS_ENABLED", at);
+    expect(gate).toBeGreaterThan(-1);
+    expect(at - gate).toBeLessThan(600);
+    expect(src).toMatch(/Zelle and Venmo payments are recorded by hand/);
+  });
+});

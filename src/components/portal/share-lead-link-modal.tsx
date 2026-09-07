@@ -36,8 +36,23 @@ import {
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
 } from "@/components/portal/portal-message-compose-fields";
 import type { NotificationDeliveryChannels } from "@/components/portal/portal-notification-preview-modal";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import {
+  managerPropertyAvailabilityStorageKey,
+  readAvailabilityDateSetForStorageKey,
+} from "@/lib/demo-admin-scheduling";
+import { partitionTourAvailabilityStoredKeys } from "@/lib/tour-slot-math";
+import Link from "next/link";
 
 const FIELD_LABEL_CLASS = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted";
+
+/** True when the manager has not painted any open tour windows for this property. */
+function propertyHasPublishedTourSlots(managerUserId: string, propertyId: string): boolean {
+  if (!managerUserId.trim() || !propertyId.trim()) return false;
+  const key = managerPropertyAvailabilityStorageKey(managerUserId, propertyId);
+  const stored = [...readAvailabilityDateSetForStorageKey(key)];
+  return partitionTourAvailabilityStoredKeys(stored).publishedSlots.length > 0;
+}
 
 const APPLY_RENTAL_TYPE_OPTIONS = [
   { value: "standard", label: "Long-term lease" },
@@ -113,6 +128,7 @@ export function ShareLeadLinkModal({
   preselectedPropertyIds?: string[];
 }) {
   const { showToast } = useAppUi();
+  const { userId: managerUserId } = useManagerUserId();
   const { isNative } = useIsNativeApp();
   const useFullPageModal = isNative === true;
   const multiEnabled = properties.length > 1;
@@ -188,6 +204,13 @@ export function ShareLeadLinkModal({
       active = false;
     };
   }, [open]);
+
+  const propertiesMissingTourAvailability = useMemo(() => {
+    if (kind !== "tour" || !managerUserId || propertyIds.length === 0) return [];
+    return properties
+      .filter((property) => propertyIds.includes(property.id))
+      .filter((property) => !propertyHasPublishedTourSlots(managerUserId, property.id));
+  }, [kind, managerUserId, properties, propertyIds]);
 
   const { viaEmail, viaSms } = portalMessageChannelsFromSelection(sendVia);
 
@@ -617,6 +640,30 @@ export function ShareLeadLinkModal({
 
               {kind === "tour" ? (
                 <div className="space-y-4">
+                  {propertiesMissingTourAvailability.length > 0 ? (
+                    <div
+                      className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950"
+                      data-attr="share-lead-tour-availability-warning"
+                      role="status"
+                    >
+                      <p className="font-medium">
+                        {propertiesMissingTourAvailability.length === 1
+                          ? `${propertiesMissingTourAvailability[0]?.label ?? "This property"} has no open tour windows yet.`
+                          : `${propertiesMissingTourAvailability.length} selected properties have no open tour windows yet.`}
+                      </p>
+                      <p className="mt-1 text-xs text-amber-900/90">
+                        Add availability on Calendar first so prospects have times to pick. You can still send the
+                        link.
+                      </p>
+                      <Link
+                        href="/portal/calendar"
+                        className="mt-2 inline-block text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                        data-attr="share-lead-tour-availability-calendar-link"
+                      >
+                        Open Calendar to add availability
+                      </Link>
+                    </div>
+                  ) : null}
                   {isPortfolioTour ? (
                     <ShareLinkCopyRow
                       label="Generic tour link"

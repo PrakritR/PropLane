@@ -27,6 +27,8 @@ import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { parseMoneyAmount } from "@/lib/household-charges";
 import { fetchWorkOrderBidsResult, type WorkOrderBid } from "@/lib/work-order-bids";
 import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payouts";
+import { vendorPayoutTimeline } from "@/lib/vendor-payout-timeline";
+import { VendorPayoutTimeline } from "@/components/portal/vendor-payout-timeline";
 import { upsertWorkOrderBid, WORK_ORDER_BIDS_EVENT } from "@/lib/work-order-bids-storage";
 import {
   declineWorkOrderVendorOffer,
@@ -498,21 +500,22 @@ export function VendorWorkOrdersPanel() {
         </p>
         {row.automationStatus !== "paid" ? (
           <p className="mt-1 text-xs text-muted">Awaiting manager approval and payment.</p>
-        ) : payout?.status === "paid" ? (
-          <p className="mt-1 text-xs text-muted">
-            Payout sent: ${(payout.amountCents / 100).toFixed(2)} on{" "}
-            {new Date(payout.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
-            {payout.stripeTransferId ? ` · ${payout.stripeTransferId}` : ""}
-          </p>
-        ) : payout?.status === "failed" ? (
-          <p className="mt-1 text-xs text-muted">
-            Paid by the manager, but the payout to your bank couldn&apos;t be sent
-            {payout.failureReason ? `: ${payout.failureReason}` : ""}. Check your{" "}
-            <Link href="/vendor/payments" className="font-medium text-foreground underline underline-offset-2">
-              Stripe payout setup
-            </Link>
-            .
-          </p>
+        ) : payout ? (
+          <div className="mt-2">
+            <VendorPayoutTimeline
+              steps={vendorPayoutTimeline({ payout, workOrder: { paidAt: row.paidAt } })}
+              dataAttr="vendor-work-order-payout-timeline"
+            />
+            {payout.status === "failed" ? (
+              <p className="mt-1 text-xs text-muted">
+                Paid by the manager, but the payout to your bank couldn&apos;t be sent. Check your{" "}
+                <Link href="/vendor/payments" className="font-medium text-foreground underline underline-offset-2">
+                  Stripe payout setup
+                </Link>
+                .
+              </p>
+            ) : null}
+          </div>
         ) : (
           <p className="mt-1 text-xs text-muted">
             Paid by the manager.{" "}

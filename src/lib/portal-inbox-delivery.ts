@@ -12,6 +12,8 @@ import {
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
 import { sendPushToUser } from "@/lib/push-notifications.server";
 import { inboxDeepLinkForRole } from "@/lib/platform/parity";
+import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
+import { webhookEventBuilders } from "@/lib/webhooks/events";
 // Pinned to Pacific, matching `formatInboxStamp` and every other inbox stamp
 // writer. These stamps are persisted and later re-parsed for conversation
 // ordering, but carry no timezone: this writer runs server-side (UTC on Vercel)
@@ -319,6 +321,26 @@ export async function findExistingPortalMessageThread(
  * are untouched — this only ever writes `thread_type: "portal_message"`.
  * `action: "skipped"` means a `messageId` dedupe suppressed the write.
  */
+/**
+ * Outbound webhooks for an inbound message. Only the MANAGER's inbox copy fires:
+ * `webhook_subscriptions` is keyed on `manager_user_id`, and a resident's or
+ * vendor's copy is not a manager event. Ids and statuses only — no sender, no
+ * subject, no preview; the receiver reads the thread back through the
+ * authorized API. Never throws into the delivery path.
+ */
+async function emitInboxMessageWebhook(
+  args: { folder: "sent" | "inbox"; scope: string; ownerUserId: string | null },
+  threadId: string,
+  unread: boolean,
+): Promise<void> {
+  if (args.folder !== "inbox" || args.scope !== MANAGER_INBOX_SCOPE || !args.ownerUserId) return;
+  await enqueueWebhookEvent(
+    args.ownerUserId,
+    "message.received",
+    webhookEventBuilders["message.received"]({ threadId, scope: args.scope, unread }),
+  );
+}
+
 export async function deliverPortalMessageThreadSide(
   db: SupabaseClient,
   args: PortalMessageThreadSide & {
@@ -396,6 +418,7 @@ export async function deliverPortalMessageThreadSide(
       },
       { onConflict: "id" },
     );
+    await emitInboxMessageWebhook(args, existing.id, args.unread);
     return { action: "append", threadId: existing.id };
   }
 
@@ -426,6 +449,7 @@ export async function deliverPortalMessageThreadSide(
     },
     { onConflict: "id" },
   );
+  await emitInboxMessageWebhook(args, args.fallbackId, args.unread);
   return { action: "create", threadId: args.fallbackId };
 }
 

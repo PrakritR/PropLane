@@ -30,6 +30,9 @@ import {
 } from "@/lib/manager-work-orders-storage";
 import { safeFormatDateTime } from "@/lib/pacific-time";
 import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payouts";
+import { vendorPayoutTimeline, type VendorPayoutTimelineStep } from "@/lib/vendor-payout-timeline";
+import { VendorPayoutTimeline } from "@/components/portal/vendor-payout-timeline";
+import type { VendorInvoice } from "@/lib/vendor-invoices";
 import { VENDOR_ACCEPTED_PAYMENT_METHOD_LABELS } from "@/lib/vendor-payment-methods";
 import { managerVendorPayMethodLabel } from "@/lib/manager-vendor-payment-flow";
 import { workOrderPaymentReference } from "@/lib/manual-payment-instructions";
@@ -45,7 +48,8 @@ type VendorPaymentLedgerRow = {
   dateLabel: string;
   bucket: VendorPaymentBucket;
   payoutStatus: string | null;
-  payoutFailureReason: string | null;
+  /** Dated steps of the PropLane payout for this job; null until a payout row exists. */
+  payoutTimeline: VendorPayoutTimelineStep[] | null;
 };
 
 const PAY_LABELS: { id: VendorPaymentBucket; label: string }[] = [
@@ -81,7 +85,14 @@ function payoutStatusLabel(payout: VendorPayout | undefined): string | null {
   if (payout.status === "paid") return "Payout sent";
   if (payout.status === "failed") return "Payout failed";
   if (payout.status === "skipped") return "Payout skipped";
+  if (payout.status === "pending") return "Payout in progress";
   return null;
+}
+
+/** The vendor's invoice for a work order, preferring one the manager has decided on. */
+function invoiceForWorkOrder(invoices: VendorInvoice[], workOrderId: string): VendorInvoice | null {
+  const matching = invoices.filter((inv) => inv.workOrderId === workOrderId && inv.status !== "rejected");
+  return matching.find((inv) => inv.decidedAt) ?? matching[0] ?? null;
 }
 
 function managerPayeeLabel(row: DemoManagerWorkOrderRow): string {
@@ -90,7 +101,11 @@ function managerPayeeLabel(row: DemoManagerWorkOrderRow): string {
   return name || "Property manager";
 }
 
-function toLedgerRow(row: DemoManagerWorkOrderRow, payout: VendorPayout | undefined): VendorPaymentLedgerRow | null {
+function toLedgerRow(
+  row: DemoManagerWorkOrderRow,
+  payout: VendorPayout | undefined,
+  invoice: VendorInvoice | null,
+): VendorPaymentLedgerRow | null {
   const bucket = vendorPaymentBucket(row);
   if (!bucket) return null;
 
@@ -112,7 +127,13 @@ function toLedgerRow(row: DemoManagerWorkOrderRow, payout: VendorPayout | undefi
     dateLabel,
     bucket,
     payoutStatus: payoutLabel,
-    payoutFailureReason: payout?.failureReason ?? null,
+    payoutTimeline: payout
+      ? vendorPayoutTimeline({
+          payout,
+          workOrder: { paidAt: row.paidAt },
+          invoice: invoice ? { status: invoice.status, decidedAt: invoice.decidedAt } : null,
+        })
+      : null,
   };
 }
 
@@ -215,7 +236,13 @@ function VendorPaymentExpandedDetail({
         </div>
       ) : null}
 
-      {row.payoutFailureReason ? <p className="text-xs text-muted">{row.payoutFailureReason}</p> : null}
+      {row.payoutTimeline ? (
+        <VendorPayoutTimeline
+          steps={row.payoutTimeline}
+          subtitle={row.payoutStatus ?? undefined}
+          dataAttr="vendor-payments-payout-timeline"
+        />
+      ) : null}
     </div>
   );
 }
@@ -228,6 +255,7 @@ export function VendorPaymentsPanel() {
   const [bucket, setBucket] = useState<VendorPaymentBucket>("pending");
   const [tick, setTick] = useState(0);
   const [payoutsByWorkOrderId, setPayoutsByWorkOrderId] = useState<Record<string, VendorPayout>>({});
+  const [invoices, setInvoices] = useState<VendorInvoice[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -268,6 +296,22 @@ export function VendorPaymentsPanel() {
     window.addEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
     return () => window.removeEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
   }, [loadPayouts]);
+
+  // The "Invoice approved" timeline step reads the invoice's decided_at when the
+  // vendor billed through Finances; the demo sandbox has no invoice rows.
+  useEffect(() => {
+    if (demo) return;
+    let cancelled = false;
+    void fetch("/api/vendor/invoices", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { invoices: [] }))
+      .then((data: { invoices?: VendorInvoice[] }) => {
+        if (!cancelled) setInvoices(Array.isArray(data.invoices) ? data.invoices : []);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [demo]);
 
   useEffect(() => {
     if (demo) return;
@@ -319,9 +363,9 @@ export function VendorPaymentsPanel() {
   const ledgerRows = useMemo(() => {
     void tick;
     return readVendorWorkOrderRows()
-      .map((row) => toLedgerRow(row, payoutsByWorkOrderId[row.id]))
+      .map((row) => toLedgerRow(row, payoutsByWorkOrderId[row.id], invoiceForWorkOrder(invoices, row.id)))
       .filter((row): row is VendorPaymentLedgerRow => row !== null);
-  }, [tick, payoutsByWorkOrderId]);
+  }, [tick, payoutsByWorkOrderId, invoices]);
 
   const ledgerById = useMemo(() => new Map(ledgerRows.map((row) => [row.id, row])), [ledgerRows]);
 

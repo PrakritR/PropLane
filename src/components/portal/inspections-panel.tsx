@@ -10,8 +10,7 @@ import { Modal } from "@/components/ui/modal";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { LocalDestinationNav } from "@/components/ui/destination-nav";
-import { ResidentDetailCommandToolbar } from "@/components/portal/resident-detail-subsection-chrome";
+import { ResidentDetailSubsectionChrome } from "@/components/portal/resident-detail-subsection-chrome";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { ManagerPortalPageShell, ManagerPortalStatusPills } from "@/components/portal/portal-metrics";
 import { InspectionEditor } from "@/components/portal/inspection-editor";
@@ -254,40 +253,29 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   if (reportId) return <div className="space-y-3 p-4">{error ? <p role="alert">{error}</p> : <p role="status">Loading inspection…</p>}<Button variant="outline" onClick={() => router.push(`${routeBase}/${kind}`)} data-attr="inspection-list-back">Back to inspections</Button></div>;
   return <div className="min-w-0 space-y-3" data-attr="inspections-panel">
     {embeddedInResident ? (
-      <div className="mb-3 shrink-0 space-y-2 bg-background">
-        <LocalDestinationNav
-          items={(["move-in", "move-out"] as const).map((id) => ({
-            id,
-            label: kindLabel(id),
-            count: rowsFor(id).length,
-            dataAttr: `inspection-type-${id}`,
-          }))}
-          activeId={kind}
-          onChange={(id) => changeKind(id as InspectionKind)}
-          ariaLabel="Inspection type"
-          size="toolbar"
-          itemLayout="equal"
-        />
-        {role === "manager" && !isDemoModeActive() ? (
-          <PortalListControlStack
-            variant="command"
-            stickyDestinations={false}
-            actions={
-              <ResidentDetailCommandToolbar
-                onSettings={() => setSettingsOpen(true)}
-                onEdit={
-                  selectedReports.length === 1
-                    ? () => void open(selectedReports[0]!.id)
-                    : undefined
-                }
-                editDisabled={selectedReports.length !== 1}
-              />
-            }
-          />
-        ) : null}
-      </div>
+      <ResidentDetailSubsectionChrome
+        className="sticky z-[38] mb-3 shrink-0 space-y-2 bg-background/95 backdrop-blur-md [top:var(--portal-mobile-top-chrome,0px)]"
+        bucketItems={(["move-in", "move-out"] as const).map((id) => ({
+          id,
+          label: kindLabel(id),
+          count: rowsFor(id).length,
+          dataAttr: `inspection-type-${id}`,
+        }))}
+        activeBucketId={kind}
+        onBucketChange={(id) => changeKind(id as InspectionKind)}
+        bucketAriaLabel="Inspection type"
+        onSettings={
+          role === "manager" && !isDemoModeActive()
+            ? () => setSettingsOpen(true)
+            : undefined
+        }
+        onEdit={() => {
+          if (selectedReports.length === 1) void open(selectedReports[0]!.id);
+        }}
+        editDisabled={selectedReports.length !== 1}
+      />
     ) : (
-    <PortalListControlStack variant="command" destinationAriaLabel="Inspection type" activeDestinationId={kind}
+    <PortalListControlStack variant="command" stickyDestinations destinationAriaLabel="Inspection type" activeDestinationId={kind}
       destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
       destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
       actions={role === "manager" && !isDemoModeActive()

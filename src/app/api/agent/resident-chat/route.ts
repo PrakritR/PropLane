@@ -1,4 +1,4 @@
-import { attachPrivateInspectionSources } from "@/lib/inspections/attachment-intake.server";
+import { intakePrivateChatPhotos } from "@/lib/inspections/attachment-intake.server";
 import { assistantContextHintFromRequest, withAssistantTaskContext } from "@/lib/agent/assistant-turn-context";
 import { NextResponse } from "next/server";
 import { resolveResidentAgentContext } from "@/lib/tools/resident-context";
@@ -84,8 +84,13 @@ export async function POST(req: Request) {
   const attached = applyChatAttachments(messages, body);
   if (!attached.ok) return NextResponse.json({ error: attached.error }, { status: 400 });
   messages = attached.messages;
-  try { messages = await attachPrivateInspectionSources(ctx.db, ctx.userId, messages); }
-  catch { return NextResponse.json({ error: "Could not save your photo. Please try again." }, { status: 503 }); }
+  try {
+    const intake = await intakePrivateChatPhotos(ctx.db, ctx.userId, messages);
+    messages = intake.messages;
+    // Stash this turn's photos by attachment index so `report_maintenance_issue`
+    // can take "attach the first two photos" without any bytes in its input.
+    ctx.chatPhotos = intake.refs.map((storagePath, index) => ({ index, storagePath }));
+  } catch { return NextResponse.json({ error: "Could not save your photo. Please try again." }, { status: 503 }); }
 
   const sessionKind = body.archive === false ? MODAL_CHAT_SESSION_KIND : PORTAL_CHAT_SESSION_KIND;
   const sessionId = await ensureAgentSession(ctx, "resident", {

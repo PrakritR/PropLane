@@ -13,14 +13,28 @@ import type { WorkOrderCategory } from "@/lib/reports/categories";
 
 export type { WorkOrderCategory };
 
-/** Options shown in the resident "Report maintenance" picklist. */
-export type ResidentMaintenanceCategoryLabel =
-  | "Plumbing"
-  | "Electrical"
-  | "HVAC"
-  | "Appliance"
-  | "Access / Locks"
-  | "General";
+/**
+ * Options shown in the resident "Report maintenance" picklist. This tuple is
+ * the ONE list the Services form (`RESIDENT_SERVICE_REPAIR_CATEGORIES`) and the
+ * assistant's `report_maintenance_issue` schema both read, so the chat can
+ * never offer a category the form does not. Kept here, not in
+ * `service-intake.ts`, because that module pulls the browser stores in and a
+ * server tool must stay importable without them.
+ */
+export const RESIDENT_MAINTENANCE_CATEGORY_LABELS = [
+  "Plumbing",
+  "Electrical",
+  "HVAC",
+  "Appliance",
+  "Access / Locks",
+  "General",
+] as const;
+
+export type ResidentMaintenanceCategoryLabel = (typeof RESIDENT_MAINTENANCE_CATEGORY_LABELS)[number];
+
+/** Priority picklist shared by the Services form and the assistant's maintenance tool. */
+export const WORK_ORDER_PRIORITY_OPTIONS = ["Emergency", "High", "Medium", "Low"] as const;
+export type WorkOrderPriority = (typeof WORK_ORDER_PRIORITY_OPTIONS)[number];
 
 const RESIDENT_CATEGORY_TO_WORK_ORDER_CATEGORY: Record<ResidentMaintenanceCategoryLabel, WorkOrderCategory> = {
   Plumbing: "plumbing",

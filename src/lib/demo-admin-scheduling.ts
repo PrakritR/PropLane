@@ -854,7 +854,13 @@ export async function acceptPartnerInquiryFromServer(
     body?: string;
     assignee?: import("@/lib/work-assignment").WorkAssignee | null;
   },
-): Promise<{ ok: boolean; error?: string; notificationSkipped?: boolean }> {
+): Promise<{
+  ok: boolean;
+  error?: string;
+  notificationSkipped?: boolean;
+  /** The manager's linked Google Calendar side of the confirm, when the route reports it. */
+  calendarSync?: { ok: boolean; skipped?: boolean; error?: string };
+}> {
   const row = readPartnerInquiries().find((r) => r.id === id);
   if (row?.kind === "tour") {
     const res = await fetch("/api/portal-tour-inquiries/accept", {
@@ -876,6 +882,7 @@ export async function acceptPartnerInquiryFromServer(
       ok?: boolean;
       error?: string;
       tenantNotification?: { ok?: boolean; skipped?: boolean; error?: string };
+      calendarSync?: { ok?: boolean; skipped?: boolean; error?: string };
     };
     if (!res.ok || !data.ok) {
       return { ok: false, error: data.error ?? "Could not approve tour request." };
@@ -885,6 +892,10 @@ export async function acceptPartnerInquiryFromServer(
       ok: true,
       notificationSkipped: data.tenantNotification?.skipped === true,
       error: data.tenantNotification?.error,
+      calendarSync:
+        data.calendarSync && typeof data.calendarSync.ok === "boolean"
+          ? { ok: data.calendarSync.ok, skipped: data.calendarSync.skipped, error: data.calendarSync.error }
+          : undefined,
     };
   }
   if (!row || !acceptPartnerInquiry(id, opts)) return { ok: false, error: "Could not approve request." };

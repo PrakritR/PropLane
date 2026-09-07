@@ -40,20 +40,30 @@ export async function resolveInspectionSource(actor: InspectionActor, sourceRef:
 }
 
 export async function attachPrivateInspectionSources(db: SupabaseClient, userId: string, messages: Anthropic.MessageParam[]): Promise<Anthropic.MessageParam[]> {
+  return (await intakePrivateChatPhotos(db, userId, messages)).messages;
+}
+
+/**
+ * Store every image on the last user message privately and hand back the
+ * storage refs IN ATTACHMENT ORDER alongside the annotated messages, so a route
+ * can stash them by index for tools that take "the second photo" as input
+ * (`report_maintenance_issue`) as well as by reference (`file_inspection_photo`).
+ */
+export async function intakePrivateChatPhotos(db: SupabaseClient, userId: string, messages: Anthropic.MessageParam[]): Promise<{ messages: Anthropic.MessageParam[]; refs: string[] }> {
   const last = messages.at(-1);
-  if (!last || last.role !== "user" || !Array.isArray(last.content)) return messages;
+  if (!last || last.role !== "user" || !Array.isArray(last.content)) return { messages, refs: [] };
   const refs: string[] = [];
   for (const block of last.content) {
     if (block.type === "image" && block.source.type === "base64") refs.push(await storeInspectionIntake(db, userId, Buffer.from(block.source.data, "base64")));
   }
-  if (!refs.length) return messages;
+  if (!refs.length) return { messages, refs };
   // Prepend to the first text block so archive/lastUserText preserve the references.
   const note = `Private photo source references (not filed yet):\n${refs.join("\n")}\nUse file_inspection_photo only after resolving the assigned room, report and section. Ask when unclear. Never infer condition from an image.\n\n`;
   const content = [...last.content];
   const index = content.findIndex(b => b.type === "text");
   if (index >= 0 && content[index].type === "text") content[index] = { type: "text", text: note + content[index].text };
   else content.unshift({ type: "text", text: note });
-  return [...messages.slice(0, -1), { ...last, content }];
+  return { messages: [...messages.slice(0, -1), { ...last, content }], refs };
 }
 
 /** The verified Twilio webhook is the only source of these URLs and identity. */

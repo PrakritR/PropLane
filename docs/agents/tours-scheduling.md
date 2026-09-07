@@ -124,6 +124,18 @@ routes accept an optional `subject` + `messageBody` so the manager can replace
 the default notification copy; unset falls back to the builders in
 `tour-notifications.ts`.
 
+**The Google side of confirm, cancel and reschedule is AWAITED, bounded, and
+reported — never fire-and-forget.** All three go through
+`runPlannedTourCalendarSync` (`src/lib/google-calendar/planned-tour-sync.server.ts`)
+and return `calendarSync: { ok, skipped?, error? }`. A serverless instance can
+be frozen the moment the response goes out, so a `void` push may simply never
+run: cancel learned that as a ghost event that kept blocking a freed slot, and
+confirm had the mirror gap (PRP-397) — a tour PropLane had already emailed the
+guest about, missing from the manager's own calendar. "No calendar linked" is
+`skipped`, a Google failure is `ok: false` on a confirm that still succeeded, and
+the calendar toasts it the same way for confirm and cancel. Coverage:
+`tests/unit/tour-confirm-google-sync.test.ts`, `tests/unit/tour-planned-change.test.ts`.
+
 A PENDING request is moved with a different route:
 `POST /api/portal-tour-inquiries/propose-reschedule` rewrites the requested
 window and emails the guest a *proposal* to confirm
@@ -143,6 +155,36 @@ assignee with `canAssign`, and syncs to Google Calendar. This is the one booking
 path that is NOT the proposal gate above — it is the manager entering something
 that already happened offline, so there is nobody to propose to. The demo branch
 (`manual-planned-tour.client.ts`) writes locally and never calls the route.
+
+## The manager's own Google events on the manager calendar (PRP-397)
+
+- **A personal Google block is drawn as its own title** ("Dentist", "Standup"),
+  with the free/busy word on its continuation cells and a full-title tooltip
+  (`meetingCalendarGridLabel` / `meetingCalendarGridTooltip`,
+  `src/lib/google-calendar/meetings.ts`). That is the manager reading their OWN
+  calendar: `/api/portal/google-calendar/events` answers only for the signed-in
+  account's link, and the mapping carries the summary and the times and nothing
+  else — no attendees, no description. Every other reader of a manager's time
+  (co-manager overlays, the public tour grid, the iCal feed) sees free/busy only
+  and must stay that way. PropLane-pushed tours and service visits keep their
+  own rendering. Coverage: `tests/unit/google-calendar-meetings.test.ts`.
+- **Clicking a free slot publishes exactly that slotKey.** The compact grid's
+  single-cell Add goes through `addExplicitTourSlotKeys` → the same
+  `writeAvailabilityDateSetForStorageKeyToServer` path "Add availability" uses,
+  so the public grid and the manager grid read one store. The 9-5 band is
+  carried along on the first explicit paint of a day ONLY while the band is on
+  (`defaultConfig.enabled`, the same switch `resolveTourOfferingSlots` reads);
+  both manager calendars pass it off, and `defaultTourGridEnabled` defaults to
+  off for the public route too, so a click on an empty day used to publish
+  sixteen windows the manager never chose. Clicking an OPEN slot opens its
+  details (Delete slot); a busy cell opens the block. Coverage:
+  `tests/unit/calendar-free-slot-click-writes-one-slot.test.tsx`,
+  `tests/unit/calendar-single-slot-add.test.ts`.
+- **No drag-and-drop of busy blocks.** The only drag in the grid is the
+  mouse-drag that paints a multi-slot availability selection
+  (`startDragSelection` / `extendDragSelection` in `portal-calendar-panels.tsx`);
+  nothing moves a meeting or a Google block, and the Google link never
+  reschedules a personal event.
 
 ## Filing a tour request: `createTourInquiry`
 

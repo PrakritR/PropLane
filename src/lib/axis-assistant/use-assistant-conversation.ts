@@ -14,6 +14,7 @@ import {
   saveAssistantChatMessages,
 } from "@/lib/axis-assistant/assistant-chat-storage";
 import { notifyAgentPendingActionsChanged } from "@/lib/axis-assistant/pending-actions-events";
+import { typedConfirmationTarget } from "@/lib/axis-assistant/typed-confirmation";
 import {
   notifyFinancesAssistantUpdated,
   postedDateFromPreviewFields,
@@ -370,10 +371,9 @@ export function useAssistantConversation(endpoint: string, options: AssistantCon
       const text = userMessageContentFromInput(prompt ?? input, attachments);
       if (!text || loading || requestInFlight.current) return;
       // Only the author's standalone command can approve the visible message.
-      // Context, attachments, edits and model output never enter this decision.
-      if (attachments.length === 0 && pendingAction &&
-          ["send_message", "reply_to_thread", "send_message_to_manager"].includes(pendingAction.preview.kind) &&
-          /^(?:send|send it|send the message|send the reply)[.!]?$/i.test(text.trim())) {
+      // Context, attachments, edits and model output never enter this decision,
+      // and the approval rides the same confirm transport as the card's button.
+      if (typedConfirmationTarget(text, pendingAction, attachments.length)) {
         setInput("");
         await resolvePendingAction("confirm");
         return;

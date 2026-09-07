@@ -6,6 +6,8 @@ import type { HouseholdCharge } from "@/lib/household-charges";
 import { cancelFuturePaymentRemindersForCharge } from "@/lib/payment-reminder-lifecycle.server";
 import { syncLedgerPaymentEntry } from "@/lib/reports/ledger-sync";
 import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
+import { enqueueWebhookEvent } from "@/lib/webhooks/deliver.server";
+import { webhookEventBuilders } from "@/lib/webhooks/events";
 
 export const HOUSEHOLD_CHARGE_CHECKOUT_PURPOSE = "household_charge";
 
@@ -257,6 +259,13 @@ export async function markHouseholdChargePaidFromStripeSession(
           charge: nextCharge,
           transitionId: `${chargeId}:payment_received:${session.id}`,
         }).catch(() => undefined);
+        // Outbound webhooks: ids, amount and status only, and never throws here.
+        await enqueueWebhookEvent(managerUserId, "payment.succeeded", webhookEventBuilders["payment.succeeded"]({
+          chargeId,
+          propertyId: nextCharge.propertyId,
+          amountCents: Math.round(parseMoneyAmount(nextCharge.amountLabel) * 100),
+          kind: nextCharge.kind,
+        }));
       }
     }
   }

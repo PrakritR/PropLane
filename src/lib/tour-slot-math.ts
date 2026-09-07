@@ -481,8 +481,19 @@ export function defaultTourSlotKeysForDate(
  * Paint one explicit slot from the manager calendar.
  *
  * The first explicit slot on a day that was still on the implicit default must
- * Removing one default window stores a `!date:slot` exclusion marker so the rest
- * of the day stays on the implicit default without painting every other window.
+ * carry that day's default band along with it: `resolveTourOfferingSlots`
+ * replaces the band with the published set the moment a day has any explicit
+ * window, so an evening Add on a default-only day would otherwise silently
+ * close 9-5 on the public page. Removing one default window instead stores a
+ * `!date:slot` exclusion marker so the rest of the day stays on the implicit
+ * default without painting every other window.
+ *
+ * That carry-over happens ONLY while the default band is on
+ * (`defaultConfig.enabled`, the same switch `resolveTourOfferingSlots` reads).
+ * With the band off there is nothing to preserve — the public grid offers
+ * published windows only — and materialising it anyway published sixteen
+ * windows the manager never chose from a single click on an empty day
+ * (PRP-397). A click on a free slot writes exactly that slotKey.
  */
 export function addExplicitTourSlotKeys(
   storedKeys: readonly string[],
@@ -498,7 +509,8 @@ export function addExplicitTourSlotKeys(
   const hasExplicitOnDate = publishedSlots.some(
     (slot) => slot.startsWith(`${dateStr}:`) && slotIsBookable(slot, now),
   );
-  if (!hasExplicitOnDate) {
+  const defaultBandOn = defaultConfig.enabled !== false;
+  if (defaultBandOn && !hasExplicitOnDate) {
     for (const defaultKey of defaultTourSlotKeysForDate(dateStr, defaultConfig)) {
       if (slotIsBookable(defaultKey, now)) next.add(defaultKey);
     }

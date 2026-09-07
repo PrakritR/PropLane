@@ -17,6 +17,14 @@ import { MANAGER_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
 import { smsInboxOwnerIds } from "@/lib/sms/manager-sms-access.server";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import {
+  inboxThreadHasEmail,
+  inboxThreadPhoneHint,
+} from "@/lib/manager-inbox-reply-channels";
+import {
+  canSendResidentOutboundSms,
+  sendResidentOutboundSms,
+} from "@/lib/resident-outbound-sms.server";
+import {
   createScheduledInboxMessage,
   generateScheduledInboxMessageId,
   isResidentOriginatedScheduledRow,
@@ -149,7 +157,7 @@ function withSmsWarning(
 export const sendMessageTool = defineWriteTool({
   name: "send_message",
   description:
-    "Send a message from the landlord to specific recipients by email and/or to all of their current residents at once, delivered to each recipient's portal inbox and optionally by email and/or SMS text. Recipients must be connected to the landlord (their residents, co-managers, or vendors) — get emails from list_residents or list_vendors. Use deliverViaSms when the landlord asks you to TEXT someone.",
+    "Send a message from the landlord to specific recipients by email and/or to all of their current residents at once. Delivered to each recipient's portal inbox plus email and text using the same Messages notification matrix as Communication → Compose (text only reaches phones that can receive it). Recipients must be connected to the landlord (their residents, co-managers, vendors, or funnel prospects) — get emails from list_residents or list_vendors.",
   inputSchema: z
     .object({
       toEmails: z
@@ -167,12 +175,14 @@ export const sendMessageTool = defineWriteTool({
       deliverViaEmail: z
         .boolean()
         .optional()
-        .describe("Also send a real email to each recipient (default true). When false, delivers to portal inboxes only."),
+        .describe(
+          "Legacy override. Prefer leaving unset — Messages category delivery already includes email. Set false only to force-suppress email.",
+        ),
       deliverViaSms: z
         .boolean()
         .optional()
         .describe(
-          "Also text each recipient (default false). Only reaches recipients with a verified, non-opted-out phone; the rest still get the inbox copy. Use this when the landlord says to text someone.",
+          "Legacy override. Prefer leaving unset — Messages category delivery already includes text when a phone is on file. Set false only to force-suppress SMS.",
         ),
     })
     .strict(),
@@ -188,8 +198,10 @@ export const sendMessageTool = defineWriteTool({
     }
     const subject = input.subject.trim();
     const body = input.body.trim();
+    // Category delivery matches Compose: inbox + email + text when available.
+    // Explicit false flags remain opt-outs for rare model overrides.
     const deliverViaEmail = input.deliverViaEmail !== false;
-    const deliverViaSms = input.deliverViaSms === true;
+    const deliverViaSms = input.deliverViaSms !== false;
 
     const lines = allowed.slice(0, PREVIEW_LINE_CAP).map((r) => ({ label: r.name, value: r.email }));
     if (allowed.length > PREVIEW_LINE_CAP) {
@@ -197,7 +209,12 @@ export const sendMessageTool = defineWriteTool({
     }
     lines.push({ label: "Subject", value: subject });
     lines.push({ label: "Message", value: body });
-    lines.push({ label: "Delivery", value: describeDelivery(deliverViaEmail, deliverViaSms) });
+    lines.push({
+      label: "Delivery",
+      value: deliverViaSms
+        ? "Portal inbox + email + text (phone on file)"
+        : describeDelivery(deliverViaEmail, false),
+    });
     if (blocked.length > 0) {
       // Surface — never silently drop — recipients the scope filter rejected.
       lines.push({ label: "Skipped (not connected)", value: blocked.map((b) => b.email).join(", ") });
@@ -241,7 +258,7 @@ export const sendMessageTool = defineWriteTool({
     const subject = input.subject.trim();
     const body = input.body.trim();
     const deliverViaEmail = input.deliverViaEmail !== false;
-    const deliverViaSms = input.deliverViaSms === true;
+    const deliverViaSms = input.deliverViaSms !== false;
     const sortedEmails = allowed.map((r) => r.email).sort();
 
     // Record intent first, idempotent per identical content + recipient set
@@ -255,6 +272,7 @@ export const sendMessageTool = defineWriteTool({
         broadcast: input.toAllResidents === true,
         deliverViaEmail,
         deliverViaSms,
+        eventCategory: "messages",
       },
       dedupeKey,
     });
@@ -286,8 +304,10 @@ export const sendMessageTool = defineWriteTool({
       text: body,
       ...(toEmails.length > 0 ? { toEmails } : {}),
       ...(toUserIds.length > 0 ? { toUserIds } : {}),
-      deliverViaEmail,
-      deliverViaSms,
+      // Same matrix as Communication → Compose (inbox + email + text defaults).
+      eventCategory: "messages",
+      ...(deliverViaEmail ? {} : { suppressEmail: true }),
+      ...(deliverViaSms ? {} : { suppressSms: true }),
       senderRole: "manager",
     });
     if (!delivery.ok) {
@@ -296,9 +316,12 @@ export const sendMessageTool = defineWriteTool({
       throw new Error(delivery.error);
     }
     await updateAuditResult(ctx, dedupeKey, { delivered: true, recipientCount: delivery.recipientCount });
+    const deliveryLabel = deliverViaSms
+      ? "portal inbox + email + text when available"
+      : describeDelivery(deliverViaEmail, false).toLowerCase();
     return {
-      reply: `Sent "${subject}" to ${delivery.recipientCount} recipient${delivery.recipientCount === 1 ? "" : "s"} (${describeDelivery(deliverViaEmail, deliverViaSms).toLowerCase()}).`,
-      resultSummary: { recipientCount: delivery.recipientCount, deliverViaEmail, deliverViaSms },
+      reply: `Sent "${subject}" to ${delivery.recipientCount} recipient${delivery.recipientCount === 1 ? "" : "s"} (${deliveryLabel}).`,
+      resultSummary: { recipientCount: delivery.recipientCount, deliverViaEmail, deliverViaSms, eventCategory: "messages" },
     };
   },
 });
@@ -336,7 +359,7 @@ function threadCounterpartyEmail(thread: PersistedInboxThread): string {
 export const replyToThreadTool = defineWriteTool({
   name: "reply_to_thread",
   description:
-    "Reply to an existing inbox conversation: the reply is appended to the landlord's thread and delivered to the other person (resident, applicant, co-manager, or vendor) in their portal inbox and by email. Pass the thread id from list_inbox_threads or get_thread_messages; use get_thread_messages first to read what you are replying to.",
+    "Reply to an existing inbox conversation: the reply is appended to the landlord's thread and delivered to the other person. Email counterparties get portal inbox + Messages-channel email/text; phone-only work-number threads (prospect texts) are answered as a text from the landlord's work number. Pass the thread id from list_inbox_threads or get_thread_messages; use get_thread_messages first to read what you are replying to.",
   inputSchema: z
     .object({
       threadId: z.string().min(1).describe("Inbox thread id from list_inbox_threads."),
@@ -352,20 +375,49 @@ export const replyToThreadTool = defineWriteTool({
     if (thread.folder === "trash") {
       throw new Error("This thread is in the trash — restore it before replying.");
     }
+    const body = input.body.trim();
+    const phoneHint = inboxThreadPhoneHint(thread);
+    const hasEmail = inboxThreadHasEmail(thread.email);
+
+    // Phone-only work-number prospect thread: ownership of the thread IS the
+    // connection (same as the manual Communication reply). Skip email scope.
+    if (!hasEmail && phoneHint) {
+      const { data: senderProfile } = await ctx.db
+        .from("profiles")
+        .select("sms_from_number")
+        .eq("id", ctx.landlordId)
+        .maybeSingle();
+      const smsFromNumber = String(senderProfile?.sms_from_number ?? "").trim();
+      if (!canSendResidentOutboundSms(smsFromNumber)) {
+        throw new Error(
+          "Your work number is not ready to send yet. Open Settings → Messaging, then try again.",
+        );
+      }
+      return {
+        confirmedInput: { threadId: row.id, body },
+        kind: "reply_to_thread",
+        title: "Send text reply",
+        summary: `Text from your work number to ${phoneHint}.`,
+        fields: [
+          { label: "To", value: phoneHint },
+          { label: "Reply", value: body },
+          { label: "Delivery", value: `Text from your work number to ${phoneHint}` },
+        ],
+        ...withSmsWarning(withBodyWarnings(body), true),
+        confirmLabel: "Send text",
+      };
+    }
+
     const counterparty = threadCounterpartyEmail(thread);
     if (!counterparty.includes("@")) {
       throw new Error("This thread has no reply address (it may be a system notification).");
     }
-    // Same authorization gate as a fresh message: the counterparty must still
-    // be connected to this landlord.
     const { allowed } = await resolveMessageRecipients(ctx, { toEmails: [counterparty] });
     const recipient = allowed[0];
     if (!recipient) {
       throw new Error(`${counterparty} is not connected to this landlord anymore, so this thread cannot be replied to.`);
     }
-    const body = input.body.trim();
     const subject = thread.subject?.startsWith("Re:") ? thread.subject : `Re: ${thread.subject ?? ""}`.trim();
-    const emailConfigured = Boolean(process.env.RESEND_API_KEY?.trim());
     return {
       confirmedInput: { threadId: row.id, body },
       kind: "reply_to_thread",
@@ -377,28 +429,117 @@ export const replyToThreadTool = defineWriteTool({
           { label: "Reply", value: body },
           {
             label: "Delivery",
-            value: emailConfigured ? "Portal inbox + email" : "Portal inbox only (email is not configured)",
+            value: "Portal inbox + email + text (phone on file)",
           },
         ],
-      ...withBodyWarnings(body),
+      ...withSmsWarning(withBodyWarnings(body), true),
       confirmLabel: "Send reply",
     };
   },
   handler: async (ctx, input) => {
-    // Re-resolve the thread AND re-authorize the counterparty at execute time.
     const row = await loadOwnInboxThread(ctx, input.threadId);
     if (!row) throw new Error("No inbox thread with that id for this landlord.");
     const thread = row.row_data;
+    const body = input.body.trim();
+    const phoneHint = inboxThreadPhoneHint(thread);
+    const hasEmail = inboxThreadHasEmail(thread.email);
+
+    const { data: senderProfile } = await ctx.db
+      .from("profiles")
+      .select("full_name, sms_from_number")
+      .eq("id", ctx.userId)
+      .maybeSingle();
+    const fromName = String(senderProfile?.full_name ?? "").trim() || ctx.email || "Property manager";
+
+    if (!hasEmail && phoneHint) {
+      const smsFromNumber = String(senderProfile?.sms_from_number ?? "").trim();
+      if (!canSendResidentOutboundSms(smsFromNumber)) {
+        throw new Error(
+          "Your work number is not ready to send yet. Open Settings → Messaging, then try again.",
+        );
+      }
+
+      const dedupeKey = `reply_to_thread:${ctx.landlordId}:${row.id}:${contentHash(body)}:${auditDayBucket()}`;
+      const audit = await writeAuditLog(ctx, {
+        action: "reply_to_thread",
+        toolName: "reply_to_thread",
+        inputSummary: { threadId: row.id, recipientPhone: phoneHint, channel: "sms" },
+        dedupeKey,
+      });
+      if (!audit.recorded) {
+        if (audit.duplicate) {
+          return { reply: "This exact reply already went out on this thread today — not sending it again." };
+        }
+        throw new Error("Could not record the action; nothing was sent.");
+      }
+
+      const messages = Array.isArray(thread.messages) ? [...thread.messages] : [];
+      const when = formatPacificDateTime(new Date());
+      messages.push({
+        id: `reply-${Date.now().toString(36)}`,
+        from: fromName,
+        body,
+        at: when,
+      });
+      const { error: threadError } = await ctx.db.from("portal_inbox_thread_records").upsert(
+        {
+          id: row.id,
+          scope: row.scope,
+          owner_user_id: row.owner_user_id,
+          participant_email: row.participant_email,
+          row_data: {
+            ...thread,
+            messages,
+            preview: body.slice(0, 100).replace(/\n/g, " "),
+            time: when,
+            unread: false,
+          },
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" },
+      );
+      if (threadError) {
+        await updateAuditResult(ctx, dedupeKey, { delivered: false }, { clearDedupeKey: true });
+        throw new Error("Could not update the conversation; nothing was sent.");
+      }
+
+      const sms = await sendResidentOutboundSms({
+        to: phoneHint,
+        text: body,
+        fromNumber: smsFromNumber,
+        sendClass: "transactional",
+        purpose: "assistant_thread_sms_reply",
+        dedupeKey: `assistant_reply_sms_${row.id}_${contentHash(body)}_${auditDayBucket()}`,
+        openThread: {
+          managerUserId: ctx.landlordId,
+          topic: "leasing",
+          counterpartyRole: "prospect",
+        },
+        mirrorToManager: false,
+      });
+      if (!sms.sent && !sms.accepted) {
+        await updateAuditResult(ctx, dedupeKey, { delivered: false }, { clearDedupeKey: true });
+        throw new Error(
+          sms.error === "recipient_opted_out"
+            ? "That number has opted out of texts."
+            : "Could not send the text from your work number.",
+        );
+      }
+      await updateAuditResult(ctx, dedupeKey, { delivered: true, channel: "sms" });
+      return {
+        reply: `Texted ${phoneHint} from your work number.`,
+        resultSummary: { threadId: row.id, channel: "sms" },
+      };
+    }
+
     const counterparty = threadCounterpartyEmail(thread);
     const { allowed } = await resolveMessageRecipients(ctx, { toEmails: [counterparty] });
     const recipient = allowed[0];
     if (!recipient) {
       throw new Error("The other person in this thread is no longer connected to this landlord; nothing was sent.");
     }
-    const body = input.body.trim();
     const subject = thread.subject?.startsWith("Re:") ? thread.subject : `Re: ${thread.subject ?? ""}`.trim();
 
-    // Idempotent per identical reply per thread per day.
     const dedupeKey = `reply_to_thread:${ctx.landlordId}:${row.id}:${contentHash(body)}:${auditDayBucket()}`;
     const audit = await writeAuditLog(ctx, {
       action: "reply_to_thread",
@@ -413,15 +554,6 @@ export const replyToThreadTool = defineWriteTool({
       throw new Error("Could not record the action; nothing was sent.");
     }
 
-    const { data: senderProfile } = await ctx.db
-      .from("profiles")
-      .select("full_name")
-      .eq("id", ctx.userId)
-      .maybeSingle();
-    const fromName = String(senderProfile?.full_name ?? "").trim() || ctx.email || "Property manager";
-
-    // 1. Append the reply onto the landlord's own thread (same shape the
-    //    interactive reply flow writes), so their inbox shows the exchange.
     const messages = Array.isArray(thread.messages) ? [...thread.messages] : [];
     const when = formatPacificDateTime(new Date());
     messages.push({
@@ -452,10 +584,6 @@ export const replyToThreadTool = defineWriteTool({
       throw new Error("Could not update the conversation; nothing was sent.");
     }
 
-    // 2. Deliver the reply to the counterparty through the same scope-filtered
-    //    pipeline as send_message. Degrades honestly to portal-only when email
-    //    isn't configured — the portal thread is the primary channel.
-    const emailConfigured = Boolean(process.env.RESEND_API_KEY?.trim());
     const delivery = await deliverPortalInboxMessage(ctx.db, {
       senderUserId: ctx.landlordId,
       senderEmail: ctx.email,
@@ -463,15 +591,18 @@ export const replyToThreadTool = defineWriteTool({
       subject,
       text: body,
       ...(recipient.userId ? { toUserIds: [recipient.userId] } : { toEmails: [recipient.email] }),
-      deliverViaEmail: emailConfigured,
+      eventCategory: "messages",
       senderRole: "manager",
     });
     if (!delivery.ok) {
       await updateAuditResult(ctx, dedupeKey, { delivered: false }, { clearDedupeKey: true });
       throw new Error(delivery.error);
     }
-    await updateAuditResult(ctx, dedupeKey, { delivered: true, emailed: emailConfigured });
-    return { reply: `Replied to ${recipientLabel(recipient)} on "${thread.subject ?? "(no subject)"}" ${emailConfigured ? "(portal inbox + email)" : "(portal inbox only — email is not configured)"}.`, resultSummary: { threadId: row.id } };
+    await updateAuditResult(ctx, dedupeKey, { delivered: true, eventCategory: "messages" });
+    return {
+      reply: `Replied to ${recipientLabel(recipient)} on "${thread.subject ?? "(no subject)"}" (portal inbox + email + text when available).`,
+      resultSummary: { threadId: row.id },
+    };
   },
 });
 

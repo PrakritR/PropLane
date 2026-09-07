@@ -14,6 +14,17 @@ import { loadResidentPortalAccessState } from "@/lib/resident-portal-access";
 import { getManagerSubscriptionTierByManagerId } from "@/lib/manager-access-server";
 import type { ManagerSubscriptionTier } from "@/lib/manager-access";
 
+/**
+ * One image the resident attached to THIS chat turn, already stored privately
+ * under the resident's own storage prefix by the chat route. `index` is the
+ * position in the message's attachment list, which is how the model refers to
+ * it ("the second photo"); the tool never sees bytes, only this reference.
+ */
+export type ResidentChatPhotoRef = {
+  index: number;
+  storagePath: string;
+};
+
 export type ResidentAgentContext = {
   kind: "resident";
   userId: string;
@@ -35,6 +46,13 @@ export type ResidentAgentContext = {
    * resident's own user id (there may be zero or many linked managers).
    */
   landlordId: string;
+  /**
+   * Photos attached to the current chat turn, keyed by attachment index. Set
+   * ONLY by the resident chat route for the duration of one request; absent on
+   * SMS turns and on the confirm request, which is why a preview must pin the
+   * storage paths it resolved rather than expect the stash to still exist.
+   */
+  chatPhotos?: ResidentChatPhotoRef[];
   /**
    * Service-role client. It bypasses RLS, so every query built from it MUST
    * scope by resident identity: `.or("resident_user_id.eq.<uid>,resident_email.eq.<email>")`

@@ -118,3 +118,118 @@ on an account with five listings and no paywall anywhere).
   `manager-relist-in-place.test.ts`,
   `manager-trial-expiry-quota.test.ts`,
   `tools/property-resident-writes.test.ts`.
+
+## Communication & AI allowance by plan (PRP-282)
+
+The tiers differ on TWO axes: what a plan unlocks (properties, co-managers,
+sections — above) and how much texting, calling and assistant use is included
+each month. The second axis is a usage **value**, not a message count, because
+the meters are not comparable (`src/lib/comms-billing/rates.ts`: an outbound
+SMS segment is 3¢, an inbound segment 2¢, a voice minute 4¢, an AI assistant
+turn 15¢; the work number itself is free on every plan).
+
+| Plan | Included per month (`COMMS_INCLUDED_ALLOWANCE_CENTS`) | Roughly |
+| --- | --- | --- |
+| Free | $2.50 | ~80 texts, or ~16 assistant turns |
+| Pro | $15.00 | ~500 texts, or ~100 assistant turns |
+| Business | $150.00 | ~5,000 texts, or ~1,000 assistant turns |
+
+Rules (`src/lib/comms-billing/allowances.ts`):
+
+- The allowance is the ONLY entitlement on this axis. Every plan is capped —
+  Business is capped high, not unmetered — and the cap is a value, so a rate
+  change never silently changes a message count that copy promised.
+- Past the allowance, usage is **pay-as-you-go at the listed rates** when a
+  card is on file (`COMMS_PAYG_BILLING_ENABLED`); with NO card the account is
+  blocked from sending until one is added. That block is the paywall, and
+  `commsAllowanceBlockedMessage(tier)` is the one place its copy lives.
+- Usage is metered by `recordManagerCommsUsage` regardless of whether billing
+  is switched on, so PostHog and the Settings → Communication meter always
+  show real numbers; enforcement and charging are separate flags.
+
+Customer-facing copy (pricing cards and FAQ, `src/data/manager-plan-tiers.ts`
+and `src/app/(public)/pricing/page.tsx`) is DERIVED from
+`COMMS_INCLUDED_ALLOWANCE_CENTS` through `commsAllowanceFeatureText`, so the
+page cannot promise a number the code does not enforce. Coverage:
+`tests/unit/plan-comms-allowance-copy.test.ts`.
+
+## Admin Billing (staff view + per-account overrides)
+
+`/admin/billing` is a LENS on the accounts already in `/admin/axis-users`, not a
+second place to administer one. It is the same `PortalRecordListSurface` +
+`PortalPersonRecordRow` every other list tab uses, and opening a row opens the
+SAME editor Accounts opens — `ManagerAccountDetail`
+(`src/components/portal/admin-manager-account-detail.tsx`), which both clients
+import. A plan change made from Billing and one made from Accounts must be the
+same control, or the two grow different rules for the same write.
+
+**Every number on that screen comes from the resolver enforcement uses.** The
+list route (`GET /api/admin/manager-billing`) reads in bulk — six queries
+regardless of how many accounts exist — and `deriveAdminBillingRow`
+(`src/lib/admin-billing-rows.ts`) turns each account into a row through
+`resolveEffectiveManagerSkuTier`, `maxPropertiesForManagerTier`, the same
+`LISTING_SLOT_PROPERTY_STATUSES` the quota counts, `resolveServiceFeePayerFor`,
+and the comms allowance table. A staff screen that computed any of them a second
+way would eventually disagree with what the manager is actually charged or
+refused, which is the whole failure this list exists to make visible.
+
+**`planUnknown` is the state that file is most careful about.** A purchase chunk
+that fails to read marks only the managers in THAT chunk as `planReadFailed`;
+the row then prints "Plan unknown" and prints NOTHING derived from it (no cap,
+no fee payer, no allowance) rather than the Free defaults those resolvers would
+produce from zero rows. Such a row appears under **All** and no other tab —
+filing it under Free would be the one wrong guess that matters, and a sixth
+"unknown" tab would bury it. Tabs are All / Trial / Free / Pro / Business /
+Absorbing fees, and `absorbing` reports the NET answer, so a paid account that
+has made no choice of its own counts (the paid-plan default in
+`resolveServiceFeePayerFor` IS `proplane`).
+
+### Per-account overrides
+
+`PATCH /api/admin/manager-billing-overrides` is the staff-only writer:
+service-role write after an admin check on every request, exactly like
+`/api/admin/manager-service-fee`. `saveManagerBillingOverrides` does no
+authorization of its own — matching every other service-role writer here — so
+that route is the boundary; a manager who could set their own property cap would
+have no cap. Three fields, stored at
+`manager_automation_settings.row_data.billingOverrides`
+(`src/lib/manager-billing-overrides.ts`). **No migration was needed**: `row_data`
+exists in every deployment of that table, and every other writer of it
+read-modify-writes its own key.
+
+- **`propertyCap`** — the only one enforcement READS. It replaces the plan cap in
+  both directions inside `assertManagerPropertyListingQuota`, and `0` is a real
+  value ("may not publish"), which is why it is `null`-for-absent rather than
+  falsy-for-absent. A pinned cap gets its own refusal copy
+  (`managerPropertyCapOverrideMessage`) with no upgrade CTA — upgrading would not
+  move a number a staff member typed. **A cap that cannot be READ is a 500**,
+  exactly like a plan that cannot be read: falling back to the plan default would
+  refuse a manager staff had explicitly comped a bigger cap, on a transient
+  database error. It still only ever gates the TRANSITION INTO a slot, so
+  lowering a cap below what an account already holds refuses the next listing and
+  touches nothing that exists — block creation, never delete or hide.
+- **`trialEndsAt`** — RECORDED AND DISPLAYED ONLY. The plan resolver still expires
+  a signup trial by `paid_at + MANAGER_SUBSCRIPTION_TRIAL_DAYS`; nothing reads
+  this. The admin control says so under the field.
+- **`complimentary`** — RECORDED AND DISPLAYED ONLY. Billing does not read it yet.
+  A comp switch that silently stopped invoicing would be a money change made in a
+  UI ticket; the control says so under the field.
+
+Every accepted change writes one `audit_log` row PER FIELD THAT ACTUALLY MOVED
+(`writeAdminBillingAudit`, `src/lib/admin-billing-audit.server.ts`):
+`actor_user_id` is the staff member, `landlord_id` the manager, and
+`input_summary` carries `field`, `before`, `after` and the optional `reason`. The
+value alone never says who granted the exception or why. `reason` is the one
+deliberate departure from the agent audit convention's ids-and-enums rule — it is
+staff-authored text about a commercial decision, not lifted from a resident — and
+it is trimmed to 280 characters. `dedupe_key` is left unset on purpose: setting
+the same cap twice is two real decisions.
+
+Not yet built (a separate ticket): **global defaults** — changing what a plan
+includes for everyone, rather than excepting one account.
+
+Coverage: `tests/unit/admin-billing-rows.test.ts`,
+`admin-manager-billing-overrides-route.test.ts`,
+`manager-property-cap-override.test.ts`, plus
+`admin-list-surface-adoption.test.ts` and `platform-parity.test.ts` for the
+section wiring.

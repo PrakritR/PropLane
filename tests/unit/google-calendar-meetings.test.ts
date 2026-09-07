@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  googleBusyBlockStatusLabel,
   googleCalendarEventsToMeetings,
   isGoogleCalendarPrivateBlock,
   isGoogleCalendarTourEvent,
   isGoogleCalendarWorkOrderEvent,
   meetingCalendarGridLabel,
+  meetingCalendarGridTooltip,
   parseProplaneGoogleCalendarDescription,
 } from "@/lib/google-calendar/meetings";
 import {
@@ -63,14 +65,57 @@ describe("google calendar meetings", () => {
     expect(parsed.roomLabel).toBe("Not sure which room yet");
   });
 
-  it("blocks personal Google events without exposing titles", () => {
+  /**
+   * PRP-397: a personal Google event is drawn as its own title so the manager
+   * can tell WHICH meeting holds the half hour. It is still a private block —
+   * not an event the tabs count — and only the title and the times travel:
+   * the description and attendees stay behind.
+   */
+  it("carries a personal Google event's title and times, and nothing else", () => {
     const [meeting] = googleCalendarEventsToMeetings([
-      event({ summary: "Dentist appointment", description: "Private note" }),
+      event({
+        summary: "Dentist appointment",
+        description: "Private note — do not surface",
+        start: "2026-08-02T15:00:00-07:00",
+        end: "2026-08-02T16:00:00-07:00",
+      }),
     ]);
-    expect(meeting?.title).toBe("Blocked");
+    expect(meeting?.title).toBe("Dentist appointment");
+    expect(meeting?.statusLabel).toBe("Blocked");
     expect(meeting?.googleCalendarPrivate).toBe(true);
     expect(isGoogleCalendarPrivateBlock(meeting!)).toBe(true);
+    expect(meeting?.startIso).toBe(new Date("2026-08-02T15:00:00-07:00").toISOString());
+    expect(meeting?.endIso).toBe(new Date("2026-08-02T16:00:00-07:00").toISOString());
+    expect(meeting?.span).toBe(2);
+
+    // Privacy floor: nothing but title + time reaches the grid block.
+    expect(meeting?.notes).toBeUndefined();
+    expect(meeting?.email).toBeUndefined();
+    expect(meeting?.phone).toBeUndefined();
+    expect(meeting?.name).toBeUndefined();
+    expect(JSON.stringify(meeting)).not.toContain("Private note");
+
+    // The start cell reads the title; the hover text adds the free/busy word.
+    expect(meetingCalendarGridLabel(meeting!)).toBe("Dentist appointment");
+    expect(meetingCalendarGridTooltip(meeting!)).toBe("Dentist appointment · Blocked");
+    expect(googleBusyBlockStatusLabel(meeting!)).toBe("Blocked");
+  });
+
+  it("falls back to the free/busy word when a personal event has no title", () => {
+    const [meeting] = googleCalendarEventsToMeetings([event({ summary: "   " })]);
+    expect(meeting?.title).toBe("Blocked");
     expect(meetingCalendarGridLabel(meeting!)).toBe("Blocked");
+    expect(meetingCalendarGridTooltip(meeting!)).toBe("Blocked");
+  });
+
+  it("still tells a Free personal event apart from a busy one, by status not title", () => {
+    const [meeting] = googleCalendarEventsToMeetings([
+      event({ summary: "Lunch (optional)", transparency: "transparent" }),
+    ]);
+    expect(meeting?.title).toBe("Lunch (optional)");
+    expect(meeting?.statusLabel).toBe("Free");
+    expect(googleBusyBlockStatusLabel(meeting!)).toBe("Free");
+    expect(meetingCalendarGridTooltip(meeting!)).toBe("Lunch (optional) · Free");
   });
 
   it("classifies PropPlane work order events", () => {
@@ -192,13 +237,15 @@ describe("every Google event still renders; only some count as taken", () => {
     expect(meetingPaintsCalendarGrid(meeting!)).toBe(false);
   });
 
-  it("paints a Free Google block as Free rather than Blocked", () => {
+  it("paints a Free Google block with its title and a Free status, never Blocked", () => {
     const [meeting] = googleCalendarEventsToMeetings([
       event({ summary: "Bin day", transparency: "transparent", allDay: true }),
     ]);
     expect(meeting).toBeDefined();
     expect(meetingPaintsCalendarGrid(meeting!)).toBe(true);
-    expect(meetingCalendarGridLabel(meeting!)).toBe("Free");
+    expect(meetingCalendarGridLabel(meeting!)).toBe("Bin day");
+    expect(googleBusyBlockStatusLabel(meeting!)).toBe("Free");
+    expect(meeting?.statusLabel).toBe("Free");
   });
 });
 
