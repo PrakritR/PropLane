@@ -28,6 +28,7 @@ import {
   queryBudgetVsActual,
   queryOwnerStatement,
 } from "@/lib/reports/queries/ap-reports";
+import { queryProfitability } from "@/lib/reports/profitability.server";
 
 function defaultDateRange(from?: string, to?: string): { from: string; to: string } {
   const now = new Date();
@@ -1004,6 +1005,8 @@ export async function runManagerReport(
       return queryBudgetVsActual(db, managerUserId, filters);
     case "owner-statement":
       return queryOwnerStatement(db, managerUserId, filters);
+    case "profitability":
+      return queryProfitability(db, managerUserId, filters);
     default:
       return null;
   }
