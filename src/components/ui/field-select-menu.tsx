@@ -51,7 +51,7 @@ export const FIELD_SELECT_MENU_LIST_MAX_HEIGHT_PX =
 
 /** Portaled surface (border/shadow/opaque bg) that overlays the trigger. */
 export const FIELD_SELECT_MENU_SHELL_CLASS =
-  "field-dropdown-menu flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border shadow-[0_16px_40px_-12px_rgba(15,23,42,0.35)]";
+  "field-dropdown-menu pointer-events-auto flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border shadow-[0_16px_40px_-12px_rgba(15,23,42,0.35)]";
 
 /** Scrollable option list — a shrinkable flex child (`flex: 0 1 auto`) so the shell
  * still sizes to its real content and the list scrolls once the shell hits its cap.
@@ -112,6 +112,9 @@ export function resolveFieldSelectMenuPortal(): HTMLElement {
  */
 export const FIELD_SELECT_HOST_CHROME_ATTR = "data-field-select-host-chrome";
 
+/** Fixed footer chrome (modal actions) — menus must not paint over it or get clipped behind it. */
+export const FIELD_SELECT_HOST_FOOTER_ATTR = "data-field-select-host-footer";
+
 /** Height of the host's fixed chrome, measured from the host's top edge. */
 export function fieldSelectHostTopInsetPx(host: HTMLElement): number {
   const chrome = [...host.querySelectorAll<HTMLElement>(`[${FIELD_SELECT_HOST_CHROME_ATTR}]`)];
@@ -120,6 +123,17 @@ export function fieldSelectHostTopInsetPx(host: HTMLElement): number {
   return chrome.reduce((lowest, el) => {
     const { bottom, height } = el.getBoundingClientRect();
     return height > 0 ? Math.max(lowest, bottom - hostTop) : lowest;
+  }, 0);
+}
+
+/** Height of fixed footer chrome, measured from the bounds box's bottom edge upward. */
+export function fieldSelectHostBottomInsetPx(bounds: HTMLElement): number {
+  const footers = [...bounds.querySelectorAll<HTMLElement>(`[${FIELD_SELECT_HOST_FOOTER_ATTR}]`)];
+  if (footers.length === 0) return 0;
+  const boundsBottom = bounds.getBoundingClientRect().bottom;
+  return footers.reduce((inset, el) => {
+    const { top, height } = el.getBoundingClientRect();
+    return height > 0 ? Math.max(inset, boundsBottom - top) : inset;
   }, 0);
 }
 
@@ -144,6 +158,8 @@ export function fieldSelectMenuBoundsElement(
 
 export function fieldSelectMenuZIndex(portalHost: HTMLElement): number {
   if (portalHost === document.body) return 10000;
+  if (portalHost.matches('[data-slot="modal-radix-dialog"]')) return 90;
+  if (portalHost.matches('[data-slot="modal-vaul-drawer"]')) return 90;
   if (portalHost.matches('[data-slot="vaul-bottom-sheet"]')) return 100;
   if (portalHost.matches('[data-slot="portal-filter-dropdown-panel"]')) return 30;
   return 80;
@@ -302,6 +318,8 @@ export function computeFieldSelectMenuRectInHost(
      * on a phone, where there is no Escape key, that can leave the sheet undismissable.
      */
     topInsetPx?: number;
+    /** Fixed footer chrome inside `boundsRect` — subtract from the usable bottom edge. */
+    bottomInsetPx?: number;
     /**
      * The box the menu must stay inside, when that is NOT the element it is portaled
      * into. A dialog portals its menus into a full-bleed `fixed inset-0` wrapper so the
@@ -330,9 +348,12 @@ export function computeFieldSelectMenuRectInHost(
     ? rect.width
     : Math.min(Math.max(minWidth, rect.width), maxMenuWidth);
 
+  const bottomInset = options?.bottomInsetPx ?? 0;
+  const effectiveBoundsBottom = bounds.bottom - bottomInset;
   const boundsLeftInHost = bounds.left - hostRect.left;
   const boundsTopInHost = bounds.top - hostRect.top;
-  const boundsBottomInHost = bounds.bottom - hostRect.top;
+  const boundsBottomInHost = effectiveBoundsBottom - hostRect.top;
+  const effectiveBoundsHeight = effectiveBoundsBottom - bounds.top;
 
   let left = rect.left - hostRect.left;
   if (!matchTriggerWidth) {
@@ -348,7 +369,7 @@ export function computeFieldSelectMenuRectInHost(
   const topInset = options?.topInsetPx ?? 0;
   const safeTop = boundsTopInHost + topInset + gap;
   const spaceAbove = rect.top - bounds.top - topInset - gap;
-  const hostSpaceBelow = bounds.bottom - rect.bottom - gap;
+  const hostSpaceBelow = effectiveBoundsBottom - rect.bottom - gap;
   const triggerTopInHost = rect.top - hostRect.top;
   const triggerBottomInHost = rect.bottom - hostRect.top;
   const preferOpenDown = options?.preferOpenDown ?? false;
@@ -387,7 +408,7 @@ export function computeFieldSelectMenuRectInHost(
           const upTop = Math.max(safeTop, triggerTopInHost - upMaxHeight - gap);
           return { top: upTop, left, width, maxHeight: upMaxHeight, position: "absolute" };
         }
-        maxHeight = Math.min(contentPx, bounds.height - topInset - gap * 2);
+        maxHeight = Math.min(contentPx, effectiveBoundsHeight - topInset - gap * 2);
         top = Math.max(safeTop, hostBottom - maxHeight);
       }
 
@@ -404,7 +425,7 @@ export function computeFieldSelectMenuRectInHost(
    * that box. That can overlap the trigger by the shortfall, which is the lesser cost: the
    * alternative is a menu hanging off the sheet, or one crushed below five rows.
    */
-  const hostCanContainMenu = bounds.height - topInset - gap * 2 >= contentPx;
+  const hostCanContainMenu = effectiveBoundsHeight - topInset - gap * 2 >= contentPx;
   if (hostCanContainMenu) {
     const openUpInside = resolveOpenUp(hostSpaceBelow, spaceAbove, contentPx, preferOpenDown);
     const anchored = openUpInside
@@ -416,7 +437,7 @@ export function computeFieldSelectMenuRectInHost(
 
   /* Host too short to hold the menu at all (a one-field sheet). Showing all five rows
      outranks staying inside, so fall back to the viewport bound when one was offered. */
-  const bottomBound = options?.bottomBoundPx ?? bounds.bottom;
+  const bottomBound = options?.bottomBoundPx ?? effectiveBoundsBottom;
   const spaceBelow = bottomBound - rect.bottom - gap;
   const openUp = resolveOpenUp(spaceBelow, spaceAbove, contentPx, preferOpenDown);
   const maxHeight = Math.min(
@@ -608,6 +629,7 @@ export function useFieldSelectMenu({
                   matchTriggerWidth: matchTriggerWidth || inVaulSheet || inModalDialog,
                   hostPaddingPx: inVaulSheet ? 0 : undefined,
                   topInsetPx: fieldSelectHostTopInsetPx(boundsEl),
+                  bottomInsetPx: fieldSelectHostBottomInsetPx(boundsEl),
                   strictHostContainment: inVaulSheet || inModalDialog,
                   bottomBoundPx: window.innerHeight - 12,
                   boundsRect:
