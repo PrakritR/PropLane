@@ -125,3 +125,11 @@ graphify-out/
 # Portal DOM sweep output — screenshots, per-run findings, and the durable
 # finding ledger that stops an overnight loop re-filing what it already reported.
 .testmanager/
+
+# Local scratch trees: design/QA output (mocks, screenshots, prototype
+# entrypoints) and full-repo validation copies. Untracked artifacts only.
+# eslint and tsconfig exclude them too - a prototype that imports app
+# components, or a full copy of the repo inside the repo, must never be able
+# to fail the repo's own lint or typecheck.
+output/
+.main-green-validation/
