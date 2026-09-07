@@ -4,7 +4,9 @@ import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/auth/primary-admin";
 import { managerOwnsResident } from "@/lib/auth/resident-relationship";
 import { managerIdsOwningResident } from "@/lib/resident-manager-scope";
-import { INQUIRIES_RECORD_ID } from "@/lib/tour-inquiry.server";
+
+/** Shared singleton holding every manager's tour inquiries (see tour-inquiry.server). */
+const INQUIRIES_RECORD_ID = "axis_admin_partner_inquiries_v1";
 
 /**
  * Server-side recipient scoping for the portal inbox compose flow.
@@ -297,11 +299,18 @@ async function managerConnectedToFunnelProspect(
     try {
       const { data, error } = await db
         .from("portal_inbox_thread_records")
-        .select("id")
+        .select("id, row_data")
         .in("owner_user_id", managerIds)
         .eq("participant_email", email)
-        .limit(1);
-      if (!error && Array.isArray(data) && data.length > 0) return true;
+        .limit(5);
+      if (!error && Array.isArray(data)) {
+        for (const row of data) {
+          const rowData = (row.row_data ?? {}) as Record<string, unknown>;
+          // Property-lead / listing conversations carry a property id; bare
+          // accidental threads do not unlock messaging.
+          if (String(rowData.propertyId ?? "").trim()) return true;
+        }
+      }
     } catch {
       /* ignore */
     }
@@ -581,6 +590,7 @@ export async function listEligibleInboxContacts(
         const email = String(row.participant_email ?? "").trim();
         if (!email) continue;
         const rowData = (row.row_data ?? {}) as Record<string, unknown>;
+        if (!String(rowData.propertyId ?? "").trim()) continue;
         push({
           id: `lead-${row.id}`,
           name: String(rowData.from ?? "").trim() || email,
