@@ -92,7 +92,7 @@ export async function GET() {
           const executedIds = executedByOwner.get(ownerId) ?? new Set<string>();
           const appRow = {
             id: normalizeApplicationAxisId(String(row.id)),
-            manuallyAdded: row.manually_added === true || row.manually_added === "true",
+            manuallyAdded: String(row.manually_added ?? "") === "true",
           };
           if (!applicationHoldsRoomPublicly(appRow, executedIds)) continue;
 
