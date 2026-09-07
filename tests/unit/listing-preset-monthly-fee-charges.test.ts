@@ -49,9 +49,12 @@ function seed(propertyId: string, customFees: ManagerCustomFeeRow[]): MockProper
     id: propertyId,
     title: "Monthly Fee House",
     tagline: "",
-    address: "1500 Pike St, Seattle, WA",
-    zip: "98101",
-    neighborhood: "Belltown",
+    // Tacoma, not Seattle: these pin the everywhere-else contract (a monthly fee bills as its
+    // own recurring charge). In Seattle every monthly fee folds into rent instead — see
+    // tests/unit/seattle-rent-fold-in.test.ts.
+    address: "1200 Pacific Ave, Tacoma, WA",
+    zip: "98402",
+    neighborhood: "Downtown",
     beds: 1,
     baths: 1,
     rentLabel: "$1,200/mo",

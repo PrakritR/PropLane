@@ -5,7 +5,13 @@
 
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { createCoalescedRefresher, type CoalescedRefresher } from "@/lib/coalesced-refresh";
-import { recurringMonthlyFeesForLease } from "@/lib/custom-lease-billing";
+import type { LeaseRecurringFeeBillingContext } from "@/lib/custom-lease-billing";
+import {
+  genuinelyCustomFees,
+  monthlyFeesBilledSeparately,
+  monthlyRentFoldInTotal,
+  selfBillingPresetFees,
+} from "@/lib/rent-fold-in";
 import { getPropertyById } from "@/lib/rental-application/data";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { paymentAtSigningPriceLabel } from "@/lib/rental-application/listing-fees-display";
@@ -17,7 +23,7 @@ import {
   type ManagerListingSubmissionV1,
   type ManagerRoomSubmission,
 } from "@/lib/manager-listing-submission";
-import { resolvedShortTermPlacementDeposit, type ListingFeePresetId } from "@/lib/listing-fees";
+import { resolvedShortTermPlacementDeposit } from "@/lib/listing-fees";
 import { listingPresetFeeAmountIfEnabled } from "@/lib/listing-fee-term-toggles";
 import { formatRoomPriceAmount, resolveStayPricing, roomDailyRentPrice,
   DAILY_RENT_MONTH_ESTIMATE_DAYS,
@@ -753,13 +759,13 @@ function backfillBasisBillingRentOnProfiles(): void {
       return { ...p, monthlyRent: 0, updatedAt: new Date().toISOString() };
     }
 
-    const { sub, room } = resolveRowSubmissionRoom(app);
+    const { sub, room, prop } = resolveRowSubmissionRoom(app);
     const dailyBasis =
       residentNegotiatedMonthlyRent(app) > 0 ? undefined : roomDailyRentPrice(room);
     const weeklyBase =
       residentNegotiatedMonthlyRent(app) > 0 ? undefined : roomWeeklyRentPrice(room);
 
-    const monthlyFoldIn = monthlyRentFoldInForBasisBilling(app, sub, room, dailyBasis, weeklyBase);
+    const monthlyFoldIn = monthlyRentFoldInForBasisBilling(app, sub, room, dailyBasis, weeklyBase, prop);
     if (p.monthlyRent === monthlyFoldIn) return p;
     changed = true;
     return {
@@ -1541,13 +1547,28 @@ function resolveRowSubmissionRoom(
     DemoApplicantRow,
     "assignedRoomChoice" | "application" | "propertyId" | "assignedPropertyId" | "manualResidentDetails" | "signedMonthlyRent"
   >,
-): { sub: ReturnType<typeof normalizeManagerListingSubmissionV1> | null; room: ManagerRoomSubmission | null } {
+): {
+  sub: ReturnType<typeof normalizeManagerListingSubmissionV1> | null;
+  room: ManagerRoomSubmission | null;
+  /** The stored property record, for the address the rent rule and the lease both resolve on. */
+  prop: ReturnType<typeof getPropertyById> | null;
+} {
   const propertyId =
     row.assignedPropertyId?.trim() || row.propertyId?.trim() || row.application?.propertyId?.trim() || "";
   const prop = getPropertyById(propertyId);
   const sub = prop?.listingSubmission?.v === 1 ? normalizeManagerListingSubmissionV1(prop.listingSubmission) : null;
-  if (!sub) return { sub: null, room: null };
-  return { sub, room: roomForRow(sub, row, prop?.unitLabel) };
+  if (!sub) return { sub: null, room: null, prop: prop ?? null };
+  return { sub, room: roomForRow(sub, row, prop?.unitLabel), prop: prop ?? null };
+}
+
+/** The tenancy facts the surcharge presets are conditional on, read off the row. */
+function rowFeeBillingContext(row: Pick<DemoApplicantRow, "application">): LeaseRecurringFeeBillingContext {
+  return {
+    leaseStart: row.application?.leaseStart,
+    leaseEnd: row.application?.leaseEnd,
+    leaseTerm: row.application?.leaseTerm,
+    rentalType: row.application?.rentalType,
+  };
 }
 
 /** Shared room lookup for a row. Every caller must pass the same inputs (see the module doc). */
@@ -1616,9 +1637,9 @@ function selectedRoomRentAmount(row: DemoApplicantRow): number {
   const negotiated = residentNegotiatedMonthlyRent(row);
   if (negotiated > 0) return negotiated;
   if (row.manuallyAdded) return 0;
-  const { sub, room } = resolveRowSubmissionRoom(row);
+  const { sub, room, prop } = resolveRowSubmissionRoom(row);
   if (!sub) return 0;
-  const includedFees = monthlyFeesIncludedInRentTotal(sub);
+  const includedFees = monthlyRentFoldInTotal(sub, prop, rowFeeBillingContext(row));
   const bundleId = bundleIdForApplication(row.application);
   if (bundleId) {
     const totals = resolveBundleFinancialTotals(sub, bundleId);
@@ -3015,53 +3036,6 @@ export function recordSubmittedApplicationFeeCharge(row: DemoApplicantRow, manag
   return Boolean(charge && !beforeIds.has(charge.id));
 }
 
-/** Genuinely-custom fee rows (the "+ Add custom fee" rows). Most preset-backed rows bill
- *  through their own legacy fields (deposit, move-in, holding, the surcharges) and are
- *  excluded here; the three in {@link SELF_BILLING_PRESET_FEE_IDS} have no such field and
- *  bill through {@link selfBillingPresetFees} instead. */
-function genuinelyCustomFees(sub: ManagerListingSubmissionV1 | null | undefined): ManagerCustomFeeRow[] {
-  return (sub?.customFees ?? []).filter((fee) => {
-    const presetId = (fee as { presetId?: string }).presetId;
-    return !presetId || presetId === "custom";
-  });
-}
-
-/**
- * Preset fee rows that own no legacy submission field a charge generator reads. Parking, HOA
- * and "other monthly fees" were materialized into `customFees` by the unified-fees migration
- * and then excluded from billing as "preset-backed", but unlike every other preset there was
- * no field billing them either — so a fee the manager entered, and the public listing
- * advertises as a monthly cost, was never charged to anyone.
- */
-const SELF_BILLING_PRESET_FEE_IDS = new Set<ListingFeePresetId>([
-  "parking_monthly",
-  "hoa_monthly",
-  "other_monthly",
-]);
-
-/**
- * Bill the self-billing presets, gated on the wizard checkbox. The amount comes from
- * `listingPresetFeeAmountIfEnabled` rather than the stored row, so an unchecked or removed
- * row resolves to 0 and emits nothing even when a stale amount survives on the row — that
- * gate is the whole point, not a side effect of the row happening to be blank.
- */
-function selfBillingPresetFees(
-  sub: ManagerListingSubmissionV1 | null | undefined,
-  cadence: "one-time" | "monthly",
-): { id: string; label: string; amount: number }[] {
-  if (!sub) return [];
-  return (sub.customFees ?? [])
-    .flatMap((fee) => {
-      const presetId = (fee as { presetId?: string }).presetId as ListingFeePresetId | undefined;
-      if (!presetId || !SELF_BILLING_PRESET_FEE_IDS.has(presetId)) return [];
-      const matchesCadence = cadence === "one-time" ? fee.frequency === "one-time" : fee.frequency !== "one-time";
-      if (!matchesCadence) return [];
-      const amount = listingPresetFeeAmountIfEnabled(sub, presetId);
-      if (!(amount > 0)) return [];
-      return [{ id: fee.id, label: fee.label?.trim() || "Fee", amount }];
-    });
-}
-
 /** Custom fees the manager set to bill once (frequency "one-time"). */
 function oneTimeCustomFees(sub: ManagerListingSubmissionV1 | null | undefined): ManagerCustomFeeRow[] {
   return genuinelyCustomFees(sub).filter((fee) => fee.frequency === "one-time");
@@ -3186,7 +3160,7 @@ function buildApprovedStandardChargeDrafts(
   // `selectedRoomRentAmount` and `selectedRoomUtilities` below go through that same
   // function, and it passes the PROPERTY's unitLabel. Passing anything else here made this
   // one function price rent off one room and prorate off another.
-  const room = resolveRowSubmissionRoom(row).room;
+  const { room, prop: listingProperty } = resolveRowSubmissionRoom(row);
   const entireHome = isEntireHomeListing(sub);
   const prorateMethod =
     entireHome && sub.entireHomeProrateMethod === "daily_rate"
@@ -3203,7 +3177,7 @@ function buildApprovedStandardChargeDrafts(
   const endsInsideFirstMonth = intraMonthStaySpan(opts.leaseStart, opts.leaseEnd) !== null;
   const dailyUtilInRange =
     prorateMethod !== "daily_rate" || Boolean(dailyUtilitiesRate && dailyUtilitiesRate > 0);
-  const monthlyFoldIn = monthlyRentFoldInForBasisBilling(row, sub, room, dailyBasisRate, weeklyBasisRate);
+  const monthlyFoldIn = monthlyRentFoldInForBasisBilling(row, sub, room, dailyBasisRate, weeklyBasisRate, listingProperty);
   const billedWeeklyBasisRate =
     weeklyBasisRate && weeklyBasisRate > 0
       ? weeklyRentWithFoldedShortLeaseSurcharge(room, row.application, weeklyBasisRate)
@@ -3425,26 +3399,19 @@ function syncPendingApprovedChargesFromListing(
   return changed;
 }
 
-/** Monthly custom fees (default cadence) resolved to a stable {id,label,amount} for the
- *  recurring rent profile — only positive amounts bill. */
 /**
- * Monthly custom fees the manager chose to bill INSIDE the rent line.
+ * Total monthly fees folded into this row's rent, in dollars.
  *
- * They are still real, disclosed amounts — they just arrive as part of rent rather
- * than as their own charge, which is what "rent includes parking and utilities"
- * means. Kept in one place so the fee list and the rent line can never both count
- * the same fee: whatever appears here is removed from `monthlyCustomFees`.
+ * `rent-fold-in.ts` owns WHICH fees fold (every monthly fee on a Seattle listing, only the
+ * `includeInRent` custom fees elsewhere); this just feeds it the row's listing address and
+ * tenancy so the two conditional surcharges can decide.
  */
-function monthlyFeesIncludedInRent(sub: ManagerListingSubmissionV1 | null | undefined): { id: string; label: string; amount: number }[] {
-  return genuinelyCustomFees(sub)
-    .filter((fee) => fee.frequency !== "one-time" && fee.includeInRent === true)
-    .map((fee) => ({ id: fee.id, label: fee.label?.trim() || "Included in rent", amount: parseMoneyAmount(fee.amount ?? "") }))
-    .filter((fee) => fee.amount > 0);
-}
-
-/** Total monthly fees folded into rent, in dollars. */
-export function monthlyFeesIncludedInRentTotal(sub: ManagerListingSubmissionV1 | null | undefined): number {
-  return Number(monthlyFeesIncludedInRent(sub).reduce((sum, fee) => sum + fee.amount, 0).toFixed(2));
+function rowMonthlyRentFoldInTotal(
+  row: Pick<DemoApplicantRow, "application">,
+  sub: ManagerListingSubmissionV1 | null | undefined,
+  listingProperty: ReturnType<typeof getPropertyById> | null | undefined,
+): number {
+  return monthlyRentFoldInTotal(sub, listingProperty, rowFeeBillingContext(row));
 }
 
 /**
@@ -3458,8 +3425,9 @@ function monthlyRentFoldInForBasisBilling(
   room: ReturnType<typeof resolveRowSubmissionRoom>["room"],
   dailyBasisRate?: number,
   weeklyBasisRate?: number,
+  listingProperty?: ReturnType<typeof getPropertyById> | null,
 ): number {
-  const fees = monthlyFeesIncludedInRentTotal(sub);
+  const fees = rowMonthlyRentFoldInTotal(row, sub, listingProperty);
   if (dailyBasisRate && dailyBasisRate > 0) {
     const surcharge = tenancyPaysShortLeaseSurcharge(room, row.application) ? roomShortLeaseSurcharge(room) : 0;
     return Number((surcharge + fees).toFixed(2));
@@ -3479,19 +3447,6 @@ function recurringProfileStoredMonthlyRent(
     return monthlyFoldIn;
   }
   return rentAmount > 0 ? rentAmount : 0;
-}
-
-function monthlyCustomFees(sub: ManagerListingSubmissionV1 | null | undefined): { id: string; label: string; amount: number }[] {
-  return [
-    ...genuinelyCustomFees(sub)
-      // A fee folded into rent must NOT also bill separately — that is the one way
-      // this feature could overcharge, so the exclusion lives next to the inclusion.
-      .filter((fee) => fee.includeInRent !== true)
-      .filter((fee) => fee.frequency !== "one-time")
-      .map((fee) => ({ id: fee.id, label: fee.label?.trim() || "Custom fee", amount: parseMoneyAmount(fee.amount ?? "") }))
-      .filter((fee) => fee.amount > 0),
-    ...selfBillingPresetFees(sub, "monthly"),
-  ];
 }
 
 export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerUserId: string | null, force = false): boolean {
@@ -3798,7 +3753,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
   // monthly-priced intra-month term twice over the same days.
   const endsInsideFirstMonth = intraMonthStaySpan(leaseStart, leaseEnd) !== null;
 
-  const monthlyFoldIn = monthlyRentFoldInForBasisBilling(row, sub, room, dailyBasisRate, weeklyBasisRate);
+  const monthlyFoldIn = monthlyRentFoldInForBasisBilling(row, sub, room, dailyBasisRate, weeklyBasisRate, prop);
   const billedWeeklyBasisRate =
     weeklyBasisRate && weeklyBasisRate > 0
       ? weeklyRentWithFoldedShortLeaseSurcharge(room, row.application, weeklyBasisRate)
@@ -3950,7 +3905,7 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
   // after move-in. The move-in month itself is covered by the upfront first-month/prorated
   // charges above; monthly custom fees begin with the first full recurring month (they are a
   // flat monthly service, not prorated, and are not charged for the partial move-in month).
-  const monthlyFeeSet = recurringMonthlyFeesForLease(sub, monthlyCustomFees(sub), {
+  const monthlyFeeSet = monthlyFeesBilledSeparately(sub, prop, {
     leaseStart,
     leaseEnd,
     leaseTerm: row.application?.leaseTerm,

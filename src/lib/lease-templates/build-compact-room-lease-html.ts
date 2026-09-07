@@ -53,6 +53,16 @@ export type CompactRoomLeaseInput = {
   lastMonthDueDateLabel?: string;
   billableOneTimeCustomFees: ReadonlyArray<{ label?: string; amount?: string; amountDue?: number; received?: number }>;
   billableMonthlyCustomFees: ReadonlyArray<{ label?: string; amount?: string }>;
+  /**
+   * Why the rent is higher than the base rate — a short-lease surcharge or, on a Seattle
+   * listing, every monthly fee folded into rent. Rendered under the rent line; those parts
+   * are deliberately NOT in `billableMonthlyCustomFees`, which would list them as extra fees.
+   */
+  rentCompositionHtml?: string;
+  /** Plain-text form of the same composition for the summary box, e.g. "includes $25.00 …". */
+  rentIncludesSummary?: string;
+  /** True when this listing folds every monthly fee into rent (Seattle). */
+  rentFoldsMonthlyFees?: boolean;
   /** Preset one-time fees (application, holding deposit, etc.) not due at signing. */
   supplementalOneTimeLeaseFees?: ReadonlyArray<{ label?: string; amount?: string }>;
   paymentAtSigningIncludes?: readonly string[];
@@ -544,7 +554,7 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
   <p style="margin:0.2rem 0"><strong>Premises:</strong> ${premisesLine}</p>
   <p style="margin:0.2rem 0"><strong>Lease Term:</strong> ${leaseTermLine}</p>
   ${summaryHeading("Monthly charges")}
-  <p style="margin:0.2rem 0"><strong>Monthly Rent:</strong> ${monthlyRentDisplay}</p>
+  <p style="margin:0.2rem 0"><strong>Monthly Rent:</strong> ${monthlyRentDisplay}${input.rentIncludesSummary ? ` <span style="font-size:0.9em">(${escapeHtml(input.rentIncludesSummary)})</span>` : ""}</p>
   <p style="margin:0.2rem 0"><strong>Utility:</strong> ${utilitiesDisplay}</p>
   ${monthlyCustomFeeSummaryLines}
   ${totalMonthlyDisplay ? `<p style="margin:0.2rem 0"><strong>Total Monthly Housing Cost:</strong> ${totalMonthlyDisplay}</p>` : ""}
@@ -585,9 +595,13 @@ export function buildCompactRoomLeaseBody(input: CompactRoomLeaseInput): string 
    */
   const rollsOverToMonthToMonth = input.sub?.rolloverToMonthToMonth === true;
   const mtmSurchargeAmount = input.parseAmount(input.sub?.monthToMonthSurcharge ?? "") ?? 0;
+  // On a Seattle listing the surcharge is rent, so the clause says the rent rises rather
+  // than that a fee is added — the ledger bills exactly one rent line either way.
   const monthToMonthSurchargeClause =
     rollsOverToMonthToMonth && mtmSurchargeAmount > 0
-      ? ` A month-to-month surcharge of <strong>${fmtUsd(mtmSurchargeAmount)}</strong> per month applies during that period.`
+      ? input.rentFoldsMonthlyFees
+        ? ` During that period the monthly rent increases by <strong>${fmtUsd(mtmSurchargeAmount)}</strong>; that increase is a month-to-month surcharge that is part of the rent, not a separate fee.`
+        : ` A month-to-month surcharge of <strong>${fmtUsd(mtmSurchargeAmount)}</strong> per month applies during that period.`
       : "";
   const leaseTermSection = isMonthToMonthLease
     ? `<p>This tenancy is month-to-month beginning <strong>${leaseStart}</strong> and continuing until lawfully ended. Either party may provide written notice to terminate ${monthToMonthNotice}.</p>`
@@ -630,6 +644,7 @@ ${leaseTermSection}
 <p>Resident agrees to pay:</p>
 <p><strong>Rent:</strong> ${monthlyRentDisplay}<br/>
 <strong>Utilities:</strong> ${utilitiesDisplay}</p>
+${input.rentCompositionHtml ?? ""}
 ${monthlyCustomFeeLines}
 ${supplementalOneTimeFeeLines}
 ${prorationLine}
