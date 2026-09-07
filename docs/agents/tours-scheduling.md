@@ -39,10 +39,20 @@ the booked slot stays on offer and a second prospect books on top of it, and
 slotKey. A Pacific dev box cannot see this class of bug, so
 `tests/unit/tour-slot-math-timezone.test.ts` pins the process to UTC.
 
-Known, deliberately not widened: the PUBLIC booking client still turns the chosen
-slot into an instant with the PROSPECT's browser zone, so an out-of-region guest
-sends a slotKey and an ISO that disagree. Blocking survives it because a planned
-tour carries its `slotKey` and `slotBlocked` matches that first.
+The PUBLIC booking client still turns the chosen slot into an instant with the
+PROSPECT's browser zone, so an out-of-region guest sends a slotKey and an ISO
+that disagree. Blocking always survived that because a planned tour carries its
+`slotKey` and `slotBlocked` matches that first — but blocking is not the only
+reader. `proposedStart` is what the manager's events list, the resident's tour
+panel, and the confirmation email and SMS all show, so both people were told a
+time nobody had held (PRP-368). **The slot key is the authority for WHEN, on the
+server.** `createTourInquiry` runs every requested window through
+`anchorTourWindowToSlotKey` (`tour-slot-math.ts`) before the double-book check
+and before anything is written or sent: a `start` outside its slot is rewritten
+to the slot's Pacific instant (the requested duration is kept), the row's
+`proposedStart`/`proposedEnd` and the event record's `starts_at`/`ends_at` follow
+it, and a key that names no slot is refused as `slot_unavailable`. Coverage:
+`tests/unit/tour-inquiry-slot-anchor.test.ts`, run under a UTC process zone.
 
 ## What a prospect is offered = published − busy − booked
 

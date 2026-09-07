@@ -55,9 +55,23 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
   tomorrow is covered), and every EDIT mode (pending / live listing /
   request-change / `preview` scope) is excluded, because those rows are already
   persisted elsewhere and drafting one would fork it. A failed draft write leaves
-  the wizard OPEN with the work intact rather than closing on a lie. Coverage:
+  the wizard OPEN with the work intact rather than closing on a lie — **but a
+  failed save is never a locked door.** The inline notice names the server's
+  own reason (`saveManagerPropertyDraftToServer` threads `onError` from
+  `upsertPropertyRecordToServer`; before that every 400/403/500 read as "check
+  your connection") and offers a "Close without saving" link; a second close
+  request (✕, backdrop, Escape) retries the save once more and, if it still
+  fails, closes anyway with the manager told nothing was kept. The same
+  arm-then-close-anyway rule covers a close in EDIT mode and an expired session.
+  Server side, a `status: "draft"` write skips the application-fee promo-code
+  validation in `POST /api/property-records` — a draft is unvalidated by
+  contract, and that check refused whole draft saves for a half-typed code
+  (after the record upsert had already landed). The code is applied when the
+  row publishes through the same route. Coverage:
   `tests/unit/listing-wizard-draft-autosave.test.tsx` drives the real component
-  through the real save path.
+  through the real save path;
+  `tests/unit/property-records-draft-skips-waiver-validation.test.ts` pins the
+  route half.
 - **Draft saving is unvalidated** (partial-friendly, on every step) and does NOT
   count toward the plan property limit; **publishing** runs full validation +
   the limit gate like any new listing — so the wizard's `skuTier`/`skuLoaded`

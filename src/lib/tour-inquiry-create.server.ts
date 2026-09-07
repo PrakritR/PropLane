@@ -31,7 +31,7 @@ import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings
 import { proposeTourConfirmation } from "@/lib/tour-proposal.server";
 import { createApproveTourRequestTask } from "@/lib/manager-default-tasks.server";
 import { normalizeTourContactPhone, validateTourContactFields } from "@/lib/tour-contact-quality";
-import { isActivePlannedTourEvent, isoWindowFromSlotKey } from "@/lib/tour-slot-math";
+import { anchorTourWindowToSlotKey, isActivePlannedTourEvent } from "@/lib/tour-slot-math";
 
 type Db = ReturnType<typeof createSupabaseServiceRoleClient>;
 
@@ -75,29 +75,16 @@ export function requestedWindowsFromRow(row: Record<string, unknown>): Requested
       adminUserId: typeof window.adminUserId === "string" ? window.adminUserId : undefined,
       slotKey: typeof window.slotKey === "string" ? window.slotKey : undefined,
     }))
-    .filter((window) => (window.start && window.end) || Boolean(window.slotKey?.trim()));
+    .filter((window) => window.start && window.end);
   if (normalized.length > 0) return normalized;
-  if (typeof row.proposedStart === "string" && typeof row.proposedEnd === "string") {
-    return [
-      {
-        start: row.proposedStart,
-        end: row.proposedEnd,
-        adminUserId: typeof row.managerUserId === "string" ? row.managerUserId : undefined,
-        slotKey: typeof row.slotKey === "string" ? row.slotKey : undefined,
-      },
-    ];
-  }
-  if (typeof row.slotKey === "string" && row.slotKey.trim()) {
-    return [
-      {
-        start: "",
-        end: "",
-        adminUserId: typeof row.managerUserId === "string" ? row.managerUserId : undefined,
-        slotKey: row.slotKey,
-      },
-    ];
-  }
-  return [];
+  return typeof row.proposedStart === "string" && typeof row.proposedEnd === "string"
+    ? [{
+      start: row.proposedStart,
+      end: row.proposedEnd,
+      adminUserId: typeof row.adminUserId === "string" ? row.adminUserId : undefined,
+      slotKey: typeof row.slotKey === "string" ? row.slotKey : undefined,
+    }]
+    : [];
 }
 
 function payloadFromScheduleRecord(rowData: unknown): Record<string, unknown> | null {
@@ -214,10 +201,44 @@ export async function createTourInquiry(
         : new Date().toISOString(),
   };
   const propertyId = typeof row["propertyId"] === "string" ? row["propertyId"] : null;
-  let proposedStart = typeof row["proposedStart"] === "string" ? row["proposedStart"] : null;
-  let proposedEnd = typeof row["proposedEnd"] === "string" ? row["proposedEnd"] : null;
-  let requestedWindows = requestedWindowsFromRow(row);
   const isTour = textValue(row.kind) === "tour";
+
+  // A window's `slotKey` is the authority for WHEN (PRP-368). The client
+  // builds `start`/`end` in the prospect's own browser zone, so a guest booking
+  // from another region sends an instant hours away from the slot the grid
+  // showed them. The key is what the server published and what blocking
+  // already trusts; the stored ISO — read by every calendar surface and every
+  // notification — is rewritten to match it here, before the double-book check
+  // runs and before anything is written or sent. A key naming no slot is a
+  // request for a time that was never on offer.
+  const requestedWindows: RequestedWindow[] = [];
+  for (const window of requestedWindowsFromRow(row)) {
+    const anchored = anchorTourWindowToSlotKey(window);
+    if (!anchored) {
+      return { ok: false, reason: "slot_unavailable", error: "That tour time is not available." };
+    }
+    requestedWindows.push({
+      start: anchored.start,
+      end: anchored.end,
+      adminUserId: anchored.adminUserId,
+      slotKey: anchored.slotKey,
+    });
+  }
+  if (Array.isArray(row.requestedWindows) && requestedWindows.length > 0) {
+    row.requestedWindows = row.requestedWindows.map((original, index) => {
+      const normalized = requestedWindows[index];
+      return isObject(original) && normalized
+        ? { ...original, start: normalized.start, end: normalized.end }
+        : original;
+    });
+  }
+  const firstWindow = requestedWindows[0];
+  if (firstWindow && typeof row["proposedStart"] === "string") {
+    row.proposedStart = firstWindow.start;
+    row.proposedEnd = firstWindow.end;
+  }
+  const proposedStart = typeof row["proposedStart"] === "string" ? row["proposedStart"] : null;
+  const proposedEnd = typeof row["proposedEnd"] === "string" ? row["proposedEnd"] : null;
 
   if (isTour) {
     const contactErrors = validateTourContactFields({
@@ -234,26 +255,6 @@ export async function createTourInquiry(
       return { ok: false, reason: "invalid_contact", error: "Phone number must be 10 digits." };
     }
     row.phone = normalizedPhone;
-
-    // Pin every window's ISO start/end to the slotKey's Pacific wall clock. The
-    // public client builds proposedStart in the prospect's browser zone, which
-    // can disagree with the slot by hours — UI/email would then show the wrong
-    // time while blocking still held the correct half hour (PRP-368).
-    requestedWindows = requestedWindows.map((window) => {
-      const slotKey = textValue(window.slotKey);
-      if (!slotKey) return window;
-      const iso = isoWindowFromSlotKey(slotKey);
-      if (!iso) return window;
-      return { ...window, start: iso.start, end: iso.end, slotKey };
-    });
-    row.requestedWindows = requestedWindows;
-    if (requestedWindows[0]) {
-      proposedStart = requestedWindows[0].start;
-      proposedEnd = requestedWindows[0].end;
-      row.proposedStart = proposedStart;
-      row.proposedEnd = proposedEnd;
-      if (requestedWindows[0].slotKey) row.slotKey = requestedWindows[0].slotKey;
-    }
 
     for (const window of requestedWindows) {
       const managerUserId = textValue(row.managerUserId) || textValue(window.adminUserId);
