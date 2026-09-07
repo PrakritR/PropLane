@@ -1447,6 +1447,14 @@ export function ManagerAddListingForm({
    * draft save just reads as a broken Close button.
    */
   const [draftSaveError, setDraftSaveError] = useState<string | null>(null);
+  /**
+   * Set when a CLOSE attempt could not save. A failed save must never trap the
+   * manager in the wizard: while armed, the next close request — header ✕,
+   * backdrop, Escape, or the inline "Close without saving" link — closes
+   * without saving, and the manager is told so. Cleared by any later successful
+   * save, so a close after a recovered network still saves first.
+   */
+  const [closeWithoutSavingArmed, setCloseWithoutSavingArmed] = useState(false);
   const [demoAutofillSubmitPending, setDemoAutofillSubmitPending] = useState(false);
   const [paymentWaiverGranted, setPaymentWaiverGranted] = useState<boolean | null>(
     isDemoModeActive() ? false : null,
@@ -1701,10 +1709,15 @@ export function ManagerAddListingForm({
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autosaveDirtyRef = useRef(false);
   const persistDraftRef = useRef<
-    (opts?: { silent?: boolean; closeAfter?: boolean }) => Promise<boolean>
+    (opts?: { silent?: boolean; closeAfter?: boolean; closeAnyway?: boolean }) => Promise<boolean>
   >(() => Promise.resolve(false));
   const persistEditListingRef = useRef<
-    (opts?: { advanceOnSuccess?: boolean; closeAfter?: boolean; silent?: boolean }) => Promise<boolean>
+    (opts?: {
+      advanceOnSuccess?: boolean;
+      closeAfter?: boolean;
+      closeAnyway?: boolean;
+      silent?: boolean;
+    }) => Promise<boolean>
   >(() => Promise.resolve(false));
   const wizardSteps = useMemo(() => listingWizardStepIndices(wizardScope), [wizardScope]);
   const lastStepIndex = wizardSteps[wizardSteps.length - 1] ?? LISTING_STEP_COUNT - 1;
@@ -2764,8 +2777,45 @@ export function ManagerAddListingForm({
     });
   }, [sub, serviceOffers, paymentWaiverGranted]);
 
+  /**
+   * Leave without saving. Only reachable after a close attempt has already
+   * failed to save (the inline notice names the reason), so this is the
+   * manager's informed choice, never a silent discard. Background autosave may
+   * already have persisted earlier edits; only what changed since is lost.
+   */
+  const closeWithoutSaving = useCallback(() => {
+    setDraftSaveError(null);
+    setCloseWithoutSavingArmed(false);
+    showToast(
+      isEditMode
+        ? "Closed without saving your latest changes."
+        : "Closed without saving. Your progress was not kept.",
+    );
+    onClose();
+  }, [isEditMode, onClose, showToast]);
+
+  /**
+   * What a failed save means for a CLOSE request: the first failure arms the
+   * close-without-saving path (and keeps the wizard open so the manager can
+   * read why); a retry that fails again closes anyway. A background or
+   * step-advance save that fails changes nothing about closing.
+   */
+  const noteCloseSaveFailure = useCallback(
+    (opts?: { closeAfter?: boolean; closeAnyway?: boolean }) => {
+      if (!opts?.closeAfter) return;
+      if (opts.closeAnyway) closeWithoutSaving();
+      else setCloseWithoutSavingArmed(true);
+    },
+    [closeWithoutSaving],
+  );
+
   const persistEditListing = useCallback(
-    async (opts?: { advanceOnSuccess?: boolean; closeAfter?: boolean; silent?: boolean }): Promise<boolean> => {
+    async (opts?: {
+      advanceOnSuccess?: boolean;
+      closeAfter?: boolean;
+      closeAnyway?: boolean;
+      silent?: boolean;
+    }): Promise<boolean> => {
       if (!isEditMode || closingDraft) return false;
       if (busy) {
         if (!opts?.silent) showToast("Still saving your changes…");
@@ -2774,7 +2824,8 @@ export function ManagerAddListingForm({
       if (!authReady || !userId) {
         const msg = "Sign in to save changes.";
         setDraftSaveError(msg);
-        if (!opts?.silent) showToast(msg);
+        if (!opts?.silent && !opts?.closeAnyway) showToast(msg);
+        noteCloseSaveFailure(opts);
         return false;
       }
 
@@ -2828,7 +2879,8 @@ export function ManagerAddListingForm({
           const msg = "Could not save changes. Check your connection and try again.";
           setDraftSaveError(msg);
           if (backgroundSave) setAutosaveStatus("error");
-          if (!opts?.silent) showToast(msg);
+          if (!opts?.silent && !opts?.closeAnyway) showToast(msg);
+          noteCloseSaveFailure(opts);
           return false;
         }
 
@@ -2839,6 +2891,7 @@ export function ManagerAddListingForm({
         baselineFingerprintRef.current = fingerprint;
         lastPersistedFingerprintRef.current = fingerprint;
         setDraftSaveError(null);
+        setCloseWithoutSavingArmed(false);
 
         const droppedAttachments = droppedAttachmentsRef.current;
         droppedAttachmentsRef.current = false;
@@ -2873,7 +2926,8 @@ export function ManagerAddListingForm({
         const msg = "Could not save changes. Check your connection and try again.";
         setDraftSaveError(msg);
         if (backgroundSave) setAutosaveStatus("error");
-        if (!opts?.silent) showToast(msg);
+        if (!opts?.silent && !opts?.closeAnyway) showToast(msg);
+        noteCloseSaveFailure(opts);
         return false;
       } finally {
         if (!backgroundSave) {
@@ -2887,6 +2941,7 @@ export function ManagerAddListingForm({
       buildSubmissionPayload,
       busy,
       closingDraft,
+      noteCloseSaveFailure,
       editListingId,
       editListingOwnerUserId,
       editPendingId,
@@ -2911,23 +2966,28 @@ export function ManagerAddListingForm({
    * flushes any edits not yet persisted.
    */
   const closeWizard = () => {
+    // A failed save is never a locked door. The first close that cannot save
+    // keeps the wizard open and says why; a close requested AFTER that retries
+    // the save once more (the network may be back, the field may be fixed) and,
+    // if it still cannot save, closes anyway with the manager told so.
+    const closeAnyway = closeWithoutSavingArmed;
     if (!draftAutoSaveEligible) {
       const current = ensureSubmissionListingFees({ ...sub, serviceRequestOptions: serviceOffers });
       if (
         isEditMode &&
         listingWizardHasUnsavedInput(current, baselineFingerprintRef.current ?? "")
       ) {
-        void persistEditListingRef.current({ closeAfter: true });
+        void persistEditListingRef.current({ closeAfter: true, closeAnyway });
         return;
       }
       onClose();
       return;
     }
-    void persistDraftRef.current({ closeAfter: true });
+    void persistDraftRef.current({ closeAfter: true, closeAnyway });
   };
 
   const persistListingDraft = useCallback(
-    async (opts?: { silent?: boolean; closeAfter?: boolean }): Promise<boolean> => {
+    async (opts?: { silent?: boolean; closeAfter?: boolean; closeAnyway?: boolean }): Promise<boolean> => {
       if (!draftAutoSaveEligible || busy || closingDraft) return false;
 
       const current: ManagerListingSubmissionV1 = ensureSubmissionListingFees({
@@ -2960,7 +3020,8 @@ export function ManagerAddListingForm({
           "Could not save your progress — sign in again, then close. Your work is still here.";
         setDraftSaveError(msg);
         setAutosaveStatus("error");
-        if (!opts?.silent) showToast(msg);
+        if (!opts?.silent && !opts?.closeAnyway) showToast(msg);
+        noteCloseSaveFailure(opts);
         return false;
       }
 
@@ -2997,23 +3058,34 @@ export function ManagerAddListingForm({
           droppedAttachmentsRef.current = true;
         }
 
+        // The server's own explanation for a refusal. Without it every failure
+        // — a 400 on a field the route validates, a 403, a 500 — read as
+        // "check your connection", which sent managers on a healthy network
+        // toggling wifi instead of fixing the field.
+        let serverReason = "";
         const savedId = await saveManagerPropertyDraftToServer(submission, userId, {
           existingDraftId: draftIdRef.current,
           stepIndex,
           maxStepReached,
           allowIdUpgrade: draftIdMintedHereRef.current,
+          onError: (message) => {
+            serverReason = message;
+          },
         });
         if (!savedId) {
+          const reason = serverReason ? ` — ${serverReason.replace(/\.$/, "")}.` : ". Check your connection.";
           const msg = droppedAttachmentsRef.current
-            ? "Could not save your progress. Your listing is still here, but some attachments couldn't be saved — check your connection and close again."
-            : "Could not save your progress. It is still here — check your connection and close again.";
+            ? `Could not save your progress${reason} Your listing is still here, but some attachments couldn't be saved.`
+            : `Could not save your progress${reason} Your work is still here.`;
           setDraftSaveError(msg);
           setAutosaveStatus("error");
-          if (!opts?.silent) showToast(msg);
+          if (!opts?.silent && !opts?.closeAnyway) showToast(msg);
+          noteCloseSaveFailure(opts);
           return false;
         }
 
         setDraftSaveError(null);
+        setCloseWithoutSavingArmed(false);
         draftIdRef.current = savedId;
         setSavedListingId(savedId);
         lastPersistedFingerprintRef.current = listingSubmissionFingerprint(submission);
@@ -3051,6 +3123,7 @@ export function ManagerAddListingForm({
       closingDraft,
       draftAutoSaveEligible,
       maxStepReached,
+      noteCloseSaveFailure,
       onClose,
       onSaved,
       serviceOffers,
@@ -5790,9 +5863,21 @@ export function ManagerAddListingForm({
         <div className="modal-panel z-20 shrink-0 border-t border-border px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-5">
           <div className="w-full min-w-0">
           {draftSaveError ? (
-            <p role="alert" data-testid="listing-wizard-draft-save-error" className="mb-3 text-xs font-medium text-red-600">
-              {draftSaveError}
-            </p>
+            <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <p role="alert" data-testid="listing-wizard-draft-save-error" className="text-xs font-medium text-red-600">
+                {draftSaveError}
+              </p>
+              {closeWithoutSavingArmed ? (
+                <button
+                  type="button"
+                  data-attr="listing-wizard-close-without-saving"
+                  className="text-xs font-semibold text-foreground underline underline-offset-2 hover:text-primary"
+                  onClick={closeWithoutSaving}
+                >
+                  Close without saving
+                </button>
+              ) : null}
+            </div>
           ) : (draftAutoSaveEligible || editAutoSaveEligible) && autosaveStatus !== "idle" ? (
             <p
               className="mb-3 text-xs text-muted"

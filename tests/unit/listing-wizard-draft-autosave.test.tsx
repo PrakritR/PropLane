@@ -162,6 +162,11 @@ function draftSaveErrorText(): string | null {
   return el ? (el.textContent ?? "") : null;
 }
 
+/** The way out beside the failed-save notice; rendered only after a CLOSE could not save. */
+function closeWithoutSavingButton(): HTMLButtonElement | null {
+  return document.querySelector('[data-attr="listing-wizard-close-without-saving"]');
+}
+
 function typePropertyName(value: string) {
   fireEvent.change(wizardField("buildingName"), { target: { value } });
 }
@@ -288,6 +293,95 @@ describe("closing the add-listing wizard saves the work in progress", () => {
     expect(draftSaveErrorText()).toMatch(/could not save your progress/i);
   });
 
+  it("names the server's reason instead of blaming the connection", async () => {
+    const { showToast } = renderWizard();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          ({
+            ok: false,
+            status: 400,
+            json: async () => ({ error: "Application-fee promo code: Codes must be 4-32 letters, numbers, or hyphens." }),
+          }) as unknown as Response,
+      ),
+    );
+
+    typePropertyName("Ravenna Craftsman");
+    clickClose();
+
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/could not save/i)));
+    expect(draftSaveErrorText()).toMatch(/promo code: Codes must be 4-32/);
+    expect(draftSaveErrorText()).not.toMatch(/connection/i);
+  });
+
+  it("a failed save is not a locked door: closing AGAIN retries, then closes without saving", async () => {
+    const { onClose, showToast } = renderWizard();
+    const fetchMock = vi.fn(async () => ({ ok: false, status: 500 }) as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    typePropertyName("Ravenna Craftsman");
+    clickClose();
+    await waitFor(() => expect(draftSaveErrorText()).toMatch(/could not save your progress/i));
+    expect(onClose).not.toHaveBeenCalled();
+    // The manager is offered the way out right beside the reason.
+    expect(closeWithoutSavingButton()).not.toBeNull();
+    const callsAfterFirstClose = fetchMock.mock.calls.length;
+
+    clickClose();
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    // The second close was a genuine retry, not a silent discard...
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterFirstClose);
+    // ...and because it failed again, the manager is told nothing was kept.
+    expect(showToast).toHaveBeenLastCalledWith(expect.stringMatching(/closed without saving/i));
+    expect(readAdminPropertyRows(5, MANAGER_ID)).toHaveLength(0);
+  });
+
+  it("closing again after a failed save SAVES when the retry succeeds", async () => {
+    const { onClose, showToast } = renderWizard();
+    const healthyFetch = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 500 }) as unknown as Response),
+    );
+
+    typePropertyName("Ravenna Craftsman");
+    clickClose();
+    await waitFor(() => expect(draftSaveErrorText()).toMatch(/could not save your progress/i));
+
+    vi.stubGlobal("fetch", healthyFetch);
+    clickClose();
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(showToast).toHaveBeenLastCalledWith("Progress saved to Drafts.");
+    expect(readAdminPropertyRows(5, MANAGER_ID)).toHaveLength(1);
+  });
+
+  it("the inline 'Close without saving' link closes at once, without another save attempt", async () => {
+    const { onClose, showToast } = renderWizard();
+    const fetchMock = vi.fn(async () => ({ ok: false, status: 500 }) as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    typePropertyName("Ravenna Craftsman");
+    clickClose();
+    await waitFor(() => expect(closeWithoutSavingButton()).not.toBeNull());
+    const callsAfterFirstClose = fetchMock.mock.calls.length;
+
+    fireEvent.click(closeWithoutSavingButton()!);
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls.length).toBe(callsAfterFirstClose);
+    expect(showToast).toHaveBeenLastCalledWith(expect.stringMatching(/closed without saving/i));
+  });
+
+  it("offers no 'Close without saving' link before a close has failed", async () => {
+    renderWizard();
+    typePropertyName("Ravenna Craftsman");
+    // A background autosave failure is not a close request; the link stays hidden.
+    expect(closeWithoutSavingButton()).toBeNull();
+  });
+
   it("shows no inline failure notice when the close saves cleanly", async () => {
     const { onClose } = renderWizard();
 
@@ -311,6 +405,11 @@ describe("closing the add-listing wizard saves the work in progress", () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(calls).toEqual([]);
     expect(draftSaveErrorText()).toMatch(/sign in again/i);
+
+    // ...but a session that never comes back must not hold the wizard hostage.
+    clickClose();
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(showToast).toHaveBeenLastCalledWith(expect.stringMatching(/closed without saving/i));
   });
 
   it("saves the typed listing without any base64 when the media upload fails", async () => {
@@ -683,6 +782,13 @@ describe("editing an existing listing", () => {
     await waitFor(() => expect(draftSaveErrorText()).toMatch(/could not save changes/i));
     expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/could not save changes/i));
     expect(onClose).not.toHaveBeenCalled();
+
+    // An edit that cannot be saved is not a locked door either: the offer to
+    // leave is right there, and closing again gets the manager out.
+    expect(closeWithoutSavingButton()).not.toBeNull();
+    clickClose();
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(showToast).toHaveBeenLastCalledWith(expect.stringMatching(/closed without saving your latest changes/i));
   });
 });
 
