@@ -11,9 +11,9 @@ import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-f
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalInviteChoiceStep } from "@/components/portal/portal-invite-choice-step";
+import { ManagerInviteLinkModal } from "@/components/portal/manager-invite-link-modal";
 import {
   ManagerPortalPageShell,
-  PORTAL_HEADER_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import {
   PortalDataTableEmpty,
@@ -863,6 +863,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
 
   const [axisInput, setAxisInput] = useState("");
   const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [inviteLinkModalOpen, setInviteLinkModalOpen] = useState(false);
 
   const [linkInvitePreview, setLinkInvitePreview] = useState<LinkInvitePreview | null>(null);
   const [linkInviteBusy, setLinkInviteBusy] = useState(false);
@@ -1119,6 +1120,20 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     }
     resetLinkDraft();
     setLinkModalOpen(true);
+  };
+
+  const openInviteLinkModal = () => {
+    if (skuTier != null && !managerPlanAllowsCoManagerInvites(skuTier)) {
+      showToast("Upgrade to Pro or Business before linking co-managers.");
+      return;
+    }
+    setLinkModalOpen(false);
+    resetLinkDraft();
+    setInviteLinkModalOpen(true);
+  };
+
+  const closeInviteLinkModal = () => {
+    setInviteLinkModalOpen(false);
   };
 
   const closeLinkModal = () => {
@@ -2238,20 +2253,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     />
   );
 
-  // Both entry points use the same open-link flow, with PropLane ID as an option.
-  const teamLinkButton = (
-    <Button
-      type="button"
-      variant="outline"
-      className={PORTAL_HEADER_ACTION_BTN}
-      disabled={linkAccountBlocked}
-      data-attr="co-manager-invite-link-open"
-      onClick={openLinkModal}
-    >
-      Invite link
-    </Button>
-  );
-
   const renderInviteDetail = (inv: AccountLinkInviteDto, entry: TeamListEntry) => {
     const draft = getInviteDraft(inv);
     const readOnly = inv.direction === "incoming";
@@ -2400,19 +2401,27 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
           }
         >
           <div className="space-y-5">
-            <PortalInviteChoiceStep
-              secondaryTitle="Link with PropLane ID"
-              secondaryDescription={`Enter the account's ${AXIS_ID_LABEL} to link directly.`}
-              secondaryIcon="id"
-            >
-              {draftAxisId ? (
-                <div className="rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
+            {draftAxisId ? (
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted">Link with PropLane ID</p>
+                <div className="mt-3 rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
                   <p className="text-sm font-semibold text-foreground">{draftName}</p>
                   <p className="mt-0.5 font-mono text-xs text-muted">
                     {formatProplaneIdForDisplay(draftAxisId)}
                   </p>
                 </div>
-              ) : (
+              </div>
+            ) : (
+              <PortalInviteChoiceStep
+                inviteTitle="Invite by link"
+                inviteDescription="Create a shareable link to invite your team member. It's the fastest and easiest way to link an account."
+                onCreateInviteLink={openInviteLinkModal}
+                inviteLinkDataAttr="co-manager-create-invite-link"
+                inviteDisabled={linkAccountBlocked}
+                secondaryTitle="Link with PropLane ID"
+                secondaryDescription={`Enter the account's ${AXIS_ID_LABEL} to link directly.`}
+                secondaryIcon="id"
+              >
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -2432,8 +2441,8 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
                     />
                   </label>
                 </form>
-              )}
-            </PortalInviteChoiceStep>
+              </PortalInviteChoiceStep>
+            )}
 
             {inviteeAtCap ? (
               <p className="rounded-xl portal-banner-danger px-4 py-3 text-xs font-medium text-[var(--status-overdue-fg)]">
@@ -2482,6 +2491,15 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
             ) : null}
           </div>
         </Modal>
+
+        <ManagerInviteLinkModal
+          open={inviteLinkModalOpen}
+          onClose={closeInviteLinkModal}
+          propertyOptions={linkInvitePropertySelectOptions}
+          renderPermissionsEditor={(value, onChange) => (
+            <CoManagerPermissionsEditor value={value} onChange={onChange} variant="readWrite" />
+          )}
+        />
 
         <Modal
           open={propertyPermissionsModal !== null}
@@ -2824,12 +2842,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
-        actions={
-          <>
-            {teamFilterSheet}
-            {teamLinkButton}
-          </>
-        }
+        actions={teamFilterSheet}
         activeFilterChips={teamActiveFilterChips}
       />
       <div className="space-y-4">
