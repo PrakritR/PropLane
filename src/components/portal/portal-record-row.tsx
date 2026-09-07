@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import { InboxAvatar, InboxConversationRow } from "@/components/portal/portal-inbox-ui";
+import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 
 /** Person-centric list row (residents, applications, vendors). */
 export function PortalPersonRecordRow({
@@ -49,13 +50,11 @@ export function PortalPersonRecordRow({
         trailing={trailing}
         leading={
           selectable ? (
-            <input
-              type="checkbox"
-              className="ml-3 mr-1 mt-1 h-4 w-4 shrink-0 self-start rounded border-border"
+            // Was `ml-3 mr-1 mt-1` on the bare box; each side minus the 12 px pad.
+            <RowSelectCheckbox
+              wrapperClassName="ml-0 -mr-2 -mt-2 self-start"
               checked={checked}
               onChange={(e) => onSelectedChange?.(e.target.checked)}
-              onClick={(e) => e.stopPropagation()}
-              data-portal-row-ignore
               aria-label={`Select ${name}`}
             />
           ) : undefined
@@ -104,13 +103,11 @@ export function PortalPropertyRecordRow({
       }`}
     >
       {selectable ? (
-        <input
-          type="checkbox"
-          className="mr-3 mt-1 h-4 w-4 shrink-0 rounded border-border"
+        // Was `mr-3 mt-1` on the bare box; each side minus the 12 px pad.
+        <RowSelectCheckbox
+          wrapperClassName="mr-0 -mt-2 self-start"
           checked={checked}
           onChange={(e) => onSelectedChange?.(e.target.checked)}
-          onClick={(e) => e.stopPropagation()}
-          data-portal-row-ignore
           aria-label={`Select ${title}`}
         />
       ) : null}
@@ -168,13 +165,9 @@ export function PortalServiceRecordRow({
       }`}
     >
       {selectable ? (
-        <input
-          type="checkbox"
-          className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+        <RowSelectCheckbox
           checked={checked}
           onChange={(e) => onSelectedChange?.(e.target.checked)}
-          onClick={(e) => e.stopPropagation()}
-          data-portal-row-ignore
           aria-label={`Select ${title}`}
         />
       ) : null}
