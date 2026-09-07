@@ -404,7 +404,11 @@ exactly how the gutters drifted apart across tabs before. The shape is:
    from `portal-record-row.tsx` (`PortalPropertyRecordRow` for
    address/asset rows, `PortalPersonRecordRow` for people,
    `PortalServiceRecordRow` for jobs/tickets). Bold title, muted detail lines
-   under it, `Badge` last. Selection is a leading checkbox; a selected row gets
+   under it, `Badge` last. Selection is a leading checkbox — always
+   `RowSelectCheckbox` (`src/components/ui/row-select-checkbox.tsx`), whose
+   padded label is the 40 px hit area around the 16 px box, so a thumb toggles
+   selection instead of opening the row (PRP-369/378); a bare `<input
+   type="checkbox">` on a list row is the bug. A selected row gets
    the `border-l-primary` rail and tinted fill. Tables stay for *detail* views
    and the admin record tables, not the list itself.
 3. **Dashed ADD footer** — `PortalListAddRow`, uppercase `ADD`, `inline` once
@@ -842,10 +846,12 @@ npm run seed:env -- --dry-run
 Note: the AI agent reads `ANTHROPIC_API_KEY` (via `new Anthropic()`); add it to
 `.env` if it isn't there yet. `POSTHOG_*` and `LANGFUSE_*` are optional.
 
-`seed:env` copies **every** gitignored `.env*` file, including
-`.env.production.local` if the primary checkout has one — and Next loads that
-file for any production build, so a local `npm run build` can silently target
-the **production** Supabase project. How to confirm and pin the project:
+`seed:env` copies every gitignored `.env*` file **except** `.env.production*`,
+which it withholds unless you pass `--include-production` (PRP-358): Next loads
+`.env.production.local` for any production build, so seeding it made a local
+`npm run build` silently target the **production** Supabase project. A worktree
+that already carries the file from an older seed still gets a warning — remove
+it unless you mean it. How to confirm and pin the project:
 [`docs/database-environments.md`](docs/database-environments.md#a-local-production-build-can-silently-target-production).
 
 # Database environments

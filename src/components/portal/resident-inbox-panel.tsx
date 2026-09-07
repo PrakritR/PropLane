@@ -4,6 +4,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRe
 import { useSearchParams } from "next/navigation";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { Button } from "@/components/ui/button";
+import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { INBOX_TAB_DEFS, INBOX_LIST_SCROLL, AiDraftReplyCard, InboxBubbleMessage, InboxComposer, InboxConversationRow, InboxReplyChannelPicker, InboxScheduledCard, InboxScheduledThreadList, InboxThreadEmpty, InboxThreadView, InboxTwoPane, PortalInboxEmptyState, PortalInboxMessageTable, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
@@ -1846,12 +1847,9 @@ export const ResidentInboxPanel = forwardRef<
                       selected={expandedId === thread.id}
                       onOpen={() => openThread(thread)}
                       leading={
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+                        <RowSelectCheckbox
                           checked={threadSelection.selectedIds.has(thread.id)}
                           onChange={() => threadSelection.toggleSelected(thread.id)}
-                          onClick={(e) => e.stopPropagation()}
                           aria-label={`Select message ${thread.subject}`}
                         />
                       }

@@ -53,14 +53,17 @@ export function PaymentScheduledMessagesLead({
 
   return (
     <div
-      className={cn("flex shrink-0 flex-col gap-0.5", className)}
+      // Every chip is a real tap target on a phone (PRP-351): 28 px tall with a
+      // 4 px gap, so a thumb lands on ONE reminder rather than the row or the
+      // line above. The type stays 10 px; the box grows, not the text.
+      className={cn("flex shrink-0 flex-col gap-1", className)}
       data-attr="payment-scheduled-messages-lead"
     >
       {nextPrimary ? (
         <button
           key={nextPrimary.id}
           type="button"
-          className="flex max-w-[9.5rem] items-center gap-1 rounded-md border border-border/80 bg-accent/25 px-1.5 py-0.5 text-left text-[10px] leading-snug text-foreground transition-colors hover:bg-accent/50"
+          className="flex min-h-7 max-w-[9.5rem] items-center gap-1 rounded-md border border-border/80 bg-accent/25 px-1.5 py-1 text-left text-[10px] leading-snug text-foreground transition-colors hover:bg-accent/50"
           title={reminderChipTitle(nextPrimary)}
           data-portal-row-ignore
           data-attr="payment-scheduled-message-chip"
@@ -80,9 +83,12 @@ export function PaymentScheduledMessagesLead({
       {morePrimary.length > 0 ? (
         <button
           type="button"
-          className="max-w-[9.5rem] truncate px-1.5 text-left text-[10px] font-medium leading-snug text-primary hover:underline"
+          className="flex min-h-6 max-w-[9.5rem] items-center truncate px-1.5 py-0.5 text-left text-[10px] font-medium leading-snug text-primary hover:underline"
           data-portal-row-ignore
           data-attr="payment-scheduled-message-more"
+          // Every row's link reads "+N more" on screen; the accessible name says
+          // whose reminders, so a screen reader is not handed twenty identical links.
+          aria-label={`${morePrimary.length} more scheduled reminders for ${row.residentName} · ${row.chargeTitle}`}
           onClick={(event) => {
             event.stopPropagation();
             onOpenReminders(row);
@@ -97,7 +103,7 @@ export function PaymentScheduledMessagesLead({
           <button
             key={message.id}
             type="button"
-            className="max-w-[9.5rem] truncate px-1.5 text-left text-[10px] leading-snug text-muted hover:text-foreground hover:underline"
+            className="flex min-h-6 max-w-[9.5rem] items-center truncate px-1.5 py-0.5 text-left text-[10px] leading-snug text-muted hover:text-foreground hover:underline"
             title={reminderChipTitle(message)}
             data-portal-row-ignore
             data-attr="payment-scheduled-message-bundled"
