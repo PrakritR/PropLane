@@ -500,7 +500,10 @@ export function computeFieldSelectMenuRectForModalPanel(
   const bottomInset = fieldSelectHostBottomInsetPx(boundsEl);
   return computeFieldSelectMenuRect(button, contentPx, document.body, {
     minWidth: options?.minWidth,
-    preferOpenDown: true,
+    // Prefer opening upward inside modals: Start/End time fields sit above the
+    // footer, so "always down" left only a sliver under the trigger and the
+    // menu looked like it opened under the dialog (PRP-413).
+    preferOpenDown: false,
     matchTriggerWidth: options?.matchTriggerWidth ?? true,
     topBoundPx: cardRect.top + topInset + gap,
     bottomBoundPx: cardRect.bottom - bottomInset - gap,
