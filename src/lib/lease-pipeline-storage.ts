@@ -323,7 +323,7 @@ export function leaseNeedsUploadedLeaseReviewAction(row: LeasePipelineRow): bool
 export function leaseUploadedImportFooterLabel(row: LeasePipelineRow): string | null {
   if (!row.uploadedLeaseParse) return null;
   if (leaseNeedsUploadedLeaseReviewAction(row)) return "Review import";
-  if (!row.managerSignature && residentHasSignedLease(row)) return null;
+  if (leaseAwaitingManagerCountersign(row)) return null;
   return "View import";
 }
 
@@ -593,7 +593,10 @@ export function preserveSignedLeaseDocuments(
 }
 
 export function hasBothLeaseSignatures(row: LeasePipelineRow): boolean {
-  return Boolean(row.managerSignature && (row.residentSignature || (row.signatureName && row.signedAtIso)));
+  return Boolean(
+    row.managerSignature &&
+      (residentHasSignedLease(row) || residentReturnedSignedPdfToManager(row)),
+  );
 }
 
 /** True if the resident has completed their electronic signature (including legacy signature fields). */
@@ -601,6 +604,23 @@ export function residentHasSignedLease(row: LeasePipelineRow): boolean {
   return Boolean(
     (row.residentSignature?.name && row.residentSignature?.signedAtIso) || (row.signatureName && row.signedAtIso),
   );
+}
+
+export const RESIDENT_RETURNED_SIGNED_PDF_THREAD =
+  "Resident uploaded the signed PDF and sent it back to the manager.";
+
+/** Resident signed offline and returned the PDF — no `residentSignature` object. */
+export function residentReturnedSignedPdfToManager(row: LeasePipelineRow): boolean {
+  if (row.residentReturnedSignedPdfAt) return true;
+  return (row.thread ?? []).some((message) => message.body?.includes(RESIDENT_RETURNED_SIGNED_PDF_THREAD));
+}
+
+/** Manager countersign is the next step — e-sign OR returned offline-signed PDF. */
+export function leaseAwaitingManagerCountersign(row: LeasePipelineRow): boolean {
+  if (row.status !== "Manager Signature Pending" || row.bucket !== "signed" || row.managerSignature) {
+    return false;
+  }
+  return residentHasSignedLease(row) || residentReturnedSignedPdfToManager(row);
 }
 
 export function applyLeaseSignaturesToHtml(row: LeasePipelineRow, html: string | null | undefined): string | null {
@@ -718,6 +738,8 @@ export type LeasePipelineRow = {
   status?: LeaseWorkflowStatus;
   currentActorRole?: LeaseThreadRole | "system" | null;
   residentSignedAt?: string | null;
+  /** Resident returned an offline-signed PDF for manager countersign (no e-sign record). */
+  residentReturnedSignedPdfAt?: string | null;
   managerSignedAt?: string | null;
   adminReviewRequestedAt?: string | null;
   sentToResidentAt?: string | null;
@@ -957,6 +979,8 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
       (typeof r.currentActorRole === "string" ? (r.currentActorRole as LeasePipelineRow["currentActorRole"]) : null) ??
       currentActorForStatus(status),
     residentSignedAt: typeof r.residentSignedAt === "string" ? r.residentSignedAt : residentSignature?.signedAtIso ?? null,
+    residentReturnedSignedPdfAt:
+      typeof r.residentReturnedSignedPdfAt === "string" ? r.residentReturnedSignedPdfAt : null,
     managerSignedAt: typeof r.managerSignedAt === "string" ? r.managerSignedAt : managerSignature?.signedAtIso ?? null,
     adminReviewRequestedAt: typeof r.adminReviewRequestedAt === "string" ? r.adminReviewRequestedAt : null,
     sentToResidentAt: typeof r.sentToResidentAt === "string" ? r.sentToResidentAt : null,
@@ -2896,7 +2920,7 @@ export async function managerSignLease(
   if (idx === -1) return false;
   const row = rows[idx]!;
   if (!leaseAccessibleToManager(row, managerUserId)) return false;
-  if (row.status !== "Manager Signature Pending" || row.bucket !== "signed" || !residentHasSignedLease(row) || row.managerSignature) return false;
+  if (!leaseAwaitingManagerCountersign(row)) return false;
   const trimmedSignature = signatureName.trim();
   if (!trimmedSignature) return false;
   const iso = new Date().toISOString();
@@ -2995,13 +3019,14 @@ export function residentSendLeaseToManager(email: string): boolean {
   const iso = new Date().toISOString();
   const thread = [
     ...(row.thread ?? []),
-    makeMsg("resident", "Resident uploaded the signed PDF and sent it back to the manager."),
+    makeMsg("resident", RESIDENT_RETURNED_SIGNED_PDF_THREAD),
   ];
   rows[idx] = normalizeLeasePipelineRow({
     ...row,
     bucket: "signed",
     status: "Manager Signature Pending",
     currentActorRole: "manager",
+    residentReturnedSignedPdfAt: iso,
     thread,
     updatedAtIso: iso,
     updated: formatUpdatedLabel(iso),

@@ -48,13 +48,13 @@ import {
   leaseSendGateBlocker,
   leaseSendGateBlockerAmong,
   leaseGenerationSupportedForRow,
+  leaseAwaitingManagerCountersign,
   UPLOADED_LEASE_REVIEW_REQUIRED_MESSAGE,
   runLeaseDownload,
   sendLeaseBackToManager,
   sendLeaseToResident,
   hasBothLeaseSignatures,
   leaseRowMatchesManagerTab,
-  residentHasSignedLease,
   resolveManagerLeaseGenerationRow,
   leaseUploadedImportFooterLabel,
   managerLeaseSignButtonLabel,
@@ -308,9 +308,7 @@ export function ManagerLeasesPipelinePanel({
   const bulkSigningReminderRow =
     bulkSingleRowActions?.status === "Resident Signature Pending" ? bulkSingleRowActions : null;
   const bulkManagerSignRow =
-    bulkSingleRowActions &&
-    !bulkSingleRowActions.managerSignature &&
-    residentHasSignedLease(bulkSingleRowActions)
+    bulkSingleRowActions && leaseAwaitingManagerCountersign(bulkSingleRowActions)
       ? bulkSingleRowActions
       : null;
   const bulkReviewImportLabel =
@@ -559,7 +557,7 @@ export function ManagerLeasesPipelinePanel({
   };
 
   const onManagerSign = (row: LeasePipelineRow) => {
-    if (!residentHasSignedLease(row)) {
+    if (!leaseAwaitingManagerCountersign(row)) {
       showToast("The resident must sign first before the manager can countersign.");
       return;
     }
