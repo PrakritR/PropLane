@@ -95,13 +95,35 @@ export function resolveFieldSelectMenuPortal(): HTMLElement {
   for (const selector of OPEN_FIELD_SELECT_MODAL_SELECTORS) {
     if (selector === '[data-slot="vaul-bottom-sheet"][data-state="open"]') continue;
     const host = document.querySelector<HTMLElement>(selector);
-    if (host) return host;
+    if (host) return fieldSelectOverflowSafePortalHost(host);
   }
   const openFilterPanel = document.querySelector<HTMLElement>(
     '[data-slot="portal-filter-dropdown-panel"]',
   );
   if (openFilterPanel) return openFilterPanel;
   return document.body;
+}
+
+/** True when the dialog/drawer panel itself is the portal host and clips descendants. */
+export function fieldSelectHostClipsPortaledMenus(host: HTMLElement): boolean {
+  return (
+    host.classList.contains("modal-panel") &&
+    (host.matches('[data-slot="modal-radix-dialog"]') ||
+      host.matches('[data-slot="modal-vaul-drawer"]'))
+  );
+}
+
+/**
+ * `Modal` puts `modal-panel overflow-hidden` on `Dialog.Content`, so portaling into that
+ * node clips every dropdown. Lift to the centering wrapper beside the card instead.
+ */
+export function fieldSelectOverflowSafePortalHost(host: HTMLElement): HTMLElement {
+  if (host === document.body) return host;
+  if (fieldSelectHostClipsPortaledMenus(host)) {
+    const overflowHost = host.parentElement;
+    if (overflowHost) return overflowHost;
+  }
+  return host;
 }
 
 /**
@@ -158,8 +180,12 @@ export function fieldSelectMenuBoundsElement(
 
 export function fieldSelectMenuZIndex(portalHost: HTMLElement): number {
   if (portalHost === document.body) return 10000;
-  if (portalHost.matches('[data-slot="modal-radix-dialog"]')) return 90;
-  if (portalHost.matches('[data-slot="modal-vaul-drawer"]')) return 90;
+  if (
+    portalHost.matches('[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"]') ||
+    portalHost.querySelector('[data-slot="modal-radix-dialog"], [data-slot="modal-vaul-drawer"]')
+  ) {
+    return 90;
+  }
   if (portalHost.matches('[data-slot="vaul-bottom-sheet"]')) return 100;
   if (portalHost.matches('[data-slot="portal-filter-dropdown-panel"]')) return 30;
   return 80;
@@ -581,7 +607,7 @@ export function useFieldSelectMenu({
       portalHostRef.current = null;
       return;
     }
-    portalHostRef.current = resolveFieldSelectMenuPortal();
+    portalHostRef.current = fieldSelectOverflowSafePortalHost(resolveFieldSelectMenuPortal());
   }, [open]);
 
   useLayoutEffect(() => {
@@ -593,16 +619,18 @@ export function useFieldSelectMenu({
     const updateMenuRect = () => {
       const button = buttonRef.current;
       if (!button) return;
-      const portalHost = portalHostRef.current ?? resolveFieldSelectMenuPortal();
+      const portalHost = fieldSelectOverflowSafePortalHost(
+        portalHostRef.current ?? resolveFieldSelectMenuPortal(),
+      );
       setPortalHost(portalHost);
       const inFilterPanel =
         portalHost !== document.body &&
         portalHost.matches('[data-slot="portal-filter-dropdown-panel"]');
       const inVaulSheet =
         portalHost !== document.body && portalHost.matches('[data-slot="vaul-bottom-sheet"]');
-      const inModalDialog =
-        portalHost !== document.body && portalHost.matches('[data-slot="modal-radix-dialog"]');
-      const useHostAnchoredMenu = inFilterPanel || inVaulSheet || inModalDialog;
+      const inModalDialog = button.closest('[data-slot="modal-radix-dialog"]') !== null;
+      const inVaulDrawer = button.closest('[data-slot="modal-vaul-drawer"]') !== null;
+      const useHostAnchoredMenu = inFilterPanel || inVaulSheet || inModalDialog || inVaulDrawer;
       setMenuRect(
         align === "end"
           ? computePortalFilterDropdownRect(button, contentPx, {
@@ -625,12 +653,12 @@ export function useFieldSelectMenu({
                 const boundsEl = fieldSelectMenuBoundsElement(button, portalHost);
                 return computeFieldSelectMenuRectInHost(button, contentPx, portalHost, {
                   minWidth: minMenuWidth,
-                  preferOpenDown: preferOpenDown || inVaulSheet || inModalDialog,
-                  matchTriggerWidth: matchTriggerWidth || inVaulSheet || inModalDialog,
+                  preferOpenDown: preferOpenDown || inVaulSheet || inModalDialog || inVaulDrawer,
+                  matchTriggerWidth: matchTriggerWidth || inVaulSheet || inModalDialog || inVaulDrawer,
                   hostPaddingPx: inVaulSheet ? 0 : undefined,
                   topInsetPx: fieldSelectHostTopInsetPx(boundsEl),
                   bottomInsetPx: fieldSelectHostBottomInsetPx(boundsEl),
-                  strictHostContainment: inVaulSheet || inModalDialog,
+                  strictHostContainment: inVaulSheet || inModalDialog || inVaulDrawer,
                   bottomBoundPx: window.innerHeight - 12,
                   boundsRect:
                     boundsEl === portalHost ? undefined : boundsEl.getBoundingClientRect(),
