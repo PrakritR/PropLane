@@ -12,6 +12,7 @@ import {
   portalSessionEnded,
   portalSessionViewerId,
 } from "@/lib/auth/portal-session-gate";
+import { trimmedText } from "@/lib/trimmed-text";
 /** Persist portal inbox threads (demo localStorage) so actions survive navigation and reloads. */
 
 export type InboxThreadMessage = {
@@ -178,7 +179,7 @@ function hydrateInboxFromSession(key: string) {
     if (!raw) return;
     const parsed = JSON.parse(raw) as PersistedInboxThread[];
     if (!Array.isArray(parsed)) return;
-    memoryByKey.set(viewerCacheKey(key), parsed.filter(looksLikeThread));
+    memoryByKey.set(viewerCacheKey(key), inboxThreadsFromUnknown(parsed));
   } catch {
     /* ignore */
   }
@@ -197,6 +198,28 @@ function looksLikeThread(row: unknown): row is PersistedInboxThread {
   if (!row || typeof row !== "object") return false;
   const r = row as Record<string, unknown>;
   return typeof r.id === "string" && typeof r.folder === "string";
+}
+
+/**
+ * `row_data` JSON can store email/from as a number (the Communication
+ * `x.trim is not a function` crash). Coerce identity fields to strings at the
+ * load boundary so existing accounts keep their threads after a refresh.
+ */
+export function normalizePersistedInboxThread(thread: PersistedInboxThread): PersistedInboxThread {
+  return {
+    ...thread,
+    from: trimmedText(thread.from) || String(thread.from ?? ""),
+    email: trimmedText(thread.email),
+    subject: trimmedText(thread.subject),
+    preview: trimmedText(thread.preview),
+    body: typeof thread.body === "string" ? thread.body : String(thread.body ?? ""),
+    time: trimmedText(thread.time) || String(thread.time ?? ""),
+  };
+}
+
+function inboxThreadsFromUnknown(rows: unknown): PersistedInboxThread[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(looksLikeThread).map(normalizePersistedInboxThread);
 }
 
 /** Prefer local trash/restore state when server sync is stale (e.g. tab remount before persist completes). */
@@ -259,7 +282,7 @@ export async function syncPersistedInboxFromServer(
     notePortalResponse(res.status);
     if (!res.ok) return memoryByKey.get(viewerCacheKey(key)) ?? [];
     const body = (await res.json()) as { rows?: PersistedInboxThread[] };
-    const rows = (Array.isArray(body.rows) ? body.rows : []).filter(looksLikeThread);
+    const rows = inboxThreadsFromUnknown(body.rows);
     const existing = memoryByKey.get(viewerCacheKey(key)) ?? [];
     const merged = mergeInboxRowsWithLocalTrash(rows, existing, { excludeIds: opts?.excludeIds });
     const collapsed = applyInboxCollapseForScope(key, merged);
@@ -617,7 +640,7 @@ export function findCollapsedInboxThreadIdForEmail(
   email: string,
   opts?: { mergeFolders?: boolean },
 ): string | null {
-  const norm = email.trim().toLowerCase();
+  const norm = trimmedText(email).toLowerCase();
   if (!norm.includes("@")) return null;
   const rows = loadPersistedInbox(storageKey, []);
   const collapsed = collapsePersonInboxThreads(rows, {

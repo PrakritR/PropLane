@@ -42,6 +42,8 @@ const matchesQuery = fieldSelectMenuMatches;
 export type CheckboxMultiSelectOption = {
   value: string;
   label: string;
+  /** Closed-trigger caption when it should be shorter than `label` (e.g. "+1"). */
+  triggerLabel?: string;
   disabled?: boolean;
   /** Shown under the label — why a disabled option cannot be picked yet. */
   hint?: string;
@@ -358,7 +360,8 @@ export function FieldSingleSelect({
     return options ?? [];
   }, [groups, options]);
 
-  const buttonLabel = flatOptions.find((o) => o.value === value)?.label ?? placeholder;
+  const selectedOption = flatOptions.find((o) => o.value === value);
+  const buttonLabel = selectedOption?.triggerLabel ?? selectedOption?.label ?? placeholder;
   const showSearch = flatOptions.length > FIELD_SELECT_MENU_VISIBLE_ITEMS;
   const searchPx = showSearch ? FIELD_SELECT_MENU_SEARCH_PX : 0;
   const groupHeaderPx =

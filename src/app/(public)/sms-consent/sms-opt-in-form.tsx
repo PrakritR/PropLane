@@ -3,6 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { SmsConsentCheckbox } from "@/components/marketing/sms-consent-checkbox";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import { normalizeE164 } from "@/lib/phone-e164";
 
 /**
  * The interactive opt-in control on the public /sms-consent page. It is a client
@@ -22,7 +24,7 @@ export function SmsOptInForm() {
   const [submitted, setSubmitted] = useState(false);
 
   const phoneTrimmed = phone.trim();
-  const canSubmit = consent && phoneTrimmed.length > 0;
+  const canSubmit = consent && Boolean(normalizeE164(phone));
 
   if (submitted) {
     return (
@@ -71,16 +73,12 @@ export function SmsOptInForm() {
         <label htmlFor="sms-consent-phone" className="block text-sm font-semibold text-foreground">
           Mobile phone number
         </label>
-        <input
+        <PhoneNumberField
           id="sms-consent-phone"
           name="phone"
-          type="tel"
-          inputMode="tel"
-          autoComplete="tel"
           value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          placeholder="(206) 555-0100"
-          className="w-full rounded-xl border border-border bg-accent/30 px-3.5 py-2.5 text-sm text-foreground outline-none transition-all placeholder:text-muted/70 focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/15"
+          onChange={setPhone}
+          dataAttr="sms-consent-phone"
         />
       </div>
 

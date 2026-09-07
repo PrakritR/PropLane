@@ -47,7 +47,16 @@ describe("resident detail tab chrome", () => {
     expect(src).toContain('const tabs: ResidentDetailTabId[] = ["tours"]');
     expect(src).not.toContain("showResidentTours");
     expect(src).toContain("propertyIds={managerPortfolioPropertyIds}");
-    expect(src).toContain("RESIDENT_DETAIL_TOUR_BUCKET_TABS");
+    // The bucket strip moved into the tours panel this file hands off to, so read
+    // it where it now lives — asserting on this file would pass again only if the
+    // panel were inlined back, which is not what the guarantee is about.
+    expect(src).toContain("<ManagerResidentToursPanel");
+    expect(
+      readFileSync(
+        `${process.cwd()}/src/components/portal/pro-resident-tours-panel.tsx`,
+        "utf8",
+      ),
+    ).toContain("RESIDENT_DETAIL_TOUR_BUCKET_TABS");
   });
 
   it("shared subsection chrome uses equal-width destination nav", () => {

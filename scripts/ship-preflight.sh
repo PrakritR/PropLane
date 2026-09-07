@@ -38,16 +38,41 @@ else
   note "missing docs/ship-gate.md"
 fi
 
-if [[ -f "vercel.json" ]] && grep -q '"main": true' vercel.json && grep -q '"staging": true' vercel.json && grep -q '"production": true' vercel.json && grep -q '"\*\*": false' vercel.json; then
-  pass "vercel.json enables main, staging, and production only"
+if node --input-type=module <<'NODE'
+import { readFileSync } from 'node:fs';
+
+try {
+  const enabled = JSON.parse(readFileSync('vercel.json', 'utf8')).git?.deploymentEnabled;
+  const valid = enabled && typeof enabled === 'object' && !Array.isArray(enabled)
+    && enabled.main === false && enabled['**'] === false
+    && enabled.staging === true && enabled.production === true
+    && Object.entries(enabled).every(([branch, value]) =>
+      value === (branch === 'staging' || branch === 'production'));
+  process.exit(valid ? 0 : 1);
+} catch {
+  process.exit(1);
+}
+NODE
+then
+  pass "vercel.json enables staging and production only; main uses localhost"
 else
-  bad "vercel.json must set git.deploymentEnabled main=true, staging=true, production=true, and **=false"
+  bad "vercel.json must enable only staging and production, with main=false and **=false"
 fi
 
-if [[ -f "scripts/vercel-should-build.sh" ]] && grep -q 'production' scripts/vercel-should-build.sh && grep -q 'staging' scripts/vercel-should-build.sh && grep -q 'main' scripts/vercel-should-build.sh; then
-  pass "vercel-should-build.sh allows main, staging, and production"
+if [[ -f "scripts/vercel-should-build.sh" ]]; then
+  for ref in main staging production feat/preflight unknown; do
+    expected=0
+    if [[ "$ref" = staging || "$ref" = production ]]; then expected=1; fi
+    actual=0
+    VERCEL_GIT_COMMIT_REF="$ref" bash scripts/vercel-should-build.sh || actual=$?
+    if [[ "$actual" -eq "$expected" ]]; then
+      pass "Vercel build gate: $ref exits $expected"
+    else
+      bad "Vercel build gate: $ref exits $actual, expected $expected"
+    fi
+  done
 else
-  bad "scripts/vercel-should-build.sh must allow main, staging, and production refs"
+  bad "missing scripts/vercel-should-build.sh"
 fi
 
 if git ls-remote --exit-code origin refs/heads/staging >/dev/null 2>&1; then

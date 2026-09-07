@@ -68,7 +68,7 @@ function SwipeCardFace({
             <HousingBrowseCardOverlay
               card={card}
               rent={rent}
-              periodLabel={card.pricePeriod === "day" ? " / day" : " / month"}
+              periodLabel={card.pricePeriod === "day" ? " / day" : card.pricePeriod === "week" ? " / week" : " / month"}
               layout="swipe"
             />
             {card.petFriendly ? (

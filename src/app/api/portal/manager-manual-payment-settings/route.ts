@@ -5,6 +5,7 @@ import {
   managerManualPaymentSettingsPublic,
   isValidZelleContact,
   normalizeManagerManualPaymentSettings,
+  resolveSavedServiceFeeSelection,
   saveManagerManualPaymentSettings,
 } from "@/lib/manager-manual-payment-settings";
 import {
@@ -104,6 +105,15 @@ export async function PATCH(req: Request) {
       const normalized = normalizeManagerManualPaymentSettings({ ...settings, ...rest });
       if (normalized.zellePaymentsEnabled && !isValidZelleContact(normalized.zelleContact)) {
         return NextResponse.json({ error: "Enter a valid Zelle phone number or email address." }, { status: 400 });
+      }
+      if (
+        normalized.serviceFeePayer === "proplane" &&
+        resolveSavedServiceFeeSelection(normalized, settings).serviceFeePayer !== "proplane"
+      ) {
+        return NextResponse.json(
+          { error: "Enter your PropLane promo code to have PropLane cover the processing fee." },
+          { status: 400 },
+        );
       }
       settings = await saveManagerManualPaymentSettings(ctx.db, ctx.userId, normalized);
     }

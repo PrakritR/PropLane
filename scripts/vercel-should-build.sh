@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Vercel Ignored Build Step (also referenced from vercel.json ignoreCommand).
 # Exit 0 = skip deployment, exit 1 = proceed with build.
-# `production` deploys live, `staging` is the QA preview, `main` is the
-# developer preview. All other branches skip.
+# `production` deploys live; `staging` is the QA preview.
+# `main` is tested on localhost. All other branches skip too.
 set -euo pipefail
 
 branch="${VERCEL_GIT_COMMIT_REF:-unknown}"
@@ -13,7 +13,7 @@ if [ -n "${FM_DEBUG_LOG:-}" ]; then
 fi
 #endregion
 
-if [ "${branch}" = "main" ] || [ "${branch}" = "staging" ] || [ "${branch}" = "production" ]; then
+if [ "${branch}" = "staging" ] || [ "${branch}" = "production" ]; then
   exit 1
 fi
 

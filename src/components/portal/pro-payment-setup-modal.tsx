@@ -54,6 +54,7 @@ export function ManagerPaymentSetupModal({
   const demo = isDemoModeActive();
   const [draft, setDraft] = useState<ManagerManualPaymentSettingsView>(() => draftFromSettings(null));
   const [loading, setLoading] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [stripeBusy, setStripeBusy] = useState(false);
   const [stripeState, setStripeState] = useState<StripeSetupState>("unlinked");
   const [stripeIssue, setStripeIssue] = useState<string | null>(null);
@@ -133,10 +134,12 @@ export function ManagerPaymentSetupModal({
       setPropertyFeePayers(
         Object.fromEntries(visibleProperties.map((property) => [property.id, null] as const)),
       );
+      setSettingsLoaded(true);
       return;
     }
     if (!propertyIdsKey) {
       setPropertyFeePayers({});
+      setSettingsLoaded(true);
       return;
     }
     setLoading(true);
@@ -156,6 +159,7 @@ export function ManagerPaymentSetupModal({
       }
       setDraft(draftFromSettings(data.settings ?? null));
       setPropertyFeePayers(data.propertyServiceFeePayers ?? {});
+      setSettingsLoaded(true);
     } catch {
       showToast("Could not load payment setup.");
     } finally {
@@ -185,7 +189,10 @@ export function ManagerPaymentSetupModal({
   }, [demo]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setSettingsLoaded(false);
+      return;
+    }
     void loadStripeStatus();
     void loadSettings();
     void loadTier();
@@ -216,6 +223,10 @@ export function ManagerPaymentSetupModal({
     },
     savingId: string,
   ) {
+    if (!settingsLoaded && !demo) {
+      showToast("Couldn't read your current payment setup, so nothing was changed. Reopen this window to try again.");
+      return;
+    }
     setSavingKey(savingId);
     if (demo) {
       if (patch.propertyServiceFeePayers?.length) {
@@ -481,7 +492,12 @@ export function ManagerPaymentSetupModal({
                   : "Select…"
               }
               onChange={(next) => applyFeeToSelectedProperties(next as ServiceFeePayer)}
-              disabled={loading || selectedPropertyIds.length === 0 || savingKey === "fee-payer"}
+              disabled={
+                loading ||
+                (!settingsLoaded && !demo) ||
+                selectedPropertyIds.length === 0 ||
+                savingKey === "fee-payer"
+              }
               dataAttr="manager-service-fee-payer-select"
             />
 

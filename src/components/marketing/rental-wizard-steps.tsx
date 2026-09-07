@@ -4,6 +4,7 @@ import { applicationRentalTypeFor } from "@/lib/rental-application/lease-terms";
 import { type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
 import { DateField } from "@/components/ui/date-field";
 import { PropertySearchPicker } from "@/components/marketing/property-search-picker";
 import { CosignerInviteCallout } from "@/components/marketing/cosigner-invite-callout";
@@ -51,12 +52,22 @@ import {
   upsertCustomFieldAnswer,
 } from "@/lib/rental-application/custom-fields";
 import { normalizeCustomApplicationFields, type ManagerCustomApplicationField } from "@/lib/manager-listing-submission";
+import { RENTAL_APPLICATION_SECTIONS } from "@/lib/rental-application/application-sections";
 import { wizardSectionErrorClass } from "@/lib/wizard-field-errors";
 import {
   activeApplicationWizardSteps,
   applicationConfigForVariant,
   isWizardFormFieldEnabled,
 } from "@/lib/rental-application/application-field-catalog";
+
+/**
+ * Every step a custom question's section can be asked on, taken from the section
+ * catalog rather than typed out — a new section opens its own step here, and its
+ * step body renders `stepManagerQuestions` like the other nine.
+ */
+const CUSTOM_QUESTION_WIZARD_STEPS = new Set(
+  RENTAL_APPLICATION_SECTIONS.map((section) => section.wizardStep),
+);
 
 const pillWrap = "flex flex-wrap gap-2 rounded-full border border-border bg-accent/30 p-1 [html[data-theme=dark]_&]:border-white/12 [html[data-theme=dark]_&]:bg-white/6";
 const pillActive = "rounded-full px-4 py-2.5 text-sm font-semibold bg-primary text-primary-foreground shadow-sm transition min-h-[44px] sm:min-h-0";
@@ -383,9 +394,18 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
   const photosReadOnly = mode === "editor";
   const getApplicationId = p.getApplicationId ?? (() => form.email.trim().toLowerCase() || "");
 
-  // Manager custom questions render inside their configured section's step (untagged → step 9).
+  // Manager custom questions render inside their configured section's step
+  // (untagged → step 8, `DEFAULT_CUSTOM_FIELD_SECTION_ID`).
+  //
+  // The range must cover EVERY step a section can map to — `household` is step 1
+  // and `review` is step 10, and both were outside the old 2–9 window. Validation
+  // has no such window: `validateRentalWizardStep` asks for the answer on
+  // whatever step the question is tagged to, so a required question in either
+  // section made Continue do nothing at all, with no field on screen to fix and
+  // no error text anywhere (the household step is the FIRST one, so an
+  // application could not be started or edited past it).
   const stepManagerQuestions = (() => {
-    if (step < 2 || step > 9) return null;
+    if (!CUSTOM_QUESTION_WIZARD_STEPS.has(step)) return null;
     const stepProp = getPropertyById(form.propertyId);
     const fields = customFieldsForWizardStep(
       listingCustomApplicationFields(applicationConfig),
@@ -641,6 +661,8 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             </>
           ) : null}
         </div>
+
+        {stepManagerQuestions}
       </div>
     );
   }
@@ -1119,15 +1141,11 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               <Label htmlFor="phone" required>
                 Phone number
               </Label>
-              <Input
+              <PhoneNumberField
                 id="phone"
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
                 value={form.phone}
-                onChange={(e) => p.setPhone(e.target.value)}
-                placeholder="(###) ###-####"
-                className={errors.phone ? "border-red-400 ring-2 ring-red-100" : ""}
+                onChange={p.setPhone}
+                inputClassName={errors.phone ? "border-red-400 ring-2 ring-red-100" : ""}
               />
               <FieldError msg={errors.phone} />
             </div>
@@ -1361,13 +1379,11 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             <Label htmlFor="currentLandlordPhone" optional>
               Current landlord phone
             </Label>
-            <Input
+            <PhoneNumberField
               id="currentLandlordPhone"
-              type="tel"
               value={form.currentLandlordPhone}
-              onChange={(e) => p.setLandlordPhone(e.target.value)}
-              placeholder="(###) ###-####"
-              className={errors.currentLandlordPhone ? "border-red-400 ring-2 ring-red-100" : ""}
+              onChange={p.setLandlordPhone}
+              inputClassName={errors.currentLandlordPhone ? "border-red-400 ring-2 ring-red-100" : ""}
             />
             <FieldError msg={errors.currentLandlordPhone} />
           </div>
@@ -1493,13 +1509,11 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
                 <Label htmlFor="prevLandlordPhone" optional>
                   Previous landlord phone
                 </Label>
-                <Input
+                <PhoneNumberField
                   id="prevLandlordPhone"
-                  type="tel"
                   value={form.prevLandlordPhone}
-                  onChange={(e) => p.setPrevLandlordPhone(e.target.value)}
-                  placeholder="(###) ###-####"
-                  className={errors.prevLandlordPhone ? "border-red-400 ring-2 ring-red-100" : ""}
+                  onChange={p.setPrevLandlordPhone}
+                  inputClassName={errors.prevLandlordPhone ? "border-red-400 ring-2 ring-red-100" : ""}
                 />
                 <FieldError msg={errors.prevLandlordPhone} />
               </div>
@@ -1600,14 +1614,12 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               <Label htmlFor="supervisorPhone" optional>
                 Supervisor phone
               </Label>
-              <Input
+              <PhoneNumberField
                 id="supervisorPhone"
-                type="tel"
                 value={form.supervisorPhone}
                 disabled={form.notEmployed}
-                onChange={(e) => p.setSupervisorPhone(e.target.value)}
-                placeholder="(###) ###-####"
-                className={errors.supervisorPhone ? "border-red-400 ring-2 ring-red-100" : ""}
+                onChange={p.setSupervisorPhone}
+                inputClassName={errors.supervisorPhone ? "border-red-400 ring-2 ring-red-100" : ""}
               />
               <FieldError msg={errors.supervisorPhone} />
             </div>
@@ -1749,13 +1761,11 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               <Label htmlFor="ref1Phone" required>
                 Phone
               </Label>
-              <Input
+              <PhoneNumberField
                 id="ref1Phone"
-                type="tel"
                 value={form.ref1Phone}
-                onChange={(e) => p.setRef1Phone(e.target.value)}
-                placeholder="(###) ###-####"
-                className={errors.ref1Phone ? "border-red-400 ring-2 ring-red-100" : ""}
+                onChange={p.setRef1Phone}
+                inputClassName={errors.ref1Phone ? "border-red-400 ring-2 ring-red-100" : ""}
               />
               <FieldError msg={errors.ref1Phone} />
             </div>
@@ -1785,13 +1795,11 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
               <Label htmlFor="ref2Phone" optional>
                 Phone
               </Label>
-              <Input
+              <PhoneNumberField
                 id="ref2Phone"
-                type="tel"
                 value={form.ref2Phone}
-                onChange={(e) => p.setRef2Phone(e.target.value)}
-                placeholder="(###) ###-####"
-                className={errors.ref2Phone ? "border-red-400 ring-2 ring-red-100" : ""}
+                onChange={p.setRef2Phone}
+                inputClassName={errors.ref2Phone ? "border-red-400 ring-2 ring-red-100" : ""}
               />
               <FieldError msg={errors.ref2Phone} />
             </div>
@@ -2194,6 +2202,12 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
           </ReviewSection>
           ) : null}
         </div>
+
+        {/* A question tagged to the Review section is asked here — the summary
+            above only ECHOES answers, so without this the review step validated
+            an answer it never collected. */}
+        {stepManagerQuestions}
+
         <p className="text-center text-xs text-muted">Next: application fee confirmation before final submit.</p>
       </div>
     );

@@ -130,7 +130,10 @@ import {
   roomHeadlineAmount,
   roomHeadlinePriceLabel,
   roomIsDailyPriced,
+  roomIsWeeklyPriced,
   roomMonthlyEquivalent,
+  roomPricePeriod,
+  roomShortLeaseListingNote,
 } from "@/lib/room-pricing";
 
 function splitAmenities(text: string): AmenityItem[] {
@@ -275,15 +278,16 @@ function buildListingFloorCard(
       name: r.name.trim(),
       detail: roomListingTableSubtitle(r),
       utilitiesEstimate: utilDisplay,
-      price: roomIsDailyPriced(r)
+      price: roomIsDailyPriced(r) || roomIsWeeklyPriced(r)
         ? roomHeadlinePriceLabel(r)
         : entireHome
           ? r.monthlyRent > 0
             ? normalizeLeaseRentPriceLabel(`$${r.monthlyRent}`, "month")
             : "Included"
           : normalizeLeaseRentPriceLabel(roomHeadlinePriceLabel(r), "month"),
-      pricePeriod: roomIsDailyPriced(r) ? "day" : "month",
-      priceMonthlyEquivalent: roomIsDailyPriced(r) ? roomMonthlyEquivalent(r) : undefined,
+      pricePeriod: roomPricePeriod(r),
+      priceMonthlyEquivalent: roomIsDailyPriced(r) || roomIsWeeklyPriced(r) ? roomMonthlyEquivalent(r) : undefined,
+      shortLeaseNote: roomShortLeaseListingNote(r) ?? undefined,
       priceHeadlineAmount: roomHeadlineAmount(r) ?? undefined,
       availability: "Available now",
       bathroomShareCount: bathroomShareCountForRoom(r.id, sub),

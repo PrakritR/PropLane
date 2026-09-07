@@ -35,7 +35,7 @@ describe("ManagerSmsContactModal", () => {
     }));
     expect(fetchMock).toHaveBeenCalledWith("/api/manager/sms-contacts", expect.objectContaining({
       method: "POST",
-      body: JSON.stringify({ displayName: "Jordan Lee", phone: "(206) 555-0123" }),
+      body: JSON.stringify({ displayName: "Jordan Lee", phone: "+12065550123" }),
     }));
   });
 
@@ -47,7 +47,7 @@ describe("ManagerSmsContactModal", () => {
 
     render(<ManagerSmsContactModal open onClose={() => {}} onSaved={() => {}} />);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Jordan" } });
-    fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "555" } });
+    fireEvent.change(screen.getByLabelText("Phone number"), { target: { value: "2065550123" } });
     fireEvent.click(screen.getByRole("button", { name: "Save contact" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Enter a valid phone number");

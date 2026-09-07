@@ -7,8 +7,8 @@
  *   npm run lavish:listen -- --stop
  */
 
-import { spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, openSync, closeSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync, unlinkSync, openSync, closeSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   readActiveSession,

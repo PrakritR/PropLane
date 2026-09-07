@@ -1,10 +1,29 @@
-export function normalizeE164(phone: string): string | null {
-  const trimmed = phone.trim();
+/**
+ * Coerce a stored phone to a trim-safe string.
+ *
+ * JSON / PostgREST sometimes hands back a numeric `18559168031` instead of
+ * `"+18559168031"`. Calling `.trim()` on that number is the Communication
+ * `x.trim is not a function` crash.
+ */
+export function coercePhoneInput(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(Math.trunc(Math.abs(value)));
+  }
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function normalizeE164(phone: unknown): string | null {
+  const trimmed = coercePhoneInput(phone);
   // Already-international input ("+44 20 7946 0958") passes through; bare
   // digits keep the US default so existing 10/11-digit data still works.
   if (trimmed.startsWith("+")) {
     const digits = trimmed.slice(1).replace(/\D/g, "");
-    return /^[1-9]\d{6,14}$/.test(digits) ? `+${digits}` : null;
+    if (!/^[1-9]\d{6,14}$/.test(digits)) return null;
+    // NANP country code 1 is always 10 national digits. PhoneNumberField emits
+    // +1… while the user is still typing, so a 7-digit "+1206555" must not
+    // count as a deliverable number.
+    if (digits.startsWith("1") && digits.length !== 11) return null;
+    return `+${digits}`;
   }
   const digits = trimmed.replace(/\D/g, "");
   if (digits.length === 10) return `+1${digits}`;

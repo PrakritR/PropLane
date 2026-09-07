@@ -3,6 +3,8 @@
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneNumberField } from "@/components/ui/phone-number-field";
+import { coercePhoneInput, normalizeE164 } from "@/lib/phone-e164";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { assistantEmailUpsellMessage } from "@/lib/manager-assistant-email/assistant-email-eligibility-copy";
 import type { ManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
@@ -27,7 +29,7 @@ export function ManagerOnboardingPhoneSetup({
   onUpdated: (next: { phone: string | null; phoneVerifiedAt: string | null }) => void;
 }) {
   const { showToast } = useAppUi();
-  const [phoneInput, setPhoneInput] = useState(initialPhone);
+  const [phoneInput, setPhoneInput] = useState(() => coercePhoneInput(initialPhone));
   const [codeInput, setCodeInput] = useState("");
   const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState<"send" | "verify" | null>(null);
@@ -86,14 +88,11 @@ export function ManagerOnboardingPhoneSetup({
 
   return (
     <div className="mt-3 space-y-3 border-t border-border/70 pt-3" data-onboarding-inline="phone">
-      <Input
-        type="tel"
-        inputMode="tel"
-        autoComplete="tel"
-        placeholder="Mobile number"
+      <PhoneNumberField
         value={phoneInput}
-        onChange={(e) => setPhoneInput(e.target.value)}
+        onChange={setPhoneInput}
         disabled={busy !== null}
+        dataAttr="onboarding-verify-personal-phone"
       />
       {codeSent ? (
         <Input
@@ -112,7 +111,7 @@ export function ManagerOnboardingPhoneSetup({
             type="button"
             variant="primary"
             className="min-h-0 h-8 rounded-full px-4 text-xs"
-            disabled={busy !== null || !phoneInput.trim()}
+            disabled={busy !== null || !normalizeE164(phoneInput)}
             onClick={() => void sendCode()}
             data-attr="onboarding-verify-personal-phone-send"
           >

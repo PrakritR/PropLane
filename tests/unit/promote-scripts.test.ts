@@ -30,14 +30,14 @@ describe("promote scripts", () => {
     }
   });
 
-  it("keeps vercel.json deployed branches on the three-rung allowlist", () => {
+  it("deploys staging and production while keeping main local", () => {
     const raw = readFileSync("vercel.json", "utf8");
     const config = JSON.parse(raw) as {
       git?: { deploymentEnabled?: Record<string, boolean> };
     };
     expect(config.git?.deploymentEnabled).toEqual({
       "**": false,
-      main: true,
+      main: false,
       staging: true,
       production: true,
     });

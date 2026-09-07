@@ -8,7 +8,7 @@ loaded — the app code never switches databases by itself.
 
 | Environment | Used by | Supabase project | Credentials come from |
 |---|---|---|---|
-| **Dev + Test** | local `npm run dev`, `vitest`, Playwright, Vercel `main` Preview | `emstjswhotsnyksqhqyf` | `.env` (local dev) and `.env.test` (tests); Vercel Preview (default) |
+| **Dev + Test** | local `npm run dev` (including `main`), `vitest`, Playwright | `emstjswhotsnyksqhqyf` | `.env` (local dev) and `.env.test` (tests); `main` has no Vercel deployment |
 | **Staging** | Vercel `staging` Preview (dedicated QA) | `xwszcafaontidfgznlxd` | Vercel Preview env vars **restricted to git branch `staging`**. Local copy: `.env.staging.local` (gitignored). Dashboard: https://supabase.com/dashboard/project/xwszcafaontidfgznlxd |
 | **Production** | the live site (`prop-lane.space`) | `qahnczmilgptcedaqype` | **Vercel Production env vars only** |
 
