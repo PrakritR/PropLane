@@ -243,12 +243,14 @@ The one pre-approval `holding_deposit` write that remains is **manager-initiated
 and per applicant**: `setApplicantHoldingFee`, reached from the Applications
 detail's top-right **Holding fee** action, which opens
 `ApplicationHoldingFeeModal` (`application-holding-fee-box.tsx`). It is opt-in,
-the manager picks the amount, it needs both an applicant email and a property to
-scope the charge, and a hold the applicant has already PAID is never re-priced
-or deleted from there. `ensurePendingHoldingDepositCharge` and the approval-time
-holding-deposit credit (`paidHoldingDepositCreditCents`) are kept for now as
-`@deprecated`/back-compat only; do not add new AUTOMATIC pre-approval call
-sites.
+the manager picks the amount, then **Preview & update** opens
+`PortalNotificationPreviewModal` (same Tours / Add payment pattern) before the
+charge is written — confirm sends inbox/email/SMS notice (or fee-only via skip).
+It needs both an applicant email and a property to scope the charge, and a hold
+the applicant has already PAID is never re-priced or deleted from there.
+`ensurePendingHoldingDepositCharge` and the approval-time holding-deposit credit
+(`paidHoldingDepositCreditCents`) are kept for now as `@deprecated`/back-compat
+only; do not add new AUTOMATIC pre-approval call sites.
 
 Coverage (application fee + waiver codes): `tests/unit/application-fee-checkout-fee-payer.test.ts`
 (Connect destination, ownership guard, server-stored fee amount, plan-based
