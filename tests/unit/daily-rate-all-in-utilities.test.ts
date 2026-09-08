@@ -119,7 +119,7 @@ describe("charge generation — separate per-day rent and utilities", () => {
     seed(propertyId, room({ prorateMethod: "daily_rate", dailyRentRate: 40, dailyUtilitiesRate: 6, utilitiesEstimate: "150" }));
 
     // Mar 10 → Mar 25 2026 = 16 billable days.
-    recordApprovedApplicationCharges(applicantRow(propertyId, email, "2026-03-10", "2026-03-25"), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, email, "2026-03-10", "2026-03-25"), MANAGER_ID, true, { leaseExecuted: true });
 
     expect(proratedRent(email)?.title).toContain("$40/day");
     // Exactly one utilities line, computed from the PER-DAY rate ($6/day) — not the monthly
@@ -137,7 +137,7 @@ describe("charge generation — separate per-day rent and utilities", () => {
     // and a monthly estimate still present. Must NOT bill the estimate on top.
     seed(propertyId, room({ prorateMethod: "daily_rate", dailyRentRate: 46, dailyUtilitiesRate: undefined, utilitiesEstimate: "150" }));
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, email, "2026-03-10", "2026-03-25"), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, email, "2026-03-10", "2026-03-25"), MANAGER_ID, true, { leaseExecuted: true });
 
     // Zero utilities lines — the daily rent already covers them.
     expect(chargesFor(email).some((c) => c.kind === "prorated_utilities" || c.kind === "utilities")).toBe(false);
@@ -151,7 +151,7 @@ describe("charge generation — separate per-day rent and utilities", () => {
     const propertyId = "prop-auto-utils";
     seed(propertyId, room({ prorateMethod: "auto", utilitiesEstimate: "150" }));
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, email, "2026-03-10", "2027-03-09"), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, email, "2026-03-10", "2027-03-09"), MANAGER_ID, true, { leaseExecuted: true });
     expect(chargesFor(email).some((c) => c.kind === "utilities" || c.kind === "prorated_utilities")).toBe(true);
   });
 });

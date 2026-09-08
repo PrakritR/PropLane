@@ -157,7 +157,7 @@ describe("preset monthly fees with no legacy billing field", () => {
     const propertyId = "prop-preset-other-on";
     seedPreset(propertyId, presetFee({}));
 
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     const rows = feeRows(email, "cf-other");
     expect(rows.map((r) => r.rentMonth)).toEqual(["2026-04", "2026-05", "2026-06"]);
@@ -170,7 +170,7 @@ describe("preset monthly fees with no legacy billing field", () => {
     const propertyId = "prop-preset-other-off";
     seedPreset(propertyId, presetFee({}), "otherMonthlyFees");
 
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     expect(feeRows(email, "cf-other")).toEqual([]);
   });
@@ -184,7 +184,7 @@ describe("preset monthly fees with no legacy billing field", () => {
       presetFee({ id: "cf-parking", label: "Parking", amount: "75", presetId: "parking_monthly" }),
     );
 
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     const rows = feeRows(email, "cf-parking");
     expect(rows.map((r) => r.rentMonth)).toEqual(["2026-04", "2026-05", "2026-06"]);
@@ -197,7 +197,7 @@ describe("preset monthly fees with no legacy billing field", () => {
     const propertyId = "prop-preset-other-once";
     seedPreset(propertyId, presetFee({ frequency: "one-time" }));
 
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     const rows = feeRows(email, "cf-other");
     expect(rows).toHaveLength(1);
@@ -211,9 +211,9 @@ describe("preset monthly fees with no legacy billing field", () => {
     const propertyId = "prop-preset-other-dup";
     seedPreset(propertyId, presetFee({}));
 
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     expect(feeRows(email, "cf-other").map((r) => r.rentMonth)).toEqual(["2026-04", "2026-05", "2026-06"]);
   });

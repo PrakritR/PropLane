@@ -137,7 +137,7 @@ function approve(city: City, tenancy: Tenancy, tag: string, opts?: Parameters<ty
   const sub = listing(city, opts);
   seed(propertyId, sub);
   const row = applicant(propertyId, email, tenancy);
-  recordApprovedApplicationCharges(row, MANAGER_ID, true);
+  recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
   const charges = readHouseholdCharges().filter((c) => c.residentEmail.toLowerCase() === email);
   const profile = readRecurringRentProfilesForManager(MANAGER_ID).find((p) => p.residentEmail === email);
   const feeCharges = charges.filter((c) => c.kind === "other_cost" && c.customFeeId);
@@ -300,7 +300,7 @@ describe("parity: the placement's rent (what the lease quotes) is the rent the l
     sub.rooms = [{ ...sub.rooms[0]!, shortLeaseSurchargeMonthly: "150", shortLeaseMaxMonths: 3 }];
     seed(propertyId, normalizeManagerListingSubmissionV1(sub));
     const row = applicant(propertyId, email, { leaseTerm: "3-Month", leaseStart: "2026-06-01", leaseEnd: "2026-08-31" });
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     const profile = readRecurringRentProfilesForManager(MANAGER_ID).find((p) => p.residentEmail === email);
     expect(profile?.monthlyRent).toBe(BASE_RENT + 150);
     expect(resolvePlacementValuesForRow(row).signedMonthlyRent).toBe(BASE_RENT + 150);

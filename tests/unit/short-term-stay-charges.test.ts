@@ -102,7 +102,7 @@ describe("short-term approved-application charges", () => {
     const propertyId = "prop-short-term-stay";
     seedShortTermListing(propertyId);
 
-    recordApprovedApplicationCharges(shortTermApplicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(shortTermApplicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     const charges = readHouseholdCharges().filter((c) => c.residentEmail.toLowerCase() === email.toLowerCase());
     const stay = charges.find((c) => c.kind === "stay_total");
@@ -119,7 +119,7 @@ describe("short-term approved-application charges", () => {
     const propertyId = "prop-short-term-defaults";
     seedShortTermListing(propertyId);
 
-    recordApprovedApplicationCharges(shortTermApplicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(shortTermApplicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     const charges = readHouseholdCharges().filter((c) => c.residentEmail.toLowerCase() === email.toLowerCase());
     expect(charges.find((c) => c.kind === "security_deposit")).toBeUndefined();
@@ -132,7 +132,7 @@ describe("short-term approved-application charges", () => {
     const propertyId = "prop-short-term-fees";
     seedShortTermListing(propertyId, { deposit: "100", moveIn: "40" });
 
-    recordApprovedApplicationCharges(shortTermApplicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(shortTermApplicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     const charges = readHouseholdCharges().filter((c) => c.residentEmail.toLowerCase() === email.toLowerCase());
     expect(charges.find((c) => c.kind === "security_deposit")?.amountLabel).toBe("$100.00");
@@ -146,7 +146,7 @@ describe("short-term approved-application charges", () => {
     seedShortTermListing(propertyId);
 
     const base = shortTermApplicant(propertyId, email);
-    recordApprovedApplicationCharges(base, MANAGER_ID, true);
+    recordApprovedApplicationCharges(base, MANAGER_ID, true, { leaseExecuted: true });
     expect(
       readHouseholdCharges()
         .filter((c) => c.residentEmail.toLowerCase() === email.toLowerCase())
@@ -161,7 +161,7 @@ describe("short-term approved-application charges", () => {
         managerRentOverride: "225",
       },
     } as DemoApplicantRow;
-    recordApprovedApplicationCharges(edited, MANAGER_ID, true);
+    recordApprovedApplicationCharges(edited, MANAGER_ID, true, { leaseExecuted: true });
 
     const stay = readHouseholdCharges()
       .filter((c) => c.residentEmail.toLowerCase() === email.toLowerCase())
@@ -225,7 +225,7 @@ describe("short-term approved-application charges", () => {
       },
     } as unknown as DemoApplicantRow;
 
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
 
     const charges = readHouseholdCharges().filter((c) => c.residentEmail.toLowerCase() === email.toLowerCase());
     const stay = charges.find((c) => c.kind === "stay_total");
@@ -265,7 +265,7 @@ describe("short-term approved-application charges", () => {
     };
 
     window.sessionStorage.setItem(HOUSEHOLD_CHARGES_SESSION_KEY, JSON.stringify([legacyCharge]));
-    recordApprovedApplicationCharges(row, MANAGER_ID, false);
+    recordApprovedApplicationCharges(row, MANAGER_ID, false, { leaseExecuted: true });
 
     const charges = readHouseholdCharges().filter((c) => c.residentEmail.toLowerCase() === email.toLowerCase());
     const stayCharges = charges.filter((c) => c.kind === "stay_total");
@@ -285,7 +285,7 @@ describe("long-term path unchanged", () => {
     const row = shortTermApplicant(propertyId, email);
     row.application = { ...row.application!, rentalType: "standard", leaseEnd: "2026-06-12" };
 
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
 
     const charges = readHouseholdCharges().filter((c) => c.residentEmail.toLowerCase() === email.toLowerCase());
     expect(charges.some((c) => c.kind === "stay_total")).toBe(false);

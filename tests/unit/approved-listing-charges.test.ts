@@ -98,7 +98,7 @@ describe("approved listing-sourced resident charges", () => {
     seedListing(propertyId, normalizeManagerListingSubmissionV1(sub));
 
     const email = "junaid@example.com";
-    recordApprovedApplicationCharges(applicantRow(propertyId, roomId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, roomId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     const charges = readHouseholdCharges().filter((c) => c.residentEmail === email);
     expect(charges.find((c) => c.kind === "first_month_rent")?.amountLabel).toBe("$825.00");
@@ -140,7 +140,7 @@ describe("approved listing-sourced resident charges", () => {
     const row = applicantRow(propertyId, roomId, email);
     row.application = { ...row.application!, roomChoice1: "", leaseStart: "2026-08-01" };
     row.assignedRoomChoice = "";
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
 
     const charges = readHouseholdCharges().filter((c) => c.residentEmail === email);
     expect(charges.find((c) => c.kind === "first_month_rent")?.amountLabel).toBe("$2,400.00");
@@ -168,7 +168,7 @@ describe("approved listing-sourced resident charges", () => {
 
     const email = "junaid@example.com";
     const row = applicantRow(propertyId, roomId, email);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
 
     sub = applyListingFeesToSubmission(normalizeManagerListingSubmissionV1(sub), [
       {
@@ -190,7 +190,7 @@ describe("approved listing-sourced resident charges", () => {
     ]);
     seedListing(propertyId, normalizeManagerListingSubmissionV1(sub));
 
-    const refreshed = recordApprovedApplicationCharges(row, MANAGER_ID, false);
+    const refreshed = recordApprovedApplicationCharges(row, MANAGER_ID, false, { leaseExecuted: true });
     expect(refreshed).toBe(true);
 
     const charges = readHouseholdCharges().filter((c) => c.residentEmail === email);

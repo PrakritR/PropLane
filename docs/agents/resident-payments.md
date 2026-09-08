@@ -407,3 +407,62 @@ the shared `applicationFeeWaiverExplanation`. Add any new fee-copy surface there
 rather than re-deriving it. Coverage:
 `tests/unit/application-fee-display.test.ts`,
 `tests/unit/application-fee-review-step.test.tsx`.
+
+## Charges follow the LEASE, not the application
+
+Only two moments create money, and **approval is not one of them**:
+
+| Moment | What is generated |
+| --- | --- |
+| Application submitted | the `application_fee`, and nothing else |
+| Approved, lease unsigned | **nothing** — an approval is a decision, not a bill |
+| Lease executed | the whole schedule (deposit, first/prorated rent, utilities, move-in and one-time fees, and the recurring rent profile) |
+
+`recordApprovedApplicationCharges` is named for the moment it was ORIGINALLY
+called from, not for a check it performed. It used to bill the full move-in
+schedule for anyone the reconciler handed it — including a submitted applicant
+nobody had approved — because `shouldReconcileResidentPaymentSchedule` admitted
+`bucket: "pending"` rows and the generator itself never looked at approval. Those
+are persisted rows, so every one also posted to the manager's ledger via
+`syncLedgerChargeEntry` and emitted a resident-addressed `charge_created` event.
+The applicant opened their dashboard to eight pending and overdue payments on a
+home they had not been given, linking to a `/resident/payments` the stage guard
+then bounced straight back.
+
+The rules that hold it closed:
+
+- **Two predicates, never one.** `shouldRetainResidentPaymentSchedule` answers
+  "whose existing charges survive a reconcile wipe" and is deliberately WIDER — a
+  submitted applicant belongs there so a manager's hand-added charge is not
+  deleted on the next portal load (the regression `6aeb64df` fixed).
+  `residentChargeMoment` answers "whose charges are GENERATED". Collapsing them
+  back into one predicate is how this bug happened.
+- **The SIGNATURE bills, whatever the application bucket says.** A lease can be
+  executed while its application row still reads pending; the person signed, so
+  they are a tenant. What the bucket can never do is bill someone with no lease.
+  `manuallyAdded` is its own sufficient signal — a manager hand-onboarding an
+  existing tenant is asserting the tenancy and may never file a lease here.
+- **The gate is at the door**, inside the generator, because four call sites reach
+  it and each one can forget. `leaseExecuted` is injected (`opts.leaseExecuted`)
+  rather than read inside, since `household-charges` cannot import
+  `lease-pipeline-storage` cheaply; the reconciler reads
+  `executedLeaseIdentities` ONCE per pass instead of rescanning per resident. The
+  default is fail-closed and degrades safely: a caller that omits it stops
+  REGENERATING, it never deletes, and next month still materializes from the
+  stored recurring profile.
+- **"This person has charges" is not authorization.** Both resident surfaces
+  (`resident-dashboard.tsx`, `resident-payments-panel.tsx`) separately let charges
+  unlock Payments so a manager-added resident can pay before their application row
+  reaches the local cache. `chargesImplyTenancy` is the one answer: an
+  `application_fee` or `holding_deposit` is what a PROSPECT owes and no longer
+  counts. Fixing one surface and not the other leaves the hole open.
+- **A deposit is not collectible between approval and signature.** That is
+  deliberate — the lease is what obliges anyone. A manager who wants money down
+  first enters a **holding fee**, which works at any stage and already credits
+  against the deposit.
+- **Generation is browser-only and manager-side**, so a freshly signed lease is
+  billed on the manager's next portal load, not the instant the resident signs.
+  Pre-existing (`getPropertyById` needs the manager's local listing catalog).
+
+Coverage: `tests/unit/charges-follow-the-lease.test.ts`,
+`tests/unit/current-resident.test.ts`.

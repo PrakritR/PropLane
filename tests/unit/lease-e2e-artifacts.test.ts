@@ -234,7 +234,7 @@ describe("lease documents: generation, formatting and ledger agreement", () => {
       leaseEnd: "2026-09-13",
     });
 
-    recordApprovedApplicationCharges(applicantRow(pid, email, app), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(pid, email, app), MANAGER_ID, true, { leaseExecuted: true });
     const body = html(app);
     save("06-seattle-short-term-stay", body, email);
 
@@ -264,7 +264,7 @@ describe("lease documents: generation, formatting and ledger agreement", () => {
     });
     const app = application(pid, { leaseStart: "2026-09-01", leaseEnd: "2027-08-31" });
 
-    recordApprovedApplicationCharges(applicantRow(pid, email, app), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(pid, email, app), MANAGER_ID, true, { leaseExecuted: true });
     const body = html(app);
     save("07-seattle-long-term-with-charges", body, email);
 

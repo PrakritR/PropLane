@@ -2372,9 +2372,17 @@ export function ManagerResidents({
           return;
         }
         // A pending applicant has no approved tenancy yet, so it has no move-in
-        // charges either — billing one would be inventing money owed.
+        // charges either — billing one would be inventing money owed. That rule
+        // now lives inside the generator; this hand-onboarded resident is an
+        // asserted tenancy, so it bills on the manager's say-so rather than on a
+        // lease PropLane may never hold.
         if (nextRow.bucket === "approved") {
-          recordApprovedApplicationCharges(nextRow, userId ?? null, true);
+          recordApprovedApplicationCharges(nextRow, userId ?? null, true, {
+            leaseExecuted:
+              nextRow.manuallyAdded === true ||
+              executedLeaseKeys.axisIds.has(normalizeApplicationAxisId(nextRow.id)) ||
+              Boolean(nextRow.email?.trim() && executedLeaseKeys.emails.has(nextRow.email.trim().toLowerCase())),
+          });
         }
         syncLeasePipelineFromApplications(userId ?? null);
 

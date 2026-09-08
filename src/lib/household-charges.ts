@@ -45,11 +45,12 @@ import {
   type RentDueDayMode,
   type ResidentAcceptedPaymentMethod,
 } from "@/lib/payment-policy";
-import { shouldReconcileResidentPaymentSchedule } from "@/lib/current-resident";
+import { residentChargeMoment, shouldRetainResidentPaymentSchedule } from "@/lib/current-resident";
 import { applicationVisibleToPortalUser } from "@/lib/manager-portfolio-access";
 import type { DemoManagerPaymentLedgerRow, ManagerPaymentBucket } from "@/data/demo-portal";
 import type { DemoApplicantRow } from "@/data/demo-portal";
-import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
+import { normalizeApplicationAxisId, readManagerApplicationRows } from "@/lib/manager-applications-storage";
+import { executedLeaseIdentities } from "@/lib/lease-pipeline-storage";
 import { generatePaymentReference } from "@/lib/payment-reference";
 import {
   leaseEndProration,
@@ -2156,7 +2157,14 @@ function reconcileApprovedChargesForHoldingFee(applicationId: string, managerUse
   if (!appId) return;
   const row = readManagerApplicationRows().find((r) => r.id === appId);
   if (!row || row.bucket !== "approved") return;
-  recordApprovedApplicationCharges(row, managerUserId, false);
+  // This only ever RE-credits a deposit that already exists, and a deposit only
+  // exists once the tenancy was billed. So an existing tenancy charge is itself
+  // sufficient evidence here — without it, a holding-fee edit would silently
+  // stop re-crediting whenever the lease pipeline is not loaded.
+  const existingTenancyCharge = chargesImplyTenancy(readAll().filter((c) => c.applicationId === appId));
+  recordApprovedApplicationCharges(row, managerUserId, false, {
+    leaseExecuted: existingTenancyCharge || resolveLeaseExecutedForRow(row, managerUserId),
+  });
 }
 
 /**
@@ -2611,7 +2619,7 @@ function syncAllRecurringRentCharges(): boolean {
 export function reconcileApprovedResidentPaymentSchedules(managerUserId: string | null, force = false): boolean {
   if (!isBrowser()) return false;
   const currentRows = readManagerApplicationRows().filter((row) => {
-    if (!shouldReconcileResidentPaymentSchedule(row)) return false;
+    if (!shouldRetainResidentPaymentSchedule(row)) return false;
     if (!managerUserId) return true;
     // Match Add payment / Payments UI: include co-managed residents the portal
     // user can see, not only rows whose managerUserId equals the signed-in user.
@@ -2649,8 +2657,18 @@ export function reconcileApprovedResidentPaymentSchedules(managerUserId: string 
     changed = true;
   }
 
+  // Whose lease is actually executed, read ONCE for the whole pass — the same
+  // shape `pro-residents` already uses for the directory. Resolving it per row
+  // would rescan the pipeline for every resident.
+  let executedKeys: ExecutedLeaseKeys;
+  try {
+    executedKeys = executedLeaseIdentities(managerUserId);
+  } catch {
+    executedKeys = { emails: new Set<string>(), axisIds: new Set<string>() };
+  }
   for (const row of currentRows) {
-    if (recordApprovedApplicationCharges(row, managerUserId, force)) {
+    const leaseExecuted = row.manuallyAdded === true || rowHasExecutedLease(row, executedKeys);
+    if (recordApprovedApplicationCharges(row, managerUserId, force, { leaseExecuted })) {
       changed = true;
     }
   }
@@ -2815,6 +2833,31 @@ export function linkHouseholdChargesToResidentUser(email: string, userId: string
     return profile;
   });
   if (profileChanged) writeRentProfiles(nextProfiles);
+}
+
+/**
+ * The two charge kinds a PROSPECT can legitimately owe. Everything else implies
+ * a tenancy that someone has actually granted.
+ */
+const PRE_TENANCY_CHARGE_KINDS = new Set<HouseholdChargeKind>(["application_fee", "holding_deposit"]);
+
+/**
+ * Whether a resident's charges are evidence of a real tenancy.
+ *
+ * Both resident surfaces separately let "this person has charges" unlock
+ * Payments, so that a manager-added resident whose application row has not
+ * reached the local cache can still pay. That escape hatch is worth keeping —
+ * but ANY charge used to satisfy it, so an applicant who had been wrongly billed
+ * a move-in schedule unlocked a section the stage guard then refused to open.
+ * An application or holding fee alone means "still a prospect", so it no longer
+ * counts.
+ */
+export function chargesImplyTenancy(charges: HouseholdCharge[]): boolean {
+  return charges.some(
+    (c) =>
+      !PRE_TENANCY_CHARGE_KINDS.has(c.kind) &&
+      (c.status === "pending" || c.status === "processing" || c.status === "paid" || c.status === "partially_paid"),
+  );
 }
 
 export function readChargesForResident(email: string, userId: string | null): HouseholdCharge[] {
@@ -3627,7 +3670,40 @@ function recurringProfileStoredMonthlyRent(
   return rentAmount > 0 ? rentAmount : 0;
 }
 
-export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerUserId: string | null, force = false): boolean {
+/** The two keys a lease row can be matched to an application by, read once per pass. */
+type ExecutedLeaseKeys = ReturnType<typeof executedLeaseIdentities>;
+
+function rowHasExecutedLease(row: DemoApplicantRow, keys: ExecutedLeaseKeys): boolean {
+  if (keys.axisIds.has(normalizeApplicationAxisId(row.id))) return true;
+  const email = row.email?.trim().toLowerCase();
+  return Boolean(email && keys.emails.has(email));
+}
+
+/**
+ * Single-row fallback for callers that have no pass-wide key set. The reconciler
+ * reads the pipeline ONCE and passes `leaseExecuted` per row instead, because
+ * doing this inside its loop would rescan the whole pipeline per resident.
+ */
+function resolveLeaseExecutedForRow(row: DemoApplicantRow, managerUserId: string | null): boolean {
+  if (row.manuallyAdded === true) return true;
+  try {
+    return rowHasExecutedLease(row, executedLeaseIdentities(managerUserId ?? row.managerUserId ?? null));
+  } catch {
+    return false;
+  }
+}
+
+export function recordApprovedApplicationCharges(
+  row: DemoApplicantRow,
+  managerUserId: string | null,
+  force = false,
+  opts: { leaseExecuted?: boolean } = {},
+): boolean {
+  // Default false is fail-closed on purpose, and it degrades safely: a caller
+  // that omits it stops REGENERATING, it never deletes. Existing charges are
+  // kept by the retention predicate and next month's rent still materializes
+  // from the stored recurring profile.
+  const leaseExecuted = opts.leaseExecuted ?? resolveLeaseExecutedForRow(row, managerUserId);
   if (row.migrationBillingHold) return false;
   if (!isBrowser()) return false;
   const residentEmail = row.email?.trim();
@@ -3665,9 +3741,26 @@ export function recordApprovedApplicationCharges(row: DemoApplicantRow, managerU
     return parseMoneyAmount(fallback ?? "");
   };
   const before = readAll();
+  let wroteApplicationFee = false;
   if (!row.manuallyAdded) {
-    recordSubmittedApplicationFeeCharge(row, effectiveManagerUserId);
+    wroteApplicationFee = recordSubmittedApplicationFeeCharge(row, effectiveManagerUserId);
   }
+  // Nothing beyond the application fee exists until the lease is executed.
+  //
+  // This function is named for the moment it was ORIGINALLY called from, not for
+  // a check it performed: it used to bill the whole move-in schedule — deposit,
+  // first month's rent, utilities, move-in fee, and a recurring rent profile —
+  // for anyone the reconciler handed it, including an applicant nobody had
+  // approved. Those are persisted rows, so each one also posted to the manager's
+  // ledger and emitted a resident-addressed `charge_created` notification. The
+  // guard `pro-residents.tsx` already carried ("billing one would be inventing
+  // money owed") now lives at the door instead, where the other call sites
+  // cannot forget it.
+  //
+  // Approval deliberately generates nothing: a decision is not a bill. A manager
+  // who wants money down before signature enters a holding fee, which is
+  // manager-added, works at any stage, and already credits against the deposit.
+  if (residentChargeMoment(row, { leaseExecuted }) !== "signed") return wroteApplicationFee;
   // When not forced, skip wipe+regeneration if pending charges already exist for this resident.
   // This preserves manager-edited amounts and prevents auto-reconcile from overwriting manual changes.
   // Pass force=true (via the "Regenerate" button) to refresh from current listing terms.

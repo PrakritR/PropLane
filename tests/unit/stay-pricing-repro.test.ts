@@ -147,7 +147,7 @@ describe("stay pricing: document and ledger agree", () => {
     const app = application(propertyId);
 
     // Mar 10 → Mar 20 2026 is an 11-day stay: 11 × $55 = $605.
-    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true, { leaseExecuted: true });
     expect(rentCharges(email)[0]?.amount).toBe("$605.00");
 
     const html = leaseHtml(app);
@@ -168,7 +168,7 @@ describe("stay pricing: document and ledger agree", () => {
     });
     const app = application(propertyId);
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true, { leaseExecuted: true });
     expect(rentCharges(email)[0]?.amount).toBe("$605.00");
 
     const html = leaseHtml(app);
@@ -192,7 +192,7 @@ describe("stay pricing: document and ledger agree", () => {
     });
     const app = application(propertyId, { rentalType: "short_term", leaseTerm: "Short-Term Stay" });
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true, { leaseExecuted: true });
     // An EXPLICIT short-term stay bills checkout-exclusive nights: Mar 10 to Mar 20 is 10
     // nights, not 11 days. A daily-basis tenancy on a standard application still bills the
     // inclusive 11 (see the tests below), which is why the two counts differ.
@@ -285,7 +285,7 @@ describe("stay pricing: document and ledger agree", () => {
     const ym = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}`;
     const app = application(propertyId, { leaseStart: `${ym}-03`, leaseEnd: `${ym}-13` });
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true, { leaseExecuted: true });
 
     const expectedUtilities = Number((120 * (11 / daysInMonth)).toFixed(2));
     const expected = Number((11 * 55 + expectedUtilities + 900 + 300).toFixed(2));
@@ -308,7 +308,7 @@ describe("stay pricing: document and ledger agree", () => {
     const ym = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}`;
     const app = application(propertyId, { leaseStart: `${ym}-03`, leaseEnd: `${ym}-13` });
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true, { leaseExecuted: true });
 
     // The upfront prorated first/last-month charges are the legacy monthly path and stay.
     // What must NOT exist is a recurring "rent" row for the move-in month, which the profile
@@ -328,7 +328,7 @@ describe("stay pricing: document and ledger agree", () => {
     // must NOT receive a lodger agreement stating one up-front stay total.
     const app = application(propertyId, { leaseStart: "2026-03-10", leaseEnd: "2026-06-12" });
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true, { leaseExecuted: true });
     expect(rentCharges(email).length).toBeGreaterThan(1);
 
     const html = leaseHtml(app);
@@ -374,7 +374,7 @@ describe("stay pricing: document and ledger agree", () => {
     const ym = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}`;
     const app = application(propertyId, { leaseStart: `${ym}-03`, leaseEnd: `${ym}-13` });
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true, { leaseExecuted: true });
 
     // 11 days × $6/day = $66.00, NOT the flat 120 × (11/daysInMonth).
     const expected = Number((11 * 55 + 11 * 6 + 900 + 300).toFixed(2));
@@ -414,7 +414,7 @@ describe("stay pricing: document and ledger agree", () => {
       managerUserId: MANAGER_ID,
     });
     markHoldingDepositPaidAfterStripe(email, propertyId, null);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
 
     // The ledger — the authority for the balance — nets the credit off.
     const securityCharge = readHouseholdCharges().find(
@@ -458,7 +458,7 @@ describe("stay pricing: document and ledger agree", () => {
       manualResidentDetails: { moveInDate: "3/10/2026", moveOutDate: "3/20/2026" },
     } as unknown as DemoApplicantRow;
 
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     const charges = rentCharges(email);
     expect(charges).toHaveLength(1);
     expect(charges[0]?.amount).toBe("$605.00");
@@ -476,7 +476,7 @@ describe("stay pricing: document and ledger agree", () => {
     });
     const app = application(propertyId, { leaseStart: "2026-03-10", leaseEnd: "2026-06-30" });
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, email, app), MANAGER_ID, true, { leaseExecuted: true });
     const proratedUtilities = readHouseholdCharges().find(
       (c) => c.residentEmail.toLowerCase() === email && c.kind === "prorated_utilities",
     );
@@ -544,7 +544,7 @@ describe("stay pricing: document and ledger agree", () => {
       signedMonthlyRent: 1200,
     } as DemoApplicantRow;
 
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
 
     // Room B's monthly proration, NOT room A's $90/day proration rate (which would be $1,980).
     expect(rentCharges(email).map((c) => c.amount)).toContain("$851.61");

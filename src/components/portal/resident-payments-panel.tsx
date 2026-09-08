@@ -48,6 +48,7 @@ import {
   isHouseholdChargeOverdue,
   linkHouseholdChargesToResidentUser,
   applyHouseholdChargePatches,
+  chargesImplyTenancy,
   readChargesForResident,
   syncHouseholdChargesFromServer,
   type HouseholdCharge,
@@ -221,11 +222,10 @@ export function ResidentPaymentsPanel({
     void tick;
     if (!email) return false;
     if (applicationsForResidentEmail(email).some((row) => row.bucket === "approved")) return true;
-    // Manager-added residents and anyone with live charges should reach Payments even
-    // before an application row exists in the local cache.
-    return readChargesForResident(email, userId).some(
-      (c) => c.status === "pending" || c.status === "processing" || c.status === "paid",
-    );
+    // Manager-added residents should reach Payments even before an application
+    // row exists in the local cache. An application or holding fee is NOT that
+    // evidence — a prospect owes those — so it takes a tenancy charge.
+    return chargesImplyTenancy(readChargesForResident(email, userId));
   }, [applicationTick, email, tick, userId]);
 
   useEffect(() => {
