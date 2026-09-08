@@ -1821,19 +1821,23 @@ export function ManagerApplications({
         description={
           rejectPreviewRows?.length === 1 ? (
             <>
-              Rejecting <span className="font-semibold">{applicantDisplayName(rejectPreviewRows[0]!)}</span>{" "}
-              will move this application to the Rejected tab. The applicant will not receive an automatic email.
+              Moves <span className="font-semibold text-foreground">{applicantDisplayName(rejectPreviewRows[0]!)}</span>{" "}
+              to the Rejected tab. No email is sent.
             </>
           ) : rejectPreviewRows && rejectPreviewRows.length > 1 ? (
             <>
-              Reject <span className="font-semibold">{rejectPreviewRows.length} applications</span>? They will move to
-              the Rejected tab and applicants will not receive an automatic email.
+              Moves <span className="font-semibold text-foreground">{rejectPreviewRows.length} applications</span> to
+              the Rejected tab. No email is sent.
             </>
           ) : (
             ""
           )
         }
         confirmLabel="Reject"
+        busyLabel="Rejecting…"
+        // A rejected row moves tabs; it is not destroyed, so the delete warning
+        // would overstate what this does.
+        note={null}
         busy={rejectBusy}
         dataAttr="application-reject-confirm"
         onClose={() => {

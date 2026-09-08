@@ -21,10 +21,9 @@ export function ConfirmDeleteModal({
   title = "Delete",
   description,
   confirmLabel = "Delete",
-  /** Line under the description. Pass null for an action that IS reversible. */
+  busyLabel = "Deleting…",
   note = "This cannot be undone.",
   busy = false,
-  busyLabel = "Deleting…",
   tone = "danger",
   onClose,
   onConfirm,
@@ -34,9 +33,12 @@ export function ConfirmDeleteModal({
   title?: string;
   description: ReactNode;
   confirmLabel?: string;
+  /** Shown while the action runs. "Deleting…" is wrong for a confirm that is not a delete. */
+  busyLabel?: string;
+  /** Pass null where the action IS reversible — a row that moves to another tab is not gone. */
   note?: ReactNode;
   busy?: boolean;
-  busyLabel?: string;
+  /** `primary` for a confirm that is not destructive (apply, switch, submit anyway). */
   tone?: "danger" | "primary";
   onClose: () => void;
   onConfirm: () => void;
@@ -65,7 +67,7 @@ export function ConfirmDeleteModal({
         </ModalFooter>
       }
     >
-      <p className="text-sm text-foreground">{description}</p>
+      <p className="text-sm text-muted">{description}</p>
       {note ? <p className="mt-2 text-xs text-muted">{note}</p> : null}
     </Modal>
   );
