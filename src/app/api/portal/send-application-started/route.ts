@@ -16,10 +16,10 @@ import { clientIpFrom, rateLimit } from "@/lib/rate-limit";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { isLegitimateEmail } from "@/lib/email-address";
 
 export const runtime = "nodejs";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 function idVariants(id: string): string[] {
   const trimmed = id.trim();
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
 
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
     const axisId = typeof body.axisId === "string" ? body.axisId.trim() : "";
-    if (!email || !EMAIL_RE.test(email)) {
+    if (!email || !isLegitimateEmail(email)) {
       return NextResponse.json({ error: "A valid email is required." }, { status: 400 });
     }
     if (!axisId) return NextResponse.json({ error: "axisId is required." }, { status: 400 });

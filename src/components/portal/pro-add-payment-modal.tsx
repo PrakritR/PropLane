@@ -504,6 +504,9 @@ export function ManagerAddPaymentModal({
         showChannelPicker
         emailAvailable={Boolean(noticePreview?.residentEmail?.includes("@"))}
         smsAvailable
+        deliverViaKind="payments"
+        showWorkNumberHint={false}
+        hideSendViaFooterNote
         confirmLabel="Add payment & send notice"
         confirmLabelWithoutMessage="Add payment only"
         confirmBusy={noticeBusy}

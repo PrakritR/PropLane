@@ -47,6 +47,7 @@ import {
   shortTermStayTotalAmount,
 } from "@/lib/short-term-stay-pricing";
 import { Input } from "@/components/ui/input";
+import { Modal, ModalFooter, MODAL_FIELD_LABEL_CLASS } from "@/components/ui/modal";
 import {
   PortalBulkMessageCarouselModal,
 } from "@/components/portal/portal-bulk-message-carousel-modal";
@@ -434,13 +435,15 @@ export function ManagerPaymentsLedgerPanel({
     if (!window.confirm(`Delete ${targets.length} payment${targets.length === 1 ? "" : "s"}?`)) return;
     let ok = 0;
     for (const row of targets) {
-      if (row.householdChargeId) {
-        if (deleteHouseholdCharge(row.householdChargeId, managerUserId, chargeScopeOpts)) ok += 1;
+      const chargeId = row.householdChargeId?.trim() || row.id.trim();
+      if (chargeId && deleteHouseholdCharge(chargeId, managerUserId, chargeScopeOpts)) {
+        ok += 1;
       } else if (deleteManagerPaymentLedgerEntry(row.id)) {
         ok += 1;
       }
     }
     setSelectedIds(new Set());
+    cancelEdit();
     onRowsChanged?.();
     if (ok === 0) {
       showToast("Could not remove selected payments.");
@@ -525,35 +528,7 @@ export function ManagerPaymentsLedgerPanel({
     cancelEdit();
   };
 
-  const saveBulkEditAmount = () => {
-    const row = singleSelectedRow;
-    if (!row) return;
-    saveEdit(row);
-  };
-
   const renderAmountOwedCell = (row: DemoManagerPaymentLedgerRow) => {
-    if (editingRowId === row.id && row.householdChargeId) {
-      if (isStayTotalRow(row)) {
-        const parsed = parseShortTermStayChargeTitle(row.chargeTitle);
-        return (
-          <span className="tabular-nums font-semibold text-foreground">
-            ${shortTermStayTotalAmount(parsed?.nightlyRate ?? 0, parseInt(editNightsDraft, 10) || 0).toFixed(2)}
-          </span>
-        );
-      }
-      return (
-        <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-          <span className="text-xs text-muted">$</span>
-          <Input
-            className="h-8 w-24 rounded-lg px-2 py-1 text-xs tabular-nums"
-            inputMode="decimal"
-            value={editAmountDraft}
-            onChange={(e) => setEditAmountDraft(e.target.value)}
-            aria-label="Amount owed"
-          />
-        </span>
-      );
-    }
     // Show the charge's FACE amount (what the charge is for), not the outstanding
     // balance — a paid charge's balance is $0.00, which made every Paid row read
     // "$0.00". Paid vs owed is conveyed by the status badge / bucket.
@@ -561,18 +536,6 @@ export function ManagerPaymentsLedgerPanel({
   };
 
   const renderDueDateCell = (row: DemoManagerPaymentLedgerRow) => {
-    if (editingRowId === row.id && row.householdChargeId) {
-      return (
-        <Input
-          type="date"
-          className="h-8 w-36 rounded-lg px-2 py-1 text-xs"
-          value={editDueDateDraft}
-          onChange={(e) => setEditDueDateDraft(e.target.value)}
-          onClick={(e) => e.stopPropagation()}
-          aria-label="Due date"
-        />
-      );
-    }
     return <span className="block">{row.dueDate}</span>;
   };
 
@@ -827,34 +790,143 @@ export function ManagerPaymentsLedgerPanel({
   // so a screen reader is not given two identically-named buttons.
   const addPaymentLabel = "Add";
   const addPaymentAriaLabel = embeddedInResident ? "Add payment" : "Add charge";
-  const renderStayNightsCell = (row: DemoManagerPaymentLedgerRow) => {
-    if (editingRowId !== row.id || !row.householdChargeId || !isStayTotalRow(row)) return null;
-    const parsed = parseShortTermStayChargeTitle(row.chargeTitle);
+  const editingRow = useMemo(
+    () => (editingRowId ? rows.find((row) => row.id === editingRowId) ?? null : null),
+    [editingRowId, rows],
+  );
+
+  const renderEditPaymentModal = () => {
+    if (!editingRow?.householdChargeId || isPaidRow(editingRow)) return null;
+    const row = editingRow;
+    const stay = isStayTotalRow(row);
+    const parsed = stay ? parseShortTermStayChargeTitle(row.chargeTitle) : null;
     return (
-      <div onClick={(e) => e.stopPropagation()}>
-        <p className="text-xs font-medium text-muted">Nights</p>
-        <Input
-          className="mt-1 h-8 w-24 rounded-lg px-2 py-1 text-xs tabular-nums"
-          inputMode="numeric"
-          value={editNightsDraft}
-          onChange={(e) => {
-            const next = e.target.value.replace(/[^\d]/g, "");
-            setEditNightsDraft(next);
-            if (parsed && next) {
-              const nights = parseInt(next, 10);
-              if (Number.isFinite(nights) && nights >= 1) {
-                setEditAmountDraft(shortTermStayTotalAmount(parsed.nightlyRate, nights).toFixed(2));
-              }
-            }
-          }}
-          aria-label="Number of nights"
-        />
-        {parsed ? (
-          <p className="mt-1 text-xs text-muted">
-            {parsed.nightlyRate % 1 === 0 ? `$${parsed.nightlyRate}` : `$${parsed.nightlyRate.toFixed(2)}`} / night
-          </p>
-        ) : null}
-      </div>
+      <Modal
+        open
+        title="Edit payment"
+        onClose={cancelEdit}
+        dense
+        dataAttr="payments-edit-modal"
+        footer={
+          <ModalFooter className="justify-between gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-full"
+              data-attr="payments-edit-delete"
+              onClick={() => removePayment(row)}
+            >
+              Delete
+            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {isMarkableAsPaid(row) ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-full"
+                  data-attr="payments-edit-mark-paid"
+                  onClick={() => {
+                    void recordPaid(row, "Marked as paid.");
+                    cancelEdit();
+                  }}
+                >
+                  Mark as paid
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="primary"
+                className="rounded-full"
+                data-attr="payments-edit-save"
+                onClick={() => saveEdit(row)}
+              >
+                Save
+              </Button>
+            </div>
+          </ModalFooter>
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-foreground">{row.residentName}</p>
+            <p className="text-xs text-muted">
+              {stay
+                ? shortTermStayChargeTitle(
+                    parseInt(editNightsDraft, 10) || parsed?.nights || 0,
+                    parsed?.nightlyRate ?? 0,
+                  )
+                : row.chargeTitle}
+            </p>
+            <p className="mt-0.5 text-xs text-muted">
+              {[row.propertyName, formatLedgerRoomLabel(row.roomNumber)].filter(Boolean).join(" · ")}
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {stay ? (
+              <div>
+                <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="payments-edit-nights">
+                  Nights
+                </label>
+                <Input
+                  id="payments-edit-nights"
+                  className="mt-1 h-10 w-full rounded-lg px-3 text-sm tabular-nums"
+                  inputMode="numeric"
+                  value={editNightsDraft}
+                  onChange={(e) => {
+                    const next = e.target.value.replace(/[^\d]/g, "");
+                    setEditNightsDraft(next);
+                    if (parsed && next) {
+                      const nights = parseInt(next, 10);
+                      if (Number.isFinite(nights) && nights >= 1) {
+                        setEditAmountDraft(shortTermStayTotalAmount(parsed.nightlyRate, nights).toFixed(2));
+                      }
+                    }
+                  }}
+                  aria-label="Number of nights"
+                />
+                {parsed ? (
+                  <p className="mt-1 text-xs text-muted">
+                    {parsed.nightlyRate % 1 === 0
+                      ? `$${parsed.nightlyRate}`
+                      : `$${parsed.nightlyRate.toFixed(2)}`}{" "}
+                    / night
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <div>
+                <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="payments-edit-amount">
+                  Amount
+                </label>
+                <div className="mt-1 flex items-center gap-1">
+                  <span className="text-sm text-muted">$</span>
+                  <Input
+                    id="payments-edit-amount"
+                    className="h-10 w-full rounded-lg px-3 text-sm tabular-nums"
+                    inputMode="decimal"
+                    value={editAmountDraft}
+                    onChange={(e) => setEditAmountDraft(e.target.value)}
+                    aria-label="Amount owed"
+                  />
+                </div>
+              </div>
+            )}
+            <div>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="payments-edit-due">
+                Due date
+              </label>
+              <Input
+                id="payments-edit-due"
+                type="date"
+                className="mt-1 h-10 w-full rounded-lg px-3 text-sm"
+                value={editDueDateDraft}
+                onChange={(e) => setEditDueDateDraft(e.target.value)}
+                aria-label="Due date"
+              />
+            </div>
+          </div>
+        </div>
+      </Modal>
     );
   };
 
@@ -879,11 +951,7 @@ export function ManagerPaymentsLedgerPanel({
           </div>
           <div className="sm:col-span-2">
             <p className="text-xs font-medium text-muted">Charge</p>
-            {editingRowId === row.id && isStayTotalRow(row) ? (
-              renderStayNightsCell(row)
-            ) : (
-              <p className="text-foreground">{row.chargeTitle}</p>
-            )}
+            <p className="text-foreground">{row.chargeTitle}</p>
           </div>
           <div>
             <p className="text-xs font-medium text-muted">Due date</p>
@@ -1015,18 +1083,19 @@ export function ManagerPaymentsLedgerPanel({
 
   const removePayment = (row: DemoManagerPaymentLedgerRow) => {
     if (!window.confirm(`Delete "${row.chargeTitle}" for ${row.residentName}?`)) return;
-    if (row.householdChargeId) {
-      if (deleteHouseholdCharge(row.householdChargeId, managerUserId, chargeScopeOpts)) {
-        showToast("Payment removed.");
-        navigateToList();
-        onRowsChanged?.();
-        return;
-      }
-      showToast("Could not remove this line.");
+    const chargeId = row.householdChargeId?.trim() || row.id.trim();
+    if (chargeId && deleteHouseholdCharge(chargeId, managerUserId, chargeScopeOpts)) {
+      showToast("Payment removed.");
+      cancelEdit();
+      setSelectedIds(new Set());
+      navigateToList();
+      onRowsChanged?.();
       return;
     }
     if (deleteManagerPaymentLedgerEntry(row.id)) {
       showToast("Payment removed.");
+      cancelEdit();
+      setSelectedIds(new Set());
       navigateToList();
       onRowsChanged?.();
       return;
@@ -1056,34 +1125,28 @@ export function ManagerPaymentsLedgerPanel({
 
   const renderDetailActions = (row: DemoManagerPaymentLedgerRow) => {
     const canEdit = Boolean(row.householdChargeId && !isPaidRow(row));
-    const editing = canEdit && editingRowId === row.id;
     const showSendReminder = !isPaidRow(row);
     const showMoveToPending = activeBucket === "paid";
     const btnClass = RESIDENT_DETAIL_HEADER_ACTION_BTN;
 
     const markPaidButton =
-      !editing && isMarkableAsPaid(row) ? (
+      isMarkableAsPaid(row) ? (
         <Button type="button" variant="outline" className={btnClass} onClick={() => recordPaid(row, "Marked as paid.")}>
           Mark as paid
         </Button>
       ) : null;
 
     const editButtons = canEdit ? (
-      editing ? (
-        <>
-          <Button type="button" variant="outline" className={btnClass} onClick={() => saveEdit(row)}>
-            Save
-          </Button>
-          <Button type="button" variant="outline" className={btnClass} onClick={() => cancelEdit()}>
-            Cancel
-          </Button>
-        </>
-      ) : (
-        <Button type="button" variant="outline" className={btnClass} onClick={() => startEdit(row)}>
-          Edit
-        </Button>
-      )
+      <Button type="button" variant="outline" className={btnClass} onClick={() => startEdit(row)}>
+        Edit
+      </Button>
     ) : null;
+
+    const deleteButton = (
+      <Button type="button" variant="outline" className={btnClass} data-attr="payments-detail-delete" onClick={() => removePayment(row)}>
+        Delete
+      </Button>
+    );
 
     const sendReminderButton = showSendReminder ? (
       <Button
@@ -1110,8 +1173,7 @@ export function ManagerPaymentsLedgerPanel({
       </Button>
     ) : null;
 
-    const mobileOverflowMenu =
-      !editing ? (
+    const mobileOverflowMenu = (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -1139,15 +1201,19 @@ export function ManagerPaymentsLedgerPanel({
                 Move to pending
               </DropdownMenuItem>
             ) : null}
+            <DropdownMenuItem data-attr="payments-detail-delete" onSelect={() => removePayment(row)}>
+              Delete
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-      ) : null;
+      );
 
     return (
       <>
         <div className="flex max-w-full flex-nowrap items-center gap-1 md:hidden">
           {markPaidButton}
           {editButtons}
+          {deleteButton}
           {mobileOverflowMenu}
         </div>
         <div className="hidden max-w-full flex-nowrap items-center gap-1 md:flex">
@@ -1155,6 +1221,7 @@ export function ManagerPaymentsLedgerPanel({
           {editButtons}
           {sendReminderButton}
           {moveToPendingButton}
+          {deleteButton}
         </div>
       </>
     );
@@ -1182,7 +1249,6 @@ export function ManagerPaymentsLedgerPanel({
     const selectedIdList = [...selectedIds].sort().join(",");
     const meta = [
       activeBucket,
-      editingRowId ?? "",
       sendingReminderId ?? "",
       singleSelectedRow?.id ?? "",
       singleSelectedRow?.householdChargeId ?? "",
@@ -1191,13 +1257,11 @@ export function ManagerPaymentsLedgerPanel({
       selectedRows.some((row) => !isPaidRow(row)) ? "1" : "0",
       activeBucket === "paid" && selectedRows.length > 0 ? "1" : "0",
       singleSelectedRow && !isPaidRow(singleSelectedRow) ? "1" : "0",
-      editingRowId === singleSelectedRow?.id ? "1" : "0",
     ].join("|");
     return `${selectedIdList}|${meta}`;
   }, [
     selectedIds,
     activeBucket,
-    editingRowId,
     sendingReminderId,
     singleSelectedRow,
     remindableSelectedRows.length,
@@ -1354,41 +1418,21 @@ export function ManagerPaymentsLedgerPanel({
     }
 
     if (singleSelectedRow?.householdChargeId && !isPaidRow(singleSelectedRow)) {
-      if (editingRowId === singleSelectedRow.id) {
-        actions.push({
-          id: "save-edit",
-          keepPriority: 3,
-          node: (
-            <Button
-              type="button"
-              variant="outline"
-              className={PAYMENTS_BULK_BAR_BTN}
-              onClick={saveBulkEditAmount}
-            >
-              Save
-            </Button>
-          ),
-          menuItem: (
-            <DropdownMenuItem onSelect={saveBulkEditAmount}>Save</DropdownMenuItem>
-          ),
-        });
-      } else {
-        actions.push({
-          id: "edit",
-          keepPriority: 2,
-          node: (
-            <Button
-              type="button"
-              variant="outline"
-              className={PAYMENTS_BULK_BAR_BTN}
-              onClick={() => startEdit(singleSelectedRow)}
-            >
-              Edit
-            </Button>
-          ),
-          menuItem: <DropdownMenuItem onSelect={() => startEdit(singleSelectedRow)}>Edit</DropdownMenuItem>,
-        });
-      }
+      actions.push({
+        id: "edit",
+        keepPriority: 2,
+        node: (
+          <Button
+            type="button"
+            variant="outline"
+            className={PAYMENTS_BULK_BAR_BTN}
+            onClick={() => startEdit(singleSelectedRow)}
+          >
+            Edit
+          </Button>
+        ),
+        menuItem: <DropdownMenuItem onSelect={() => startEdit(singleSelectedRow)}>Edit</DropdownMenuItem>,
+      });
     }
 
     actions.push({
@@ -1421,13 +1465,11 @@ export function ManagerPaymentsLedgerPanel({
   }, [
     activeBucket,
     deleteSelected,
-    editingRowId,
     markSelectedAsPaid,
     moveSelectedToPending,
     openBulkReminderPreview,
     openReminderPreview,
     remindableSelectedRows,
-    saveBulkEditAmount,
     selectedIds.size,
     selectedRows,
     sendingReminderId,
@@ -1469,80 +1511,6 @@ export function ManagerPaymentsLedgerPanel({
     };
   }, [embeddedInResident]);
 
-  const renderInlineEditForm = (row: DemoManagerPaymentLedgerRow) => (
-    <div
-      className="border-b border-border/50 bg-accent/15 px-3 py-3 max-md:px-2.5"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <p className="text-sm font-semibold text-foreground">{row.residentName}</p>
-      <p className="text-xs text-muted">
-        {isStayTotalRow(row) && editingRowId === row.id
-          ? shortTermStayChargeTitle(
-              parseInt(editNightsDraft, 10) || parseShortTermStayChargeTitle(row.chargeTitle)?.nights || 0,
-              parseShortTermStayChargeTitle(row.chargeTitle)?.nightlyRate ?? 0,
-            )
-          : row.chargeTitle}
-      </p>
-      <p className="mt-0.5 text-xs text-muted">
-        {[row.propertyName, formatLedgerRoomLabel(row.roomNumber)].filter(Boolean).join(" · ")}
-      </p>
-      <div className="mt-3 grid grid-cols-2 gap-3">
-        {isStayTotalRow(row) ? (
-          <div>
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted">
-              Nights
-            </label>
-            <Input
-              className="h-9 w-full rounded-lg px-2 py-1 text-sm tabular-nums"
-              inputMode="numeric"
-              value={editNightsDraft}
-              onChange={(e) => {
-                const next = e.target.value.replace(/[^\d]/g, "");
-                setEditNightsDraft(next);
-                const parsed = parseShortTermStayChargeTitle(row.chargeTitle);
-                if (parsed && next) {
-                  const nights = parseInt(next, 10);
-                  if (Number.isFinite(nights) && nights >= 1) {
-                    setEditAmountDraft(shortTermStayTotalAmount(parsed.nightlyRate, nights).toFixed(2));
-                  }
-                }
-              }}
-              aria-label="Number of nights"
-            />
-          </div>
-        ) : (
-          <div>
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted">
-              Amount
-            </label>
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-muted">$</span>
-              <Input
-                className="h-9 w-full rounded-lg px-2 py-1 text-sm tabular-nums"
-                inputMode="decimal"
-                value={editAmountDraft}
-                onChange={(e) => setEditAmountDraft(e.target.value)}
-                aria-label="Amount owed"
-              />
-            </div>
-          </div>
-        )}
-        <div>
-          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted">
-            Due date
-          </label>
-          <Input
-            type="date"
-            className="h-9 w-full rounded-lg px-2 py-1 text-sm"
-            value={editDueDateDraft}
-            onChange={(e) => setEditDueDateDraft(e.target.value)}
-            aria-label="Due date"
-          />
-        </div>
-      </div>
-    </div>
-  );
-
   const chargeListColumns = [
     { id: "charge", header: "Charge", cell: (row: DemoManagerPaymentLedgerRow) => ledgerRowPrimaryLabel(row) },
     { id: "property", header: "Property", cell: (row: DemoManagerPaymentLedgerRow) => ledgerRowPropertyLine(row) },
@@ -1564,7 +1532,6 @@ export function ManagerPaymentsLedgerPanel({
       hideColumnHeaders
       selectable={showSelection}
       rows={listRows.map((row) => {
-        const isEditing = editingRowId === row.id && Boolean(row.householdChargeId);
         return {
           id: row.id,
           data: row,
@@ -1586,9 +1553,7 @@ export function ManagerPaymentsLedgerPanel({
           selected: showSelection ? selectedIds.has(row.id) : undefined,
           onSelectedChange:
             showSelection ? () => toggleSelected(row.id) : undefined,
-          onClick: isEditing ? undefined : () => openPaymentDetail(row),
-          expanded: isEditing,
-          expandedContent: isEditing ? renderInlineEditForm(row) : undefined,
+          onClick: () => openPaymentDetail(row),
         };
       })}
       columns={[...chargeListColumns]}
@@ -1715,6 +1680,7 @@ export function ManagerPaymentsLedgerPanel({
 
   return (
     <>
+    {renderEditPaymentModal()}
     {reminderPreview && (
       <PortalNotificationPreviewModal
         open
@@ -1728,6 +1694,8 @@ export function ManagerPaymentsLedgerPanel({
         emailAvailable={Boolean(reminderPreview.row.residentEmail?.includes("@"))}
         smsAvailable
         deliverViaKind="payment_reminder"
+        showWorkNumberHint={false}
+        hideSendViaFooterNote
         dynamicSendLabel
         assistantContext="Payment reminder compose"
         confirmLabel="Send reminder"
@@ -1760,6 +1728,7 @@ export function ManagerPaymentsLedgerPanel({
         confirmLabelSingle="Send this reminder"
         showSkipMessage={false}
         showChannelPicker
+        hideSendViaFooterNote
         onClose={() => setBulkReminderPreview(null)}
         confirmBusy={sendingReminderId === "bulk"}
         onConfirm={(scope, options) => void doSendBulkReminders(scope, options)}

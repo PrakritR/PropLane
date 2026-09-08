@@ -2948,9 +2948,13 @@ export function deleteHouseholdCharge(
 ): boolean {
   if (!isBrowser()) return false;
   const rows = readAll();
-  const idx = rows.findIndex((r) => r.id === chargeId && chargeVisibleToManager(r, managerUserId, opts));
+  const aliases = new Set(legacyChargeIdAliases(chargeId));
+  const idx = rows.findIndex(
+    (r) => aliases.has(r.id) && chargeVisibleToManager(r, managerUserId, opts),
+  );
   if (idx === -1) return false;
-  deleteChargeRowFromServer(chargeId);
+  const resolvedId = rows[idx]!.id;
+  deleteChargeRowFromServer(resolvedId);
   writeAll(rows.filter((_, i) => i !== idx));
   return true;
 }
