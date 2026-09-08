@@ -848,15 +848,13 @@ function StepRooms({
   const columns = [
     { key: "name", label: "Room" },
     { key: "floor", label: "Floor" },
-    { key: "bathroom", label: "Bathroom" },
-    { key: "access", label: "Access" },
+    { key: "access", label: "Bathroom" },
     { key: "rent", label: "Rent" },
     { key: "beds", label: "Beds" },
     { key: "details", label: "" },
   ];
   const floorOptions = floorLevelSelectOptions(sub.listingStoriesId, "").map((l) => ({ value: l, label: l }));
   const baths = sub.bathrooms ?? [];
-  const bathOptions = baths.map((b, i) => ({ value: b.id, label: b.name.trim() || `Bathroom ${i + 1}` }));
 
   /**
    * Which bathroom a room uses is stored on the BATHROOM (`assignedRoomIds`),
@@ -864,8 +862,20 @@ function StepRooms({
    * side, so writing it means moving the room's id between bathrooms rather
    * than setting a field on the room.
    */
-  const bathroomForRoom = (roomId: string): string =>
-    baths.find((b) => (b.assignedRoomIds ?? []).includes(roomId))?.id ?? "";
+  /**
+   * Attach a room to a bathroom if it is not on one yet, so an access kind has
+   * somewhere to live. The manager is no longer asked WHICH bathroom — what a
+   * renter needs to know is whether it is en-suite, shared, or down the hall —
+   * so the first bathroom carries the mapping, and which physical bathroom
+   * serves which room stays adjustable on the Bathrooms step.
+   */
+  const withRoomAttached = (roomId: string): ManagerBathroomSubmission[] => {
+    if (baths.length === 0) return baths;
+    if (baths.some((b) => (b.assignedRoomIds ?? []).includes(roomId))) return baths;
+    return baths.map((b, idx) =>
+      idx === 0 ? { ...b, assignedRoomIds: [...(b.assignedRoomIds ?? []), roomId] } : b,
+    );
+  };
   const accessForRoom = (roomId: string): string => {
     const bath = baths.find((b) => (b.assignedRoomIds ?? []).includes(roomId));
     return bath?.accessKindByRoomId?.[roomId] ?? "";
@@ -876,19 +886,29 @@ function StepRooms({
     const next = BATHROOM_ACCESS_OPTIONS.some((o) => o.value === kind)
       ? (kind as ManagerBathroomRoomAccessKind)
       : undefined;
+    const attached = withRoomAttached(roomId);
     patch({
-      bathrooms: baths.map((b) =>
+      bathrooms: attached.map((b) =>
         (b.assignedRoomIds ?? []).includes(roomId)
           ? { ...b, accessKindByRoomId: { ...(b.accessKindByRoomId ?? {}), [roomId]: next } }
           : b,
       ),
     });
   };
-  const assignBathroom = (roomId: string, bathId: string) => {
+  /** The same access on every room — the "most rooms are…" version. */
+  const setAccessForAllRooms = (kind: string) => {
+    const next = BATHROOM_ACCESS_OPTIONS.some((o) => o.value === kind)
+      ? (kind as ManagerBathroomRoomAccessKind)
+      : undefined;
+    if (baths.length === 0) return;
+    const ids = rooms.map((r) => r.id);
     patch({
-      bathrooms: baths.map((b) => {
-        const without = (b.assignedRoomIds ?? []).filter((id) => id !== roomId);
-        return { ...b, assignedRoomIds: b.id === bathId ? [...without, roomId] : without };
+      bathrooms: baths.map((b, idx) => {
+        const assigned =
+          idx === 0 ? Array.from(new Set([...(b.assignedRoomIds ?? []), ...ids])) : b.assignedRoomIds ?? [];
+        const kinds = { ...(b.accessKindByRoomId ?? {}) };
+        for (const id of assigned) kinds[id] = next;
+        return { ...b, assignedRoomIds: assigned, accessKindByRoomId: kinds };
       }),
     });
   };
@@ -929,6 +949,20 @@ function StepRooms({
               <option value="">Select…</option>
               <option value="Furnished">Furnished</option>
               <option value="Unfurnished">Unfurnished</option>
+            </Select>
+          </Field>
+          <Field label="Bathroom" hint="Applies to every room.">
+            <Select
+              value={rooms.length > 0 ? accessForRoom(rooms[0]!.id) : ""}
+              onChange={(e) => setAccessForAllRooms(e.target.value)}
+              disabled={baths.length === 0}
+            >
+              <option value="">{baths.length === 0 ? "Add a bathroom first" : "Select…"}</option>
+              {BATHROOM_ACCESS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
             </Select>
           </Field>
           <Field label="Beds">
@@ -1031,13 +1065,6 @@ function StepRooms({
                 options={floorOptions}
                 placeholder="Floor…"
                 onChange={(v) => writeRooms(rooms.map((r) => (r.id === room.id ? { ...r, floor: v } : r)))}
-              />
-              <RowSelectCell
-                ariaLabel={`Bathroom for ${room.name || `room ${i + 1}`}`}
-                value={bathroomForRoom(room.id)}
-                options={bathOptions}
-                placeholder={bathOptions.length ? "Pick one…" : "Add one first"}
-                onChange={(v) => assignBathroom(room.id, v)}
               />
               <RowSelectCell
                 ariaLabel={`Bathroom access for ${room.name || `room ${i + 1}`}`}
