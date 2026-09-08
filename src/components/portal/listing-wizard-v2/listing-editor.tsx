@@ -84,6 +84,7 @@ import {
   RowCell,
   RowList,
   RowSelectCell,
+  rowTemplate,
   StepColumn,
   StepHeading,
   WizardModal,
@@ -923,116 +924,74 @@ function StepRooms({
         subtitle="Set what is true for most rooms once. Change only the rooms that differ."
       />
 
-      <div className="mb-4 rounded-xl border border-primary/25 bg-primary/[0.04] p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <b className="text-[13px] font-bold text-foreground">Most rooms are…</b>
-          <span className="text-[11.5px] text-muted">applied to all {rooms.length} · any row can differ</span>
-        </div>
-        <FieldRow cols={4}>
-          <Field label="Rent / month">
-            <Input
-              value={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : ""}
-              inputMode="numeric"
-              placeholder="1,050"
-              onChange={(e) => editDefault("monthlyRent", Number(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
-            />
-          </Field>
-          <Field label="Deposit">
-            <Input
-              value={defaults.securityDeposit}
-              placeholder="500"
-              onChange={(e) => editDefault("securityDeposit", e.target.value)}
-            />
-          </Field>
-          <Field label="Furnishing">
-            <Select value={defaults.furnishing} onChange={(e) => editDefault("furnishing", e.target.value)}>
-              <option value="">Select…</option>
-              <option value="Furnished">Furnished</option>
-              <option value="Unfurnished">Unfurnished</option>
-            </Select>
-          </Field>
-          <Field label="Bathroom" hint="Applies to every room.">
-            <Select
-              value={rooms.length > 0 ? accessForRoom(rooms[0]!.id) : ""}
-              onChange={(e) => setAccessForAllRooms(e.target.value)}
-              disabled={baths.length === 0}
-            >
-              <option value="">{baths.length === 0 ? "Add a bathroom first" : "Select…"}</option>
-              {BATHROOM_ACCESS_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Beds">
-            <Select
-              value={String(defaults.occupancyCapacity)}
-              onChange={(e) => editDefault("occupancyCapacity", Number(e.target.value) || 1)}
-            >
-              {[1, 2, 3, 4].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </FieldRow>
-
-        <MoreOptions
-          label="Furnishing details, amenities, move-in fee, utilities and inspections for most rooms"
-          open={openDefaults}
-          onToggle={() => setOpenDefaults((v) => !v)}
-          dataAttr="listing-v2-more-defaults"
-        >
-          <FieldRow cols={2}>
-            <Field label="Move-in fee" optional>
-              <Input
-                value={defaults.moveInFee}
-                placeholder="0"
-                onChange={(e) => editDefault("moveInFee", e.target.value)}
-              />
-            </Field>
-            <Field label="Utilities / month" optional>
-              <Input
-                value={defaults.utilitiesEstimate}
-                placeholder="80"
-                onChange={(e) => editDefault("utilitiesEstimate", e.target.value)}
-              />
-            </Field>
-          </FieldRow>
-          <Field label="What the furnishing includes" optional hint="Shown on every room that follows the house.">
-            <Input
-              value={defaults.furnishing}
-              placeholder="Furnished — bed, desk, chair, dresser"
-              onChange={(e) => editDefault("furnishing", e.target.value)}
-            />
-          </Field>
-          <Field label="Amenities in most rooms" optional>
-            <AmenityChips
-              presets={ROOM_AMENITY_PRESETS}
-              value={defaults.roomAmenitiesText}
-              onChange={(next) => editDefault("roomAmenitiesText", next)}
-            />
-          </Field>
-          <Field group label="Inspections for most rooms">
-            <ChipRow>
-              <ChipToggle
-                label="Move-in inspection"
-                on={defaults.moveInInspectionRequired}
-                onToggle={() => editDefault("moveInInspectionRequired", !defaults.moveInInspectionRequired)}
-              />
-              <ChipToggle
-                label="Move-out inspection"
-                on={defaults.moveOutInspectionRequired}
-                onToggle={() => editDefault("moveOutInspectionRequired", !defaults.moveOutInspectionRequired)}
-              />
-            </ChipRow>
-          </Field>
-        </MoreOptions>
-      </div>
-
+      {/*
+       * The house defaults are the FIRST ROW of the same table, not a separate
+       * card above it. They answer the same questions in the same columns, so
+       * two differently-shaped panels asking "rent?" twice was the confusing
+       * part. Its checkbox selects every room; its Details opens the settings
+       * that apply to most rooms.
+       */}
       <RowList columns={columns}>
+        <div
+          className="grid items-center gap-2 border-b-2 border-primary/25 bg-primary/[0.05] px-3 py-2"
+          style={{ gridTemplateColumns: rowTemplate(columns.length) }}
+        >
+          <label className="flex h-10 w-6 cursor-pointer items-center justify-center">
+            <input
+              type="checkbox"
+              checked={rooms.length > 0 && selected.size === rooms.length}
+              onChange={(e) => setSelected(e.target.checked ? new Set(rooms.map((r) => r.id)) : new Set())}
+              className="h-4 w-4 rounded border-border"
+              aria-label="Select every room"
+            />
+          </label>
+          <span className="px-1 text-[13px] font-bold text-foreground">Most rooms are…</span>
+          <RowSelectCell
+            ariaLabel="Floor for most rooms"
+            value={defaults.floor}
+            options={floorOptions}
+            placeholder="Floor…"
+            onChange={(v) => editDefault("floor", v)}
+          />
+          <select
+            value={rooms.length > 0 ? accessForRoom(rooms[0]!.id) : ""}
+            onChange={(e) => setAccessForAllRooms(e.target.value)}
+            disabled={baths.length === 0}
+            aria-label="Bathroom access for most rooms"
+            className="min-h-[38px] w-full rounded-lg border border-border bg-card px-2 py-1.5 text-[13px] text-foreground outline-none focus:border-primary disabled:opacity-60"
+          >
+            <option value="">{baths.length === 0 ? "Add a bathroom" : "Select…"}</option>
+            {BATHROOM_ACCESS_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <RowCell
+            ariaLabel="Rent for most rooms"
+            inputMode="numeric"
+            value={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : ""}
+            placeholder="1,050"
+            onChange={(v) => editDefault("monthlyRent", Number(v.replace(/[^0-9.]/g, "")) || 0)}
+          />
+          <RowSelectCell
+            ariaLabel="Beds in most rooms"
+            value={String(defaults.occupancyCapacity)}
+            options={[1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }))}
+            onChange={(v) => editDefault("occupancyCapacity", Number(v) || 1)}
+          />
+          <button
+            type="button"
+            onClick={() => setOpenDefaults((v) => !v)}
+            data-attr="listing-v2-more-defaults"
+            aria-expanded={openDefaults}
+            className="justify-self-start rounded-full border border-primary/30 bg-card px-3 py-1.5 text-[12px] font-bold text-primary hover:bg-accent/40"
+          >
+            Details
+          </button>
+          <span />
+        </div>
+
         {rooms.map((room, i) => {
           const overrides = roomOverriddenDefaults(room, defaults);
           const rentInherited = roomInheritsDefault(room, defaults, "monthlyRent");
@@ -1118,6 +1077,65 @@ function StepRooms({
           );
         })}
       </RowList>
+
+      {openDefaults ? (
+        <div className="mt-3 rounded-xl border border-primary/25 bg-primary/[0.04] p-4">
+          <p className="mb-3 text-[13px] font-bold text-foreground">Settings for most rooms</p>
+          <FieldRow cols={2}>
+            <Field label="Deposit" optional>
+              <Input
+                value={defaults.securityDeposit}
+                placeholder="500"
+                onChange={(e) => editDefault("securityDeposit", e.target.value)}
+              />
+            </Field>
+            <Field label="Move-in fee" optional>
+              <Input
+                value={defaults.moveInFee}
+                placeholder="0"
+                onChange={(e) => editDefault("moveInFee", e.target.value)}
+              />
+            </Field>
+          </FieldRow>
+          <FieldRow cols={2}>
+            <Field label="Utilities / month" optional>
+              <Input
+                value={defaults.utilitiesEstimate}
+                placeholder="80"
+                onChange={(e) => editDefault("utilitiesEstimate", e.target.value)}
+              />
+            </Field>
+            <Field label="Furnishing" optional>
+              <Input
+                value={defaults.furnishing}
+                placeholder="Furnished — bed, desk, chair"
+                onChange={(e) => editDefault("furnishing", e.target.value)}
+              />
+            </Field>
+          </FieldRow>
+          <Field label="Amenities in most rooms" optional>
+            <AmenityChips
+              presets={ROOM_AMENITY_PRESETS}
+              value={defaults.roomAmenitiesText}
+              onChange={(next) => editDefault("roomAmenitiesText", next)}
+            />
+          </Field>
+          <Field group label="Inspections for most rooms">
+            <ChipRow>
+              <ChipToggle
+                label="Move-in inspection"
+                on={defaults.moveInInspectionRequired}
+                onToggle={() => editDefault("moveInInspectionRequired", !defaults.moveInInspectionRequired)}
+              />
+              <ChipToggle
+                label="Move-out inspection"
+                on={defaults.moveOutInspectionRequired}
+                onToggle={() => editDefault("moveOutInspectionRequired", !defaults.moveOutInspectionRequired)}
+              />
+            </ChipRow>
+          </Field>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
         <RowBulkBar count={selected.size}>

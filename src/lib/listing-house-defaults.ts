@@ -28,6 +28,7 @@ import type { UtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
 /** The fields a manager can set once for the whole house. */
 export type ListingHouseDefaults = {
   monthlyRent: number;
+  floor: string;
   securityDeposit: string;
   moveInFee: string;
   utilitiesEstimate: string;
@@ -44,6 +45,7 @@ export type ListingHouseDefaultField = keyof ListingHouseDefaults;
 /** Every default field, in the order the band renders them. */
 export const LISTING_HOUSE_DEFAULT_FIELDS: readonly ListingHouseDefaultField[] = [
   "monthlyRent",
+  "floor",
   "securityDeposit",
   "moveInFee",
   "utilitiesEstimate",
@@ -58,6 +60,7 @@ export const LISTING_HOUSE_DEFAULT_FIELDS: readonly ListingHouseDefaultField[] =
 export function emptyListingHouseDefaults(): ListingHouseDefaults {
   return {
     monthlyRent: 0,
+    floor: "",
     securityDeposit: "",
     moveInFee: "",
     utilitiesEstimate: "",
@@ -78,6 +81,8 @@ export function roomDefaultFieldValue(
   switch (field) {
     case "monthlyRent":
       return room.monthlyRent ?? 0;
+    case "floor":
+      return (room.floor ?? "").trim();
     case "securityDeposit":
       return (room.securityDeposit ?? "").trim();
     case "moveInFee":
@@ -107,6 +112,8 @@ function writeRoomDefaultField(
   switch (field) {
     case "monthlyRent":
       return { ...room, monthlyRent: defaults.monthlyRent };
+    case "floor":
+      return { ...room, floor: defaults.floor };
     case "securityDeposit":
       return { ...room, securityDeposit: defaults.securityDeposit };
     case "moveInFee":
