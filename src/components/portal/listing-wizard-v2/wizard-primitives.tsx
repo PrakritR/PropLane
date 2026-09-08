@@ -450,6 +450,46 @@ export function ChipToggle({
   );
 }
 
+/**
+ * A checkbox with its label and a line of explanation.
+ *
+ * Replaces the pill toggles for anything that is genuinely a yes/no: a pill
+ * that fills in when pressed reads as a button you clicked, not as a box you
+ * ticked, and a manager could not tell "Move-in checklist required" ON from the
+ * same words sitting there unpressed.
+ */
+export function CheckboxOption({
+  label,
+  description,
+  checked,
+  onChange,
+  dataAttr,
+}: {
+  label: string;
+  description?: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  dataAttr?: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2.5 py-1.5">
+      <input
+        type="checkbox"
+        checked={checked}
+        data-attr={dataAttr}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
+      />
+      <span className="min-w-0">
+        <span className="block text-[13px] font-semibold text-foreground">{label}</span>
+        {description ? (
+          <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">{description}</span>
+        ) : null}
+      </span>
+    </label>
+  );
+}
+
 export function ChipRow({ children }: { children: ReactNode }) {
   return <div className="flex flex-wrap gap-2">{children}</div>;
 }

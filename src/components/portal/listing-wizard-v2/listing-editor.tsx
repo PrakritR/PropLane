@@ -23,6 +23,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Input, Select, Textarea } from "@/components/ui/input";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { buildListingModalAssistantContext } from "@/lib/listing-assistant-context";
@@ -58,6 +59,7 @@ import {
 import {
   AIRBNB_LEASE_TERM,
   CUSTOM_LEASE_TERM,
+  LONG_TERM_LEASE_TERM,
   LEASE_TERM_CHOICES,
   SHORT_TERM_LEASE_TERM,
 } from "@/lib/rental-application/lease-terms";
@@ -79,8 +81,7 @@ import {
 import {
   AddRowButton,
   BulkButton,
-  ChipRow,
-  ChipToggle,
+  CheckboxOption,
   Field,
   FieldRow,
   AdvancedGroup,
@@ -158,49 +159,45 @@ function money(value: string | undefined): string {
   return (value ?? "").replace(/^\$/, "");
 }
 
+/**
+ * Amenities as one searchable multi-select rather than forty chips.
+ *
+ * The chip wall needed a "+ 33 more" to fit, so most of the list was invisible
+ * and there was no way to look for one by name. The stored shape is unchanged —
+ * newline-separated labels — and any CUSTOM line a manager typed elsewhere is
+ * preserved untouched, because this control can only ever add or remove the
+ * presets it knows about.
+ */
 function AmenityChips({
   presets,
   value,
   onChange,
-  limit = 10,
+  label = "Amenities",
 }: {
   presets: readonly { id: string; label: string }[];
   value: string;
   onChange: (next: string) => void;
-  limit?: number;
+  label?: string;
 }) {
-  const [showAll, setShowAll] = useState(false);
   const lines = listingAmenityLinesFromValue(value);
   const labels = presets.map((p) => p.label);
-  const checked = new Set(lines.filter((l) => labels.includes(l)));
+  const selected = lines.filter((l) => labels.includes(l));
   const custom = lines.filter((l) => !labels.includes(l));
-  const shown = showAll ? presets : presets.slice(0, limit);
-  const write = (next: Set<string>) => onChange([...labels.filter((l) => next.has(l)), ...custom].join("\n"));
   return (
-    <ChipRow>
-      {shown.map((p) => (
-        <ChipToggle
-          key={p.id}
-          label={p.label}
-          on={checked.has(p.label)}
-          onToggle={() => {
-            const next = new Set(checked);
-            if (next.has(p.label)) next.delete(p.label);
-            else next.add(p.label);
-            write(next);
-          }}
-        />
-      ))}
-      {presets.length > limit ? (
-        <button
-          type="button"
-          onClick={() => setShowAll((v) => !v)}
-          className="rounded-full border border-dashed border-border px-3.5 py-1.5 text-[12px] font-semibold text-primary"
-        >
-          {showAll ? "Show fewer" : `+ ${presets.length - limit} more`}
-        </button>
-      ) : null}
-    </ChipRow>
+    <CheckboxMultiSelect
+      hideLabel
+      label={label}
+      options={presets.map((p) => ({ value: p.label, label: p.label }))}
+      selected={selected}
+      emptyLabel="Choose amenities…"
+      searchPlaceholder="Search amenities…"
+      onChange={(next) => {
+        // Preserve the manager's own lines, and keep the presets in their
+        // catalogue order so the stored value does not churn on every edit.
+        const picked = new Set(next);
+        onChange([...labels.filter((l) => picked.has(l)), ...custom].join("\n"));
+      }}
+    />
   );
 }
 
@@ -314,33 +311,40 @@ function VideoSlot({
   };
   return (
     <div>
-      {url ? (
-        <div className="flex items-center gap-3">
-          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <video src={url} className="h-16 w-24 rounded-lg border border-border object-cover" />
-          <button
-            type="button"
-            onClick={() => onChange(null)}
-            className="rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-bold text-red-700"
-          >
-            Remove video
-          </button>
-        </div>
-      ) : (
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-dashed border-border bg-accent/20 px-4 py-2 text-[12.5px] font-bold text-primary">
-          Add video
-          <input
-            type="file"
-            accept="video/*"
-            className="sr-only"
-            aria-label={`Add ${label} video`}
-            onChange={(e) => {
-              read(e.target.files);
-              e.target.value = "";
-            }}
-          />
-        </label>
-      )}
+      {/*
+       * The same tile a photo uses. A pill button beside a grid of squares read
+       * as a different kind of control, when adding a clip is the same act as
+       * adding a picture.
+       */}
+      <div className="flex flex-wrap gap-2">
+        {url ? (
+          <span className="relative">
+            <video src={url} className="h-16 w-20 rounded-lg border border-border object-cover" />
+            <button
+              type="button"
+              onClick={() => onChange(null)}
+              aria-label={`Remove ${label} video`}
+              className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full border border-border bg-card text-[11px] text-muted shadow-sm"
+            >
+              ✕
+            </button>
+          </span>
+        ) : (
+          <label className="grid h-16 w-20 cursor-pointer place-items-center rounded-lg border border-dashed border-border bg-accent/20 text-[18px] text-muted">
+            +
+            <input
+              type="file"
+              accept="video/*"
+              className="sr-only"
+              aria-label={`Add ${label} video`}
+              onChange={(e) => {
+                read(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        )}
+      </div>
       <p className="mt-1.5 text-[12px] text-muted">One short clip, around 14 MB.</p>
     </div>
   );
@@ -367,26 +371,18 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
        * whether rent is per room or set once, and whether the Rooms step is
        * about bedrooms or about one household.
        */}
-      <Field
-        group
-        label="How you rent it"
-        required
-        hint="Decides whether rent is set per room or once for the whole place."
-      >
-        <ChipRow>
-          <ChipToggle
-            label="By the room"
-            on={rentByRoom}
-            dataAttr="listing-v2-by-room"
-            onToggle={() => patch({ listingPlaceCategoryId: "shared_home", rentalModelStamp: "shared_home" })}
-          />
-          <ChipToggle
-            label="The whole place"
-            on={!rentByRoom}
-            dataAttr="listing-v2-whole-place"
-            onToggle={() => patch({ listingPlaceCategoryId: "entire_home", rentalModelStamp: "entire_home" })}
-          />
-        </ChipRow>
+      <Field label="How you rent it" required hint="Decides whether rent is set per room or once for the whole place.">
+        <Select
+          value={rentByRoom ? "shared_home" : "entire_home"}
+          data-attr="listing-v2-rent-model"
+          onChange={(e) => {
+            const id = e.target.value === "entire_home" ? "entire_home" : "shared_home";
+            patch({ listingPlaceCategoryId: id, rentalModelStamp: id });
+          }}
+        >
+          <option value="shared_home">By the room</option>
+          <option value="entire_home">The whole place</option>
+        </Select>
       </Field>
 
       <Field label="Street address" required hint="Start typing and pick the match to refill city, state and ZIP.">
@@ -506,17 +502,19 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
       </Field>
 
       <p className="mb-3 mt-6 text-[13px] font-bold text-foreground">Media</p>
-      <Field label="Photos of the whole house" optional hint="Up to 12. Rooms and bathrooms have their own.">
-        <PhotoStrip
-          label="house"
-          max={12}
-          urls={sub.housePhotoDataUrls ?? []}
-          onChange={(next) => patch({ housePhotoDataUrls: next })}
-        />
-      </Field>
-      <Field label="Video of the whole house" optional>
-        <VideoSlot label="house" url={sub.houseVideoDataUrl} onChange={(next) => patch({ houseVideoDataUrl: next })} />
-      </Field>
+      <FieldRow cols={2}>
+        <Field label="Photos of the whole house" optional hint="Up to 12. Rooms and bathrooms have their own.">
+          <PhotoStrip
+            label="house"
+            max={12}
+            urls={sub.housePhotoDataUrls ?? []}
+            onChange={(next) => patch({ housePhotoDataUrls: next })}
+          />
+        </Field>
+        <Field label="Video of the whole house" optional>
+          <VideoSlot label="house" url={sub.houseVideoDataUrl} onChange={(next) => patch({ houseVideoDataUrl: next })} />
+        </Field>
+      </FieldRow>
 
       <p className="mb-3 mt-6 text-[13px] font-bold text-foreground">Amenities</p>
       <Field label="What the whole house has" hint="Rooms have their own list; this is what everyone shares.">
@@ -526,21 +524,14 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
           onChange={(next) => patch({ amenitiesText: next })}
         />
       </Field>
-      <Field group label="Pets" hint="Shown on the listing, and it is the first thing a renter with a dog looks for.">
-        <ChipRow>
-          <ChipToggle
-            label="Pets allowed"
-            on={Boolean(sub.petFriendly)}
-            dataAttr="listing-v2-pets"
-            onToggle={() => patch({ petFriendly: true })}
-          />
-          <ChipToggle
-            label="No pets"
-            on={!sub.petFriendly}
-            dataAttr="listing-v2-no-pets"
-            onToggle={() => patch({ petFriendly: false })}
-          />
-        </ChipRow>
+      <Field label="Pets" hint="The first thing a renter with a dog looks for.">
+        <Select
+          value={sub.petFriendly ? "yes" : "no"}
+          onChange={(e) => patch({ petFriendly: e.target.value === "yes" })}
+        >
+          <option value="no">No pets</option>
+          <option value="yes">Pets allowed, subject to approval</option>
+        </Select>
       </Field>
 
       <AdvancedPanel
@@ -581,12 +572,15 @@ export function roomRateVisibility(sub: ManagerListingSubmissionV1) {
 function RoomDetail({
   room,
   sub,
+  patch,
   defaults,
   onChange,
   onBack,
 }: {
   room: ManagerRoomSubmission;
   sub: ManagerListingSubmissionV1;
+  /** Writes to the LISTING — the lease types a room is let on live there. */
+  patch: Patch;
   defaults: ListingHouseDefaults;
   onChange: (next: ManagerRoomSubmission) => void;
   onBack: () => void;
@@ -671,12 +665,14 @@ function RoomDetail({
               onChange={(next) => set({ roomAmenitiesText: next })}
             />
           </Field>
-          <Field label="Photos of this room" optional>
-            <PhotoStrip label="room" urls={room.photoDataUrls ?? []} onChange={(next) => set({ photoDataUrls: next })} />
-          </Field>
-          <Field label="Video of this room" optional>
-            <VideoSlot label="room" url={room.videoDataUrl} onChange={(next) => set({ videoDataUrl: next })} />
-          </Field>
+          <FieldRow cols={2}>
+            <Field label="Photos of this room" optional>
+              <PhotoStrip label="room" urls={room.photoDataUrls ?? []} onChange={(next) => set({ photoDataUrls: next })} />
+            </Field>
+            <Field label="Video of this room" optional>
+              <VideoSlot label="room" url={room.videoDataUrl} onChange={(next) => set({ videoDataUrl: next })} />
+            </Field>
+          </FieldRow>
           <Field label="Room description" optional hint="Shown on the public listing under this room.">
             <Textarea
               rows={3}
@@ -694,11 +690,12 @@ function RoomDetail({
           onToggle={() => toggleGroup("lease")}
           dataAttr="listing-v2-room-lease"
         >
-          <p className="mb-4 text-[12px] leading-relaxed text-muted">
-            This room is offered on the types the listing offers:{" "}
-            <span className="font-bold text-foreground">{resolveAllowedLeaseTerms(sub).join(", ") || "none yet"}</span>.
-            Change that under Home → Advanced → Lease terms.
-          </p>
+          <Field
+            label="Lease types offered"
+            hint="Set for the whole listing — the application flow reads this list, so a room cannot offer a type the listing does not."
+          >
+            <LeaseTypesField sub={sub} patch={patch} />
+          </Field>
           <FieldRow cols={2}>
             <Field label="A short lease is up to" optional hint="Months. The surcharge below applies below this length.">
               <Input
@@ -724,17 +721,147 @@ function RoomDetail({
           onToggle={() => toggleGroup("payments")}
           dataAttr="listing-v2-room-payments"
         >
-          <Field
-            label="Rent / month"
-            hint={inheritsRent && defaults.monthlyRent > 0 ? `Following the top row: $${defaults.monthlyRent}.` : undefined}
-          >
-            <Input
-              value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
-              inputMode="numeric"
-              placeholder={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "1,050"}
-              onChange={(e) => set({ monthlyRent: Number(e.target.value.replace(/[^0-9.]/g, "")) || 0 })}
-            />
-          </Field>
+          {/*
+           * One card per rate, because a month, a week and a night are three
+           * different offers rather than one price with variants. Only the
+           * monthly card prorates: nobody bills a part-week or a part-night.
+           */}
+          <div className="rounded-xl border border-border bg-card p-4">
+            <p className="text-[13px] font-bold text-foreground">Per month</p>
+            <p className="mb-3 mt-0.5 text-[12px] text-muted">For a long-term or month-to-month let.</p>
+            <FieldRow cols={2}>
+              <Field
+                label="Rent / month"
+                hint={inheritsRent && defaults.monthlyRent > 0 ? `Following the top row: $${defaults.monthlyRent}.` : undefined}
+              >
+                <Input
+                  value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
+                  inputMode="numeric"
+                  placeholder={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "1,050"}
+                  onChange={(e) => set({ monthlyRent: Number(e.target.value.replace(/[^0-9.]/g, "")) || 0 })}
+                />
+              </Field>
+              <Field label="Fixed or flexible" hint="Flexible shows the same price and invites an offer.">
+                <Select
+                  value={room.pricingMode ?? "fixed"}
+                  onChange={(e) => set({ pricingMode: e.target.value as ManagerRoomSubmission["pricingMode"] })}
+                >
+                  <option value="fixed">Fixed — this is the price</option>
+                  <option value="flexible">Flexible — open to an offer</option>
+                </Select>
+              </Field>
+            </FieldRow>
+            <p className="mb-2 mt-3 text-[12.5px] font-bold text-foreground">Prorated rent</p>
+            <p className="mb-3 text-[12px] leading-relaxed text-muted">
+              Splits a partial first or last month. Monthly only.
+            </p>
+            <FieldRow cols={3}>
+              <Field label="How to split">
+                <Select
+                  value={room.prorateMethod ?? "auto"}
+                  onChange={(e) => set({ prorateMethod: e.target.value as ManagerRoomSubmission["prorateMethod"] })}
+                >
+                  <option value="auto">Work it out automatically</option>
+                  <option value="daily_rate">Set a per-day rate</option>
+                </Select>
+              </Field>
+              <Field label="Rent / day" optional>
+                <Input
+                  value={room.dailyRentRate ? String(room.dailyRentRate) : ""}
+                  inputMode="numeric"
+                  placeholder={suggestionPlaceholder(suggested?.dailyRent)}
+                  onChange={(e) => set({ dailyRentRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
+                />
+              </Field>
+              <Field label="Utilities / day" optional>
+                <Input
+                  value={room.dailyUtilitiesRate ? String(room.dailyUtilitiesRate) : ""}
+                  inputMode="numeric"
+                  onChange={(e) => set({ dailyUtilitiesRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
+                />
+              </Field>
+            </FieldRow>
+          </div>
+
+          <div className="mt-3 rounded-xl border border-border bg-card p-4">
+            <label className="flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={weeklyOn}
+                data-attr="listing-v2-room-weekly-on"
+                onChange={(e) => setWeeklyOn(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-border"
+              />
+              <span className="min-w-0">
+                <span className="block text-[13px] font-bold text-foreground">Per week</span>
+                <span className="mt-0.5 block text-[12px] text-muted">
+                  {suggested ? `A weekly figure, around ${suggested.weeklyRent}.` : "A weekly figure, if you quote one."}
+                </span>
+              </span>
+            </label>
+            {weeklyOn ? (
+              <div className="mt-3">
+                <Field label="Rent / week" optional>
+                  <Input
+                    value={room.weeklyRentPrice ? String(room.weeklyRentPrice) : ""}
+                    placeholder={suggestionPlaceholder(suggested?.weeklyRent)}
+                    inputMode="numeric"
+                    onChange={(e) => set({ weeklyRentPrice: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
+                  />
+                </Field>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-3 rounded-xl border border-border bg-card p-4">
+            <p className="text-[13px] font-bold text-foreground">Per night</p>
+            {rates.nightly ? (
+              <>
+                <p className="mb-3 mt-0.5 text-[12px] text-muted">
+                  Shown because this listing allows short-term or Airbnb stays.
+                </p>
+                <FieldRow cols={3}>
+                  <Field label="Rent / night" optional>
+                    <Input
+                      value={room.dailyRentPrice ? String(room.dailyRentPrice) : ""}
+                      placeholder={suggestionPlaceholder(suggested?.dailyRent)}
+                      inputMode="numeric"
+                      onChange={(e) => set({ dailyRentPrice: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
+                    />
+                  </Field>
+                  <Field label="Deposit" optional>
+                    <Input value={money(room.shortTermDeposit)} onChange={(e) => set({ shortTermDeposit: e.target.value })} />
+                  </Field>
+                  <Field label="Move-in fee" optional>
+                    <Input
+                      value={money(room.shortTermMoveInFee)}
+                      onChange={(e) => set({ shortTermMoveInFee: e.target.value })}
+                    />
+                  </Field>
+                </FieldRow>
+              </>
+            ) : (
+              <p className="mt-0.5 text-[12px] leading-relaxed text-muted">
+                Not offered. Add <span className="font-bold text-foreground">Short-term</span> or{" "}
+                <span className="font-bold text-foreground">Airbnb</span> to the lease types above and a nightly rate
+                appears here.
+              </p>
+            )}
+          </div>
+
+          <div className="mt-4">
+            <Field label="Billed by" hint="How every rent charge is raised. No suggestion changes this.">
+              <Select
+                value={room.rentBasis ?? "monthly"}
+                onChange={(e) => set({ rentBasis: e.target.value as ManagerRoomSubmission["rentBasis"] })}
+              >
+                <option value="monthly">Month</option>
+                <option value="weekly">Week</option>
+                <option value="daily">Day</option>
+              </Select>
+            </Field>
+          </div>
+
           {suggested ? (
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
               <p className="min-w-0 text-[12.5px] leading-relaxed text-muted">
@@ -751,63 +878,6 @@ function RoomDetail({
               </button>
             </div>
           ) : null}
-
-          <p className="mb-3 text-[12.5px] font-bold text-foreground">Other rates</p>
-          {weeklyOn ? (
-            <Field label="Rent / week" optional hint={suggested ? `Suggested ${suggested.weeklyRent}.` : undefined}>
-              <Input
-                value={room.weeklyRentPrice ? String(room.weeklyRentPrice) : ""}
-                placeholder={suggestionPlaceholder(suggested?.weeklyRent)}
-                inputMode="numeric"
-                onChange={(e) => set({ weeklyRentPrice: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-              />
-            </Field>
-          ) : (
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-dashed border-border bg-card px-4 py-3">
-              <p className="min-w-0 text-[12.5px] leading-relaxed text-muted">
-                <span className="font-bold text-foreground">Rent / week</span> — off. A weekly figure only makes sense
-                if you quote one{suggested ? `; it would be ${suggested.weeklyRent}` : ""}.
-              </p>
-              <button
-                type="button"
-                data-attr="listing-v2-room-weekly-on"
-                onClick={() => setWeeklyOn(true)}
-                className="shrink-0 rounded-full border border-border bg-card px-4 py-2 text-[12.5px] font-bold text-primary"
-              >
-                Turn on
-              </button>
-            </div>
-          )}
-          {rates.nightly ? (
-            <Field
-              label="Rent / night"
-              optional
-              hint="Offered because this listing allows short-term or Airbnb stays."
-            >
-              <Input
-                value={room.dailyRentPrice ? String(room.dailyRentPrice) : ""}
-                placeholder={suggestionPlaceholder(suggested?.dailyRent)}
-                inputMode="numeric"
-                onChange={(e) => set({ dailyRentPrice: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-              />
-            </Field>
-          ) : (
-            <p className="mb-4 rounded-xl border border-dashed border-border bg-card px-4 py-3 text-[12px] leading-relaxed text-muted">
-              <span className="font-bold text-foreground">Rent / night</span> is not shown, because this listing is not
-              let short-term. Add <span className="font-bold text-foreground">Short-term stay</span> under Home →
-              Advanced → Lease terms and it appears here.
-            </p>
-          )}
-          <Field label="Billed by" hint="How every rent charge is raised. No setup or suggestion changes this.">
-            <Select
-              value={room.rentBasis ?? "monthly"}
-              onChange={(e) => set({ rentBasis: e.target.value as ManagerRoomSubmission["rentBasis"] })}
-            >
-              <option value="monthly">Month</option>
-              <option value="weekly">Week</option>
-              <option value="daily">Day</option>
-            </Select>
-          </Field>
 
           <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">This room&apos;s charges</p>
           <FieldRow cols={3}>
@@ -850,80 +920,6 @@ function RoomDetail({
               ))}
             </Select>
           </Field>
-
-          <p className="mb-1 mt-5 text-[12.5px] font-bold text-foreground">Prorated rent</p>
-          <p className="mb-3 text-[12px] leading-relaxed text-muted">
-            Splits a partial first or last month only. This is not a headline price.
-          </p>
-          <FieldRow cols={3}>
-            <Field label="How to split">
-              <Select
-                value={room.prorateMethod ?? "auto"}
-                onChange={(e) => set({ prorateMethod: e.target.value as ManagerRoomSubmission["prorateMethod"] })}
-              >
-                <option value="auto">Work it out automatically</option>
-                <option value="daily_rate">Set a per-day rate</option>
-              </Select>
-            </Field>
-            <Field label="Prorated rent / day" optional>
-              <Input
-                value={room.dailyRentRate ? String(room.dailyRentRate) : ""}
-                inputMode="numeric"
-                onChange={(e) => set({ dailyRentRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-              />
-            </Field>
-            <Field label="Prorated utilities / day" optional>
-              <Input
-                value={room.dailyUtilitiesRate ? String(room.dailyUtilitiesRate) : ""}
-                inputMode="numeric"
-                onChange={(e) => set({ dailyUtilitiesRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-              />
-            </Field>
-          </FieldRow>
-
-          {rates.shortStayCharges ? (
-            <>
-              <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Short stays</p>
-              <FieldRow cols={2}>
-                <Field label="Move-in fee" optional>
-                  <Input value={money(room.shortTermMoveInFee)} onChange={(e) => set({ shortTermMoveInFee: e.target.value })} />
-                </Field>
-                <Field label="Deposit" optional>
-                  <Input value={money(room.shortTermDeposit)} onChange={(e) => set({ shortTermDeposit: e.target.value })} />
-                </Field>
-              </FieldRow>
-              <Field label="Rent / night for a short stay" optional>
-                <Input value={money(room.shortTermRent)} onChange={(e) => set({ shortTermRent: e.target.value })} />
-              </Field>
-            </>
-          ) : null}
-
-          <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Advertised price</p>
-          <FieldRow cols={3}>
-            <Field label="Pricing" hint="Flexible advertises a range instead of one figure.">
-              <Select
-                value={room.pricingMode ?? "fixed"}
-                onChange={(e) => set({ pricingMode: e.target.value as ManagerRoomSubmission["pricingMode"] })}
-              >
-                <option value="fixed">Fixed</option>
-                <option value="flexible">Flexible</option>
-              </Select>
-            </Field>
-            <Field label="Advertised min" optional>
-              <Input
-                value={room.flexibleRentMin ? String(room.flexibleRentMin) : ""}
-                inputMode="numeric"
-                onChange={(e) => set({ flexibleRentMin: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-              />
-            </Field>
-            <Field label="Advertised max" optional>
-              <Input
-                value={room.flexibleRentMax ? String(room.flexibleRentMax) : ""}
-                inputMode="numeric"
-                onChange={(e) => set({ flexibleRentMax: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-              />
-            </Field>
-          </FieldRow>
         </AdvancedGroup>
 
 
@@ -949,33 +945,31 @@ function RoomDetail({
               placeholder="Door code, key box, which entrance to use…"
             />
           </Field>
-          <Field label="Entry photos" optional hint="The key box, the bins, which door — what a resident needs on arrival.">
-            <PhotoStrip
-              label="entry"
-              urls={room.moveInPhotoDataUrls ?? []}
-              onChange={(next) => set({ moveInPhotoDataUrls: next })}
+          <FieldRow cols={2}>
+            <Field label="Entry photos" optional hint="The key box, the bins, which door.">
+              <PhotoStrip
+                label="entry"
+                urls={room.moveInPhotoDataUrls ?? []}
+                onChange={(next) => set({ moveInPhotoDataUrls: next })}
+              />
+            </Field>
+            <Field label="Arrival clip" optional>
+              <VideoSlot label="arrival" url={room.moveInVideoDataUrl} onChange={(next) => set({ moveInVideoDataUrl: next })} />
+            </Field>
+          </FieldRow>
+          <Field group label="Checklists">
+            <CheckboxOption
+              label="Move-in checklist required"
+              description="Completed and photographed before the resident takes the room."
+              checked={room.moveInInspectionRequired === true}
+              onChange={(next) => set({ moveInInspectionRequired: next })}
             />
-          </Field>
-          <Field label="Arrival clip" optional>
-            <VideoSlot label="arrival" url={room.moveInVideoDataUrl} onChange={(next) => set({ moveInVideoDataUrl: next })} />
-          </Field>
-          <Field
-            group
-            label="Checklists"
-            hint="A required checklist has to be completed and photographed before the room changes hands."
-          >
-            <ChipRow>
-              <ChipToggle
-                label="Move-in checklist required"
-                on={room.moveInInspectionRequired === true}
-                onToggle={() => set({ moveInInspectionRequired: !room.moveInInspectionRequired })}
-              />
-              <ChipToggle
-                label="Move-out checklist required"
-                on={room.moveOutInspectionRequired === true}
-                onToggle={() => set({ moveOutInspectionRequired: !room.moveOutInspectionRequired })}
-              />
-            </ChipRow>
+            <CheckboxOption
+              label="Move-out checklist required"
+              description="Completed before the deposit is settled."
+              checked={room.moveOutInspectionRequired === true}
+              onChange={(next) => set({ moveOutInspectionRequired: next })}
+            />
           </Field>
         </AdvancedGroup>
       </AdvancedPanel>
@@ -1012,7 +1006,7 @@ function DefaultsDetail({
   const toggle = (id: string) => setOpenGroup((prev) => (prev === id ? null : id));
   return (
     <AdvancedPanel
-      summary="The room · Payments · Move-in"
+      summary="The room · Pricing · Leasing · Move-in"
       open
       onToggle={() => undefined}
       dataAttr="listing-v2-defaults-advanced"
@@ -1045,6 +1039,14 @@ function DefaultsDetail({
             />
           </Field>
         </FieldRow>
+        <Field label="Size" optional hint="Square feet, when most rooms are near enough alike.">
+          <Input
+            value={defaults.sizeSqft > 0 ? String(defaults.sizeSqft) : ""}
+            inputMode="numeric"
+            placeholder="sq ft"
+            onChange={(e) => editDefault("sizeSqft", Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
+          />
+        </Field>
         <Field label="Amenities in most rooms" optional>
           <AmenityChips
             presets={ROOM_AMENITY_PRESETS}
@@ -1055,8 +1057,8 @@ function DefaultsDetail({
       </AdvancedGroup>
 
       <AdvancedGroup
-        title="Payments"
-        description="Deposit · move-in fee · utilities and who pays them"
+        title="Pricing"
+        description="Deposit · move-in fee · utilities and who pays them · prorating · fixed or flexible"
         open={openGroup === "payments"}
         onToggle={() => toggle("payments")}
         dataAttr="listing-v2-defaults-payments"
@@ -1099,6 +1101,53 @@ function DefaultsDetail({
             </Select>
           </Field>
         </FieldRow>
+        <FieldRow cols={2}>
+          <Field label="Fixed or flexible" hint="Flexible shows the same price and invites an offer.">
+            <Select
+              value={defaults.pricingMode}
+              onChange={(e) => editDefault("pricingMode", e.target.value as ListingHouseDefaults["pricingMode"])}
+            >
+              <option value="">Leave to each room</option>
+              <option value="fixed">Fixed</option>
+              <option value="flexible">Flexible</option>
+            </Select>
+          </Field>
+          <Field label="Prorate a partial month">
+            <Select
+              value={defaults.prorateMethod}
+              onChange={(e) => editDefault("prorateMethod", e.target.value as ListingHouseDefaults["prorateMethod"])}
+            >
+              <option value="">Leave to each room</option>
+              <option value="auto">Work it out automatically</option>
+              <option value="daily_rate">Set a per-day rate</option>
+            </Select>
+          </Field>
+        </FieldRow>
+      </AdvancedGroup>
+
+      <AdvancedGroup
+        title="Leasing"
+        description="What counts as a short lease for most rooms, and what it costs"
+        open={openGroup === "leasing"}
+        onToggle={() => toggle("leasing")}
+        dataAttr="listing-v2-defaults-leasing"
+      >
+        <FieldRow cols={2}>
+          <Field label="A short lease is up to" optional hint="Months. The surcharge applies below this length.">
+            <Input
+              value={defaults.shortLeaseMaxMonths > 0 ? String(defaults.shortLeaseMaxMonths) : ""}
+              inputMode="numeric"
+              placeholder="5"
+              onChange={(e) => editDefault("shortLeaseMaxMonths", Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
+            />
+          </Field>
+          <Field label="Short-lease surcharge / month" optional>
+            <Input
+              value={defaults.shortLeaseSurchargeMonthly}
+              onChange={(e) => editDefault("shortLeaseSurchargeMonthly", e.target.value)}
+            />
+          </Field>
+        </FieldRow>
       </AdvancedGroup>
 
       <AdvancedGroup
@@ -1109,18 +1158,16 @@ function DefaultsDetail({
         dataAttr="listing-v2-defaults-movein"
       >
         <Field group label="Checklists for most rooms">
-          <ChipRow>
-            <ChipToggle
-              label="Move-in checklist required"
-              on={defaults.moveInInspectionRequired}
-              onToggle={() => editDefault("moveInInspectionRequired", !defaults.moveInInspectionRequired)}
-            />
-            <ChipToggle
-              label="Move-out checklist required"
-              on={defaults.moveOutInspectionRequired}
-              onToggle={() => editDefault("moveOutInspectionRequired", !defaults.moveOutInspectionRequired)}
-            />
-          </ChipRow>
+          <CheckboxOption
+            label="Move-in checklist required"
+            checked={defaults.moveInInspectionRequired}
+            onChange={(next) => editDefault("moveInInspectionRequired", next)}
+          />
+          <CheckboxOption
+            label="Move-out checklist required"
+            checked={defaults.moveOutInspectionRequired}
+            onChange={(next) => editDefault("moveOutInspectionRequired", next)}
+          />
         </Field>
       </AdvancedGroup>
     </AdvancedPanel>
@@ -1197,6 +1244,7 @@ function StepRooms({
       <RoomDetail
         room={openRoom}
         sub={sub}
+        patch={patch}
         defaults={defaults}
         onBack={() => setOpenRoomId(null)}
         onChange={(next) => {
@@ -1354,6 +1402,17 @@ function StepRooms({
           <span />
         </div>
 
+        {/*
+         * Directly under the row it belongs to, and above the rooms it
+         * governs. Below the table it read as a panel about the whole step
+         * rather than about the "most rooms are…" row.
+         */}
+        {openDefaults ? (
+          <div className="border-b border-border bg-primary/[0.03] px-3 py-3">
+            <DefaultsDetail defaults={defaults} editDefault={editDefault} />
+          </div>
+        ) : null}
+
         {rooms.map((room, i) => {
           const overrides = roomOverriddenDefaults(room, defaults);
           const rentInherited = roomInheritsDefault(room, defaults, "monthlyRent");
@@ -1451,8 +1510,6 @@ function StepRooms({
         })}
       </RowList>
 
-      {openDefaults ? (
-        <DefaultsDetail defaults={defaults} editDefault={editDefault} />      ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
         <RowBulkBar count={selected.size}>
@@ -1503,25 +1560,16 @@ function StepRooms({
           <p className="mb-3 mt-0.5 text-[12px] leading-relaxed text-muted">
             Copies everything except the room&apos;s name, its photos and its video. Those stay unique to each room.
           </p>
-          <div className="flex flex-wrap gap-2">
-            {rooms
+          <CheckboxMultiSelect
+            hideLabel
+            label="Rooms to copy to"
+            options={rooms
               .filter((r) => !selected.has(r.id))
-              .map((r, i) => (
-                <ChipToggle
-                  key={r.id}
-                  label={r.name.trim() || `Room ${i + 1}`}
-                  on={copyTargets.has(r.id)}
-                  onToggle={() =>
-                    setCopyTargets((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(r.id)) next.delete(r.id);
-                      else next.add(r.id);
-                      return next;
-                    })
-                  }
-                />
-              ))}
-          </div>
+              .map((r, i) => ({ value: r.id, label: r.name.trim() || `Room ${i + 1}` }))}
+            selected={[...copyTargets]}
+            emptyLabel="Choose rooms…"
+            onChange={(next) => setCopyTargets(new Set(next))}
+          />
           <div className="mt-3 flex items-center gap-2">
             <button
               type="button"
@@ -1620,13 +1668,34 @@ function BathroomDetail({
         />
       </Field>
       <Field group label="Fixtures">
-        <ChipRow>
-          <ChipToggle label="Shower" on={bath.shower} onToggle={() => set({ shower: !bath.shower })} />
-          <ChipToggle label="Bathtub" on={bath.bathtub} onToggle={() => set({ bathtub: !bath.bathtub })} />
-          <ChipToggle label="Toilet" on={bath.toilet} onToggle={() => set({ toilet: !bath.toilet })} />
-          <ChipToggle label="Sink" on={bath.sink} onToggle={() => set({ sink: !bath.sink })} />
-          <ChipToggle label="Mirror" on={bath.mirror} onToggle={() => set({ mirror: !bath.mirror })} />
-        </ChipRow>
+        <CheckboxMultiSelect
+          hideLabel
+          label="Fixtures"
+          options={[
+            { value: "shower", label: "Shower" },
+            { value: "bathtub", label: "Bathtub" },
+            { value: "toilet", label: "Toilet" },
+            { value: "sink", label: "Sink" },
+            { value: "mirror", label: "Mirror" },
+          ]}
+          selected={[
+            ...(bath.shower ? ["shower"] : []),
+            ...(bath.bathtub ? ["bathtub"] : []),
+            ...(bath.toilet ? ["toilet"] : []),
+            ...(bath.sink ? ["sink"] : []),
+            ...(bath.mirror ? ["mirror"] : []),
+          ]}
+          emptyLabel="Choose fixtures…"
+          onChange={(next) =>
+            set({
+              shower: next.includes("shower"),
+              bathtub: next.includes("bathtub"),
+              toilet: next.includes("toilet"),
+              sink: next.includes("sink"),
+              mirror: next.includes("mirror"),
+            })
+          }
+        />
       </Field>
       <Field label="Finishes and extras" optional>
         <AmenityChips
@@ -1637,16 +1706,18 @@ function BathroomDetail({
       </Field>
 
       <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Photos and video</p>
-      <Field label="Photos of this bathroom" optional>
-        <PhotoStrip
-          label="bathroom"
-          urls={bath.photoDataUrls ?? []}
-          onChange={(next) => set({ photoDataUrls: next })}
-        />
-      </Field>
-      <Field label="Video of this bathroom" optional>
-        <VideoSlot label="bathroom" url={bath.videoDataUrl} onChange={(next) => set({ videoDataUrl: next })} />
-      </Field>
+      <FieldRow cols={2}>
+        <Field label="Photos of this bathroom" optional>
+          <PhotoStrip
+            label="bathroom"
+            urls={bath.photoDataUrls ?? []}
+            onChange={(next) => set({ photoDataUrls: next })}
+          />
+        </Field>
+        <Field label="Video of this bathroom" optional>
+          <VideoSlot label="bathroom" url={bath.videoDataUrl} onChange={(next) => set({ videoDataUrl: next })} />
+        </Field>
+      </FieldRow>
       <button
         type="button"
         onClick={onBack}
@@ -1948,49 +2019,83 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
  */
 /* ───────────────── house advanced · the nine groups ───────────────── */
 
-function HouseLeaseTermsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+/**
+ * The lease types this listing is offered on.
+ *
+ * Types live on the LISTING, not the room: the application flow reads the
+ * listing's list, so a room offering a type the listing does not have would
+ * advertise something an applicant could never choose. The same control is
+ * therefore shown inside a room's Leasing section — editing it there edits the
+ * listing, which is what a manager means when they open one room and change
+ * what it is let on.
+ */
+function LeaseTypesField({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const allowed = resolveAllowedLeaseTerms(sub);
+  const named = LEASE_TERM_CHOICES.filter((t) => t !== CUSTOM_LEASE_TERM);
+  const selected = [
+    ...named.filter((t) => allowed.includes(t)),
+    ...(sub.shortTermRentalsAllowed ? [SHORT_TERM_LEASE_TERM] : []),
+    ...(sub.airbnbRentalsAllowed ? [AIRBNB_LEASE_TERM] : []),
+    ...(allowed.includes(CUSTOM_LEASE_TERM) ? [CUSTOM_LEASE_TERM] : []),
+  ];
+  return (
+    <CheckboxMultiSelect
+      hideLabel
+      label="Lease types you offer"
+      options={[
+        {
+          value: SHORT_TERM_LEASE_TERM,
+          label: "Short-term",
+          hint: "Anything under a month.",
+        },
+        {
+          value: LONG_TERM_LEASE_TERM,
+          label: "Long-term",
+          hint: "A month or more, starting on the 1st. The move-in and move-out dates are the term.",
+        },
+        {
+          value: CUSTOM_LEASE_TERM,
+          label: "Custom",
+          hint: "A month or more, but starting on some other day of the month.",
+        },
+        { value: "Month-to-Month", label: "Month to month", hint: "Rolls on until either side ends it." },
+        {
+          value: AIRBNB_LEASE_TERM,
+          label: "Airbnb",
+          hint: "Booked off PropLane. No rent charges are raised here.",
+        },
+      ]}
+      selected={selected}
+      emptyLabel="Choose lease types…"
+      onChange={(next) => {
+        const shortTerm = next.includes(SHORT_TERM_LEASE_TERM);
+        const airbnb = next.includes(AIRBNB_LEASE_TERM);
+        // Short-term and Airbnb each have a flag AND a term in the list; the
+        // sync helpers keep the two halves from disagreeing.
+        let terms = next.filter((t) => t !== SHORT_TERM_LEASE_TERM && t !== AIRBNB_LEASE_TERM);
+        terms = syncShortTermLeaseTermInAllowed(terms, shortTerm);
+        terms = syncAirbnbLeaseTermInAllowed(terms, airbnb);
+        patch({
+          shortTermRentalsAllowed: shortTerm,
+          airbnbRentalsAllowed: airbnb,
+          allowedLeaseTerms: terms,
+          leaseTermsBody: formatLeaseTermsBodyFromAllowed(terms),
+        });
+      }}
+    />
+  );
+}
 
-  function toggleTerm(term: string) {
-    const next = allowed.includes(term) ? allowed.filter((t) => t !== term) : [...allowed, term];
-    patch({ allowedLeaseTerms: next, leaseTermsBody: formatLeaseTermsBodyFromAllowed(next) });
-  }
-  function toggleShortTerm() {
-    const on = !sub.shortTermRentalsAllowed;
-    const next = syncShortTermLeaseTermInAllowed(allowed.filter((t) => t !== SHORT_TERM_LEASE_TERM), on);
-    patch({ shortTermRentalsAllowed: on, allowedLeaseTerms: next, leaseTermsBody: formatLeaseTermsBodyFromAllowed(next) });
-  }
-  function toggleAirbnb() {
-    const on = !sub.airbnbRentalsAllowed;
-    const next = syncAirbnbLeaseTermInAllowed(allowed.filter((t) => t !== AIRBNB_LEASE_TERM), on);
-    patch({ airbnbRentalsAllowed: on, allowedLeaseTerms: next, leaseTermsBody: formatLeaseTermsBodyFromAllowed(next) });
-  }
-
+function HouseLeaseTermsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   return (
     <>
       <Field
-        group
         label="Lease types you offer"
         required
-        hint="An applicant chooses from exactly these. A room may narrow the list, never widen it."
+        hint="An applicant chooses from exactly these. Long-term is a fixed term whose length is the applicant's own move-in and move-out dates."
       >
-        <ChipRow>
-          {LEASE_TERM_CHOICES.filter((t) => t !== CUSTOM_LEASE_TERM).map((term) => (
-            <ChipToggle key={term} label={term} on={allowed.includes(term)} onToggle={() => toggleTerm(term)} />
-          ))}
-          <ChipToggle label="Short-term stay" on={Boolean(sub.shortTermRentalsAllowed)} onToggle={toggleShortTerm} />
-          <ChipToggle label="Airbnb" on={Boolean(sub.airbnbRentalsAllowed)} onToggle={toggleAirbnb} />
-          <ChipToggle
-            label={CUSTOM_LEASE_TERM}
-            on={allowed.includes(CUSTOM_LEASE_TERM)}
-            onToggle={() => toggleTerm(CUSTOM_LEASE_TERM)}
-          />
-        </ChipRow>
+        <LeaseTypesField sub={sub} patch={patch} />
       </Field>
-      <p className="mb-4 text-[12px] leading-relaxed text-muted">
-        Long-term is a fixed term whose length is the applicant&apos;s own move-in and move-out dates. 3, 6, 9 and
-        12-month are no longer offered — a signed lease carrying one still works.
-      </p>
 
       <Field label="Lease template" optional hint="Your own document. Leave blank to use PropLane's lease.">
         <Input
@@ -2052,18 +2157,17 @@ function HouseLeaseTermsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1;
         </Field>
       </FieldRow>
       <Field group label="At the end of the term">
-        <ChipRow>
-          <ChipToggle
-            label="Rolls to month-to-month"
-            on={Boolean(sub.rolloverToMonthToMonth)}
-            onToggle={() => patch({ rolloverToMonthToMonth: !sub.rolloverToMonthToMonth })}
-          />
-          <ChipToggle
-            label="Professional cleaning required"
-            on={Boolean(sub.longTermProfessionalCleaningRequired)}
-            onToggle={() => patch({ longTermProfessionalCleaningRequired: !sub.longTermProfessionalCleaningRequired })}
-          />
-        </ChipRow>
+        <CheckboxOption
+          label="Rolls to month-to-month"
+          description="Otherwise the lease simply ends on its last day."
+          checked={Boolean(sub.rolloverToMonthToMonth)}
+          onChange={(next) => patch({ rolloverToMonthToMonth: next })}
+        />
+        <CheckboxOption
+          label="Professional cleaning required at move-out"
+          checked={Boolean(sub.longTermProfessionalCleaningRequired)}
+          onChange={(next) => patch({ longTermProfessionalCleaningRequired: next })}
+        />
       </Field>
 
       {sub.shortTermRentalsAllowed ? (
@@ -2183,50 +2287,35 @@ function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
         <Field label="Application fee">
           <Input value={money(sub.applicationFee)} onChange={(e) => patch({ applicationFee: e.target.value })} />
         </Field>
-        <Field label="Waive code" optional hint="Give this to an applicant to waive the fee.">
-          <Input
-            value={sub.applicationFeeWaiverCode ?? ""}
-            placeholder="E.G. WELCOME50"
-            onChange={(e) => patch({ applicationFeeWaiverCode: e.target.value.toUpperCase() })}
-          />
+        <Field label="When a holding deposit is taken">
+          <Select
+            value={sub.holdingDepositTiming ?? "after_approval"}
+            onChange={(e) => patch({ holdingDepositTiming: e.target.value as ManagerListingSubmissionV1["holdingDepositTiming"] })}
+          >
+            <option value="after_approval">After I approve the application</option>
+            <option value="at_application">When the application is submitted</option>
+          </Select>
         </Field>
       </FieldRow>
-      <Field group label="Due at signing" hint="What a resident pays before they move in.">
-        <ChipRow>
-          {PAYMENT_AT_SIGNING_OPTIONS.map((o) => (
-            <ChipToggle
-              key={o.id}
-              label={o.label}
-              on={signing.has(o.id)}
-              onToggle={() => {
-                const next = new Set(signing);
-                if (next.has(o.id)) next.delete(o.id);
-                else next.add(o.id);
-                patch({ paymentAtSigningIncludes: [...next] });
-              }}
-            />
-          ))}
-        </ChipRow>
-      </Field>
-      <Field label="When a holding deposit is taken">
-        <Select
-          value={sub.holdingDepositTiming ?? "after_approval"}
-          onChange={(e) => patch({ holdingDepositTiming: e.target.value as ManagerListingSubmissionV1["holdingDepositTiming"] })}
-        >
-          <option value="after_approval">After I approve the application</option>
-          <option value="at_application">When the application is submitted</option>
-        </Select>
+      <Field label="Due at signing" hint="What a resident pays before they move in.">
+        <CheckboxMultiSelect
+          hideLabel
+          label="Due at signing"
+          options={PAYMENT_AT_SIGNING_OPTIONS.map((o) => ({ value: o.id, label: o.label }))}
+          selected={[...signing]}
+          emptyLabel="Nothing due at signing"
+          onChange={(next) => patch({ paymentAtSigningIncludes: next as PaymentAtSigningOptionId[] })}
+        />
       </Field>
 
       <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Rent day and late fees</p>
       <Field group label="Late fee">
-        <ChipRow>
-          <ChipToggle
-            label="Charge a late fee"
-            on={Boolean(sub.lateFeeEnabled)}
-            onToggle={() => patch({ lateFeeEnabled: !sub.lateFeeEnabled })}
-          />
-        </ChipRow>
+        <CheckboxOption
+          label="Charge a late fee"
+          description="Applied once the grace days below have passed."
+          checked={Boolean(sub.lateFeeEnabled)}
+          onChange={(next) => patch({ lateFeeEnabled: next })}
+        />
       </Field>
       <FieldRow cols={3}>
         <Field label="Rent is due">
@@ -2251,29 +2340,35 @@ function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
       </FieldRow>
 
       <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">How rent reaches you</p>
-      <Field group label="Accepted for rent">
-        <ChipRow>
-          <ChipToggle
-            label="Card or bank on PropLane"
-            on={sub.axisPaymentsEnabled !== false}
-            onToggle={() => patch({ axisPaymentsEnabled: sub.axisPaymentsEnabled === false })}
-          />
-          <ChipToggle
-            label="Zelle"
-            on={Boolean(sub.zellePaymentsEnabled)}
-            onToggle={() => patch({ zellePaymentsEnabled: !sub.zellePaymentsEnabled })}
-          />
-          <ChipToggle
-            label="Venmo"
-            on={Boolean(sub.venmoPaymentsEnabled)}
-            onToggle={() => patch({ venmoPaymentsEnabled: !sub.venmoPaymentsEnabled })}
-          />
-          <ChipToggle
-            label="ACH link"
-            on={Boolean(sub.achPaymentLinkEnabled)}
-            onToggle={() => patch({ achPaymentLinkEnabled: !sub.achPaymentLinkEnabled })}
-          />
-        </ChipRow>
+      <Field label="Accepted for rent" hint="Card or bank on PropLane is on unless you turn it off.">
+        <CheckboxMultiSelect
+          hideLabel
+          label="Accepted for rent"
+          options={[
+            { value: "axis", label: "Card or bank on PropLane" },
+            { value: "zelle", label: "Zelle" },
+            { value: "venmo", label: "Venmo" },
+            { value: "ach", label: "ACH link" },
+          ]}
+          selected={[
+            // `undefined` means on for PropLane's own rail — only an explicit
+            // false turns it off, so a listing saved before this existed keeps
+            // accepting card payments.
+            ...(sub.axisPaymentsEnabled !== false ? ["axis"] : []),
+            ...(sub.zellePaymentsEnabled ? ["zelle"] : []),
+            ...(sub.venmoPaymentsEnabled ? ["venmo"] : []),
+            ...(sub.achPaymentLinkEnabled ? ["ach"] : []),
+          ]}
+          emptyLabel="No rent method chosen"
+          onChange={(next) =>
+            patch({
+              axisPaymentsEnabled: next.includes("axis"),
+              zellePaymentsEnabled: next.includes("zelle"),
+              venmoPaymentsEnabled: next.includes("venmo"),
+              achPaymentLinkEnabled: next.includes("ach"),
+            })
+          }
+        />
       </Field>
       {sub.zellePaymentsEnabled || sub.venmoPaymentsEnabled ? (
         <FieldRow cols={2}>
@@ -2296,29 +2391,32 @@ function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
       ) : null}
 
       <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">How the application fee is paid</p>
-      <Field group label="Accepted for the application fee">
-        <ChipRow>
-          <ChipToggle
-            label="Card"
-            on={sub.applicationFeeStripeEnabled !== false}
-            onToggle={() => patch({ applicationFeeStripeEnabled: sub.applicationFeeStripeEnabled === false })}
-          />
-          <ChipToggle
-            label="Zelle"
-            on={Boolean(sub.applicationFeeZelleEnabled)}
-            onToggle={() => patch({ applicationFeeZelleEnabled: !sub.applicationFeeZelleEnabled })}
-          />
-          <ChipToggle
-            label="Venmo"
-            on={Boolean(sub.applicationFeeVenmoEnabled)}
-            onToggle={() => patch({ applicationFeeVenmoEnabled: !sub.applicationFeeVenmoEnabled })}
-          />
-          <ChipToggle
-            label="Other"
-            on={Boolean(sub.applicationFeeOtherEnabled)}
-            onToggle={() => patch({ applicationFeeOtherEnabled: !sub.applicationFeeOtherEnabled })}
-          />
-        </ChipRow>
+      <Field label="Accepted for the application fee" hint="Card is on unless you turn it off.">
+        <CheckboxMultiSelect
+          hideLabel
+          label="Accepted for the application fee"
+          options={[
+            { value: "card", label: "Card" },
+            { value: "zelle", label: "Zelle" },
+            { value: "venmo", label: "Venmo" },
+            { value: "other", label: "Other" },
+          ]}
+          selected={[
+            ...(sub.applicationFeeStripeEnabled !== false ? ["card"] : []),
+            ...(sub.applicationFeeZelleEnabled ? ["zelle"] : []),
+            ...(sub.applicationFeeVenmoEnabled ? ["venmo"] : []),
+            ...(sub.applicationFeeOtherEnabled ? ["other"] : []),
+          ]}
+          emptyLabel="No method chosen"
+          onChange={(next) =>
+            patch({
+              applicationFeeStripeEnabled: next.includes("card"),
+              applicationFeeZelleEnabled: next.includes("zelle"),
+              applicationFeeVenmoEnabled: next.includes("venmo"),
+              applicationFeeOtherEnabled: next.includes("other"),
+            })
+          }
+        />
       </Field>
       {sub.applicationFeeOtherEnabled ? (
         <Field label="How to pay it" hint="Shown to an applicant who picks “other”.">
@@ -2442,25 +2540,6 @@ function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
   );
 }
 
-function HouseMediaGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  return (
-    <>
-      <p className="mb-4 text-[12px] leading-relaxed text-muted">
-        The listing&apos;s photos, video and description are on the page above, where they are hard to miss. This is
-        the drawing.
-      </p>
-      <Field label="Floor plan" optional hint="One image of the layout.">
-        <PhotoStrip
-          label="floor plan"
-          max={1}
-          urls={sub.propertyFloorPlanDataUrl ? [sub.propertyFloorPlanDataUrl] : []}
-          onChange={(next) => patch({ propertyFloorPlanDataUrl: next[0] ?? null })}
-        />
-      </Field>
-    </>
-  );
-}
-
 function HouseMoveInGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   return (
     <>
@@ -2479,20 +2558,22 @@ function HouseMoveInGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
       <Field label="Wifi password" optional hint="Shown to a resident only once their lease is signed.">
         <Input value={sub.wifiPassword ?? ""} onChange={(e) => patch({ wifiPassword: e.target.value })} />
       </Field>
-      <Field label="Entry photos" optional hint="Key box, bins, parking — what a resident needs on arrival.">
-        <PhotoStrip
-          label="entry"
-          urls={sub.houseMoveInPhotoDataUrls ?? []}
-          onChange={(next) => patch({ houseMoveInPhotoDataUrls: next })}
-        />
-      </Field>
-      <Field label="Arrival clip" optional>
-        <VideoSlot
-          label="arrival"
-          url={sub.houseMoveInVideoDataUrl}
-          onChange={(next) => patch({ houseMoveInVideoDataUrl: next })}
-        />
-      </Field>
+      <FieldRow cols={2}>
+        <Field label="Entry photos" optional hint="Key box, bins, parking.">
+          <PhotoStrip
+            label="entry"
+            urls={sub.houseMoveInPhotoDataUrls ?? []}
+            onChange={(next) => patch({ houseMoveInPhotoDataUrls: next })}
+          />
+        </Field>
+        <Field label="Arrival clip" optional>
+          <VideoSlot
+            label="arrival"
+            url={sub.houseMoveInVideoDataUrl}
+            onChange={(next) => patch({ houseMoveInVideoDataUrl: next })}
+          />
+        </Field>
+      </FieldRow>
       <Field label="Move-in instructions for the house" optional>
         <Textarea
           rows={3}
@@ -2508,19 +2589,34 @@ function HouseMoveInGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
 function HouseApplicationsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   return (
     <>
+      <FieldRow cols={2}>
+        <Field
+          label="Application fee waive code"
+          optional
+          hint="Give this to an applicant and their application fee is waived."
+        >
+          <Input
+            value={sub.applicationFeeWaiverCode ?? ""}
+            placeholder="E.G. WELCOME50"
+            onChange={(e) => patch({ applicationFeeWaiverCode: e.target.value.toUpperCase() })}
+          />
+        </Field>
+        <Field label="Application fee" hint="Also on the Payments section.">
+          <Input value={money(sub.applicationFee)} onChange={(e) => patch({ applicationFee: e.target.value })} />
+        </Field>
+      </FieldRow>
       <Field group label="Applying to several of your homes">
-        <ChipRow>
-          <ChipToggle
-            label="One application may name several homes"
-            on={Boolean(sub.allowMultiplePropertyApplications)}
-            onToggle={() => patch({ allowMultiplePropertyApplications: !sub.allowMultiplePropertyApplications })}
-          />
-          <ChipToggle
-            label="Charge the fee only once"
-            on={Boolean(sub.applicationFeeOnlyFirstApplication)}
-            onToggle={() => patch({ applicationFeeOnlyFirstApplication: !sub.applicationFeeOnlyFirstApplication })}
-          />
-        </ChipRow>
+        <CheckboxOption
+          label="One application may name several homes"
+          checked={Boolean(sub.allowMultiplePropertyApplications)}
+          onChange={(next) => patch({ allowMultiplePropertyApplications: next })}
+        />
+        <CheckboxOption
+          label="Charge the fee only once"
+          description="An applicant naming three homes pays once, not three times."
+          checked={Boolean(sub.applicationFeeOnlyFirstApplication)}
+          onChange={(next) => patch({ applicationFeeOnlyFirstApplication: next })}
+        />
       </Field>
       <p className="mt-4 rounded-xl border border-border bg-card px-4 py-3 text-[12px] leading-relaxed text-muted">
         What an applicant is asked, your own questions and cosigner forms are edited in
@@ -2562,18 +2658,16 @@ function HouseBuildingGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
         </Field>
       </FieldRow>
       <Field group label="Utilities and upkeep">
-        <ChipRow>
-          <ChipToggle
-            label="Utilities are shared, not separately metered"
-            on={Boolean(sub.sharedUtilityMetering)}
-            onToggle={() => patch({ sharedUtilityMetering: !sub.sharedUtilityMetering })}
-          />
-          <ChipToggle
-            label="Regular pest service"
-            on={Boolean(sub.hasPeriodicPestService)}
-            onToggle={() => patch({ hasPeriodicPestService: !sub.hasPeriodicPestService })}
-          />
-        </ChipRow>
+        <CheckboxOption
+          label="Utilities are shared, not separately metered"
+          checked={Boolean(sub.sharedUtilityMetering)}
+          onChange={(next) => patch({ sharedUtilityMetering: next })}
+        />
+        <CheckboxOption
+          label="Regular pest service"
+          checked={Boolean(sub.hasPeriodicPestService)}
+          onChange={(next) => patch({ hasPeriodicPestService: next })}
+        />
       </Field>
       <Field
         label="Also listed as"
