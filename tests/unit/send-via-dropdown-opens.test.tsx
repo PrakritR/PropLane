@@ -12,7 +12,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { PortalMessageSendViaDropdown } from "@/components/portal/portal-message-compose-fields";
+import {
+  PortalMessageSendViaDropdown,
+  portalMessageSendViaFooterNote,
+} from "@/components/portal/portal-message-compose-fields";
 
 afterEach(cleanup);
 
@@ -23,7 +26,7 @@ describe("Send via", () => {
         selected={["email"]}
         onChange={vi.fn()}
         smsAvailable={false}
-        footerNote="Add a work number under Communication → SMS to text recipients."
+        footerNote=""
         dataAttr="test-send-via"
       />,
     );
@@ -42,16 +45,17 @@ describe("Send via", () => {
     expect(screen.getAllByText(/^Email$/i).length).toBeGreaterThan(0);
   });
 
-  it("says how to enable it", () => {
+  it("does not show the Communication → SMS setup footnote", () => {
+    expect(portalMessageSendViaFooterNote(false)).toBe("");
     render(
       <PortalMessageSendViaDropdown
         selected={["email"]}
         onChange={vi.fn()}
         smsAvailable={false}
-        footerNote="Add a work number under Communication → SMS to text recipients."
+        footerNote={portalMessageSendViaFooterNote(false)}
         dataAttr="test-send-via-2"
       />,
     );
-    expect(screen.getByText(/Add a work number under Communication/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Add a work number under Communication/i)).not.toBeInTheDocument();
   });
 });

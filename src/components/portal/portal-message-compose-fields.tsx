@@ -27,9 +27,10 @@ export const PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE =
 
 /** Send-via helper copy — matches the Communication compose modal. */
 export function portalMessageSendViaFooterNote(smsAvailable: boolean): string {
+  // No setup CTA under Send via — the dropdown already shows "SMS (not enabled)".
   return smsAvailable
     ? "SMS uses your work number; recipients need a phone on file or under Other."
-    : "Add a work number under Communication → SMS to text recipients.";
+    : "";
 }
 
 /** Primary CTA label for compose-style modals (Send email / SMS / message / Schedule). */
