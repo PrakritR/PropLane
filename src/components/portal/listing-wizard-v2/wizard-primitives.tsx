@@ -18,7 +18,6 @@
  */
 
 import { useId, type ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /* ─────────────────────────── shell ─────────────────────────── */
@@ -30,7 +29,6 @@ export function WizardModal({
   children,
   footer,
   stepper,
-  headerAside,
 }: {
   title: string;
   onClose?: () => void;
@@ -38,20 +36,17 @@ export function WizardModal({
   children: ReactNode;
   footer: ReactNode;
   stepper?: ReactNode;
-  /** The Ask PropLane trigger — kept from the previous wizard, which managers use. */
-  headerAside?: ReactNode;
 }) {
   return (
-    <div className="flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)]">
+    <div className="flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border bg-card">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
-        <b className="truncate text-[17px] font-bold tracking-tight text-foreground">{title}</b>
+        <b className="truncate text-[15px] font-bold tracking-tight text-foreground">{title}</b>
         <div className="flex shrink-0 items-center gap-2">
-          {headerAside}
           {onSaveExit ? (
             <button
               type="button"
               onClick={onSaveExit}
-              className="min-h-[36px] rounded-full border border-border bg-card px-4 text-[12.5px] font-bold text-foreground hover:bg-accent/40"
+              className="min-h-[36px] rounded-full border border-border bg-card px-4 text-[12.5px] font-bold text-foreground"
               data-attr="listing-v2-save-exit"
             >
               Save &amp; exit
@@ -62,7 +57,7 @@ export function WizardModal({
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="grid h-9 w-9 place-items-center rounded-full text-muted hover:bg-accent/50"
+              className="grid h-9 w-9 place-items-center rounded-full text-muted"
             >
               ✕
             </button>
@@ -78,7 +73,7 @@ export function WizardModal({
   );
 }
 
-/** Named, numbered progress. Both numerator and denominator are always shown. */
+/** Named, numbered progress — Image-2 style: labels across, active bold. */
 export function WizardStepper({
   steps,
   current,
@@ -88,56 +83,49 @@ export function WizardStepper({
   current: number;
   onJump?: (index: number) => void;
 }) {
+  const pct = steps.length > 1 ? (current / (steps.length - 1)) * 100 : 100;
+  const currentLabel = steps[current]?.label ?? "";
   return (
-    <ol className="flex flex-wrap items-center gap-1.5">
-      {steps.map((step, i) => {
-        const done = i < current;
-        const on = i === current;
-        const reachable = i <= current;
-        return (
-          <li key={step.id}>
-            <button
-              type="button"
-              disabled={!reachable || !onJump}
-              onClick={() => reachable && onJump?.(i)}
-              aria-current={on ? "step" : undefined}
-              aria-label={`Step ${i + 1} of ${steps.length}: ${step.label}`}
-              className={cn(
-                "flex shrink-0 items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3 text-[12px] font-bold transition",
-                on
-                  ? "bg-primary/10 text-primary"
-                  : done
-                    ? "text-foreground hover:bg-accent/40"
-                    : "cursor-default text-muted/45",
-              )}
-            >
-              <span
+    <div data-attr="listing-v2-stepper">
+      <ol className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        {steps.map((step, i) => {
+          const done = i < current;
+          const on = i === current;
+          const reachable = i <= current;
+          return (
+            <li key={step.id}>
+              <button
+                type="button"
+                disabled={!reachable || !onJump}
+                onClick={() => reachable && onJump?.(i)}
+                aria-current={on ? "step" : undefined}
+                aria-label={`Step ${i + 1} of ${steps.length}: ${step.label}`}
                 className={cn(
-                  "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-extrabold",
-                  done
-                    ? "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
-                    : on
-                      ? "bg-primary text-white"
-                      : "border border-border text-muted/60",
+                  "text-[12.5px] font-bold tracking-tight transition-colors",
+                  on ? "text-foreground" : done ? "text-primary" : "cursor-default text-muted/50",
                 )}
-                aria-hidden
               >
-                {done ? "✓" : i + 1}
-              </span>
-              {step.label}
-            </button>
-          </li>
-        );
-      })}
-    </ol>
+                {step.label}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+      <div className="relative mb-2 h-px rounded bg-border">
+        <span className="absolute left-0 top-0 block h-px rounded bg-primary" style={{ width: `${pct}%` }} />
+      </div>
+      <p className="text-[12.5px] font-bold text-foreground">
+        Step {current + 1} of {steps.length} · {currentLabel}
+      </p>
+    </div>
   );
 }
 
-/** The heading block at the top of every step body. */
+/** The heading block at the top of every step body (title + subtitle only — progress lives in the stepper). */
 export function StepHeading({
-  step,
-  total,
-  name,
+  step: _step,
+  total: _total,
+  name: _name,
   title,
   subtitle,
 }: {
@@ -149,9 +137,6 @@ export function StepHeading({
 }) {
   return (
     <div className="mb-5">
-      <p className="mb-2 text-[12px] font-bold text-muted">
-        Step {step} of {total} · {name}
-      </p>
       <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">{title}</h2>
       {subtitle ? <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{subtitle}</p> : null}
     </div>
@@ -508,31 +493,22 @@ export function BulkButton({ onClick, children }: { onClick: () => void; childre
   );
 }
 
-/**
- * The dashed ADD row from the rest of the portal — blue, uppercase, with the
- * section's own icon. Kept identical to `PortalListAddRow` so the wizard reads
- * as part of the product rather than as a separate form.
- */
 export function AddRowButton({
   label,
   onClick,
   dataAttr,
-  icon: Icon,
 }: {
   label: string;
   onClick: () => void;
   dataAttr?: string;
-  icon?: LucideIcon;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       data-attr={dataAttr}
-      aria-label={label}
-      className="mt-3 flex w-full items-center justify-center gap-2.5 rounded-2xl border-2 border-dashed border-primary/45 bg-primary/[0.03] px-3 py-6 text-[12px] font-extrabold uppercase tracking-[0.14em] text-primary transition hover:bg-primary/[0.07]"
+      className="mt-3 w-full rounded-xl border border-dashed border-border px-3 py-3 text-[13px] font-bold text-primary"
     >
-      {Icon ? <Icon className="h-5 w-5" aria-hidden /> : null}
       {label}
     </button>
   );

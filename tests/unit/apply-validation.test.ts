@@ -32,7 +32,11 @@ describe("apply-validation", () => {
 
   it("validates email and zip", () => {
     expect(validateEmail("a@b.co").ok).toBe(true);
+    expect(validateEmail("user@gmail.com").ok).toBe(true);
+    expect(validateEmail("user@mail.co.uk").ok).toBe(true);
     expect(validateEmail("bad").ok).toBe(false);
+    expect(validateEmail("jaarav071@gmail.c").ok).toBe(false);
+    expect(validateEmail("user@domain.").ok).toBe(false);
     expect(validateZip("98105").ok).toBe(true);
     expect(validateZip("981").ok).toBe(false);
   });

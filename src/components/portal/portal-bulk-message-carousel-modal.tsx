@@ -98,6 +98,7 @@ export function PortalBulkMessageCarouselModal({
   showChannelPicker = true,
   defaultViaEmail = true,
   defaultViaSms = false,
+  hideSendViaFooterNote = false,
   onClose,
   onConfirm,
 }: {
@@ -118,6 +119,8 @@ export function PortalBulkMessageCarouselModal({
   showChannelPicker?: boolean;
   defaultViaEmail?: boolean;
   defaultViaSms?: boolean;
+  /** When true, omit work-number / SMS setup helper copy under Send via. */
+  hideSendViaFooterNote?: boolean;
   onClose: () => void;
   onConfirm: (
     scope: "all" | "single",
@@ -427,7 +430,9 @@ export function PortalBulkMessageCarouselModal({
               onChange={setSendVia}
               emailAvailable={emailAvailable}
               smsAvailable={smsAvailable}
-              footerNote={portalMessageSendViaFooterNote(smsAvailable)}
+              footerNote={
+                hideSendViaFooterNote ? "" : portalMessageSendViaFooterNote(smsAvailable)
+              }
               dataAttr="portal-bulk-carousel-send-via"
             />
           ) : null}

@@ -2,10 +2,7 @@
 
 import { ClipboardList, Home, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import {
-  ApplicationHouseholdCluster,
-  ApplicationNestedListRow,
-} from "@/components/portal/application-household-list";
+import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import type { ApplicationReviewView } from "@/components/portal/application-review-launcher-row";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
@@ -85,14 +82,13 @@ export function ClusterNavRow({
   checkDataAttr: string;
   nested?: boolean;
 }) {
-  const row = (
+  return (
     <button
       type="button"
       onClick={onOpen}
       className={cn(
         "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-foreground/[0.03]",
         selected && "bg-primary/5 shadow-[inset_3px_0_0_var(--color-primary)]",
-        nested && "pl-4",
       )}
     >
       {onCheck ? (
@@ -105,18 +101,18 @@ export function ClusterNavRow({
       ) : (
         <span className="w-4 shrink-0" aria-hidden />
       )}
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold text-foreground">{primary}</span>
-        {meta ? <span className="mt-0.5 block truncate text-xs text-muted">{meta}</span> : null}
+      <span className={cn("flex min-w-0 flex-1 items-center gap-2.5", nested && "pl-2")}>
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          {icon}
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-semibold text-foreground">{primary}</span>
+          {meta ? <span className="mt-0.5 block truncate text-xs text-muted">{meta}</span> : null}
+        </span>
       </span>
       {statusPill ? <Badge tone={statusPill.tone}>{statusPill.label}</Badge> : null}
     </button>
   );
-
-  return nested ? <ApplicationNestedListRow nested>{row}</ApplicationNestedListRow> : row;
 }
 
 export function ApplicationPropertySummaryCard({ row }: { row: DemoApplicantRow }) {

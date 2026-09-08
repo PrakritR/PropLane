@@ -735,11 +735,7 @@ export function ShareLeadLinkModal({
                     selected={sendVia}
                     onChange={setSendVia}
                     smsAvailable={smsAvailable}
-                    footerNote={
-                      smsAvailable
-                        ? "SMS uses your PropLane work number."
-                        : "Add a work number under Communication → SMS to text prospects."
-                    }
+                    footerNote={smsAvailable ? "SMS uses your PropLane work number." : ""}
                     dataAttr="share-lead-send-via"
                   />
                   <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>

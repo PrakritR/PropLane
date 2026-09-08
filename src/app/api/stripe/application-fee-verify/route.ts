@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { getStripe } from "@/lib/stripe";
 import { axisAchCheckoutPaid, axisAchCheckoutProcessing } from "@/lib/stripe-axis-ach-checkout";
+import { promoteIncompleteApplicationAfterFeePaid } from "@/lib/promote-incomplete-application-after-fee.server";
 import {
   includesHoldingDeposit,
   isApplicationFeeCheckoutSession,
@@ -63,6 +64,9 @@ export async function POST(req: Request) {
     let chargeId: string | null = null;
     let alreadyPaid = false;
     let depositChargeId: string | null = null;
+    let applicationPromoted = false;
+    let applicationAxisId: string | null = null;
+    let applicationSetupToken: string | null = null;
     if (paid) {
       const db = createSupabaseServiceRoleClient();
       const result = await markApplicationFeePaidFromStripeSession(db, session);
@@ -75,6 +79,17 @@ export async function POST(req: Request) {
       if (includesHoldingDeposit(session)) {
         const depositResult = await markApplicationDepositPaidFromStripeSession(db, session);
         depositChargeId = depositResult.chargeId ?? null;
+      }
+      // PRP-431: promote Incomplete → Submitted from the draft snapshot so a
+      // wiped client form after Stripe return cannot leave the app stuck.
+      const promoted = await promoteIncompleteApplicationAfterFeePaid(db, session);
+      if (promoted.ok && promoted.promoted) {
+        applicationPromoted = true;
+        applicationAxisId = promoted.axisId;
+        applicationSetupToken = promoted.setupToken ?? null;
+      } else if (promoted.ok && promoted.reason === "already_submitted") {
+        applicationPromoted = true;
+        applicationAxisId = promoted.axisId ?? null;
       }
     }
 
@@ -90,6 +105,10 @@ export async function POST(req: Request) {
       chargeId,
       alreadyPaid,
       depositChargeId,
+      applicationPromoted,
+      applicationAxisId,
+      // Token only when we just minted/kept one on promote — never invent email.
+      ...(applicationSetupToken ? { applicationSetupToken } : {}),
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to verify session";

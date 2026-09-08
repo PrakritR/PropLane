@@ -24,6 +24,7 @@ import {
   markApplicationDepositPaidFromStripeSession,
   markApplicationFeePaidFromStripeSession,
 } from "@/lib/stripe-application-fee";
+import { promoteIncompleteApplicationAfterFeePaid } from "@/lib/promote-incomplete-application-after-fee.server";
 import {
   householdChargeCheckoutProcessing,
   markHouseholdChargePaidFromStripeSession,
@@ -167,6 +168,9 @@ export async function POST(req: Request) {
           // (`metadata.includes_holding_deposit` — legacy-only; nothing
           // creates combined fee+deposit sessions anymore).
           await markApplicationDepositPaidFromStripeSession(db, session);
+          // PRP-431: promote Incomplete → Submitted even when the browser never
+          // returns from Checkout (or returns with a wiped form).
+          await promoteIncompleteApplicationAfterFeePaid(db, session);
           await enrichCheckoutLedgerFees(stripe, session);
           const distinctId = session.client_reference_id ?? session.id;
           track("application_fee_paid", distinctId, { session_id: session.id });

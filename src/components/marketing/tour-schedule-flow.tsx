@@ -199,6 +199,7 @@ export function TourScheduleFlow({
   embedded = false,
   embeddedModalLayout = false,
   onEmbeddedFooterChange,
+  onSuccessDismiss,
 }: {
   property: MockProperty;
   returnAfterAuth: string;
@@ -207,6 +208,8 @@ export function TourScheduleFlow({
   /** Resident portal modal: pin Back/Continue below the assistant strip via {@link onEmbeddedFooterChange}. */
   embeddedModalLayout?: boolean;
   onEmbeddedFooterChange?: (footer: ReactNode | null) => void;
+  /** When set, success screen offers Done that closes the host (e.g. resident modal). */
+  onSuccessDismiss?: () => void;
 }) {
   const { showToast } = useAppUi();
   const [step, setStep] = useState<TourStep>(1);
@@ -449,6 +452,16 @@ export function TourScheduleFlow({
         )}
 
         <div className="flex flex-wrap gap-2">
+          {onSuccessDismiss ? (
+            <button
+              type="button"
+              onClick={onSuccessDismiss}
+              data-attr="tour-success-done"
+              className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              Done
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => {

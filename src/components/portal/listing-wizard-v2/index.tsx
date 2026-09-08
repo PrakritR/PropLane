@@ -1,18 +1,23 @@
 "use client";
 
 /**
- * The redesigned create-listing wizard, end to end.
+ * The redesigned create-listing wizard.
  *
- * Phase 1 ({@link AddPropertyFlow}) turns three short screens into a real
- * listing. Phase 2 ({@link ListingEditorV2}) completes it across six named steps
- * that can be left and resumed at any point.
+ * "Add property" opens the editor itself, at step 1. There used to be three
+ * screens in front of it — address, confirm the address, how you rent it — and
+ * every one of those questions is asked again on the Home step, so a manager
+ * answered the same three things twice before reaching anything new.
+ *
+ * {@link AddPropertyFlow} and {@link submissionFromAddProperty} are kept for
+ * callers that already collected those answers elsewhere; the wizard itself no
+ * longer puts them in front of a manager.
  *
  * It reads and writes the SAME `ManagerListingSubmissionV1` the existing wizard
  * uses, so drafts, normalization, validation, publishing and every downstream
  * reader are unchanged. Nothing here is a second source of truth for a listing.
  */
 
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { AddPropertyFlow, type AddPropertyResult } from "@/components/portal/listing-wizard-v2/add-property-flow";
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
@@ -89,17 +94,12 @@ export function ListingWizardV2({
     propertyCount,
     initialDraftId,
   });
-  const [submission, setSubmission] = useState<ManagerListingSubmissionV1 | null>(
-    initialSubmission ? normalizeManagerListingSubmissionV1(initialSubmission) : null,
+  // A new listing starts as an empty submission on step 1, not behind a
+  // preamble. `createDefaultListingSubmission` already carries one room, so the
+  // Rooms step has something to show the moment the manager reaches it.
+  const [submission, setSubmission] = useState<ManagerListingSubmissionV1>(() =>
+    normalizeManagerListingSubmissionV1(initialSubmission ?? createDefaultListingSubmission()),
   );
-
-  const create = useCallback((result: AddPropertyResult) => {
-    setSubmission(submissionFromAddProperty(result));
-  }, []);
-
-  if (!submission) {
-    return <AddPropertyFlow onCancel={onClose} onCreate={create} creating={busy} />;
-  }
 
   const label = submission.buildingName.trim() || submission.address.trim() || "New listing";
 

@@ -24,12 +24,14 @@ import type { ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages
 import { formatScheduledSendAt } from "@/lib/scheduled-payment-messages";
 import { summariseScheduledSends, type ScheduledSendSummary } from "@/lib/scheduled-send-summary";
 
-export type ManagerTourRowSource = "inquiry" | "planned";
+export type ManagerTourRowSource = "inquiry" | "planned" | "proposal";
 
 export type ManagerTourRow = {
   id: string;
   source: ManagerTourRowSource;
   sourceId: string;
+  /** Pending-action id when `source === "proposal"`. */
+  proposalActionId?: string;
   guestName: string;
   guestEmail: string;
   guestPhone: string;

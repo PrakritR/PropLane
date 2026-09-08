@@ -23,9 +23,25 @@ export async function GET() {
     userId: ctx.userId,
     toolName: CONFIRM_TOUR_INQUIRY_TOOL,
   });
-  // Only the id + preview leave the server; the stored input never does.
+  // Expose only the inquiry id + slot times from stored input — never the full payload.
   return NextResponse.json({
-    proposals: actions.map((action) => ({ id: action.id, preview: action.preview, createdAt: action.createdAt })),
+    proposals: actions.map((action) => {
+      const input =
+        action.input && typeof action.input === "object" && !Array.isArray(action.input)
+          ? (action.input as Record<string, unknown>)
+          : {};
+      const inquiryId = typeof input.inquiryId === "string" ? input.inquiryId.trim() : "";
+      const startIso = typeof input.start === "string" ? input.start.trim() : "";
+      const endIso = typeof input.end === "string" ? input.end.trim() : "";
+      return {
+        id: action.id,
+        inquiryId,
+        startIso,
+        endIso,
+        preview: action.preview,
+        createdAt: action.createdAt,
+      };
+    }),
   });
 }
 

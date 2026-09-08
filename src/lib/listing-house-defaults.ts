@@ -28,6 +28,7 @@ import type { UtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
 /** The fields a manager can set once for the whole house. */
 export type ListingHouseDefaults = {
   monthlyRent: number;
+  floor: string;
   securityDeposit: string;
   moveInFee: string;
   utilitiesEstimate: string;
@@ -37,6 +38,12 @@ export type ListingHouseDefaults = {
   occupancyCapacity: number;
   moveInInspectionRequired: boolean;
   moveOutInspectionRequired: boolean;
+  /** Square footage most rooms share, when they are near enough alike. */
+  sizeSqft: number;
+  /** How a partial first or last month is split. Never a headline price. */
+  prorateMethod: "auto" | "daily_rate" | "";
+  /** Whether the advertised price invites an offer. Never changes the figure. */
+  pricingMode: "fixed" | "flexible" | "";
 };
 
 export type ListingHouseDefaultField = keyof ListingHouseDefaults;
@@ -44,6 +51,7 @@ export type ListingHouseDefaultField = keyof ListingHouseDefaults;
 /** Every default field, in the order the band renders them. */
 export const LISTING_HOUSE_DEFAULT_FIELDS: readonly ListingHouseDefaultField[] = [
   "monthlyRent",
+  "floor",
   "securityDeposit",
   "moveInFee",
   "utilitiesEstimate",
@@ -53,11 +61,15 @@ export const LISTING_HOUSE_DEFAULT_FIELDS: readonly ListingHouseDefaultField[] =
   "occupancyCapacity",
   "moveInInspectionRequired",
   "moveOutInspectionRequired",
+  "sizeSqft",
+  "prorateMethod",
+  "pricingMode",
 ] as const;
 
 export function emptyListingHouseDefaults(): ListingHouseDefaults {
   return {
     monthlyRent: 0,
+    floor: "",
     securityDeposit: "",
     moveInFee: "",
     utilitiesEstimate: "",
@@ -67,6 +79,9 @@ export function emptyListingHouseDefaults(): ListingHouseDefaults {
     occupancyCapacity: 1,
     moveInInspectionRequired: false,
     moveOutInspectionRequired: false,
+    sizeSqft: 0,
+    prorateMethod: "",
+    pricingMode: "",
   };
 }
 
@@ -78,6 +93,8 @@ export function roomDefaultFieldValue(
   switch (field) {
     case "monthlyRent":
       return room.monthlyRent ?? 0;
+    case "floor":
+      return (room.floor ?? "").trim();
     case "securityDeposit":
       return (room.securityDeposit ?? "").trim();
     case "moveInFee":
@@ -96,6 +113,12 @@ export function roomDefaultFieldValue(
       return room.moveInInspectionRequired === true;
     case "moveOutInspectionRequired":
       return room.moveOutInspectionRequired === true;
+    case "sizeSqft":
+      return room.sizeSqft ?? 0;
+    case "prorateMethod":
+      return room.prorateMethod ?? "";
+    case "pricingMode":
+      return room.pricingMode ?? "";
   }
 }
 
@@ -107,6 +130,8 @@ function writeRoomDefaultField(
   switch (field) {
     case "monthlyRent":
       return { ...room, monthlyRent: defaults.monthlyRent };
+    case "floor":
+      return { ...room, floor: defaults.floor };
     case "securityDeposit":
       return { ...room, securityDeposit: defaults.securityDeposit };
     case "moveInFee":
@@ -127,6 +152,12 @@ function writeRoomDefaultField(
       return { ...room, moveInInspectionRequired: defaults.moveInInspectionRequired };
     case "moveOutInspectionRequired":
       return { ...room, moveOutInspectionRequired: defaults.moveOutInspectionRequired };
+    case "sizeSqft":
+      return defaults.sizeSqft > 0 ? { ...room, sizeSqft: defaults.sizeSqft } : room;
+    case "prorateMethod":
+      return defaults.prorateMethod ? { ...room, prorateMethod: defaults.prorateMethod } : room;
+    case "pricingMode":
+      return defaults.pricingMode ? { ...room, pricingMode: defaults.pricingMode } : room;
   }
 }
 
@@ -164,6 +195,24 @@ export function roomOverriddenDefaults(
   defaults: ListingHouseDefaults,
 ): ListingHouseDefaultField[] {
   return LISTING_HOUSE_DEFAULT_FIELDS.filter((field) => !roomInheritsDefault(room, defaults, field));
+}
+
+/**
+ * The rooms that have not been edited at all, and are therefore the only ones a
+ * change to the house defaults may move.
+ *
+ * The rule is per ROOM, not per field. Once a manager has set anything on a
+ * room by hand, that room stops following the house for everything — including
+ * the fields they left alone. Per-field following looked tidier but meant a
+ * manager who had set Room 3's rent still found its beds changing underneath
+ * them later. Overwriting an edited room is possible, but only through an
+ * explicit "copy to all rooms", never as a side effect of typing.
+ */
+export function roomsFollowingDefaults(
+  rooms: readonly ManagerRoomSubmission[],
+  defaults: ListingHouseDefaults,
+): string[] {
+  return rooms.filter((room) => roomOverriddenDefaults(room, defaults).length === 0).map((room) => room.id);
 }
 
 /**
