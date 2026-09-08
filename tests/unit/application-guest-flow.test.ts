@@ -36,6 +36,7 @@ describe("in-progress draft sync eligibility", () => {
     expect(shouldSyncInProgressDraft({ email: "", propertyId: "p1" })).toBe(false);
     expect(shouldSyncInProgressDraft({ email: "a@b.com", propertyId: "" })).toBe(false);
     expect(shouldSyncInProgressDraft({ email: "a@b.com", propertyId: "p1" })).toBe(true);
+    expect(shouldSyncInProgressDraft({ email: "jaarav071@gmail.c", propertyId: "p1" })).toBe(false);
   });
 
   it("uses public apply resume url", () => {

@@ -1,12 +1,11 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { attachResidentSetupToken, isResidentSetupTokenValid } from "@/lib/auth/resident-setup-token";
+import { isLegitimateEmail } from "@/lib/email-address";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
 import { findDuplicateApplication } from "@/lib/rental-application/duplicate-application.server";
 import { validateSubmittedApplication } from "@/lib/rental-application/validate-submission.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-
-const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 export type GuestApplicationUpsertResult =
   | { ok: true; row: DemoApplicantRow; setupToken: string }
@@ -24,7 +23,7 @@ export const DUPLICATE_APPLICATION_ERROR =
   "You have already applied to this room. Open your existing application to check its status.";
 
 export function isValidGuestApplicationEmail(email: string): boolean {
-  return EMAIL_RE.test(email.trim().toLowerCase());
+  return isLegitimateEmail(email);
 }
 
 /** The message an applicant sees when a listing is no longer taking applications. */

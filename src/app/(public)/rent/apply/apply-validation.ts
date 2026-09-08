@@ -1,3 +1,4 @@
+import { isLegitimateEmail } from "@/lib/email-address";
 import { GROUP_ID_PREFIX, LEGACY_GROUP_ID_PREFIX } from "@/lib/rental-application/application-groups";
 import { coercePhoneInput } from "@/lib/phone-e164";
 import { isCompletePhoneNumber } from "@/lib/phone-number-field";
@@ -48,12 +49,12 @@ export function isBlankOrCompletePhone(phone: string): boolean {
   return !coercePhoneInput(phone) || isCompletePhoneNumber(phone);
 }
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 export function validateEmail(email: string): { ok: true } | { ok: false; message: string } {
   const t = email.trim();
   if (!t) return { ok: false, message: "Email is required." };
-  if (!EMAIL_RE.test(t)) return { ok: false, message: "Enter a valid email address." };
+  if (!isLegitimateEmail(t)) {
+    return { ok: false, message: "Enter a valid email address (for example name@gmail.com)." };
+  }
   return { ok: true };
 }
 

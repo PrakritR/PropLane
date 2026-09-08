@@ -19,13 +19,13 @@ import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { bestEffortFailed } from "@/lib/observability/best-effort";
+import { isLegitimateEmail } from "@/lib/email-address";
 
 export const runtime = "nodejs";
 
 // Domain is matched as dot-separated labels (no char class overlaps the "." delimiter)
 // so there is exactly one way to parse a match — avoids polynomial backtracking on
 // attacker-controlled input.
-const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 function idVariants(id: string): string[] {
   const trimmed = id.trim();
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
     const accountReady = body.accountReady === true;
     const providedSetupToken = typeof body.setupToken === "string" ? body.setupToken.trim() : "";
 
-    if (!email || !EMAIL_RE.test(email)) {
+    if (!email || !isLegitimateEmail(email)) {
       return NextResponse.json({ error: "A valid email is required." }, { status: 400 });
     }
     if (!axisId) return NextResponse.json({ error: "axisId is required." }, { status: 400 });
