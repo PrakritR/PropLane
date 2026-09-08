@@ -208,7 +208,9 @@ export function LeaseGenerateModal({
       dismissBlocked={working}
       dense
       scrollableContent={false}
-      panelClassName={cn(MODAL_XL_PANEL_CLASS, MODAL_TALL_PANEL_CLASS)}
+      // The document editor needs a real height to fill, not just a cap:
+      // cap-only leaves the panel content-sized and the Visual pane collapses.
+      panelClassName={cn(MODAL_XL_PANEL_CLASS, MODAL_TALL_PANEL_CLASS, "min-h-[min(85dvh,52rem)]")}
       assistantDefaultExpanded={false}
       assistantContext={assistantContext}
       assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
@@ -283,7 +285,7 @@ export function LeaseGenerateModal({
               <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
             </div>
             <LeaseHtmlDirectEditor
-              className="min-h-0 h-full flex-1"
+              className="min-h-[min(380px,50vh)] flex-1"
               html={displayHtml}
               baselineHtml={baselineHtml}
               onChange={(next) => setHtmlOverride(next)}
