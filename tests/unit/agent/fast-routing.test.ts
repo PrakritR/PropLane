@@ -41,4 +41,15 @@ describe("fast agent routing", () => {
     expect(route("Send a rent reminder", ["send_rent_reminder"]).provider).toBe("anthropic");
     expect(route("Why is income down this quarter?", ["run_financial_report"]).provider).toBe("anthropic");
   });
+  it("keeps text and reply requests on the confirmation-capable route", () => {
+    vi.stubEnv("OPENROUTER_API_KEY", "key");
+    vi.stubEnv("AXIS_AGENT_FAST_ENABLED", "true");
+    vi.stubEnv("AXIS_AGENT_FAST_ROLLOUT_PERCENT", "100");
+    for (const prompt of ["Message the potential tenant", "Reply to the prospect", "Text the prospect about the room"]) {
+      expect(route(prompt, ["list_inbox_threads", "list_sms_conversations", "reply_to_sms_conversation"]).provider).toBe("anthropic");
+    }
+    expect(route("Show texts from potential tenants", ["list_sms_conversations", "list_inbox_threads"]).toolNames)
+      .toEqual(["list_sms_conversations"]);
+  });
+
 });

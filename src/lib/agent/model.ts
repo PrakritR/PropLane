@@ -118,6 +118,7 @@ const COMPLEX_SIGNALS = [
 const WRITE_SIGNALS = [
   "send ", "create ", "update ", "delete ", "cancel ", "schedule ", "pay ", "mark paid", "approve ", "reject ",
   "assign ", "invite ", "record ", "sign ", "revoke ", "complete ",
+  "reply ", "text ", "message ",
 ];
 
 const DIRECT_SIGNALS = [
@@ -125,6 +126,7 @@ const DIRECT_SIGNALS = [
 ];
 
 const LOOKUP_TOOL_KEYWORDS: [RegExp, string[]][] = [
+  [/\b(sms|texts|work.number|potential tenant|prospect)\b/i, ["list_sms_conversations"]],
   [/\b(overdue|charge|charges|rent roll)\b/i, ["get_overdue_charges", "list_charges", "get_my_balance", "list_my_charges"]],
   [/\b(lease|leases)\b/i, ["list_leases", "get_my_lease"]],
   [/\b(work order|work orders|maintenance|service request)\b/i, ["list_work_orders", "list_my_work_orders", "list_my_service_requests"]],

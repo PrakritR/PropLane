@@ -91,6 +91,7 @@ import {
   updateListingDraftTool,
 } from "./domains/listing-draft";
 import { applyListingPhotosTool, getListingMediaInventoryTool } from "./domains/listing-media";
+import { listSmsConversationsTool, replyToSmsConversationTool } from "./domains/sms-messaging";
 import { listInboxThreadsTool, getThreadMessagesTool, updateThreadTool } from "./domains/inbox";
 import {
   sendMessageTool,
@@ -167,6 +168,7 @@ export const agentRegistry = buildRegistry([
   getListingCreationChecklistTool,
   getListingMediaInventoryTool,
   listInboxThreadsTool,
+  listSmsConversationsTool,
   getThreadMessagesTool,
   listCalendarEventsTool,
   listScheduledMessagesTool,
@@ -194,6 +196,7 @@ export const agentRegistry = buildRegistry([
   rescheduleReminderTool,
   sendMessageTool,
   replyToThreadTool,
+  replyToSmsConversationTool,
   scheduleMessageTool,
   cancelScheduledMessageTool,
   // Low-risk inbox housekeeping; see MANAGER_INLINE_WRITE_TOOLS below.

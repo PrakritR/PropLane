@@ -263,6 +263,7 @@ See `src/lib/tools/domains/` — payments (`get_overdue_charges`,
 (`get_automation_settings` R, `update_automation_settings` W,
 `cancel_scheduled_reminder`/`reschedule_reminder` W), messaging
 (`send_message` W, `schedule_message` W, `cancel_scheduled_message` W),
+work-number SMS (`list_sms_conversations` R, `reply_to_sms_conversation` W),
 inbox (`list_inbox_threads` R, `get_thread_messages` R, `reply_to_thread` W,
 `update_thread` W*),
 calendar (`list_calendar_events` R, `list_tour_inquiries` R,
@@ -428,3 +429,16 @@ establish financial liability. Bank suggestions clear nothing; the existing
 `reconcile_bank_statement_line` write accepts either `matchedLedgerEntryId` or
 `matchedExpenseEntryId`, with owner/amount/exclusive-match validation in the
 shared database path. See [Sales migration](agents/sales-migration.md).
+
+### Work-number prospect replies
+
+SMS conversations in Communication are a separate store from portal/email inbox
+threads. The assistant uses `list_sms_conversations` to find phone-only prospects
+by name or phone and read their recent messages as untrusted data.
+`reply_to_sms_conversation` pins the phone in its confirmation preview, rechecks
+Communication edit access and the destination on confirmation, and audit-logs
+before calling `sendManagerConversationSms`. The manual SMS POST uses that same
+function: owner-scoped consent, outbox deduplication, dispatch, status reporting
+and the server-confirmed `message_sent` event remain shared. A missing explicit
+conversation key never falls back to another person on the same phone. The
+existing agent loop traces both tools and hashes the updated manager prompt.
