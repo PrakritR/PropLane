@@ -46,7 +46,13 @@ import {
   readManagerApplicationRows,
   syncManagerApplicationsFromServer,
 } from "@/lib/manager-applications-storage";
-import { applicationVisibleToPortalUser, buildManagerPropertyFilterOptions, collectLinkedPropertyIdsForModule } from "@/lib/manager-portfolio-access";
+import {
+  applicationVisibleToPortalUser,
+  buildManagerPropertyFilterOptions,
+  collectLinkedPropertyIdsForModule,
+  hasLinkedPropertyModuleLevel,
+  ownedPropertyIdsForUser,
+} from "@/lib/manager-portfolio-access";
 import { ledgerRoomNumberForApplication } from "@/lib/rental-application/data";
 import { syncPropertyPipelineFromServer } from "@/lib/demo-property-pipeline";
 import { scopeChargesToManagerPaymentsLedger } from "@/lib/manager-payments-scope";
@@ -431,6 +437,28 @@ export function ManagerPayments({
     [userId, propertyTick, applicationTick, ledgerDataVersion],
   );
 
+  // Payment setup decides what residents owe, so the owner keeps final say over
+  // it: a co-manager granted only VIEW on Payments keeps the list and loses the
+  // controls. The read-level set above is what may be SHOWN; these two decide
+  // what may be OFFERED, and the server enforces the same grant either way.
+  const canCreatePayment = useMemo(() => {
+    if (!userId) return true;
+    if (ownedPropertyIdsForUser(userId).size > 0) return true;
+    return collectLinkedPropertyIdsForModule(userId, "payments", "edit").size > 0;
+  }, [userId, propertyTick, applicationTick, ledgerDataVersion]);
+
+  const canEditPaymentRow = useCallback(
+    (propertyId: string | undefined) =>
+      !userId || !propertyId ? true : hasLinkedPropertyModuleLevel(userId, propertyId, "payments", "edit"),
+    [userId, propertyTick, applicationTick, ledgerDataVersion],
+  );
+
+  const canDeletePaymentRow = useCallback(
+    (propertyId: string | undefined) =>
+      !userId || !propertyId ? true : hasLinkedPropertyModuleLevel(userId, propertyId, "payments", "delete"),
+    [userId, propertyTick, applicationTick, ledgerDataVersion],
+  );
+
   const mergedRows = useMemo(() => {
     void ledgerDataVersion;
     const applications = readManagerApplicationRows();
@@ -801,9 +829,11 @@ export function ManagerPayments({
         paymentId={paymentId}
         listBasePath={basePath}
         direction={direction}
-        onAddPayment={() => setAddOpen(true)}
+        onAddPayment={canCreatePayment ? () => setAddOpen(true) : undefined}
         groupMode={groupMode}
         linkedPropertyIds={linkedPaymentPropertyIds}
+        canEditRow={canEditPaymentRow}
+        canDeleteRow={canDeletePaymentRow}
       />
     ) : (
       <ManagerOutgoingPaymentsPanel

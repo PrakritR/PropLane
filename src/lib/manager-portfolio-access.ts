@@ -95,8 +95,20 @@ function modulePermsAllow(
   return coManagerModuleAllowed(perms, propertyId, module);
 }
 
-/** Linked property ids where this user may use `module` (client-side view of accepted links). */
-export function collectLinkedPropertyIdsForModule(userId: string, module: CoManagerPermissionId): Set<string> {
+/**
+ * Linked property ids where this user may use `module` (client-side view of
+ * accepted links).
+ *
+ * `level` defaults to `read`, which is the set a LIST may show. Anything that
+ * offers a control — Add, Edit, Delete — must ask for the level it is about to
+ * use, or the co-manager gets a live button the server will refuse. Pair it with
+ * {@link hasLinkedPropertyModuleLevel} for a single row.
+ */
+export function collectLinkedPropertyIdsForModule(
+  userId: string,
+  module: CoManagerPermissionId,
+  level: CoManagerPermissionLevel = "read",
+): Set<string> {
   const owned = ownedPropertyIdsForUser(userId);
   const out = new Set<string>();
   const invites = readCachedAccountLinkInvites().filter(
@@ -107,7 +119,7 @@ export function collectLinkedPropertyIdsForModule(userId: string, module: CoMana
       for (const id of inv.assignedPropertyIds) {
         const pid = id.trim();
         if (!pid || owned.has(pid)) continue;
-        if (modulePermsAllow(inv.propertyCoManagerPermissions, pid, module)) out.add(pid);
+        if (modulePermsAllowLevel(inv.propertyCoManagerPermissions, pid, module, level)) out.add(pid);
       }
     }
     return out;
@@ -117,7 +129,7 @@ export function collectLinkedPropertyIdsForModule(userId: string, module: CoMana
     for (const id of rel.assignedPropertyIds) {
       const pid = id.trim();
       if (!pid || owned.has(pid)) continue;
-      if (modulePermsAllow(rel.propertyCoManagerPermissions, pid, module)) out.add(pid);
+      if (modulePermsAllowLevel(rel.propertyCoManagerPermissions, pid, module, level)) out.add(pid);
     }
   }
   return out;

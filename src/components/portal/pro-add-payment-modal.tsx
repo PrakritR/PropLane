@@ -78,7 +78,10 @@ function buildManagerPropertyOptions(managerUserId: string | null): PropertyPaym
   // and the picker reads "No properties in portfolio" for a co-manager who can
   // plainly see the same homes on the Properties tab (AXI-156). Same third loop
   // `manager-add-lease-modal` already had.
-  for (const propertyId of collectLinkedPropertyIdsForModule(managerUserId, "payments")) {
+  // EDIT level, not read: this picker is the create surface, and a co-manager who
+  // may only VIEW an owner's payments must not be offered the owner's property to
+  // bill against.
+  for (const propertyId of collectLinkedPropertyIdsForModule(managerUserId, "payments", "edit")) {
     if (!propertyId || seen.has(propertyId)) continue;
     const propertyLabel = displayPropertyLabel(resolvePropertyLabelForId(propertyId));
     if (!propertyLabel) continue;
