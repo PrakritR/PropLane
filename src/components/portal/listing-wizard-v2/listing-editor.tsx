@@ -34,11 +34,15 @@ import {
   LISTING_STORIES_OPTIONS,
   LISTING_TOTAL_BATH_OPTIONS,
   ROOM_AMENITY_PRESETS,
+  SHARED_SPACE_KIND_OPTIONS,
   floorLevelSelectOptions,
+  sharedSpaceAmenityPresetsForKind,
   listingAmenityLinesFromValue,
 } from "@/data/manager-listing-presets";
 import {
   PAYMENT_AT_SIGNING_OPTIONS,
+  emptyCustomFeeRow,
+  emptyQuickFactRow,
   formatLeaseTermsBodyFromAllowed,
   resolveAllowedLeaseTerms,
   syncAirbnbLeaseTermInAllowed,
@@ -46,7 +50,9 @@ import {
   type ManagerListingSubmissionV1,
   type ManagerBathroomRoomAccessKind,
   type ManagerBathroomSubmission,
+  type ManagerCustomFeeRow,
   type ManagerRoomSubmission,
+  type ManagerSharedSpaceSubmission,
   type PaymentAtSigningOptionId,
 } from "@/lib/manager-listing-submission";
 import {
@@ -238,6 +244,63 @@ function PhotoStrip({
       <p className="mt-1.5 text-[12px] text-muted">
         {urls.length} of {max} added.
       </p>
+    </div>
+  );
+}
+
+/**
+ * One short video for a room, bathroom, shared space or the house.
+ *
+ * Separate from {@link PhotoStrip} because the model holds exactly one video per
+ * entity, not a list — offering a gallery here would imply a second clip could
+ * be added and then silently drop it.
+ */
+function VideoSlot({
+  url,
+  onChange,
+  label,
+}: {
+  url: string | null | undefined;
+  onChange: (next: string | null) => void;
+  label: string;
+}) {
+  const read = (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => onChange(String(reader.result ?? "") || null);
+    reader.readAsDataURL(file);
+  };
+  return (
+    <div>
+      {url ? (
+        <div className="flex items-center gap-3">
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <video src={url} className="h-16 w-24 rounded-lg border border-border object-cover" />
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-bold text-red-700"
+          >
+            Remove video
+          </button>
+        </div>
+      ) : (
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-dashed border-border bg-accent/20 px-4 py-2 text-[12.5px] font-bold text-primary">
+          Add video
+          <input
+            type="file"
+            accept="video/*"
+            className="sr-only"
+            aria-label={`Add ${label} video`}
+            onChange={(e) => {
+              read(e.target.files);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      )}
+      <p className="mt-1.5 text-[12px] text-muted">One short clip, around 14 MB.</p>
     </div>
   );
 }
@@ -643,7 +706,49 @@ function RoomDetail({
           </Field>
         </FieldRow>
 
+        <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Flexible pricing</p>
+        <FieldRow cols={3}>
+          <Field label="Pricing" hint="Flexible advertises a range instead of one figure.">
+            <Select
+              value={room.pricingMode ?? "fixed"}
+              onChange={(e) => set({ pricingMode: e.target.value as ManagerRoomSubmission["pricingMode"] })}
+            >
+              <option value="fixed">Fixed</option>
+              <option value="flexible">Flexible</option>
+            </Select>
+          </Field>
+          <Field label="Advertised min" optional>
+            <Input
+              value={room.flexibleRentMin ? String(room.flexibleRentMin) : ""}
+              inputMode="numeric"
+              onChange={(e) => set({ flexibleRentMin: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
+            />
+          </Field>
+          <Field label="Advertised max" optional>
+            <Input
+              value={room.flexibleRentMax ? String(room.flexibleRentMax) : ""}
+              inputMode="numeric"
+              onChange={(e) => set({ flexibleRentMax: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
+            />
+          </Field>
+        </FieldRow>
+        <Field label="A short lease is up to" optional hint="Months. The surcharge above applies below this length.">
+          <Input
+            value={room.shortLeaseMaxMonths ? String(room.shortLeaseMaxMonths) : ""}
+            inputMode="numeric"
+            placeholder="5"
+            onChange={(e) => set({ shortLeaseMaxMonths: Number(e.target.value.replace(/[^0-9]/g, "")) || undefined })}
+          />
+        </Field>
+
         <div className="mt-5">
+          <Field label="Furnishing" optional hint="What this room comes with.">
+            <Input
+              value={room.furnishing ?? ""}
+              placeholder={defaults.furnishing || "Furnished — bed, desk, chair"}
+              onChange={(e) => set({ furnishing: e.target.value })}
+            />
+          </Field>
           <Field label="Room amenities">
             <AmenityChips
               presets={ROOM_AMENITY_PRESETS}
@@ -671,6 +776,9 @@ function RoomDetail({
               urls={room.photoDataUrls ?? []}
               onChange={(next) => set({ photoDataUrls: next })}
             />
+          </Field>
+          <Field label="Video of this room" optional>
+            <VideoSlot label="room" url={room.videoDataUrl} onChange={(next) => set({ videoDataUrl: next })} />
           </Field>
           <Field label="Move-in instructions for this room" optional>
             <Textarea
@@ -1171,6 +1279,9 @@ function BathroomDetail({
           onChange={(next) => set({ photoDataUrls: next })}
         />
       </Field>
+      <Field label="Video of this bathroom" optional>
+        <VideoSlot label="bathroom" url={bath.videoDataUrl} onChange={(next) => set({ videoDataUrl: next })} />
+      </Field>
       <button
         type="button"
         onClick={onBack}
@@ -1305,12 +1416,90 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
   );
 }
 
+function SharedSpaceDetail({
+  space,
+  index,
+  onChange,
+  onBack,
+}: {
+  space: ManagerSharedSpaceSubmission;
+  index: number;
+  onChange: (next: ManagerSharedSpaceSubmission) => void;
+  onBack: () => void;
+}) {
+  const set = (patch: Partial<ManagerSharedSpaceSubmission>) => onChange({ ...space, ...patch });
+  return (
+    <StepColumn>
+      <p className="mb-2 text-[12px] font-bold text-muted">Shared space</p>
+      <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">
+        {space.name.trim() || `Shared space ${index + 1}`}
+      </h2>
+      <p className="mb-5 mt-1.5 text-[13.5px] leading-relaxed text-muted">
+        What is in it, and how it looks.
+      </p>
+      <Field label="Name" optional>
+        <Input value={space.name} placeholder="Kitchen" onChange={(e) => set({ name: e.target.value })} />
+      </Field>
+      <Field label="Type" optional hint="Decides which amenities are offered below.">
+        <Select
+          value={space.spaceKind ?? ""}
+          onChange={(e) => set({ spaceKind: e.target.value as ManagerSharedSpaceSubmission["spaceKind"] })}
+        >
+          <option value="">Select…</option>
+          {SHARED_SPACE_KIND_OPTIONS.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="What is in it" optional>
+        <AmenityChips
+          presets={sharedSpaceAmenityPresetsForKind(space.spaceKind)}
+          value={space.amenitiesText ?? ""}
+          onChange={(next) => set({ amenitiesText: next })}
+        />
+      </Field>
+      <Field label="Photos" optional>
+        <PhotoStrip
+          label="shared space"
+          urls={space.photoDataUrls ?? []}
+          onChange={(next) => set({ photoDataUrls: next })}
+        />
+      </Field>
+      <Field label="Video" optional>
+        <VideoSlot label="shared space" url={space.videoDataUrl} onChange={(next) => set({ videoDataUrl: next })} />
+      </Field>
+      <button
+        type="button"
+        onClick={onBack}
+        className="mt-5 min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground"
+      >
+        Back to shared spaces
+      </button>
+    </StepColumn>
+  );
+}
+
 function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  const [openSpaceId, setOpenSpaceId] = useState<string | null>(null);
   const spaces = sub.sharedSpaces ?? [];
+  const openSpace = spaces.find((sp) => sp.id === openSpaceId) ?? null;
+  if (openSpace) {
+    return (
+      <SharedSpaceDetail
+        space={openSpace}
+        index={spaces.indexOf(openSpace)}
+        onBack={() => setOpenSpaceId(null)}
+        onChange={(next) => patch({ sharedSpaces: spaces.map((sp) => (sp.id === next.id ? next : sp)) })}
+      />
+    );
+  }
   const floors = floorLevelSelectOptions(sub.listingStoriesId, "").map((l) => ({ value: l, label: l }));
   const cols = [
     { key: "name", label: "Shared space" },
     { key: "floor", label: "Floor" },
+    { key: "details", label: "" },
   ];
   return (
     <StepColumn wide>
@@ -1346,6 +1535,14 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
                 patch({ sharedSpaces: spaces.map((sp) => (sp.id === space.id ? { ...sp, location: v } : sp)) })
               }
             />
+            <button
+              type="button"
+              onClick={() => setOpenSpaceId(space.id)}
+              data-attr="listing-v2-space-details"
+              className="justify-self-start rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-bold text-primary hover:bg-accent/40"
+            >
+              Details
+            </button>
           </Row>
         ))}
       </RowList>
@@ -1568,6 +1765,73 @@ function StepMoney({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pat
             />
           </Field>
         </FieldRow>
+        <div className="mb-4">
+          <p className="mb-1 text-[12.5px] font-bold text-foreground">Your own charges</p>
+          <p className="mb-3 text-[12px] leading-relaxed text-muted">
+            Anything not already listed — a pet fee, a parking spot, a cleaning charge.
+          </p>
+          {(sub.customFees ?? []).map((fee, i) => (
+            <div key={fee.id} className="mb-2 grid gap-2 sm:grid-cols-[1.4fr_1fr_1fr_auto]">
+              <Input
+                value={fee.label}
+                placeholder="Pet fee"
+                aria-label={`Name of charge ${i + 1}`}
+                onChange={(e) =>
+                  patch({
+                    customFees: (sub.customFees ?? []).map((f) =>
+                      f.id === fee.id ? { ...f, label: e.target.value } : f,
+                    ),
+                  })
+                }
+              />
+              <Input
+                value={money(fee.amount)}
+                placeholder="50"
+                aria-label={`Amount of charge ${i + 1}`}
+                onChange={(e) =>
+                  patch({
+                    customFees: (sub.customFees ?? []).map((f) =>
+                      f.id === fee.id ? { ...f, amount: e.target.value } : f,
+                    ),
+                  })
+                }
+              />
+              <Select
+                value={fee.frequency ?? "monthly"}
+                aria-label={`How often charge ${i + 1} is billed`}
+                onChange={(e) =>
+                  patch({
+                    customFees: (sub.customFees ?? []).map((f) =>
+                      f.id === fee.id
+                        ? { ...f, frequency: e.target.value as ManagerCustomFeeRow["frequency"] }
+                        : f,
+                    ),
+                  })
+                }
+              >
+                <option value="monthly">Every month</option>
+                <option value="one-time">Once</option>
+              </Select>
+              <button
+                type="button"
+                aria-label={`Remove charge ${i + 1}`}
+                onClick={() => patch({ customFees: (sub.customFees ?? []).filter((f) => f.id !== fee.id) })}
+                className="grid h-11 w-11 place-items-center rounded-lg text-muted hover:bg-accent/50"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            data-attr="listing-v2-add-fee"
+            onClick={() => patch({ customFees: [...(sub.customFees ?? []), emptyCustomFeeRow()] })}
+            className="rounded-full border border-dashed border-border px-4 py-2 text-[12.5px] font-bold text-primary"
+          >
+            + Add a charge
+          </button>
+        </div>
+
         <Field label="Processing fee paid by" hint="Who covers the card or bank fee on a rent payment.">
           <Select
             value={sub.serviceFeePayer ?? "resident"}
@@ -1615,6 +1879,17 @@ function StepMarketing({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
         title="How it looks and reads"
         subtitle="Listings with a photo of every room get far more enquiries."
       />
+      <Field label="Photos of the whole house" optional hint="Up to 12. Rooms and bathrooms have their own.">
+        <PhotoStrip
+          label="house"
+          max={12}
+          urls={sub.housePhotoDataUrls ?? []}
+          onChange={(next) => patch({ housePhotoDataUrls: next })}
+        />
+      </Field>
+      <Field label="Video of the whole house" optional>
+        <VideoSlot label="house" url={sub.houseVideoDataUrl} onChange={(next) => patch({ houseVideoDataUrl: next })} />
+      </Field>
       <Field label="Tagline" optional hint="One line at the top of the listing.">
         <Input
           value={sub.tagline}
@@ -1636,6 +1911,59 @@ function StepMarketing({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
           value={sub.amenitiesText}
           onChange={(next) => patch({ amenitiesText: next })}
         />
+      </Field>
+
+      <Field
+        label="Quick facts"
+        optional
+        hint="Rows you add replace the auto-generated At a glance card on the listing."
+      >
+        <div>
+          {(sub.quickFacts ?? []).map((qf, i) => (
+            <div key={qf.id} className="mb-2 grid gap-2 sm:grid-cols-[1fr_1.4fr_auto]">
+              <Input
+                value={qf.label}
+                placeholder="Neighborhood"
+                aria-label={`Quick fact ${i + 1} label`}
+                onChange={(e) =>
+                  patch({
+                    quickFacts: (sub.quickFacts ?? []).map((q) =>
+                      q.id === qf.id ? { ...q, label: e.target.value } : q,
+                    ),
+                  })
+                }
+              />
+              <Input
+                value={qf.value}
+                placeholder="U District, 5 min to campus"
+                aria-label={`Quick fact ${i + 1} value`}
+                onChange={(e) =>
+                  patch({
+                    quickFacts: (sub.quickFacts ?? []).map((q) =>
+                      q.id === qf.id ? { ...q, value: e.target.value } : q,
+                    ),
+                  })
+                }
+              />
+              <button
+                type="button"
+                aria-label={`Remove quick fact ${i + 1}`}
+                onClick={() => patch({ quickFacts: (sub.quickFacts ?? []).filter((q) => q.id !== qf.id) })}
+                className="grid h-11 w-11 place-items-center rounded-lg text-muted hover:bg-accent/50"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            data-attr="listing-v2-add-quickfact"
+            onClick={() => patch({ quickFacts: [...(sub.quickFacts ?? []), emptyQuickFactRow()] })}
+            className="rounded-full border border-dashed border-border px-4 py-2 text-[12.5px] font-bold text-primary"
+          >
+            + Add a quick fact
+          </button>
+        </div>
       </Field>
 
       <MoreOptions
