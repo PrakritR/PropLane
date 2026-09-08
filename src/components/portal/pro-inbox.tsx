@@ -9,7 +9,7 @@ import {
   PortalContactDetailsModal,
   type PortalContactDetailsValues,
 } from "@/components/portal/portal-contact-details-modal";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell, ManagerPortalStatusPills, ManagerPortalFilterRow, PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
@@ -248,6 +248,7 @@ export const ManagerInbox = forwardRef<
   ref,
 ) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const navigate = usePortalNavigate();
   const portalBase = usePaidPortalBasePath();
   const inboxBase = embeddedInCommunication && commBase ? `${commBase}/inbox` : `${portalBase}/inbox`;
@@ -599,13 +600,13 @@ export const ManagerInbox = forwardRef<
     })();
   };
 
-  const deleteAllTrash = useCallback(() => {
+  const deleteAllTrash = useCallback(async () => {
     const trashItems = local.filter((t) => t.folder === "trash");
     if (trashItems.length === 0) {
       showToast("Trash is already empty.");
       return;
     }
-    if (!window.confirm(`Delete all ${trashItems.length} trash message${trashItems.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    if (!(await confirm({ description: `Delete all ${trashItems.length} trash message${trashItems.length === 1 ? "" : "s"}? This cannot be undone.` }))) return;
     void (async () => {
       invalidatePersistedInboxCache(MANAGER_INBOX_STORAGE_KEY);
       const ids = trashItems.map((item) => item.id).filter(Boolean);
@@ -1786,8 +1787,8 @@ export const ManagerInbox = forwardRef<
     threadSelection.clearSelection();
   };
 
-  const bulkDeleteForever = () => {
-    if (!window.confirm(`Delete ${threadSelection.selectedIds.size} message(s) permanently?`)) return;
+  const bulkDeleteForever = async () => {
+    if (!(await confirm({ description: `Delete ${threadSelection.selectedIds.size} message(s) permanently?` }))) return;
     for (const id of threadSelection.selectedIds) deleteForever(id);
     threadSelection.clearSelection();
   };

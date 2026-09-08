@@ -207,6 +207,7 @@ import {
 import { LEASE_TERM_CHOICES } from "@/lib/rental-application/lease-terms";
 import { AIRBNB_LEASE_TERM, CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { usePortalContainer } from "@/components/ui/portal-container-context";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 
 const selectInputCls =
   "min-h-[44px] w-full rounded-xl border border-white/20 bg-[#1c2433] px-3.5 py-2.5 text-[14px] text-foreground outline-none transition focus:border-primary/50 focus:bg-[#232c3d] focus:ring-2 focus:ring-primary/20 [html[data-theme=light]_&]:border-border [html[data-theme=light]_&]:bg-auth-input-bg [html[data-theme=light]_&]:focus:bg-card";
@@ -1444,6 +1445,7 @@ export function ManagerAddListingForm({
   /** Called after progress is auto-saved as a draft, so the list surface can refresh. */
   onSaved?: () => void;
 }) {
+  const confirm = useConfirm();
   const [sub, setSub] = useState<ManagerListingSubmissionV1>(() => {
     const base = initialSubmission
       ? normalizeManagerListingSubmissionV1(initialSubmission)
@@ -3299,9 +3301,13 @@ export function ManagerAddListingForm({
     const mediaReadiness = summarizePropertyMediaReadiness(submission.rooms);
     if (!isPreviewWizard && shouldWarnOnPublish(mediaReadiness)) {
       const pct = Math.round(mediaReadiness.percentReady * 100);
-      const proceed = window.confirm(
-        `Only ${mediaReadiness.readyCount} of ${mediaReadiness.listedCount} listed rooms have photos or video (${pct}%). Applicants may see rooms without media. Submit anyway?`,
-      );
+      const proceed = await confirm({
+        title: "Submit without photos?",
+        description: `Only ${mediaReadiness.readyCount} of ${mediaReadiness.listedCount} listed rooms have photos or video (${pct}%).`,
+        note: "Applicants may see rooms without media.",
+        confirmLabel: "Submit anyway",
+        tone: "primary",
+      });
       if (!proceed) return;
     }
 

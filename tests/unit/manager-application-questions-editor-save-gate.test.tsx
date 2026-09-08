@@ -4,7 +4,7 @@
 // local until an explicit Save; Cancel discards them; closing with pending changes prompts.
 // These tests drive the real modal and assert the persist path is only ever hit on Save.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerApplicationQuestionsEditorModal } from "@/components/portal/pro-application-questions-editor-modal";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
@@ -60,7 +60,7 @@ afterEach(() => {
 });
 
 describe("property application template editor — delete footer", () => {
-  it("shows Delete on the left in edit mode when canDelete is true", () => {
+  it("shows Delete on the left in edit mode when canDelete is true", async () => {
     const onDelete = vi.fn();
     render(
       <ManagerApplicationQuestionsEditorModal
@@ -111,7 +111,9 @@ describe("property application template editor — delete footer", () => {
 
     vi.spyOn(window, "confirm").mockReturnValue(true);
     fireEvent.click(deleteBtn!);
-    expect(onDelete).toHaveBeenCalledTimes(1);
+    // The confirm is a promise now (the in-theme dialog), so the handler
+    // resolves on a later tick than the click.
+    await waitFor(() => expect(onDelete).toHaveBeenCalledTimes(1));
   });
 });
 
@@ -130,7 +132,7 @@ describe("bulk application editor — save gate (round 31)", () => {
     );
   });
 
-  it("persists exactly once, across all properties, only when Save is confirmed", () => {
+  it("persists exactly once, across all properties, only when Save is confirmed", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const { onSaved, onClose } = renderEditor();
 
@@ -140,12 +142,12 @@ describe("bulk application editor — save gate (round 31)", () => {
     fireEvent.click(document.querySelector('[data-attr="application-questions-save"]') as HTMLElement);
 
     expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("4 properties"));
-    expect(persistBulk).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(persistBulk).toHaveBeenCalledTimes(1));
     expect(onSaved).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("Cancel with pending changes prompts, discards, and never persists", () => {
+  it("Cancel with pending changes prompts, discards, and never persists", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const { onSaved, onClose } = renderEditor();
 
@@ -160,7 +162,7 @@ describe("bulk application editor — save gate (round 31)", () => {
     expect(persistBulk).not.toHaveBeenCalled();
     expect(onSaved).not.toHaveBeenCalled();
     // Radix/Vaul Close + the button onClick both route through requestClose.
-    expect(onClose).toHaveBeenCalled();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
   });
 
   it("closing Add question only dismisses the child modal, not the application editor", () => {

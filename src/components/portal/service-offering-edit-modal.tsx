@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 import {
   createManagerListingServiceOption,
   type ManagerListingServiceOption,
@@ -145,10 +146,12 @@ export function ServiceOfferingEditModal({
     onSaved();
   };
 
-  const remove = () => {
+  const confirm = useConfirm();
+
+  const remove = async () => {
     if (isNew || !offering) return;
     const label = entityLabel.charAt(0).toUpperCase() + entityLabel.slice(1);
-    if (!window.confirm(`Delete this ${entityLabel}? This cannot be undone.`)) return;
+    if (!(await confirm({ description: `Delete this ${entityLabel}?` }))) return;
     const nextOffers = (sub.serviceRequestOptions ?? []).filter((o) => o.id !== offering.id);
     const next: ManagerListingSubmissionV1 = { ...sub, serviceRequestOptions: nextOffers };
     if (!persistManagerListingSubmission(saveTarget, managerUserId, next)) {

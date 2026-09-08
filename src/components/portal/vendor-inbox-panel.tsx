@@ -17,7 +17,7 @@ import { PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
 import { buildInboxThreadAssistantContext, InboxThreadAssistantStrip } from "@/components/portal/inbox-thread-assistant-strip";
 import { INBOX_MAX_ATTACHMENTS, attachmentMetaFromUrls, createPendingInboxAttachment, uploadInboxAttachment, type InboxComposerAttachment } from "@/lib/inbox-attachments";
 import { markThreadMessageDelivery } from "@/lib/inbox-message-timeline";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import {
@@ -123,6 +123,7 @@ export const VendorInboxPanel = forwardRef<
   ref,
 ) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const navigate = usePortalNavigate();
   const [local, setLocal] = useState<InboxThread[]>(
     () => loadPersistedInbox(VENDOR_INBOX_STORAGE_KEY, VENDOR_INBOX_FALLBACK) as InboxThread[],
@@ -425,13 +426,13 @@ export const VendorInboxPanel = forwardRef<
     [local, showToast],
   );
 
-  const emptyArchive = useCallback(() => {
+  const emptyArchive = useCallback(async () => {
     const trashItems = local.filter((t) => t.folder === "trash");
     if (trashItems.length === 0) {
       showToast("Archive is already empty.");
       return;
     }
-    if (!window.confirm(`Delete all ${trashItems.length} trash message${trashItems.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    if (!(await confirm({ description: `Delete all ${trashItems.length} trash message${trashItems.length === 1 ? "" : "s"}? This cannot be undone.` }))) return;
     void (async () => {
       invalidatePersistedInboxCache(VENDOR_INBOX_STORAGE_KEY);
       const ids = trashItems.map((t) => t.id).filter(Boolean);
@@ -749,8 +750,8 @@ export const VendorInboxPanel = forwardRef<
     threadSelection.clearSelection();
   };
 
-  const bulkDeleteForever = () => {
-    if (!window.confirm(`Delete ${threadSelection.selectedIds.size} message(s) permanently?`)) return;
+  const bulkDeleteForever = async () => {
+    if (!(await confirm({ description: `Delete ${threadSelection.selectedIds.size} message(s) permanently?` }))) return;
     for (const id of threadSelection.selectedIds) deleteForever(id);
     threadSelection.clearSelection();
   };

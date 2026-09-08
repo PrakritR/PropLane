@@ -1,0 +1,12 @@
+import { createClient } from "@supabase/supabase-js";
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL, key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+if (!/emstjswhotsnyksqhqyf/.test(url)) throw new Error("dev/test only — refusing");
+const db = createClient(url, key, { auth: { persistSession: false } });
+const axisId = process.env.E2E_RESIDENT_AXIS_ID?.trim() || "AXIS-TESTRSID";
+const residentEmail = process.env.E2E_RESIDENT_EMAIL || "resident@test.axis.local";
+const { data: holder } = await db.from("profiles").select("id,email,role,manager_id").eq("manager_id", axisId);
+console.log(`who holds manager_id=${axisId}:`);
+for (const h of holder ?? []) console.log(`   id=${h.id}  email=${h.email}  role=${h.role}`);
+const { data: canonical } = await db.from("profiles").select("id,email,role,manager_id").eq("email", residentEmail);
+console.log(`canonical resident row(s) for ${residentEmail}:`);
+for (const c of canonical ?? []) console.log(`   id=${c.id}  manager_id=${c.manager_id}  role=${c.role}`);

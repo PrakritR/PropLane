@@ -76,6 +76,7 @@ import { PromotionHouseNotesCard } from "@/components/portal/promotion-house-not
 import { addDefaultPromotionPreset, type PromotionPresetKind } from "@/lib/promotion-default-sync";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 
 function promotionEntryId(asset: PromotionAsset): string | null {
   if (asset.kind === "flyer") return asset.flyerEntry?.id ?? null;
@@ -497,9 +498,11 @@ export function ManagerPropertyPromotionPanel({
     if (!options?.quiet) showToast("Promotion deleted.");
   }
 
-  function handleDeleteAsset(asset: PromotionAsset) {
+  const confirm = useConfirm();
+
+  async function handleDeleteAsset(asset: PromotionAsset) {
     const title = asset.flyerEntry?.title ?? asset.textEntry?.title ?? asset.uploadEntry?.title ?? "Promotion";
-    if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    if (!(await confirm({ description: `Delete "${title}"?` }))) return;
     if (previewAssetId === asset.id) closePreview();
     if (textModalAssetId === asset.id) closeForm();
     if (editingEntryId && promotionEntryId(asset) === editingEntryId) closeForm();
