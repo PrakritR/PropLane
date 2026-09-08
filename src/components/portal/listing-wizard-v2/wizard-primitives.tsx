@@ -326,6 +326,91 @@ export function MoreOptions({
   );
 }
 
+/**
+ * One Advanced panel holding named groups, used at both house and room level.
+ *
+ * Two "More options" cards asking a manager to guess which one held the late
+ * fee was the thing being fixed. There is one panel now, and inside it the
+ * groups are named for what a manager is looking for — Lease terms, Payments,
+ * Media, Move-in — so finding a field is reading a list rather than opening
+ * boxes.
+ */
+export function AdvancedPanel({
+  summary,
+  open,
+  onToggle,
+  children,
+  dataAttr,
+}: {
+  summary: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+  dataAttr?: string;
+}) {
+  return (
+    <div className="mt-5 overflow-hidden rounded-2xl border border-border bg-accent/15">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        data-attr={dataAttr}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition hover:bg-accent/30"
+      >
+        <span className="min-w-0">
+          <span className="block text-[14px] font-bold text-foreground">Advanced</span>
+          <span className="mt-0.5 block truncate text-[12.5px] text-muted">{summary}</span>
+        </span>
+        <span className="shrink-0 text-[13px] font-bold text-primary" aria-hidden>
+          {open ? "▴" : "▾"}
+        </span>
+      </button>
+      {open ? <div className="border-t border-border bg-card">{children}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * A named group inside {@link AdvancedPanel}. Closed until asked for, so the
+ * panel opens onto a readable list of names rather than a wall of fields.
+ */
+export function AdvancedGroup({
+  title,
+  description,
+  open,
+  onToggle,
+  children,
+  dataAttr,
+}: {
+  title: string;
+  description: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+  dataAttr?: string;
+}) {
+  return (
+    <div className="border-b border-border/60 last:border-b-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        data-attr={dataAttr}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-accent/20"
+      >
+        <span className="min-w-0">
+          <span className="block text-[13.5px] font-bold text-foreground">{title}</span>
+          <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">{description}</span>
+        </span>
+        <span className="shrink-0 text-[12px] font-bold text-primary" aria-hidden>
+          {open ? "▴" : "▾"}
+        </span>
+      </button>
+      {open ? <div className="border-t border-border/60 bg-accent/10 px-4 pb-5 pt-4">{children}</div> : null}
+    </div>
+  );
+}
+
 /* ─────────────────────────── chips ─────────────────────────── */
 
 export function ChipToggle({
