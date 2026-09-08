@@ -44,6 +44,17 @@ export type ListingHouseDefaults = {
   prorateMethod: "auto" | "daily_rate" | "";
   /** Whether the advertised price invites an offer. Never changes the figure. */
   pricingMode: "fixed" | "flexible" | "";
+  /**
+   * A rate per lease type, so the defaults row can answer every question a room
+   * can. `rentBasis` and the daily PRICE are still never defaulted — those
+   * decide how rent is billed, which stays an explicit act on the room.
+   */
+  weeklyRentPrice: number;
+  shortTermRent: string;
+  shortTermDeposit: string;
+  shortTermMoveInFee: string;
+  dailyRentRate: number;
+  dailyUtilitiesRate: number;
 };
 
 export type ListingHouseDefaultField = keyof ListingHouseDefaults;
@@ -64,6 +75,12 @@ export const LISTING_HOUSE_DEFAULT_FIELDS: readonly ListingHouseDefaultField[] =
   "sizeSqft",
   "prorateMethod",
   "pricingMode",
+  "weeklyRentPrice",
+  "shortTermRent",
+  "shortTermDeposit",
+  "shortTermMoveInFee",
+  "dailyRentRate",
+  "dailyUtilitiesRate",
 ] as const;
 
 export function emptyListingHouseDefaults(): ListingHouseDefaults {
@@ -82,6 +99,12 @@ export function emptyListingHouseDefaults(): ListingHouseDefaults {
     sizeSqft: 0,
     prorateMethod: "",
     pricingMode: "",
+    weeklyRentPrice: 0,
+    shortTermRent: "",
+    shortTermDeposit: "",
+    shortTermMoveInFee: "",
+    dailyRentRate: 0,
+    dailyUtilitiesRate: 0,
   };
 }
 
@@ -119,6 +142,18 @@ export function roomDefaultFieldValue(
       return room.prorateMethod ?? "";
     case "pricingMode":
       return room.pricingMode ?? "";
+    case "weeklyRentPrice":
+      return room.weeklyRentPrice ?? 0;
+    case "shortTermRent":
+      return (room.shortTermRent ?? "").trim();
+    case "shortTermDeposit":
+      return (room.shortTermDeposit ?? "").trim();
+    case "shortTermMoveInFee":
+      return (room.shortTermMoveInFee ?? "").trim();
+    case "dailyRentRate":
+      return room.dailyRentRate ?? 0;
+    case "dailyUtilitiesRate":
+      return room.dailyUtilitiesRate ?? 0;
   }
 }
 
@@ -158,6 +193,18 @@ function writeRoomDefaultField(
       return defaults.prorateMethod ? { ...room, prorateMethod: defaults.prorateMethod } : room;
     case "pricingMode":
       return defaults.pricingMode ? { ...room, pricingMode: defaults.pricingMode } : room;
+    case "weeklyRentPrice":
+      return defaults.weeklyRentPrice > 0 ? { ...room, weeklyRentPrice: defaults.weeklyRentPrice } : room;
+    case "shortTermRent":
+      return { ...room, shortTermRent: defaults.shortTermRent };
+    case "shortTermDeposit":
+      return { ...room, shortTermDeposit: defaults.shortTermDeposit };
+    case "shortTermMoveInFee":
+      return { ...room, shortTermMoveInFee: defaults.shortTermMoveInFee };
+    case "dailyRentRate":
+      return defaults.dailyRentRate > 0 ? { ...room, dailyRentRate: defaults.dailyRentRate } : room;
+    case "dailyUtilitiesRate":
+      return defaults.dailyUtilitiesRate > 0 ? { ...room, dailyUtilitiesRate: defaults.dailyUtilitiesRate } : room;
   }
 }
 

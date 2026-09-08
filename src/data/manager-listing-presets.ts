@@ -283,6 +283,21 @@ export const BATHROOM_EXTRA_AMENITY_PRESETS = [
   { id: "tiled-shower", label: "Tiled shower" },
   { id: "shower-bench", label: "Shower bench" },
   { id: "double-shower-head", label: "Double shower head" },
+  { id: "steam-shower", label: "Steam shower" },
+  { id: "jetted-tub", label: "Jetted tub" },
+  { id: "separate-tub-shower", label: "Separate tub and shower" },
+  { id: "double-sink", label: "Double sink" },
+  { id: "full-length-mirror", label: "Full-length mirror" },
+  { id: "backlit-mirror", label: "Backlit / anti-fog mirror" },
+  { id: "hair-dryer", label: "Hair dryer" },
+  { id: "outlet-in-vanity", label: "Outlet at the vanity" },
+  { id: "shower-niche", label: "Shower niche / shelf" },
+  { id: "glass-door", label: "Glass shower door" },
+  { id: "shower-curtain", label: "Shower curtain rail" },
+  { id: "tiled-floor", label: "Tiled floor" },
+  { id: "skylight", label: "Skylight" },
+  { id: "wheelchair-accessible", label: "Step-free / wheelchair accessible" },
+  { id: "laundry-in-bath", label: "Washer / dryer in the bathroom" },
 ] as const;
 
 export const DISALLOWED_BATHROOM_AMENITY_LABELS = new Set([
