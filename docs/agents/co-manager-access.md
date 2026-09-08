@@ -34,6 +34,52 @@ via `teamInviteEligiblePropertyIds` in `manager-portfolio-access.ts`. Copy on
 an active link rotates the token through `POST /api/pro/invite-links/[linkId]/link`.
 Coverage: `tests/unit/co-manager-team-invite.test.ts`.
 
+**Payment setup answers to the OWNER, and a property has exactly one payee.**
+Deciding what a resident owes is the owner's call, so `payments` gates create as
+well as edit and delete — and the money always lands in the property owner's
+account no matter who filed the charge.
+
+- **Creating a charge used to be the one unguarded door.** Every check on
+  `POST /api/portal-household-charges` keys off an EXISTING row, so an id nobody
+  had seen before fell through to "it's mine": stamped with the CALLER as owner
+  and whatever property the body named, with no permission read in the path. A
+  co-manager with no `payments` grant could bill an owner's resident. A new
+  charge (and a new recurring rent profile, which mints future charges) now
+  resolves the owner of the property it NAMES, requires `payments` at **edit**
+  when that owner is not the caller, and stores `manager_user_id` = that owner.
+  Checking the grant on the same property whose owner is stamped is what makes
+  relabeling pointless.
+- **`resolvePropertyPayoutOwner`
+  (`src/lib/payments/property-payout-owner.server.ts`) is the ONE answer to
+  "whose bank account does this property's rent go to".** The charge writer and
+  `createHouseholdChargeCheckout` both read it, so the two cannot disagree.
+  Checkout used to take the destination Connect account from the charge row's own
+  `manager_user_id`, which meant a co-manager-created charge paid the
+  CO-MANAGER — a property had as many bank accounts as it had managers. The
+  property's owner now wins whenever the property names one, so rows written
+  before the create gate existed are paid correctly with no migration.
+- **A failed property read is never "no owner".** Both paths refuse (503) rather
+  than fall back to the caller, the same rule `resolveStripePayoutContext` uses.
+  Two residual gaps, both deliberate: a charge filed under NO property (a manual
+  one-off) has no owner to attribute to and stays with its author, and an
+  ownerless property row (`manager_user_id` is `on delete set null`) likewise
+  falls back to the row.
+- **The client must ask for the level it is about to use.**
+  `collectLinkedPropertyIdsForModule` takes a `level` (default `read`) — that
+  default is the set a LIST may show, never the set a control may act on. The
+  Add payment picker asks for `edit`; the Payments panel passes `canEditRow` /
+  `canDeleteRow` predicates built from `hasLinkedPropertyModuleLevel` into
+  `ManagerPaymentsLedgerPanel`, so a view-only co-manager keeps the list and
+  loses Add, Edit and Delete. Coverage:
+  `tests/integration/portal/co-manager-charge-create-permission.test.ts`,
+  `tests/unit/household-charge-payout-follows-property-owner.test.ts`.
+
+Linking the bank account itself was already owner-scoped: Stripe Connect
+onboarding refuses a co-manager without `bankAccount` at edit and always
+onboards the OWNER's account
+(`src/lib/auth/co-manager-bank-account-access.ts`,
+`manager-stripe-payout-access.server.ts`).
+
 **`coManagerModuleAllowed` is the ONE answer to "may this co-manager use this
 module".** The server scope (`src/lib/auth/co-manager-module-scope.ts`) and the
 client portfolio mirror (`src/lib/manager-portfolio-access.ts`) both delegate to
