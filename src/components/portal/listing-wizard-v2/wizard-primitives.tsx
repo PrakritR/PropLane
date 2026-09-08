@@ -527,22 +527,42 @@ export function RowSelectCell({
 }
 
 /** The floating bar shown while rows are selected. */
+/**
+ * The floating bar shown while rows are selected.
+ *
+ * No count label: the selection is already visible in the rows themselves, and
+ * the portal's own bulk bars are `hideCount` for exactly that reason. The bar
+ * carries actions only.
+ */
 export function RowBulkBar({ count, children }: { count: number; children: ReactNode }) {
   if (count === 0) return null;
   return (
-    <div className="mt-3 inline-flex flex-wrap items-center gap-2 rounded-full bg-foreground px-4 py-2 text-[12.5px] font-bold text-white">
-      <span>{count} selected</span>
+    <div className="mt-3 inline-flex flex-wrap items-center gap-2 rounded-full border border-border bg-card px-2 py-2 shadow-[0_10px_28px_-14px_rgba(11,27,58,0.4)]">
       {children}
     </div>
   );
 }
 
-export function BulkButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+export function BulkButton({
+  onClick,
+  children,
+  tone = "default",
+}: {
+  onClick: () => void;
+  children: ReactNode;
+  /** `danger` is text-only red, per the design system — never a filled red button. */
+  tone?: "default" | "primary" | "danger";
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="rounded-full bg-white/15 px-3 py-1.5 text-[12px] font-semibold text-white"
+      className={cn(
+        "rounded-full px-4 py-2 text-[12.5px] font-bold transition",
+        tone === "primary" && "bg-primary text-white hover:brightness-110",
+        tone === "default" && "border border-border bg-card text-foreground hover:bg-accent/50",
+        tone === "danger" && "text-red-700 hover:bg-red-50",
+      )}
     >
       {children}
     </button>

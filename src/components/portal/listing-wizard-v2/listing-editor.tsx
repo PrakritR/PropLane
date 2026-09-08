@@ -28,6 +28,7 @@ import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { buildListingModalAssistantContext } from "@/lib/listing-assistant-context";
 import { DoorOpen, Bath, LayoutGrid } from "lucide-react";
 import {
+  BATHROOM_EXTRA_AMENITY_PRESETS,
   HOUSE_WIDE_AMENITY_PRESETS,
   LISTING_PROPERTY_TYPE_OPTIONS,
   LISTING_STORIES_OPTIONS,
@@ -43,6 +44,8 @@ import {
   syncAirbnbLeaseTermInAllowed,
   syncShortTermLeaseTermInAllowed,
   type ManagerListingSubmissionV1,
+  type ManagerBathroomRoomAccessKind,
+  type ManagerBathroomSubmission,
   type ManagerRoomSubmission,
   type PaymentAtSigningOptionId,
 } from "@/lib/manager-listing-submission";
@@ -92,6 +95,13 @@ export const LISTING_V2_STEPS = [
 ] as const;
 
 const TOTAL_STEPS = LISTING_V2_STEPS.length;
+
+/** How a room reaches its bathroom. Mirrors ManagerBathroomRoomAccessKind. */
+const BATHROOM_ACCESS_OPTIONS = [
+  { value: "ensuite", label: "En-suite" },
+  { value: "shared", label: "Shared" },
+  { value: "hall", label: "Down the hall" },
+] as const;
 
 type Patch = (next: Partial<ManagerListingSubmissionV1>) => void;
 
@@ -144,6 +154,91 @@ function AmenityChips({
         </button>
       ) : null}
     </ChipRow>
+  );
+}
+
+/**
+ * Photos for a room, bathroom or shared space.
+ *
+ * Images are read as data URLs and held on the submission, which is what the
+ * existing wizard does; the publish path uploads them and swaps in permanent
+ * URLs. Keeping the same shape means a listing edited here uploads exactly as
+ * one edited in the previous wizard.
+ */
+function PhotoStrip({
+  urls,
+  onChange,
+  max = 8,
+  label,
+}: {
+  urls: string[];
+  onChange: (next: string[]) => void;
+  max?: number;
+  label: string;
+}) {
+  const readFiles = (files: FileList | null) => {
+    if (!files) return;
+    const room = Math.max(0, max - urls.length);
+    const picked = Array.from(files).slice(0, room);
+    if (picked.length === 0) return;
+    Promise.all(
+      picked.map(
+        (file) =>
+          new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result ?? ""));
+            reader.onerror = () => reject(reader.error);
+            reader.readAsDataURL(file);
+          }),
+      ),
+    )
+      .then((next) => onChange([...urls, ...next.filter(Boolean)]))
+      .catch(() => {
+        /* a file the browser could not read is simply not added */
+      });
+  };
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2">
+        {urls.map((url, i) => (
+          <span key={`${url.slice(0, 24)}-${i}`} className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={url}
+              alt={`${label} photo ${i + 1}`}
+              className="h-16 w-20 rounded-lg border border-border object-cover"
+            />
+            <button
+              type="button"
+              aria-label={`Remove ${label} photo ${i + 1}`}
+              onClick={() => onChange(urls.filter((_, j) => j !== i))}
+              className="absolute -right-1.5 -top-1.5 grid h-5 w-5 place-items-center rounded-full border border-border bg-card text-[11px] text-muted shadow-sm"
+            >
+              ✕
+            </button>
+          </span>
+        ))}
+        {urls.length < max ? (
+          <label className="grid h-16 w-20 cursor-pointer place-items-center rounded-lg border border-dashed border-border bg-accent/20 text-[18px] text-muted">
+            +
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="sr-only"
+              aria-label={`Add ${label} photos`}
+              onChange={(e) => {
+                readFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        ) : null}
+      </div>
+      <p className="mt-1.5 text-[12px] text-muted">
+        {urls.length} of {max} added.
+      </p>
+    </div>
   );
 }
 
@@ -388,7 +483,7 @@ function RoomDetail({
       </Field>
 
       <MoreOptions
-        label="More options — other rates, short stays, part-month rent, amenities, furniture, inspections"
+        label="More options — other rates, short stays, prorated rent, amenities, furniture, inspections"
         open={openMore}
         onToggle={() => setOpenMore((v) => !v)}
         dataAttr="listing-v2-room-more"
@@ -478,8 +573,31 @@ function RoomDetail({
             />
           </Field>
         </FieldRow>
+        <FieldRow cols={2}>
+          <Field label="How utilities are handled" hint="Decides whether the amount above is billed or only an estimate.">
+            <Select
+              value={room.utilitiesPaymentModel ?? ""}
+              onChange={(e) =>
+                set({ utilitiesPaymentModel: e.target.value as ManagerRoomSubmission["utilitiesPaymentModel"] })
+              }
+            >
+              <option value="">Select…</option>
+              {LONG_TERM_UTILITIES_PAYMENT_OPTIONS.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Short lease surcharge / month" optional hint="Added for leases under the length you set below.">
+            <Input
+              value={money(room.shortLeaseSurchargeMonthly)}
+              onChange={(e) => set({ shortLeaseSurchargeMonthly: e.target.value })}
+            />
+          </Field>
+        </FieldRow>
 
-        <p className="mb-1 mt-5 text-[12.5px] font-bold text-foreground">Part-month rent</p>
+        <p className="mb-1 mt-5 text-[12.5px] font-bold text-foreground">Prorated rent</p>
         <p className="mb-3 text-[12px] leading-relaxed text-muted">
           Used only to split a partial first or last month. This is not a headline price.
         </p>
@@ -493,14 +611,14 @@ function RoomDetail({
               <option value="daily_rate">Set a per-day rate</option>
             </Select>
           </Field>
-          <Field label="Part-month rent / day" optional>
+          <Field label="Prorated rent / day" optional>
             <Input
               value={room.dailyRentRate ? String(room.dailyRentRate) : ""}
               inputMode="numeric"
               onChange={(e) => set({ dailyRentRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
             />
           </Field>
-          <Field label="Part-month utilities / day" optional>
+          <Field label="Prorated utilities / day" optional>
             <Input
               value={room.dailyUtilitiesRate ? String(room.dailyUtilitiesRate) : ""}
               inputMode="numeric"
@@ -547,6 +665,13 @@ function RoomDetail({
               />
             </ChipRow>
           </Field>
+          <Field label="Photos of this room" optional>
+            <PhotoStrip
+              label="room"
+              urls={room.photoDataUrls ?? []}
+              onChange={(next) => set({ photoDataUrls: next })}
+            />
+          </Field>
           <Field label="Move-in instructions for this room" optional>
             <Textarea
               rows={3}
@@ -583,6 +708,7 @@ function StepRooms({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openRoomId, setOpenRoomId] = useState<string | null>(null);
   const [copyOpen, setCopyOpen] = useState(false);
+  const [openDefaults, setOpenDefaults] = useState(false);
   const [copyTargets, setCopyTargets] = useState<Set<string>>(new Set());
   const rooms = sub.rooms ?? [];
   const openRoom = rooms.find((r) => r.id === openRoomId) ?? null;
@@ -615,6 +741,7 @@ function StepRooms({
     { key: "name", label: "Room" },
     { key: "floor", label: "Floor" },
     { key: "bathroom", label: "Bathroom" },
+    { key: "access", label: "Access" },
     { key: "rent", label: "Rent" },
     { key: "beds", label: "Beds" },
     { key: "details", label: "" },
@@ -631,6 +758,24 @@ function StepRooms({
    */
   const bathroomForRoom = (roomId: string): string =>
     baths.find((b) => (b.assignedRoomIds ?? []).includes(roomId))?.id ?? "";
+  const accessForRoom = (roomId: string): string => {
+    const bath = baths.find((b) => (b.assignedRoomIds ?? []).includes(roomId));
+    return bath?.accessKindByRoomId?.[roomId] ?? "";
+  };
+  const setAccessForRoom = (roomId: string, kind: string) => {
+    // Only a value the model actually defines reaches storage; anything else
+    // clears the field rather than writing a string the readers do not know.
+    const next = BATHROOM_ACCESS_OPTIONS.some((o) => o.value === kind)
+      ? (kind as ManagerBathroomRoomAccessKind)
+      : undefined;
+    patch({
+      bathrooms: baths.map((b) =>
+        (b.assignedRoomIds ?? []).includes(roomId)
+          ? { ...b, accessKindByRoomId: { ...(b.accessKindByRoomId ?? {}), [roomId]: next } }
+          : b,
+      ),
+    });
+  };
   const assignBathroom = (roomId: string, bathId: string) => {
     patch({
       bathrooms: baths.map((b) => {
@@ -691,6 +836,58 @@ function StepRooms({
             </Select>
           </Field>
         </FieldRow>
+
+        <MoreOptions
+          label="Furnishing details, amenities, move-in fee, utilities and inspections for most rooms"
+          open={openDefaults}
+          onToggle={() => setOpenDefaults((v) => !v)}
+          dataAttr="listing-v2-more-defaults"
+        >
+          <FieldRow cols={2}>
+            <Field label="Move-in fee" optional>
+              <Input
+                value={defaults.moveInFee}
+                placeholder="0"
+                onChange={(e) => editDefault("moveInFee", e.target.value)}
+              />
+            </Field>
+            <Field label="Utilities / month" optional>
+              <Input
+                value={defaults.utilitiesEstimate}
+                placeholder="80"
+                onChange={(e) => editDefault("utilitiesEstimate", e.target.value)}
+              />
+            </Field>
+          </FieldRow>
+          <Field label="What the furnishing includes" optional hint="Shown on every room that follows the house.">
+            <Input
+              value={defaults.furnishing}
+              placeholder="Furnished — bed, desk, chair, dresser"
+              onChange={(e) => editDefault("furnishing", e.target.value)}
+            />
+          </Field>
+          <Field label="Amenities in most rooms" optional>
+            <AmenityChips
+              presets={ROOM_AMENITY_PRESETS}
+              value={defaults.roomAmenitiesText}
+              onChange={(next) => editDefault("roomAmenitiesText", next)}
+            />
+          </Field>
+          <Field group label="Inspections for most rooms">
+            <ChipRow>
+              <ChipToggle
+                label="Move-in inspection"
+                on={defaults.moveInInspectionRequired}
+                onToggle={() => editDefault("moveInInspectionRequired", !defaults.moveInInspectionRequired)}
+              />
+              <ChipToggle
+                label="Move-out inspection"
+                on={defaults.moveOutInspectionRequired}
+                onToggle={() => editDefault("moveOutInspectionRequired", !defaults.moveOutInspectionRequired)}
+              />
+            </ChipRow>
+          </Field>
+        </MoreOptions>
       </div>
 
       <RowList columns={columns}>
@@ -731,8 +928,15 @@ function StepRooms({
                 ariaLabel={`Bathroom for ${room.name || `room ${i + 1}`}`}
                 value={bathroomForRoom(room.id)}
                 options={bathOptions}
-                placeholder={bathOptions.length ? "Shared…" : "Add one first"}
+                placeholder={bathOptions.length ? "Pick one…" : "Add one first"}
                 onChange={(v) => assignBathroom(room.id, v)}
+              />
+              <RowSelectCell
+                ariaLabel={`Bathroom access for ${room.name || `room ${i + 1}`}`}
+                value={accessForRoom(room.id)}
+                options={BATHROOM_ACCESS_OPTIONS}
+                placeholder="Shared"
+                onChange={(v) => setAccessForRoom(room.id, v)}
               />
               <RowCell
                 ariaLabel={`Rent for ${room.name || `room ${i + 1}`}`}
@@ -783,7 +987,7 @@ function StepRooms({
       <div className="flex flex-wrap items-center gap-3">
         <RowBulkBar count={selected.size}>
           {selected.size === 1 ? (
-            <BulkButton onClick={() => setCopyOpen((v) => !v)}>Copy to another room</BulkButton>
+            <BulkButton tone="primary" onClick={() => setCopyOpen((v) => !v)}>Copy to another room</BulkButton>
           ) : null}
           {defaults.monthlyRent > 0 ? (
             <BulkButton
@@ -811,6 +1015,7 @@ function StepRooms({
             Duplicate
           </BulkButton>
           <BulkButton
+            tone="danger"
             onClick={() => {
               writeRooms(rooms.filter((r) => !selected.has(r.id)));
               setSelected(new Set());
@@ -915,14 +1120,89 @@ function StepRooms({
 
 /* ─────────────────────────── step 3 · spaces ─────────────────────────── */
 
+function BathroomDetail({
+  bath,
+  index,
+  onChange,
+  onBack,
+}: {
+  bath: ManagerBathroomSubmission;
+  index: number;
+  onChange: (next: ManagerBathroomSubmission) => void;
+  onBack: () => void;
+}) {
+  const set = (patch: Partial<ManagerBathroomSubmission>) => onChange({ ...bath, ...patch });
+  return (
+    <StepColumn>
+      <p className="mb-2 text-[12px] font-bold text-muted">Bathroom</p>
+      <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">
+        {bath.name.trim() || `Bathroom ${index + 1}`}
+      </h2>
+      <p className="mb-5 mt-1.5 text-[13.5px] leading-relaxed text-muted">
+        Fixtures, finishes and photos for this bathroom.
+      </p>
+      <Field label="Name" optional>
+        <Input
+          value={bath.name}
+          placeholder={`Bathroom ${index + 1}`}
+          onChange={(e) => set({ name: e.target.value })}
+        />
+      </Field>
+      <Field group label="Fixtures">
+        <ChipRow>
+          <ChipToggle label="Shower" on={bath.shower} onToggle={() => set({ shower: !bath.shower })} />
+          <ChipToggle label="Bathtub" on={bath.bathtub} onToggle={() => set({ bathtub: !bath.bathtub })} />
+          <ChipToggle label="Toilet" on={bath.toilet} onToggle={() => set({ toilet: !bath.toilet })} />
+          <ChipToggle label="Sink" on={bath.sink} onToggle={() => set({ sink: !bath.sink })} />
+          <ChipToggle label="Mirror" on={bath.mirror} onToggle={() => set({ mirror: !bath.mirror })} />
+        </ChipRow>
+      </Field>
+      <Field label="Finishes and extras" optional>
+        <AmenityChips
+          presets={BATHROOM_EXTRA_AMENITY_PRESETS}
+          value={bath.amenitiesText ?? ""}
+          onChange={(next) => set({ amenitiesText: next })}
+        />
+      </Field>
+      <Field label="Photos of this bathroom" optional>
+        <PhotoStrip
+          label="bathroom"
+          urls={bath.photoDataUrls ?? []}
+          onChange={(next) => set({ photoDataUrls: next })}
+        />
+      </Field>
+      <button
+        type="button"
+        onClick={onBack}
+        className="mt-5 min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground"
+      >
+        Back to bathrooms
+      </button>
+    </StepColumn>
+  );
+}
+
 function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [openBathId, setOpenBathId] = useState<string | null>(null);
   const baths = sub.bathrooms ?? [];
+  const openBath = baths.find((b) => b.id === openBathId) ?? null;
+  if (openBath) {
+    return (
+      <BathroomDetail
+        bath={openBath}
+        index={baths.indexOf(openBath)}
+        onBack={() => setOpenBathId(null)}
+        onChange={(next) => patch({ bathrooms: baths.map((b) => (b.id === next.id ? next : b)) })}
+      />
+    );
+  }
   const floors = floorLevelSelectOptions(sub.listingStoriesId, "").map((l) => ({ value: l, label: l }));
   const cols = [
     { key: "name", label: "Bathroom" },
     { key: "floor", label: "Floor" },
     { key: "type", label: "Type" },
+    { key: "details", label: "" },
   ];
   return (
     <StepColumn wide>
@@ -987,6 +1267,19 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
                 })
               }
             />
+            <button
+              type="button"
+              onClick={() => setOpenBathId(bath.id)}
+              data-attr="listing-v2-bath-details"
+              className="justify-self-start rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-bold text-primary hover:bg-accent/40"
+            >
+              Details
+              {(bath.photoDataUrls ?? []).length > 0 ? (
+                <span className="ml-1.5 text-[10px] font-extrabold uppercase tracking-wide text-emerald-700">
+                  {(bath.photoDataUrls ?? []).length} photo{(bath.photoDataUrls ?? []).length === 1 ? "" : "s"}
+                </span>
+              ) : null}
+            </button>
           </Row>
         ))}
       </RowList>
