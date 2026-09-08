@@ -1,3 +1,4 @@
+import { pendingAccountRecovery } from "@/lib/auth/account-recovery.server";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import { migratePortalUserId } from "@/lib/auth/migrate-portal-user-id";
 import { primaryRoleWhenAddingResident } from "@/lib/auth/profile-primary-role";
@@ -85,6 +86,7 @@ export async function provisionResidentAccountByEmail(
     inheritFromApplication?: boolean;
   },
 ): Promise<ProvisionResidentResult> {
+  if (await pendingAccountRecovery(supabase, opts.userId)) return { ok: false, status: 409, error: "Sign in to recover your saved account or start fresh before continuing setup." };
   const normalEmail = opts.email.trim().toLowerCase();
   if (!normalEmail.includes("@")) {
     return { ok: false, status: 400, error: "Enter a valid email address." };

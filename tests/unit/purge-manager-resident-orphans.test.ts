@@ -12,7 +12,7 @@ describe("isProtectedOccupancyImportEmail", () => {
 });
 
 describe("purgeManagerResidentOrphans", () => {
-  it("deletes charges, ledger, resident reminders, and scheduled inbox for non-current emails", async () => {
+  it("preserves manager financial history while cleaning resident reminders and scheduled inbox", async () => {
     const deletedCalls: { table: string; ids: string[] }[] = [];
     const rowsByTable: Record<string, unknown[]> = {
       manager_application_records: [
@@ -104,8 +104,11 @@ describe("purgeManagerResidentOrphans", () => {
 
     expect(result.activeEmails.sort()).toEqual(["keep@example.com", "pending@example.com"]);
     expect(result.deletedApplicationIds).toEqual(["app-gone"]);
-    expect(result.deleted.portal_household_charge_records).toBe(1);
-    expect(result.deleted.ledger_entries).toBe(1);
+    expect(result.deleted.portal_household_charge_records).toBeUndefined();
+    expect(result.deleted.ledger_entries).toBeUndefined();
+    for (const table of ["portal_household_charge_records", "portal_lease_pipeline_records", "manager_payment_plans", "ledger_entries", "security_deposit_ledger"]) {
+      expect(deletedCalls.some(call => call.table === table)).toBe(false);
+    }
     expect(result.deleted.portal_reminder_records).toBe(1);
     expect(result.deleted.portal_scheduled_inbox_message_records).toBe(1);
     expect(result.deleted.portal_inbox_thread_records).toBe(1);

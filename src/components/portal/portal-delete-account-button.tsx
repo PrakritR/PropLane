@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -21,16 +20,16 @@ function deleteCopyForPortal(portal: PortalKind): DeleteCopy {
     case "resident":
       return {
         title: "Delete resident account",
-        lead: "This permanently removes your resident portal access. This can't be undone.",
+        lead: "This removes your resident portal access now. You can recover your retained data for 30 days.",
         body:
-          "Deleting removes your resident profile, applications, lease paperwork, payments, messages, maintenance requests, and documents tied to this resident portal. Your property manager or vendor account on the same login is not affected.",
+          "Deleting removes your resident profile, applications, lease paperwork, payments, messages, maintenance requests, and documents tied to this resident portal. Financial history owned by your manager stays with them. Your other portal accounts remain available. Returning during the 30-day window lets you choose Recover or Start fresh; Start fresh permanently deletes the retained data. Without a choice, it is permanently deleted after 30 days.",
       };
     case "vendor":
       return {
         title: "Delete vendor account",
-        lead: "This permanently removes your vendor portal access. This can't be undone.",
+        lead: "This removes your vendor portal access now. You can recover your retained data for 30 days.",
         body:
-          "Deleting removes your vendor profile, bids, invoices, and work-order participation tied to this vendor portal. Your manager or resident account on the same login is not affected.",
+          "Deleting removes your vendor profile, bids, invoices, and work-order participation tied to this vendor portal. Financial history owned by the other business party stays with them. Your other portal accounts remain available. Return within 30 days to choose Recover or Start fresh. Otherwise, the retained data is permanently deleted.",
       };
     case "admin":
       return {
@@ -44,9 +43,9 @@ function deleteCopyForPortal(portal: PortalKind): DeleteCopy {
     default:
       return {
         title: "Delete property account",
-        lead: "This permanently removes your property manager portal access. This can't be undone.",
+        lead: "This removes your property manager portal access now. You can recover your retained data for 30 days.",
         body:
-          "Deleting removes your properties, listings, applications, leases, payments, messages, documents, and co-manager links tied to this property portal. Your resident or vendor account on the same login is not affected.",
+          "Deleting removes your properties, listings, applications, leases, payments, messages, documents, and co-manager links tied to this property portal. Residents and vendors keep their own logins and independently owned financial history. Your other portal accounts remain available. Return within 30 days to choose Recover or Start fresh. Otherwise, the retained data is permanently deleted.",
       };
   }
 }
@@ -65,7 +64,6 @@ export function PortalDeleteAccountButton({
   className?: string;
   portalKind: PortalKind;
 }) {
-  const router = useRouter();
   const { showToast } = useAppUi();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -114,8 +112,9 @@ export function PortalDeleteAccountButton({
       }
 
       const destination = body.redirectTo?.trim() || "/auth/sign-in?deleted=1";
-      router.push(destination);
-      router.refresh();
+      clearPortalBrowserCache();
+      // Drop module caches and old sync callbacks with the current document.
+      window.location.replace(destination);
     } catch {
       showToast("Couldn't delete your account. Please try again.");
       setBusy(false);
@@ -148,7 +147,7 @@ export function PortalDeleteAccountButton({
               onClick={() => deleteAccount()}
               data-attr="portal-delete-account-confirm"
             >
-              {busy ? "Deleting…" : "Yes, permanently delete"}
+              {busy ? "Deleting…" : portalKind === "admin" ? "Yes, permanently delete" : "Yes, delete account"}
             </Button>
             <Button type="button" variant="outline" disabled={busy} onClick={() => setOpen(false)}>
               Cancel

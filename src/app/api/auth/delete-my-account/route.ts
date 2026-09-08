@@ -1,3 +1,4 @@
+import { schedulePortalAccountDeletion } from "@/lib/auth/account-recovery.server";
 import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
 import {
@@ -42,7 +43,7 @@ export async function POST(req: Request) {
   }
   if (body.confirm !== "DELETE") {
     return NextResponse.json(
-      { error: 'Confirmation required. Send { "confirm": "DELETE" } to permanently delete your account.' },
+      { error: 'Confirmation required. Send { "confirm": "DELETE" } to delete your account.' },
       { status: 400 },
     );
   }
@@ -63,9 +64,11 @@ export async function POST(req: Request) {
 
   const svc = createSupabaseServiceRoleClient();
   try {
-    const result = await deleteOwnPortalAccount(svc, user.id, portal);
+    const result = portal === "admin"
+      ? await deleteOwnPortalAccount(svc, user.id, portal)
+      : await schedulePortalAccountDeletion(svc, user.id, portal);
 
-    track("portal_account_deleted", user.id, { portal });
+    track("portal_account_deleted", user.id, { portal, retention_days: portal === "admin" ? 0 : 30 });
 
     if (result.signedOut) {
       await supabase.auth.signOut().catch(() => undefined);

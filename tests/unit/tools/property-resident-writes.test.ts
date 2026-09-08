@@ -176,6 +176,7 @@ function makeWriteCtx(tables: Record<string, Row[]>, overrides: Partial<AgentCon
     },
     auth: {
       admin: {
+        getUserById: async (id: string) => ({ data: { user: { id, email: tables.profiles?.find(row => row.id === id)?.email } }, error: null }),
         listUsers: async () => ({ data: { users: [] }, error: null }),
         deleteUser: async (id: string) => {
           log.authDeletedUserIds.push(id);
@@ -793,9 +794,15 @@ describe("send_resident_welcome", () => {
 // ---------------------------------------------------------------------------
 
 describe("revoke_resident_access", () => {
+  it("refuses manager previews and execution even for their own resident", async () => {
+    const { ctx, log } = makeWriteCtx(residentSeed());
+    expect(await previewWrite(revokeResidentAccessTool, ctx, { residentEmail: "t@x.com" })).toMatchObject({ ok: false });
+    expect(await executeWrite(revokeResidentAccessTool, ctx, { residentEmail: "t@x.com" })).toMatchObject({ ok: false });
+    expect(log.authDeletedUserIds).toEqual([]);
+  });
   it("is a destructive tool with a preview warning describing what is removed", async () => {
     expect(revokeResidentAccessTool.destructive).toBe(true);
-    const { ctx } = makeWriteCtx(residentSeed());
+    const { ctx } = makeWriteCtx(residentSeed(), { isAdmin: true });
     const res = await previewWrite(revokeResidentAccessTool, ctx, { residentEmail: "t@x.com" });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -810,7 +817,7 @@ describe("revoke_resident_access", () => {
   });
 
   it("execute removes the login, audits one-shot, and is idempotent forever", async () => {
-    const { ctx, tables, log } = makeWriteCtx(residentSeed());
+    const { ctx, tables, log } = makeWriteCtx(residentSeed(), { isAdmin: true });
     const res = await executeWrite(revokeResidentAccessTool, ctx, { residentEmail: "t@x.com" });
     expect(res).toMatchObject({ ok: true });
     // Resident-only role → the auth user is deleted entirely.

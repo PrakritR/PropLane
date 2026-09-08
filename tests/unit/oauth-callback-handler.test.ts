@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+const recoveryRedirect = vi.hoisted(() => vi.fn(async (): Promise<string | null> => null));
+vi.mock("@/lib/auth/account-recovery.server", () => ({ recoverySetupRedirect: recoveryRedirect }));
 import { NextRequest } from "next/server";
 
 let capturedSetAll: ((cookies: { name: string; value: string; options?: object }[]) => void) | null = null;

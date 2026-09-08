@@ -1,7 +1,7 @@
 import { resetPropertyPipelineClientCache } from "@/lib/demo-property-pipeline";
 
 /** Keys written by portal sync loaders, prefs, and demo caches — not Supabase auth tokens. */
-const CACHE_KEY_RE = /^(axis[:_]|propplane\.|proplane_)/i;
+const CACHE_KEY_RE = /^(axis[:_]|propplane\.|proplane[_.:])/i;
 
 function shouldClearStorageKey(key: string): boolean {
   return CACHE_KEY_RE.test(key);
@@ -14,19 +14,17 @@ function shouldClearStorageKey(key: string): boolean {
 export function clearPortalBrowserCache(): number {
   if (typeof window === "undefined") return 0;
   let removed = 0;
-  try {
-    for (const key of Object.keys(window.localStorage)) {
-      if (!shouldClearStorageKey(key)) continue;
-      window.localStorage.removeItem(key);
-      removed += 1;
+  for (const area of ["localStorage", "sessionStorage"] as const) {
+    try {
+      const storage = window[area];
+      for (const key of Object.keys(storage)) {
+        if (!shouldClearStorageKey(key)) continue;
+        storage.removeItem(key);
+        removed += 1;
+      }
+    } catch {
+      /* A blocked storage area must not prevent clearing the other. */
     }
-    for (const key of Object.keys(window.sessionStorage)) {
-      if (!shouldClearStorageKey(key)) continue;
-      window.sessionStorage.removeItem(key);
-      removed += 1;
-    }
-  } catch {
-    /* blocked storage — nothing to clear */
   }
   resetPropertyPipelineClientCache();
   return removed;

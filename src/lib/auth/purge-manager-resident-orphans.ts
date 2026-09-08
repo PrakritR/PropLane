@@ -1,9 +1,9 @@
 /**
  * Manager-scoped cleanup after a resident is removed from the directory.
  *
- * Used by `/api/portal/purge-orphaned-records` (`current_only`) so charges,
- * rent profiles, leases, reminders, scheduled messages, ledger lines, and
- * related rows for emails that are no longer current residents do not linger
+ * Used by `/api/portal/purge-orphaned-records` (`current_only`) so rent profiles,
+ * reminders, scheduled messages, and
+ * operational rows for emails that are no longer current residents do not linger
  * in Payments / reminders after Delete resident.
  *
  * Does NOT touch Airbnb occupancy placeholders (`*@import.proplane.local`).
@@ -57,15 +57,12 @@ type EmailColumnTable = {
   requireCol?: { column: string; equals: string };
 };
 
+// Financial and lease history belongs to the surviving manager. Directory
+// absence (including a normal move-out) is never authorization to erase it.
 const MANAGER_EMAIL_TABLES: readonly EmailColumnTable[] = [
-  { table: "portal_household_charge_records", emailCol: "resident_email" },
   { table: "portal_recurring_rent_profile_records", emailCol: "resident_email" },
-  { table: "portal_lease_pipeline_records", emailCol: "resident_email" },
   { table: "portal_work_order_records", emailCol: "resident_email" },
   { table: "portal_service_request_records", emailCol: "resident_email" },
-  { table: "manager_payment_plans", emailCol: "resident_email" },
-  { table: "ledger_entries", emailCol: "resident_email" },
-  { table: "security_deposit_ledger", emailCol: "resident_email" },
   {
     table: "portal_reminder_records",
     emailCol: "recipient_email",

@@ -1,3 +1,4 @@
+import { pendingAccountRecovery } from "@/lib/auth/account-recovery.server";
 import { randomBytes } from "node:crypto";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import { migratePortalUserId } from "@/lib/auth/migrate-portal-user-id";
@@ -231,6 +232,7 @@ export async function provisionVendorAccountByEmail(
     confirmEmail?: boolean;
   },
 ): Promise<ProvisionVendorResult> {
+  if (await pendingAccountRecovery(supabase, opts.userId)) return { ok: false, status: 409, error: "Sign in to recover your saved account or start fresh before continuing setup." };
   const normalEmail = opts.email.trim().toLowerCase();
   if (!normalEmail.includes("@")) {
     return { ok: false, status: 400, error: "Enter a valid email address." };

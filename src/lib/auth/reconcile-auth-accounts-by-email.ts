@@ -1,3 +1,4 @@
+import { pendingAccountRecovery } from "@/lib/auth/account-recovery.server";
 import { migratePortalUserId } from "@/lib/auth/migrate-portal-user-id";
 import { ensureProfileRoleRow } from "@/lib/auth/profile-role-row";
 import { isPrimaryAdminEmail } from "@/lib/auth/primary-admin";
@@ -77,7 +78,9 @@ export async function reconcileAuthAccountsByEmail(db: ServiceDb, sessionUser: U
   const email = normalizeEmail(sessionUser.email);
   if (!email) return;
 
+  if (await pendingAccountRecovery(db, sessionUser.id)) return;
   const users = await findAuthUsersByEmail(db, email);
+  for (const user of users) if (await pendingAccountRecovery(db, user.id)) throw new Error("Finish the original account recovery decision before linking logins.");
   const others = users.filter((user) => user.id !== sessionUser.id);
 
   for (const other of others) {

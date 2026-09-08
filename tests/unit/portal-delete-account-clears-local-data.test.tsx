@@ -39,7 +39,7 @@ describe("PortalDeleteAccountButton", () => {
 
     render(<PortalDeleteAccountButton portalKind="manager" />);
     fireEvent.click(screen.getByText("Delete account"));
-    fireEvent.click(screen.getByText("Yes, permanently delete"));
+    fireEvent.click(screen.getByText("Yes, delete account"));
 
     await waitFor(() => expect(clearPortalBrowserCache).toHaveBeenCalled());
   });
@@ -53,9 +53,9 @@ describe("PortalDeleteAccountButton", () => {
 
     render(<PortalDeleteAccountButton portalKind="resident" />);
     fireEvent.click(screen.getByText("Delete account"));
-    fireEvent.click(screen.getByText("Yes, permanently delete"));
+    fireEvent.click(screen.getByText("Yes, delete account"));
 
-    await waitFor(() => expect(screen.getByText("Yes, permanently delete")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Yes, delete account")).toBeTruthy());
     expect(clearPortalBrowserCache).not.toHaveBeenCalled();
   });
 });

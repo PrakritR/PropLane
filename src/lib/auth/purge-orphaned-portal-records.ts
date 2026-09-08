@@ -1,3 +1,4 @@
+import { loadAccountCleanupRows } from "@/lib/auth/load-account-cleanup-rows";
 import type { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { purgeOrphanedCoManagerLinks } from "@/lib/auth/purge-orphaned-co-manager-links";
 import { ADMIN_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
@@ -21,41 +22,22 @@ function normalizeId(value: unknown): string {
 
 /** Build sets of valid resident/manager profile ids and emails from Supabase. */
 export async function loadPortalAccountIndex(db: ServiceDb): Promise<PortalAccountIndex> {
-  async function idsForRole(role: string): Promise<string[]> {
-    const { data: pr } = await db.from("profile_roles").select("user_id").eq("role", role);
-    const fromRoles = [...new Set((pr ?? []).map((r) => r.user_id))];
-    const { data: legacy } = await db.from("profiles").select("id").eq("role", role);
-    const fromLegacy = (legacy ?? []).map((p) => p.id);
-    return [...new Set([...fromRoles, ...fromLegacy])];
-  }
-
-  const [managerIds, residentIds, proIds, ownerIds] = await Promise.all([
-    idsForRole("manager"),
-    idsForRole("resident"),
-    idsForRole("pro"),
-    idsForRole("owner"),
+  const [profiles, roles] = await Promise.all([
+    loadAccountCleanupRows<{ id: string; email: string | null; role: string }>((from, to) => db.from("profiles").select("id,email,role").order("id").range(from, to)),
+    loadAccountCleanupRows<{ user_id: string; role: string }>((from, to) => db.from("profile_roles").select("user_id,role").order("user_id").order("role").range(from, to)),
   ]);
-  const managerUserIds = new Set([...managerIds, ...proIds, ...ownerIds].filter(Boolean));
-  const residentUserIds = new Set(residentIds.filter(Boolean));
-
-  const profileIds = [...new Set([...managerUserIds, ...residentUserIds])];
+  const managerUserIds = new Set<string>();
+  const residentUserIds = new Set<string>();
+  for (const row of [...roles, ...profiles.map(profile => ({ user_id: profile.id, role: profile.role }))]) {
+    if (["manager", "owner", "pro"].includes(row.role)) managerUserIds.add(row.user_id);
+    if (row.role === "resident") residentUserIds.add(row.user_id);
+  }
   const residentEmails = new Set<string>();
   const managerEmails = new Set<string>();
-  if (profileIds.length > 0) {
-    const { data: profiles } = await db.from("profiles").select("id, email, role").in("id", profileIds);
-    for (const profile of profiles ?? []) {
-      const email = normalizeEmail(profile.email);
-      const id = normalizeId(profile.id);
-      const role = String(profile.role ?? "").toLowerCase();
-      if (id && managerUserIds.has(id) && email) {
-        managerEmails.add(email);
-      }
-      if (id && residentUserIds.has(id)) {
-        if (email) residentEmails.add(email);
-      }
-      if (role === "resident" && email) residentEmails.add(email);
-      if (role === "manager" && email) managerEmails.add(email);
-    }
+  for (const profile of profiles) {
+    const email = normalizeEmail(profile.email);
+    if (email && managerUserIds.has(profile.id)) managerEmails.add(email);
+    if (email && residentUserIds.has(profile.id)) residentEmails.add(email);
   }
 
   return { residentEmails, residentUserIds, managerUserIds, managerEmails };
@@ -156,10 +138,10 @@ export async function purgeOrphanedPortalRecords(db: ServiceDb): Promise<{
   const purgedEmails = new Set<string>();
   const deleted: Record<string, number> = {};
 
+  // A missing resident is not authority to delete the surviving manager's
+  // financial/lease history. Owner deletion handles those tables explicitly.
   const residentTables = [
-    "portal_household_charge_records",
     "portal_recurring_rent_profile_records",
-    "portal_lease_pipeline_records",
     "portal_work_order_records",
     "portal_resident_lease_upload_records",
   ] as const;

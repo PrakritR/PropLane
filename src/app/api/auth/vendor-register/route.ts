@@ -1,3 +1,4 @@
+import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import { track } from "@/lib/analytics/posthog";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import {
@@ -124,6 +125,14 @@ async function registerFromInvite(
     );
   }
 
+  const existingId = await findAuthUserIdByEmail(supabase, email);
+  const recovery = existingId ? await recoverySetupRedirect(supabase, existingId) : null;
+  if (recovery) {
+    const verified = await assertPasswordMatchesExistingAuthUser(email, opts.password);
+    if (!verified.ok) return NextResponse.json({ error: verified.message }, { status: 401 });
+    return NextResponse.json({ ok: true, existingAccount: true, recoveryRequired: true, redirectTo: recovery });
+  }
+
   // Claim FIRST. Two concurrent redemptions of the same token both used to pass
   // the pending check and both proceed, because the flip to `accepted` happened
   // at the very end of provisioning.
@@ -188,6 +197,8 @@ async function registerSelfServe(
     if (!pwCheck.ok) {
       return NextResponse.json({ error: pwCheck.message }, { status: 401 });
     }
+    const recovery = await recoverySetupRedirect(supabase, existingId);
+    if (recovery) return NextResponse.json({ ok: true, existingAccount: true, recoveryRequired: true, redirectTo: recovery });
     const provisioned = await provisionVendorAccountByEmail(supabase, {
       userId: existingId,
       email,

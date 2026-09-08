@@ -1,3 +1,4 @@
+import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
 import {
@@ -72,6 +73,8 @@ export async function POST(req: Request) {
     }
 
     const service = createSupabaseServiceRoleClient();
+    const recovery = await recoverySetupRedirect(service, user.id);
+    if (recovery) return NextResponse.json({ ok: true, recoveryRequired: true, redirectTo: recovery });
     const oauthEmail = user.email.trim().toLowerCase();
 
     if ((tourInquiryId || handoff === "message") && !token && !axisId) {

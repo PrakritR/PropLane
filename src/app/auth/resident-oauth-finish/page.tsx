@@ -64,9 +64,14 @@ function ResidentOauthFinishContent() {
             nextPath: prospectHandoff?.nextPath,
           }),
         });
-        const body = (await res.json()) as { error?: string; redirectTo?: string };
+        const body = (await res.json()) as { error?: string; recoveryRequired?: boolean; redirectTo?: string };
         if (!res.ok) {
           setErrorText(body.error ?? "Could not finish resident signup.");
+          return;
+        }
+
+        if (body.recoveryRequired && body.redirectTo?.startsWith("/auth/recover-account")) {
+          window.location.replace(body.redirectTo);
           return;
         }
 

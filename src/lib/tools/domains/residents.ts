@@ -285,7 +285,7 @@ export const sendResidentWelcomeTool = defineWriteTool({
 export const revokeResidentAccessTool = defineWriteTool({
   name: "revoke_resident_access",
   description:
-    "Permanently remove a resident's portal sign-in access. Their application, lease, payment, and message records are kept — only the login is removed. Pass the resident's email from list_residents.",
+    "Platform administrators only: permanently remove a resident's portal sign-in access. Property managers cannot remove an independently owned login. Their application, lease, payment, and message records are kept — only the login is removed. Pass the resident's email from list_residents.",
   destructive: true,
   inputSchema: z
     .object({
@@ -293,6 +293,7 @@ export const revokeResidentAccessTool = defineWriteTool({
     })
     .strict(),
   preview: async (ctx, input) => {
+    if (!ctx.isAdmin) throw new Error("Resident logins belong to the resident. Remove their specific application from your portfolio instead.");
     const email = input.residentEmail.trim().toLowerCase();
     if (!email.includes("@")) throw new Error("A valid resident email is required.");
     const ownershipError = await assertResidentInPortfolio(ctx, email);

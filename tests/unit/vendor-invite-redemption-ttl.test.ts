@@ -7,6 +7,8 @@ import {
   vendorUnlinkedNotice,
 } from "@/lib/auth/provision-vendor-account";
 
+vi.mock("@/lib/auth/account-recovery.server", () => ({ pendingAccountRecovery: vi.fn().mockResolvedValue(null) }));
+
 /**
  * `vendor_invites` was directly INSERT-able by any authenticated user (the
  * `FOR ALL` policy's `WITH CHECK (manager_user_id = auth.uid())` is satisfied

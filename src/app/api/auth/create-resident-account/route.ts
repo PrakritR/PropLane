@@ -1,3 +1,4 @@
+import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
 import { ACTIVE_PORTAL_COOKIE } from "@/lib/auth/portal-access";
@@ -57,6 +58,8 @@ export async function POST(req: Request) {
     const phone = typeof body.phone === "string" ? body.phone.trim() : "";
 
     const service = createSupabaseServiceRoleClient();
+    const recovery = await recoverySetupRedirect(service, user.id);
+    if (recovery) return NextResponse.json({ ok: true, recoveryRequired: true, redirectTo: recovery });
     const ensured = await ensureSignedInResidentAccount(service, user, {
       contactEmail: contactEmail || undefined,
       phone: phone || undefined,
