@@ -86,7 +86,7 @@ describe("buildLeaseBillingSnapshot", () => {
     const holding = setApplicantHoldingFee({ residentEmail: email, residentName: row.name, residentUserId: null, propertyId, applicationId: row.id, managerUserId: MANAGER_ID, amount });
     expect(holding.ok).toBe(true);
     if (!holding.ok) return;
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     const pending = buildLeaseBillingSnapshot(row, MANAGER_ID);
     expect(pending.securityDeposit).toBe(400);
     expect(pending.securityDepositDue).toBe(400 - amount);
@@ -109,7 +109,7 @@ describe("buildLeaseBillingSnapshot", () => {
       rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
     }));
     const row = applicantRow(propertyId, email);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     for (const charge of readHouseholdCharges().filter((c) => c.applicationId === row.id && ["security_deposit", "move_in_fee"].includes(c.kind))) {
       markHouseholdChargePaid(charge.id);
     }
@@ -143,7 +143,7 @@ describe("buildLeaseBillingSnapshot", () => {
     const row = applicantRow(propertyId, email);
     const holding = setApplicantHoldingFee({ residentEmail: email, residentName: row.name, residentUserId: null, propertyId, applicationId: row.id, managerUserId: MANAGER_ID, amount: 100 });
     expect(holding.ok).toBe(true);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     const charges = readHouseholdCharges().filter((c) => c.applicationId === row.id);
     const deposit = charges.find((c) => c.kind === "security_deposit")!;
     const moveIn = charges.find((c) => c.kind === "move_in_fee")!;
@@ -169,7 +169,7 @@ describe("buildLeaseBillingSnapshot", () => {
         rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
       }));
       const row = applicantRow(propertyId, email);
-      recordApprovedApplicationCharges(row, MANAGER_ID, true);
+      recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
       const deposit = readHouseholdCharges().find((c) => c.applicationId === row.id && c.kind === "security_deposit")!;
       applyHouseholdChargePatches([{ ...deposit, status }]);
       const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
@@ -197,7 +197,7 @@ describe("buildLeaseBillingSnapshot", () => {
       rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
     }));
     const row = applicantRow(propertyId, email);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     const charges = readHouseholdCharges().filter((c) => c.applicationId === row.id);
     const deposit = charges.find((c) => c.kind === "security_deposit")!;
     const moveIn = charges.find((c) => c.kind === "move_in_fee")!;
@@ -234,7 +234,7 @@ describe("buildLeaseBillingSnapshot", () => {
     }));
     const row = applicantRow(propertyId, email);
     setApplicantHoldingFee({ residentEmail: email, residentName: row.name, residentUserId: null, propertyId, applicationId: row.id, managerUserId: MANAGER_ID, amount: 100 });
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     const holding = readHouseholdCharges().find((c) => c.applicationId === row.id && c.kind === "holding_deposit")!;
     const security = readHouseholdCharges().find((c) => c.applicationId === row.id && c.kind === "security_deposit")!;
     expect(security.balanceLabel).toBe("$300.00");
@@ -268,7 +268,7 @@ describe("buildLeaseBillingSnapshot", () => {
     const row = applicantRow(propertyId, email);
     const holding = setApplicantHoldingFee({ residentEmail: email, residentName: row.name, residentUserId: null, propertyId, applicationId: row.id, managerUserId: MANAGER_ID, amount: 100 });
     expect(holding.ok).toBe(true);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     if (holding.ok) markHouseholdChargePaid(holding.charge.id);
     const security = readHouseholdCharges().find((c) => c.applicationId === row.id && c.kind === "security_deposit")!;
     applyHouseholdChargePatches([{ ...security, status: "cancelled" }]);
@@ -298,7 +298,7 @@ describe("buildLeaseBillingSnapshot", () => {
       rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
     }));
     const row = applicantRow(propertyId, email);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     const fee = readHouseholdCharges().find((c) => c.applicationId === row.id && c.customFeeId === "one-time")!;
     applyHouseholdChargePatches([{ ...fee, status: "cancelled" }]);
     const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
@@ -326,7 +326,7 @@ describe("buildLeaseBillingSnapshot", () => {
       rooms: [{ ...emptyRoom(0), id: "room-1", name: "Room 1", monthlyRent: 800 }],
     }));
     const row = applicantRow(propertyId, email);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     const baseline = buildLeaseBillingSnapshot(row, MANAGER_ID);
     // Same shape `createManagerCharge` writes for a fine or a replacement key.
     seedDemoHouseholdCharges([...readHouseholdCharges(), {
@@ -363,7 +363,7 @@ describe("buildLeaseBillingSnapshot", () => {
     });
     seedListing(propertyId, sub);
     const row = applicantRow(propertyId, email);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     expect(buildLeaseBillingSnapshot(row, MANAGER_ID).dueAtSigning).toBe(650);
   });
 
@@ -380,7 +380,7 @@ describe("buildLeaseBillingSnapshot", () => {
     seedListing(propertyId, sub);
     const row = applicantRow(propertyId, email);
     row.application = { ...row.application!, rentalType: "short_term", leaseTerm: "Short-Term Stay", leaseStart: "2026-09-02", leaseEnd: "2026-09-06", managerRentOverride: "", managerUtilitiesOverride: "" };
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
     expect(billing.nightlyRent).toBe(60);
     expect(billing.stayRent).toBe(240);
@@ -421,7 +421,7 @@ describe("buildLeaseBillingSnapshot", () => {
     seedListing(propertyId, sub);
 
     const row = applicantRow(propertyId, email);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
 
     const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
     expect(billing.proratedRent).toBe(270);
@@ -478,7 +478,7 @@ describe("buildLeaseBillingSnapshot", () => {
     seedListing(propertyId, sub);
 
     const row = applicantRow(propertyId, email);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
 
     const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
     expect(billing.proratedRent).toBe(240);
@@ -513,7 +513,7 @@ describe("buildLeaseBillingSnapshot", () => {
     seedListing(propertyId, sub);
 
     const row = applicantRow(propertyId, email);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
 
     const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
     expect(billing.dueAtSigning).toBe(500);
@@ -528,7 +528,7 @@ describe("buildLeaseBillingSnapshot", () => {
       ...createDefaultListingSubmission(), shortTermDailyCost: "50", paymentAtSigningIncludes: ["first_month_rent"],
       rooms: [{ ...emptyRoom(0), id: "room-1", monthlyRent: 825, shortTermRent: "60" }],
     }));
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
     expect(billing.nightlyRent).toBe(75);
     expect(billing.stayRent).toBe(300);
@@ -544,7 +544,7 @@ describe("buildLeaseBillingSnapshot", () => {
       rooms: [{ ...emptyRoom(0), id: "room-1", monthlyRent: 825, rentBasis: "daily", dailyRentPrice: 60 }],
     });
     seedListing(propertyId, sub);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
     expect(billing.dailyRent).toBe(60);
     expect(billing.proratedRent).toBe(300); // Standard tenancy includes the final day.
@@ -571,7 +571,7 @@ describe("buildLeaseBillingSnapshot", () => {
       ...createDefaultListingSubmission(), securityDeposit: "900", moveInFee: "150", shortTermDailyCost: "50", shortTermDeposit: "900", shortTermMoveInFee: "150",
       rooms: [{ ...emptyRoom(0), id: "room-1", monthlyRent: 825 }],
     }));
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     const billing = buildLeaseBillingSnapshot(row, MANAGER_ID);
     expect(billing.securityDeposit).toBe(600);
     expect(billing.securityDepositDue).toBe(600);
@@ -588,7 +588,7 @@ describe("buildLeaseBillingSnapshot", () => {
       ...createDefaultListingSubmission(), paymentAtSigningIncludes: ["first_month_rent", "first_month_utilities"],
       rooms: [{ ...emptyRoom(0), id: "room-1", monthlyRent: 800, utilitiesEstimate: "200" }],
     }));
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     expect(buildLeaseBillingSnapshot(row, MANAGER_ID).dueAtSigning).toBe(leaseStart.endsWith("01") ? 1000 : 300);
     for (const charge of readHouseholdCharges().filter((c) => c.applicationId === row.id && ["first_month_rent", "prorated_rent", "utilities", "prorated_utilities"].includes(c.kind) && !c.rentMonth)) {
       markHouseholdChargePaid(charge.id);

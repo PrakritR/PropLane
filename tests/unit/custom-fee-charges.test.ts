@@ -108,7 +108,7 @@ describe("custom-fee billing", () => {
     const propertyId = "prop-custom-one-time";
     seedListing(propertyId, [{ id: "cf1", label: "Cleaning fee", amount: "75", frequency: "one-time" }]);
 
-    recordApprovedApplicationCharges(applicant(propertyId, email, false), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email, false), MANAGER_ID, true, { leaseExecuted: true });
 
     const cleaning = otherCosts(email).filter((c) => c.title === "Cleaning fee");
     expect(cleaning).toHaveLength(1);
@@ -123,7 +123,7 @@ describe("custom-fee billing", () => {
     // "Bike storage" (not "Parking", which would re-tag as the parking_monthly preset).
     seedListing(propertyId, [{ id: "cf-bike", label: "Bike storage", amount: "100", frequency: "monthly" }]);
 
-    recordApprovedApplicationCharges(applicant(propertyId, email, false), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email, false), MANAGER_ID, true, { leaseExecuted: true });
 
     const recurring = otherCosts(email).filter((c) => c.customFeeId === "cf-bike" && Boolean(c.recurringRentProfileId));
     expect(recurring.length).toBeGreaterThan(0);
@@ -143,7 +143,7 @@ describe("custom-fee billing", () => {
       { shortTerm: true },
     );
 
-    recordApprovedApplicationCharges(applicant(propertyId, email, true), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email, true), MANAGER_ID, true, { leaseExecuted: true });
 
     const resort = otherCosts(email).filter((c) => c.title === "Resort fee");
     expect(resort).toHaveLength(1);
@@ -159,7 +159,7 @@ describe("custom-fee billing", () => {
     const propertyId = "prop-custom-st-only";
     seedListing(propertyId, [{ id: "cf1", label: "Resort fee", amount: "", frequency: "one-time", shortTermAmount: "40" }]);
 
-    recordApprovedApplicationCharges(applicant(propertyId, email, false), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email, false), MANAGER_ID, true, { leaseExecuted: true });
 
     expect(otherCosts(email).some((c) => c.title === "Resort fee")).toBe(false);
   });
@@ -170,7 +170,7 @@ describe("custom-fee billing", () => {
     const propertyId = "prop-custom-removed";
     seedListing(propertyId, []); // no custom fees
 
-    recordApprovedApplicationCharges(applicant(propertyId, email, false), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email, false), MANAGER_ID, true, { leaseExecuted: true });
 
     expect(otherCosts(email)).toHaveLength(0);
   });

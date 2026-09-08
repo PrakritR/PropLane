@@ -219,7 +219,7 @@ describe("holding fee security deposit credit at approval", () => {
     seedApprovedListing(propertyId);
     setApplicantHoldingFee(base(500));
 
-    recordApprovedApplicationCharges(approvedRow(propertyId), "mgr-1", true);
+    recordApprovedApplicationCharges(approvedRow(propertyId), "mgr-1", true, { leaseExecuted: true });
 
     const charges = readHouseholdCharges().filter((c) => c.residentEmail === EMAIL);
     expect(charges.find((c) => c.kind === "holding_deposit")?.amountLabel).toBe("$500.00");
@@ -232,7 +232,7 @@ describe("holding fee security deposit credit at approval", () => {
     seedApprovedListing(propertyId);
     const row = approvedRow(propertyId);
     writeManagerApplicationRows([row]);
-    recordApprovedApplicationCharges(row, "mgr-1", true);
+    recordApprovedApplicationCharges(row, "mgr-1", true, { leaseExecuted: true });
     expect(
       readHouseholdCharges().find((c) => c.kind === "security_deposit" && c.residentEmail === EMAIL)
         ?.amountLabel,

@@ -154,7 +154,7 @@ function ledgerForApprovedApplication() {
   window.sessionStorage.clear();
   removeResidentHouseholdPaymentData(RESIDENT_EMAIL);
   seedListing();
-  recordApprovedApplicationCharges(applicant(), MANAGER_ID, true);
+  recordApprovedApplicationCharges(applicant(), MANAGER_ID, true, { leaseExecuted: true });
   return readHouseholdCharges().filter(
     (charge) => charge.residentEmail.toLowerCase() === RESIDENT_EMAIL.toLowerCase(),
   );

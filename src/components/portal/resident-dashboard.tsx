@@ -26,6 +26,7 @@ import {
   chargeDueLabel,
   HOUSEHOLD_CHARGES_EVENT,
   isHouseholdChargeOverdue,
+  chargesImplyTenancy,
   readChargesForResident,
   syncHouseholdChargesFromServer,
 } from "@/lib/household-charges";
@@ -608,7 +609,12 @@ export function ResidentDashboard({
     applicationRows,
     serviceItems,
   } = data;
-  const canUsePayments = applicationApproved || pendingCharges.length > 0;
+  // "This person has charges" is not authorization. It used to be, so an
+  // applicant who had been wrongly billed a move-in schedule saw a "Pending &
+  // overdue payments" group linking to /resident/payments — which the stage
+  // guard then bounced straight back here. An application or holding fee is
+  // what a prospect owes, so only a tenancy charge unlocks the group.
+  const canUsePayments = applicationApproved || chargesImplyTenancy(pendingCharges);
   const pendingApplicationRows = applicationRows.filter((r) => r.bucket === "pending");
   const pendingApplicationCount = pendingApplicationRows.length;
   const pendingTours = useMemo(
@@ -939,7 +945,11 @@ export function ResidentDashboard({
               ) : null
             }
             items={pendingCharges}
-            emptyMessage="No outstanding charges."
+            emptyMessage={
+              leaseSigned
+                ? "No outstanding charges."
+                : "Payments will appear here after your application is approved and your lease is signed."
+            }
             keyForItem={(charge) => charge.id}
             renderRow={(charge, sectionTone) => {
               const overdue = isHouseholdChargeOverdue(charge);

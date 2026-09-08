@@ -107,33 +107,33 @@ describe("resident lease billing sync", () => {
   });
 
   it("regenerates prorated rent when move-in date changes", () => {
-    recordApprovedApplicationCharges(residentRow("2026-08-30"), MANAGER_ID, true);
+    recordApprovedApplicationCharges(residentRow("2026-08-30"), MANAGER_ID, true, { leaseExecuted: true });
     let charges = readHouseholdCharges();
     expect(charges.some((c) => c.kind === "prorated_rent" && c.title.includes("2 days"))).toBe(true);
 
-    recordApprovedApplicationCharges(residentRow("2026-09-01"), MANAGER_ID, true);
+    recordApprovedApplicationCharges(residentRow("2026-09-01"), MANAGER_ID, true, { leaseExecuted: true });
     charges = readHouseholdCharges();
     expect(charges.some((c) => c.kind === "prorated_rent")).toBe(false);
     expect(charges.some((c) => c.kind === "first_month_rent" && c.title === "First month's rent")).toBe(true);
   });
 
   it("rebuilds stale prorated rows on reconcile when move-in moves to the 1st", () => {
-    recordApprovedApplicationCharges(residentRow("2026-08-30"), MANAGER_ID, true);
+    recordApprovedApplicationCharges(residentRow("2026-08-30"), MANAGER_ID, true, { leaseExecuted: true });
     expect(readHouseholdCharges().some((c) => c.kind === "prorated_rent")).toBe(true);
 
-    recordApprovedApplicationCharges(residentRow("2026-09-01"), MANAGER_ID, false);
+    recordApprovedApplicationCharges(residentRow("2026-09-01"), MANAGER_ID, false, { leaseExecuted: true });
     const charges = readHouseholdCharges();
     expect(charges.some((c) => c.kind === "prorated_rent")).toBe(false);
     expect(charges.some((c) => c.kind === "first_month_rent")).toBe(true);
   });
 
   it("drops stale proration when lease start moves mid-month (16-day then 9-day)", () => {
-    recordApprovedApplicationCharges(residentRow("2026-09-15"), MANAGER_ID, true);
+    recordApprovedApplicationCharges(residentRow("2026-09-15"), MANAGER_ID, true, { leaseExecuted: true });
     let charges = readHouseholdCharges();
     expect(charges.filter((c) => c.kind === "prorated_rent")).toHaveLength(1);
     expect(charges.find((c) => c.kind === "prorated_rent")?.title).toContain("16 days");
 
-    recordApprovedApplicationCharges(residentRow("2026-09-21"), MANAGER_ID, false);
+    recordApprovedApplicationCharges(residentRow("2026-09-21"), MANAGER_ID, false, { leaseExecuted: true });
     charges = readHouseholdCharges();
     const proratedRent = charges.filter((c) => c.kind === "prorated_rent");
     expect(proratedRent).toHaveLength(1);
@@ -145,7 +145,7 @@ describe("resident lease billing sync", () => {
     const pending = { ...residentRow("2026-09-01"), bucket: "pending" as const, stage: "Submitted" };
     writeManagerApplicationRows([pending]);
     removeResidentHouseholdPaymentData(EMAIL);
-    recordApprovedApplicationCharges(pending, MANAGER_ID, true);
+    recordApprovedApplicationCharges(pending, MANAGER_ID, true, { leaseExecuted: true });
     expect(readHouseholdCharges().some((c) => c.kind === "security_deposit")).toBe(true);
 
     reconcileApprovedResidentPaymentSchedules(MANAGER_ID, true);
@@ -163,8 +163,8 @@ describe("resident lease billing sync", () => {
       ...(i < 2 ? { utilityAllocationId: id, sourceUtilityBillId: id } : { migrationSourceId: id }),
     }));
     seedDemoHouseholdCharges(charges, []);
-    recordApprovedApplicationCharges(row, MANAGER_ID, false);
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, false, { leaseExecuted: true });
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
     reconcileApprovedResidentPaymentSchedules(MANAGER_ID, true);
     for (const source of charges) expect(readHouseholdCharges().find(c => c.id === source.id)).toMatchObject(source);
   });

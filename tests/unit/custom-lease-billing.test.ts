@@ -128,6 +128,7 @@ describe("custom lease surcharge billing", () => {
       applicantRow(propertyId, email, "2026-06-15", "2027-06-14"),
       MANAGER_ID,
       true,
+      { leaseExecuted: true },
     );
 
     const profile = readRecurringRentProfilesForManager(MANAGER_ID).find((p) => p.residentEmail === email);
@@ -153,6 +154,7 @@ describe("custom lease surcharge billing", () => {
       applicantRow(propertyId, email, "2026-06-01", "2027-05-31"),
       MANAGER_ID,
       true,
+      { leaseExecuted: true },
     );
 
     const profile = readRecurringRentProfilesForManager(MANAGER_ID).find((p) => p.residentEmail === email);

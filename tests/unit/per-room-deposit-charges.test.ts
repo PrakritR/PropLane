@@ -126,7 +126,7 @@ describe("per-room security deposit — approved-application charges", () => {
     const propertyId = "prop-room-deposit";
     seedListing(propertyId, room({ securityDeposit: "1500" }), "1000");
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, true, { leaseExecuted: true });
 
     expect(depositCharge(email)?.amountLabel).toBe("$1,500.00");
   });
@@ -138,7 +138,7 @@ describe("per-room security deposit — approved-application charges", () => {
     // Room carries no per-room deposit → the $1,000 shared deposit must bill, exactly as before.
     seedListing(propertyId, room({ securityDeposit: undefined }), "1000");
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, true, { leaseExecuted: true });
 
     expect(depositCharge(email)?.amountLabel).toBe("$1,000.00");
   });
@@ -153,6 +153,7 @@ describe("per-room security deposit — approved-application charges", () => {
       applicantRow(propertyId, "room-1", email, { managerSecurityDepositOverride: "2000" }),
       MANAGER_ID,
       true,
+      { leaseExecuted: true },
     );
 
     expect(depositCharge(email)?.amountLabel).toBe("$2,000.00");
@@ -166,7 +167,7 @@ describe("per-room move-in fee — room wins over the shared move-in, never both
     const propertyId = "prop-room-movein";
     seedListing(propertyId, room({ moveInFee: "300" }), "1000", "150");
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, true, { leaseExecuted: true });
 
     // Exactly ONE move-in charge, at the room's amount — the shared $150 does not also bill.
     const all = readHouseholdCharges().filter(
@@ -182,7 +183,7 @@ describe("per-room move-in fee — room wins over the shared move-in, never both
     const propertyId = "prop-shared-movein";
     seedListing(propertyId, room({ moveInFee: undefined }), "1000", "150");
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, true, { leaseExecuted: true });
 
     expect(moveInCharge(email)?.amountLabel).toBe("$150.00");
   });
@@ -199,12 +200,12 @@ describe("live re-sync keeps per-room amounts (sync-patch room-first precedence)
     const propertyId = "prop-resync-deposit";
     seedListing(propertyId, room({ securityDeposit: "1500" }), "1000");
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, true, { leaseExecuted: true });
     expect(depositCharge(email)?.amountLabel).toBe("$1,500.00");
 
     // Non-forced re-record triggers the sync-patch layer; it must NOT overwrite the per-room
     // $1,500 with the $1,000 listing deposit.
-    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, false);
+    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, false, { leaseExecuted: true });
     expect(depositCharge(email)?.amountLabel).toBe("$1,500.00");
   });
 
@@ -214,10 +215,10 @@ describe("live re-sync keeps per-room amounts (sync-patch room-first precedence)
     const propertyId = "prop-resync-movein";
     seedListing(propertyId, room({ moveInFee: "300" }), "1000", "150");
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, true, { leaseExecuted: true });
     expect(moveInCharge(email)?.amountLabel).toBe("$300.00");
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, false);
+    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email), MANAGER_ID, false, { leaseExecuted: true });
     expect(moveInCharge(email)?.amountLabel).toBe("$300.00");
   });
 });

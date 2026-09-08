@@ -110,7 +110,7 @@ describe("monthly recurring custom fee", () => {
     const propertyId = "prop-monthly-recur";
     seed(propertyId, [{ id: "cf-bike", label: "Bike storage", amount: "100", frequency: "monthly" }]);
 
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     const rows = bikeRows(email);
     const months = rows.map((r) => r.rentMonth);
@@ -127,9 +127,9 @@ describe("monthly recurring custom fee", () => {
     const propertyId = "prop-monthly-nodup";
     seed(propertyId, [{ id: "cf-bike", label: "Bike storage", amount: "100", frequency: "monthly" }]);
 
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     // Still exactly one row per month.
     expect(bikeRows(email).map((r) => r.rentMonth)).toEqual(["2026-04", "2026-05", "2026-06"]);
@@ -140,12 +140,12 @@ describe("monthly recurring custom fee", () => {
     removeResidentHouseholdPaymentData(email);
     const propertyId = "prop-monthly-remove";
     seed(propertyId, [{ id: "cf-bike", label: "Bike storage", amount: "100", frequency: "monthly" }]);
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
     expect(bikeRows(email)).toHaveLength(3);
 
     // Manager removes the fee from the listing, then charge-gen runs again.
     seed(propertyId, []);
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     // The already-emitted months are NOT silently deleted (the resident may owe them),
     // and no new ones appear.
@@ -157,10 +157,10 @@ describe("monthly recurring custom fee", () => {
     removeResidentHouseholdPaymentData(email);
     const propertyId = "prop-monthly-amount";
     seed(propertyId, [{ id: "cf-bike", label: "Bike storage", amount: "100", frequency: "monthly" }]);
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     seed(propertyId, [{ id: "cf-bike", label: "Bike storage", amount: "150", frequency: "monthly" }]);
-    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     // Every already-emitted month keeps its original $100 — future months (none here) would
     // use $150.

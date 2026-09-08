@@ -109,7 +109,7 @@ describe("per-room short-term set drives the booking", () => {
       shortTermMoveInFee: "150",
     });
 
-    recordApprovedApplicationCharges(shortTermApplicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(shortTermApplicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     const charges = readHouseholdCharges().filter(
       (c) => c.residentEmail.toLowerCase() === email.toLowerCase(),
@@ -134,7 +134,7 @@ describe("per-room short-term set drives the booking", () => {
     const propertyId = "prop-short-term-fallback";
     seedListing(propertyId, {}); // room carries no short-term fields
 
-    recordApprovedApplicationCharges(shortTermApplicant(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(shortTermApplicant(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     const charges = readHouseholdCharges().filter(
       (c) => c.residentEmail.toLowerCase() === email.toLowerCase(),
@@ -166,7 +166,7 @@ describe("per-room short-term set drives the booking", () => {
     const row = shortTermApplicant(propertyId, email);
     row.application = { ...row.application!, rentalType: "standard", leaseEnd: "2026-06-12" };
 
-    recordApprovedApplicationCharges(row, MANAGER_ID, true);
+    recordApprovedApplicationCharges(row, MANAGER_ID, true, { leaseExecuted: true });
 
     const charges = readHouseholdCharges().filter(
       (c) => c.residentEmail.toLowerCase() === email.toLowerCase(),

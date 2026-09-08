@@ -114,7 +114,7 @@ describe("daily-priced room — approved-application charges", () => {
     seedListing(propertyId, room({ monthlyRent: 0, rentBasis: "daily", dailyRentPrice: 40 }));
 
     // Lease Mar 10 2026 → Jun 12 2026.
-    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email, "2026-06-12"), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email, "2026-06-12"), MANAGER_ID, true, { leaseExecuted: true });
     const charges = rentCharges(email);
 
     // March: Mar 10–31 = 22 billable days × $40 = $880.
@@ -141,7 +141,7 @@ describe("daily-priced room — approved-application charges", () => {
     seedListing(propertyId, room({ monthlyRent: 0, rentBasis: "daily", dailyRentPrice: 40 }));
 
     // Mar 10 → Mar 20 2026 = 11 days, one charge only.
-    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email, "2026-03-20"), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email, "2026-03-20"), MANAGER_ID, true, { leaseExecuted: true });
     const charges = rentCharges(email);
     expect(charges).toHaveLength(1);
     expect(charges[0]!.amount).toBe("$440.00");
@@ -156,7 +156,7 @@ describe("monthly-priced room — unchanged legacy behavior", () => {
     const propertyId = "prop-monthly-charges";
     seedListing(propertyId, room({ monthlyRent: 1200 }));
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email, "2026-06-12"), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, "room-1", email, "2026-06-12"), MANAGER_ID, true, { leaseExecuted: true });
     const charges = rentCharges(email);
 
     // March: 22/31 × $1,200 = $851.61 (auto proration, exactly as before).

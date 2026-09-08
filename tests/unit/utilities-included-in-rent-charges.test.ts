@@ -103,7 +103,7 @@ describe("utilities included in rent — no separate utilities charge", () => {
     const propertyId = "prop-utilities-included";
     seedListing(propertyId, room({ utilitiesPaymentModel: "included_in_rent", utilitiesEstimate: "150" }));
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     // Not created at all — and rent still bills, so no double-billing.
     expect(utilitiesCharges(email)).toHaveLength(0);
@@ -120,7 +120,7 @@ describe("utilities included in rent — no separate utilities charge", () => {
     seedListing(propertyId, room({ utilitiesPaymentModel: "included_in_rent", utilitiesEstimate: "150" }));
 
     // Mid-month start → prorated rent, but still no utilities line.
-    recordApprovedApplicationCharges(applicantRow(propertyId, email, "2026-03-15"), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, email, "2026-03-15"), MANAGER_ID, true, { leaseExecuted: true });
 
     expect(utilitiesCharges(email)).toHaveLength(0);
   });
@@ -131,7 +131,7 @@ describe("utilities included in rent — no separate utilities charge", () => {
     const propertyId = "prop-utilities-billed";
     seedListing(propertyId, room({ utilitiesPaymentModel: "manager_billed", utilitiesEstimate: "150" }));
 
-    recordApprovedApplicationCharges(applicantRow(propertyId, email), MANAGER_ID, true);
+    recordApprovedApplicationCharges(applicantRow(propertyId, email), MANAGER_ID, true, { leaseExecuted: true });
 
     expect(utilitiesCharges(email).length).toBeGreaterThan(0);
   });
