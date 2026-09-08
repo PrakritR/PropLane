@@ -174,6 +174,24 @@ export function roomOverriddenDefaults(
 }
 
 /**
+ * The rooms that have not been edited at all, and are therefore the only ones a
+ * change to the house defaults may move.
+ *
+ * The rule is per ROOM, not per field. Once a manager has set anything on a
+ * room by hand, that room stops following the house for everything — including
+ * the fields they left alone. Per-field following looked tidier but meant a
+ * manager who had set Room 3's rent still found its beds changing underneath
+ * them later. Overwriting an edited room is possible, but only through an
+ * explicit "copy to all rooms", never as a side effect of typing.
+ */
+export function roomsFollowingDefaults(
+  rooms: readonly ManagerRoomSubmission[],
+  defaults: ListingHouseDefaults,
+): string[] {
+  return rooms.filter((room) => roomOverriddenDefaults(room, defaults).length === 0).map((room) => room.id);
+}
+
+/**
  * Push the house defaults onto every room that is still following them.
  *
  * A room that overrides a field keeps its own value for THAT field only — it still

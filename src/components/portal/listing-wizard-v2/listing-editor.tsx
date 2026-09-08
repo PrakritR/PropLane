@@ -21,7 +21,7 @@
  * downstream reader keep working exactly as before.
  */
 
-import { useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
@@ -69,6 +69,7 @@ import {
   houseDefaultsForSubmission,
   roomInheritsDefault,
   roomOverriddenDefaults,
+  roomsFollowingDefaults,
   type ListingHouseDefaults,
 } from "@/lib/listing-house-defaults";
 import {
@@ -91,13 +92,21 @@ import {
   WizardStepper,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 
+/**
+ * Five steps, not seven.
+ *
+ * Rent & fees and Photos were tabs full of things that belong to something
+ * else: a room's deposit belongs with that room, a bathroom's photos belong
+ * with that bathroom. What is genuinely house-wide — the lease lengths, the
+ * application fee, the listing's own photos and description — now sits on Home
+ * behind its own headings, so it is still one place, just not a place a manager
+ * has to walk through to reach the rooms.
+ */
 export const LISTING_V2_STEPS = [
   { id: "basics", label: "Home" },
   { id: "rooms", label: "Rooms" },
   { id: "bathrooms", label: "Bathrooms" },
   { id: "spaces", label: "Shared spaces" },
-  { id: "money", label: "Rent & fees" },
-  { id: "marketing", label: "Photos" },
   { id: "review", label: "Review" },
 ] as const;
 
@@ -111,6 +120,31 @@ const BATHROOM_ACCESS_OPTIONS = [
 ] as const;
 
 type Patch = (next: Partial<ManagerListingSubmissionV1>) => void;
+
+/**
+ * Lets a step tell the footer that a detail pane is open, so the footer's Back
+ * button returns to the list instead of leaving the step entirely.
+ *
+ * A manager who opens Room 3, looks at it, and presses the only Back button on
+ * screen means "back to the rooms" — the wizard's own Back had been taking them
+ * to Home, losing the place they were in.
+ */
+const DetailBackContext = createContext<(close: (() => void) | null) => void>(() => {});
+
+function useDetailBack(open: boolean, close: () => void) {
+  const register = useContext(DetailBackContext);
+  const closeRef = useRef(close);
+  // Written in an effect, not during render: a ref read or written while
+  // rendering is not safe under concurrent rendering.
+  useEffect(() => {
+    closeRef.current = close;
+  });
+  useEffect(() => {
+    if (!open) return;
+    register(() => closeRef.current());
+    return () => register(null);
+  }, [open, register]);
+}
 
 /* ─────────────────────── shared little helpers ─────────────────────── */
 
@@ -311,6 +345,8 @@ function VideoSlot({
 function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
   const roomCount = sub.rooms?.length || sub.listingBedroomSlots || 1;
+  const [openMoney, setOpenMoney] = useState(false);
+  const [openMarketing, setOpenMarketing] = useState(false);
   return (
     <StepColumn>
       <StepHeading
@@ -469,6 +505,29 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
           />
         </ChipRow>
       </Field>
+
+      {/*
+       * Leasing terms and the listing's photos used to be two whole steps a
+       * manager had to walk through to reach Review. They are house-wide and
+       * mostly set once, so they sit here, open only when wanted — while a
+       * room's own money and photos moved the other way, into that room.
+       */}
+      <MoreOptions
+        label="Leasing & fees — lease lengths, application fee, due at signing, late fees"
+        open={openMoney}
+        onToggle={() => setOpenMoney((v) => !v)}
+        dataAttr="listing-v2-home-money"
+      >
+        <HouseMoneyFields sub={sub} patch={patch} />
+      </MoreOptions>
+      <MoreOptions
+        label="Photos & description of the whole house"
+        open={openMarketing}
+        onToggle={() => setOpenMarketing((v) => !v)}
+        dataAttr="listing-v2-home-marketing"
+      >
+        <HouseMarketingFields sub={sub} patch={patch} />
+      </MoreOptions>
     </StepColumn>
   );
 }
@@ -486,7 +545,6 @@ function RoomDetail({
   onChange: (next: ManagerRoomSubmission) => void;
   onBack: () => void;
 }) {
-  const [openMore, setOpenMore] = useState(false);
   const set = (patch: Partial<ManagerRoomSubmission>) => onChange({ ...room, ...patch });
   const inheritsRent = roomInheritsDefault(room, defaults, "monthlyRent");
   // Suggestions from the rent, shown in the empty fields. They are never written
@@ -511,7 +569,7 @@ function RoomDetail({
         {room.name.trim() || "Room"}
       </h2>
       <p className="mb-5 mt-1.5 text-[13.5px] leading-relaxed text-muted">
-        Only what most managers fill in. Everything else is one click away.
+        Everything this room costs and everything it comes with, on one screen.
       </p>
 
       <Field
@@ -546,12 +604,7 @@ function RoomDetail({
         />
       </Field>
 
-      <MoreOptions
-        label="More options — other rates, short stays, prorated rent, amenities, furniture, inspections"
-        open={openMore}
-        onToggle={() => setOpenMore((v) => !v)}
-        dataAttr="listing-v2-room-more"
-      >
+      <div data-attr="listing-v2-room-more">
         {suggested ? (
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-accent/25 px-4 py-3">
             <p className="min-w-0 text-[12.5px] leading-relaxed text-muted">
@@ -790,11 +843,12 @@ function RoomDetail({
             />
           </Field>
         </div>
-      </MoreOptions>
+      </div>
 
       <button
         type="button"
         onClick={onBack}
+        data-attr="listing-v2-room-back"
         className="mt-5 min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground"
       >
         Back to rooms
@@ -818,13 +872,39 @@ function StepRooms({
   const [openRoomId, setOpenRoomId] = useState<string | null>(null);
   const [copyOpen, setCopyOpen] = useState(false);
   const [openDefaults, setOpenDefaults] = useState(false);
+  /**
+   * Rooms the manager has edited by hand in this session.
+   *
+   * Value comparison alone is not enough to answer "has this room been
+   * edited". While the house default for a field is still unset, EVERY room
+   * reads as following it — a room cannot diverge from a blank — so a room
+   * given its own rent before the top row had one was still swept up the first
+   * time that top row was filled in. This set remembers the act, not the value.
+   */
+  const [touched, setTouched] = useState<Set<string>>(new Set());
+  const markTouched = (id: string) => setTouched((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
   const [copyTargets, setCopyTargets] = useState<Set<string>>(new Set());
   const rooms = sub.rooms ?? [];
   const openRoom = rooms.find((r) => r.id === openRoomId) ?? null;
+  useDetailBack(Boolean(openRoom), () => setOpenRoomId(null));
 
   function writeRooms(next: ManagerRoomSubmission[]) {
     patch({ rooms: next });
   }
+
+  /**
+   * Rooms that have never been edited — the only ones the "most rooms are…"
+   * row is allowed to change.
+   *
+   * The rule is per ROOM, not per field: once a manager has touched a room at
+   * all, that room stops following the defaults for everything, including the
+   * fields they left alone. A manager who set Room 3's rent by hand does not
+   * expect its beds to move underneath them later, and the old per-field rule
+   * did exactly that. "Copy to all rooms" is the way to overwrite an edited
+   * room, and it is a deliberate click rather than a side effect of typing.
+   */
+  const untouchedRoomIds = (against: ListingHouseDefaults) =>
+    roomsFollowingDefaults(rooms, against).filter((id) => !touched.has(id));
 
   function editDefault(field: keyof ListingHouseDefaults, value: ListingHouseDefaults[keyof ListingHouseDefaults]) {
     const previous = defaults;
@@ -832,7 +912,21 @@ function StepRooms({
     setDefaults(next);
     // Inheritance is judged against the PREVIOUS default — see
     // applyHouseDefaultsToRooms. Judging against the new one freezes every room.
-    writeRooms(applyHouseDefaultsToRooms(rooms, next, { onlyFields: [field], previousDefaults: previous }));
+    writeRooms(
+      applyHouseDefaultsToRooms(rooms, next, {
+        onlyFields: [field],
+        previousDefaults: previous,
+        roomIds: untouchedRoomIds(previous),
+      }),
+    );
+  }
+
+  /** The explicit overwrite: every default onto every room, edited ones included. */
+  function copyDefaultsToAllRooms() {
+    writeRooms(applyHouseDefaultsToRooms(rooms, defaults, { roomIds: rooms.map((r) => r.id) }));
+    // Every room now says exactly what the top row says, and the manager just
+    // said they should, so they start following it again.
+    setTouched(new Set());
   }
 
   if (openRoom) {
@@ -841,7 +935,10 @@ function StepRooms({
         room={openRoom}
         defaults={defaults}
         onBack={() => setOpenRoomId(null)}
-        onChange={(next) => writeRooms(rooms.map((r) => (r.id === next.id ? next : r)))}
+        onChange={(next) => {
+          markTouched(next.id);
+          writeRooms(rooms.map((r) => (r.id === next.id ? next : r)));
+        }}
       />
     );
   }
@@ -896,19 +993,23 @@ function StepRooms({
       ),
     });
   };
-  /** The same access on every room — the "most rooms are…" version. */
+  /**
+   * The same access on every room that has not been edited — the "most rooms
+   * are…" version. An edited room keeps whatever its manager chose.
+   */
   const setAccessForAllRooms = (kind: string) => {
     const next = BATHROOM_ACCESS_OPTIONS.some((o) => o.value === kind)
       ? (kind as ManagerBathroomRoomAccessKind)
       : undefined;
     if (baths.length === 0) return;
-    const ids = rooms.map((r) => r.id);
+    const ids = untouchedRoomIds(defaults);
+    if (ids.length === 0) return;
     patch({
       bathrooms: baths.map((b, idx) => {
         const assigned =
           idx === 0 ? Array.from(new Set([...(b.assignedRoomIds ?? []), ...ids])) : b.assignedRoomIds ?? [];
         const kinds = { ...(b.accessKindByRoomId ?? {}) };
-        for (const id of assigned) kinds[id] = next;
+        for (const id of assigned) if (ids.includes(id)) kinds[id] = next;
         return { ...b, assignedRoomIds: assigned, accessKindByRoomId: kinds };
       }),
     });
@@ -936,15 +1037,12 @@ function StepRooms({
           className="grid items-center gap-2 border-b-2 border-primary/25 bg-primary/[0.05] px-3 py-2"
           style={{ gridTemplateColumns: rowTemplate(columns.length) }}
         >
-          <label className="flex h-10 w-6 cursor-pointer items-center justify-center">
-            <input
-              type="checkbox"
-              checked={rooms.length > 0 && selected.size === rooms.length}
-              onChange={(e) => setSelected(e.target.checked ? new Set(rooms.map((r) => r.id)) : new Set())}
-              className="h-4 w-4 rounded border-border"
-              aria-label="Select every room"
-            />
-          </label>
+          {/*
+           * No checkbox here. This row is not a room, so selecting it selected
+           * every room and then offered to duplicate or delete them — an
+           * alarming thing to find under a row that only sets defaults.
+           */}
+          <span aria-hidden className="h-10 w-6" />
           <span className="px-1 text-[13px] font-bold text-foreground">Most rooms are…</span>
           <RowSelectCell
             ariaLabel="Floor for most rooms"
@@ -989,7 +1087,15 @@ function StepRooms({
           >
             Details
           </button>
-          <span />
+          <button
+            type="button"
+            onClick={copyDefaultsToAllRooms}
+            data-attr="listing-v2-copy-defaults"
+            title="Overwrite every room with these settings, including rooms you have already edited"
+            className="justify-self-start whitespace-nowrap rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-[11.5px] font-bold text-primary hover:bg-primary/15"
+          >
+            Copy to all
+          </button>
         </div>
 
         {rooms.map((room, i) => {
@@ -1016,21 +1122,30 @@ function StepRooms({
                 ariaLabel={`Name for room ${i + 1}`}
                 value={room.name}
                 placeholder={`Room ${i + 1}`}
-                onChange={(v) => writeRooms(rooms.map((r) => (r.id === room.id ? { ...r, name: v } : r)))}
+                onChange={(v) => {
+                  markTouched(room.id);
+                  writeRooms(rooms.map((r) => (r.id === room.id ? { ...r, name: v } : r)));
+                }}
               />
               <RowSelectCell
                 ariaLabel={`Floor for ${room.name || `room ${i + 1}`}`}
                 value={room.floor}
                 options={floorOptions}
                 placeholder="Floor…"
-                onChange={(v) => writeRooms(rooms.map((r) => (r.id === room.id ? { ...r, floor: v } : r)))}
+                onChange={(v) => {
+                  markTouched(room.id);
+                  writeRooms(rooms.map((r) => (r.id === room.id ? { ...r, floor: v } : r)));
+                }}
               />
               <RowSelectCell
                 ariaLabel={`Bathroom access for ${room.name || `room ${i + 1}`}`}
                 value={accessForRoom(room.id)}
                 options={BATHROOM_ACCESS_OPTIONS}
                 placeholder="Shared"
-                onChange={(v) => setAccessForRoom(room.id, v)}
+                onChange={(v) => {
+                  markTouched(room.id);
+                  setAccessForRoom(room.id, v);
+                }}
               />
               <RowCell
                 ariaLabel={`Rent for ${room.name || `room ${i + 1}`}`}
@@ -1038,13 +1153,14 @@ function StepRooms({
                 inherited={rentInherited}
                 value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
                 placeholder={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "1,050"}
-                onChange={(v) =>
+                onChange={(v) => {
+                  markTouched(room.id);
                   writeRooms(
                     rooms.map((r) =>
                       r.id === room.id ? { ...r, monthlyRent: Number(v.replace(/[^0-9.]/g, "")) || 0 } : r,
                     ),
-                  )
-                }
+                  );
+                }}
               />
               <RowCell
                 ariaLabel={`Beds in ${room.name || `room ${i + 1}`}`}
@@ -1052,13 +1168,14 @@ function StepRooms({
                 inherited={bedsInherited}
                 value={room.occupancyCapacity ? String(room.occupancyCapacity) : ""}
                 placeholder={String(defaults.occupancyCapacity)}
-                onChange={(v) =>
+                onChange={(v) => {
+                  markTouched(room.id);
                   writeRooms(
                     rooms.map((r) =>
                       r.id === room.id ? { ...r, occupancyCapacity: Number(v.replace(/[^0-9]/g, "")) || 1 } : r,
                     ),
-                  )
-                }
+                  );
+                }}
               />
               <button
                 type="button"
@@ -1265,7 +1382,9 @@ function StepRooms({
         }}
       />
       <p className="mt-3 text-[12px] leading-relaxed text-muted">
-        Dashed grey means the room is using the house default. Type over it to make that room different.
+        Dashed grey means the room is following the top row. Edit a room and it stops following, so changing the top
+        row will not touch it again — use <span className="font-bold text-foreground">Copy to all</span> when you do
+        want to overwrite every room.
       </p>
     </StepColumn>
   );
@@ -1292,7 +1411,7 @@ function BathroomDetail({
         {bath.name.trim() || `Bathroom ${index + 1}`}
       </h2>
       <p className="mb-5 mt-1.5 text-[13.5px] leading-relaxed text-muted">
-        Fixtures, finishes and photos for this bathroom.
+        Everything about this bathroom on one screen, the same as a room.
       </p>
       <Field label="Name" optional>
         <Input
@@ -1317,6 +1436,8 @@ function BathroomDetail({
           onChange={(next) => set({ amenitiesText: next })}
         />
       </Field>
+
+      <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Photos and video</p>
       <Field label="Photos of this bathroom" optional>
         <PhotoStrip
           label="bathroom"
@@ -1330,6 +1451,7 @@ function BathroomDetail({
       <button
         type="button"
         onClick={onBack}
+        data-attr="listing-v2-bath-back"
         className="mt-5 min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground"
       >
         Back to bathrooms
@@ -1343,6 +1465,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
   const [openBathId, setOpenBathId] = useState<string | null>(null);
   const baths = sub.bathrooms ?? [];
   const openBath = baths.find((b) => b.id === openBathId) ?? null;
+  useDetailBack(Boolean(openBath), () => setOpenBathId(null));
   if (openBath) {
     return (
       <BathroomDetail
@@ -1530,6 +1653,7 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
   const [openSpaceId, setOpenSpaceId] = useState<string | null>(null);
   const spaces = sub.sharedSpaces ?? [];
   const openSpace = spaces.find((sp) => sp.id === openSpaceId) ?? null;
+  useDetailBack(Boolean(openSpace), () => setOpenSpaceId(null));
   if (openSpace) {
     return (
       <SharedSpaceDetail
@@ -1615,8 +1739,15 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
 
 /* ─────────────────────── step 4 · rent & fees ─────────────────────── */
 
-function StepMoney({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  const [openMore, setOpenMore] = useState(false);
+/**
+ * The money that belongs to the LISTING rather than to one room: the lease
+ * lengths on offer, the application fee, what is due at signing, late fees.
+ *
+ * A room's own deposit, move-in fee, utilities and prorated rent are NOT here —
+ * they live in that room's Details, next to its rent, because that is the only
+ * place a manager can see one room's whole price at once.
+ */
+function HouseMoneyFields({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const allowed = resolveAllowedLeaseTerms(sub);
   const signing = new Set<PaymentAtSigningOptionId>(sub.paymentAtSigningIncludes ?? []);
 
@@ -1649,14 +1780,7 @@ function StepMoney({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pat
   }
 
   return (
-    <StepColumn>
-      <StepHeading
-        step={4}
-        total={TOTAL_STEPS}
-        name="Rent & fees"
-        title="What a resident pays"
-        subtitle="Rent comes from the Rooms step. This is everything on top of it."
-      />
+    <>
       <Field group label="Lease lengths you offer" required hint="At least one. This is what an applicant chooses from.">
         <ChipRow>
           {LEASE_TERM_CHOICES.filter((t) => t !== CUSTOM_LEASE_TERM).map((term) => (
@@ -1688,12 +1812,7 @@ function StepMoney({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pat
         />
       </Field>
 
-      <MoreOptions
-        label="More options — waiver code, due at signing, late fees, parking, HOA, surcharges, who pays the card fee"
-        open={openMore}
-        onToggle={() => setOpenMore((v) => !v)}
-        dataAttr="listing-v2-money-more"
-      >
+      <div data-attr="listing-v2-money-more">
         <Field
           label="Application fee waive code"
           optional
@@ -1906,24 +2025,21 @@ function StepMoney({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pat
             />
           </Field>
         </FieldRow>
-      </MoreOptions>
-    </StepColumn>
+      </div>
+    </>
   );
 }
 
-/* ─────────────────────── step 5 · photos & words ─────────────────────── */
+/* ───────────────── home · photos and words for the listing ───────────── */
 
-function StepMarketing({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  const [openMore, setOpenMore] = useState(false);
+/**
+ * The listing's own photos and words. A room's photos live in that room's
+ * Details and a bathroom's in its own, so this is only what pictures the home
+ * as a whole.
+ */
+function HouseMarketingFields({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   return (
-    <StepColumn>
-      <StepHeading
-        step={6}
-        total={TOTAL_STEPS}
-        name="Photos & description"
-        title="How it looks and reads"
-        subtitle="Listings with a photo of every room get far more enquiries."
-      />
+    <>
       <Field label="Photos of the whole house" optional hint="Up to 12. Rooms and bathrooms have their own.">
         <PhotoStrip
           label="house"
@@ -2011,12 +2127,7 @@ function StepMarketing({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
         </div>
       </Field>
 
-      <MoreOptions
-        label="More options — ad titles, house rules, move-in instructions, layout note"
-        open={openMore}
-        onToggle={() => setOpenMore((v) => !v)}
-        dataAttr="listing-v2-marketing-more"
-      >
+      <div data-attr="listing-v2-marketing-more">
         <Field
           label="Also listed as"
           optional
@@ -2059,12 +2170,12 @@ function StepMarketing({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
             placeholder="3-story townhouse · 3.5 baths"
           />
         </Field>
-      </MoreOptions>
-    </StepColumn>
+      </div>
+    </>
   );
 }
 
-/* ─────────────────────────── step 6 · review ─────────────────────────── */
+/* ─────────────────────────── step 5 · review ─────────────────────────── */
 
 export type ListingReadiness = { id: string; label: string; state: "done" | "todo" | "warn" };
 
@@ -2109,7 +2220,7 @@ function StepReview({ sub }: { sub: ManagerListingSubmissionV1 }) {
   return (
     <StepColumn wide>
       <StepHeading
-        step={7}
+        step={5}
         total={TOTAL_STEPS}
         name="Review"
         title="Ready to publish"
@@ -2166,6 +2277,12 @@ export function ListingEditorV2({
 }) {
   const [step, setStep] = useState(0);
   const [defaults, setDefaults] = useState<ListingHouseDefaults>(() => houseDefaultsForSubmission(submission));
+  // Set while a room, bathroom or shared space detail is open — see useDetailBack.
+  const [closeDetail, setCloseDetail] = useState<{ run: () => void } | null>(null);
+  const registerDetailBack = useMemo(
+    () => (close: (() => void) | null) => setCloseDetail(close ? { run: close } : null),
+    [],
+  );
   const patch: Patch = (next) => onChange({ ...submission, ...next });
   const last = LISTING_V2_STEPS.length - 1;
   const stepId = LISTING_V2_STEPS[step]!.id;
@@ -2193,10 +2310,6 @@ export function ListingEditorV2({
         return <StepBathrooms sub={submission} patch={patch} />;
       case "spaces":
         return <StepSharedSpaces sub={submission} patch={patch} />;
-      case "money":
-        return <StepMoney sub={submission} patch={patch} />;
-      case "marketing":
-        return <StepMarketing sub={submission} patch={patch} />;
       default:
         return <StepReview sub={submission} />;
     }
@@ -2214,8 +2327,11 @@ export function ListingEditorV2({
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              disabled={step === 0}
-              onClick={() => setStep((s) => Math.max(0, s - 1))}
+              disabled={step === 0 && !closeDetail}
+              onClick={() => {
+                if (closeDetail) closeDetail.run();
+                else setStep((s) => Math.max(0, s - 1));
+              }}
               className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
             >
               Back
@@ -2265,7 +2381,7 @@ export function ListingEditorV2({
         </>
       }
     >
-      {body}
+      <DetailBackContext.Provider value={registerDetailBack}>{body}</DetailBackContext.Provider>
     </WizardModal>
   );
 }
