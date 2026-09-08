@@ -156,8 +156,16 @@ export function StepHeading({
 }
 
 /** Constrains a step body to a single readable column. */
+/**
+ * The body of a step.
+ *
+ * It used to cap at 520px inside a modal more than twice that wide, so most of
+ * the screen was empty and a four-column row of short fields wrapped anyway.
+ * The cap is now generous enough to use the modal and still keep a line of
+ * prose readable; `wide` removes it for the table steps.
+ */
 export function StepColumn({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
-  return <div className={wide ? "max-w-3xl" : "max-w-[520px]"}>{children}</div>;
+  return <div className={wide ? "w-full" : "w-full max-w-[860px]"}>{children}</div>;
 }
 
 /* ─────────────────────────── fields ─────────────────────────── */
@@ -439,6 +447,46 @@ export function ChipToggle({
     >
       {label}
     </button>
+  );
+}
+
+/**
+ * A checkbox with its label and a line of explanation.
+ *
+ * Replaces the pill toggles for anything that is genuinely a yes/no: a pill
+ * that fills in when pressed reads as a button you clicked, not as a box you
+ * ticked, and a manager could not tell "Move-in checklist required" ON from the
+ * same words sitting there unpressed.
+ */
+export function CheckboxOption({
+  label,
+  description,
+  checked,
+  onChange,
+  dataAttr,
+}: {
+  label: string;
+  description?: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  dataAttr?: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2.5 py-1.5">
+      <input
+        type="checkbox"
+        checked={checked}
+        data-attr={dataAttr}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
+      />
+      <span className="min-w-0">
+        <span className="block text-[13px] font-semibold text-foreground">{label}</span>
+        {description ? (
+          <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">{description}</span>
+        ) : null}
+      </span>
+    </label>
   );
 }
 

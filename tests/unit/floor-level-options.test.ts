@@ -3,18 +3,36 @@ import {
   clampFloorLabelToStories,
   floorLevelLabelsFromStories,
   floorLevelSelectOptions,
+  LISTING_STORIES_OPTIONS,
 } from "@/data/manager-listing-presets";
 
 describe("floor/level options derived from the Floors count", () => {
+  it("offers a plain count and nothing else", () => {
+    // Three kinds of answer used to share one list: a phrase ("Single level"),
+    // an open range ("4+ floors") and a shape ("Split level").
+    expect(LISTING_STORIES_OPTIONS.map((o) => o.label)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
+    expect(LISTING_STORIES_OPTIONS.some((o) => o.id === "split")).toBe(false);
+  });
+
   it("derives numbered floors only — no Basement/Loft/Outdoor/Custom", () => {
     expect(floorLevelLabelsFromStories("1")).toEqual(["1st floor"]);
     expect(floorLevelLabelsFromStories("2")).toEqual(["1st floor", "2nd floor"]);
     expect(floorLevelLabelsFromStories("3")).toEqual(["1st floor", "2nd floor", "3rd floor"]);
-    expect(floorLevelLabelsFromStories("4")).toEqual(["1st floor", "2nd floor", "3rd floor", "4th floor or higher"]);
-    // Split level → Lower/Upper (my choice for a split home).
+    // Floors is a plain count now, so every floor is nameable — "4+ floors"
+    // could not say which floor a room was on above the fourth.
+    expect(floorLevelLabelsFromStories("4")).toEqual(["1st floor", "2nd floor", "3rd floor", "4th floor"]);
+    expect(floorLevelLabelsFromStories("6")).toEqual([
+      "1st floor",
+      "2nd floor",
+      "3rd floor",
+      "4th floor",
+      "5th floor",
+      "6th floor",
+    ]);
+    // "split" is no longer OFFERED, but a listing that stored it keeps its levels.
     expect(floorLevelLabelsFromStories("split")).toEqual(["Lower level", "Upper level"]);
     // None of the removed values appears anywhere.
-    for (const id of ["1", "2", "3", "4", "split", undefined]) {
+    for (const id of ["1", "2", "3", "4", "6", "split", undefined]) {
       const labels = floorLevelLabelsFromStories(id).join("|").toLowerCase();
       expect(labels).not.toMatch(/basement|garden|loft|attic|outdoor|custom/);
     }
