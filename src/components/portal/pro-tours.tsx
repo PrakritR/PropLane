@@ -28,7 +28,6 @@ import {
 } from "@/components/portal/portal-notification-preview-modal";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
-import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useScheduledTourReminders } from "@/hooks/use-scheduled-tour-reminders";
@@ -49,6 +48,11 @@ import {
   sortManagerTourPropertyClustersForBucket,
   type ManagerTourRow,
 } from "@/lib/manager-tour-list";
+import {
+  managerTourRowsFromProposals,
+  mergePendingTourRowsWithProposals,
+  type TourProposalListItem,
+} from "@/lib/manager-tour-proposal-rows";
 import {
   DEFAULT_PORTAL_LIST_GROUP_MODE,
   isPropertyClusterList,
@@ -97,6 +101,10 @@ const BULK_BAR_BTN = PORTAL_BULK_BAR_BTN;
 
 function isPendingInquiry(row: ManagerTourRow): boolean {
   return row.bucket === "pending" && row.source === "inquiry";
+}
+
+function isPendingProposal(row: ManagerTourRow): boolean {
+  return row.bucket === "pending" && row.source === "proposal";
 }
 
 function isUpcomingPlanned(row: ManagerTourRow): boolean {
@@ -301,18 +309,40 @@ export function ManagerTours({
     rows: ManagerTourRow[];
     startLocals: Record<string, string>;
   } | null>(null);
+  const [tourProposals, setTourProposals] = useState<TourProposalListItem[]>([]);
+  const [proposalBusy, setProposalBusy] = useState(false);
+
+  const loadTourProposals = useCallback(async () => {
+    if (scopedPropertyId) {
+      setTourProposals([]);
+      return;
+    }
+    try {
+      const res = await fetch("/api/portal-tour-inquiries/proposals", { credentials: "include" });
+      if (res.status === 401) return;
+      const data = (await res.json().catch(() => ({}))) as { proposals?: TourProposalListItem[] };
+      setTourProposals(Array.isArray(data.proposals) ? data.proposals : []);
+    } catch {
+      /* leave the list as-is on a transient failure */
+    }
+  }, [scopedPropertyId]);
 
   const refresh = useCallback(async () => {
     await syncScheduleRecordsFromServer({ force: true });
     void reloadTourReminders();
+    await loadTourProposals();
     setTick((n) => n + 1);
-  }, [reloadTourReminders]);
+  }, [loadTourProposals, reloadTourReminders]);
 
   useEffect(() => {
     if (!authReady || !userId) return;
     void syncPropertyPipelineFromServer().then(() => setPropertyTick((n) => n + 1));
     void refresh();
   }, [authReady, userId, refresh]);
+
+  useEffect(() => {
+    void loadTourProposals();
+  }, [loadTourProposals]);
 
   useEffect(() => {
     const onStorage = () => setTick((n) => n + 1);
@@ -361,10 +391,28 @@ export function ManagerTours({
 
   const counts = useMemo(() => countManagerTourRowsByBucket(allRows), [allRows]);
 
-  const rowsForBucket = useMemo(
-    () => filterManagerTourRows(allRows, bucket, effectivePropertyFilters, ""),
-    [allRows, bucket, effectivePropertyFilters],
-  );
+  const pendingProposalRows = useMemo(() => {
+    if (bucket !== "pending" && !counts.pending) return [];
+    const inquiryRows = allRows.filter((row) => row.bucket === "pending" && row.source === "inquiry");
+    let rows = managerTourRowsFromProposals(tourProposals, inquiryRows);
+    if (effectivePropertyFilters.length > 0) {
+      rows = rows.filter((row) => row.propertyId && effectivePropertyFilters.includes(row.propertyId));
+    }
+    return rows;
+  }, [allRows, tourProposals, effectivePropertyFilters, bucket, counts.pending]);
+
+  const rowsForBucket = useMemo(() => {
+    const filtered = filterManagerTourRows(allRows, bucket, effectivePropertyFilters, "");
+    if (bucket !== "pending" || scopedPropertyId) return filtered;
+    return mergePendingTourRowsWithProposals(filtered, pendingProposalRows);
+  }, [allRows, bucket, effectivePropertyFilters, scopedPropertyId, pendingProposalRows]);
+
+  const displayCounts = useMemo(() => {
+    if (scopedPropertyId || pendingProposalRows.length === 0) return counts;
+    const pendingRows = filterManagerTourRows(allRows, "pending", effectivePropertyFilters, "");
+    const mergedPending = mergePendingTourRowsWithProposals(pendingRows, pendingProposalRows);
+    return { ...counts, pending: mergedPending.length };
+  }, [allRows, counts, effectivePropertyFilters, pendingProposalRows, scopedPropertyId]);
 
   const clusters = useMemo(() => {
     const grouped = clusterManagerTourListRowsByMode(rowsForBucket, groupMode);
@@ -407,10 +455,10 @@ export function ManagerTours({
       TOUR_BUCKET_LABELS.map(({ id, label }) => ({
         id,
         label,
-        count: counts[id],
-        alert: id === "pending" && counts.pending > 0,
+        count: displayCounts[id],
+        alert: id === "pending" && displayCounts.pending > 0,
       })),
-    [counts],
+    [displayCounts],
   );
 
   const filterTouchCount = !scopedPropertyId && propertyFilters.length > 0 ? 1 : 0;
@@ -591,6 +639,47 @@ export function ManagerTours({
       });
     },
     [showToast],
+  );
+
+  const decideTourProposals = useCallback(
+    async (rows: ManagerTourRow[], decision: "approve" | "discard") => {
+      const eligible = rows.filter(isPendingProposal);
+      if (eligible.length === 0 || proposalBusy) return;
+      setProposalBusy(true);
+      try {
+        for (const row of eligible) {
+          const actionId = row.proposalActionId?.trim();
+          if (!actionId) continue;
+          const res = await fetch("/api/portal-tour-inquiries/proposals", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ actionId, decision }),
+          });
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          if (!res.ok) throw new Error(data.error ?? "Could not update tour proposal.");
+        }
+        setSelectedIds(new Set());
+        await refresh();
+        if (tourIdProp) navigate(listHrefForBucket(bucket));
+        const count = eligible.length;
+        showToast(
+          decision === "approve"
+            ? count === 1
+              ? "Tour confirmed and guest notified."
+              : `${count} tours confirmed and guests notified.`
+            : count === 1
+              ? "Tour proposal discarded."
+              : `${count} tour proposals discarded.`,
+        );
+      } catch (error) {
+        showToast(error instanceof Error ? error.message : "Could not update tour proposal.");
+        await loadTourProposals();
+      } finally {
+        setProposalBusy(false);
+      }
+    },
+    [bucket, listHrefForBucket, loadTourProposals, navigate, proposalBusy, refresh, setSelectedIds, showToast, tourIdProp],
   );
 
   const submitNotifyPreview = useCallback(
@@ -942,6 +1031,30 @@ export function ManagerTours({
           </Button>
         </>
       ) : null}
+      {isPendingProposal(detailRow) ? (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            className={`${BULK_BAR_BTN} text-rose-800`}
+            data-attr="tour-detail-proposal-discard"
+            disabled={proposalBusy}
+            onClick={() => decideTourProposals([detailRow], "discard")}
+          >
+            Decline
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            className={BULK_BAR_BTN}
+            data-attr="tour-detail-proposal-approve"
+            disabled={proposalBusy}
+            onClick={() => decideTourProposals([detailRow], "approve")}
+          >
+            Approve
+          </Button>
+        </>
+      ) : null}
       {detailRow.bucket === "upcoming" && detailRow.source === "planned" ? (
         <Button
           type="button"
@@ -964,6 +1077,8 @@ export function ManagerTours({
     !(selectedTourRows.some(isPendingInquiry) && selectedTourRows.some(isUpcomingPlanned));
   const allSelectedPendingInquiry =
     selectedTourRows.length > 0 && selectedTourRows.every(isPendingInquiry);
+  const allSelectedPendingProposal =
+    selectedTourRows.length > 0 && selectedTourRows.every(isPendingProposal);
   const allSelectedUpcomingPlanned =
     selectedTourRows.length > 0 && selectedTourRows.every(isUpcomingPlanned);
 
@@ -1009,6 +1124,30 @@ export function ManagerTours({
               className={BULK_BAR_BTN}
               data-attr="tours-bulk-approve"
               onClick={() => openApprovePreview(selectedTourRows)}
+            >
+              Approve
+            </Button>
+          </>
+        ) : null}
+        {bucket === "pending" && allSelectedPendingProposal ? (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className={BULK_BAR_BTN}
+              data-attr="tours-bulk-proposal-discard"
+              disabled={proposalBusy}
+              onClick={() => decideTourProposals(selectedTourRows, "discard")}
+            >
+              Decline
+            </Button>
+            <Button
+              type="button"
+              variant="primary"
+              className={BULK_BAR_BTN}
+              data-attr="tours-bulk-proposal-approve"
+              disabled={proposalBusy}
+              onClick={() => decideTourProposals(selectedTourRows, "approve")}
             >
               Approve
             </Button>
@@ -1256,8 +1395,6 @@ export function ManagerTours({
         }
         activeFilterChips={activeFilterChips}
       />
-
-      {!scopedPropertyId && bucket === "pending" ? <TourProposalsPanel /> : null}
 
       <PortalRecordListSurface
         isEmpty={authReady && rowsForBucket.length === 0}
