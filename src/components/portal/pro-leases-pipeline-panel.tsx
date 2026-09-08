@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalBulkMessageCarouselModal } from "@/components/portal/portal-bulk-message-carousel-modal";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import { LeasePrimaryHeaderActions } from "@/components/portal/lease-primary-header-actions";
 import {
@@ -112,6 +112,7 @@ export function ManagerLeasesPipelinePanel({
   onAddLease?: () => void;
 }) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const navigate = usePortalNavigate();
   const uploadRef = useRef<HTMLInputElement>(null);
   const uploadTargetRowIdRef = useRef<string | null>(null);
@@ -538,8 +539,8 @@ export function ManagerLeasesPipelinePanel({
     openSendLeasePreview(row);
   };
 
-  const onDeleteLease = (row: LeasePipelineRow) => {
-    if (!window.confirm(`Delete the lease document for ${row.residentName} (${row.unit})? Generate or upload can recreate it.`)) return;
+  const onDeleteLease = async (row: LeasePipelineRow) => {
+    if (!(await confirm({ description: `Delete the lease document for ${row.residentName} (${row.unit})? Generate or upload can recreate it.` }))) return;
     if (deleteLeasePipelineRow(row.id, managerUserId)) {
       showToast("Lease document deleted.");
     } else showToast("Could not delete lease.");

@@ -25,6 +25,13 @@ vi.mock("@/hooks/use-manager-user-id", () => ({
 }));
 const showToast = vi.fn();
 vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => (req: { description?: unknown }) =>
+    Promise.resolve(
+      typeof window === "undefined"
+        ? true
+        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+    ),
+
   useAppUi: () => ({ showToast }),
 }));
 vi.mock("@/lib/analytics/track-client", () => ({ track: vi.fn() }));

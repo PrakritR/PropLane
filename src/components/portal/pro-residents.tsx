@@ -21,7 +21,7 @@ import {
   PORTAL_MODAL_FORM_GRID_CLASS,
 } from "@/components/ui/modal";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import {
   ManagerPortalPageShell,
 } from "@/components/portal/portal-metrics";
@@ -382,6 +382,7 @@ export function ManagerResidents({
   smsUiEnabled?: boolean;
 }) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const navigate = usePortalNavigate();
   const searchParams = useSearchParams();
   const portalBase = usePaidPortalBasePath();
@@ -2038,7 +2039,7 @@ export function ManagerResidents({
   };
 
   const deleteApplicationForRow = async (row: DemoApplicantRow) => {
-    if (!window.confirm(`Delete the application for ${row.name || row.email}? This cannot be undone.`)) return;
+    if (!(await confirm({ description: `Delete the application for ${row.name || row.email}? This cannot be undone.` }))) return;
     const nextRows = readManagerApplicationRows().filter((candidate) => candidate.id !== row.id);
     writeManagerApplicationRows(nextRows);
     setHcTick((n) => n + 1);
@@ -2867,7 +2868,7 @@ export function ManagerResidents({
       return;
     }
     const label = resident.name || resident.email || "this resident";
-    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+    if (!(await confirm({ description: `Delete ${label}? This cannot be undone.` }))) return;
     if (!(await executeResidentDelete(resident))) return;
     setEditResidentOpen(false);
     setEditResidentTargetId(null);
@@ -3136,11 +3137,12 @@ export function ManagerResidents({
         onUploadPdf={async (file) => uploadLeaseForSelectedResident(file, residentLease.id)}
         deleteLabel="Delete lease"
         deleteDataAttr="resident-lease-delete"
-        onDelete={() => {
+        onDelete={async () => {
           if (
-            !window.confirm(
-              `Delete the lease document for ${selected.name}? Generate or upload can recreate it.`,
-            )
+            !(await confirm({
+              description: `Delete the lease document for ${selected.name}?`,
+              note: "Generate or upload can recreate it.",
+            }))
           ) {
             return;
           }

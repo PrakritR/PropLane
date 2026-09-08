@@ -24,7 +24,7 @@ import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Badge } from "@/components/ui/badge";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { track } from "@/lib/analytics/track-client";
 import {
@@ -171,6 +171,7 @@ export function ManagerPromotion({
   assetId?: string;
 } = {}) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const navigate = usePortalNavigate();
   const { userId, email: managerEmail, ready: authReady } = useManagerUserId();
   const searchParams = useSearchParams();
@@ -699,9 +700,9 @@ export function ManagerPromotion({
     showToast("Promotion deleted.");
   }
 
-  function handleDeleteAsset(asset: PromotionAsset) {
+  async function handleDeleteAsset(asset: PromotionAsset) {
     const title = asset.flyerEntry?.title ?? asset.textEntry?.title ?? asset.uploadEntry?.title ?? "Promotion";
-    if (!window.confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    if (!(await confirm({ description: `Delete "${title}"? This cannot be undone.` }))) return;
     if (previewAssetId === asset.id) closePreview();
     if (textModalAssetId === asset.id) closeForm();
     if (editingEntryId && promotionEntryId(asset) === editingEntryId) closeForm();
@@ -1005,7 +1006,7 @@ export function ManagerPromotion({
               variant="outline"
               className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
               data-attr="promotion-bulk-delete"
-              onClick={() => {
+              onClick={async () => {
                 if (selectedAssets.length === 0) return;
                 const label =
                   selectedAssets.length === 1
@@ -1013,7 +1014,7 @@ export function ManagerPromotion({
                       selectedAssets[0]!.textEntry?.title ??
                       "this promotion"
                     : `${selectedAssets.length} promotions`;
-                if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+                if (!(await confirm({ description: `Delete ${label}? This cannot be undone.` }))) return;
                 for (const asset of selectedAssets) deleteAsset(asset);
                 clearSelection();
                 setTick((n) => n + 1);

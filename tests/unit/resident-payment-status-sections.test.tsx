@@ -10,7 +10,14 @@ import type { DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
 
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => vi.fn() }));
-vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: vi.fn() }) }));
+vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => (req: { description?: unknown }) =>
+    Promise.resolve(
+      typeof window === "undefined"
+        ? true
+        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+    ),
+ useAppUi: () => ({ showToast: vi.fn() }) }));
 vi.mock("@/hooks/use-manager-user-id", () => ({ useManagerUserId: () => "mgr-test" }));
 vi.mock("@/lib/portal-base-path-client", () => ({ usePaidPortalBasePath: () => "/portal" }));
 vi.mock("@/components/portal/payment-schedule-ui", async (importOriginal) => {

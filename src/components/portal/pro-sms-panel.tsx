@@ -13,7 +13,7 @@ import {
 import { ChevronLeft, Pencil, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { ManagerSmsComposeModal } from "@/components/portal/pro-sms-compose-modal";
 import {
   PortalContactDetailsModal,
@@ -214,6 +214,7 @@ export const ManagerSmsPanel = forwardRef<
   ref,
 ) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const [data, setData] = useState<ManagerSmsConversationsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -512,9 +513,10 @@ export const ManagerSmsPanel = forwardRef<
       const roleLabel = resident.counterpartyRole
         ? `${counterpartyRoleLabel(resident.counterpartyRole).toLowerCase()} conversation`
         : "conversation";
-      const ok = window.confirm(
-        `Delete the ${roleLabel} with ${resident.name}?\n\nThis removes only this thread's texts from Messages on this account.`,
-      );
+      const ok = await confirm({
+        description: `Delete the ${roleLabel} with ${resident.name}?`,
+        note: "This removes only this thread's texts from Messages on this account.",
+      });
       if (!ok) return;
       setDeletingId(rowId);
       try {
@@ -559,7 +561,7 @@ export const ManagerSmsPanel = forwardRef<
     async (resident: ManagerSmsResidentConversation) => {
       const conversationKey = resident.conversationKey?.trim();
       if (!conversationKey) return;
-      if (!window.confirm(`Remove ${smsConversationDisplayName(resident)} from contacts?`)) return;
+      if (!(await confirm({ description: `Remove ${smsConversationDisplayName(resident)} from contacts?` }))) return;
       setDeletingId(conversationId(resident));
       try {
         const res = await fetch("/api/manager/sms-contacts", {

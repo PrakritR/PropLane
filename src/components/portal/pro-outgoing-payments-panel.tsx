@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import {
   ApplicationHouseholdCluster,
   PortalListClusterSelectCheckbox,
@@ -73,6 +73,7 @@ export function ManagerOutgoingPaymentsPanel({
   groupMode?: PortalListGroupMode;
 }) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const navigate = usePortalNavigate();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [payModalRowId, setPayModalRowId] = useState<string | null>(null);
@@ -255,7 +256,7 @@ export function ManagerOutgoingPaymentsPanel({
       showToast("Work-order expenses are managed from Services.");
       return false;
     }
-    if (options?.confirm !== false && !window.confirm(`Delete "${row.chargeTitle}"?`)) return false;
+    if (options?.confirm !== false && !(await confirm({ description: `Delete "${row.chargeTitle}"?` }))) return false;
 
     if (isDemoModeActive()) {
       if (!deleteManagerOutgoingExpense(row.expenseEntryId)) {
@@ -299,7 +300,7 @@ export function ManagerOutgoingPaymentsPanel({
     const targets = selectedRows.filter(canDeleteExpense);
     if (targets.length === 0) return;
     const noun = targets.length === 1 ? "payment" : `${targets.length} payments`;
-    if (!window.confirm(`Delete ${noun}?`)) return;
+    if (!(await confirm({ description: `Delete ${noun}?` }))) return;
     let ok = 0;
     for (const row of targets) {
       if (await deleteExpense(row, { confirm: false, navigateAfter: false })) ok += 1;

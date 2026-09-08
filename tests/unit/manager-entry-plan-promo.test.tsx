@@ -15,7 +15,14 @@ vi.mock("@/components/auth/manager-plan-tier-cards", () => ({
   ManagerPlanTierCards: () => <div>Plan cards</div>,
 }));
 vi.mock("@/components/stripe/embedded-checkout", () => ({ EmbeddedCheckoutMount: () => null }));
-vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast }) }));
+vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => (req: { description?: unknown }) =>
+    Promise.resolve(
+      typeof window === "undefined"
+        ? true
+        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+    ),
+ useAppUi: () => ({ showToast }) }));
 vi.mock("@/lib/analytics/track-client", () => ({ track: vi.fn() }));
 vi.mock("@/lib/site-content", () => ({ loadManagerPlanTiers: () => Promise.reject(new Error("offline")) }));
 

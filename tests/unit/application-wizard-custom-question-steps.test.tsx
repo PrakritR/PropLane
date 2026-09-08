@@ -12,6 +12,13 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { RENTAL_APPLICATION_SECTIONS } from "@/lib/rental-application/application-sections";
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => (req: { description?: unknown }) =>
+    Promise.resolve(
+      typeof window === "undefined"
+        ? true
+        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+    ),
+
   useAppUi: () => ({ showToast: () => {} }),
 }));
 

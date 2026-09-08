@@ -41,6 +41,7 @@ import {
   type PropertyLeaseSource,
 } from "@/lib/property-lease-source";
 import { parseUploadedLeasePdf } from "@/lib/lease-template-parse.client";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 
 function validateLeaseDraft(draft: LeaseConfigDraft, mode: PropertyLeaseDocumentMode): string | null {
   if (mode !== "upload") return null;
@@ -325,9 +326,11 @@ export function PropertyLeaseFormModal({
     void commitSave();
   };
 
-  const handleDelete = () => {
+  const confirm = useConfirm();
+
+  const handleDelete = async () => {
     if (!canDelete || !onDelete) return;
-    if (!window.confirm("Delete this lease? This cannot be undone.")) return;
+    if (!(await confirm({ description: "Delete this lease?" }))) return;
     onDelete();
     dismiss();
   };

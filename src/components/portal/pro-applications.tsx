@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
   ManagerPortalPageShell,
@@ -266,6 +266,7 @@ export function ApplicationPdfDownloadButton({
   className?: string;
 }) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   return (
     <Button
       type="button"
@@ -521,6 +522,7 @@ export function ManagerApplications({
   applicationDetailTab?: ApplicationDetailTabId;
 }) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const { userId, ready: authReady } = useManagerUserId();
   const applicationAutomation = useApplicationAutomation(userId);
   // Guards a single auto-approve pass per mount, so a re-render cannot fire a second one.
@@ -1181,7 +1183,7 @@ export function ManagerApplications({
       ids.length === 1
         ? applicantDisplayName(rows.find((row) => row.id === ids[0])!) || "this application"
         : `${ids.length} applications`;
-    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+    if (!(await confirm({ description: `Delete ${label}? This cannot be undone.` }))) return;
 
     let deleted = 0;
     for (const id of ids) {

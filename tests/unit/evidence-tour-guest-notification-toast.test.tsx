@@ -31,6 +31,13 @@ let CANCEL_RESULT: ChangeResult = { ok: true };
 const toasts: string[] = [];
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => (req: { description?: unknown }) =>
+    Promise.resolve(
+      typeof window === "undefined"
+        ? true
+        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+    ),
+
   useAppUi: () => ({ showToast: (message: string) => void toasts.push(message) }),
 }));
 vi.mock("next/navigation", () => ({

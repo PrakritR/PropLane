@@ -6,7 +6,7 @@ import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Select, Textarea } from "@/components/ui/input";
 import { PromotionAiDraftPhotoPicker } from "@/components/portal/promotion-ai-draft-card";
 import { PromotionPropertyPicker } from "@/components/portal/promotion-form";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import type { ManagerPromotionPropertyOption } from "@/lib/manager-property-links";
 import {
   PROMOTION_TEXT_FORMAT_DEFAULT,
@@ -69,6 +69,7 @@ export const PromotionTextComposer = forwardRef(function PromotionTextComposer(
   ref: React.Ref<PromotionTextComposerHandle>,
 ) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const baseFormat = initialFormat ?? PROMOTION_TEXT_FORMAT_DEFAULT;
   const baseTone = initialTone?.trim() || PROMOTION_TONE_OPTIONS[0]!;
   const [format, setFormat] = useState<PromotionTextFormat>(baseFormat);
@@ -231,10 +232,11 @@ export function PromotionTextGenerateModal({
   onDelete?: () => void;
 }) {
   const textComposerRef = useRef<PromotionTextComposerHandle>(null);
+  const confirm = useConfirm();
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!canDelete || !onDelete) return;
-    if (!window.confirm("Delete this promotion text? This cannot be undone.")) return;
+    if (!(await confirm({ description: "Delete this promotion text? This cannot be undone." }))) return;
     onDelete();
   };
 
