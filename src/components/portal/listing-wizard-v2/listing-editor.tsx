@@ -112,6 +112,7 @@ export const LISTING_V2_STEPS = [
   { id: "rooms", label: "Rooms" },
   { id: "bathrooms", label: "Bathrooms" },
   { id: "spaces", label: "Shared spaces" },
+  { id: "advanced", label: "Advanced" },
   { id: "review", label: "Review" },
 ] as const;
 
@@ -350,9 +351,6 @@ function VideoSlot({
 function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
   const roomCount = sub.rooms?.length || sub.listingBedroomSlots || 1;
-  const [openAdvanced, setOpenAdvanced] = useState(false);
-  const [openGroup, setOpenGroup] = useState<string | null>(null);
-  const toggleGroup = (id: string) => setOpenGroup((prev) => (prev === id ? null : id));
   return (
     <StepColumn>
       <StepHeading
@@ -360,14 +358,13 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
         total={TOTAL_STEPS}
         name="Home"
         title="The home itself"
-        subtitle="Where it is, what it is, and how it is laid out."
+        subtitle="Where it is, what it is, and how it reads to a renter."
       />
 
       {/*
        * How you rent it comes FIRST because it changes every screen after it —
        * whether rent is per room or set once, and whether the Rooms step is
-       * about bedrooms or about one household. Burying it under "More options"
-       * put the most consequential answer in the least prominent place.
+       * about bedrooms or about one household.
        */}
       <Field
         group
@@ -406,7 +403,7 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
           }
         />
       </Field>
-      <FieldRow cols={3}>
+      <FieldRow cols={4}>
         <Field label="City" required>
           <Input value={sub.city} onChange={(e) => patch({ city: e.target.value })} />
         </Field>
@@ -416,9 +413,12 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
         <Field label="ZIP" required>
           <Input value={sub.zip} onChange={(e) => patch({ zip: e.target.value })} />
         </Field>
+        <Field label="Neighborhood" optional>
+          <Input value={sub.neighborhood} onChange={(e) => patch({ neighborhood: e.target.value })} />
+        </Field>
       </FieldRow>
 
-      <FieldRow cols={2}>
+      <FieldRow cols={4}>
         <Field label="Property type" required>
           <Select
             value={sub.listingPropertyTypeId ?? ""}
@@ -442,10 +442,7 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
             ))}
           </Select>
         </Field>
-      </FieldRow>
-
-      <FieldRow cols={2}>
-        <Field label="Bathrooms" required hint="Total in the home, including half baths.">
+        <Field label="Bathrooms" required hint="Including half baths.">
           <Select
             value={sub.listingTotalBathroomsId ?? ""}
             onChange={(e) => patch({ listingTotalBathroomsId: e.target.value })}
@@ -458,11 +455,7 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
             ))}
           </Select>
         </Field>
-        <Field
-          label={rentByRoom ? "Bedrooms you are renting out" : "Bedrooms"}
-          required
-          hint="Creates a row per room on the next step."
-        >
+        <Field label={rentByRoom ? "Bedrooms to rent" : "Bedrooms"} required hint="One row per room next.">
           <Select
             value={String(roomCount)}
             onChange={(e) => {
@@ -482,44 +475,29 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
         </Field>
       </FieldRow>
 
-      <Field label="Layout note" optional hint="Anything the floor and bathroom counts do not capture.">
+      {/*
+       * The headline and description come straight after the address, not at
+       * the bottom under a fold. They are what a renter actually reads, and
+       * they used to sit below a "listing name" field that asked the same
+       * question in duller words.
+       */}
+      <Field label="Headline" optional hint="The title renters see. Leave blank to use the address.">
         <Input
-          value={sub.homeStructureNote}
-          onChange={(e) => patch({ homeStructureNote: e.target.value })}
-          placeholder="3-story townhouse · 3.5 baths"
+          value={sub.tagline}
+          onChange={(e) => patch({ tagline: e.target.value })}
+          placeholder="Spacious 3-bedroom house near UW"
         />
       </Field>
-      <FieldRow cols={2}>
-        <Field label="Listing name" optional hint="The title renters see. Leave blank to use the address.">
-          <Input
-            value={sub.buildingName}
-            onChange={(e) => patch({ buildingName: e.target.value })}
-            placeholder={sub.address || "4709A 8th Ave NE"}
-          />
-        </Field>
-        <Field label="Neighborhood" optional>
-          <Input value={sub.neighborhood} onChange={(e) => patch({ neighborhood: e.target.value })} />
-        </Field>
-      </FieldRow>
-      <Field group label="Pets">
-        <ChipRow>
-          <ChipToggle
-            label={sub.petFriendly ? "Pets allowed, subject to approval" : "No pets"}
-            on={Boolean(sub.petFriendly)}
-            onToggle={() => patch({ petFriendly: !sub.petFriendly })}
-            dataAttr="listing-v2-pets"
-          />
-        </ChipRow>
+      <Field label="Description" optional>
+        <Textarea
+          rows={4}
+          value={sub.houseOverview}
+          onChange={(e) => patch({ houseOverview: e.target.value })}
+          placeholder="Describe the home and who it suits…"
+        />
       </Field>
 
-      {/*
-       * Photos and the description are NOT behind Advanced. A listing with no
-       * photo of the home is the single biggest reason an enquiry never
-       * arrives, so the field a manager should not be able to miss is on the
-       * page. Tagline and description sit together under one heading because
-       * they are one piece of writing, not two settings.
-       */}
-      <p className="mb-3 mt-7 text-[13px] font-bold text-foreground">Photos and description</p>
+      <p className="mb-3 mt-6 text-[13px] font-bold text-foreground">Photos</p>
       <Field label="Photos of the whole house" optional hint="Up to 12. Rooms and bathrooms have their own.">
         <PhotoStrip
           label="house"
@@ -531,107 +509,31 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
       <Field label="Video of the whole house" optional>
         <VideoSlot label="house" url={sub.houseVideoDataUrl} onChange={(next) => patch({ houseVideoDataUrl: next })} />
       </Field>
-      <div className="rounded-xl border border-border bg-card p-4">
-        <Field label="Headline" optional hint="One line at the top of the listing.">
-          <Input
-            value={sub.tagline}
-            onChange={(e) => patch({ tagline: e.target.value })}
-            placeholder="Spacious 10-bedroom townhouse near UW"
-          />
-        </Field>
-        <Field label="Description" optional>
-          <Textarea
-            rows={5}
-            value={sub.houseOverview}
-            onChange={(e) => patch({ houseOverview: e.target.value })}
-            placeholder="Describe the home and who it suits…"
-          />
-        </Field>
-        <Field label="Anything else worth saying" optional hint="Nicknames, landmarks, what makes it special.">
-          <Textarea
-            rows={2}
-            value={sub.marketingNotes ?? ""}
-            onChange={(e) => patch({ marketingNotes: e.target.value })}
-          />
-        </Field>
-      </div>
 
-      {/*
-       * One Advanced panel, not two "More options" cards. Everything in it is
-       * about the PROPERTY: if a value could differ between two rooms it lives
-       * on the room, so a manager never has to wonder which of two screens owns
-       * the deposit.
-       */}
-      <AdvancedPanel
-        summary="Lease terms · Payments · Media · Move-in · Applications · The building · Compliance"
-        open={openAdvanced}
-        onToggle={() => setOpenAdvanced((v) => !v)}
-        dataAttr="listing-v2-house-advanced"
-      >
-        <AdvancedGroup
-          title="Lease terms"
-          description="Types this home is let on · your own lease template · break-lease, holdover, deposit handling, quiet hours, guests, venue"
-          open={openGroup === "lease"}
-          onToggle={() => toggleGroup("lease")}
-          dataAttr="listing-v2-house-lease"
-        >
-          <HouseLeaseTermsGroup sub={sub} patch={patch} />
-        </AdvancedGroup>
-        <AdvancedGroup
-          title="Payments"
-          description="Application fee and its waiver code · due at signing · rent day and late fees · card, Zelle, Venmo and ACH · extra charges"
-          open={openGroup === "payments"}
-          onToggle={() => toggleGroup("payments")}
-          dataAttr="listing-v2-house-payments"
-        >
-          <HousePaymentsGroup sub={sub} patch={patch} />
-        </AdvancedGroup>
-        <AdvancedGroup
-          title="Media"
-          description="Floor plan for the property"
-          open={openGroup === "media"}
-          onToggle={() => toggleGroup("media")}
-          dataAttr="listing-v2-house-media"
-        >
-          <HouseMediaGroup sub={sub} patch={patch} />
-        </AdvancedGroup>
-        <AdvancedGroup
-          title="Move-in"
-          description="When the home is available · wifi · entry photos and arrival clip · instructions"
-          open={openGroup === "movein"}
-          onToggle={() => toggleGroup("movein")}
-          dataAttr="listing-v2-house-movein"
-        >
-          <HouseMoveInGroup sub={sub} patch={patch} />
-        </AdvancedGroup>
-        <AdvancedGroup
-          title="Applications"
-          description="Applying to several of your homes at once, and whether the fee is charged once"
-          open={openGroup === "applications"}
-          onToggle={() => toggleGroup("applications")}
-          dataAttr="listing-v2-house-applications"
-        >
-          <HouseApplicationsGroup sub={sub} patch={patch} />
-        </AdvancedGroup>
-        <AdvancedGroup
-          title="The building"
-          description="Year built · utility metering · pest service · house rules · quick facts"
-          open={openGroup === "building"}
-          onToggle={() => toggleGroup("building")}
-          dataAttr="listing-v2-house-building"
-        >
-          <HouseBuildingGroup sub={sub} patch={patch} />
-        </AdvancedGroup>
-        <AdvancedGroup
-          title="Local compliance"
-          description="Certificate of occupancy · RRIO registration"
-          open={openGroup === "compliance"}
-          onToggle={() => toggleGroup("compliance")}
-          dataAttr="listing-v2-house-compliance"
-        >
-          <HouseComplianceGroup sub={sub} patch={patch} />
-        </AdvancedGroup>
-      </AdvancedPanel>
+      <p className="mb-3 mt-6 text-[13px] font-bold text-foreground">Amenities</p>
+      <Field label="What the whole house has" hint="Rooms have their own list; this is what everyone shares.">
+        <AmenityChips
+          presets={HOUSE_WIDE_AMENITY_PRESETS}
+          value={sub.amenitiesText}
+          onChange={(next) => patch({ amenitiesText: next })}
+        />
+      </Field>
+      <Field group label="Pets" hint="Shown on the listing, and it is the first thing a renter with a dog looks for.">
+        <ChipRow>
+          <ChipToggle
+            label="Pets allowed"
+            on={Boolean(sub.petFriendly)}
+            dataAttr="listing-v2-pets"
+            onToggle={() => patch({ petFriendly: true })}
+          />
+          <ChipToggle
+            label="No pets"
+            on={!sub.petFriendly}
+            dataAttr="listing-v2-no-pets"
+            onToggle={() => patch({ petFriendly: false })}
+          />
+        </ChipRow>
+      </Field>
     </StepColumn>
   );
 }
@@ -2617,6 +2519,23 @@ function HouseBuildingGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
   return (
     <>
       <FieldRow cols={2}>
+        <Field label="Listing name" optional hint="Only if the home has a name of its own. The headline is on Home.">
+          <Input
+            value={sub.buildingName}
+            placeholder={sub.address || "Magnolia House"}
+            onChange={(e) => patch({ buildingName: e.target.value })}
+          />
+        </Field>
+        <Field label="Floor plan" optional>
+          <PhotoStrip
+            label="floor plan"
+            max={1}
+            urls={sub.propertyFloorPlanDataUrl ? [sub.propertyFloorPlanDataUrl] : []}
+            onChange={(next) => patch({ propertyFloorPlanDataUrl: next[0] ?? null })}
+          />
+        </Field>
+      </FieldRow>
+      <FieldRow cols={2}>
         <Field label="Year built" optional>
           <Input
             value={sub.yearBuilt ? String(sub.yearBuilt) : ""}
@@ -2646,13 +2565,6 @@ function HouseBuildingGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
             onToggle={() => patch({ hasPeriodicPestService: !sub.hasPeriodicPestService })}
           />
         </ChipRow>
-      </Field>
-      <Field label="Amenities in the whole house">
-        <AmenityChips
-          presets={HOUSE_WIDE_AMENITY_PRESETS}
-          value={sub.amenitiesText}
-          onChange={(next) => patch({ amenitiesText: next })}
-        />
       </Field>
       <Field
         label="Also listed as"
@@ -2739,6 +2651,89 @@ function HouseComplianceGroup({ sub, patch }: { sub: ManagerListingSubmissionV1;
   );
 }
 
+/* ─────────────────────── step 5 · advanced ─────────────────────── */
+
+/**
+ * Advanced is its own step now, not a panel hanging off Home.
+ *
+ * Everything in it is about the PROPERTY, and only the property: rooms carry
+ * their own rent, deposit, utilities and prorated rent, so anything that can
+ * differ between two rooms is not here. What is left is the paperwork a home
+ * has once — how it is let, how money reaches you, what the building is, and
+ * what your city requires.
+ */
+function StepAdvanced({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  const [openGroup, setOpenGroup] = useState<string | null>("lease");
+  const toggleGroup = (id: string) => setOpenGroup((prev) => (prev === id ? null : id));
+  return (
+    <StepColumn>
+      <StepHeading
+        step={5}
+        total={TOTAL_STEPS}
+        name="Advanced"
+        title="The paperwork"
+        subtitle="Set once for the whole property. Rent and deposits live on the rooms."
+      />
+      <div className="overflow-hidden rounded-2xl border border-border">
+        <AdvancedGroup
+          title="Lease terms"
+          description="Types this home is let on · your own lease template · break-lease, holdover, deposit handling, quiet hours, guests, venue"
+          open={openGroup === "lease"}
+          onToggle={() => toggleGroup("lease")}
+          dataAttr="listing-v2-house-lease"
+        >
+          <HouseLeaseTermsGroup sub={sub} patch={patch} />
+        </AdvancedGroup>
+        <AdvancedGroup
+          title="Payments"
+          description="Application fee and its waiver code · due at signing · rent day and late fees · card, Zelle, Venmo and ACH · extra charges"
+          open={openGroup === "payments"}
+          onToggle={() => toggleGroup("payments")}
+          dataAttr="listing-v2-house-payments"
+        >
+          <HousePaymentsGroup sub={sub} patch={patch} />
+        </AdvancedGroup>
+        <AdvancedGroup
+          title="Move-in"
+          description="When the home is available · wifi · entry photos and arrival clip · instructions"
+          open={openGroup === "movein"}
+          onToggle={() => toggleGroup("movein")}
+          dataAttr="listing-v2-house-movein"
+        >
+          <HouseMoveInGroup sub={sub} patch={patch} />
+        </AdvancedGroup>
+        <AdvancedGroup
+          title="Applications"
+          description="Applying to several of your homes at once, and whether the fee is charged once"
+          open={openGroup === "applications"}
+          onToggle={() => toggleGroup("applications")}
+          dataAttr="listing-v2-house-applications"
+        >
+          <HouseApplicationsGroup sub={sub} patch={patch} />
+        </AdvancedGroup>
+        <AdvancedGroup
+          title="The building"
+          description="Listing name · year built · floor plan · utility metering · pest service · house rules · quick facts"
+          open={openGroup === "building"}
+          onToggle={() => toggleGroup("building")}
+          dataAttr="listing-v2-house-building"
+        >
+          <HouseBuildingGroup sub={sub} patch={patch} />
+        </AdvancedGroup>
+        <AdvancedGroup
+          title="Local compliance"
+          description="Certificate of occupancy · RRIO registration"
+          open={openGroup === "compliance"}
+          onToggle={() => toggleGroup("compliance")}
+          dataAttr="listing-v2-house-compliance"
+        >
+          <HouseComplianceGroup sub={sub} patch={patch} />
+        </AdvancedGroup>
+      </div>
+    </StepColumn>
+  );
+}
+
 /* ─────────────────────────── step 5 · review ─────────────────────────── */
 
 export type ListingReadiness = { id: string; label: string; state: "done" | "todo" | "warn" };
@@ -2784,7 +2779,7 @@ function StepReview({ sub }: { sub: ManagerListingSubmissionV1 }) {
   return (
     <StepColumn wide>
       <StepHeading
-        step={5}
+        step={6}
         total={TOTAL_STEPS}
         name="Review"
         title="Ready to publish"
@@ -2874,6 +2869,8 @@ export function ListingEditorV2({
         return <StepBathrooms sub={submission} patch={patch} />;
       case "spaces":
         return <StepSharedSpaces sub={submission} patch={patch} />;
+      case "advanced":
+        return <StepAdvanced sub={submission} patch={patch} />;
       default:
         return <StepReview sub={submission} />;
     }
