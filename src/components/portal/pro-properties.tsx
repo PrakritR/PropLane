@@ -424,7 +424,19 @@ export function ManagerProperties({
               setResumeDraftId(null);
             }}
             onSaved={() => refreshPending()}
-            onPublished={() => refreshPending()}
+            onPublished={(listingId) => {
+              setWizardOpen(false);
+              setResumeDraftId(null);
+              showToast("Listing submitted and published.");
+              // Identical to the previous wizard's path — open the listing the
+              // manager just made rather than leaving them on a stage that no
+              // longer holds the row (PRP-429).
+              void refreshPending().then(() => {
+                const id = listingId?.trim();
+                if (!id) return;
+                router.push(propertyDetailHref(basePath, "listed", id, "preview"), { scroll: false });
+              });
+            }}
             initialSubmission={resumeDraftRow?.submission ?? null}
             initialDraftId={resumeDraftId}
             showToast={showToast}

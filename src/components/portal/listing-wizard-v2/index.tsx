@@ -66,7 +66,15 @@ export function ListingWizardV2({
   onClose: () => void;
   /** Called once the draft is safely on the server. */
   onSaved?: (sub: ManagerListingSubmissionV1) => void;
-  onPublished?: (sub: ManagerListingSubmissionV1) => void;
+  /**
+   * Receives the PUBLISHED LISTING ID, not the submission.
+   *
+   * The caller navigates to the listing the manager just made; handing back the
+   * submission instead left them on whichever stage they started from, which
+   * after publishing a draft is the Drafts tab that no longer holds the row —
+   * so finishing the wizard was rewarded with an empty list (PRP-429).
+   */
+  onPublished?: (listingId: string) => void;
   initialSubmission?: ManagerListingSubmissionV1 | null;
   initialDraftId?: string | null;
   showToast?: (message: string) => void;
@@ -120,9 +128,7 @@ export function ListingWizardV2({
           showToast?.(result.message);
           return;
         }
-        onPublished?.(submission);
-        showToast?.("Listing published.");
-        onClose();
+        onPublished?.(result.id);
       }}
     />
   );
