@@ -59,6 +59,7 @@ vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () =
 /** Minimal chainable Supabase stub covering exactly the tables/filters this route touches. */
 function makeDb() {
   return {
+    storage: { from: () => ({ list: async () => ({ data: [], error: null }), remove: async () => ({ error: null }) }) },
     from(table: string) {
       const filters: { eqCol: string | null; eqVal: string | null; inCol: string | null; inVals: string[] | null } = {
         eqCol: null,

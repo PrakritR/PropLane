@@ -78,10 +78,10 @@ export async function revokeResidentAccessForManager(
   if (!email) return { ok: false, status: 400, error: "Email is required." };
 
   if (!actor.isAdmin) {
-    const related = await managerOwnsResident(db, actor.userId, { email });
-    if (!related) {
-      return { ok: false, status: 403, error: "Forbidden: resident is not in your portfolio." };
-    }
+    return {
+      ok: false, status: 403,
+      error: "Resident logins belong to the resident. Remove the specific application from your portfolio instead; their login and financial history remain.",
+    };
   }
 
   const targetUserId = await findAuthUserIdByEmail(db, email);

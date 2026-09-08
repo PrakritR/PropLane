@@ -9,6 +9,7 @@ export const CO_MANAGER_SCOPED_TOOLS = new Set([
   "get_overdue_charges", "list_charges", "list_leases", "list_work_orders",
   "list_vendors", "list_residents", "list_applications", "get_application_details",
   "list_properties", "get_property_details", "list_service_requests",
+  "list_sms_conversations", "reply_to_sms_conversation",
   "list_inbox_threads", "get_thread_messages", "send_message", "reply_to_thread",
 ]);
 

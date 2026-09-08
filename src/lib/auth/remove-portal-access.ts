@@ -40,11 +40,12 @@ export async function removePortalAccess(
   const legacyRole = String(profileRow?.role ?? "").toLowerCase();
   if (legacyRole && !currentRoles.includes(legacyRole)) currentRoles.push(legacyRole);
 
-  if (!currentRoles.includes(roleToRemove)) {
+  const removedRoles = roleToRemove === "manager" ? ["manager", "owner", "pro"] : [roleToRemove];
+  if (!currentRoles.some(role => removedRoles.includes(role))) {
     return { ok: true as const, mode: "no_role" as const };
   }
 
-  const remainingRoles = currentRoles.filter((role) => role !== roleToRemove);
+  const remainingRoles = currentRoles.filter((role) => !removedRoles.includes(role));
 
   if (remainingRoles.length === 0) {
     const { error: deleteErr } = await svc.auth.admin.deleteUser(userId);
@@ -52,12 +53,10 @@ export async function removePortalAccess(
     return { ok: true as const, mode: "deleted_auth_user" as const };
   }
 
-  const { error: removeRoleErr } = await svc
-    .from("profile_roles")
-    .delete()
-    .eq("user_id", userId)
-    .eq("role", roleToRemove);
-  if (removeRoleErr) throw new Error(removeRoleErr.message);
+  for (const role of removedRoles) {
+    const { error } = await svc.from("profile_roles").delete().eq("user_id", userId).eq("role", role);
+    if (error) throw new Error(error.message);
+  }
 
   const nextRole = nextPrimaryRole(remainingRoles);
   const profilePatch: Record<string, unknown> = {

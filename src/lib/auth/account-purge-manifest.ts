@@ -26,6 +26,8 @@ export type PurgeScopeRule = {
   emails?: readonly string[];
   detachIds?: readonly string[];
   detachEmails?: readonly string[];
+  /** Keep the surviving owner's books and sever every resident access key. */
+  preserveFinancial?: boolean;
   /** Extra guard applied to every statement for this scope (see the inbox rule below). */
   restrict?: { column: string; notEquals: string };
 };
@@ -57,13 +59,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "ledger_entries",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
-    resident: { ids: ["resident_user_id"], emails: ["resident_email"] },
+    resident: { ids: ["resident_user_id"], emails: ["resident_email"], preserveFinancial: true },
   },
   {
     table: "security_deposit_ledger",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
-    resident: { ids: ["resident_user_id"], emails: ["resident_email"] },
+    resident: { ids: ["resident_user_id"], emails: ["resident_email"], preserveFinancial: true },
   },
   {
     table: "manager_reclassification_log",
@@ -84,7 +86,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "manager_payment_plans",
     phase: 1,
     manager: { ids: ["manager_user_id"] },
-    resident: { ids: ["resident_user_id"], emails: ["resident_email"] },
+    resident: { ids: ["resident_user_id"], emails: ["resident_email"], preserveFinancial: true },
   },
   {
     table: "manager_bank_statement_lines",
@@ -152,14 +154,14 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
   {
     table: "vendor_invoices",
     phase: 1,
-    manager: { ids: ["manager_user_id"] },
-    vendor: { ids: ["vendor_user_id"] },
+    manager: { ids: ["manager_user_id"], preserveFinancial: true },
+    vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
   },
   {
     table: "vendor_payouts",
     phase: 1,
-    manager: { ids: ["manager_user_id"] },
-    vendor: { ids: ["vendor_user_id"] },
+    manager: { ids: ["manager_user_id"], preserveFinancial: true },
+    vendor: { ids: ["vendor_user_id"], preserveFinancial: true },
   },
   {
     table: "vendor_tax_profiles",
@@ -410,7 +412,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "portal_household_charge_records",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
-    resident: { ids: ["resident_user_id"], emails: ["resident_email"] },
+    resident: { ids: ["resident_user_id"], emails: ["resident_email"], preserveFinancial: true },
   },
   {
     table: "portal_recurring_rent_profile_records",
@@ -422,7 +424,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     table: "portal_lease_pipeline_records",
     phase: 2,
     manager: { ids: ["manager_user_id"] },
-    resident: { ids: ["resident_user_id"], emails: ["resident_email"] },
+    resident: { ids: ["resident_user_id"], emails: ["resident_email"], preserveFinancial: true },
   },
   {
     table: "portal_resident_lease_upload_records",
@@ -691,6 +693,18 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  account_recovery_retired_source_keys: "Hashes of obsolete physical file paths; stop delayed uploads after logical recovery.",
+  account_recovery_objects: "Private retained file generations and active logical-path mappings; lifecycle-managed.",
+  account_recovery_object_holds: "Shared file retention ownership; lifecycle-managed.",
+  account_recovery_object_records: "Shared file-to-record references; lifecycle-managed.",
+  account_recovery_retired_objects: "Opaque obsolete file keys for retryable garbage collection; no user identity or original filename.",
+  account_recovery_requests: "Private 30-day deletion lifecycle; finalized by the recovery worker, not the live-data purge.",
+  account_recovery_records: "Shared private retained generations; per-request holds govern recovery and permanent erasure.",
+  account_recovery_holds: "Per-request ownership and conditional identity patches; removed by lifecycle finalization.",
+  account_recovery_dependencies: "Deletion-only dependency graph for retained generations; no incidental identity references.",
+  account_deleted_storage_keys: "Non-recoverable hashes of retired immutable Storage keys; stop late uploads from recreating erased files.",
+  account_deleted_identity_keys: "Non-recoverable per-column access hashes; explicit recovery removes only the selected identity keys.",
+  account_deleted_record_identities: "Non-recoverable hashed identity guards for retained business history; survive ordinary row deletion to block stale delete/reinsert.",
   profiles: "Identity row — deleted by the auth-user cascade in deleteProfileAndAuthUser.",
   profile_roles: "Identity row — deleted by the auth-user cascade in deleteProfileAndAuthUser.",
   mcp_oauth_clients: "Shared OAuth client registry, not owned by any one account.",

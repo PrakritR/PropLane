@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+const pendingRecovery = vi.hoisted(() => vi.fn(async (): Promise<unknown> => null));
+vi.mock("@/lib/auth/account-recovery.server", () => ({ pendingAccountRecovery: pendingRecovery }));
 
 const { migratePortalUserId } = vi.hoisted(() => ({
   migratePortalUserId: vi.fn(async () => undefined),

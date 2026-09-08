@@ -1,3 +1,5 @@
+const recoveryRedirect = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+vi.mock("@/lib/auth/account-recovery.server", () => ({ recoverySetupRedirect: recoveryRedirect }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { parseJsonResponse } from "../../helpers/api-request";
 
@@ -161,4 +163,19 @@ describe("POST /api/auth/create-resident-account", () => {
     const { data } = await parseJsonResponse<{ redirectTo: string }>(res);
     expect(data.redirectTo).toBe("/resident/communication/active");
   });
+});
+
+it("returns recovery before granting resident access or linking records", async () => {
+  vi.clearAllMocks();
+  signedInAs("retained-user");
+  const { service, update, insert } = fakeService(null);
+  vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(service as never);
+  recoveryRedirect.mockResolvedValueOnce("/auth/recover-account?portal=resident");
+  const response = await createResidentAccount(postRequest());
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({ recoveryRequired: true, redirectTo: "/auth/recover-account?portal=resident" });
+  expect(ensureProfileRoleRow).not.toHaveBeenCalled();
+  expect(linkAllTourInquiriesForEmail).not.toHaveBeenCalled();
+  expect(update).not.toHaveBeenCalled();
+  expect(insert).not.toHaveBeenCalled();
 });

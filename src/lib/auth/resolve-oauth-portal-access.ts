@@ -1,3 +1,4 @@
+import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import type { AuthRole } from "@/components/auth/portal-switcher";
 import { GET_STARTED_PATH } from "@/lib/auth/get-started-path";
 import { MANAGER_PRICING_ENTRY_PATH } from "@/lib/auth/manager-pricing-entry-path";
@@ -119,6 +120,10 @@ export async function resolveOAuthPortalRedirect(
   function finish(path: string): string {
     return applyOAuthSurfaceToPath(path, surface);
   }
+
+  if (safeIntended === PASSWORD_RESET_NEXT_PATH) return finish(safeIntended);
+  const recovery = await recoverySetupRedirect(supabase, user.id);
+  if (recovery) return recovery;
 
   if (isBypassOAuthGatePath(safeIntended)) {
     return finish(safeIntended);

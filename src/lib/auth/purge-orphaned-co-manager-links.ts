@@ -142,14 +142,16 @@ export async function purgeCoManagerReferencesToUser(db: ServiceDb, managerUserI
   const id = normalize(managerUserId);
   if (!id) return;
 
-  const { data: profile } = await db.from("profiles").select("manager_id").eq("id", id).maybeSingle();
+  const { data: profile, error: profileError } = await db.from("profiles").select("manager_id").eq("id", id).maybeSingle();
+  if (profileError) throw new Error(profileError.message);
   const axisId = normalizeAxisId(profile?.manager_id);
-
-  await db.from("portal_pro_relationship_records").delete().eq("related_user_id", id);
+  const check = (result: { error: { message: string } | null }) => {
+    if (result.error) throw new Error(result.error.message);
+  };
+  check(await db.from("portal_pro_relationship_records").delete().eq("related_user_id", id));
   if (axisId) {
-    await db.from("portal_pro_relationship_records").delete().filter("row_data->>linkedAxisId", "eq", axisId);
+    check(await db.from("portal_pro_relationship_records").delete().filter("row_data->>linkedAxisId", "eq", axisId));
   }
-
-  await db.from("account_link_invites").delete().eq("invitee_user_id", id);
-  await db.from("account_link_invites").delete().eq("inviter_user_id", id);
+  check(await db.from("account_link_invites").delete().eq("invitee_user_id", id));
+  check(await db.from("account_link_invites").delete().eq("inviter_user_id", id));
 }

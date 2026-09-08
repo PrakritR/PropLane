@@ -1,3 +1,4 @@
+import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import { NextRequest, NextResponse } from "next/server";
 import { getRequestAuthUser } from "@/lib/auth/request-auth-user";
 import { normalizePostAuthPath } from "@/lib/auth/normalize-post-auth-path";
@@ -24,6 +25,8 @@ export async function GET(req: NextRequest) {
     const intendedPath = normalizePostAuthPath(rawNext.startsWith("/") ? rawNext : "/auth/continue");
 
     const service = createSupabaseServiceRoleClient();
+    const recovery = await recoverySetupRedirect(service, user.id);
+    if (recovery) return NextResponse.json({ redirectTo: recovery }, { headers: { "Cache-Control": "private, no-store" } });
     // Password sign-in reaches this resolver without an OAuth callback, so keep
     // email/password and OAuth portal rows merged before choosing a destination.
     try {

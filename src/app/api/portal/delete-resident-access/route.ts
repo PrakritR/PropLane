@@ -1,9 +1,8 @@
+import { removeResidentApplication } from "@/lib/auth/remove-resident-application";
 import { NextResponse } from "next/server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { deleteResidentAccount } from "@/lib/auth/delete-portal-account";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
-import { managerCanAccessApplicationRecord } from "@/lib/auth/manager-application-access";
-import { managerOwnsResident } from "@/lib/auth/resident-relationship";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -57,33 +56,14 @@ export async function POST(req: Request) {
 
     const isAdmin = String(requestor.role ?? "").toLowerCase() === "admin" || (await isAdminUser(user.id));
     if (!isAdmin) {
-      let related = email ? await managerOwnsResident(svc, user.id, { email }) : false;
-      if (!related && applicationId) {
-        // Authorize deletion the SAME way the Applications list decides
-        // visibility: not just the frozen `manager_user_id` stamp, but DIRECT
-        // ownership / co-management of the application's property. An
-        // "Incomplete" draft keeps a stale (or unattributed) stamp, so the owner
-        // saw it in their list yet got "resident is not in your portfolio" on
-        // Delete — the list and the guard disagreeing about the same row.
-        // This is a destructive route (account deletion, optionally purged), so
-        // a co-manager needs the "delete" level, matching
-        // `assertCanDeleteApplicationRecords`; read-level visibility is not
-        // enough to destroy.
-        const { data: appRow } = await svc
-          .from("manager_application_records")
-          .select("manager_user_id, property_id, assigned_property_id")
-          .eq("id", applicationId)
-          .maybeSingle();
-        if (appRow && (await managerCanAccessApplicationRecord(svc, user.id, appRow, { level: "delete" }))) {
-          related = true;
-        }
+      if (!purgeData) {
+        return NextResponse.json({ error: "Resident logins belong to the resident. You can remove an application from your portfolio while keeping their login and financial history." }, { status: 403 });
       }
-      if (!related) {
-        return NextResponse.json(
-          { error: "Forbidden: resident is not in your portfolio." },
-          { status: 403 },
-        );
+      if (!applicationId) {
+        return NextResponse.json({ error: "Choose the application to remove. A manager cannot delete a resident's login." }, { status: 400 });
       }
+      const result = await removeResidentApplication(svc, { userId: user.id, isAdmin: false }, { applicationId, email });
+      return NextResponse.json(result, { status: result.ok ? 200 : result.status });
     }
 
     const targetUserId = email ? await findAuthUserIdByEmail(svc, email) : null;

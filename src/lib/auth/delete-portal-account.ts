@@ -1,3 +1,4 @@
+import { purgeSharedAccountAttachments } from "@/lib/auth/purge-shared-account-attachments";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
 import { portalDashboardPath } from "@/lib/auth/portal-roles";
 import {
@@ -23,22 +24,27 @@ export type DeleteOwnPortalAccountResult = {
   redirectTo: string;
 };
 
-const PROTECTED_ROLES = new Set(["admin", "manager", "pro"]);
+const PROTECTED_ROLES = new Set(["admin", "manager", "owner", "pro", "vendor"]);
 
 function normalizeEmail(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
-async function profileEmail(db: ServiceDb, userId: string): Promise<string> {
-  const { data } = await db.from("profiles").select("email").eq("id", userId).maybeSingle();
-  return normalizeEmail(data?.email);
+async function authAccountEmail(db: ServiceDb, userId: string): Promise<string> {
+  // Contact/profile fields are not proof of which Auth identity is being deleted.
+  const { data, error } = await db.auth.admin.getUserById(userId);
+  if (error) throw new Error(error.message);
+  if (!data.user) throw new Error("Account identity is unavailable.");
+  return normalizeEmail(data.user.email);
 }
 
 async function normalizedRolesForUser(db: ServiceDb, userId: string): Promise<string[]> {
-  const [{ data: profile }, { data: roleRows }] = await Promise.all([
+  const [{ data: profile, error: profileError }, { data: roleRows, error: rolesError }] = await Promise.all([
     db.from("profiles").select("role").eq("id", userId).maybeSingle(),
     db.from("profile_roles").select("role").eq("user_id", userId),
   ]);
+  if (profileError) throw new Error(profileError.message);
+  if (rolesError) throw new Error(rolesError.message);
   const normalized = (roleRows ?? [])
     .map((row) => String(row.role ?? "").toLowerCase())
     .filter(Boolean);
@@ -69,11 +75,13 @@ async function normalizedRolesForEmail(db: ServiceDb, email: string): Promise<st
   const targetUserId = await findAuthUserIdByEmail(db, email);
   if (!targetUserId) return null;
 
-  const [{ data: profile }, { data: roleRows }] = await Promise.all([
+  const [{ data: profile, error: profileError }, { data: roleRows, error: rolesError }] = await Promise.all([
     db.from("profiles").select("id, role").eq("id", targetUserId).maybeSingle(),
     db.from("profile_roles").select("role").eq("user_id", targetUserId),
   ]);
 
+  if (profileError) throw new Error(profileError.message);
+  if (rolesError) throw new Error(rolesError.message);
   const normalizedRoles = (roleRows ?? [])
     .map((row) => String(row.role ?? "").toLowerCase())
     .filter(Boolean);
@@ -99,11 +107,11 @@ export async function deleteResidentAuthUser(db: ServiceDb, email: string) {
     return { ok: true as const, mode: "no_auth_user" as const };
   }
 
+  if (await authAccountEmail(db, targetUserId) !== normalizeEmail(email)) {
+    throw new Error("Account identity does not match the requested email.");
+  }
   const guard = await canHardDeleteResident(db, email);
   if (!guard.ok) return guard;
-
-  await db.from("profile_roles").delete().eq("user_id", targetUserId);
-  await db.from("profiles").delete().eq("id", targetUserId);
 
   const { error: authDeleteError } = await db.auth.admin.deleteUser(targetUserId);
   if (authDeleteError) throw new Error(authDeleteError.message);
@@ -115,14 +123,21 @@ export async function deleteResidentAccount(
   db: ServiceDb,
   input: { userId?: string; email?: string; applicationId?: string; purgeData?: boolean },
 ) {
-  const userId = typeof input.userId === "string" ? input.userId.trim() : "";
-  const email = normalizeEmail(input.email) || (userId ? await profileEmail(db, userId) : "");
+  let userId = typeof input.userId === "string" ? input.userId.trim() : "";
+  let email = normalizeEmail(input.email);
+  if (!userId && email) userId = (await findAuthUserIdByEmail(db, email)) ?? "";
+  if (userId) {
+    const verifiedEmail = await authAccountEmail(db, userId);
+    if (email && email !== verifiedEmail) throw new Error("Account identity does not match the requested email.");
+    email = verifiedEmail;
+  }
   const applicationId = typeof input.applicationId === "string" ? input.applicationId.trim() : "";
   const purgeData = input.purgeData !== false;
   const hasTarget = Boolean(userId || email || applicationId);
 
   if (purgeData) {
-    await purgeResidentPortalData(db, { email, userId: userId || null, applicationId: applicationId || null });
+    const roles = userId ? await normalizedRolesForUser(db, userId) : [];
+    await purgeResidentPortalData(db, { email, userId: userId || null, applicationId: applicationId || null, complete: !roles.some(role => role !== "resident") });
   }
 
   if (!hasTarget) {
@@ -160,39 +175,38 @@ export async function deleteResidentAccount(
   return { ok: true as const, mode: result.mode };
 }
 
-/**
- * Best-effort cancel of the user's active Stripe subscription BEFORE their
- * manager_purchases row is purged. Without this, deleting the account leaves the
- * live subscription billing a now-deleted customer. Never throws — a missing
- * subscription, an admin-comped tier (no real Stripe sub), or unconfigured Stripe
- * must not block deletion. Stripe's own transaction records are retained lawfully.
- */
-async function cancelActiveManagerSubscription(db: ServiceDb, userId: string): Promise<void> {
-  try {
-    const { data } = await db
-      .from("manager_purchases")
-      .select("stripe_subscription_id, stripe_checkout_session_id")
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (isAdminManagedManagerPurchase(data?.stripe_checkout_session_id)) return;
-    const subscriptionId = data?.stripe_subscription_id?.trim();
-    if (!subscriptionId) return;
-    await getStripe().subscriptions.cancel(subscriptionId);
-  } catch {
-    /* best-effort — deletion proceeds regardless of the subscription outcome */
+/** Stop billing before its identifiers are removed; provider failures stay retryable. */
+export async function cancelActiveManagerSubscription(db: ServiceDb, userId: string): Promise<void> {
+  const email = await authAccountEmail(db, userId);
+  const purchases = new Map<string, { id: string; stripe_subscription_id?: string | null; stripe_checkout_session_id?: string | null }>();
+  for (const column of ["user_id", "email"] as const) {
+    if (column === "email" && !email) continue;
+    for (let from = 0; ; from += 100) {
+      let query = db.from("manager_purchases").select("id,stripe_subscription_id,stripe_checkout_session_id").order("id").range(from, from + 99);
+      query = column === "user_id" ? query.eq(column, userId) : query.ilike(column, email.replace(/[\\%_]/g, "\\$&"));
+      const { data, error } = await query;
+      if (error) throw new Error(error.message);
+      for (const row of data ?? []) purchases.set(row.id, row);
+      if ((data?.length ?? 0) < 100) break;
+    }
+  }
+  const subscriptions = new Set<string>();
+  for (const row of purchases.values()) {
+    if (!isAdminManagedManagerPurchase(row.stripe_checkout_session_id) && row.stripe_subscription_id?.trim()) subscriptions.add(row.stripe_subscription_id.trim());
+  }
+  for (const subscription of subscriptions) {
+    try { await getStripe().subscriptions.cancel(subscription); }
+    catch (error) {
+      // A subscription already absent at Stripe is a completed cancellation.
+      if (!error || typeof error !== "object" || !("code" in error) || error.code !== "resource_missing") throw error;
+    }
   }
 }
 
-/** Delete the profile roles, profile row, and auth login for a user (in that order). */
+/** Let the verified Auth cascade remove identity rows; a failure stays retryable. */
 async function deleteProfileAndAuthUser(db: ServiceDb, userId: string): Promise<void> {
-  const { error: rolesErr } = await db.from("profile_roles").delete().eq("user_id", userId);
-  if (rolesErr) throw new Error(rolesErr.message);
-
-  const { error: profileErr } = await db.from("profiles").delete().eq("id", userId);
-  if (profileErr) throw new Error(profileErr.message);
-
-  const { error: authDeleteError } = await db.auth.admin.deleteUser(userId);
-  if (authDeleteError) throw new Error(authDeleteError.message);
+  const { error } = await db.auth.admin.deleteUser(userId);
+  if (error) throw new Error(error.message);
 }
 
 /**
@@ -205,10 +219,11 @@ async function purgeAndDeletePortalAccount(db: ServiceDb, userId: string) {
   const trimmedId = userId.trim();
   if (!trimmedId) throw new Error("User id is required.");
 
-  const email = await profileEmail(db, trimmedId);
-  await purgeManagerPortalData(db, trimmedId);
+  const email = await authAccountEmail(db, trimmedId);
+  await purgeManagerPortalData(db, trimmedId, true, email);
   await purgeResidentPortalData(db, { email, userId: trimmedId });
   await purgeVendorPortalData(db, { userId: trimmedId, email });
+  await purgeSharedAccountAttachments(db, trimmedId);
   await deleteProfileAndAuthUser(db, trimmedId);
 
   return { ok: true as const, mode: "deleted_auth_user" as const };
@@ -246,14 +261,11 @@ export async function deleteOwnAccount(db: ServiceDb, userId: string) {
   // Stop billing before manager_purchases is purged inside purgeManagerPortalData.
   await cancelActiveManagerSubscription(db, trimmedId);
 
+  await closeRelayThreadsForUser(db, trimmedId);
+
   // Vendor account data is keyed by vendor_user_id (not manager_user_id), so it is
   // not covered by the manager/resident purges.
-  await purgeVendorPortalData(db, { userId: trimmedId, email: await profileEmail(db, trimmedId) });
-
-  // SMS relay participation holds the user's real cell in active bindings
-  // (no FK cascade covers counterparty rows) — close those threads so a
-  // deleted user's number stops routing.
-  await closeRelayThreadsForUser(db, trimmedId).catch(() => undefined);
+  await purgeVendorPortalData(db, { userId: trimmedId, email: await authAccountEmail(db, trimmedId) });
 
   return purgeAndDeletePortalAccount(db, trimmedId);
 }
@@ -271,7 +283,8 @@ export async function deleteOwnAccount(db: ServiceDb, userId: string) {
  */
 export async function deleteManagerAccount(db: ServiceDb, managerUserId: string) {
   await cancelActiveManagerSubscription(db, managerUserId);
-  await purgeManagerPortalData(db, managerUserId);
+  const roles = await normalizedRolesForUser(db, managerUserId);
+  await purgeManagerPortalData(db, managerUserId, !roles.some(role => !["manager", "owner", "pro"].includes(role)), await authAccountEmail(db, managerUserId));
   const managerResult = await removePortalAccess(db, managerUserId, "manager");
   if (managerResult.mode === "deleted_auth_user") {
     return { ok: true as const, mode: managerResult.mode };
@@ -302,6 +315,16 @@ export async function deleteOwnPortalAccount(
   const rolesBefore = await normalizedRolesForUser(db, trimmedId);
   if (!portalDeleteAllowed(rolesBefore, portal)) {
     throw new Error("This account does not have access to that portal.");
+  }
+
+  const selectedRoles = portal === "manager" || portal === "pro" ? ["manager", "owner", "pro"] : [portal];
+  if (rolesBefore.every(role => selectedRoles.includes(role))) {
+    const result = await deleteOwnAccount(db, trimmedId);
+    return { ...result, signedOut: true, redirectTo: "/auth/sign-in?deleted=1" };
+  }
+
+  if (portal === "manager" || portal === "pro" || portal === "resident") {
+    await closeRelayThreadsForUser(db, trimmedId, portal === "resident" ? "resident" : "manager");
   }
 
   let mode = "unknown";
@@ -342,7 +365,8 @@ export async function deleteOwnPortalAccount(
     // reports the account deleted while the auth user (and its email) survives, and the
     // address cannot be registered again. Reached when the role bookkeeping did not name
     // a role `removePortalAccess` could remove.
-    await deleteProfileAndAuthUser(db, trimmedId);
+    await purgeSharedAccountAttachments(db, trimmedId);
+  await deleteProfileAndAuthUser(db, trimmedId);
     return { ok: true, mode: "deleted_auth_user", signedOut: true, redirectTo: "/auth/sign-in?deleted=1" };
   }
 
@@ -362,7 +386,8 @@ export async function deleteVendorAccount(db: ServiceDb, vendorUserId: string) {
   const trimmedId = vendorUserId.trim();
   if (!trimmedId) throw new Error("User id is required.");
 
-  await purgeVendorPortalData(db, { userId: trimmedId, email: await profileEmail(db, trimmedId) });
+  const roles = await normalizedRolesForUser(db, trimmedId);
+  await purgeVendorPortalData(db, { userId: trimmedId, email: await authAccountEmail(db, trimmedId), complete: !roles.some(role => role !== "vendor") });
 
   const result = await removePortalAccess(db, trimmedId, "vendor");
   return { ok: true as const, mode: result.mode };

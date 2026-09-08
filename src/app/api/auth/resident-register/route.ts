@@ -1,3 +1,4 @@
+import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import { NextResponse } from "next/server";
 import { normalizeE164 } from "@/lib/twilio";
 import { findAuthUserIdByEmail } from "@/lib/auth/find-auth-user-id-by-email";
@@ -79,6 +80,9 @@ export async function POST(req: Request) {
       }
       userId = created.user.id;
     }
+
+    const recovery = await recoverySetupRedirect(supabase, userId);
+    if (recovery) return NextResponse.json({ ok: true, existingAccount: true, recoveryRequired: true, redirectTo: recovery });
 
     // DEFAULT-DENY: a self-serve signup has NOT proven control of this email, so
     // it never inherits or claims a prior guest application — it mints a clean
