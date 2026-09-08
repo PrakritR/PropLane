@@ -507,13 +507,45 @@ export const LISTING_PLACE_CATEGORY_OPTIONS = [
   },
 ] as const;
 
+/**
+ * How many floors the home has: a plain count, 1 through 8.
+ *
+ * It used to read "Single level (1 floor)", "4+ floors" and "Split level" —
+ * three different kinds of answer in one list. "4+" could not say which floor a
+ * room was on above the fourth, and "Split level" is a shape, not a count, so a
+ * manager picking it lost numbered floors entirely. A listing that already
+ * stores "split" keeps working (see {@link floorLevelLabelsFromStories}); the
+ * picker simply stops offering it.
+ */
 export const LISTING_STORIES_OPTIONS = [
-  { id: "1", label: "Single level (1 floor)" },
-  { id: "2", label: "2 floors" },
-  { id: "3", label: "3 floors" },
-  { id: "4", label: "4+ floors" },
-  { id: "split", label: "Split level" },
+  { id: "1", label: "1" },
+  { id: "2", label: "2" },
+  { id: "3", label: "3" },
+  { id: "4", label: "4" },
+  { id: "5", label: "5" },
+  { id: "6", label: "6" },
+  { id: "7", label: "7" },
+  { id: "8", label: "8" },
 ] as const;
+
+/** The highest floor count the picker offers, and the ceiling on derived levels. */
+const MAX_FLOORS = 8;
+
+/** "1st", "2nd", "3rd", "4th"… for a floor number. */
+function floorOrdinal(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  switch (n % 10) {
+    case 1:
+      return `${n}st`;
+    case 2:
+      return `${n}nd`;
+    case 3:
+      return `${n}rd`;
+    default:
+      return `${n}th`;
+  }
+}
 
 /**
  * The floor/level picker options are DERIVED from the Home step's Floors count — numbered
@@ -522,20 +554,12 @@ export const LISTING_STORIES_OPTIONS = [
  * home). Floors unset → at least "1st floor" so the dropdown is never empty.
  */
 export function floorLevelLabelsFromStories(storiesId: string | undefined): string[] {
-  switch (storiesId) {
-    case "1":
-      return ["1st floor"];
-    case "2":
-      return ["1st floor", "2nd floor"];
-    case "3":
-      return ["1st floor", "2nd floor", "3rd floor"];
-    case "4":
-      return ["1st floor", "2nd floor", "3rd floor", "4th floor or higher"];
-    case "split":
-      return ["Lower level", "Upper level"];
-    default:
-      return ["1st floor"];
-  }
+  // Legacy only: "split" is no longer offered, but listings that stored it must
+  // keep showing the levels they were built with rather than losing them.
+  if (storiesId === "split") return ["Lower level", "Upper level"];
+  const count = Number(storiesId);
+  if (!Number.isInteger(count) || count < 1) return ["1st floor"];
+  return Array.from({ length: Math.min(count, MAX_FLOORS) }, (_, i) => `${floorOrdinal(i + 1)} floor`);
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { DemoApplicantRow } from "@/data/demo-portal";
+import { isLegitimateEmail } from "@/lib/email-address";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
 import {
   readManagerApplicationRows,
@@ -223,7 +224,7 @@ export function shouldSyncInProgressDraft(input: {
   email: string;
   propertyId: string;
 }): boolean {
-  return input.email.trim().includes("@") && Boolean(input.propertyId.trim());
+  return isLegitimateEmail(input.email) && Boolean(input.propertyId.trim());
 }
 
 export function buildInProgressApplicationRow(input: {

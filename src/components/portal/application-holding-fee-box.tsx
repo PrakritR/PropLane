@@ -468,6 +468,8 @@ export function ApplicationHoldingFeeModal({
         emailAvailable={residentEmail.includes("@")}
         smsAvailable
         deliverViaKind="payments"
+        showWorkNumberHint={false}
+        hideSendViaFooterNote
         confirmLabel={hasExistingUnpaid ? "Update fee & send notice" : "Add fee & send notice"}
         confirmLabelWithoutMessage={hasExistingUnpaid ? "Update fee only" : "Add fee only"}
         confirmBusy={noticeBusy}

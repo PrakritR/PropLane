@@ -38,6 +38,12 @@ export type ListingHouseDefaults = {
   occupancyCapacity: number;
   moveInInspectionRequired: boolean;
   moveOutInspectionRequired: boolean;
+  /** Square footage most rooms share, when they are near enough alike. */
+  sizeSqft: number;
+  /** How a partial first or last month is split. Never a headline price. */
+  prorateMethod: "auto" | "daily_rate" | "";
+  /** Whether the advertised price invites an offer. Never changes the figure. */
+  pricingMode: "fixed" | "flexible" | "";
 };
 
 export type ListingHouseDefaultField = keyof ListingHouseDefaults;
@@ -55,6 +61,9 @@ export const LISTING_HOUSE_DEFAULT_FIELDS: readonly ListingHouseDefaultField[] =
   "occupancyCapacity",
   "moveInInspectionRequired",
   "moveOutInspectionRequired",
+  "sizeSqft",
+  "prorateMethod",
+  "pricingMode",
 ] as const;
 
 export function emptyListingHouseDefaults(): ListingHouseDefaults {
@@ -70,6 +79,9 @@ export function emptyListingHouseDefaults(): ListingHouseDefaults {
     occupancyCapacity: 1,
     moveInInspectionRequired: false,
     moveOutInspectionRequired: false,
+    sizeSqft: 0,
+    prorateMethod: "",
+    pricingMode: "",
   };
 }
 
@@ -101,6 +113,12 @@ export function roomDefaultFieldValue(
       return room.moveInInspectionRequired === true;
     case "moveOutInspectionRequired":
       return room.moveOutInspectionRequired === true;
+    case "sizeSqft":
+      return room.sizeSqft ?? 0;
+    case "prorateMethod":
+      return room.prorateMethod ?? "";
+    case "pricingMode":
+      return room.pricingMode ?? "";
   }
 }
 
@@ -134,6 +152,12 @@ function writeRoomDefaultField(
       return { ...room, moveInInspectionRequired: defaults.moveInInspectionRequired };
     case "moveOutInspectionRequired":
       return { ...room, moveOutInspectionRequired: defaults.moveOutInspectionRequired };
+    case "sizeSqft":
+      return defaults.sizeSqft > 0 ? { ...room, sizeSqft: defaults.sizeSqft } : room;
+    case "prorateMethod":
+      return defaults.prorateMethod ? { ...room, prorateMethod: defaults.prorateMethod } : room;
+    case "pricingMode":
+      return defaults.pricingMode ? { ...room, pricingMode: defaults.pricingMode } : room;
   }
 }
 

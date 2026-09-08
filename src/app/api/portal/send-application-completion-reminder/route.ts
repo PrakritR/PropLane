@@ -17,10 +17,9 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { track } from "@/lib/analytics/posthog";
+import { isLegitimateEmail } from "@/lib/email-address";
 
 export const runtime = "nodejs";
-
-const EMAIL_RE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 
 function idVariants(id: string): string[] {
   const trimmed = id.trim();
@@ -109,7 +108,7 @@ export async function POST(req: Request) {
     }
 
     const email = (row.email?.trim() || record.resident_email?.trim() || "").toLowerCase();
-    if (!email || !EMAIL_RE.test(email)) {
+    if (!email || !isLegitimateEmail(email)) {
       return NextResponse.json({ error: "This application has no valid applicant email on file." }, { status: 400 });
     }
 

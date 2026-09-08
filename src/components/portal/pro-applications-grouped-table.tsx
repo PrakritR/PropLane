@@ -6,7 +6,7 @@ import {
   ApplicationHouseholdCluster,
   householdClusterHeaderForRows,
 } from "@/components/portal/application-household-list";
-import { ClusterNavRow, applicationStatusPill } from "@/components/portal/application-review-nav-cluster";
+import { ClusterNavRow } from "@/components/portal/application-review-nav-cluster";
 import {
   applicationPropertyMeta,
   applicationSubmittedLabel,
@@ -27,7 +27,6 @@ export function ManagerApplicationsGroupedTable({
   selectedIds,
   onToggleSelected,
   selectable = false,
-  statusPillFn,
   rowIcon,
 }: {
   clusters: ApplicationListCluster[];
@@ -37,7 +36,6 @@ export function ManagerApplicationsGroupedTable({
   selectedIds?: Set<string>;
   onToggleSelected?: (id: string) => void;
   selectable?: boolean;
-  statusPillFn?: (row: DemoApplicantRow) => { label: string; tone: "info" | "warning" | "muted" | "success" };
   rowIcon?: ReactNode;
 }) {
   return (
@@ -87,10 +85,6 @@ export function ManagerApplicationsGroupedTable({
                       : applicationPropertyMeta(row)
                   }
                   icon={rowIcon ?? <ClipboardList className="h-4 w-4" aria-hidden />}
-                  statusPill={
-                    statusPillFn?.(row) ??
-                    (householdNested ? applicationStatusPill(row) : undefined)
-                  }
                   checked={selectable && selectedIds?.has(row.id)}
                   onCheck={
                     selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined
@@ -107,11 +101,9 @@ export function ManagerApplicationsGroupedTable({
                 rows.push(
                   <ClusterNavRow
                     key={`${row.id}-cosigner-${index}`}
-                    nested
                     primary={sub.fullName || "Co-signer"}
                     meta={sub.email || `Co-signer for ${applicantDisplayName(row)}`}
                     icon={<UserRound className="h-4 w-4" aria-hidden />}
-                    statusPill={{ label: "Co-signer", tone: "info" }}
                     checked={selectable && selectedIds?.has(selectionId)}
                     onCheck={
                       selectable && onToggleSelected ? () => onToggleSelected(selectionId) : undefined
