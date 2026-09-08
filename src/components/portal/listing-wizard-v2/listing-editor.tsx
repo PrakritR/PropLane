@@ -582,6 +582,62 @@ export function roomRateVisibility(sub: ManagerListingSubmissionV1) {
   };
 }
 
+/** What a furnished room usually comes with. Stored as the free-text `furnishing` line. */
+const FURNISHING_ITEMS = [
+  "Bed",
+  "Desk",
+  "Chair",
+  "Dresser",
+  "Wardrobe",
+  "Nightstand",
+  "Bookshelf",
+  "Mirror",
+  "Lamp",
+  "Rug",
+] as const;
+
+/**
+ * Furnishing: a yes/no, and then what is included.
+ *
+ * The record keeps one free-text line, which is what the listing prints, so
+ * this control writes the chosen items back into that same line and leaves any
+ * wording the manager typed themselves alone. Unfurnished is the default, and
+ * clearing the box empties the line rather than leaving a list nobody will get.
+ */
+function FurnishingField({ value, onChange }: { value: string; onChange: (next: string) => void }) {
+  const text = (value ?? "").trim();
+  const furnished = text.length > 0;
+  const parts = text
+    .split(/[,\n]/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const known = FURNISHING_ITEMS.filter((i) => parts.some((p) => p.toLowerCase() === i.toLowerCase()));
+  const custom = parts.filter((p) => !FURNISHING_ITEMS.some((i) => i.toLowerCase() === p.toLowerCase()));
+  return (
+    <>
+      <CheckboxOption
+        label="Furnished"
+        description="Unfurnished unless you say otherwise."
+        checked={furnished}
+        dataAttr="listing-v2-room-furnished"
+        onChange={(next) => onChange(next ? [...FURNISHING_ITEMS.slice(0, 3)].join(", ") : "")}
+      />
+      {furnished ? (
+        <div className="mt-2">
+          <CheckboxMultiSelect
+            hideLabel
+            label="What is included"
+            options={FURNISHING_ITEMS.map((i) => ({ value: i, label: i }))}
+            selected={[...known]}
+            emptyLabel="Choose what is included…"
+            onChange={(next) => onChange([...FURNISHING_ITEMS.filter((i) => next.includes(i)), ...custom].join(", "))}
+          />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 function RoomDetail({
   room,
   sub,
@@ -643,7 +699,10 @@ function RoomDetail({
           dataAttr="listing-v2-room-basics"
         >
           <FieldRow cols={2}>
-            <Field label="Beds" hint="How many people may live here.">
+            <Field
+              label="Beds / residents allowed"
+              hint="One number: each approved application takes one bed, so this is both how many beds the room holds and how many people may live in it."
+            >
               <Select
                 value={String(room.occupancyCapacity ?? 1)}
                 onChange={(e) => set({ occupancyCapacity: Number(e.target.value) || 1 })}
@@ -664,12 +723,8 @@ function RoomDetail({
               />
             </Field>
           </FieldRow>
-          <Field label="Furnishing" optional>
-            <Input
-              value={room.furnishing ?? ""}
-              placeholder={defaults.furnishing || "Furnished — bed, desk, chair"}
-              onChange={(e) => set({ furnishing: e.target.value })}
-            />
+          <Field group label="Furnishing">
+            <FurnishingField value={room.furnishing ?? ""} onChange={(next) => set({ furnishing: next })} />
           </Field>
           <Field label="Room amenities">
             <AmenityChips
@@ -1039,12 +1094,8 @@ function DefaultsDetail({
               ))}
             </Select>
           </Field>
-          <Field label="Furnishing" optional>
-            <Input
-              value={defaults.furnishing}
-              placeholder="Furnished — bed, desk, chair"
-              onChange={(e) => editDefault("furnishing", e.target.value)}
-            />
+          <Field group label="Furnishing">
+            <FurnishingField value={defaults.furnishing} onChange={(next) => editDefault("furnishing", next)} />
           </Field>
         </FieldRow>
         <Field label="Size" optional hint="Square feet, when most rooms are near enough alike.">
@@ -1637,11 +1688,14 @@ function StepRooms({
 function BathroomDetail({
   bath,
   index,
+  rooms,
   onChange,
   onBack,
 }: {
   bath: ManagerBathroomSubmission;
   index: number;
+  /** So the manager can say which rooms use this bathroom, and how they reach it. */
+  rooms: readonly ManagerRoomSubmission[];
   onChange: (next: ManagerBathroomSubmission) => void;
   onBack: () => void;
 }) {
@@ -1692,6 +1746,60 @@ function BathroomDetail({
           }
         />
       </Field>
+      <Field
+        label="Used by"
+        hint="Which rooms this bathroom serves. A room's access — en-suite, shared, or down the hall — is set beside it."
+      >
+        <CheckboxMultiSelect
+          hideLabel
+          label="Used by"
+          options={[
+            { value: "__all", label: "Every room" },
+            ...rooms.map((r, i) => ({ value: r.id, label: r.name.trim() || `Room ${i + 1}` })),
+          ]}
+          selected={[...(bath.allResidents ? ["__all"] : []), ...(bath.assignedRoomIds ?? [])]}
+          emptyLabel="Choose rooms…"
+          onChange={(next) => {
+            const all = next.includes("__all");
+            set({
+              allResidents: all,
+              // "Every room" is its own answer; the per-room list is what a
+              // manager edits when only some rooms use this bathroom.
+              assignedRoomIds: all ? rooms.map((r) => r.id) : next.filter((v) => v !== "__all"),
+            });
+          }}
+        />
+      </Field>
+      {(bath.assignedRoomIds ?? []).length > 0 ? (
+        <Field group label="How each room reaches it">
+          {(bath.assignedRoomIds ?? []).map((id) => {
+            const room = rooms.find((r) => r.id === id);
+            const label = room?.name.trim() || `Room ${rooms.findIndex((r) => r.id === id) + 1}`;
+            return (
+              <div key={id} className="mb-2 flex items-center gap-3">
+                <span className="w-32 shrink-0 truncate text-[13px] font-semibold text-foreground">{label}</span>
+                <Select
+                  aria-label={`How ${label} reaches ${bath.name || `bathroom ${index + 1}`}`}
+                  value={bath.accessKindByRoomId?.[id] ?? ""}
+                  onChange={(e) => {
+                    const kind = BATHROOM_ACCESS_OPTIONS.some((o) => o.value === e.target.value)
+                      ? (e.target.value as ManagerBathroomRoomAccessKind)
+                      : undefined;
+                    set({ accessKindByRoomId: { ...(bath.accessKindByRoomId ?? {}), [id]: kind } });
+                  }}
+                >
+                  <option value="">Select…</option>
+                  {BATHROOM_ACCESS_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            );
+          })}
+        </Field>
+      ) : null}
       <Field label="Finishes and extras" optional>
         <AmenityChips
           presets={BATHROOM_EXTRA_AMENITY_PRESETS}
@@ -1736,6 +1844,7 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
       <BathroomDetail
         bath={openBath}
         index={baths.indexOf(openBath)}
+        rooms={sub.rooms ?? []}
         onBack={() => setOpenBathId(null)}
         onChange={(next) => patch({ bathrooms: baths.map((b) => (b.id === next.id ? next : b)) })}
       />
@@ -1852,11 +1961,16 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
 function SharedSpaceDetail({
   space,
   index,
+  rooms,
+  storiesId,
   onChange,
   onBack,
 }: {
   space: ManagerSharedSpaceSubmission;
   index: number;
+  /** Which rooms may use this space — a locked study is not shared by everyone. */
+  rooms: readonly ManagerRoomSubmission[];
+  storiesId: string | undefined;
   onChange: (next: ManagerSharedSpaceSubmission) => void;
   onBack: () => void;
 }) {
@@ -1885,6 +1999,34 @@ function SharedSpaceDetail({
             </option>
           ))}
         </Select>
+      </Field>
+      <Field label="Floor" optional>
+        <Select value={space.location ?? ""} onChange={(e) => set({ location: e.target.value })}>
+          <option value="">Select…</option>
+          {floorLevelSelectOptions(storiesId, space.location).map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Which rooms may use it" hint="Leave every room ticked unless this space is only for some of them.">
+        <CheckboxMultiSelect
+          hideLabel
+          label="Which rooms may use it"
+          options={rooms.map((r, i) => ({ value: r.id, label: r.name.trim() || `Room ${i + 1}` }))}
+          selected={space.roomAccessIds ?? rooms.map((r) => r.id)}
+          emptyLabel="Choose rooms…"
+          onChange={(next) => set({ roomAccessIds: next })}
+        />
+      </Field>
+      <Field label="Description" optional hint="What a renter reads under this space.">
+        <Textarea
+          rows={2}
+          value={space.detail ?? ""}
+          onChange={(e) => set({ detail: e.target.value })}
+          placeholder="Sunny room off the kitchen, seats six…"
+        />
       </Field>
       <Field label="What is in it" optional>
         <AmenityChips
@@ -1924,6 +2066,8 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
       <SharedSpaceDetail
         space={openSpace}
         index={spaces.indexOf(openSpace)}
+        rooms={sub.rooms ?? []}
+        storiesId={sub.listingStoriesId}
         onBack={() => setOpenSpaceId(null)}
         onChange={(next) => patch({ sharedSpaces: spaces.map((sp) => (sp.id === next.id ? next : sp)) })}
       />
