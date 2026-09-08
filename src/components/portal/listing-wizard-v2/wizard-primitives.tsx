@@ -26,7 +26,6 @@ import { cn } from "@/lib/utils";
 export function WizardModal({
   title,
   onClose,
-  onSaveExit,
   children,
   footer,
   stepper,
@@ -34,29 +33,27 @@ export function WizardModal({
 }: {
   title: string;
   onClose?: () => void;
-  onSaveExit?: () => void;
   children: ReactNode;
   footer: ReactNode;
   stepper?: ReactNode;
   /** The Ask PropLane trigger — kept from the previous wizard, which managers use. */
   headerAside?: ReactNode;
 }) {
+  /*
+   * Solid white, like every other PropLane modal (Add resident, Inspections
+   * settings). The card previously inherited a translucent surface, which read
+   * as unfinished against the dimmed page behind it.
+   *
+   * The header carries ONLY Ask PropLane and the close control. Saving lives in
+   * the footer next to the other actions — a second save in the corner competed
+   * with it and is not what the rest of the product does.
+   */
   return (
-    <div className="flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)]">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
-        <b className="truncate text-[17px] font-bold tracking-tight text-foreground">{title}</b>
+    <div className="flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] [html[data-theme=dark]_&]:bg-card">
+      <div className="flex shrink-0 items-center justify-between gap-3 px-6 pt-5">
+        <b className="truncate text-[19px] font-bold tracking-tight text-foreground">{title}</b>
         <div className="flex shrink-0 items-center gap-2">
           {headerAside}
-          {onSaveExit ? (
-            <button
-              type="button"
-              onClick={onSaveExit}
-              className="min-h-[36px] rounded-full border border-border bg-card px-4 text-[12.5px] font-bold text-foreground hover:bg-accent/40"
-              data-attr="listing-v2-save-exit"
-            >
-              Save &amp; exit
-            </button>
-          ) : null}
           {onClose ? (
             <button
               type="button"
@@ -69,9 +66,9 @@ export function WizardModal({
           ) : null}
         </div>
       </div>
-      {stepper ? <div className="shrink-0 px-5 pt-4">{stepper}</div> : null}
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">{children}</div>
-      <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-accent/20 px-5 py-3.5">
+      {stepper ? <div className="shrink-0 border-b border-border/60 px-6 pb-4 pt-4">{stepper}</div> : null}
+      <div className="min-h-0 flex-1 overflow-y-auto bg-white px-6 py-6 [html[data-theme=dark]_&]:bg-card">{children}</div>
+      <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-white px-6 py-4 [html[data-theme=dark]_&]:bg-card">
         {footer}
       </div>
     </div>
@@ -312,11 +309,19 @@ export function MoreOptions({
         onClick={onToggle}
         aria-expanded={open}
         data-attr={dataAttr}
-        className="w-full rounded-xl border border-dashed border-border px-3.5 py-3 text-left text-[13px] font-bold text-primary"
+        className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-accent/25 px-4 py-3 text-left transition hover:bg-accent/40"
       >
-        {label} {open ? "⌃" : "⌄"}
+        <span className="min-w-0">
+          <span className="block text-[13px] font-bold text-foreground">{open ? "Hide extra options" : "More options"}</span>
+          <span className="mt-0.5 block truncate text-[12px] text-muted">{label}</span>
+        </span>
+        <span className="shrink-0 text-[13px] font-bold text-primary" aria-hidden>
+          {open ? "▴" : "▾"}
+        </span>
       </button>
-      {open ? <div className="mt-4 border-l-2 border-border pl-4">{children}</div> : null}
+      {open ? (
+        <div className="mt-4 rounded-xl border border-border bg-accent/15 p-4">{children}</div>
+      ) : null}
     </div>
   );
 }
@@ -482,6 +487,42 @@ export function RowCell({
         inherited ? "border-dashed border-border bg-accent/15 text-muted placeholder:text-muted" : "border-border bg-card",
       )}
     />
+  );
+}
+
+/** A dropdown inside a grid row — used for floor and bathroom, which are choices. */
+export function RowSelectCell({
+  value,
+  options,
+  placeholder,
+  inherited,
+  onChange,
+  ariaLabel,
+}: {
+  value: string;
+  options: readonly { value: string; label: string }[];
+  placeholder?: string;
+  inherited?: boolean;
+  onChange: (next: string) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={ariaLabel}
+      className={cn(
+        "min-h-[38px] w-full rounded-lg border px-2 py-1.5 text-[13px] text-foreground outline-none focus:border-primary",
+        inherited ? "border-dashed border-border bg-accent/15 text-muted" : "border-border bg-card",
+      )}
+    >
+      <option value="">{placeholder ?? "Select…"}</option>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
   );
 }
 

@@ -33,6 +33,7 @@ import {
   LISTING_STORIES_OPTIONS,
   LISTING_TOTAL_BATH_OPTIONS,
   ROOM_AMENITY_PRESETS,
+  floorLevelSelectOptions,
   listingAmenityLinesFromValue,
 } from "@/data/manager-listing-presets";
 import {
@@ -52,6 +53,8 @@ import {
   SHORT_TERM_LEASE_TERM,
 } from "@/lib/rental-application/lease-terms";
 import { LONG_TERM_UTILITIES_PAYMENT_OPTIONS } from "@/lib/listing-utilities-payment";
+import { derivedRoomCharges, isUnsetCharge, suggestionPlaceholder } from "@/lib/listing-room-derived-pricing";
+import { applyListingBedroomSlots } from "@/lib/manager-listing-submission";
 import {
   applyHouseDefaultsToRooms,
   houseDefaultsForSubmission,
@@ -71,6 +74,7 @@ import {
   RowBulkBar,
   RowCell,
   RowList,
+  RowSelectCell,
   StepColumn,
   StepHeading,
   WizardModal,
@@ -78,13 +82,16 @@ import {
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 
 export const LISTING_V2_STEPS = [
-  { id: "basics", label: "Basics" },
+  { id: "basics", label: "Home" },
   { id: "rooms", label: "Rooms" },
-  { id: "spaces", label: "Spaces" },
+  { id: "bathrooms", label: "Bathrooms" },
+  { id: "spaces", label: "Shared spaces" },
   { id: "money", label: "Rent & fees" },
   { id: "marketing", label: "Photos" },
   { id: "review", label: "Review" },
 ] as const;
+
+const TOTAL_STEPS = LISTING_V2_STEPS.length;
 
 type Patch = (next: Partial<ManagerListingSubmissionV1>) => void;
 
@@ -143,23 +150,46 @@ function AmenityChips({
 /* ─────────────────────────── step 1 · basics ─────────────────────────── */
 
 function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  const [openMore, setOpenMore] = useState(false);
   const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
+  const roomCount = sub.rooms?.length || sub.listingBedroomSlots || 1;
   return (
     <StepColumn>
       <StepHeading
         step={1}
-        total={6}
-        name="Basics"
+        total={TOTAL_STEPS}
+        name="Home"
         title="The home itself"
         subtitle="Where it is, what it is, and how it is laid out."
       />
+
       {/*
-       * The address and property type are asked when the property is first
-       * added, but they must stay editable here — a manager opening an existing
-       * listing to correct a typo in the address should not have to delete it
-       * and start again.
+       * How you rent it comes FIRST because it changes every screen after it —
+       * whether rent is per room or set once, and whether the Rooms step is
+       * about bedrooms or about one household. Burying it under "More options"
+       * put the most consequential answer in the least prominent place.
        */}
+      <Field
+        group
+        label="How you rent it"
+        required
+        hint="Decides whether rent is set per room or once for the whole place."
+      >
+        <ChipRow>
+          <ChipToggle
+            label="By the room"
+            on={rentByRoom}
+            dataAttr="listing-v2-by-room"
+            onToggle={() => patch({ listingPlaceCategoryId: "shared_home", rentalModelStamp: "shared_home" })}
+          />
+          <ChipToggle
+            label="The whole place"
+            on={!rentByRoom}
+            dataAttr="listing-v2-whole-place"
+            onToggle={() => patch({ listingPlaceCategoryId: "entire_home", rentalModelStamp: "entire_home" })}
+          />
+        </ChipRow>
+      </Field>
+
       <Field label="Street address" required hint="Start typing and pick the match to refill city, state and ZIP.">
         <ListingAddressAutocomplete
           value={sub.address}
@@ -186,49 +216,90 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
           <Input value={sub.zip} onChange={(e) => patch({ zip: e.target.value })} />
         </Field>
       </FieldRow>
-      <Field label="Property type" required>
-        <Select
-          value={sub.listingPropertyTypeId ?? ""}
-          onChange={(e) => patch({ listingPropertyTypeId: e.target.value })}
+
+      <FieldRow cols={2}>
+        <Field label="Property type" required>
+          <Select
+            value={sub.listingPropertyTypeId ?? ""}
+            onChange={(e) => patch({ listingPropertyTypeId: e.target.value })}
+          >
+            <option value="">Select…</option>
+            {LISTING_PROPERTY_TYPE_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Floors" required>
+          <Select value={sub.listingStoriesId ?? ""} onChange={(e) => patch({ listingStoriesId: e.target.value })}>
+            <option value="">Select…</option>
+            {LISTING_STORIES_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </FieldRow>
+
+      <FieldRow cols={2}>
+        <Field label="Bathrooms" required hint="Total in the home, including half baths.">
+          <Select
+            value={sub.listingTotalBathroomsId ?? ""}
+            onChange={(e) => patch({ listingTotalBathroomsId: e.target.value })}
+          >
+            <option value="">Select…</option>
+            {LISTING_TOTAL_BATH_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          label={rentByRoom ? "Bedrooms you are renting out" : "Bedrooms"}
+          required
+          hint="Creates a row per room on the next step."
         >
-          <option value="">Select…</option>
-          {LISTING_PROPERTY_TYPE_OPTIONS.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Floors" required>
-        <Select value={sub.listingStoriesId ?? ""} onChange={(e) => patch({ listingStoriesId: e.target.value })}>
-          <option value="">Select…</option>
-          {LISTING_STORIES_OPTIONS.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Bathrooms" required hint="Total in the home, including half baths.">
-        <Select
-          value={sub.listingTotalBathroomsId ?? ""}
-          onChange={(e) => patch({ listingTotalBathroomsId: e.target.value })}
-        >
-          <option value="">Select…</option>
-          {LISTING_TOTAL_BATH_OPTIONS.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Listing name" optional hint="The title renters see. Leave blank to use the address.">
+          <Select
+            value={String(roomCount)}
+            onChange={(e) => {
+              const next = Number(e.target.value) || 1;
+              const applied = applyListingBedroomSlots({ ...sub, listingBedroomSlots: next }, next);
+              // A refusal means the count could not be honoured; keep the rooms
+              // the manager has rather than writing a number they do not match.
+              patch(applied.ok ? { ...applied.sub, listingBedroomSlots: next } : { listingBedroomSlots: next });
+            }}
+          >
+            {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </FieldRow>
+
+      <Field label="Layout note" optional hint="Anything the floor and bathroom counts do not capture.">
         <Input
-          value={sub.buildingName}
-          onChange={(e) => patch({ buildingName: e.target.value })}
-          placeholder={sub.address || "4709A 8th Ave NE"}
+          value={sub.homeStructureNote}
+          onChange={(e) => patch({ homeStructureNote: e.target.value })}
+          placeholder="3-story townhouse · 3.5 baths"
         />
       </Field>
+      <FieldRow cols={2}>
+        <Field label="Listing name" optional hint="The title renters see. Leave blank to use the address.">
+          <Input
+            value={sub.buildingName}
+            onChange={(e) => patch({ buildingName: e.target.value })}
+            placeholder={sub.address || "4709A 8th Ave NE"}
+          />
+        </Field>
+        <Field label="Neighborhood" optional>
+          <Input value={sub.neighborhood} onChange={(e) => patch({ neighborhood: e.target.value })} />
+        </Field>
+      </FieldRow>
       <Field group label="Pets">
         <ChipRow>
           <ChipToggle
@@ -239,46 +310,6 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
           />
         </ChipRow>
       </Field>
-
-      <MoreOptions
-        label="More options — how you rent it, neighborhood, layout note"
-        open={openMore}
-        onToggle={() => setOpenMore((v) => !v)}
-        dataAttr="listing-v2-basics-more"
-      >
-        <Field
-          group
-          label="How you rent it"
-          hint="Switching this changes whether rent is set per room or once for the whole place."
-        >
-          <ChipRow>
-            <ChipToggle
-              label="By the room"
-              on={rentByRoom}
-              onToggle={() =>
-                patch({ listingPlaceCategoryId: "shared_home", rentalModelStamp: "shared_home" })
-              }
-            />
-            <ChipToggle
-              label="The whole place"
-              on={!rentByRoom}
-              onToggle={() =>
-                patch({ listingPlaceCategoryId: "entire_home", rentalModelStamp: "entire_home" })
-              }
-            />
-          </ChipRow>
-        </Field>
-        <Field label="Neighborhood" optional>
-          <Input value={sub.neighborhood} onChange={(e) => patch({ neighborhood: e.target.value })} />
-        </Field>
-        <Field label="Layout note" optional hint="Anything the floor and bathroom counts do not capture.">
-          <Input
-            value={sub.homeStructureNote}
-            onChange={(e) => patch({ homeStructureNote: e.target.value })}
-            placeholder="3-story townhouse · 3.5 baths"
-          />
-        </Field>
-      </MoreOptions>
     </StepColumn>
   );
 }
@@ -299,6 +330,21 @@ function RoomDetail({
   const [openMore, setOpenMore] = useState(false);
   const set = (patch: Partial<ManagerRoomSubmission>) => onChange({ ...room, ...patch });
   const inheritsRent = roomInheritsDefault(room, defaults, "monthlyRent");
+  // Suggestions from the rent, shown in the empty fields. They are never written
+  // behind the manager's back: a deposit is legally capped in some places, and
+  // setting a weekly or daily rate changes how rent is billed.
+  const effectiveRent = room.monthlyRent > 0 ? room.monthlyRent : defaults.monthlyRent;
+  const suggested = derivedRoomCharges(effectiveRent);
+  const acceptSuggestions = () => {
+    if (!suggested) return;
+    set({
+      securityDeposit: isUnsetCharge(room.securityDeposit) ? String(suggested.securityDeposit) : room.securityDeposit,
+      moveInFee: isUnsetCharge(room.moveInFee) ? String(suggested.moveInFee) : room.moveInFee,
+      weeklyRentPrice: isUnsetCharge(room.weeklyRentPrice) ? suggested.weeklyRent : room.weeklyRentPrice,
+      // dailyRentPrice is deliberately NOT filled: a daily price with
+      // rentBasis "daily" changes billing, so it stays an explicit choice.
+    });
+  };
   return (
     <StepColumn>
       <p className="mb-2 text-[12px] font-bold text-muted">Room</p>
@@ -347,6 +393,21 @@ function RoomDetail({
         onToggle={() => setOpenMore((v) => !v)}
         dataAttr="listing-v2-room-more"
       >
+        {suggested ? (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-accent/25 px-4 py-3">
+            <p className="min-w-0 text-[12.5px] leading-relaxed text-muted">
+              Empty money fields below show what PropLane would use, worked out from the ${effectiveRent} rent.
+            </p>
+            <button
+              type="button"
+              onClick={acceptSuggestions}
+              data-attr="listing-v2-accept-suggestions"
+              className="shrink-0 rounded-full border border-primary/35 bg-primary/10 px-4 py-2 text-[12.5px] font-bold text-primary"
+            >
+              Use these
+            </button>
+          </div>
+        ) : null}
         <p className="mb-3 text-[12.5px] font-bold text-foreground">Other ways to price this room</p>
         <FieldRow cols={3}>
           <Field label="Billed by" hint="Changes the headline price.">
@@ -359,16 +420,30 @@ function RoomDetail({
               <option value="daily">Day</option>
             </Select>
           </Field>
-          <Field label="Rent / week" optional>
+          <Field
+            label="Rent / week"
+            optional
+            hint={suggested ? `Suggested ${suggested.weeklyRent} from the monthly rent.` : undefined}
+          >
             <Input
               value={room.weeklyRentPrice ? String(room.weeklyRentPrice) : ""}
+              placeholder={suggestionPlaceholder(suggested?.weeklyRent)}
               inputMode="numeric"
               onChange={(e) => set({ weeklyRentPrice: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
             />
           </Field>
-          <Field label="Rent / day" optional hint="The room's own daily rate.">
+          <Field
+            label="Rent / day"
+            optional
+            hint={
+              suggested
+                ? `Suggested ${suggested.dailyRent}. Setting this changes how rent is billed, so it is never filled in for you.`
+                : "The room's own daily rate."
+            }
+          >
             <Input
               value={room.dailyRentPrice ? String(room.dailyRentPrice) : ""}
+              placeholder={suggestionPlaceholder(suggested?.dailyRent)}
               inputMode="numeric"
               onChange={(e) => set({ dailyRentPrice: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
             />
@@ -377,17 +452,21 @@ function RoomDetail({
 
         <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">This room&apos;s own charges</p>
         <FieldRow cols={3}>
-          <Field label="Security deposit" optional>
+          <Field
+            label="Security deposit"
+            optional
+            hint={suggested ? `Suggested ${suggested.securityDeposit} — check your local cap.` : undefined}
+          >
             <Input
               value={money(room.securityDeposit)}
-              placeholder={defaults.securityDeposit || "500"}
+              placeholder={defaults.securityDeposit || suggestionPlaceholder(suggested?.securityDeposit)}
               onChange={(e) => set({ securityDeposit: e.target.value })}
             />
           </Field>
-          <Field label="Move-in fee" optional>
+          <Field label="Move-in fee" optional hint={suggested ? `Suggested ${suggested.moveInFee}.` : undefined}>
             <Input
               value={money(room.moveInFee)}
-              placeholder={defaults.moveInFee || "0"}
+              placeholder={defaults.moveInFee || suggestionPlaceholder(suggested?.moveInFee)}
               onChange={(e) => set({ moveInFee: e.target.value })}
             />
           </Field>
@@ -482,7 +561,7 @@ function RoomDetail({
       <button
         type="button"
         onClick={onBack}
-        className="mt-5 min-h-[44px] rounded-[10px] border border-border bg-card px-6 text-[14px] font-bold text-foreground"
+        className="mt-5 min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground"
       >
         Back to rooms
       </button>
@@ -503,6 +582,8 @@ function StepRooms({
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openRoomId, setOpenRoomId] = useState<string | null>(null);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copyTargets, setCopyTargets] = useState<Set<string>>(new Set());
   const rooms = sub.rooms ?? [];
   const openRoom = rooms.find((r) => r.id === openRoomId) ?? null;
 
@@ -533,15 +614,37 @@ function StepRooms({
   const columns = [
     { key: "name", label: "Room" },
     { key: "floor", label: "Floor" },
+    { key: "bathroom", label: "Bathroom" },
     { key: "rent", label: "Rent" },
     { key: "beds", label: "Beds" },
+    { key: "details", label: "" },
   ];
+  const floorOptions = floorLevelSelectOptions(sub.listingStoriesId, "").map((l) => ({ value: l, label: l }));
+  const baths = sub.bathrooms ?? [];
+  const bathOptions = baths.map((b, i) => ({ value: b.id, label: b.name.trim() || `Bathroom ${i + 1}` }));
+
+  /**
+   * Which bathroom a room uses is stored on the BATHROOM (`assignedRoomIds`),
+   * because one bathroom serves many rooms. The row shows it from the room's
+   * side, so writing it means moving the room's id between bathrooms rather
+   * than setting a field on the room.
+   */
+  const bathroomForRoom = (roomId: string): string =>
+    baths.find((b) => (b.assignedRoomIds ?? []).includes(roomId))?.id ?? "";
+  const assignBathroom = (roomId: string, bathId: string) => {
+    patch({
+      bathrooms: baths.map((b) => {
+        const without = (b.assignedRoomIds ?? []).filter((id) => id !== roomId);
+        return { ...b, assignedRoomIds: b.id === bathId ? [...without, roomId] : without };
+      }),
+    });
+  };
 
   return (
     <StepColumn wide>
       <StepHeading
         step={2}
-        total={6}
+        total={TOTAL_STEPS}
         name="Rooms"
         title={`Your ${rooms.length} ${rooms.length === 1 ? "room" : "rooms"}`}
         subtitle="Set what is true for most rooms once. Change only the rooms that differ."
@@ -617,11 +720,19 @@ function StepRooms({
                 placeholder={`Room ${i + 1}`}
                 onChange={(v) => writeRooms(rooms.map((r) => (r.id === room.id ? { ...r, name: v } : r)))}
               />
-              <RowCell
+              <RowSelectCell
                 ariaLabel={`Floor for ${room.name || `room ${i + 1}`}`}
                 value={room.floor}
-                placeholder="Main"
+                options={floorOptions}
+                placeholder="Floor…"
                 onChange={(v) => writeRooms(rooms.map((r) => (r.id === room.id ? { ...r, floor: v } : r)))}
+              />
+              <RowSelectCell
+                ariaLabel={`Bathroom for ${room.name || `room ${i + 1}`}`}
+                value={bathroomForRoom(room.id)}
+                options={bathOptions}
+                placeholder={bathOptions.length ? "Shared…" : "Add one first"}
+                onChange={(v) => assignBathroom(room.id, v)}
               />
               <RowCell
                 ariaLabel={`Rent for ${room.name || `room ${i + 1}`}`}
@@ -651,7 +762,19 @@ function StepRooms({
                   )
                 }
               />
-              <span className="sr-only">{overrides.length > 0 ? `${overrides.length} custom` : "house default"}</span>
+              <button
+                type="button"
+                onClick={() => setOpenRoomId(room.id)}
+                data-attr="listing-v2-room-details"
+                className="justify-self-start rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-bold text-primary hover:bg-accent/40"
+              >
+                Details
+                {overrides.length > 0 ? (
+                  <span className="ml-1.5 text-[10px] font-extrabold uppercase tracking-wide text-amber-700">
+                    {overrides.length} custom
+                  </span>
+                ) : null}
+              </button>
             </Row>
           );
         })}
@@ -659,18 +782,23 @@ function StepRooms({
 
       <div className="flex flex-wrap items-center gap-3">
         <RowBulkBar count={selected.size}>
-          <BulkButton
-            onClick={() => {
-              writeRooms(
-                applyHouseDefaultsToRooms(rooms, defaults, {
-                  onlyFields: ["monthlyRent"],
-                  roomIds: [...selected],
-                }),
-              );
-            }}
-          >
-            Set rent to ${defaults.monthlyRent || 0}
-          </BulkButton>
+          {selected.size === 1 ? (
+            <BulkButton onClick={() => setCopyOpen((v) => !v)}>Copy to another room</BulkButton>
+          ) : null}
+          {defaults.monthlyRent > 0 ? (
+            <BulkButton
+              onClick={() => {
+                writeRooms(
+                  applyHouseDefaultsToRooms(rooms, defaults, {
+                    onlyFields: ["monthlyRent"],
+                    roomIds: [...selected],
+                  }),
+                );
+              }}
+            >
+              Set rent to ${defaults.monthlyRent}
+            </BulkButton>
+          ) : null}
           <BulkButton
             onClick={() => {
               const copies = rooms
@@ -691,16 +819,79 @@ function StepRooms({
             Remove
           </BulkButton>
         </RowBulkBar>
-        {rooms.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => setOpenRoomId(rooms[0]!.id)}
-            className="mt-3 text-[12.5px] font-bold text-primary"
-          >
-            Open a room for photos, amenities and short-stay rates ›
-          </button>
-        ) : null}
+
       </div>
+
+      {copyOpen && selected.size === 1 ? (
+        <div className="mt-3 rounded-xl border border-border bg-card p-4">
+          <p className="text-[13px] font-bold text-foreground">Copy this room to…</p>
+          <p className="mb-3 mt-0.5 text-[12px] leading-relaxed text-muted">
+            Copies everything except the room&apos;s name, its photos and its video. Those stay unique to each room.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {rooms
+              .filter((r) => !selected.has(r.id))
+              .map((r, i) => (
+                <ChipToggle
+                  key={r.id}
+                  label={r.name.trim() || `Room ${i + 1}`}
+                  on={copyTargets.has(r.id)}
+                  onToggle={() =>
+                    setCopyTargets((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(r.id)) next.delete(r.id);
+                      else next.add(r.id);
+                      return next;
+                    })
+                  }
+                />
+              ))}
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              type="button"
+              disabled={copyTargets.size === 0}
+              data-attr="listing-v2-copy-apply"
+              onClick={() => {
+                const source = rooms.find((r) => selected.has(r.id));
+                if (!source) return;
+                writeRooms(
+                  rooms.map((r) => {
+                    if (!copyTargets.has(r.id)) return r;
+                    // Everything the source says about the room EXCEPT the three
+                    // things that identify it. Copying a name would give two
+                    // rooms the same label; copying media would show a renter
+                    // one room's photos on another.
+                    return {
+                      ...source,
+                      id: r.id,
+                      name: r.name,
+                      photoDataUrls: r.photoDataUrls,
+                      videoDataUrl: r.videoDataUrl,
+                    };
+                  }),
+                );
+                setCopyOpen(false);
+                setCopyTargets(new Set());
+                setSelected(new Set());
+              }}
+              className="min-h-[38px] rounded-full bg-primary px-5 text-[13px] font-bold text-white disabled:opacity-50"
+            >
+              Copy to {copyTargets.size || "…"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCopyOpen(false);
+                setCopyTargets(new Set());
+              }}
+              className="min-h-[38px] rounded-full px-4 text-[13px] font-bold text-muted"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <AddRowButton
         label="Add room"
@@ -724,35 +915,32 @@ function StepRooms({
 
 /* ─────────────────────────── step 3 · spaces ─────────────────────────── */
 
-function StepSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  const [selectedBath, setSelectedBath] = useState<Set<string>>(new Set());
+function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const baths = sub.bathrooms ?? [];
-  const spaces = sub.sharedSpaces ?? [];
-  const bathCols = [
+  const floors = floorLevelSelectOptions(sub.listingStoriesId, "").map((l) => ({ value: l, label: l }));
+  const cols = [
     { key: "name", label: "Bathroom" },
     { key: "floor", label: "Floor" },
-  ];
-  const spaceCols = [
-    { key: "name", label: "Shared space" },
-    { key: "floor", label: "Floor" },
+    { key: "type", label: "Type" },
   ];
   return (
     <StepColumn wide>
       <StepHeading
         step={3}
-        total={6}
-        name="Spaces"
-        title="Bathrooms and shared rooms"
-        subtitle="A row each. Everything outside the bedrooms."
+        total={TOTAL_STEPS}
+        name="Bathrooms"
+        title={`Your ${baths.length} ${baths.length === 1 ? "bathroom" : "bathrooms"}`}
+        subtitle="One row each. Open a bathroom to add fixtures, amenities and photos."
       />
-      <RowList columns={bathCols}>
+      <RowList columns={cols}>
         {baths.map((bath, i) => (
           <Row
             key={bath.id}
-            columnCount={bathCols.length}
-            selected={selectedBath.has(bath.id)}
+            columnCount={cols.length}
+            selected={selected.has(bath.id)}
             onSelectChange={(on) =>
-              setSelectedBath((prev) => {
+              setSelected((prev) => {
                 const next = new Set(prev);
                 if (on) next.add(bath.id);
                 else next.delete(bath.id);
@@ -768,11 +956,36 @@ function StepSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
               placeholder={`Bathroom ${i + 1}`}
               onChange={(v) => patch({ bathrooms: baths.map((b) => (b.id === bath.id ? { ...b, name: v } : b)) })}
             />
-            <RowCell
+            <RowSelectCell
               ariaLabel={`Floor for bathroom ${i + 1}`}
               value={bath.location ?? ""}
-              placeholder="Main"
+              options={floors}
+              placeholder="Floor…"
               onChange={(v) => patch({ bathrooms: baths.map((b) => (b.id === bath.id ? { ...b, location: v } : b)) })}
+            />
+            <RowSelectCell
+              ariaLabel={`Type of bathroom ${i + 1}`}
+              value={bath.bathtub ? "full" : bath.shower ? "shower" : "half"}
+              options={[
+                { value: "full", label: "Full bath" },
+                { value: "shower", label: "Shower only" },
+                { value: "half", label: "Half bath" },
+              ]}
+              onChange={(v) =>
+                patch({
+                  bathrooms: baths.map((b) =>
+                    b.id === bath.id
+                      ? {
+                          ...b,
+                          toilet: true,
+                          sink: true,
+                          shower: v !== "half",
+                          bathtub: v === "full",
+                        }
+                      : b,
+                  ),
+                })
+              }
             />
           </Row>
         ))}
@@ -792,53 +1005,72 @@ function StepSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
           });
         }}
       />
+      <p className="mt-3 text-[12px] leading-relaxed text-muted">
+        Which rooms use which bathroom is set on the Rooms step, so you only say it once.
+      </p>
+    </StepColumn>
+  );
+}
 
-      <div className="mt-7">
-        <RowList columns={spaceCols}>
-          {spaces.map((space, i) => (
-            <Row
-              key={space.id}
-              columnCount={spaceCols.length}
-              selected={false}
-              onSelectChange={() => {}}
-              removeLabel={`Remove ${space.name || `shared space ${i + 1}`}`}
-              onRemove={() => patch({ sharedSpaces: spaces.filter((s) => s.id !== space.id) })}
-            >
-              <RowCell
-                ariaLabel={`Name for shared space ${i + 1}`}
-                value={space.name}
-                placeholder="Kitchen"
-                onChange={(v) =>
-                  patch({ sharedSpaces: spaces.map((s) => (s.id === space.id ? { ...s, name: v } : s)) })
-                }
-              />
-              <RowCell
-                ariaLabel={`Floor for shared space ${i + 1}`}
-                value={space.location ?? ""}
-                placeholder="Main"
-                onChange={(v) =>
-                  patch({ sharedSpaces: spaces.map((s) => (s.id === space.id ? { ...s, location: v } : s)) })
-                }
-              />
-            </Row>
-          ))}
-        </RowList>
-        <AddRowButton
-          label="Add shared space"
-          icon={LayoutGrid}
-          dataAttr="listing-v2-add-space"
-          onClick={() => {
-            const base = spaces[0];
-            const id = `space-${Date.now()}`;
-            patch({
-              sharedSpaces: [
-                ...spaces,
-                base ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null } : ({ id, name: "" } as never),
-              ],
-            });
-          }}
-        />
-      </div>
+function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  const spaces = sub.sharedSpaces ?? [];
+  const floors = floorLevelSelectOptions(sub.listingStoriesId, "").map((l) => ({ value: l, label: l }));
+  const cols = [
+    { key: "name", label: "Shared space" },
+    { key: "floor", label: "Floor" },
+  ];
+  return (
+    <StepColumn wide>
+      <StepHeading
+        step={4}
+        total={TOTAL_STEPS}
+        name="Shared spaces"
+        title="Kitchen, laundry and the rest"
+        subtitle="Everything every resident can use. Open one to add photos and amenities."
+      />
+      <RowList columns={cols}>
+        {spaces.map((space, i) => (
+          <Row
+            key={space.id}
+            columnCount={cols.length}
+            selected={false}
+            onSelectChange={() => {}}
+            removeLabel={`Remove ${space.name || `shared space ${i + 1}`}`}
+            onRemove={() => patch({ sharedSpaces: spaces.filter((sp) => sp.id !== space.id) })}
+          >
+            <RowCell
+              ariaLabel={`Name for shared space ${i + 1}`}
+              value={space.name}
+              placeholder="Kitchen"
+              onChange={(v) => patch({ sharedSpaces: spaces.map((sp) => (sp.id === space.id ? { ...sp, name: v } : sp)) })}
+            />
+            <RowSelectCell
+              ariaLabel={`Floor for shared space ${i + 1}`}
+              value={space.location ?? ""}
+              options={floors}
+              placeholder="Floor…"
+              onChange={(v) =>
+                patch({ sharedSpaces: spaces.map((sp) => (sp.id === space.id ? { ...sp, location: v } : sp)) })
+              }
+            />
+          </Row>
+        ))}
+      </RowList>
+      <AddRowButton
+        label="Add shared space"
+        icon={LayoutGrid}
+        dataAttr="listing-v2-add-space"
+        onClick={() => {
+          const base = spaces[0];
+          const id = `space-${Date.now()}`;
+          patch({
+            sharedSpaces: [
+              ...spaces,
+              base ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null } : ({ id, name: "" } as never),
+            ],
+          });
+        }}
+      />
       <p className="mt-3 text-[12px] leading-relaxed text-muted">
         Shared spaces are available to every room unless you say otherwise when you open one.
       </p>
@@ -885,7 +1117,7 @@ function StepMoney({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pat
     <StepColumn>
       <StepHeading
         step={4}
-        total={6}
+        total={TOTAL_STEPS}
         name="Rent & fees"
         title="What a resident pays"
         subtitle="Rent comes from the Rooms step. This is everything on top of it."
@@ -1084,8 +1316,8 @@ function StepMarketing({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
   return (
     <StepColumn>
       <StepHeading
-        step={5}
-        total={6}
+        step={6}
+        total={TOTAL_STEPS}
         name="Photos & description"
         title="How it looks and reads"
         subtitle="Listings with a photo of every room get far more enquiries."
@@ -1211,8 +1443,8 @@ function StepReview({ sub }: { sub: ManagerListingSubmissionV1 }) {
   return (
     <StepColumn wide>
       <StepHeading
-        step={6}
-        total={6}
+        step={7}
+        total={TOTAL_STEPS}
         name="Review"
         title="Ready to publish"
         subtitle="Nothing here stops you publishing. Stronger listings fill it in."
@@ -1291,8 +1523,10 @@ export function ListingEditorV2({
         return <StepBasics sub={submission} patch={patch} />;
       case "rooms":
         return <StepRooms sub={submission} patch={patch} defaults={defaults} setDefaults={setDefaults} />;
+      case "bathrooms":
+        return <StepBathrooms sub={submission} patch={patch} />;
       case "spaces":
-        return <StepSpaces sub={submission} patch={patch} />;
+        return <StepSharedSpaces sub={submission} patch={patch} />;
       case "money":
         return <StepMoney sub={submission} patch={patch} />;
       case "marketing":
@@ -1307,26 +1541,38 @@ export function ListingEditorV2({
     <WizardModal
       title={title}
       onClose={onClose}
-      onSaveExit={() => onSaveExit(step)}
       headerAside={<ModalAssistantStrip contextHint={assistantContext} storageScopeKey="listing-wizard-v2" />}
       stepper={<WizardStepper steps={LISTING_V2_STEPS} current={step} onJump={setStep} />}
       footer={
         <>
-          <button
-            type="button"
-            disabled={step === 0}
-            onClick={() => setStep((s) => Math.max(0, s - 1))}
-            className="min-h-[44px] rounded-[10px] border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
-          >
-            Back
-          </button>
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              disabled={step === 0}
+              onClick={() => setStep((s) => Math.max(0, s - 1))}
+              className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
+            >
+              Back
+            </button>
+            {/* Saving lives here, next to the other actions, rather than in the
+                header corner where it competed with Ask PropLane and the close. */}
+            <button
+              type="button"
+              onClick={() => onSaveExit(step)}
+              disabled={busy}
+              data-attr="listing-v2-save-exit"
+              className="min-h-[44px] rounded-full px-4 text-[13.5px] font-bold text-muted hover:text-foreground disabled:opacity-60"
+            >
+              Save &amp; exit
+            </button>
+          </div>
           {step === last ? (
             <div className="flex gap-2.5">
               <button
                 type="button"
                 onClick={() => onSaveExit(step)}
                 disabled={busy}
-                className="min-h-[44px] rounded-[10px] border border-border bg-card px-5 text-[14px] font-bold text-foreground disabled:opacity-60"
+                className="min-h-[44px] rounded-full border border-border bg-card px-5 text-[14px] font-bold text-foreground disabled:opacity-60"
               >
                 Keep as draft
               </button>
@@ -1335,7 +1581,7 @@ export function ListingEditorV2({
                 onClick={onPublish}
                 disabled={busy}
                 data-attr="listing-v2-publish"
-                className="min-h-[44px] rounded-[10px] bg-primary px-6 text-[14px] font-bold text-white disabled:opacity-60"
+                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
               >
                 {busy ? "Publishing…" : "Publish"}
               </button>
@@ -1345,7 +1591,7 @@ export function ListingEditorV2({
               type="button"
               onClick={() => setStep((s) => Math.min(last, s + 1))}
               data-attr="listing-v2-next"
-              className="min-h-[44px] rounded-[10px] bg-primary px-6 text-[14px] font-bold text-white"
+              className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
             >
               Next
             </button>

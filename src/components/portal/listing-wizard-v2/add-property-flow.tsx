@@ -94,7 +94,7 @@ export function AddPropertyFlow({
                 setTouched(true);
                 if (address.trim()) setScreen("confirm");
               }}
-              className="min-h-[44px] rounded-[10px] bg-primary px-6 text-[14px] font-bold text-white"
+              className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
             >
               Continue
             </button>
@@ -146,7 +146,7 @@ export function AddPropertyFlow({
             <button
               type="button"
               onClick={() => setScreen("address")}
-              className="min-h-[44px] rounded-[10px] border border-border bg-card px-6 text-[14px] font-bold text-foreground"
+              className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground"
             >
               Back
             </button>
@@ -154,7 +154,7 @@ export function AddPropertyFlow({
               type="button"
               data-attr="listing-v2-address-confirm"
               onClick={() => setScreen("how")}
-              className="min-h-[44px] rounded-[10px] bg-primary px-6 text-[14px] font-bold text-white"
+              className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
             >
               Yes, that&apos;s it
             </button>
@@ -209,7 +209,7 @@ export function AddPropertyFlow({
           <button
             type="button"
             onClick={() => setScreen("confirm")}
-            className="min-h-[44px] rounded-[10px] border border-border bg-card px-6 text-[14px] font-bold text-foreground"
+            className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground"
           >
             Back
           </button>
@@ -232,7 +232,7 @@ export function AddPropertyFlow({
                 bedrooms: rentByRoom ? bedrooms : 1,
               });
             }}
-            className="min-h-[44px] rounded-[10px] bg-primary px-6 text-[14px] font-bold text-white disabled:opacity-60"
+            className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
           >
             {creating ? "Creating…" : "Create listing"}
           </button>
