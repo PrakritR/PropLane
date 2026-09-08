@@ -563,7 +563,20 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
  * monthly let, so it is a switch the manager flips rather than a locked field.
  */
 export function roomRateVisibility(sub: ManagerListingSubmissionV1) {
+  const allowed = resolveAllowedLeaseTerms(sub);
+  const longTerm = allowed.includes(LONG_TERM_LEASE_TERM);
+  const custom = allowed.includes(CUSTOM_LEASE_TERM);
+  const monthToMonth = allowed.includes("Month-to-Month");
   return {
+    longTerm,
+    custom,
+    monthToMonth,
+    /** Long-term, custom and month-to-month all quote one monthly figure. */
+    monthly: longTerm || custom || monthToMonth,
+    /** Only a term that can start mid-month needs a partial month split. */
+    prorate: longTerm || custom,
+    shortTerm: Boolean(sub.shortTermRentalsAllowed),
+    airbnb: Boolean(sub.airbnbRentalsAllowed),
     nightly: Boolean(sub.shortTermRentalsAllowed) || Boolean(sub.airbnbRentalsAllowed),
     shortStayCharges: Boolean(sub.shortTermRentalsAllowed),
   };
@@ -613,11 +626,11 @@ function RoomDetail({
         {room.name.trim() || "Room"}
       </h2>
       <p className="mb-5 mt-1.5 text-[13.5px] leading-relaxed text-muted">
-        Pricing, leasing, the room itself, and moving in.
+        The room itself, how it is let, what it costs, and moving in.
       </p>
 
       <AdvancedPanel
-        summary="Pricing · Leasing · The room · Move-in"
+        summary="The room · Leasing · Pricing · Move-in"
         open
         onToggle={() => undefined}
         dataAttr="listing-v2-room-advanced"
@@ -685,33 +698,17 @@ function RoomDetail({
 
         <AdvancedGroup
           title="Leasing"
-          description="Which lease types this room is let on · month-to-month and custom · short-lease cap and surcharge"
+          description="Which lease types this room is let on — and therefore which prices it needs"
           open={openGroup === "lease"}
           onToggle={() => toggleGroup("lease")}
           dataAttr="listing-v2-room-lease"
         >
           <Field
             label="Lease types offered"
-            hint="Set for the whole listing — the application flow reads this list, so a room cannot offer a type the listing does not."
+            hint="Set for the whole listing — the application flow reads this list, so a room cannot offer a type the listing does not. Pricing below follows what you pick."
           >
             <LeaseTypesField sub={sub} patch={patch} />
           </Field>
-          <FieldRow cols={2}>
-            <Field label="A short lease is up to" optional hint="Months. The surcharge below applies below this length.">
-              <Input
-                value={room.shortLeaseMaxMonths ? String(room.shortLeaseMaxMonths) : ""}
-                inputMode="numeric"
-                placeholder="5"
-                onChange={(e) => set({ shortLeaseMaxMonths: Number(e.target.value.replace(/[^0-9]/g, "")) || undefined })}
-              />
-            </Field>
-            <Field label="Short-lease surcharge / month" optional>
-              <Input
-                value={money(room.shortLeaseSurchargeMonthly)}
-                onChange={(e) => set({ shortLeaseSurchargeMonthly: e.target.value })}
-              />
-            </Field>
-          </FieldRow>
         </AdvancedGroup>
 
         <AdvancedGroup
@@ -722,86 +719,115 @@ function RoomDetail({
           dataAttr="listing-v2-room-payments"
         >
           {/*
-           * One card per rate, because a month, a week and a night are three
-           * different offers rather than one price with variants. Only the
-           * monthly card prorates: nobody bills a part-week or a part-night.
+           * Pricing follows the lease types on offer: a card per type, each
+           * holding the prices that type actually needs. A room let long-term
+           * has no nightly rate to fill in, and a nightly stay has no partial
+           * month to split — showing both to everyone is what made this screen
+           * a wall of fields nobody could read.
            */}
-          <div className="rounded-xl border border-border bg-card p-4">
-            <p className="text-[13px] font-bold text-foreground">Per month</p>
-            <p className="mb-3 mt-0.5 text-[12px] text-muted">For a long-term or month-to-month let.</p>
-            <FieldRow cols={2}>
-              <Field
-                label="Rent / month"
-                hint={inheritsRent && defaults.monthlyRent > 0 ? `Following the top row: $${defaults.monthlyRent}.` : undefined}
-              >
-                <Input
-                  value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
-                  inputMode="numeric"
-                  placeholder={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "1,050"}
-                  onChange={(e) => set({ monthlyRent: Number(e.target.value.replace(/[^0-9.]/g, "")) || 0 })}
-                />
-              </Field>
-              <Field label="Fixed or flexible" hint="Flexible shows the same price and invites an offer.">
-                <Select
-                  value={room.pricingMode ?? "fixed"}
-                  onChange={(e) => set({ pricingMode: e.target.value as ManagerRoomSubmission["pricingMode"] })}
-                >
-                  <option value="fixed">Fixed — this is the price</option>
-                  <option value="flexible">Flexible — open to an offer</option>
-                </Select>
-              </Field>
-            </FieldRow>
-            <p className="mb-2 mt-3 text-[12.5px] font-bold text-foreground">Prorated rent</p>
-            <p className="mb-3 text-[12px] leading-relaxed text-muted">
-              Splits a partial first or last month. Monthly only.
-            </p>
-            <FieldRow cols={3}>
-              <Field label="How to split">
-                <Select
-                  value={room.prorateMethod ?? "auto"}
-                  onChange={(e) => set({ prorateMethod: e.target.value as ManagerRoomSubmission["prorateMethod"] })}
-                >
-                  <option value="auto">Work it out automatically</option>
-                  <option value="daily_rate">Set a per-day rate</option>
-                </Select>
-              </Field>
-              <Field label="Rent / day" optional>
-                <Input
-                  value={room.dailyRentRate ? String(room.dailyRentRate) : ""}
-                  inputMode="numeric"
-                  placeholder={suggestionPlaceholder(suggested?.dailyRent)}
-                  onChange={(e) => set({ dailyRentRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-                />
-              </Field>
-              <Field label="Utilities / day" optional>
-                <Input
-                  value={room.dailyUtilitiesRate ? String(room.dailyUtilitiesRate) : ""}
-                  inputMode="numeric"
-                  onChange={(e) => set({ dailyUtilitiesRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-                />
-              </Field>
-            </FieldRow>
-          </div>
+          <Field
+            label="Fixed or flexible"
+            hint="Flexible advertises the same price and tells a renter it can be discussed — the assistant may negotiate."
+          >
+            <Select
+              value={room.pricingMode ?? "fixed"}
+              onChange={(e) => set({ pricingMode: e.target.value as ManagerRoomSubmission["pricingMode"] })}
+            >
+              <option value="fixed">Fixed — this is the price</option>
+              <option value="flexible">Flexible — open to an offer</option>
+            </Select>
+          </Field>
 
-          <div className="mt-3 rounded-xl border border-border bg-card p-4">
-            <label className="flex cursor-pointer items-start gap-2.5">
-              <input
-                type="checkbox"
-                checked={weeklyOn}
-                data-attr="listing-v2-room-weekly-on"
-                onChange={(e) => setWeeklyOn(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-border"
-              />
-              <span className="min-w-0">
-                <span className="block text-[13px] font-bold text-foreground">Per week</span>
-                <span className="mt-0.5 block text-[12px] text-muted">
-                  {suggested ? `A weekly figure, around ${suggested.weeklyRent}.` : "A weekly figure, if you quote one."}
-                </span>
-              </span>
-            </label>
-            {weeklyOn ? (
-              <div className="mt-3">
-                <Field label="Rent / week" optional>
+          {!rates.monthly && !rates.shortTerm && !rates.airbnb ? (
+            <p className="rounded-xl border border-dashed border-border bg-card px-4 py-3 text-[12.5px] leading-relaxed text-muted">
+              No lease types are offered yet, so there is nothing to price. Choose them under
+              <span className="font-bold text-foreground"> Leasing</span> above and the matching prices appear here.
+            </p>
+          ) : null}
+
+          {rates.monthly ? (
+            <div className="rounded-xl border border-border bg-card p-4">
+              <p className="text-[13px] font-bold text-foreground">
+                {[rates.longTerm ? "Long-term" : null, rates.custom ? "custom" : null, rates.monthToMonth ? "month-to-month" : null]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+              <p className="mb-3 mt-0.5 text-[12px] text-muted">One monthly figure covers all of these.</p>
+              <FieldRow cols={3}>
+                <Field
+                  label="Rent / month"
+                  hint={inheritsRent && defaults.monthlyRent > 0 ? `Following the top row: $${defaults.monthlyRent}.` : undefined}
+                >
+                  <Input
+                    value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
+                    inputMode="numeric"
+                    placeholder={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "1,050"}
+                    onChange={(e) => set({ monthlyRent: Number(e.target.value.replace(/[^0-9.]/g, "")) || 0 })}
+                  />
+                </Field>
+                <Field
+                  label="Security deposit"
+                  optional
+                  hint={suggested ? `Suggested ${suggested.securityDeposit} — check your local cap.` : undefined}
+                >
+                  <Input
+                    value={money(room.securityDeposit)}
+                    placeholder={defaults.securityDeposit || suggestionPlaceholder(suggested?.securityDeposit)}
+                    onChange={(e) => set({ securityDeposit: e.target.value })}
+                  />
+                </Field>
+                <Field label="Move-in fee" optional>
+                  <Input
+                    value={money(room.moveInFee)}
+                    placeholder={defaults.moveInFee || suggestionPlaceholder(suggested?.moveInFee)}
+                    onChange={(e) => set({ moveInFee: e.target.value })}
+                  />
+                </Field>
+              </FieldRow>
+              {rates.prorate ? (
+                <>
+                  <p className="mb-2 mt-3 text-[12.5px] font-bold text-foreground">Prorated rent</p>
+                  <p className="mb-3 text-[12px] leading-relaxed text-muted">
+                    Splits a partial first or last month — which is exactly what a custom term starting mid-month
+                    needs.
+                  </p>
+                  <FieldRow cols={3}>
+                    <Field label="How to split">
+                      <Select
+                        value={room.prorateMethod ?? "auto"}
+                        onChange={(e) => set({ prorateMethod: e.target.value as ManagerRoomSubmission["prorateMethod"] })}
+                      >
+                        <option value="auto">Work it out automatically</option>
+                        <option value="daily_rate">Set a per-day rate</option>
+                      </Select>
+                    </Field>
+                    <Field label="Rent / day" optional>
+                      <Input
+                        value={room.dailyRentRate ? String(room.dailyRentRate) : ""}
+                        inputMode="numeric"
+                        placeholder={suggestionPlaceholder(suggested?.dailyRent)}
+                        onChange={(e) => set({ dailyRentRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
+                      />
+                    </Field>
+                    <Field label="Utilities / day" optional>
+                      <Input
+                        value={room.dailyUtilitiesRate ? String(room.dailyUtilitiesRate) : ""}
+                        inputMode="numeric"
+                        onChange={(e) => set({ dailyUtilitiesRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
+                      />
+                    </Field>
+                  </FieldRow>
+                </>
+              ) : null}
+            </div>
+          ) : null}
+
+          {rates.shortTerm ? (
+            <div className="mt-3 rounded-xl border border-border bg-card p-4">
+              <p className="text-[13px] font-bold text-foreground">Short-term</p>
+              <p className="mb-3 mt-0.5 text-[12px] text-muted">Under a month, so it is priced by the week or night.</p>
+              <FieldRow cols={2}>
+                <Field label="Rent / week" optional hint={suggested ? `Suggested ${suggested.weeklyRent}.` : undefined}>
                   <Input
                     value={room.weeklyRentPrice ? String(room.weeklyRentPrice) : ""}
                     placeholder={suggestionPlaceholder(suggested?.weeklyRent)}
@@ -809,61 +835,47 @@ function RoomDetail({
                     onChange={(e) => set({ weeklyRentPrice: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
                   />
                 </Field>
-              </div>
-            ) : null}
-          </div>
+                <Field label="Rent / night" optional hint={suggested ? `Suggested ${suggested.dailyRent}.` : undefined}>
+                  <Input
+                    value={money(room.shortTermRent)}
+                    placeholder={suggestionPlaceholder(suggested?.dailyRent)}
+                    onChange={(e) => set({ shortTermRent: e.target.value })}
+                  />
+                </Field>
+              </FieldRow>
+              <FieldRow cols={2}>
+                <Field label="Deposit" optional>
+                  <Input value={money(room.shortTermDeposit)} onChange={(e) => set({ shortTermDeposit: e.target.value })} />
+                </Field>
+                <Field label="Move-in fee" optional>
+                  <Input
+                    value={money(room.shortTermMoveInFee)}
+                    onChange={(e) => set({ shortTermMoveInFee: e.target.value })}
+                  />
+                </Field>
+              </FieldRow>
+            </div>
+          ) : null}
 
-          <div className="mt-3 rounded-xl border border-border bg-card p-4">
-            <p className="text-[13px] font-bold text-foreground">Per night</p>
-            {rates.nightly ? (
-              <>
-                <p className="mb-3 mt-0.5 text-[12px] text-muted">
-                  Shown because this listing allows short-term or Airbnb stays.
-                </p>
-                <FieldRow cols={3}>
-                  <Field label="Rent / night" optional>
-                    <Input
-                      value={room.dailyRentPrice ? String(room.dailyRentPrice) : ""}
-                      placeholder={suggestionPlaceholder(suggested?.dailyRent)}
-                      inputMode="numeric"
-                      onChange={(e) => set({ dailyRentPrice: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-                    />
-                  </Field>
-                  <Field label="Deposit" optional>
-                    <Input value={money(room.shortTermDeposit)} onChange={(e) => set({ shortTermDeposit: e.target.value })} />
-                  </Field>
-                  <Field label="Move-in fee" optional>
-                    <Input
-                      value={money(room.shortTermMoveInFee)}
-                      onChange={(e) => set({ shortTermMoveInFee: e.target.value })}
-                    />
-                  </Field>
-                </FieldRow>
-              </>
-            ) : (
-              <p className="mt-0.5 text-[12px] leading-relaxed text-muted">
-                Not offered. Add <span className="font-bold text-foreground">Short-term</span> or{" "}
-                <span className="font-bold text-foreground">Airbnb</span> to the lease types above and a nightly rate
-                appears here.
+          {rates.airbnb ? (
+            <div className="mt-3 rounded-xl border border-border bg-card p-4">
+              <p className="text-[13px] font-bold text-foreground">Airbnb</p>
+              <p className="mb-3 mt-0.5 text-[12px] text-muted">
+                Booked off PropLane, so no rent charge is raised here — this is the figure you advertise.
               </p>
-            )}
-          </div>
-
-          <div className="mt-4">
-            <Field label="Billed by" hint="How every rent charge is raised. No suggestion changes this.">
-              <Select
-                value={room.rentBasis ?? "monthly"}
-                onChange={(e) => set({ rentBasis: e.target.value as ManagerRoomSubmission["rentBasis"] })}
-              >
-                <option value="monthly">Month</option>
-                <option value="weekly">Week</option>
-                <option value="daily">Day</option>
-              </Select>
-            </Field>
-          </div>
+              <Field label="Rent / night" optional>
+                <Input
+                  value={room.dailyRentPrice ? String(room.dailyRentPrice) : ""}
+                  placeholder={suggestionPlaceholder(suggested?.dailyRent)}
+                  inputMode="numeric"
+                  onChange={(e) => set({ dailyRentPrice: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
+                />
+              </Field>
+            </div>
+          ) : null}
 
           {suggested ? (
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
               <p className="min-w-0 text-[12.5px] leading-relaxed text-muted">
                 From ${effectiveRent}: deposit {suggested.securityDeposit} · move-in fee {suggested.moveInFee} ·
                 prorated {suggested.dailyRent}/day.
@@ -879,26 +891,8 @@ function RoomDetail({
             </div>
           ) : null}
 
-          <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">This room&apos;s charges</p>
+          <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Whatever the term</p>
           <FieldRow cols={3}>
-            <Field
-              label="Security deposit"
-              optional
-              hint={suggested ? `Suggested ${suggested.securityDeposit} — check your local cap.` : undefined}
-            >
-              <Input
-                value={money(room.securityDeposit)}
-                placeholder={defaults.securityDeposit || suggestionPlaceholder(suggested?.securityDeposit)}
-                onChange={(e) => set({ securityDeposit: e.target.value })}
-              />
-            </Field>
-            <Field label="Move-in fee" optional>
-              <Input
-                value={money(room.moveInFee)}
-                placeholder={defaults.moveInFee || suggestionPlaceholder(suggested?.moveInFee)}
-                onChange={(e) => set({ moveInFee: e.target.value })}
-              />
-            </Field>
             <Field label="Utilities / month" optional>
               <Input
                 value={money(room.utilitiesEstimate)}
@@ -906,20 +900,30 @@ function RoomDetail({
                 onChange={(e) => set({ utilitiesEstimate: e.target.value })}
               />
             </Field>
+            <Field label="How utilities are handled">
+              <Select
+                value={room.utilitiesPaymentModel ?? ""}
+                onChange={(e) => set({ utilitiesPaymentModel: e.target.value as ManagerRoomSubmission["utilitiesPaymentModel"] })}
+              >
+                <option value="">Select…</option>
+                {LONG_TERM_UTILITIES_PAYMENT_OPTIONS.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Billed by" hint="How every rent charge is raised.">
+              <Select
+                value={room.rentBasis ?? "monthly"}
+                onChange={(e) => set({ rentBasis: e.target.value as ManagerRoomSubmission["rentBasis"] })}
+              >
+                <option value="monthly">Month</option>
+                <option value="weekly">Week</option>
+                <option value="daily">Day</option>
+              </Select>
+            </Field>
           </FieldRow>
-          <Field label="How utilities are handled" hint="Decides whether the amount above is billed or only an estimate.">
-            <Select
-              value={room.utilitiesPaymentModel ?? ""}
-              onChange={(e) => set({ utilitiesPaymentModel: e.target.value as ManagerRoomSubmission["utilitiesPaymentModel"] })}
-            >
-              <option value="">Select…</option>
-              {LONG_TERM_UTILITIES_PAYMENT_OPTIONS.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
         </AdvancedGroup>
 
 
@@ -996,9 +1000,13 @@ function RoomDetail({
  * different from the next.
  */
 function DefaultsDetail({
+  sub,
+  patch,
   defaults,
   editDefault,
 }: {
+  sub: ManagerListingSubmissionV1;
+  patch: Patch;
   defaults: ListingHouseDefaults;
   editDefault: (field: keyof ListingHouseDefaults, value: ListingHouseDefaults[keyof ListingHouseDefaults]) => void;
 }) {
@@ -1006,7 +1014,7 @@ function DefaultsDetail({
   const toggle = (id: string) => setOpenGroup((prev) => (prev === id ? null : id));
   return (
     <AdvancedPanel
-      summary="The room · Pricing · Leasing · Move-in"
+      summary="The room · Leasing · Pricing · Move-in"
       open
       onToggle={() => undefined}
       dataAttr="listing-v2-defaults-advanced"
@@ -1057,12 +1065,46 @@ function DefaultsDetail({
       </AdvancedGroup>
 
       <AdvancedGroup
+        title="Leasing"
+        description="Which lease types this listing is let on — and therefore which prices a room needs"
+        open={openGroup === "leasing"}
+        onToggle={() => toggle("leasing")}
+        dataAttr="listing-v2-defaults-leasing"
+      >
+        <Field label="Lease types offered" hint="Set for the whole listing. Pricing follows what you pick.">
+          <LeaseTypesField sub={sub} patch={patch} />
+        </Field>
+      </AdvancedGroup>
+
+      <AdvancedGroup
         title="Pricing"
-        description="Deposit · move-in fee · utilities and who pays them · prorating · fixed or flexible"
+        description="Fixed or flexible · deposit · move-in fee · utilities and who pays them · prorating"
         open={openGroup === "payments"}
         onToggle={() => toggle("payments")}
         dataAttr="listing-v2-defaults-payments"
       >
+        <FieldRow cols={2}>
+          <Field label="Fixed or flexible" hint="Flexible shows the same price and invites an offer.">
+            <Select
+              value={defaults.pricingMode}
+              onChange={(e) => editDefault("pricingMode", e.target.value as ListingHouseDefaults["pricingMode"])}
+            >
+              <option value="">Leave to each room</option>
+              <option value="fixed">Fixed</option>
+              <option value="flexible">Flexible</option>
+            </Select>
+          </Field>
+          <Field label="Prorate a partial month">
+            <Select
+              value={defaults.prorateMethod}
+              onChange={(e) => editDefault("prorateMethod", e.target.value as ListingHouseDefaults["prorateMethod"])}
+            >
+              <option value="">Leave to each room</option>
+              <option value="auto">Work it out automatically</option>
+              <option value="daily_rate">Set a per-day rate</option>
+            </Select>
+          </Field>
+        </FieldRow>
         <FieldRow cols={2}>
           <Field label="Deposit" optional>
             <Input
@@ -1099,53 +1141,6 @@ function DefaultsDetail({
                 </option>
               ))}
             </Select>
-          </Field>
-        </FieldRow>
-        <FieldRow cols={2}>
-          <Field label="Fixed or flexible" hint="Flexible shows the same price and invites an offer.">
-            <Select
-              value={defaults.pricingMode}
-              onChange={(e) => editDefault("pricingMode", e.target.value as ListingHouseDefaults["pricingMode"])}
-            >
-              <option value="">Leave to each room</option>
-              <option value="fixed">Fixed</option>
-              <option value="flexible">Flexible</option>
-            </Select>
-          </Field>
-          <Field label="Prorate a partial month">
-            <Select
-              value={defaults.prorateMethod}
-              onChange={(e) => editDefault("prorateMethod", e.target.value as ListingHouseDefaults["prorateMethod"])}
-            >
-              <option value="">Leave to each room</option>
-              <option value="auto">Work it out automatically</option>
-              <option value="daily_rate">Set a per-day rate</option>
-            </Select>
-          </Field>
-        </FieldRow>
-      </AdvancedGroup>
-
-      <AdvancedGroup
-        title="Leasing"
-        description="What counts as a short lease for most rooms, and what it costs"
-        open={openGroup === "leasing"}
-        onToggle={() => toggle("leasing")}
-        dataAttr="listing-v2-defaults-leasing"
-      >
-        <FieldRow cols={2}>
-          <Field label="A short lease is up to" optional hint="Months. The surcharge applies below this length.">
-            <Input
-              value={defaults.shortLeaseMaxMonths > 0 ? String(defaults.shortLeaseMaxMonths) : ""}
-              inputMode="numeric"
-              placeholder="5"
-              onChange={(e) => editDefault("shortLeaseMaxMonths", Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
-            />
-          </Field>
-          <Field label="Short-lease surcharge / month" optional>
-            <Input
-              value={defaults.shortLeaseSurchargeMonthly}
-              onChange={(e) => editDefault("shortLeaseSurchargeMonthly", e.target.value)}
-            />
           </Field>
         </FieldRow>
       </AdvancedGroup>
@@ -1409,7 +1404,7 @@ function StepRooms({
          */}
         {openDefaults ? (
           <div className="border-b border-border bg-primary/[0.03] px-3 py-3">
-            <DefaultsDetail defaults={defaults} editDefault={editDefault} />
+            <DefaultsDetail sub={sub} patch={patch} defaults={defaults} editDefault={editDefault} />
           </div>
         ) : null}
 

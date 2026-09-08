@@ -44,9 +44,6 @@ export type ListingHouseDefaults = {
   prorateMethod: "auto" | "daily_rate" | "";
   /** Whether the advertised price invites an offer. Never changes the figure. */
   pricingMode: "fixed" | "flexible" | "";
-  /** Months below which the short-lease surcharge applies. */
-  shortLeaseMaxMonths: number;
-  shortLeaseSurchargeMonthly: string;
 };
 
 export type ListingHouseDefaultField = keyof ListingHouseDefaults;
@@ -67,8 +64,6 @@ export const LISTING_HOUSE_DEFAULT_FIELDS: readonly ListingHouseDefaultField[] =
   "sizeSqft",
   "prorateMethod",
   "pricingMode",
-  "shortLeaseMaxMonths",
-  "shortLeaseSurchargeMonthly",
 ] as const;
 
 export function emptyListingHouseDefaults(): ListingHouseDefaults {
@@ -87,8 +82,6 @@ export function emptyListingHouseDefaults(): ListingHouseDefaults {
     sizeSqft: 0,
     prorateMethod: "",
     pricingMode: "",
-    shortLeaseMaxMonths: 0,
-    shortLeaseSurchargeMonthly: "",
   };
 }
 
@@ -126,10 +119,6 @@ export function roomDefaultFieldValue(
       return room.prorateMethod ?? "";
     case "pricingMode":
       return room.pricingMode ?? "";
-    case "shortLeaseMaxMonths":
-      return room.shortLeaseMaxMonths ?? 0;
-    case "shortLeaseSurchargeMonthly":
-      return (room.shortLeaseSurchargeMonthly ?? "").trim();
   }
 }
 
@@ -169,10 +158,6 @@ function writeRoomDefaultField(
       return defaults.prorateMethod ? { ...room, prorateMethod: defaults.prorateMethod } : room;
     case "pricingMode":
       return defaults.pricingMode ? { ...room, pricingMode: defaults.pricingMode } : room;
-    case "shortLeaseMaxMonths":
-      return defaults.shortLeaseMaxMonths > 0 ? { ...room, shortLeaseMaxMonths: defaults.shortLeaseMaxMonths } : room;
-    case "shortLeaseSurchargeMonthly":
-      return { ...room, shortLeaseSurchargeMonthly: defaults.shortLeaseSurchargeMonthly };
   }
 }
 
