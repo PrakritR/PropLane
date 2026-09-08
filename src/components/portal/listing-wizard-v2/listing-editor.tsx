@@ -66,7 +66,6 @@ import {
   derivedRoomCharges,
   isUnsetCharge,
   suggestionPlaceholder,
-  type DerivedRoomCharges,
 } from "@/lib/listing-room-derived-pricing";
 import { applyListingBedroomSlots } from "@/lib/manager-listing-submission";
 import {
@@ -657,83 +656,6 @@ export function roomRateVisibility(sub: ManagerListingSubmissionV1) {
   };
 }
 
-/** A starting point a manager can pick instead of typing every field. */
-type RoomSetup = {
-  id: string;
-  label: string;
-  describe: string;
-  apply: (room: ManagerRoomSubmission, suggested: DerivedRoomCharges | null) => Partial<ManagerRoomSubmission>;
-};
-
-/**
- * The setups.
- *
- * A setup fills fields; it never changes `rentBasis`. Moving a room to weekly
- * or daily billing changes how every rent charge is raised (see
- * docs/agents/rent-basis.md), so it stays an explicit act even inside a setup
- * named "Short stay" — that one writes a nightly PRICE and leaves the basis
- * alone. For the same reason a deposit is written only from the suggestion the
- * manager can already see, never from a figure invented here.
- */
-const ROOM_SETUPS: RoomSetup[] = [
-  {
-    id: "standard",
-    label: "Standard long-term",
-    describe: "Deposit one month, move-in fee half a month, move-in inspection.",
-    apply: (_room, s) => ({
-      securityDeposit: s ? String(s.securityDeposit) : "",
-      moveInFee: s ? String(s.moveInFee) : "",
-      moveInInspectionRequired: true,
-      prorateMethod: "auto",
-    }),
-  },
-  {
-    id: "student",
-    label: "Student year",
-    describe: "Deposit one month, no move-in fee, both inspections.",
-    apply: (_room, s) => ({
-      securityDeposit: s ? String(s.securityDeposit) : "",
-      moveInFee: "",
-      moveInInspectionRequired: true,
-      moveOutInspectionRequired: true,
-      prorateMethod: "auto",
-    }),
-  },
-  {
-    id: "mtm",
-    label: "Month to month",
-    describe: "Weekly rate on, short-lease surcharge, five-month cap.",
-    apply: (_room, s) => ({
-      securityDeposit: s ? String(s.securityDeposit) : "",
-      weeklyRentPrice: s?.weeklyRent,
-      shortLeaseSurchargeMonthly: "150",
-      shortLeaseMaxMonths: 5,
-    }),
-  },
-  {
-    id: "short",
-    label: "Short stay",
-    describe: "Nightly price suggested, prorated by the day. Billing stays monthly.",
-    apply: (_room, s) => ({
-      shortTermRent: s ? String(s.dailyRent) : "",
-      shortTermDeposit: s ? String(s.moveInFee) : "",
-      prorateMethod: "daily_rate",
-      dailyRentRate: s?.dailyRent,
-    }),
-  },
-  {
-    id: "corporate",
-    label: "Furnished corporate",
-    describe: "Weekly rate on, utilities folded into rent, furnishing prefilled.",
-    apply: (room, s) => ({
-      securityDeposit: s ? String(s.securityDeposit) : "",
-      weeklyRentPrice: s?.weeklyRent,
-      utilitiesPaymentModel: "included_in_rent",
-      furnishing: room.furnishing?.trim() ? room.furnishing : "Furnished — bed, desk, chair, wardrobe",
-    }),
-  },
-];
-
 function RoomDetail({
   room,
   sub,
@@ -747,7 +669,7 @@ function RoomDetail({
   onChange: (next: ManagerRoomSubmission) => void;
   onBack: () => void;
 }) {
-  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const [openGroup, setOpenGroup] = useState<string | null>("room");
   const [weeklyOn, setWeeklyOn] = useState(() => Boolean(room.weeklyRentPrice));
   const toggleGroup = (id: string) => setOpenGroup((prev) => (prev === id ? null : id));
   const set = (patch: Partial<ManagerRoomSubmission>) => onChange({ ...room, ...patch });
@@ -775,98 +697,60 @@ function RoomDetail({
         {room.name.trim() || "Room"}
       </h2>
       <p className="mb-5 mt-1.5 text-[13.5px] leading-relaxed text-muted">
-        The few things every room needs, then four sections for the rest.
+        Five sections. Open the one you need.
       </p>
 
-      <div className="mb-5 rounded-xl border border-border bg-accent/20 p-4">
-        <p className="text-[12.5px] font-bold text-foreground">Start from a setup</p>
-        <p className="mb-3 mt-0.5 text-[12px] leading-relaxed text-muted">
-          Fills the sections below. Everything stays editable, and none of them changes how rent is billed.
-        </p>
-        <ChipRow>
-          {ROOM_SETUPS.map((setup) => (
-            <ChipToggle
-              key={setup.id}
-              label={setup.label}
-              on={false}
-              dataAttr={`listing-v2-setup-${setup.id}`}
-              onToggle={() => set(setup.apply(room, suggested))}
-            />
-          ))}
-        </ChipRow>
-      </div>
-
-      <FieldRow cols={3}>
-        <Field
-          label="Rent / month"
-          hint={inheritsRent && defaults.monthlyRent > 0 ? `Following the top row: $${defaults.monthlyRent}.` : undefined}
-        >
-          <Input
-            value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
-            inputMode="numeric"
-            placeholder={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "1,050"}
-            onChange={(e) => set({ monthlyRent: Number(e.target.value.replace(/[^0-9.]/g, "")) || 0 })}
-          />
-        </Field>
-        <Field label="Beds" hint="How many people may live here.">
-          <Select
-            value={String(room.occupancyCapacity ?? 1)}
-            onChange={(e) => set({ occupancyCapacity: Number(e.target.value) || 1 })}
-          >
-            {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Size" optional>
-          <Input
-            value={room.sizeSqft ? String(room.sizeSqft) : ""}
-            inputMode="numeric"
-            placeholder="sq ft"
-            onChange={(e) => set({ sizeSqft: Number(e.target.value.replace(/[^0-9]/g, "")) || undefined })}
-          />
-        </Field>
-      </FieldRow>
-      <Field label="Furnishing" optional>
-        <Input
-          value={room.furnishing ?? ""}
-          placeholder={defaults.furnishing || "Furnished — bed, desk, chair"}
-          onChange={(e) => set({ furnishing: e.target.value })}
-        />
-      </Field>
-      <Field label="Room amenities">
-        <AmenityChips
-          presets={ROOM_AMENITY_PRESETS}
-          value={room.roomAmenitiesText ?? ""}
-          onChange={(next) => set({ roomAmenitiesText: next })}
-        />
-      </Field>
-
-      {suggested ? (
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
-          <p className="min-w-0 text-[12.5px] leading-relaxed text-muted">
-            From the ${effectiveRent} rent: deposit {suggested.securityDeposit} · move-in fee {suggested.moveInFee} ·
-            prorated {suggested.dailyRent}/day.
-          </p>
-          <button
-            type="button"
-            onClick={acceptSuggestions}
-            data-attr="listing-v2-accept-suggestions"
-            className="shrink-0 rounded-full border border-primary/35 bg-primary/10 px-4 py-2 text-[12.5px] font-bold text-primary"
-          >
-            Fill them in
-          </button>
-        </div>
-      ) : null}
-
       <AdvancedPanel
-        summary="Lease terms · Payments · Media · Move-in"
+        summary="The room · Lease terms · Payments · Media · Move-in"
         open
         onToggle={() => undefined}
         dataAttr="listing-v2-room-advanced"
       >
+        <AdvancedGroup
+          title="The room"
+          description="Beds · size · furnishing · what it comes with"
+          open={openGroup === "room"}
+          onToggle={() => toggleGroup("room")}
+          dataAttr="listing-v2-room-basics"
+        >
+          <FieldRow cols={2}>
+            <Field label="Beds" hint="How many people may live here.">
+              <Select
+                value={String(room.occupancyCapacity ?? 1)}
+                onChange={(e) => set({ occupancyCapacity: Number(e.target.value) || 1 })}
+              >
+                {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Size" optional>
+              <Input
+                value={room.sizeSqft ? String(room.sizeSqft) : ""}
+                inputMode="numeric"
+                placeholder="sq ft"
+                onChange={(e) => set({ sizeSqft: Number(e.target.value.replace(/[^0-9]/g, "")) || undefined })}
+              />
+            </Field>
+          </FieldRow>
+          <Field label="Furnishing" optional>
+            <Input
+              value={room.furnishing ?? ""}
+              placeholder={defaults.furnishing || "Furnished — bed, desk, chair"}
+              onChange={(e) => set({ furnishing: e.target.value })}
+            />
+          </Field>
+          <Field label="Room amenities">
+            <AmenityChips
+              presets={ROOM_AMENITY_PRESETS}
+              value={room.roomAmenitiesText ?? ""}
+              onChange={(next) => set({ roomAmenitiesText: next })}
+            />
+          </Field>
+        </AdvancedGroup>
+
         <AdvancedGroup
           title="Lease terms"
           description="How long this room is let for, and what an applicant gets by default"
@@ -904,7 +788,35 @@ function RoomDetail({
           onToggle={() => toggleGroup("payments")}
           dataAttr="listing-v2-room-payments"
         >
-          <p className="mb-3 text-[12.5px] font-bold text-foreground">Rates</p>
+          <Field
+            label="Rent / month"
+            hint={inheritsRent && defaults.monthlyRent > 0 ? `Following the top row: $${defaults.monthlyRent}.` : undefined}
+          >
+            <Input
+              value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
+              inputMode="numeric"
+              placeholder={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "1,050"}
+              onChange={(e) => set({ monthlyRent: Number(e.target.value.replace(/[^0-9.]/g, "")) || 0 })}
+            />
+          </Field>
+          {suggested ? (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
+              <p className="min-w-0 text-[12.5px] leading-relaxed text-muted">
+                From ${effectiveRent}: deposit {suggested.securityDeposit} · move-in fee {suggested.moveInFee} ·
+                prorated {suggested.dailyRent}/day.
+              </p>
+              <button
+                type="button"
+                onClick={acceptSuggestions}
+                data-attr="listing-v2-accept-suggestions"
+                className="shrink-0 rounded-full border border-primary/35 bg-primary/10 px-4 py-2 text-[12.5px] font-bold text-primary"
+              >
+                Fill them in
+              </button>
+            </div>
+          ) : null}
+
+          <p className="mb-3 text-[12.5px] font-bold text-foreground">Other rates</p>
           {weeklyOn ? (
             <Field label="Rent / week" optional hint={suggested ? `Suggested ${suggested.weeklyRent}.` : undefined}>
               <Input
@@ -1159,6 +1071,141 @@ function RoomDetail({
         Back to rooms
       </button>
     </StepColumn>
+  );
+}
+
+/**
+ * The "most rooms are…" row's Details, in the same sectioned panel a room gets.
+ *
+ * It was a flat card of six fields while a room had five named sections, so the
+ * two screens that answer the same questions looked like different features.
+ * Only the sections a DEFAULT can carry are here: a default has no photos, no
+ * availability and no description, because those are what makes one room
+ * different from the next.
+ */
+function DefaultsDetail({
+  defaults,
+  editDefault,
+}: {
+  defaults: ListingHouseDefaults;
+  editDefault: (field: keyof ListingHouseDefaults, value: ListingHouseDefaults[keyof ListingHouseDefaults]) => void;
+}) {
+  const [openGroup, setOpenGroup] = useState<string | null>("room");
+  const toggle = (id: string) => setOpenGroup((prev) => (prev === id ? null : id));
+  return (
+    <AdvancedPanel
+      summary="The room · Payments · Move-in"
+      open
+      onToggle={() => undefined}
+      dataAttr="listing-v2-defaults-advanced"
+    >
+      <AdvancedGroup
+        title="The room"
+        description="What most rooms come with"
+        open={openGroup === "room"}
+        onToggle={() => toggle("room")}
+        dataAttr="listing-v2-defaults-basics"
+      >
+        <FieldRow cols={2}>
+          <Field label="Beds in most rooms">
+            <Select
+              value={String(defaults.occupancyCapacity)}
+              onChange={(e) => editDefault("occupancyCapacity", Number(e.target.value) || 1)}
+            >
+              {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Furnishing" optional>
+            <Input
+              value={defaults.furnishing}
+              placeholder="Furnished — bed, desk, chair"
+              onChange={(e) => editDefault("furnishing", e.target.value)}
+            />
+          </Field>
+        </FieldRow>
+        <Field label="Amenities in most rooms" optional>
+          <AmenityChips
+            presets={ROOM_AMENITY_PRESETS}
+            value={defaults.roomAmenitiesText}
+            onChange={(next) => editDefault("roomAmenitiesText", next)}
+          />
+        </Field>
+      </AdvancedGroup>
+
+      <AdvancedGroup
+        title="Payments"
+        description="Deposit · move-in fee · utilities and who pays them"
+        open={openGroup === "payments"}
+        onToggle={() => toggle("payments")}
+        dataAttr="listing-v2-defaults-payments"
+      >
+        <FieldRow cols={2}>
+          <Field label="Deposit" optional>
+            <Input
+              value={defaults.securityDeposit}
+              placeholder="500"
+              onChange={(e) => editDefault("securityDeposit", e.target.value)}
+            />
+          </Field>
+          <Field label="Move-in fee" optional>
+            <Input
+              value={defaults.moveInFee}
+              placeholder="0"
+              onChange={(e) => editDefault("moveInFee", e.target.value)}
+            />
+          </Field>
+        </FieldRow>
+        <FieldRow cols={2}>
+          <Field label="Utilities / month" optional>
+            <Input
+              value={defaults.utilitiesEstimate}
+              placeholder="80"
+              onChange={(e) => editDefault("utilitiesEstimate", e.target.value)}
+            />
+          </Field>
+          <Field label="How utilities are handled">
+            <Select
+              value={defaults.utilitiesPaymentModel}
+              onChange={(e) => editDefault("utilitiesPaymentModel", e.target.value as ListingHouseDefaults["utilitiesPaymentModel"])}
+            >
+              <option value="">Select…</option>
+              {LONG_TERM_UTILITIES_PAYMENT_OPTIONS.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </FieldRow>
+      </AdvancedGroup>
+
+      <AdvancedGroup
+        title="Move-in"
+        description="Inspections most rooms require"
+        open={openGroup === "movein"}
+        onToggle={() => toggle("movein")}
+        dataAttr="listing-v2-defaults-movein"
+      >
+        <Field group label="Inspections for most rooms">
+          <ChipRow>
+            <ChipToggle
+              label="On move-in"
+              on={defaults.moveInInspectionRequired}
+              onToggle={() => editDefault("moveInInspectionRequired", !defaults.moveInInspectionRequired)}
+            />
+            <ChipToggle
+              label="On move-out"
+              on={defaults.moveOutInspectionRequired}
+              onToggle={() => editDefault("moveOutInspectionRequired", !defaults.moveOutInspectionRequired)}
+            />
+          </ChipRow>
+        </Field>
+      </AdvancedGroup>
+    </AdvancedPanel>
   );
 }
 
@@ -1487,63 +1534,7 @@ function StepRooms({
       </RowList>
 
       {openDefaults ? (
-        <div className="mt-3 rounded-xl border border-primary/25 bg-primary/[0.04] p-4">
-          <p className="mb-3 text-[13px] font-bold text-foreground">Settings for most rooms</p>
-          <FieldRow cols={2}>
-            <Field label="Deposit" optional>
-              <Input
-                value={defaults.securityDeposit}
-                placeholder="500"
-                onChange={(e) => editDefault("securityDeposit", e.target.value)}
-              />
-            </Field>
-            <Field label="Move-in fee" optional>
-              <Input
-                value={defaults.moveInFee}
-                placeholder="0"
-                onChange={(e) => editDefault("moveInFee", e.target.value)}
-              />
-            </Field>
-          </FieldRow>
-          <FieldRow cols={2}>
-            <Field label="Utilities / month" optional>
-              <Input
-                value={defaults.utilitiesEstimate}
-                placeholder="80"
-                onChange={(e) => editDefault("utilitiesEstimate", e.target.value)}
-              />
-            </Field>
-            <Field label="Furnishing" optional>
-              <Input
-                value={defaults.furnishing}
-                placeholder="Furnished — bed, desk, chair"
-                onChange={(e) => editDefault("furnishing", e.target.value)}
-              />
-            </Field>
-          </FieldRow>
-          <Field label="Amenities in most rooms" optional>
-            <AmenityChips
-              presets={ROOM_AMENITY_PRESETS}
-              value={defaults.roomAmenitiesText}
-              onChange={(next) => editDefault("roomAmenitiesText", next)}
-            />
-          </Field>
-          <Field group label="Inspections for most rooms">
-            <ChipRow>
-              <ChipToggle
-                label="Move-in inspection"
-                on={defaults.moveInInspectionRequired}
-                onToggle={() => editDefault("moveInInspectionRequired", !defaults.moveInInspectionRequired)}
-              />
-              <ChipToggle
-                label="Move-out inspection"
-                on={defaults.moveOutInspectionRequired}
-                onToggle={() => editDefault("moveOutInspectionRequired", !defaults.moveOutInspectionRequired)}
-              />
-            </ChipRow>
-          </Field>
-        </div>
-      ) : null}
+        <DefaultsDetail defaults={defaults} editDefault={editDefault} />      ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
         <RowBulkBar count={selected.size}>
@@ -2038,11 +2029,6 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
  * place a manager can see one room's whole price at once.
  */
 /* ───────────────── house advanced · the nine groups ───────────────── */
-
-/** A money string, digits only, so a stray "$" never reaches the submission. */
-function moneyPatch(value: string): string {
-  return value;
-}
 
 function HouseLeaseTermsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const allowed = resolveAllowedLeaseTerms(sub);
