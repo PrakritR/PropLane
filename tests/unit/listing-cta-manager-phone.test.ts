@@ -1,8 +1,9 @@
 /**
- * Public "Text to tour" / "Text to apply" CTA routing.
+ * Public "Text" CTA routing.
  *
- * Every environment sends prospects to the property's OWN manager's verified
- * phone. The retired shared Claw number is never a fallback.
+ * Every environment sends prospects to the property's OWN manager's Twilio
+ * work number (`sms_from_number`). The retired shared Claw number and the
+ * manager's personal cell are never used.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildSmsDeepLink, isClawMessagingPubliclyEnabled, usableCtaSmsPhone } from "@/lib/claw-leasing-links";
@@ -14,17 +15,21 @@ import {
 import type { MockProperty } from "@/data/types";
 
 const CLAW_LINE = "+12053690702";
+const ALICE_WORK = "+14258909100";
+const BOB_WORK = "+12064710200";
+const ALICE_CELL = "+14258909021";
+const BOB_CELL = "+12064710000";
 
-/** Two managers in one fleet, each with their own verified cell. */
+/** Two managers in one fleet, each with their own work number. */
 const ALICE = {
-  phone: "+14258909021",
+  phone: ALICE_CELL,
   phone_verified_at: "2026-01-04T00:00:00.000Z",
-  sms_from_number: CLAW_LINE,
+  sms_from_number: ALICE_WORK,
 };
 const BOB = {
-  phone: "(206) 471-0000", // stored unformatted; normalized to +12064710000
+  phone: "(206) 471-0000", // stored unformatted; irrelevant to CTA resolution
   phone_verified_at: "2026-02-11T00:00:00.000Z",
-  sms_from_number: CLAW_LINE,
+  sms_from_number: BOB_WORK,
 };
 
 let priorVercelEnv: string | undefined;
@@ -39,7 +44,6 @@ beforeEach(() => {
   priorVercelEnv = process.env.VERCEL_ENV;
   priorNodeEnv = process.env.NODE_ENV;
   priorClawFlag = process.env.NEXT_PUBLIC_CLAW_MESSENGER_ENABLED;
-  // Claw is the primary transport in every environment; only CTA targeting splits.
   process.env.NEXT_PUBLIC_CLAW_MESSENGER_ENABLED = "1";
 });
 
@@ -52,63 +56,77 @@ afterEach(() => {
   else process.env.NEXT_PUBLIC_CLAW_MESSENGER_ENABLED = priorClawFlag;
 });
 
-describe("listing CTA phone — manager-owned in every environment", () => {
-  it("routes production CTAs to each property's OWN manager", () => {
+describe("listing CTA phone — manager work number in every environment", () => {
+  it("routes production CTAs to each property's OWN manager work number", () => {
     setRuntime("production");
     expect(listingCtaSendsToManagerOwnPhone()).toBe(true);
-    expect(resolveListingCtaSmsPhone(ALICE)).toBe("+14258909021");
-    expect(resolveListingCtaSmsPhone(BOB)).toBe("+12064710000");
+    expect(resolveListingCtaSmsPhone(ALICE)).toBe(ALICE_WORK);
+    expect(resolveListingCtaSmsPhone(BOB)).toBe(BOB_WORK);
     // A multi-manager fleet must never collapse onto one number.
     expect(resolveListingCtaSmsPhone(ALICE)).not.toBe(resolveListingCtaSmsPhone(BOB));
   });
 
-  it("uses each manager's verified phone on localhost, preview and test", () => {
+  it("uses each manager's work number on localhost, preview and test", () => {
     for (const env of ["development", "preview"]) {
       setRuntime(env);
       expect(listingCtaSendsToManagerOwnPhone(), env).toBe(true);
-      expect(resolveListingCtaSmsPhone(ALICE), env).toBe("+14258909021");
-      expect(resolveListingCtaSmsPhone(BOB), env).toBe("+12064710000");
+      expect(resolveListingCtaSmsPhone(ALICE), env).toBe(ALICE_WORK);
+      expect(resolveListingCtaSmsPhone(BOB), env).toBe(BOB_WORK);
       expect(resolveListingCtaSmsPhone(null), env).toBeNull();
     }
 
-    // No VERCEL_ENV (local `next dev` / vitest) falls back to NODE_ENV.
     delete process.env.VERCEL_ENV;
     process.env.NODE_ENV = "development";
     expect(listingCtaSendsToManagerOwnPhone()).toBe(true);
-    expect(resolveListingCtaSmsPhone(ALICE)).toBe("+14258909021");
+    expect(resolveListingCtaSmsPhone(ALICE)).toBe(ALICE_WORK);
   });
 
-  it("falls back to the web links when a production manager has no usable phone", () => {
+  it("never falls back to the manager's personal cell", () => {
     setRuntime("production");
-    // No phone at all.
+    expect(
+      resolveListingCtaSmsPhone({
+        phone: ALICE_CELL,
+        phone_verified_at: "2026-01-01",
+        sms_from_number: null,
+      }),
+    ).toBeNull();
+    // Shared Claw stamp on sms_from_number is not a personal-number fallback.
+    expect(
+      resolveListingCtaSmsPhone({
+        phone: ALICE_CELL,
+        phone_verified_at: "2026-01-01",
+        sms_from_number: CLAW_LINE,
+      }),
+    ).toBeNull();
+  });
+
+  it("falls back to the web links when a manager has no usable work number", () => {
+    setRuntime("production");
     expect(resolveListingCtaSmsPhone(null)).toBeNull();
     expect(resolveListingCtaSmsPhone({})).toBeNull();
-    expect(resolveListingCtaSmsPhone({ phone: "", phone_verified_at: "2026-01-01" })).toBeNull();
-    // Unverified is forgeable (`/api/manager/phone` has no role gate).
-    expect(resolveListingCtaSmsPhone({ ...ALICE, phone_verified_at: null })).toBeNull();
-    // Unparseable, seed placeholder, and the shared line (nobody's own phone).
-    expect(resolveListingCtaSmsPhone({ ...ALICE, phone: "call me" })).toBeNull();
-    expect(resolveListingCtaSmsPhone({ ...ALICE, phone: "+12065550199" })).toBeNull();
-    expect(resolveListingCtaSmsPhone({ ...ALICE, phone: CLAW_LINE })).toBeNull();
+    expect(resolveListingCtaSmsPhone({ sms_from_number: "" })).toBeNull();
+    // Unparseable, seed placeholder, and the shared line.
+    expect(resolveListingCtaSmsPhone({ sms_from_number: "call me" })).toBeNull();
+    expect(resolveListingCtaSmsPhone({ sms_from_number: "+12065550199" })).toBeNull();
+    expect(resolveListingCtaSmsPhone({ sms_from_number: CLAW_LINE })).toBeNull();
   });
 });
 
 describe("listing CTA rendering", () => {
-  it("shows a well-formed sms: link only when a number resolved", () => {
+  it("shows a well-formed sms: link only when a work number resolved", () => {
     setRuntime("production");
     const managerPhone = resolveListingCtaSmsPhone(ALICE);
     expect(isClawMessagingPubliclyEnabled(managerPhone)).toBe(true);
     for (const intent of ["tour", "apply"] as const) {
       const href = buildSmsDeepLink({ intent, propertyLabel: "The Pioneer", toPhone: managerPhone });
-      // `sms:+1XXXXXXXXXX?&body=…` — dialable on both iOS and Android.
       expect(href).toMatch(/^sms:\+1\d{10}\?&body=\S+$/);
-      expect(href).toContain("sms:+14258909021");
+      expect(href).toContain(`sms:${ALICE_WORK}`);
+      expect(href).not.toContain(ALICE_CELL);
       expect(href).not.toContain(CLAW_LINE);
     }
 
-    const noPhone = resolveListingCtaSmsPhone({ ...ALICE, phone_verified_at: null });
+    const noPhone = resolveListingCtaSmsPhone({ ...ALICE, sms_from_number: null });
     expect(noPhone).toBeNull();
-    // The button is not rendered at all → "Schedule a tour" / "Apply online".
     expect(isClawMessagingPubliclyEnabled(noPhone)).toBe(false);
     expect(buildSmsDeepLink({ intent: "tour", propertyLabel: "The Pioneer", toPhone: noPhone })).toBe("#");
   });
@@ -117,7 +135,7 @@ describe("listing CTA rendering", () => {
     setRuntime("production");
     const stored = { id: "mgr-1", contactSmsPhone: "+19995551234" } as unknown as MockProperty;
     expect(withListingContactSmsPhone(stored, resolveListingCtaSmsPhone(ALICE)).contactSmsPhone).toBe(
-      "+14258909021",
+      ALICE_WORK,
     );
     expect(withListingContactSmsPhone(stored, null).contactSmsPhone).toBeUndefined();
   });
@@ -125,6 +143,6 @@ describe("listing CTA rendering", () => {
   it("rejects the shared Claw line and fictional 555 numbers from client CTA guard", () => {
     expect(usableCtaSmsPhone(CLAW_LINE)).toBeNull();
     expect(usableCtaSmsPhone("+12065550199")).toBeNull();
-    expect(usableCtaSmsPhone("+14258909021")).toBe("+14258909021");
+    expect(usableCtaSmsPhone(ALICE_WORK)).toBe(ALICE_WORK);
   });
 });

@@ -63,10 +63,9 @@ export function isPlaceholderManagerWorkNumber(phone: string | null | undefined)
  * primary, ALWAYS the single agent line — one phone runs the entire messaging
  * system.
  *
- * NOT the public listing CTA number any more: that is `listingCtaSmsPhone`
- * below, fed by `resolveListingCtaSmsPhone`, which routes production prospects
- * to the listing's own manager. This helper only backs the dev/preview branch
- * of that split.
+ * NOT the public listing CTA number: that is `listingCtaSmsPhone` below, fed by
+ * `resolveListingCtaSmsPhone` (manager work number). This helper backs SEND
+ * transport / work-number display under the shared-line bridge.
  */
 export function managerContactSmsPhoneForPublicCta(phone: string | null | undefined): string | null {
   if (isClawSharedLineBridgeEnabled()) {
@@ -95,14 +94,13 @@ export function clawLeasingAgentPhoneE164(): string {
 /**
  * The number a public listing CTA texts — EXACTLY the one the server resolved
  * for that listing in `resolveListingCtaSmsPhone`
- * (`src/lib/listing-cta-phone.server.ts`), which is where the production
- * (manager's own phone) vs. dev (shared Claw line) split is decided.
+ * (`src/lib/listing-cta-phone.server.ts`): the manager's Twilio work number.
  *
- * The browser deliberately does NOT substitute a number of its own. In
- * production a manager with no verified phone must fall back to the
- * "Schedule a tour / apply online" web links, not silently text the shared
- * line or another manager. So this only normalizes and rejects: it returns a
- * well-formed E.164 number or `null`, never a malformed `sms:` target.
+ * The browser deliberately does NOT substitute a number of its own. A manager
+ * with no usable work number must omit the Text button (leaving Schedule tour /
+ * Apply), not silently text a personal cell, the shared line, or another
+ * manager. So this only normalizes and rejects: it returns a well-formed E.164
+ * number or `null`, never a malformed `sms:` target.
  */
 /**
  * Client-safe guard for any resolved listing CTA number before rendering `sms:`.
