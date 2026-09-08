@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ManagerAddListingForm } from "@/components/portal/pro-add-listing-form";
+import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
+import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
 import {
   ManagerHousePropertiesPanel,
   MANAGER_STAGES,
@@ -70,6 +72,25 @@ export function ManagerProperties({
   const [skuTier, setSkuTier] = useState<string | null>(null);
   const [propCount, setPropCount] = useState(0);
   const [wizardOpen, setWizardOpen] = useState(false);
+  /**
+   * Opt into the redesigned wizard with `?wizard=v2`.
+   *
+   * Read from `window` rather than `useSearchParams` so this component does not
+   * acquire a Suspense boundary it does not otherwise need; it is only ever a
+   * review switch, and the default path is untouched.
+   */
+  const [useV2Wizard, setUseV2Wizard] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const on = new URLSearchParams(window.location.search).get("wizard") === "v2";
+    setUseV2Wizard(on);
+    // Open it straight away so the redesign can be reviewed without going through
+    // the ADD affordance, which is a paywall link once a manager is at their plan
+    // limit. This opens the FORM only — creating and publishing a listing must
+    // still pass the same plan gate the live wizard uses, and that wiring is not
+    // in place yet, so this stays behind the flag until it is.
+    if (on) setWizardOpen(true);
+  }, []);
   /** Resume the seeded / first draft in the wizard (PRP-396). */
   const [resumeDraftId, setResumeDraftId] = useState<string | null>(null);
   const [portfolioTick, setPortfolioTick] = useState(0);
@@ -356,7 +377,26 @@ export function ManagerProperties({
           {listPanel}
         </ManagerPortalPageShell>
       )}
-      {wizardOpen ? (
+      {wizardOpen && useV2Wizard ? (
+        /*
+         * The redesigned wizard, opened with ?wizard=v2 so it can be reviewed
+         * against the live one without changing what anybody gets by default.
+         * It writes the same submission shape, so a draft saved here opens in
+         * either wizard.
+         */
+        <ListingWizardOverlay>
+          <ListingWizardV2
+            onClose={() => {
+              setWizardOpen(false);
+              setResumeDraftId(null);
+            }}
+            onSaved={() => refreshPending()}
+            onPublished={() => refreshPending()}
+            initialSubmission={resumeDraftRow?.submission ?? null}
+            showToast={showToast}
+          />
+        </ListingWizardOverlay>
+      ) : wizardOpen ? (
         <ManagerAddListingForm
           key={resumeDraftId ?? "new-listing"}
           onClose={() => {
