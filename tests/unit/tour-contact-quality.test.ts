@@ -42,7 +42,7 @@ describe("validateTourContactFields", () => {
         phone: "123",
       }),
     ).toEqual({
-      email: "Enter a valid email address.",
+      email: "Enter a valid email address (for example name@gmail.com).",
       phone: "Phone number must be 10 digits.",
     });
   });
