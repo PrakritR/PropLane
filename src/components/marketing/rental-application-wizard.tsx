@@ -56,6 +56,13 @@ import {
   saveRentalWizardDraft,
   saveRentalWizardDraftAxisId,
 } from "@/lib/rental-application/drafts";
+import {
+  clearApplicationFeeCheckoutResume,
+  clearApplicationFeeSubmitConfirm,
+  loadApplicationFeeCheckoutResume,
+  loadApplicationFeeSubmitConfirm,
+  rememberApplicationFeeSubmitConfirm,
+} from "@/lib/rental-application/fee-checkout-resume";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import {
   applicationsForResidentEmail,
@@ -1605,7 +1612,20 @@ function RentalApplicationWizardInner({
   }, [form.applicationFeeWaiverCode, form.email, form.propertyId, showToast]);
 
   const finalizeApplicationSubmit = useCallback(
-    async (residentUserId: string | null): Promise<{ ok: boolean }> => {
+    async (
+      residentUserId: string | null,
+    ): Promise<
+      | { ok: false }
+      | {
+          ok: true;
+          axisId: string;
+          email: string;
+          propertyTitle?: string;
+          setupHref?: string;
+          guestFlow: boolean;
+          portalFlow: boolean;
+        }
+    > => {
       if (submitting) return { ok: false };
       const pid = form.propertyId.trim();
       const emailTrim = form.email.trim();
@@ -1800,7 +1820,7 @@ function RentalApplicationWizardInner({
           window.dispatchEvent(
             new CustomEvent(DEMO_APPLICATION_SUBMITTED_EVENT, { detail: { axisId } }),
           );
-          return { ok: true };
+          return { ok: true as const, axisId, email: emailTrim, propertyTitle, setupHref, guestFlow: false, portalFlow: true };
         }
         setPostSubmit({
           axisId,
@@ -1822,7 +1842,15 @@ function RentalApplicationWizardInner({
           hasCosigner: submittedForm.hasCosigner,
         });
         showToast("Application submitted.");
-        return { ok: true };
+        return {
+          ok: true as const,
+          axisId,
+          email: emailTrim,
+          propertyTitle,
+          setupHref,
+          guestFlow: false,
+          portalFlow: true,
+        };
       }
       setPostSubmit({
         axisId,
@@ -1847,7 +1875,16 @@ function RentalApplicationWizardInner({
       } else {
         showToast(sync.error ?? "Application saved locally but could not sync to server. Try again.");
       }
-      return { ok: sync.ok };
+      if (!sync.ok) return { ok: false };
+      return {
+        ok: true as const,
+        axisId,
+        email: emailTrim,
+        propertyTitle,
+        setupHref,
+        guestFlow: isGuestSubmit,
+        portalFlow: false as const,
+      };
     },
     [form, mode, router, setStep, showToast, submitting],
   );
@@ -1909,31 +1946,94 @@ function RentalApplicationWizardInner({
     const sessionId = searchParams.get("session_id")?.trim();
     if (!sessionId) return;
 
-    // Stripe return URLs used to drop `propertyId` (checkout stripped the query).
-    // Prefer the live form, then the URL param the checkout route now stamps.
-    const pid = form.propertyId.trim() || searchParams.get("propertyId")?.trim() || "";
-    const em = form.email.trim();
-    if (!pid || !em.includes("@")) return;
-
-    if (processedApplicationFeeSessions.has(sessionId)) {
-      router.replace(`${wizardApplyPath}?propertyId=${encodeURIComponent(pid)}`);
+    // Remount after Stripe: keep the confirmation panel even when the in-module
+    // "processed" set already ran (Strict Mode / soft navigation).
+    const stashedConfirm = loadApplicationFeeSubmitConfirm(sessionId);
+    if (stashedConfirm && !postSubmit) {
+      setPostSubmit({
+        axisId: stashedConfirm.axisId,
+        email: stashedConfirm.email,
+        propertyTitle: stashedConfirm.propertyTitle,
+        guestFlow: stashedConfirm.guestFlow,
+        portalFlow: stashedConfirm.portalFlow,
+        setupHref: stashedConfirm.setupHref,
+      });
+      const keepPid =
+        stashedConfirm.propertyId.trim() ||
+        searchParams.get("propertyId")?.trim() ||
+        form.propertyId.trim();
+      router.replace(
+        keepPid ? `${wizardApplyPath}?propertyId=${encodeURIComponent(keepPid)}` : wizardApplyPath,
+      );
       return;
     }
 
+    // Stripe return wipes the in-memory draft (PRP-431). Prefer live form, then
+    // URL propertyId (checkout stamps it), then the sessionStorage stash minted
+    // just before Checkout. Session id alone is enough to verify + promote.
+    const feeResume = loadApplicationFeeCheckoutResume();
+    const pid =
+      form.propertyId.trim() ||
+      searchParams.get("propertyId")?.trim() ||
+      feeResume?.propertyId?.trim() ||
+      "";
+    const em = form.email.trim() || feeResume?.email?.trim() || "";
+
+    // Rehydrate emptied form fields so finalize / finish panel have identity.
+    // Return after setForm so the next effect pass runs finalize with a hydrated
+    // closure — do not start verify on this tick with a stale form callback.
+    if ((!form.email.trim() || !form.propertyId.trim()) && feeResume) {
+      setForm((prev) => ({
+        ...prev,
+        email: prev.email.trim() || feeResume.email,
+        propertyId: prev.propertyId.trim() || feeResume.propertyId,
+        ...(feeResume.fullLegalName && !prev.fullLegalName.trim()
+          ? { fullLegalName: feeResume.fullLegalName }
+          : {}),
+      }));
+      if (feeResume.axisId?.trim() && !loadRentalWizardDraftAxisId()?.trim()) {
+        saveRentalWizardDraftAxisId(feeResume.axisId);
+        rememberPublicApplyResumeAxisId(feeResume.axisId);
+      }
+      return;
+    }
+
+    if (processedApplicationFeeSessions.has(sessionId)) {
+      // In-flight verify: leave fee_checkout params. After confirmation, strip them.
+      if (postSubmit) {
+        router.replace(
+          pid ? `${wizardApplyPath}?propertyId=${encodeURIComponent(pid)}` : wizardApplyPath,
+        );
+      }
+      return;
+    }
+
+    processedApplicationFeeSessions.add(sessionId);
+
     void (async () => {
-      const applyPathWithProperty = `${wizardApplyPath}?propertyId=${encodeURIComponent(pid)}`;
-      const managerUserIdForFee = getPropertyById(pid)?.managerUserId?.trim() ?? "";
-      const feeResult = await fetchApplicationFeePreview({
-        propertyId: pid,
-        managerUserId: managerUserIdForFee || undefined,
-        rentalType: applicationRentalTypeFor(form.rentalType),
-      });
-      const feePreview = feeResult.preview;
-      const feeAmountOverride = feePreview ? feePreview.applicationFeeCents / 100 : undefined;
+      const applyPathFor = (propertyId: string) =>
+        propertyId.trim()
+          ? `${wizardApplyPath}?propertyId=${encodeURIComponent(propertyId.trim())}`
+          : wizardApplyPath;
+      let applyPathWithProperty = applyPathFor(pid);
+      let feeAmountOverride: number | undefined;
+      if (pid) {
+        const managerUserIdForFee = getPropertyById(pid)?.managerUserId?.trim() ?? "";
+        const feeResult = await fetchApplicationFeePreview({
+          propertyId: pid,
+          managerUserId: managerUserIdForFee || undefined,
+          rentalType: applicationRentalTypeFor(form.rentalType),
+        });
+        const feePreview = feeResult.preview;
+        feeAmountOverride = feePreview ? feePreview.applicationFeeCents / 100 : undefined;
+      }
       const res = await fetch("/api/stripe/application-fee-verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, expectedEmail: em }),
+        body: JSON.stringify({
+          sessionId,
+          ...(em.includes("@") ? { expectedEmail: em } : {}),
+        }),
       });
       const data = (await res.json().catch(() => ({}))) as {
         paid?: boolean;
@@ -1942,8 +2042,15 @@ function RentalApplicationWizardInner({
         propertyId?: string | null;
         emailMatches?: boolean;
         depositChargeId?: string | null;
+        applicationPromoted?: boolean;
+        applicationAxisId?: string | null;
+        applicationSetupToken?: string | null;
       };
+      const sessionPid = String(data.propertyId ?? "").trim() || pid;
+      applyPathWithProperty = applyPathFor(sessionPid);
+
       if (!res.ok) {
+        processedApplicationFeeSessions.delete(sessionId);
         showToast(typeof data.error === "string" ? data.error : "Could not verify payment.");
         router.replace(applyPathWithProperty);
         return;
@@ -1954,40 +2061,122 @@ function RentalApplicationWizardInner({
         // complete-but-unpaid while the bank transfer clears. New sessions are
         // card, so they come back paid.
         if (data.processing) {
-          ensurePendingApplicationFeeCharge({
-            residentEmail: form.email,
-            residentName: form.fullLegalName,
-            residentUserId: feeStepUserId,
-            propertyId: pid,
-            feeAmountOverride,
-          });
-          processedApplicationFeeSessions.add(sessionId);
-          showToast("Bank transfer submitted. Your application fee will be marked paid when the transfer clears.");
-          await finalizeApplicationSubmit(feeStepUserId);
+          if (em.includes("@") && sessionPid) {
+            ensurePendingApplicationFeeCharge({
+              residentEmail: em,
+              residentName: form.fullLegalName.trim() || feeResume?.fullLegalName || "",
+              residentUserId: feeStepUserId,
+              propertyId: sessionPid,
+              feeAmountOverride,
+            });
+            showToast("Bank transfer submitted. Your application fee will be marked paid when the transfer clears.");
+            await finalizeApplicationSubmit(feeStepUserId);
+          } else {
+            showToast("Bank transfer submitted. Your application fee will be marked paid when the transfer clears.");
+          }
+          clearApplicationFeeCheckoutResume();
           router.replace(applyPathWithProperty);
           return;
         }
+        processedApplicationFeeSessions.delete(sessionId);
         showToast(typeof data.error === "string" ? data.error : "Payment not completed yet.");
         router.replace(applyPathWithProperty);
         return;
       }
-      if (
-        String(data.propertyId ?? "")
-          .trim()
-          .toLowerCase() !== pid.toLowerCase() ||
-        data.emailMatches !== true
-      ) {
+
+      // Guest Stripe return often has no form email → emailMatches is false even
+      // when the server already promoted from Checkout metadata. Accept promote
+      // (or an email match) so confirmation still shows.
+      const identityOk =
+        data.emailMatches === true ||
+        (data.applicationPromoted === true && Boolean(data.applicationAxisId?.trim()));
+      if (pid && sessionPid && pid.toLowerCase() !== sessionPid.toLowerCase() && !identityOk) {
+        processedApplicationFeeSessions.delete(sessionId);
         showToast("Payment confirmation does not match this application. Use the same email and listing as before checkout.");
         router.replace(applyPathWithProperty);
         return;
       }
-      ensurePendingApplicationFeeCharge({
-        residentEmail: form.email,
-        residentName: form.fullLegalName,
-        residentUserId: feeStepUserId,
-        propertyId: pid,
-        feeAmountOverride,
-      });
+      if (!identityOk && !(em.includes("@") && sessionPid)) {
+        processedApplicationFeeSessions.delete(sessionId);
+        showToast("Payment confirmation does not match this application. Use the same email and listing as before checkout.");
+        router.replace(applyPathWithProperty);
+        return;
+      }
+
+      const emailForMarks = em.includes("@") ? em : feeResume?.email?.trim() || "";
+      if (emailForMarks.includes("@") && sessionPid) {
+        ensurePendingApplicationFeeCharge({
+          residentEmail: emailForMarks,
+          residentName: form.fullLegalName.trim() || feeResume?.fullLegalName || "",
+          residentUserId: feeStepUserId,
+          propertyId: sessionPid,
+          feeAmountOverride,
+        });
+      }
+
+      // PRP-431: server may already have promoted Incomplete → Submitted
+      // (verify / webhook). Show the finish panel without re-submitting.
+      if (data.applicationPromoted && data.applicationAxisId?.trim()) {
+        const axisId = data.applicationAxisId.trim();
+        if (typeof data.applicationSetupToken === "string" && data.applicationSetupToken.trim()) {
+          rememberApplicationSetupToken(axisId, data.applicationSetupToken.trim());
+        }
+        if (emailForMarks.includes("@") && sessionPid) {
+          markApplicationFeePaidAfterStripe(emailForMarks, sessionPid, feeStepUserId);
+        }
+        clearRentalWizardDraft();
+        setForm(createInitialRentalWizardState());
+        setStep(1);
+        setErrors({});
+        setChargeTick((n) => n + 1);
+        const isGuest = !feeStepUserId;
+        const setupToken =
+          (typeof data.applicationSetupToken === "string" && data.applicationSetupToken.trim()) ||
+          getApplicationSetupToken(axisId) ||
+          "";
+        const setupHref =
+          isGuest && setupToken
+            ? `/auth/resident-setup?token=${encodeURIComponent(setupToken)}&id=${encodeURIComponent(axisId)}`
+            : undefined;
+        const confirmPayload = {
+          axisId,
+          email: emailForMarks,
+          propertyTitle: getPropertyById(sessionPid)?.title?.trim() || sessionPid,
+          emailSent: undefined as boolean | undefined,
+          syncError: undefined as string | undefined,
+          guestFlow: isGuest,
+          portalFlow: mode === "portal" && !isGuest,
+          setupHref,
+        };
+        rememberApplicationFeeSubmitConfirm({
+          sessionId,
+          axisId,
+          email: emailForMarks,
+          propertyId: sessionPid,
+          propertyTitle: confirmPayload.propertyTitle,
+          guestFlow: isGuest,
+          portalFlow: confirmPayload.portalFlow,
+          setupHref,
+        });
+        setPostSubmit(confirmPayload);
+        clearApplicationFeeCheckoutResume();
+        showToast("Application submitted.");
+        router.replace(applyPathWithProperty);
+        return;
+      }
+
+      if (!em.includes("@") || !sessionPid) {
+        void fetch("/api/public/application-fee-orphan-report", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId, ...(em.includes("@") ? { expectedEmail: em } : {}) }),
+        }).catch(() => undefined);
+        processedApplicationFeeSessions.delete(sessionId);
+        showToast("Payment succeeded, but the application could not be submitted. Contact the manager with your payment receipt.");
+        router.replace(applyPathWithProperty);
+        return;
+      }
+
       // PRP-427 / PRP-381: application write is the gate — mark the fee paid
       // only after finalize upserts the Submitted row.
       const submitted = await finalizeApplicationSubmit(feeStepUserId);
@@ -2004,7 +2193,7 @@ function RentalApplicationWizardInner({
         router.replace(applyPathWithProperty);
         return;
       }
-      const marked = markApplicationFeePaidAfterStripe(form.email, pid, feeStepUserId);
+      const marked = markApplicationFeePaidAfterStripe(em, sessionPid, feeStepUserId);
       if (!marked) {
         void fetch("/api/public/application-fee-orphan-report", {
           method: "POST",
@@ -2015,11 +2204,23 @@ function RentalApplicationWizardInner({
         router.replace(applyPathWithProperty);
         return;
       }
+      if (submitted.ok && submitted.axisId.trim()) {
+        rememberApplicationFeeSubmitConfirm({
+          sessionId,
+          axisId: submitted.axisId.trim(),
+          email: submitted.email,
+          propertyId: sessionPid,
+          propertyTitle: submitted.propertyTitle || sessionPid,
+          guestFlow: submitted.guestFlow,
+          portalFlow: submitted.portalFlow,
+          setupHref: submitted.setupHref,
+        });
+      }
       setChargeTick((n) => n + 1);
-      processedApplicationFeeSessions.add(sessionId);
+      clearApplicationFeeCheckoutResume();
       router.replace(applyPathWithProperty);
     })();
-  }, [draftReady, searchParams, form.propertyId, form.email, form.fullLegalName, form.applicationFeeWaived, feeStepUserId, router, showToast, finalizeApplicationSubmit, wizardApplyPath]);
+  }, [draftReady, searchParams, form.propertyId, form.email, form.fullLegalName, form.applicationFeeWaived, form.rentalType, feeStepUserId, router, showToast, finalizeApplicationSubmit, wizardApplyPath, mode, postSubmit]);
 
   const handleContinue = () => {
     if (templatePreview) {
@@ -2356,7 +2557,10 @@ function RentalApplicationWizardInner({
             groupSize={postSubmit.groupSize}
             groupPropertyId={postSubmit.groupPropertyId}
             hasCosigner={postSubmit.hasCosigner}
-            onDone={() => setPostSubmit(null)}
+            onDone={() => {
+              clearApplicationFeeSubmitConfirm();
+              setPostSubmit(null);
+            }}
           />
         ) : form.applicantRole === "cosigner" ? null : !canRenderWizard ? (
           <div className="mt-8">

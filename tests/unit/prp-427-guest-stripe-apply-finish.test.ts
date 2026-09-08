@@ -27,11 +27,14 @@ describe("PRP-427 guest Stripe apply finish + multi-property waive", () => {
     expect(CHECKOUT).toContain("propertyId=${pidQ}&fee_checkout=success&session_id={CHECKOUT_SESSION_ID}");
   });
 
-  it("marks the fee paid only after finalize returns ok", () => {
+  it("marks the fee paid only after finalize returns ok (client path)", () => {
     expect(WIZARD).toContain("const submitted = await finalizeApplicationSubmit(feeStepUserId)");
     expect(WIZARD).toContain("if (!submitted.ok)");
-    const markIdx = WIZARD.indexOf("markApplicationFeePaidAfterStripe(form.email, pid, feeStepUserId)");
     const submitIdx = WIZARD.indexOf("const submitted = await finalizeApplicationSubmit(feeStepUserId)");
+    const markIdx = WIZARD.indexOf(
+      "const marked = markApplicationFeePaidAfterStripe(em, sessionPid, feeStepUserId)",
+      submitIdx,
+    );
     expect(submitIdx).toBeGreaterThan(-1);
     expect(markIdx).toBeGreaterThan(submitIdx);
   });

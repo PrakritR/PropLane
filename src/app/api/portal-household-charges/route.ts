@@ -24,6 +24,7 @@ import {
   syncLedgerChargeEntry,
 } from "@/lib/reports/ledger-sync";
 import { emitHouseholdChargeTransition } from "@/lib/domain-action-events.server";
+import { resolvePropertyPayoutOwners } from "@/lib/payments/property-payout-owner.server";
 
 export const runtime = "nodejs";
 
@@ -270,6 +271,23 @@ export async function POST(req: Request) {
         return ok;
       };
 
+      // CREATING a charge used to be the one unguarded door. Every check above
+      // keys off an EXISTING row, so an id nobody had seen before fell through
+      // to "it's mine": stamped with the CALLER as owner and whatever property
+      // the body named, with no permission read anywhere in the path. A
+      // co-manager with no payments grant could therefore bill an owner's
+      // resident — and because checkout reads the payee off the charge row's
+      // manager_user_id, that rent then landed in the CO-MANAGER's own bank
+      // account, giving one property as many payout accounts as it had
+      // managers. A new row is now attributed to the PROPERTY'S owner and needs
+      // payments EDIT whenever that owner is not the caller.
+      const newChargePropertyIds = normalizedCharges
+        .filter((c) => c.id && !existingOwnerById.has(String(c.id)))
+        .map((c) => (typeof c.propertyId === "string" ? c.propertyId : ""))
+        .filter(Boolean);
+      const chargePayoutOwners =
+        user.role === "admin" ? null : await resolvePropertyPayoutOwners(db, newChargePropertyIds);
+
       const mappedRows: Array<{
         id: string;
         manager_user_id: string | null;
@@ -307,6 +325,29 @@ export async function POST(req: Request) {
           if (!(await canEditForeign(storedProperty))) continue;
           managerUserId = existingOwner;
           propertyId = storedProperty;
+        } else if (!existingOwner) {
+          // New row. Resolving the owner from the property the caller NAMED (and
+          // checking the grant on that same property) is what makes relabeling
+          // pointless: the payee is always whoever owns the property the charge
+          // is filed under.
+          const resolved = chargePayoutOwners?.get((clientPropertyId ?? "").trim());
+          if (resolved && !resolved.ok && resolved.reason === "lookup_failed") {
+            // A property that cannot be read is not an unowned property. Refuse
+            // rather than guess a payee — the same rule the payout context uses.
+            return NextResponse.json(
+              { error: "Could not verify the property for this charge. Try again in a moment." },
+              { status: 503 },
+            );
+          }
+          const propertyOwner = resolved?.ok ? resolved.ownerUserId : null;
+          if (propertyOwner && propertyOwner !== user.id) {
+            if (!(await canEditForeign(clientPropertyId))) continue;
+            managerUserId = propertyOwner;
+          } else {
+            // The caller's own property, or a charge filed under no property at
+            // all (a manual one-off), which has no owner to attribute it to.
+            managerUserId = user.id;
+          }
         } else {
           managerUserId = user.id;
         }
@@ -407,6 +448,15 @@ export async function POST(req: Request) {
         return ok;
       };
 
+      // A recurring rent profile mints future charges, so creating one is the
+      // same authority as creating a charge and takes the same gate.
+      const newProfilePropertyIds = candidates
+        .filter((p) => !profileOwnerById.has(String(p.id)))
+        .map((p) => (typeof p.propertyId === "string" ? p.propertyId : ""))
+        .filter(Boolean);
+      const profilePayoutOwners =
+        user.role === "admin" ? null : await resolvePropertyPayoutOwners(db, newProfilePropertyIds);
+
       const rows: Array<{
         id: string;
         manager_user_id: string | null;
@@ -429,6 +479,21 @@ export async function POST(req: Request) {
           if (!(await canEditForeignProfile(storedProperty))) continue;
           managerUserId = existingOwner;
           propertyId = storedProperty;
+        } else if (!existingOwner) {
+          const resolved = profilePayoutOwners?.get((propertyId ?? "").trim());
+          if (resolved && !resolved.ok && resolved.reason === "lookup_failed") {
+            return NextResponse.json(
+              { error: "Could not verify the property for this rent schedule. Try again in a moment." },
+              { status: 503 },
+            );
+          }
+          const propertyOwner = resolved?.ok ? resolved.ownerUserId : null;
+          if (propertyOwner && propertyOwner !== user.id) {
+            if (!(await canEditForeignProfile(propertyId))) continue;
+            managerUserId = propertyOwner;
+          } else {
+            managerUserId = user.id;
+          }
         } else {
           managerUserId = user.id;
         }
