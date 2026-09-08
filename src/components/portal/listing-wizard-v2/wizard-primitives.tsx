@@ -73,7 +73,7 @@ export function WizardModal({
   );
 }
 
-/** Named, numbered progress. Both numerator and denominator are always shown. */
+/** Named, numbered progress — Image-2 style: labels across, active bold. */
 export function WizardStepper({
   steps,
   current,
@@ -84,12 +84,10 @@ export function WizardStepper({
   onJump?: (index: number) => void;
 }) {
   const pct = steps.length > 1 ? (current / (steps.length - 1)) * 100 : 100;
+  const currentLabel = steps[current]?.label ?? "";
   return (
-    <div>
-      <div className="relative mb-3 h-[3px] rounded bg-border">
-        <span className="absolute left-0 top-0 block h-[3px] rounded bg-primary" style={{ width: `${pct}%` }} />
-      </div>
-      <ol className="flex flex-wrap justify-between gap-x-3 gap-y-1.5">
+    <div data-attr="listing-v2-stepper">
+      <ol className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
         {steps.map((step, i) => {
           const done = i < current;
           const on = i === current;
@@ -101,9 +99,10 @@ export function WizardStepper({
                 disabled={!reachable || !onJump}
                 onClick={() => reachable && onJump?.(i)}
                 aria-current={on ? "step" : undefined}
+                aria-label={`Step ${i + 1} of ${steps.length}: ${step.label}`}
                 className={cn(
-                  "text-[11.5px] font-bold tracking-tight",
-                  on ? "text-foreground" : done ? "text-primary" : "cursor-default text-muted/55",
+                  "text-[12.5px] font-bold tracking-tight transition-colors",
+                  on ? "text-foreground" : done ? "text-primary" : "cursor-default text-muted/50",
                 )}
               >
                 {step.label}
@@ -112,15 +111,21 @@ export function WizardStepper({
           );
         })}
       </ol>
+      <div className="relative mb-2 h-px rounded bg-border">
+        <span className="absolute left-0 top-0 block h-px rounded bg-primary" style={{ width: `${pct}%` }} />
+      </div>
+      <p className="text-[12.5px] font-bold text-foreground">
+        Step {current + 1} of {steps.length} · {currentLabel}
+      </p>
     </div>
   );
 }
 
-/** The heading block at the top of every step body. */
+/** The heading block at the top of every step body (title + subtitle only — progress lives in the stepper). */
 export function StepHeading({
-  step,
-  total,
-  name,
+  step: _step,
+  total: _total,
+  name: _name,
   title,
   subtitle,
 }: {
@@ -132,9 +137,6 @@ export function StepHeading({
 }) {
   return (
     <div className="mb-5">
-      <p className="mb-2 text-[12px] font-bold text-muted">
-        Step {step} of {total} · {name}
-      </p>
       <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">{title}</h2>
       {subtitle ? <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{subtitle}</p> : null}
     </div>

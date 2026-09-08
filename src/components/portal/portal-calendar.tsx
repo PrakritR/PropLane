@@ -35,7 +35,6 @@ import {
 import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
-import { TourProposalsPanel } from "@/components/portal/tour-proposals-panel";
 import { GoogleCalendarConnectDialog } from "@/components/portal/google-calendar-connect-dialog";
 import type { DemoMeeting } from "@/components/portal/portal-calendar-panels";
 import {
@@ -592,7 +591,6 @@ export function PortalCalendar({
               </div>
             ) : (
               <div className="flex min-h-0 flex-1 flex-col gap-3">
-                {schedulingHub && availabilityView ? <TourProposalsPanel /> : null}
                 {showCoManagerCoordination && availabilityView ? (
                   <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm shadow-sm">
                     <input

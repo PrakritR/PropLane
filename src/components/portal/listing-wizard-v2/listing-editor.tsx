@@ -4,27 +4,22 @@
  * Phase 2 of the redesigned wizard: six short, named steps that complete a
  * listing which already exists.
  *
- * Every field the old wizard asked for still has a home here. What changed is
- * WHERE it is asked and HOW OFTEN:
+ * PRP-430 merge (cursor-1 + Claude-2):
+ * - Top chrome keeps the Image-2 stepper: Basics → Rooms → Spaces → Rent & fees
+ *   → Photos → Review, with "Step N of 6 · …" under the title.
+ * - Basics borrows Claude-2 Home features (how you rent, address autocomplete,
+ *   bedroom slots) with an Advanced disclosure for secondary details.
+ * - Rooms keep Mock B (list + Edit drawer + defaults).
  *
- * - A room's money lives with that room, in one place. The old wizard split a
- *   single room's price across two steps — monthly rent on Pricing, weekly and
- *   daily rent on Rooms — so nothing on screen ever showed the full price.
- * - The two fields both labelled "Rent / day" are now named for what they do:
- *   the room's offered daily rate versus the rate used only to split a partial
- *   first or last month.
- * - House defaults mean ten near-identical rooms are typed once, not ten times.
- * - Anything a manager rarely changes sits behind "More options", so no screen
- *   exceeds roughly seven visible fields.
- *
- * The submission shape is unchanged, so drafts, validation, publishing and every
- * downstream reader keep working exactly as before.
+ * The submission shape is unchanged.
  */
 
 import { useMemo, useState } from "react";
 import { Input, Select, Textarea } from "@/components/ui/input";
+import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
 import {
   HOUSE_WIDE_AMENITY_PRESETS,
+  LISTING_PROPERTY_TYPE_OPTIONS,
   LISTING_STORIES_OPTIONS,
   LISTING_TOTAL_BATH_OPTIONS,
   ROOM_AMENITY_PRESETS,
@@ -32,6 +27,7 @@ import {
 } from "@/data/manager-listing-presets";
 import {
   PAYMENT_AT_SIGNING_OPTIONS,
+  applyListingBedroomSlots,
   formatLeaseTermsBodyFromAllowed,
   resolveAllowedLeaseTerms,
   syncAirbnbLeaseTermInAllowed,
@@ -71,6 +67,9 @@ import {
   WizardModal,
   WizardStepper,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { ListingPhotoStrip } from "@/components/portal/listing-wizard-v2/listing-photo-strip";
+import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
+import { cn } from "@/lib/utils";
 
 export const LISTING_V2_STEPS = [
   { id: "basics", label: "Basics" },
@@ -135,57 +134,194 @@ function AmenityChips({
   );
 }
 
-/* ─────────────────────────── step 1 · basics ─────────────────────────── */
+/* ─────────────────────────── step 1 · basics (Claude-2 Home + Advanced) ─────────────────────────── */
 
 function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
+  const roomCount = sub.rooms?.length || sub.listingBedroomSlots || 1;
+  const [openAdvanced, setOpenAdvanced] = useState(false);
+
   return (
     <StepColumn>
-      <StepHeading step={1} total={6} name="Basics" title="The shape of the home" subtitle="Four quick ones." />
-      <Field label="Floors" required>
-        <Select value={sub.listingStoriesId ?? ""} onChange={(e) => patch({ listingStoriesId: e.target.value })}>
-          <option value="">Select…</option>
-          {LISTING_STORIES_OPTIONS.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Bathrooms" required hint="Total in the home, including half baths.">
-        <Select
-          value={sub.listingTotalBathroomsId ?? ""}
-          onChange={(e) => patch({ listingTotalBathroomsId: e.target.value })}
-        >
-          <option value="">Select…</option>
-          {LISTING_TOTAL_BATH_OPTIONS.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <Field label="Listing name" optional hint="The title renters see. Leave blank to use the address.">
-        <Input
-          value={sub.buildingName}
-          onChange={(e) => patch({ buildingName: e.target.value })}
-          placeholder={sub.address || "4709A 8th Ave NE"}
-        />
-      </Field>
-      <Field group label="Pets">
+      <StepHeading
+        step={1}
+        total={6}
+        name="Basics"
+        title="The home itself"
+        subtitle="Where it is, what it is, and how it is laid out."
+      />
+
+      <Field
+        group
+        label="How you rent it"
+        required
+        hint="Decides whether rent is set per room or once for the whole place."
+      >
         <ChipRow>
           <ChipToggle
-            label={sub.petFriendly ? "Pets allowed, subject to approval" : "No pets"}
-            on={Boolean(sub.petFriendly)}
-            onToggle={() => patch({ petFriendly: !sub.petFriendly })}
-            dataAttr="listing-v2-pets"
+            label="By the room"
+            on={rentByRoom}
+            dataAttr="listing-v2-by-room"
+            onToggle={() => patch({ listingPlaceCategoryId: "shared_home", rentalModelStamp: "shared_home" })}
+          />
+          <ChipToggle
+            label="The whole place"
+            on={!rentByRoom}
+            dataAttr="listing-v2-whole-place"
+            onToggle={() => patch({ listingPlaceCategoryId: "entire_home", rentalModelStamp: "entire_home" })}
           />
         </ChipRow>
       </Field>
+
+      <Field label="Street address" required hint="Start typing and pick the match to refill city, state and ZIP.">
+        <ListingAddressAutocomplete
+          value={sub.address}
+          onChange={(next) => patch({ address: next })}
+          onSelect={(suggestion) =>
+            patch({
+              address: suggestion.address || suggestion.label,
+              city: suggestion.city || sub.city,
+              state: suggestion.state || sub.state,
+              zip: suggestion.zip || sub.zip,
+              neighborhood: suggestion.neighborhood || sub.neighborhood,
+            })
+          }
+        />
+      </Field>
+      <FieldRow cols={3}>
+        <Field label="City" required>
+          <Input value={sub.city} onChange={(e) => patch({ city: e.target.value })} />
+        </Field>
+        <Field label="State" required>
+          <Input value={sub.state} onChange={(e) => patch({ state: e.target.value })} />
+        </Field>
+        <Field label="ZIP" required>
+          <Input value={sub.zip} onChange={(e) => patch({ zip: e.target.value })} />
+        </Field>
+      </FieldRow>
+
+      <FieldRow cols={2}>
+        <Field label="Property type" required>
+          <Select
+            value={sub.listingPropertyTypeId ?? ""}
+            onChange={(e) => patch({ listingPropertyTypeId: e.target.value })}
+          >
+            <option value="">Select…</option>
+            {LISTING_PROPERTY_TYPE_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Floors" required>
+          <Select value={sub.listingStoriesId ?? ""} onChange={(e) => patch({ listingStoriesId: e.target.value })}>
+            <option value="">Select…</option>
+            {LISTING_STORIES_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </FieldRow>
+
+      <FieldRow cols={2}>
+        <Field label="Bathrooms" required hint="Total in the home, including half baths.">
+          <Select
+            value={sub.listingTotalBathroomsId ?? ""}
+            onChange={(e) => patch({ listingTotalBathroomsId: e.target.value })}
+          >
+            <option value="">Select…</option>
+            {LISTING_TOTAL_BATH_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <Field
+          label={rentByRoom ? "Bedrooms you are renting out" : "Bedrooms"}
+          required
+          hint="Creates a row per room on the next step."
+        >
+          <Select
+            value={String(roomCount)}
+            onChange={(e) => {
+              const next = Number(e.target.value) || 1;
+              const applied = applyListingBedroomSlots({ ...sub, listingBedroomSlots: next }, next);
+              patch(applied.ok ? { ...applied.sub, listingBedroomSlots: next } : { listingBedroomSlots: next });
+            }}
+          >
+            {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </FieldRow>
+
+      <Field group label="Pets" hint="Shown on the public listing.">
+        <ChipRow>
+          <ChipToggle
+            label="No pets"
+            on={!sub.petFriendly}
+            onToggle={() => patch({ petFriendly: false })}
+            dataAttr="listing-v2-pets-no"
+          />
+          <ChipToggle
+            label="Pets OK (approval)"
+            on={Boolean(sub.petFriendly)}
+            onToggle={() => patch({ petFriendly: true })}
+            dataAttr="listing-v2-pets-yes"
+          />
+        </ChipRow>
+      </Field>
+
+      <MoreOptions
+        label="Advanced — listing name, neighborhood, layout note"
+        open={openAdvanced}
+        onToggle={() => setOpenAdvanced((v) => !v)}
+        dataAttr="listing-v2-basics-advanced"
+      >
+        <Field label="Listing name" optional hint="The title renters see. Leave blank to use the address.">
+          <Input
+            value={sub.buildingName}
+            onChange={(e) => patch({ buildingName: e.target.value })}
+            placeholder={sub.address || "4709A 8th Ave NE"}
+          />
+        </Field>
+        <Field label="Neighborhood" optional>
+          <Input value={sub.neighborhood} onChange={(e) => patch({ neighborhood: e.target.value })} />
+        </Field>
+        <Field label="Layout note" optional hint="Anything the floor and bathroom counts do not capture.">
+          <Input
+            value={sub.homeStructureNote}
+            onChange={(e) => patch({ homeStructureNote: e.target.value })}
+            placeholder="3-story townhouse · 3.5 baths"
+          />
+        </Field>
+      </MoreOptions>
     </StepColumn>
   );
 }
 
-/* ─────────────────────────── step 2 · rooms ─────────────────────────── */
+/* ─────────────────────────── step 2 · rooms (Mock B) ─────────────────────────── */
+
+function roomBathroomLabel(sub: ManagerListingSubmissionV1, roomId: string): string {
+  for (const bath of sub.bathrooms ?? []) {
+    if (bath.allResidents) return "Shared";
+    if ((bath.assignedRoomIds ?? []).includes(roomId)) {
+      const kind = bath.accessKindByRoomId?.[roomId];
+      if (kind === "ensuite") return "Ensuite";
+      if (kind === "shared") return "Shared";
+      if (kind === "hall") return "Hall";
+      return (bath.name || "Assigned").trim() || "Assigned";
+    }
+  }
+  return "—";
+}
 
 function RoomDetail({
   room,
@@ -201,19 +337,64 @@ function RoomDetail({
   const [openMore, setOpenMore] = useState(false);
   const set = (patch: Partial<ManagerRoomSubmission>) => onChange({ ...room, ...patch });
   const inheritsRent = roomInheritsDefault(room, defaults, "monthlyRent");
+  const photoCount = (room.photoDataUrls ?? []).length;
+
   return (
     <StepColumn>
-      <p className="mb-2 text-[12px] font-bold text-muted">Room</p>
+      <button
+        type="button"
+        onClick={onBack}
+        className="mb-3 text-[12.5px] font-bold text-primary"
+        data-attr="listing-v2-room-back"
+      >
+        ← Back to rooms
+      </button>
+      <p className="mb-2 text-[12px] font-bold text-muted">Edit room</p>
       <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">
-        {room.name.trim() || "Room"}
+        {room.name.trim() || "Untitled room"}
       </h2>
       <p className="mb-5 mt-1.5 text-[13.5px] leading-relaxed text-muted">
-        Only what most managers fill in. Everything else is one click away.
+        Photos, rent, and beds live here. Rare rates stay under Advanced.
       </p>
 
+      <ListingPhotoStrip
+        label="Room photos"
+        urls={room.photoDataUrls ?? []}
+        onChange={(photoDataUrls) => set({ photoDataUrls })}
+        dataAttr="listing-v2-room-photos"
+      />
+
+      <Field label="Room name" required>
+        <Input
+          value={room.name}
+          onChange={(e) => set({ name: e.target.value })}
+          placeholder="Room 6"
+        />
+      </Field>
+      <FieldRow cols={2}>
+        <Field label="Floor" optional>
+          <Input
+            value={room.floor}
+            onChange={(e) => set({ floor: e.target.value })}
+            placeholder="1st floor"
+          />
+        </Field>
+        <Field label="Size" optional>
+          <Input
+            value={room.sizeSqft ? String(room.sizeSqft) : ""}
+            inputMode="numeric"
+            placeholder="sq ft"
+            onChange={(e) => set({ sizeSqft: Number(e.target.value.replace(/[^0-9]/g, "")) || undefined })}
+          />
+        </Field>
+      </FieldRow>
       <Field
         label="Rent / month"
-        hint={inheritsRent && defaults.monthlyRent > 0 ? `Following the house default of $${defaults.monthlyRent}.` : undefined}
+        hint={
+          inheritsRent && defaults.monthlyRent > 0
+            ? `Following the house default of $${defaults.monthlyRent}. Edit to stop following.`
+            : undefined
+        }
       >
         <Input
           value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
@@ -234,17 +415,19 @@ function RoomDetail({
           ))}
         </Select>
       </Field>
-      <Field label="Size" optional>
-        <Input
-          value={room.sizeSqft ? String(room.sizeSqft) : ""}
-          inputMode="numeric"
-          placeholder="sq ft"
-          onChange={(e) => set({ sizeSqft: Number(e.target.value.replace(/[^0-9]/g, "")) || undefined })}
-        />
+      <Field label="Furnishing" optional>
+        <Select
+          value={room.furnishing || ""}
+          onChange={(e) => set({ furnishing: e.target.value })}
+        >
+          <option value="">Select…</option>
+          <option value="Furnished">Furnished</option>
+          <option value="Unfurnished">Unfurnished</option>
+        </Select>
       </Field>
 
       <MoreOptions
-        label="More options — other rates, short stays, part-month rent, amenities, furniture, inspections"
+        label="Advanced — other rates, short stays, part-month rent, amenities, inspections"
         open={openMore}
         onToggle={() => setOpenMore((v) => !v)}
         dataAttr="listing-v2-room-more"
@@ -381,12 +564,16 @@ function RoomDetail({
         </div>
       </MoreOptions>
 
+      <p className="mt-4 text-[12px] text-muted">
+        {photoCount === 0 ? "No photos yet — listings with a photo per room get more enquiries." : null}
+      </p>
+
       <button
         type="button"
         onClick={onBack}
         className="mt-5 min-h-[44px] rounded-[10px] border border-border bg-card px-6 text-[14px] font-bold text-foreground"
       >
-        Back to rooms
+        Done
       </button>
     </StepColumn>
   );
@@ -405,6 +592,7 @@ function StepRooms({
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openRoomId, setOpenRoomId] = useState<string | null>(null);
+  const [copySourceId, setCopySourceId] = useState<string | null>(null);
   const rooms = sub.rooms ?? [];
   const openRoom = rooms.find((r) => r.id === openRoomId) ?? null;
 
@@ -416,9 +604,15 @@ function StepRooms({
     const previous = defaults;
     const next = { ...defaults, [field]: value } as ListingHouseDefaults;
     setDefaults(next);
-    // Inheritance is judged against the PREVIOUS default — see
-    // applyHouseDefaultsToRooms. Judging against the new one freezes every room.
     writeRooms(applyHouseDefaultsToRooms(rooms, next, { onlyFields: [field], previousDefaults: previous }));
+  }
+
+  function copyDefaultsToAll() {
+    writeRooms(
+      applyHouseDefaultsToRooms(rooms, defaults, {
+        onlyFields: ["monthlyRent", "securityDeposit", "furnishing", "occupancyCapacity", "moveInFee", "utilitiesEstimate"],
+      }),
+    );
   }
 
   if (openRoom) {
@@ -432,13 +626,6 @@ function StepRooms({
     );
   }
 
-  const columns = [
-    { key: "name", label: "Room" },
-    { key: "floor", label: "Floor" },
-    { key: "rent", label: "Rent" },
-    { key: "beds", label: "Beds" },
-  ];
-
   return (
     <StepColumn wide>
       <StepHeading
@@ -449,10 +636,22 @@ function StepRooms({
         subtitle="Set what is true for most rooms once. Change only the rooms that differ."
       />
 
-      <div className="mb-4 rounded-xl border border-primary/25 bg-primary/[0.04] p-4">
+      <div className="mb-4 rounded-xl border border-primary/25 bg-primary/[0.04] p-4" data-attr="listing-v2-room-defaults">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <b className="text-[13px] font-bold text-foreground">Most rooms are…</b>
-          <span className="text-[11.5px] text-muted">applied to all {rooms.length} · any row can differ</span>
+          <div>
+            <b className="text-[13px] font-bold text-foreground">Defaults for new / following rooms</b>
+            <p className="mt-0.5 text-[11.5px] text-muted">
+              Changing a default updates rooms still following it. Custom rooms keep a badge.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={copyDefaultsToAll}
+            className="min-h-[36px] rounded-[10px] bg-primary px-3 text-[12.5px] font-bold text-white"
+            data-attr="listing-v2-copy-defaults-all"
+          >
+            Copy to all
+          </button>
         </div>
         <FieldRow cols={4}>
           <Field label="Rent / month">
@@ -492,120 +691,172 @@ function StepRooms({
         </FieldRow>
       </div>
 
-      <RowList columns={columns}>
+      <ul className="mb-3 space-y-2" data-attr="listing-v2-room-list">
         {rooms.map((room, i) => {
-          const overrides = roomOverriddenDefaults(room, defaults);
           const rentInherited = roomInheritsDefault(room, defaults, "monthlyRent");
           const bedsInherited = roomInheritsDefault(room, defaults, "occupancyCapacity");
+          const overrides = roomOverriddenDefaults(room, defaults);
+          const photos = (room.photoDataUrls ?? []).length;
+          const rentLabel =
+            room.monthlyRent > 0
+              ? `$${room.monthlyRent.toLocaleString("en-US")}`
+              : defaults.monthlyRent > 0
+                ? `$${defaults.monthlyRent.toLocaleString("en-US")}`
+                : "Rent not set";
+          const isSelected = selected.has(room.id);
+          const followBits = [
+            rentInherited ? "rent" : null,
+            bedsInherited ? "beds" : null,
+          ].filter(Boolean);
+
           return (
-            <Row
+            <li
               key={room.id}
-              columnCount={columns.length}
-              selected={selected.has(room.id)}
-              onSelectChange={(on) =>
-                setSelected((prev) => {
-                  const next = new Set(prev);
-                  if (on) next.add(room.id);
-                  else next.delete(room.id);
-                  return next;
-                })
-              }
-              removeLabel={`Remove ${room.name || `room ${i + 1}`}`}
-              onRemove={rooms.length > 1 ? () => writeRooms(rooms.filter((r) => r.id !== room.id)) : undefined}
+              className={cn(
+                "flex items-center gap-3 rounded-xl border border-border bg-card p-3",
+                isSelected && "border-l-4 border-l-primary bg-primary/[0.04]",
+              )}
             >
-              <RowCell
-                ariaLabel={`Name for room ${i + 1}`}
-                value={room.name}
-                placeholder={`Room ${i + 1}`}
-                onChange={(v) => writeRooms(rooms.map((r) => (r.id === room.id ? { ...r, name: v } : r)))}
-              />
-              <RowCell
-                ariaLabel={`Floor for ${room.name || `room ${i + 1}`}`}
-                value={room.floor}
-                placeholder="Main"
-                onChange={(v) => writeRooms(rooms.map((r) => (r.id === room.id ? { ...r, floor: v } : r)))}
-              />
-              <RowCell
-                ariaLabel={`Rent for ${room.name || `room ${i + 1}`}`}
-                inputMode="numeric"
-                inherited={rentInherited}
-                value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
-                placeholder={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "1,050"}
-                onChange={(v) =>
-                  writeRooms(
-                    rooms.map((r) =>
-                      r.id === room.id ? { ...r, monthlyRent: Number(v.replace(/[^0-9.]/g, "")) || 0 } : r,
-                    ),
-                  )
+              <RowSelectCheckbox
+                checked={isSelected}
+                aria-label={`Select ${room.name || `room ${i + 1}`}`}
+                onChange={(e) =>
+                  setSelected((prev) => {
+                    const next = new Set(prev);
+                    if (e.target.checked) next.add(room.id);
+                    else next.delete(room.id);
+                    return next;
+                  })
                 }
               />
-              <RowCell
-                ariaLabel={`Beds in ${room.name || `room ${i + 1}`}`}
-                inputMode="numeric"
-                inherited={bedsInherited}
-                value={room.occupancyCapacity ? String(room.occupancyCapacity) : ""}
-                placeholder={String(defaults.occupancyCapacity)}
-                onChange={(v) =>
-                  writeRooms(
-                    rooms.map((r) =>
-                      r.id === room.id ? { ...r, occupancyCapacity: Number(v.replace(/[^0-9]/g, "")) || 1 } : r,
-                    ),
-                  )
-                }
-              />
-              <span className="sr-only">{overrides.length > 0 ? `${overrides.length} custom` : "house default"}</span>
-            </Row>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <b className="text-[14px] font-extrabold text-foreground">
+                    {room.name.trim() || `Room ${i + 1}`}
+                  </b>
+                  {followBits.length > 0 ? (
+                    <span className="text-[10px] font-bold uppercase tracking-wide text-muted">
+                      follows {followBits.join(" · ")}
+                    </span>
+                  ) : null}
+                  {overrides.includes("monthlyRent") ? (
+                    <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">
+                      custom rent
+                    </span>
+                  ) : null}
+                </div>
+                <p className="mt-0.5 text-[12.5px] text-muted">
+                  {[
+                    room.floor.trim() || null,
+                    roomBathroomLabel(sub, room.id),
+                    rentLabel,
+                    `${room.occupancyCapacity ?? defaults.occupancyCapacity} bed${(room.occupancyCapacity ?? defaults.occupancyCapacity) === 1 ? "" : "s"}`,
+                    `${photos} photo${photos === 1 ? "" : "s"}`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOpenRoomId(room.id)}
+                className="shrink-0 rounded-[10px] border border-primary px-3 py-1.5 text-[12.5px] font-bold text-primary"
+                data-attr="listing-v2-edit-room"
+              >
+                Edit room
+              </button>
+            </li>
           );
         })}
-      </RowList>
+      </ul>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <RowBulkBar count={selected.size}>
-          <BulkButton
-            onClick={() => {
-              writeRooms(
-                applyHouseDefaultsToRooms(rooms, defaults, {
-                  onlyFields: ["monthlyRent"],
-                  roomIds: [...selected],
-                }),
-              );
-            }}
-          >
-            Set rent to ${defaults.monthlyRent || 0}
-          </BulkButton>
-          <BulkButton
-            onClick={() => {
-              const copies = rooms
-                .filter((r) => selected.has(r.id))
-                .map((r, i) => ({ ...r, id: `${r.id}-copy-${i}-${Date.now()}`, name: `${r.name} (copy)` }));
-              writeRooms([...rooms, ...copies]);
-              setSelected(new Set());
-            }}
-          >
-            Duplicate
-          </BulkButton>
-          <BulkButton
-            onClick={() => {
-              writeRooms(rooms.filter((r) => !selected.has(r.id)));
-              setSelected(new Set());
-            }}
-          >
-            Remove
-          </BulkButton>
-        </RowBulkBar>
-        {rooms.length > 0 ? (
-          <button
-            type="button"
-            onClick={() => setOpenRoomId(rooms[0]!.id)}
-            className="mt-3 text-[12.5px] font-bold text-primary"
-          >
-            Open a room for photos, amenities and short-stay rates ›
-          </button>
-        ) : null}
-      </div>
+      {selected.size > 0 ? (
+        <div className="mb-3" data-attr="listing-v2-room-bulk">
+          <RowBulkBar count={selected.size}>
+            <BulkButton
+              onClick={() => {
+                const source = rooms.find((r) => r.id === (copySourceId ?? [...selected][0]));
+                if (!source) return;
+                writeRooms(
+                  rooms.map((r) =>
+                    selected.has(r.id) && r.id !== source.id
+                      ? {
+                          ...r,
+                          monthlyRent: source.monthlyRent,
+                          occupancyCapacity: source.occupancyCapacity,
+                          floor: source.floor,
+                          furnishing: source.furnishing,
+                          securityDeposit: source.securityDeposit,
+                          moveInFee: source.moveInFee,
+                          utilitiesEstimate: source.utilitiesEstimate,
+                        }
+                      : r,
+                  ),
+                );
+              }}
+            >
+              Copy to another room
+            </BulkButton>
+            <BulkButton
+              onClick={() => {
+                writeRooms(
+                  applyHouseDefaultsToRooms(rooms, defaults, {
+                    onlyFields: ["monthlyRent"],
+                    roomIds: [...selected],
+                  }),
+                );
+              }}
+            >
+              Set rent to ${defaults.monthlyRent || 0}
+            </BulkButton>
+            <BulkButton
+              onClick={() => {
+                const copies = rooms
+                  .filter((r) => selected.has(r.id))
+                  .map((r, i) => ({
+                    ...r,
+                    id: `${r.id}-copy-${i}-${Date.now()}`,
+                    name: `${r.name || "Room"} (copy)`,
+                    photoDataUrls: [],
+                    videoDataUrl: null,
+                  }));
+                writeRooms([...rooms, ...copies]);
+                setSelected(new Set());
+              }}
+            >
+              Duplicate
+            </BulkButton>
+            <BulkButton
+              onClick={() => {
+                if (rooms.length <= selected.size) return;
+                writeRooms(rooms.filter((r) => !selected.has(r.id)));
+                setSelected(new Set());
+              }}
+            >
+              Remove
+            </BulkButton>
+          </RowBulkBar>
+          {selected.size === 1 ? (
+            <label className="mt-2 flex items-center gap-1.5 text-[11.5px] font-semibold text-muted">
+              Copy from
+              <select
+                className="rounded border border-border bg-card px-1.5 py-1 text-[12px] font-bold text-foreground"
+                value={copySourceId ?? [...selected][0] ?? ""}
+                onChange={(e) => setCopySourceId(e.target.value)}
+              >
+                {rooms.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name.trim() || r.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+        </div>
+      ) : null}
 
       <AddRowButton
-        label="+ Add a room"
+        label="+ ADD ROOM"
         dataAttr="listing-v2-add-room"
         onClick={() => {
           const base = rooms[0];
@@ -617,7 +868,8 @@ function StepRooms({
         }}
       />
       <p className="mt-3 text-[12px] leading-relaxed text-muted">
-        Dashed grey means the room is using the house default. Type over it to make that room different.
+        Open <b>Edit room</b> for photos and full pricing. Defaults update following rooms; use{" "}
+        <b>Copy to all</b> when you want to overwrite every room.
       </p>
     </StepColumn>
   );
@@ -809,6 +1061,9 @@ function StepMoney({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pat
       <Field label="Application fee">
         <Input value={money(sub.applicationFee)} onChange={(e) => patch({ applicationFee: e.target.value })} />
       </Field>
+      <Field label="Holding deposit" optional hint="Refundable; credited toward the security deposit on approval.">
+        <Input value={money(sub.holdingDeposit)} onChange={(e) => patch({ holdingDeposit: e.target.value })} />
+      </Field>
       <Field label="Move-in fee" optional>
         <Input value={money(sub.moveInFee)} onChange={(e) => patch({ moveInFee: e.target.value })} />
       </Field>
@@ -819,9 +1074,26 @@ function StepMoney({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pat
           onChange={(e) => patch({ entireHomeUtilitiesEstimate: e.target.value })}
         />
       </Field>
+      <Field group label="Due at signing" hint="What a resident pays before they move in.">
+        <ChipRow>
+          {PAYMENT_AT_SIGNING_OPTIONS.map((o) => (
+            <ChipToggle
+              key={o.id}
+              label={o.label}
+              on={signing.has(o.id)}
+              onToggle={() => {
+                const next = new Set(signing);
+                if (next.has(o.id)) next.delete(o.id);
+                else next.add(o.id);
+                patch({ paymentAtSigningIncludes: [...next] });
+              }}
+            />
+          ))}
+        </ChipRow>
+      </Field>
 
       <MoreOptions
-        label="More options — waiver code, due at signing, late fees, parking, HOA, surcharges, who pays the card fee"
+        label="Advanced fees — waiver code, late fees, parking, HOA, surcharges, who pays the card fee"
         open={openMore}
         onToggle={() => setOpenMore((v) => !v)}
         dataAttr="listing-v2-money-more"
@@ -836,23 +1108,6 @@ function StepMoney({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pat
             placeholder="E.G. WELCOME50"
             onChange={(e) => patch({ applicationFeeWaiverCode: e.target.value.toUpperCase() })}
           />
-        </Field>
-        <Field group label="Due at signing" hint="What a resident pays before they move in.">
-          <ChipRow>
-            {PAYMENT_AT_SIGNING_OPTIONS.map((o) => (
-              <ChipToggle
-                key={o.id}
-                label={o.label}
-                on={signing.has(o.id)}
-                onToggle={() => {
-                  const next = new Set(signing);
-                  if (next.has(o.id)) next.delete(o.id);
-                  else next.add(o.id);
-                  patch({ paymentAtSigningIncludes: [...next] });
-                }}
-              />
-            ))}
-          </ChipRow>
         </Field>
         <FieldRow cols={2}>
           <Field label="Rent due">
@@ -911,15 +1166,12 @@ function StepMoney({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pat
             </ChipRow>
           </Field>
         </FieldRow>
-        <FieldRow cols={3}>
+        <FieldRow cols={2}>
           <Field label="Parking / month" optional>
             <Input value={money(sub.parkingMonthly)} onChange={(e) => patch({ parkingMonthly: e.target.value })} />
           </Field>
           <Field label="HOA / month" optional>
             <Input value={money(sub.hoaMonthly)} onChange={(e) => patch({ hoaMonthly: e.target.value })} />
-          </Field>
-          <Field label="Holding deposit" optional>
-            <Input value={money(sub.holdingDeposit)} onChange={(e) => patch({ holdingDeposit: e.target.value })} />
           </Field>
         </FieldRow>
         <FieldRow cols={3}>
@@ -987,7 +1239,14 @@ function StepMarketing({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
         total={6}
         name="Photos & description"
         title="How it looks and reads"
-        subtitle="Listings with a photo of every room get far more enquiries."
+        subtitle="Listings with a photo of every room get far more enquiries. Add house photos here; room photos live in each room’s Edit drawer."
+      />
+      <ListingPhotoStrip
+        label="House photos"
+        urls={sub.housePhotoDataUrls ?? []}
+        onChange={(housePhotoDataUrls) => patch({ housePhotoDataUrls })}
+        dataAttr="listing-v2-house-photos"
+        addLabel="+ House photo"
       />
       <Field label="Tagline" optional hint="One line at the top of the listing.">
         <Input
@@ -1013,7 +1272,7 @@ function StepMarketing({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
       </Field>
 
       <MoreOptions
-        label="More options — ad titles, house rules, move-in instructions, layout note"
+        label="Copy & move-in extras — ad titles, house rules, move-in instructions, layout note"
         open={openMore}
         onToggle={() => setOpenMore((v) => !v)}
         dataAttr="listing-v2-marketing-more"
