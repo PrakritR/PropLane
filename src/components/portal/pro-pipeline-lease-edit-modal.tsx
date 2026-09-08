@@ -473,7 +473,7 @@ export function ManagerPipelineLeaseEditModal({
               <p className={MODAL_FIELD_LABEL_CLASS}>Document view</p>
             </div>
             <LeaseHtmlDirectEditor
-              className="min-h-[min(38vh,24rem)] min-h-0 h-full flex-1"
+              className="min-h-[min(38vh,24rem)] h-full flex-1"
               html={displayHtml}
               baselineHtml={baselineHtml}
               onChange={(next) => setHtmlOverride(next)}

@@ -214,6 +214,8 @@ export function ManagerPaymentsLedgerPanel({
   onAddPayment,
   groupMode = "resident",
   linkedPropertyIds,
+  canEditRow,
+  canDeleteRow,
 }: {
   rows: DemoManagerPaymentLedgerRow[];
   managerUserId: string | null;
@@ -236,7 +238,24 @@ export function ManagerPaymentsLedgerPanel({
   groupMode?: PortalListGroupMode;
   /** Co-managed property ids — same set used to scope the Payments list. */
   linkedPropertyIds?: Set<string>;
+  /**
+   * Whether this row's charge may be changed / removed by the viewer. Seeing an
+   * owner's payments and being allowed to rewrite what their resident owes are
+   * two different grants, so the list scope above cannot answer this. Absent
+   * means unrestricted (the demo ledger and the resident-embedded view, neither
+   * of which is co-managed).
+   */
+  canEditRow?: (propertyId: string | undefined) => boolean;
+  canDeleteRow?: (propertyId: string | undefined) => boolean;
 }) {
+  const rowEditable = useCallback(
+    (row: DemoManagerPaymentLedgerRow) => (canEditRow ? canEditRow(row.propertyId) : true),
+    [canEditRow],
+  );
+  const rowDeletable = useCallback(
+    (row: DemoManagerPaymentLedgerRow) => (canDeleteRow ? canDeleteRow(row.propertyId) : true),
+    [canDeleteRow],
+  );
   const chargeScopeOpts = useMemo<ChargeManagerScopeOpts | undefined>(
     () => (linkedPropertyIds?.size ? { linkedPropertyIds } : undefined),
     [linkedPropertyIds],
@@ -430,8 +449,11 @@ export function ManagerPaymentsLedgerPanel({
   };
 
   const deleteSelected = () => {
-    const targets = selectedRows;
-    if (targets.length === 0) return;
+    const targets = selectedRows.filter(rowDeletable);
+    if (targets.length === 0) {
+      if (selectedRows.length > 0) showToast("You do not have permission to remove these payments.");
+      return;
+    }
     if (!window.confirm(`Delete ${targets.length} payment${targets.length === 1 ? "" : "s"}?`)) return;
     let ok = 0;
     for (const row of targets) {
@@ -1082,6 +1104,10 @@ export function ManagerPaymentsLedgerPanel({
   };
 
   const removePayment = (row: DemoManagerPaymentLedgerRow) => {
+    if (!rowDeletable(row)) {
+      showToast("You do not have permission to remove this payment.");
+      return;
+    }
     if (!window.confirm(`Delete "${row.chargeTitle}" for ${row.residentName}?`)) return;
     const chargeId = row.householdChargeId?.trim() || row.id.trim();
     if (chargeId && deleteHouseholdCharge(chargeId, managerUserId, chargeScopeOpts)) {
@@ -1124,7 +1150,7 @@ export function ManagerPaymentsLedgerPanel({
   };
 
   const renderDetailActions = (row: DemoManagerPaymentLedgerRow) => {
-    const canEdit = Boolean(row.householdChargeId && !isPaidRow(row));
+    const canEdit = Boolean(row.householdChargeId && !isPaidRow(row)) && rowEditable(row);
     const showSendReminder = !isPaidRow(row);
     const showMoveToPending = activeBucket === "paid";
     const btnClass = RESIDENT_DETAIL_HEADER_ACTION_BTN;
@@ -1417,7 +1443,7 @@ export function ManagerPaymentsLedgerPanel({
       });
     }
 
-    if (singleSelectedRow?.householdChargeId && !isPaidRow(singleSelectedRow)) {
+    if (singleSelectedRow?.householdChargeId && !isPaidRow(singleSelectedRow) && rowEditable(singleSelectedRow)) {
       actions.push({
         id: "edit",
         keepPriority: 2,
@@ -1435,7 +1461,7 @@ export function ManagerPaymentsLedgerPanel({
       });
     }
 
-    actions.push({
+    if (selectedRows.some(rowDeletable)) actions.push({
       id: "delete",
       keepPriority: 0,
       alwaysVisible: true,
@@ -1465,6 +1491,8 @@ export function ManagerPaymentsLedgerPanel({
   }, [
     activeBucket,
     deleteSelected,
+    rowDeletable,
+    rowEditable,
     markSelectedAsPaid,
     moveSelectedToPending,
     openBulkReminderPreview,

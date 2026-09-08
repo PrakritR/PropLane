@@ -105,7 +105,39 @@ export async function loadHouseholdChargesForCheckout(
       return { ok: false, status: 403, error: "You do not have access to one of the selected charges." };
     }
 
-    const managerUserId = (row.manager_user_id as string | null)?.trim() || charge.managerUserId?.trim() || "";
+    const rowManagerUserId = (row.manager_user_id as string | null)?.trim() || charge.managerUserId?.trim() || "";
+
+    const propertyId = charge.propertyId?.trim() ?? "";
+    type PropertyPayeeRow = { property_data?: unknown; manager_user_id?: string | null };
+    let propertyRecord: PropertyPayeeRow | null = null;
+    if (propertyId) {
+      const { data: propertyRow, error: propertyErr } = await db
+        .from("manager_property_records")
+        .select("property_data, manager_user_id")
+        .eq("id", propertyId)
+        .maybeSingle();
+      if (propertyErr) {
+        // A property that cannot be read is not a property without an owner.
+        // Refuse rather than fall back to the payee named on the charge row.
+        return {
+          ok: false,
+          status: 503,
+          error: "Could not confirm who this payment goes to. Try again in a moment.",
+        };
+      }
+      propertyRecord = (propertyRow as PropertyPayeeRow | null) ?? null;
+    }
+
+    // A property has exactly ONE payee: its owner. The charge row's own
+    // manager_user_id is stamped by whoever created the charge, so trusting it
+    // let a co-manager's charge route an owner's rent into the CO-MANAGER's
+    // Stripe account — a property effectively had as many bank accounts as it
+    // had managers. The property's owner wins whenever the property names one,
+    // which also pays rows written before the create gate existed to the right
+    // account with no migration. A charge filed under no property (a manual
+    // one-off) still pays the manager on the row; there is no owner to prefer.
+    const propertyOwnerUserId = String(propertyRecord?.manager_user_id ?? "").trim();
+    const managerUserId = propertyOwnerUserId || rowManagerUserId;
     if (!managerUserId) {
       return { ok: false, status: 422, error: "A selected charge is not linked to a property manager yet." };
     }
@@ -114,15 +146,8 @@ export async function loadHouseholdChargesForCheckout(
     }
 
     const listing =
-      listingFromPropertyData(
-        (
-          await db
-            .from("manager_property_records")
-            .select("property_data")
-            .eq("id", charge.propertyId)
-            .maybeSingle()
-        ).data?.property_data,
-      ) ?? (await resolveListingForHouseholdCharge(db, charge, managerUserId));
+      listingFromPropertyData(propertyRecord?.property_data) ??
+      (await resolveListingForHouseholdCharge(db, charge, managerUserId));
 
     if (!axisPaymentsEnabledOnListing(listing)) {
       return {

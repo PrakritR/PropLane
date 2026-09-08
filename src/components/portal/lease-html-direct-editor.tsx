@@ -121,7 +121,13 @@ export function LeaseHtmlDirectEditor({
 
   return (
     <div
-      className={cn("flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card", className)}
+      // Default height FLOOR, not `min-h-0`. The Visual pane is an `absolute inset-0`
+      // iframe, so it contributes no intrinsic height: a host that is itself
+      // content-sized gives this box nothing to distribute, it resolves to 0, and the
+      // lease renders as a blank white panel — while the HTML tab keeps working,
+      // because a textarea has an intrinsic rows height. `cn` is tailwind-merge, so a
+      // host that sizes the editor itself still overrides this.
+      className={cn("flex min-h-64 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card", className)}
       data-attr="lease-html-direct-editor"
     >
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">

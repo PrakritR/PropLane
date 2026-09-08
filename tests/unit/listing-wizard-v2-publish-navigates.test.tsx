@@ -29,7 +29,7 @@ vi.mock("@/lib/manager-access", () => ({
   managerPropertyLimitMessage: () => "You've reached your plan limit of 2 properties.",
 }));
 
-import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
+import { LISTING_V2_STEPS, ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 
@@ -62,8 +62,9 @@ function Harness({
   );
 }
 
+/** Walk to the last step. Derived from the step list so adding a step cannot rot this. */
 async function goToReview() {
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < LISTING_V2_STEPS.length - 1; i++) {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
   }
   await screen.findByText("Ready to publish");
