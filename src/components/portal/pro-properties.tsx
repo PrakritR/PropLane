@@ -73,23 +73,28 @@ export function ManagerProperties({
   const [propCount, setPropCount] = useState(0);
   const [wizardOpen, setWizardOpen] = useState(false);
   /**
-   * Opt into the redesigned wizard with `?wizard=v2`.
+   * The redesigned wizard is the default. `?wizard=v1` falls back to the previous
+   * one, which stays in the tree as an escape hatch while the new flow settles.
    *
    * Read from `window` rather than `useSearchParams` so this component does not
-   * acquire a Suspense boundary it does not otherwise need; it is only ever a
-   * review switch, and the default path is untouched.
+   * acquire a Suspense boundary it does not otherwise need.
+   *
+   * It starts as `null` — "not decided yet" — so the first paint renders NEITHER
+   * wizard. Defaulting to true would flash the new wizard for a manager who
+   * asked for the old one, and defaulting to false would flash the old one for
+   * everybody else.
    */
-  const [useV2Wizard, setUseV2Wizard] = useState(false);
+  const [useV2Wizard, setUseV2Wizard] = useState<boolean | null>(null);
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const on = new URLSearchParams(window.location.search).get("wizard") === "v2";
-    setUseV2Wizard(on);
-    // Open it straight away so the redesign can be reviewed without going through
-    // the ADD affordance, which is a paywall link once a manager is at their plan
-    // limit. This opens the FORM only — creating and publishing a listing must
-    // still pass the same plan gate the live wizard uses, and that wiring is not
-    // in place yet, so this stays behind the flag until it is.
-    if (on) setWizardOpen(true);
+    const params = new URLSearchParams(window.location.search);
+    setUseV2Wizard(params.get("wizard") !== "v1");
+    // `?wizard=v2` also opens it straight away, which is how the redesign is
+    // reviewed without going through the ADD affordance — that affordance turns
+    // into a paywall link once a manager is at their plan limit. Publishing is
+    // still gated: useListingPersistence pre-checks the plan and the server
+    // re-checks it.
+    if (params.get("wizard") === "v2") setWizardOpen(true);
   }, []);
   /** Resume the seeded / first draft in the wizard (PRP-396). */
   const [resumeDraftId, setResumeDraftId] = useState<string | null>(null);
@@ -377,7 +382,7 @@ export function ManagerProperties({
           {listPanel}
         </ManagerPortalPageShell>
       )}
-      {wizardOpen && useV2Wizard ? (
+      {wizardOpen && useV2Wizard === true ? (
         /*
          * The redesigned wizard, opened with ?wizard=v2 so it can be reviewed
          * against the live one without changing what anybody gets by default.
@@ -393,10 +398,14 @@ export function ManagerProperties({
             onSaved={() => refreshPending()}
             onPublished={() => refreshPending()}
             initialSubmission={resumeDraftRow?.submission ?? null}
+            initialDraftId={resumeDraftId}
             showToast={showToast}
+            userId={userId}
+            skuTier={skuTier}
+            propertyCount={propCount}
           />
         </ListingWizardOverlay>
-      ) : wizardOpen ? (
+      ) : wizardOpen && useV2Wizard === false ? (
         <ManagerAddListingForm
           key={resumeDraftId ?? "new-listing"}
           onClose={() => {

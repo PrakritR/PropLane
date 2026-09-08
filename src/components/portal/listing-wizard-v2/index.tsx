@@ -15,6 +15,7 @@
 import { useCallback, useState } from "react";
 import { AddPropertyFlow, type AddPropertyResult } from "@/components/portal/listing-wizard-v2/add-property-flow";
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
+import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
 import {
   applyListingBedroomSlots,
   createDefaultListingSubmission,
@@ -56,15 +57,30 @@ export function ListingWizardV2({
   onSaved,
   onPublished,
   initialSubmission = null,
+  initialDraftId = null,
   showToast,
+  userId,
+  skuTier,
+  propertyCount = 0,
 }: {
   onClose: () => void;
-  /** Called with the current submission whenever the manager saves and exits. */
+  /** Called once the draft is safely on the server. */
   onSaved?: (sub: ManagerListingSubmissionV1) => void;
   onPublished?: (sub: ManagerListingSubmissionV1) => void;
   initialSubmission?: ManagerListingSubmissionV1 | null;
+  initialDraftId?: string | null;
   showToast?: (message: string) => void;
+  userId: string | null;
+  skuTier: string | null | undefined;
+  /** The manager's current property count, for the plan pre-check. */
+  propertyCount?: number;
 }) {
+  const { saveDraft, publish, busy } = useListingPersistence({
+    userId,
+    skuTier,
+    propertyCount,
+    initialDraftId,
+  });
   const [submission, setSubmission] = useState<ManagerListingSubmissionV1 | null>(
     initialSubmission ? normalizeManagerListingSubmissionV1(initialSubmission) : null,
   );
@@ -74,7 +90,7 @@ export function ListingWizardV2({
   }, []);
 
   if (!submission) {
-    return <AddPropertyFlow onCancel={onClose} onCreate={create} />;
+    return <AddPropertyFlow onCancel={onClose} onCreate={create} creating={busy} />;
   }
 
   const label = submission.buildingName.trim() || submission.address.trim() || "New listing";
@@ -85,12 +101,25 @@ export function ListingWizardV2({
       submission={submission}
       onChange={setSubmission}
       onClose={onClose}
-      onSaveExit={() => {
+      busy={busy}
+      onSaveExit={async (stepIndex) => {
+        const result = await saveDraft(submission, stepIndex);
+        if (!result.ok) {
+          // The manager's work stays on screen; a failed save must never look
+          // like a successful one.
+          showToast?.(result.message);
+          return;
+        }
         onSaved?.(submission);
         showToast?.("Saved to Drafts.");
         onClose();
       }}
-      onPublish={() => {
+      onPublish={async () => {
+        const result = await publish(submission);
+        if (!result.ok) {
+          showToast?.(result.message);
+          return;
+        }
         onPublished?.(submission);
         showToast?.("Listing published.");
         onClose();

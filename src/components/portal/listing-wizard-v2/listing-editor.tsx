@@ -1154,13 +1154,16 @@ export function ListingEditorV2({
   onClose,
   onPublish,
   title,
+  busy = false,
 }: {
   submission: ManagerListingSubmissionV1;
   onChange: (next: ManagerListingSubmissionV1) => void;
-  onSaveExit: () => void;
+  /** Receives the step the manager left on, so resuming lands where they were. */
+  onSaveExit: (stepIndex: number) => void;
   onClose: () => void;
   onPublish: () => void;
   title: string;
+  busy?: boolean;
 }) {
   const [step, setStep] = useState(0);
   const [defaults, setDefaults] = useState<ListingHouseDefaults>(() => houseDefaultsForSubmission(submission));
@@ -1190,7 +1193,7 @@ export function ListingEditorV2({
     <WizardModal
       title={title}
       onClose={onClose}
-      onSaveExit={onSaveExit}
+      onSaveExit={() => onSaveExit(step)}
       stepper={<WizardStepper steps={LISTING_V2_STEPS} current={step} onJump={setStep} />}
       footer={
         <>
@@ -1206,18 +1209,20 @@ export function ListingEditorV2({
             <div className="flex gap-2.5">
               <button
                 type="button"
-                onClick={onSaveExit}
-                className="min-h-[44px] rounded-[10px] border border-border bg-card px-5 text-[14px] font-bold text-foreground"
+                onClick={() => onSaveExit(step)}
+                disabled={busy}
+                className="min-h-[44px] rounded-[10px] border border-border bg-card px-5 text-[14px] font-bold text-foreground disabled:opacity-60"
               >
                 Keep as draft
               </button>
               <button
                 type="button"
                 onClick={onPublish}
+                disabled={busy}
                 data-attr="listing-v2-publish"
-                className="min-h-[44px] rounded-[10px] bg-primary px-6 text-[14px] font-bold text-white"
+                className="min-h-[44px] rounded-[10px] bg-primary px-6 text-[14px] font-bold text-white disabled:opacity-60"
               >
-                Publish
+                {busy ? "Publishing…" : "Publish"}
               </button>
             </div>
           ) : (
