@@ -156,8 +156,16 @@ export function StepHeading({
 }
 
 /** Constrains a step body to a single readable column. */
+/**
+ * The body of a step.
+ *
+ * It used to cap at 520px inside a modal more than twice that wide, so most of
+ * the screen was empty and a four-column row of short fields wrapped anyway.
+ * The cap is now generous enough to use the modal and still keep a line of
+ * prose readable; `wide` removes it for the table steps.
+ */
 export function StepColumn({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
-  return <div className={wide ? "max-w-3xl" : "max-w-[520px]"}>{children}</div>;
+  return <div className={wide ? "w-full" : "w-full max-w-[860px]"}>{children}</div>;
 }
 
 /* ─────────────────────────── fields ─────────────────────────── */

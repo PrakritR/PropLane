@@ -351,6 +351,7 @@ function VideoSlot({
 function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
   const roomCount = sub.rooms?.length || sub.listingBedroomSlots || 1;
+  const [openAdvanced, setOpenAdvanced] = useState(false);
   return (
     <StepColumn>
       <StepHeading
@@ -417,6 +418,13 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
           <Input value={sub.neighborhood} onChange={(e) => patch({ neighborhood: e.target.value })} />
         </Field>
       </FieldRow>
+      <Field label="Property name" optional hint="What you call this home internally. The headline is what renters see.">
+        <Input
+          value={sub.buildingName}
+          placeholder={sub.address || "Magnolia House"}
+          onChange={(e) => patch({ buildingName: e.target.value })}
+        />
+      </Field>
 
       <FieldRow cols={4}>
         <Field label="Property type" required>
@@ -497,7 +505,7 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
         />
       </Field>
 
-      <p className="mb-3 mt-6 text-[13px] font-bold text-foreground">Photos</p>
+      <p className="mb-3 mt-6 text-[13px] font-bold text-foreground">Media</p>
       <Field label="Photos of the whole house" optional hint="Up to 12. Rooms and bathrooms have their own.">
         <PhotoStrip
           label="house"
@@ -534,6 +542,18 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
           />
         </ChipRow>
       </Field>
+
+      <AdvancedPanel
+        summary="Lease terms · Payments · Move-in · Applications · The building · Compliance"
+        open={openAdvanced}
+        onToggle={() => setOpenAdvanced((v) => !v)}
+        dataAttr="listing-v2-house-advanced"
+      >
+        <HouseAdvancedGroups sub={sub} patch={patch} />
+      </AdvancedPanel>
+      <p className="mt-2 text-[12px] leading-relaxed text-muted">
+        The same settings are step 5, if you would rather reach them in order.
+      </p>
     </StepColumn>
   );
 }
@@ -599,18 +619,18 @@ function RoomDetail({
         {room.name.trim() || "Room"}
       </h2>
       <p className="mb-5 mt-1.5 text-[13.5px] leading-relaxed text-muted">
-        Five sections. Open the one you need.
+        Pricing, leasing, the room itself, and moving in.
       </p>
 
       <AdvancedPanel
-        summary="The room · Lease terms · Payments · Media · Move-in"
+        summary="Pricing · Leasing · The room · Move-in"
         open
         onToggle={() => undefined}
         dataAttr="listing-v2-room-advanced"
       >
         <AdvancedGroup
           title="The room"
-          description="Beds · size · furnishing · what it comes with"
+          description="Beds · size · furnishing · amenities · photos and video · description"
           open={openGroup === "room"}
           onToggle={() => toggleGroup("room")}
           dataAttr="listing-v2-room-basics"
@@ -651,11 +671,25 @@ function RoomDetail({
               onChange={(next) => set({ roomAmenitiesText: next })}
             />
           </Field>
+          <Field label="Photos of this room" optional>
+            <PhotoStrip label="room" urls={room.photoDataUrls ?? []} onChange={(next) => set({ photoDataUrls: next })} />
+          </Field>
+          <Field label="Video of this room" optional>
+            <VideoSlot label="room" url={room.videoDataUrl} onChange={(next) => set({ videoDataUrl: next })} />
+          </Field>
+          <Field label="Room description" optional hint="Shown on the public listing under this room.">
+            <Textarea
+              rows={3}
+              value={room.detail ?? ""}
+              onChange={(e) => set({ detail: e.target.value })}
+              placeholder="Corner room, two windows facing the garden…"
+            />
+          </Field>
         </AdvancedGroup>
 
         <AdvancedGroup
-          title="Lease terms"
-          description="How long this room is let for, and what an applicant gets by default"
+          title="Leasing"
+          description="Which lease types this room is let on · month-to-month and custom · short-lease cap and surcharge"
           open={openGroup === "lease"}
           onToggle={() => toggleGroup("lease")}
           dataAttr="listing-v2-room-lease"
@@ -684,8 +718,8 @@ function RoomDetail({
         </AdvancedGroup>
 
         <AdvancedGroup
-          title="Payments"
-          description="One rate per lease type · deposit · move-in fee · utilities · prorated rent"
+          title="Pricing"
+          description="Rent and rates · deposit · move-in fee · utilities · prorated rent · flexible or fixed · extra charges"
           open={openGroup === "payments"}
           onToggle={() => toggleGroup("payments")}
           dataAttr="listing-v2-room-payments"
@@ -892,32 +926,10 @@ function RoomDetail({
           </FieldRow>
         </AdvancedGroup>
 
-        <AdvancedGroup
-          title="Media"
-          description="Photos · video · what a renter reads under this room"
-          open={openGroup === "media"}
-          onToggle={() => toggleGroup("media")}
-          dataAttr="listing-v2-room-media"
-        >
-          <Field label="Photos of this room" optional>
-            <PhotoStrip label="room" urls={room.photoDataUrls ?? []} onChange={(next) => set({ photoDataUrls: next })} />
-          </Field>
-          <Field label="Video of this room" optional>
-            <VideoSlot label="room" url={room.videoDataUrl} onChange={(next) => set({ videoDataUrl: next })} />
-          </Field>
-          <Field label="Room description" optional hint="Shown on the public listing under this room.">
-            <Textarea
-              rows={3}
-              value={room.detail ?? ""}
-              onChange={(e) => set({ detail: e.target.value })}
-              placeholder="Corner room, two windows facing the garden…"
-            />
-          </Field>
-        </AdvancedGroup>
 
         <AdvancedGroup
           title="Move-in"
-          description="When it is free · instructions · entry photos · arrival clip · inspections"
+          description="When it is free · instructions · entry photos · arrival clip · move-in and move-out checklists"
           open={openGroup === "movein"}
           onToggle={() => toggleGroup("movein")}
           dataAttr="listing-v2-room-movein"
@@ -947,15 +959,19 @@ function RoomDetail({
           <Field label="Arrival clip" optional>
             <VideoSlot label="arrival" url={room.moveInVideoDataUrl} onChange={(next) => set({ moveInVideoDataUrl: next })} />
           </Field>
-          <Field group label="Inspections">
+          <Field
+            group
+            label="Checklists"
+            hint="A required checklist has to be completed and photographed before the room changes hands."
+          >
             <ChipRow>
               <ChipToggle
-                label="On move-in"
+                label="Move-in checklist required"
                 on={room.moveInInspectionRequired === true}
                 onToggle={() => set({ moveInInspectionRequired: !room.moveInInspectionRequired })}
               />
               <ChipToggle
-                label="On move-out"
+                label="Move-out checklist required"
                 on={room.moveOutInspectionRequired === true}
                 onToggle={() => set({ moveOutInspectionRequired: !room.moveOutInspectionRequired })}
               />
@@ -1087,20 +1103,20 @@ function DefaultsDetail({
 
       <AdvancedGroup
         title="Move-in"
-        description="Inspections most rooms require"
+        description="Checklists most rooms require"
         open={openGroup === "movein"}
         onToggle={() => toggle("movein")}
         dataAttr="listing-v2-defaults-movein"
       >
-        <Field group label="Inspections for most rooms">
+        <Field group label="Checklists for most rooms">
           <ChipRow>
             <ChipToggle
-              label="On move-in"
+              label="Move-in checklist required"
               on={defaults.moveInInspectionRequired}
               onToggle={() => editDefault("moveInInspectionRequired", !defaults.moveInInspectionRequired)}
             />
             <ChipToggle
-              label="On move-out"
+              label="Move-out checklist required"
               on={defaults.moveOutInspectionRequired}
               onToggle={() => editDefault("moveOutInspectionRequired", !defaults.moveOutInspectionRequired)}
             />
@@ -2519,13 +2535,6 @@ function HouseBuildingGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
   return (
     <>
       <FieldRow cols={2}>
-        <Field label="Listing name" optional hint="Only if the home has a name of its own. The headline is on Home.">
-          <Input
-            value={sub.buildingName}
-            placeholder={sub.address || "Magnolia House"}
-            onChange={(e) => patch({ buildingName: e.target.value })}
-          />
-        </Field>
         <Field label="Floor plan" optional>
           <PhotoStrip
             label="floor plan"
@@ -2662,19 +2671,20 @@ function HouseComplianceGroup({ sub, patch }: { sub: ManagerListingSubmissionV1;
  * has once — how it is let, how money reaches you, what the building is, and
  * what your city requires.
  */
-function StepAdvanced({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  const [openGroup, setOpenGroup] = useState<string | null>("lease");
+/**
+ * The house-wide groups, rendered identically wherever they appear.
+ *
+ * They have two doors — a panel at the foot of Home and the Advanced step —
+ * because a manager filling in the home often wants the lease terms right then,
+ * and one walking the steps expects to meet them in order. Both render this one
+ * component against the same submission, so there is no second copy of any
+ * field and no way for the two to disagree.
+ */
+function HouseAdvancedGroups({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
   const toggleGroup = (id: string) => setOpenGroup((prev) => (prev === id ? null : id));
   return (
-    <StepColumn>
-      <StepHeading
-        step={5}
-        total={TOTAL_STEPS}
-        name="Advanced"
-        title="The paperwork"
-        subtitle="Set once for the whole property. Rent and deposits live on the rooms."
-      />
-      <div className="overflow-hidden rounded-2xl border border-border">
+    <>
         <AdvancedGroup
           title="Lease terms"
           description="Types this home is let on · your own lease template · break-lease, holdover, deposit handling, quiet hours, guests, venue"
@@ -2720,15 +2730,31 @@ function StepAdvanced({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: 
         >
           <HouseBuildingGroup sub={sub} patch={patch} />
         </AdvancedGroup>
-        <AdvancedGroup
-          title="Local compliance"
-          description="Certificate of occupancy · RRIO registration"
-          open={openGroup === "compliance"}
-          onToggle={() => toggleGroup("compliance")}
-          dataAttr="listing-v2-house-compliance"
-        >
-          <HouseComplianceGroup sub={sub} patch={patch} />
-        </AdvancedGroup>
+      <AdvancedGroup
+        title="Local compliance"
+        description="Certificate of occupancy · RRIO registration"
+        open={openGroup === "compliance"}
+        onToggle={() => toggleGroup("compliance")}
+        dataAttr="listing-v2-house-compliance"
+      >
+        <HouseComplianceGroup sub={sub} patch={patch} />
+      </AdvancedGroup>
+    </>
+  );
+}
+
+function StepAdvanced({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  return (
+    <StepColumn>
+      <StepHeading
+        step={5}
+        total={TOTAL_STEPS}
+        name="Advanced"
+        title="The paperwork"
+        subtitle="Set once for the whole property. Rent and deposits live on the rooms."
+      />
+      <div className="overflow-hidden rounded-2xl border border-border">
+        <HouseAdvancedGroups sub={sub} patch={patch} />
       </div>
     </StepColumn>
   );
