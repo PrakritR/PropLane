@@ -16,7 +16,7 @@ import { PortalListControlStack } from "@/components/portal/portal-list-control-
 import {
   ManagerPortalPageShell,
 } from "@/components/portal/portal-metrics";
-import { propertyListHref, type PropertyDetailTabId } from "@/lib/portal-detail-routes";
+import { propertyDetailHref, propertyListHref, type PropertyDetailTabId } from "@/lib/portal-detail-routes";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
@@ -121,20 +121,29 @@ export function ManagerProperties({
     [basePath, router],
   );
 
-  const refreshPortfolio = useCallback(async () => {
+  /**
+   * Resolves whether the portfolio is now SERVER-TRUE. A false here means the
+   * local counts below are whatever this browser happened to be holding, which
+   * is why the first-listing seed refuses to act on them (PRP-429).
+   */
+  const refreshPortfolio = useCallback(async (): Promise<boolean> => {
     if (!scopeUserId) {
       setPropCount(0);
-      return;
+      return false;
     }
+    let synced = false;
     if (!isDemoModeActive()) {
       try {
-        await syncManagerPortfolioFromServer(scopeUserId, { force: true });
+        synced = await syncManagerPortfolioFromServer(scopeUserId, { force: true });
       } catch {
         /* offline or dev server recompiling */
       }
+    } else {
+      synced = true;
     }
     setPropCount(countManagerManagedPropertiesForUser(scopeUserId));
     setPortfolioTick((t) => t + 1);
+    return synced;
   }, [scopeUserId]);
 
   const refreshPending = refreshPortfolio;
@@ -166,7 +175,7 @@ export function ManagerProperties({
 
   useEffect(() => {
     queueMicrotask(() => {
-      void refreshPortfolio().then(async () => {
+      void refreshPortfolio().then(async (portfolioSynced) => {
         // Only push local state up once a real sync has run (userId resolved) — otherwise
         // this re-uploads a stale locally-cached snapshot and can clobber an admin-side
         // status change (e.g. request-change) that happened since this browser last synced.
@@ -175,24 +184,42 @@ export function ManagerProperties({
             onError: (message) => showToast(message),
           });
         }
-        // PRP-396: after the first successful sync, seed one draft when the
-        // owned portfolio is empty (skip demo + sandbox accounts).
+        // PRP-396 / PRP-429: after a CONFIRMED sync, seed one draft when the
+        // owned portfolio is empty (skip demo + sandbox accounts), then open it.
+        //
+        // The wizard opens on EVERY visit to Properties until the account's
+        // first property is actually listed — not only on the visit that minted
+        // the draft. A new manager who came back to finish setting up used to
+        // land on an empty Drafts tab and have to find their own way back into
+        // the wizard. Two things keep that from becoming a trap: it is gated on
+        // `managerNeedsFirstListingOnboarding` re-read AFTER the seed, so an
+        // account with any listed or unlisted property never sees it (a leftover
+        // draft beside real listings is just a draft), and it fires once per
+        // mount, so closing the wizard leaves it closed until the manager
+        // navigates back to Properties themselves.
         if (
           userId &&
           scopeUserId &&
+          portfolioSynced &&
+          !propertyKeyProp &&
           !firstListingSeedAttemptedRef.current &&
           !shouldSkipFirstListingOnboarding({ email })
         ) {
           firstListingSeedAttemptedRef.current = true;
-          const seeded = await ensureManagerFirstListingDraft(userId, { email });
-          if (seeded?.created) {
+          const seeded = await ensureManagerFirstListingDraft(userId, {
+            email,
+            portfolioSynced,
+          });
+          if (seeded) {
             setPropCount(countManagerManagedPropertiesForUser(scopeUserId));
             setPortfolioTick((t) => t + 1);
-            if (activeStage !== "drafts") {
-              setActiveStage("drafts");
+            if (managerNeedsFirstListingOnboarding(readFirstListingPortfolioSnapshot(userId))) {
+              if (activeStage !== "drafts") {
+                setActiveStage("drafts");
+              }
+              setResumeDraftId(seeded.draftId);
+              setWizardOpen(true);
             }
-            setResumeDraftId(seeded.draftId);
-            setWizardOpen(true);
           }
         }
       });
@@ -219,6 +246,7 @@ export function ManagerProperties({
     scopeUserId,
     showToast,
     email,
+    propertyKeyProp,
     firstListingSeedAttemptedRef,
   ]);
 
@@ -412,11 +440,24 @@ export function ManagerProperties({
             setWizardOpen(false);
             setResumeDraftId(null);
           }}
-          onSubmitted={() => {
+          onSubmitted={(listingId) => {
             setWizardOpen(false);
             setResumeDraftId(null);
-            refreshPending();
             showToast("Listing submitted and published.");
+            // Open the listing the manager just made instead of leaving them on
+            // whichever stage they started from — after publishing the seeded
+            // draft that stage is Drafts, which no longer holds the row, so the
+            // reward for finishing the wizard was an empty list (PRP-429). The
+            // publish helpers force a pipeline sync before resolving, but the
+            // local catalog is re-read here anyway before the push so the detail
+            // page never renders against a stale snapshot.
+            void refreshPending().then(() => {
+              const id = listingId?.trim();
+              if (!id) return;
+              router.push(propertyDetailHref(basePath, "listed", id, "preview"), {
+                scroll: false,
+              });
+            });
           }}
           showToast={showToast}
           skuTier={skuTier}

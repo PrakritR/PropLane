@@ -1411,7 +1411,13 @@ export function ManagerAddListingForm({
   onSaved,
 }: {
   onClose: () => void;
-  onSubmitted: () => void;
+  /**
+   * Fired once the listing is live. Receives the published listing id so the
+   * caller can open it — the id is the record's permanent public key, the same
+   * one the Listed row routes on (PRP-429). Edit-mode saves pass the id they
+   * were editing; a save that resolves no id passes nothing.
+   */
+  onSubmitted: (listingId?: string) => void;
   showToast: (m: string) => void;
   skuTier: string | null;
   propCountBeforeSubmit: number;
@@ -3334,7 +3340,7 @@ export function ManagerAddListingForm({
           showToast("Could not save changes.");
           return;
         }
-        onSubmitted();
+        onSubmitted(editPendingId);
         return;
       }
       if (editRequestChangeId) {
@@ -3345,7 +3351,7 @@ export function ManagerAddListingForm({
           return;
         }
         showToast("Changes saved. Your listing is live on Rent with PropLane.");
-        onSubmitted();
+        onSubmitted(editRequestChangeId);
         return;
       }
       if (editListingId) {
@@ -3357,7 +3363,7 @@ export function ManagerAddListingForm({
           return;
         }
         showToast("Listing saved. It is live on Rent with PropLane.");
-        onSubmitted();
+        onSubmitted(editListingId);
         return;
       }
       // Publishing a draft promotes the SAME record id draft → live, so the id
@@ -3384,7 +3390,7 @@ export function ManagerAddListingForm({
       if (isDemoModeActive()) {
         window.dispatchEvent(new CustomEvent(DEMO_LISTING_SUBMITTED_EVENT, { detail: { id } }));
       }
-      onSubmitted();
+      onSubmitted(id);
     } finally {
       setBusy(false);
     }

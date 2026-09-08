@@ -580,12 +580,21 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
     }
     let cancelled = false;
     void (async () => {
+      let portfolioSynced = false;
       try {
-        await syncManagerPortfolioFromServer(userId, { force: true });
+        portfolioSynced = await syncManagerPortfolioFromServer(userId, { force: true });
       } catch {
         /* offline */
       }
       if (cancelled) return;
+      // An unloaded portfolio reads as an empty one, and acting on that sent a
+      // manager with live listings to the empty Drafts tab and told them to
+      // create their first listing. Only a portfolio we actually read can be
+      // called empty (PRP-429).
+      if (!portfolioSynced) {
+        setShowFirstListingBanner(false);
+        return;
+      }
       const snap = readFirstListingPortfolioSnapshot(userId);
       const needs =
         managerPortfolioNeedsFirstListingSeed(snap) || managerNeedsFirstListingOnboarding(snap);

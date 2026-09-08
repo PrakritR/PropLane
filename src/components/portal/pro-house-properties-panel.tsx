@@ -260,6 +260,7 @@ function ManagerPropertyInlineDetails({
   propertyTourBucket?: ManagerTourBucketId;
   propertyTourId?: string;
 }) {
+  const detailRouter = useRouter();
   const mock = useMemo(() => (row ? resolveAdminPropertyRowPreview(row) : null), [row]);
   const contactSmsPhone = useListingContactSmsPhone({
     listingId: row?.listingId,
@@ -514,10 +515,22 @@ function ManagerPropertyInlineDetails({
     bucket === 5 && managerUserId
       ? {
           onClose: () => setDraftEditorOpen(false),
-          onSubmitted: () => {
+          onSubmitted: (listingId?: string) => {
             setDraftEditorOpen(false);
             showToast("Listing submitted and published.");
             onUpdated();
+            // This detail page IS the draft's URL, and publishing moves the row
+            // out of the Drafts bucket — staying put rendered "Property not
+            // found." as the reward for finishing the wizard. Follow the record
+            // to its Listed URL instead; the id is unchanged by publishing
+            // (draft → live is the same record), so the link is stable (PRP-429).
+            const published = listingId?.trim();
+            if (published) {
+              detailRouter.replace(
+                propertyDetailHref(propertiesBase, "listed", published, "preview"),
+                { scroll: false },
+              );
+            }
           },
           onSaved: onUpdated,
           showToast,
@@ -1147,6 +1160,15 @@ export function ManagerHousePropertiesPanel({
   const { userId: managerUserId, ready: authReady } = useManagerUserId();
   const scopeUserId = resolveManagerScopeUserId(managerUserId);
   const [tick, setTick] = useState(0);
+  /**
+   * Whether the portfolio behind this list has actually been loaded. The rows
+   * below are read from the local store, which starts EMPTY on every fresh page
+   * load, so a routed property detail rendered "Property not found." for the
+   * whole first paint — and kept saying it when the sync failed outright. It is
+   * three states, not a boolean, because "still loading" and "could not load"
+   * are different answers and neither of them is "does not exist" (PRP-429).
+   */
+  const [portfolioLoad, setPortfolioLoad] = useState<"pending" | "ready" | "failed">("pending");
   const handlePropertyUpdated = useCallback(() => setTick((t) => t + 1), []);
   const handleAfterUnlist = useCallback(
     (propertyKey: string) => {
@@ -1175,10 +1197,12 @@ export function ManagerHousePropertiesPanel({
       // panel's only parent — already mirrors the same owner's rows on mount,
       // and the writes are sequential now, so a second run doubled the POSTs
       // per page load and toasted a plan refusal twice. One owner, one run.
-      void syncManagerPortfolioFromServer(scopeUserId, { force: true }).then(() => {
+      void syncManagerPortfolioFromServer(scopeUserId, { force: true }).then((synced) => {
+        setPortfolioLoad(synced ? "ready" : "failed");
         setTick((t) => t + 1);
       });
     } else {
+      setPortfolioLoad("ready");
       setTick((t) => t + 1);
     }
     const on = (e: Event) => {
@@ -1189,7 +1213,10 @@ export function ManagerHousePropertiesPanel({
         setTick((t) => t + 1);
         return;
       }
-      void syncManagerPortfolioFromServer(scopeUserId, { force: true }).then(() => setTick((t) => t + 1));
+      void syncManagerPortfolioFromServer(scopeUserId, { force: true }).then((synced) => {
+        if (synced) setPortfolioLoad("ready");
+        setTick((t) => t + 1);
+      });
     };
     window.addEventListener(PROPERTY_PIPELINE_EVENT, on);
     window.addEventListener("axis-pro-relationships", on);
@@ -1418,6 +1445,43 @@ export function ManagerHousePropertiesPanel({
     );
   }, [propertyKeyProp, rows]);
 
+  /**
+   * The stage in the URL and the bucket the record actually sits in can
+   * disagree — publishing a draft, unlisting, relisting, or simply following an
+   * old bookmark all move a record between buckets while its id (and therefore
+   * its detail URL) stays the same. `rows` only ever holds the URL's stage, so
+   * every one of those read as "Property not found." Find the record's real
+   * stage and send the manager there instead (PRP-429).
+   */
+  const routePropertyStageElsewhere = useMemo(() => {
+    void tick;
+    if (!propertyKeyProp || routePropertyEntry || !scopeUserId) return null;
+    const decoded = decodeURIComponent(propertyKeyProp);
+    for (const stage of MANAGER_STAGES) {
+      if (stage.key === activeStage) continue;
+      for (const bucket of stage.buckets) {
+        const hit = readAdminPropertyRows(bucket, scopeUserId).some(
+          (row) => (row.listingId?.trim() || row.adminRefId.trim()) === decoded || row.adminRefId === decoded,
+        );
+        if (hit) return stage.key;
+      }
+    }
+    return null;
+  }, [activeStage, propertyKeyProp, routePropertyEntry, scopeUserId, tick]);
+
+  useEffect(() => {
+    if (!routePropertyStageElsewhere || !propertyKeyProp) return;
+    router.replace(
+      propertyDetailHref(
+        propertiesBase,
+        routePropertyStageElsewhere,
+        decodeURIComponent(propertyKeyProp),
+        detailTabProp ?? "preview",
+      ),
+      { scroll: false },
+    );
+  }, [detailTabProp, propertiesBase, propertyKeyProp, router, routePropertyStageElsewhere]);
+
   if (!authReady) {
     return <p className="text-sm text-muted">Loading your properties…</p>;
   }
@@ -1449,6 +1513,20 @@ export function ManagerHousePropertiesPanel({
 
   if (propertyKeyProp) {
     if (!routePropertyEntry) {
+      // Only the loaded-and-really-absent case is a missing property. While the
+      // portfolio is still arriving — or when it failed to arrive at all — say
+      // that instead, so a slow first paint stops reading as a deleted listing.
+      if (routePropertyStageElsewhere || portfolioLoad === "pending") {
+        return <p className="text-sm text-muted">Loading this property…</p>;
+      }
+      if (portfolioLoad === "failed") {
+        return (
+          <PortalDataTableEmpty
+            message="Could not load your properties. Check your connection and try again."
+            icon="default"
+          />
+        );
+      }
       return (
         <PortalDataTableEmpty
           message="Property not found."
