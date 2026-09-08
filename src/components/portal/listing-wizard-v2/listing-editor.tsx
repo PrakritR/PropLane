@@ -23,8 +23,13 @@
 
 import { useMemo, useState } from "react";
 import { Input, Select, Textarea } from "@/components/ui/input";
+import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
+import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
+import { buildListingModalAssistantContext } from "@/lib/listing-assistant-context";
+import { DoorOpen, Bath, LayoutGrid } from "lucide-react";
 import {
   HOUSE_WIDE_AMENITY_PRESETS,
+  LISTING_PROPERTY_TYPE_OPTIONS,
   LISTING_STORIES_OPTIONS,
   LISTING_TOTAL_BATH_OPTIONS,
   ROOM_AMENITY_PRESETS,
@@ -138,9 +143,62 @@ function AmenityChips({
 /* ─────────────────────────── step 1 · basics ─────────────────────────── */
 
 function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  const [openMore, setOpenMore] = useState(false);
+  const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
   return (
     <StepColumn>
-      <StepHeading step={1} total={6} name="Basics" title="The shape of the home" subtitle="Four quick ones." />
+      <StepHeading
+        step={1}
+        total={6}
+        name="Basics"
+        title="The home itself"
+        subtitle="Where it is, what it is, and how it is laid out."
+      />
+      {/*
+       * The address and property type are asked when the property is first
+       * added, but they must stay editable here — a manager opening an existing
+       * listing to correct a typo in the address should not have to delete it
+       * and start again.
+       */}
+      <Field label="Street address" required hint="Start typing and pick the match to refill city, state and ZIP.">
+        <ListingAddressAutocomplete
+          value={sub.address}
+          onChange={(next) => patch({ address: next })}
+          onSelect={(suggestion) =>
+            patch({
+              address: suggestion.address || suggestion.label,
+              city: suggestion.city || sub.city,
+              state: suggestion.state || sub.state,
+              zip: suggestion.zip || sub.zip,
+              neighborhood: suggestion.neighborhood || sub.neighborhood,
+            })
+          }
+        />
+      </Field>
+      <FieldRow cols={3}>
+        <Field label="City" required>
+          <Input value={sub.city} onChange={(e) => patch({ city: e.target.value })} />
+        </Field>
+        <Field label="State" required>
+          <Input value={sub.state} onChange={(e) => patch({ state: e.target.value })} />
+        </Field>
+        <Field label="ZIP" required>
+          <Input value={sub.zip} onChange={(e) => patch({ zip: e.target.value })} />
+        </Field>
+      </FieldRow>
+      <Field label="Property type" required>
+        <Select
+          value={sub.listingPropertyTypeId ?? ""}
+          onChange={(e) => patch({ listingPropertyTypeId: e.target.value })}
+        >
+          <option value="">Select…</option>
+          {LISTING_PROPERTY_TYPE_OPTIONS.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
       <Field label="Floors" required>
         <Select value={sub.listingStoriesId ?? ""} onChange={(e) => patch({ listingStoriesId: e.target.value })}>
           <option value="">Select…</option>
@@ -181,6 +239,46 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
           />
         </ChipRow>
       </Field>
+
+      <MoreOptions
+        label="More options — how you rent it, neighborhood, layout note"
+        open={openMore}
+        onToggle={() => setOpenMore((v) => !v)}
+        dataAttr="listing-v2-basics-more"
+      >
+        <Field
+          group
+          label="How you rent it"
+          hint="Switching this changes whether rent is set per room or once for the whole place."
+        >
+          <ChipRow>
+            <ChipToggle
+              label="By the room"
+              on={rentByRoom}
+              onToggle={() =>
+                patch({ listingPlaceCategoryId: "shared_home", rentalModelStamp: "shared_home" })
+              }
+            />
+            <ChipToggle
+              label="The whole place"
+              on={!rentByRoom}
+              onToggle={() =>
+                patch({ listingPlaceCategoryId: "entire_home", rentalModelStamp: "entire_home" })
+              }
+            />
+          </ChipRow>
+        </Field>
+        <Field label="Neighborhood" optional>
+          <Input value={sub.neighborhood} onChange={(e) => patch({ neighborhood: e.target.value })} />
+        </Field>
+        <Field label="Layout note" optional hint="Anything the floor and bathroom counts do not capture.">
+          <Input
+            value={sub.homeStructureNote}
+            onChange={(e) => patch({ homeStructureNote: e.target.value })}
+            placeholder="3-story townhouse · 3.5 baths"
+          />
+        </Field>
+      </MoreOptions>
     </StepColumn>
   );
 }
@@ -605,7 +703,8 @@ function StepRooms({
       </div>
 
       <AddRowButton
-        label="+ Add a room"
+        label="Add room"
+        icon={DoorOpen}
         dataAttr="listing-v2-add-room"
         onClick={() => {
           const base = rooms[0];
@@ -679,7 +778,8 @@ function StepSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
         ))}
       </RowList>
       <AddRowButton
-        label="+ Add a bathroom"
+        label="Add bathroom"
+        icon={Bath}
         dataAttr="listing-v2-add-bath"
         onClick={() => {
           const base = baths[0];
@@ -724,7 +824,8 @@ function StepSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
           ))}
         </RowList>
         <AddRowButton
-          label="+ Add a shared space"
+          label="Add shared space"
+          icon={LayoutGrid}
           dataAttr="listing-v2-add-space"
           onClick={() => {
             const base = spaces[0];
@@ -1171,6 +1272,19 @@ export function ListingEditorV2({
   const last = LISTING_V2_STEPS.length - 1;
   const stepId = LISTING_V2_STEPS[step]!.id;
 
+  // The same assistant the previous wizard offered, told which step it is on so
+  // it can answer about the field in front of the manager.
+  const assistantContext = useMemo(
+    () =>
+      buildListingModalAssistantContext({
+        wizardTitle: title,
+        stepLabel: LISTING_V2_STEPS[step]!.label,
+        propertyId: null,
+        submission,
+      }),
+    [title, step, submission],
+  );
+
   const body = useMemo(() => {
     switch (stepId) {
       case "basics":
@@ -1194,6 +1308,7 @@ export function ListingEditorV2({
       title={title}
       onClose={onClose}
       onSaveExit={() => onSaveExit(step)}
+      headerAside={<ModalAssistantStrip contextHint={assistantContext} storageScopeKey="listing-wizard-v2" />}
       stepper={<WizardStepper steps={LISTING_V2_STEPS} current={step} onJump={setStep} />}
       footer={
         <>
