@@ -24,11 +24,21 @@ vi.mock("@/lib/supabase/service", () => ({
 }));
 
 const markDeposit = vi.fn(async () => ({ chargeId: "hc-deposit-1", alreadyPaid: false }));
+const promoteIncomplete = vi.fn(async () => ({
+  ok: true,
+  promoted: true,
+  axisId: "AXIS-PROMOTED-1",
+  setupToken: "tok_test",
+}));
 
 vi.mock("@/lib/stripe-application-fee", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/stripe-application-fee")>()),
   markApplicationFeePaidFromStripeSession: async () => ({ chargeId: "hc-app-fee-1", alreadyPaid: false }),
   markApplicationDepositPaidFromStripeSession: markDeposit,
+}));
+
+vi.mock("@/lib/promote-incomplete-application-after-fee.server", () => ({
+  promoteIncompleteApplicationAfterFeePaid: (...args: unknown[]) => promoteIncomplete(...args),
 }));
 
 const APPLICANT = "Applicant@Example.com";
@@ -61,6 +71,13 @@ describe("POST /api/stripe/application-fee-verify", () => {
     retrieve.mockReset();
     retrieve.mockResolvedValue(paidSession());
     markDeposit.mockClear();
+    promoteIncomplete.mockClear();
+    promoteIncomplete.mockResolvedValue({
+      ok: true,
+      promoted: true,
+      axisId: "AXIS-PROMOTED-1",
+      setupToken: "tok_test",
+    });
   });
 
   it("also marks the holding deposit paid — and returns its charge id — on a combined session", async () => {
@@ -97,6 +114,8 @@ describe("POST /api/stripe/application-fee-verify", () => {
     expect(json.emailMatches).toBe(true);
     expect(json.propertyId).toBe("mgr-demo-pioneer");
     expect(json.chargeId).toBe("hc-app-fee-1");
+    expect(json.applicationPromoted).toBe(true);
+    expect(json.applicationAxisId).toBe("AXIS-PROMOTED-1");
     // The whole payload, not just the removed `residentEmail` key.
     expect(JSON.stringify(json).toLowerCase()).not.toContain("applicant@example.com");
   });

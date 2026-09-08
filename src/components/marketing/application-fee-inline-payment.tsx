@@ -5,6 +5,8 @@ import { StripeEmbeddedCheckout } from "@/components/stripe-embedded-checkout";
 import { Button } from "@/components/ui/button";
 import { isElementOnScreen } from "@/lib/dom-visibility";
 import { paymentFailureCopy } from "@/lib/payments/payment-error-copy";
+import { rememberApplicationFeeCheckoutResume } from "@/lib/rental-application/fee-checkout-resume";
+import { loadRentalWizardDraftAxisId } from "@/lib/rental-application/drafts";
 
 export type ApplicationFeeItemizationView = {
   applicationFeeCents: number;
@@ -61,6 +63,14 @@ export function ApplicationFeeInlinePayment({
     setLoading(true);
     setError(null);
     try {
+      // PRP-431: stash email/property before Stripe navigates away so the wizard
+      // can finalize after a full-page return wipe of the in-memory draft.
+      rememberApplicationFeeCheckoutResume({
+        email: residentEmail,
+        propertyId,
+        fullLegalName: residentName,
+        axisId: loadRentalWizardDraftAxisId() ?? undefined,
+      });
       const res = await fetch("/api/stripe/application-fee-checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

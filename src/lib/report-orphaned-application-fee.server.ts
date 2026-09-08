@@ -10,6 +10,7 @@ import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
 import { isDraftShapedApplicationRow } from "@/lib/rental-application/draft-shape";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
+import { promoteIncompleteApplicationAfterFeePaid } from "@/lib/promote-incomplete-application-after-fee.server";
 import { getStripe } from "@/lib/stripe";
 import {
   isApplicationFeeCheckoutSession,
@@ -63,7 +64,7 @@ export type OrphanedApplicationFeeReportResult =
       ok: true;
       notified: boolean;
       chargeId: string | null;
-      reason?: "application_exists" | "suppressed" | "no_manager";
+      reason?: "application_exists" | "suppressed" | "no_manager" | "promoted";
     }
   | { ok: false; status: number; error: string };
 
@@ -71,6 +72,9 @@ export type OrphanedApplicationFeeReportResult =
  * Re-verifies the Checkout session server-side, ensures a paid fee charge, and
  * notifies the manager when no Submitted application exists for that email+listing.
  * Idempotent on session id (inbox message + SMS dedupe).
+ *
+ * PRP-431: tries to promote Incomplete → Submitted from the draft snapshot
+ * before notifying about an orphan.
  */
 export async function reportOrphanedApplicationFeePayment(
   db: SupabaseClient,
@@ -115,6 +119,16 @@ export async function reportOrphanedApplicationFeePayment(
   const marked = await markApplicationFeePaidFromStripeSession(db, session);
   if (!marked.ok) {
     return { ok: false, status: 500, error: "Could not record the application fee payment." };
+  }
+
+  const promoted = await promoteIncompleteApplicationAfterFeePaid(db, session);
+  if (promoted.ok && (promoted.promoted || promoted.reason === "already_submitted")) {
+    return {
+      ok: true,
+      notified: false,
+      chargeId: marked.chargeId ?? null,
+      reason: promoted.promoted ? "promoted" : "application_exists",
+    };
   }
 
   if (await hasSubmittedApplicationForFee(db, { residentEmail: expectedEmail, propertyId })) {

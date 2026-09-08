@@ -142,10 +142,12 @@ export function ResidentScheduleTourModal({
             embeddedModalLayout
             onEmbeddedFooterChange={setFlowFooter}
             onSuccess={() => {
+              // PRP-432: refresh the list but keep the modal open so the
+              // confirmation screen is visible (toast alone is not enough).
               showToast("Tour request sent.");
               onScheduled?.();
-              handleClose();
             }}
+            onSuccessDismiss={handleClose}
           />
         </div>
       ) : (
