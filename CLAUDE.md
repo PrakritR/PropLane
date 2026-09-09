@@ -3,6 +3,11 @@
 # Claude / agent operating notes (Axis)
 
 `CLAUDE.md` loads `AGENTS.md` as the source of truth for **every** agent host.
+Developer-specific process:
+
+- Prakrit: [`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md)
+- Akhil: [`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md)
+
 Claude-specific extras live here. Skills, plugins, and MCP servers are additive
 only - they never override `AGENTS.md` (see **Multi-agent collaboration** there).
 

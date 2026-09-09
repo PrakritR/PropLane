@@ -3,7 +3,13 @@ description: Captain workflow — ticket → Lavish plan + ticket.md → execute
 alwaysApply: true
 ---
 
-# Captain dev workflow (mandatory)
+# Captain dev workflow (Prakrit)
+
+This is **Prakrit's** (captain) process. Full copy:
+[`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md).
+
+When the user is **Akhil**, follow [`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md)
+instead: do not file Linear tickets or open Lavish unless he asks.
 
 Read **`docs/agents/captain-dev-workflow.md`**, **`docs/agents/agent-tooling-index.md`**, and
 **`docs/share/proplane-collaborator-workflow.md`** (for sharing with friends).

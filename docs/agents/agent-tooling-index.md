@@ -51,7 +51,9 @@ new worktrees.
 
 | Doc | When |
 | --- | --- |
-| `docs/agents/captain-dev-workflow.md` | Every task — ticket → plan → execute |
+| `docs/agents/AGENTS-prakrit.md` | Prakrit / captain: ticket → Lavish → promote |
+| `docs/agents/AGENTS-akhil.md` | Akhil: working style; no ticket/plan unless asked |
+| `docs/agents/captain-dev-workflow.md` | Full Prakrit pipeline |
 | `docs/linear-ticket-system.md` | Filing, labels, project folders, **priority & backlog sort** |
 | `docs/ship-gate.md` | Before promote / non-trivial finish |
 | `docs/agents/deployment-workflow.md` | `main` → `staging` → `production` |

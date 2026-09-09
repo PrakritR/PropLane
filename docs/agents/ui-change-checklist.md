@@ -1,6 +1,7 @@
 # UI change checklist (agents)
 
-Use this **after** Linear ticket + Lavish plan approval, **before** editing portal UI.
+Use this **before** editing portal UI. On Prakrit work, that is after Linear
+ticket + Lavish plan approval. On Akhil work, start here when the change is UI.
 
 ## The UI docs, in two tiers (PRP-183)
 
