@@ -18,7 +18,10 @@ describe("scheduled production-to-staging refresh", () => {
   });
 
   it("fails closed on missing or wrong staging credentials", () => {
-    expect(workflow).toContain('test -n "$SUPABASE_ACCESS_TOKEN"');
+    // Named, not a bare `test -n`: run 34378773018 failed on an empty token and
+    // the log said nothing about which secret was missing.
+    expect(workflow).toContain('if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then');
+    expect(workflow).toContain("SUPABASE_ACCESS_TOKEN is empty.");
     expect(workflow).toContain('test "$NEXT_PUBLIC_SUPABASE_URL" = "https://xwszcafaontidfgznlxd.supabase.co"');
     expect(workflow).toContain("NEXT_PUBLIC_SUPABASE_URL: https://xwszcafaontidfgznlxd.supabase.co");
     expect(workflow).not.toContain("secrets.STAGING_SUPABASE_URL");

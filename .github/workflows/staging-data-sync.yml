@@ -51,7 +51,11 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          test -n "$SUPABASE_ACCESS_TOKEN"
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
+            echo "SUPABASE_ACCESS_TOKEN is empty. Set it as a secret on the" \
+                 "staging-data-sync environment; staging data goes stale without it." >&2
+            exit 1
+          fi
           test "$NEXT_PUBLIC_SUPABASE_URL" = "https://xwszcafaontidfgznlxd.supabase.co"
           npx -y supabase@2.117.0 --version
           node scripts/sync-prod-to-staging.mjs --apply
