@@ -50,6 +50,9 @@ export function LeaseHtmlDirectEditor({
     html: string;
   } | null>(null);
   const callbacksRef = useRef({ onChange, onPreviewReady, onSectionFocus });
+  // True while the document currently loaded in the frame has already rendered
+  // readable text. Cleared whenever a new document is written into the frame.
+  const renderedRef = useRef(false);
   const [previewState, setPreviewState] = useState<
     "loading" | "ready" | "failed"
   >("loading");
@@ -83,6 +86,7 @@ export function LeaseHtmlDirectEditor({
     let frameRequest = 0;
     let settled = false;
     if (documentKeyRef.current?.frame !== iframe || documentKeyRef.current.html !== html) {
+      renderedRef.current = false;
       setPreviewState("loading");
     }
 
@@ -113,6 +117,7 @@ export function LeaseHtmlDirectEditor({
       if (typeof doc.body.innerText === "string" && !doc.body.innerText.trim())
         return;
       settled = true;
+      renderedRef.current = true;
       setPreviewState("ready");
       callbacksRef.current.onPreviewReady?.(html);
     };
@@ -125,6 +130,10 @@ export function LeaseHtmlDirectEditor({
       timeout = 0;
       checkReady();
       if (settled || documentHidden()) return;
+      // A document the manager has already seen and is editing must stay
+      // reachable: clearing it is an empty draft, not a failed preview, and the
+      // failure overlay would cover the only way to type the replacement text.
+      if (renderedRef.current) return;
       fail(
         iframe.contentDocument?.body?.textContent?.trim()
           ? "viewport_unavailable"

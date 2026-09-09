@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useState } from "react";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import * as sections from "@/lib/lease-html-sections";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
@@ -228,6 +229,52 @@ describe("lease visual document lifecycle", () => {
     });
     expect(ready).toHaveBeenLastCalledWith(LEASE);
     expect(captureException).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+  it("keeps a cleared document editable and regains readiness once the manager retypes", () => {
+    vi.useFakeTimers();
+    const ready = vi.fn();
+    function Harness() {
+      const [html, setHtml] = useState(LEASE);
+      return (
+        <LeaseHtmlDirectEditor
+          html={html}
+          baselineHtml={LEASE}
+          onChange={setHtml}
+          onPreviewReady={ready}
+        />
+      );
+    }
+    const view = render(<Harness />);
+    act(() => {
+      vi.advanceTimersByTime(20);
+    });
+    expect(ready).toHaveBeenLastCalledWith(LEASE);
+    const doc = view.container.querySelector("iframe")!.contentDocument!;
+
+    act(() => {
+      doc.body.innerHTML = "";
+      fireEvent.input(doc.body);
+    });
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+    expect(ready).toHaveBeenLastCalledWith(null);
+    expect(view.queryByRole("alert")).toBeNull();
+    expect(view.queryByText("Loading lease preview…")).toBeNull();
+    expect(captureException).not.toHaveBeenCalled();
+    expect(view.container.querySelector("iframe")!.contentDocument).toBe(doc);
+
+    act(() => {
+      doc.body.innerHTML = "<h2>Parties</h2><p>Replacement resident</p>";
+      fireEvent.input(doc.body);
+    });
+    act(() => {
+      vi.advanceTimersByTime(20);
+    });
+    expect(ready.mock.calls.at(-1)![0]).toContain("Replacement resident");
+    expect(doc.body.textContent).toContain("Replacement resident");
+    expect(view.queryByRole("alert")).toBeNull();
     vi.useRealTimers();
   });
 });
