@@ -1763,7 +1763,7 @@ export function ManagerApplications({
     <>
       <PortalNotificationPreviewModal
         open={approvePreviewRow !== null}
-        title="Approve application: account setup email"
+        title="Approve application"
         onClose={() => {
           if (approveBusyId) return;
           setApprovePreviewRow(null);
@@ -1782,14 +1782,14 @@ export function ManagerApplications({
         }
         intro={
           approvePreviewRow
-            ? `Approving ${applicantDisplayName(approvePreviewRow)} will update their application status and can send their PropLane resident account setup email.`
+            ? `Approving ${applicantDisplayName(approvePreviewRow)} updates their application status and sends the notifications you select.`
             : undefined
         }
         warning={approveError ?? undefined}
         warningLead={approveError ? "Could not approve." : null}
         hideSendViaFooterNote
         showWorkNumberHint
-        confirmLabel="Approve & send setup email"
+        confirmLabel="Approve & notify"
         confirmLabelWithoutMessage="Approve only"
         deliverViaKind="applications"
         smsAvailable
@@ -1802,7 +1802,9 @@ export function ManagerApplications({
           setApproveBusyId(row.id);
           // Keep the dialog open until the server confirms (PRP-381). Closing
           // first made a 500 look identical to success.
-          const selectedChannels = channels ?? { viaEmail: true, viaSms: false };
+          const selectedChannels = skipMessage
+            ? { viaEmail: false, viaSms: false }
+            : channels ?? { viaEmail: true, viaSms: false };
           void setRowBucket(row.id, "approved", {
             skipWelcomeEmail: skipMessage || !selectedChannels.viaEmail,
             skipNavigate: true,
