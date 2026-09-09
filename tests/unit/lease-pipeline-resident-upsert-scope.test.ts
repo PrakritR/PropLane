@@ -86,7 +86,7 @@ vi.mock("@/lib/auth/manager-lease-scope", () => ({
 vi.mock("@/lib/documents/document-auto-file-hooks.server", () => ({
   autoFileLeaseDocument: (...a: unknown[]) => autoFileLeaseDocument(...(a as [])),
 }));
-vi.mock("@/lib/domain-action-events.server", () => ({ emitLeaseTransition: vi.fn(async () => undefined) }));
+vi.mock("@/lib/domain-action-events.server", () => ({ buildDurableLeaseTransitionEnvelope: vi.fn(() => null), leaseEventForTransition: vi.fn(() => null) }));
 
 /** The stored row is looked up by id, so a batch can mix existing and new rows. */
 function storedFor(id: string) {
@@ -102,6 +102,10 @@ function applicationFor(id: string, owner: string) {
 
 function makeDb() {
   return {
+    rpc: async (_name: string, args: { p_record: unknown }) => {
+      const result = await upsert(args.p_record as never);
+      return { data: "persisted", error: result.error };
+    },
     from(table: string) {
       let orFiltered = false;
       let selected = "";
