@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Archive, Clock, Pencil, Trash2 } from "lucide-react";
-import { Modal } from "@/components/ui/modal";
-import { ScheduleInboxComposeForm } from "@/components/portal/schedule-inbox-compose-modal";
-import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
+import { Archive, Pencil, Trash2 } from "lucide-react";
+import {
+  PortalMessageScheduleFields,
+  defaultScheduleSendAtLocal,
+} from "@/components/portal/portal-message-compose-fields";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
 import {
   INBOX_THREAD_ICON_BTN,
@@ -170,7 +171,8 @@ export function ResidentDirectChatPane({
   const [approvingAiDraft, setApprovingAiDraft] = useState(false);
   const smsAttemptRef = useRef<ManualSmsAttempt | null>(null);
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleLater, setScheduleLater] = useState(false);
+  const [scheduleSendAt, setScheduleSendAt] = useState(() => defaultScheduleSendAtLocal());
   const [sending, setSending] = useState(false);
   const [inboxTick, setInboxTick] = useState(0);
   const [manualScheduledMessages, setManualScheduledMessages] = useState<ScheduledInboxMessageRecord[]>([]);
@@ -209,19 +211,6 @@ export function ResidentDirectChatPane({
   const displayName = residentName?.trim() || email || "Resident";
   const smsAvailable = smsUiEnabled && Boolean(smsResident?.phone?.trim());
   const emailAvailable = Boolean(email);
-  /*
-   * The scheduler picks a recipient from a directory. This pane is already
-   * pinned to ONE person, so it offers exactly that person rather than the whole
-   * portfolio — scheduling from inside a conversation should not be able to
-   * silently address someone else.
-   */
-  const scheduleContacts = useMemo<InboxScopedContact[]>(
-    () =>
-      email.trim()
-        ? [{ id: `direct-${email.trim().toLowerCase()}`, name: displayName, email: email.trim(), role: "resident" }]
-        : [],
-    [displayName, email],
-  );
 
   const [replyViaProplane, setReplyViaProplane] = useState(true);
   const [replyViaEmail, setReplyViaEmail] = useState(false);
@@ -431,6 +420,55 @@ export function ResidentDirectChatPane({
       showToast("Wait for uploads to finish.");
       return;
     }
+
+    // Ticked "Schedule for later" — the same press SCHEDULES rather than sends,
+    // so there is one send button and no second way to fire the message.
+    if (scheduleLater) {
+      const sendAt = new Date(scheduleSendAt);
+      if (Number.isNaN(sendAt.getTime())) {
+        showToast("Choose a valid send date and time.");
+        return;
+      }
+      if (sendAt.getTime() < Date.now() - 60_000) {
+        showToast("Send time must be in the future.");
+        return;
+      }
+      setSending(true);
+      try {
+        const res = await fetch("/api/portal/scheduled-inbox-messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            senderPortal: "manager",
+            subject: `Message for ${displayName}`,
+            body: text,
+            sendAt: sendAt.toISOString(),
+            recipientEmail: email,
+            recipientName: displayName,
+            deliverViaEmail: replyViaEmail && emailAvailable,
+            deliverViaSms: replyViaSms && smsAvailable,
+          }),
+        });
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+          showToast(payload?.error ?? "Could not schedule message.");
+          return;
+        }
+        // Clear only on success, so a refused schedule never loses the text.
+        setDraft("");
+        setReplyAttachments([]);
+        setScheduleLater(false);
+        showToast("Message scheduled.");
+        onSent();
+      } catch {
+        showToast("Could not schedule message.");
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
     setSending(true);
     try {
       let smsOk = !replyViaSms;
@@ -767,15 +805,16 @@ export function ResidentDirectChatPane({
             })}
             storageScopeKey={`resident-detail-${email.trim().toLowerCase()}`}
           />
-          <button
-            type="button"
-            data-attr="inbox-thread-schedule-send"
-            onClick={() => setScheduleOpen(true)}
-            className="inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-full border border-border bg-card px-3.5 text-[12.5px] font-semibold text-muted transition-colors hover:text-foreground"
-          >
-            <Clock className="h-3.5 w-3.5" strokeWidth={2} />
-            Schedule send
-          </button>
+          {emailAvailable ? (
+            <PortalMessageScheduleFields
+              scheduleLater={scheduleLater}
+              onScheduleLaterChange={setScheduleLater}
+              sendAt={scheduleSendAt}
+              onSendAtChange={setScheduleSendAt}
+              scheduleDataAttr="inbox-thread-schedule-later"
+              sendAtDataAttr="inbox-thread-schedule-at"
+            />
+          ) : null}
           </div>
           <InboxComposer
             value={draft}
@@ -801,33 +840,6 @@ export function ResidentDirectChatPane({
         </>
       }
     />
-    <Modal
-      open={scheduleOpen}
-      onClose={() => setScheduleOpen(false)}
-      title="Schedule this message"
-      description="Choose when it sends. It appears in the conversation until then, and can be edited or cancelled."
-      panelClassName="max-w-lg"
-    >
-      {scheduleOpen ? (
-        <ScheduleInboxComposeForm
-          onClose={() => setScheduleOpen(false)}
-          onSaved={() => {
-            setScheduleOpen(false);
-            // Clear the reply that is now scheduled, so it cannot also be sent
-            // by pressing send.
-            setDraft("");
-            onSent();
-          }}
-          contacts={scheduleContacts}
-          showHeading={false}
-          initial={{
-            subject: `Message for ${displayName}`,
-            body: draft,
-            recipientEmail: email,
-          }}
-        />
-      ) : null}
-    </Modal>
     <PortalContactDetailsModal
       open={contactEditOpen}
       onClose={() => setContactEditOpen(false)}

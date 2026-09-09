@@ -94,7 +94,13 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
  useAppUi: () => ({ showToast: vi.fn() }) }));
 vi.mock("@/components/portal/payment-schedule-ui", () => ({ useScheduledPaymentMessages: () => ({ messages: [] }) }));
 vi.mock("@/components/portal/pro-inbox-schedule-panel", () => ({ ManagerInboxSchedulePanel: () => null }));
-vi.mock("@/lib/manager-inbox-contacts", () => ({ buildManagerInboxLiveContacts: () => [] }));
+vi.mock("@/lib/manager-inbox-contacts", async (importOriginal) => ({
+  // Spread the real module: this file only needs an empty live directory, and a
+  // hand-listed mock silently breaks every time the module gains an export a
+  // component calls — which is exactly how this broke.
+  ...(await importOriginal<typeof import("@/lib/manager-inbox-contacts")>()),
+  buildManagerInboxLiveContacts: () => [],
+}));
 // AI drafts are deliberately gated OFF in demo mode; this is the real portal.
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   // Spread the real module: this file only needs to override demo mode,

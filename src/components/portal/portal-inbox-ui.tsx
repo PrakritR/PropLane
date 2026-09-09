@@ -1391,7 +1391,7 @@ export function InboxReplyChannelPicker({
 
 /** Shared thread-reply field + send affordance — keep identical across email/SMS/resident chat. */
 export const PORTAL_INBOX_COMPOSER_INPUT_CLASS =
-  "portal-inbox-composer-input max-h-28 min-h-10 flex-1 resize-none rounded-[1.4rem] border border-input bg-card px-4 py-2.5 text-sm leading-snug text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted/70 focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-60 md:min-h-[46px] md:px-4.5";
+  "portal-inbox-composer-input max-h-[16rem] min-h-10 flex-1 resize-none overflow-y-auto rounded-[1.4rem] border border-input bg-card px-4 py-2.5 text-sm leading-snug text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted/70 focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-60 md:min-h-[46px] md:px-4.5";
 
 export const PORTAL_INBOX_COMPOSER_SEND_CLASS =
   "portal-inbox-composer-send mb-0.5 flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full bg-[var(--btn-primary)] text-primary-foreground shadow-[0_8px_18px_-8px_color-mix(in_srgb,var(--btn-primary)_70%,transparent)] transition-[filter,opacity] hover:brightness-110 disabled:opacity-40 md:h-[46px] md:w-[46px]";
@@ -1522,6 +1522,19 @@ export function InboxComposer({
   composerRows?: number;
 }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  /*
+   * Grow to fit the whole message. A fixed height clipped anything past two
+   * lines, which is most AI drafts and any real paragraph — the writer could
+   * not see what they were about to send. Height is reset to `auto` first so
+   * the box SHRINKS again when text is deleted, and the class caps it so a long
+   * message cannot swallow the conversation above it (it scrolls past the cap).
+   */
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
   const hasReadyAttachment = (attachments ?? []).some((a) => !a.uploading && !a.error);
   const canSend = !sending && !disabled && (value.trim().length > 0 || hasReadyAttachment);
   const resolvedChannel = channelControl ?? null;

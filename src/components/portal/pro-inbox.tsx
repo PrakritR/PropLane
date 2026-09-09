@@ -2,9 +2,13 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { Archive, ArchiveRestore, Clock, Pencil, Trash2 } from "lucide-react";
-import { Modal } from "@/components/ui/modal";
-import { ScheduleInboxComposeForm } from "@/components/portal/schedule-inbox-compose-modal";
+import { Archive, ArchiveRestore, Pencil, Trash2 } from "lucide-react";
+import { inboxCounterpartyName } from "@/lib/manager-inbox-contacts";
+import { inboxRowAddressLabel } from "@/lib/communication-row-meta";
+import {
+  PortalMessageScheduleFields,
+  defaultScheduleSendAtLocal,
+} from "@/components/portal/portal-message-compose-fields";
 import { Button } from "@/components/ui/button";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import {
@@ -326,7 +330,8 @@ export const ManagerInbox = forwardRef<
     [controlledExpandedId, onControlledExpandedIdChange],
   );
   const [composeOpen, setComposeOpen] = useState(false);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleLater, setScheduleLater] = useState(false);
+  const [scheduleSendAt, setScheduleSendAt] = useState(() => defaultScheduleSendAtLocal());
   const [workflowWorkOrderOpen, setWorkflowWorkOrderOpen] = useState(false);
   const [workflowServiceOpen, setWorkflowServiceOpen] = useState(false);
   const [workflowMessageText, setWorkflowMessageText] = useState("");
@@ -1500,6 +1505,55 @@ export const ManagerInbox = forwardRef<
       showToast("Wait for uploads to finish.");
       return;
     }
+
+    // Ticked "Schedule for later" — the same press SCHEDULES rather than sends,
+    // so there is one send button and no second way to fire the message.
+    if (scheduleLater) {
+      const sendAt = new Date(scheduleSendAt);
+      if (Number.isNaN(sendAt.getTime())) {
+        showToast("Choose a valid send date and time.");
+        return;
+      }
+      if (sendAt.getTime() < Date.now() - 60_000) {
+        showToast("Send time must be in the future.");
+        return;
+      }
+      setReplySending(true);
+      try {
+        const res = await fetch("/api/portal/scheduled-inbox-messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            senderPortal: "manager",
+            subject: activeThread.subject || `Message for ${activeThread.from || activeThread.email}`,
+            body: text,
+            sendAt: sendAt.toISOString(),
+            recipientEmail: activeThread.email,
+            recipientName: activeThread.from || activeThread.email,
+            deliverViaEmail: replyViaEmail && activeEmailAvailable,
+            deliverViaSms: replyViaSms && activeSmsAvailable,
+          }),
+        });
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+          showToast(payload?.error ?? "Could not schedule message.");
+          return;
+        }
+        // Clear the reply only on success, so a refused schedule never loses
+        // what the manager typed.
+        setReplyDraft("");
+        setReplyAttachments([]);
+        setScheduleLater(false);
+        showToast("Message scheduled.");
+      } catch {
+        showToast("Could not schedule message.");
+      } finally {
+        setReplySending(false);
+      }
+      return;
+    }
+
     setReplySending(true);
     try {
       const outcome = await handleReply(
@@ -1974,6 +2028,44 @@ export const ManagerInbox = forwardRef<
    */
   const showThreadHeaderActions = !embeddedResidentChat;
 
+  /*
+   * The header names the PERSON and then says who they are and where they
+   * live. It used to lead with the raw address on a thread the manager had
+   * sent — "ethan.wright.workflow@test.proplane.local" over "Ethan Wright ·
+   * Application update" — which inverts the two: an address as the headline
+   * and the human as a caption.
+   */
+  const activeThreadTitle = activeThread
+    ? activeIsAssistantThread
+      ? activeThread.from || "PropLane Assistant"
+      : inboxCounterpartyName(activeThread.email, activeIsSent ? null : activeThread.from, filterContacts) ||
+        activeThread.email ||
+        "Unknown sender"
+    : "";
+
+  const activeThreadSubtitle = (() => {
+    if (!activeThread || activeIsAssistantThread) return undefined;
+    const contact = filterContacts?.find(
+      (c) => c.email.trim().toLowerCase() === activeThread.email.trim().toLowerCase(),
+    );
+    // The directory's role union is not the filter's ("manager" vs
+    // "management"), so map rather than cast — a cast would print "PropLane
+    // admin" for a manager.
+    const role =
+      contact?.role === "resident"
+        ? "Resident"
+        : contact?.role === "vendor"
+          ? "Vendor"
+          : contact?.role === "manager"
+            ? "Manager"
+            : null;
+    const parts = [role, inboxRowAddressLabel(contact?.propertyLabel)].filter(Boolean) as string[];
+    if (parts.length > 0) return parts.join(" · ");
+    // Nothing known about them beyond the address they write from — better than
+    // repeating the subject, which the open thread already shows.
+    return activeThread.email || activeThread.subject || undefined;
+  })();
+
   const threadHeaderActions =
     activeThread && showThreadHeaderActions ? (
     activeThread.folder === "trash" ? (
@@ -2066,21 +2158,13 @@ export const ManagerInbox = forwardRef<
 
   const threadPane = activeThread ? (
     <InboxThreadView
-      title={
-        activeIsSent
-          ? activeThread.email || "Unknown recipient"
-          : activeThread.from || activeThread.email || "Unknown sender"
-      }
+      title={activeThreadTitle}
       avatarName={
         activeIsSent
           ? activeThread.email || undefined
           : activeThread.from || activeThread.email || undefined
       }
-      subtitle={
-        activeIsAssistantThread
-          ? undefined
-          : activeThread.subject || (activeIsSent ? undefined : activeThread.email)
-      }
+      subtitle={activeThreadSubtitle}
       messages={activeBubbles}
       alignAssistantStart={activeIsAssistantThread}
       threadKey={activeThread.id}
@@ -2172,15 +2256,14 @@ export const ManagerInbox = forwardRef<
               }
             />
             {inboxThreadHasEmail(activeThread.email) ? (
-              <button
-                type="button"
-                data-attr="inbox-thread-schedule-send"
-                onClick={() => setScheduleOpen(true)}
-                className="inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-full border border-border bg-card px-3.5 text-[12.5px] font-semibold text-muted transition-colors hover:text-foreground"
-              >
-                <Clock className="h-3.5 w-3.5" strokeWidth={2} />
-                Schedule send
-              </button>
+              <PortalMessageScheduleFields
+                scheduleLater={scheduleLater}
+                onScheduleLaterChange={setScheduleLater}
+                sendAt={scheduleSendAt}
+                onSendAtChange={setScheduleSendAt}
+                scheduleDataAttr="inbox-thread-schedule-later"
+                sendAtDataAttr="inbox-thread-schedule-at"
+              />
             ) : null}
             </div>
             <InboxComposer
@@ -2233,44 +2316,6 @@ export const ManagerInbox = forwardRef<
         </PortalSectionActionRow>
       ) : null}
 
-      <Modal
-        open={scheduleOpen}
-        onClose={() => setScheduleOpen(false)}
-        title="Schedule this message"
-        description="Choose when it sends. It appears in the conversation until then, and can be edited or cancelled."
-        panelClassName="max-w-lg"
-      >
-        {scheduleOpen && activeThread ? (
-          <ScheduleInboxComposeForm
-            onClose={() => setScheduleOpen(false)}
-            onSaved={() => {
-              setScheduleOpen(false);
-              // Clear the reply that is now scheduled, so it cannot also be
-              // sent by pressing send.
-              setReplyDraft("");
-            }}
-            /*
-             * Pinned to the person whose conversation this is. Handing the
-             * scheduler the whole directory here would let a reply typed in one
-             * thread be scheduled to somebody else.
-             */
-            contacts={[
-              {
-                id: `thread-${activeThread.email.trim().toLowerCase()}`,
-                name: activeThread.from || activeThread.email,
-                email: activeThread.email.trim(),
-                role: "resident",
-              },
-            ]}
-            showHeading={false}
-            initial={{
-              subject: activeThread.subject || `Message for ${activeThread.from || activeThread.email}`,
-              body: replyDraft,
-              recipientEmail: activeThread.email,
-            }}
-          />
-        ) : null}
-      </Modal>
       {!suppressCompose ? (
         <ScopedInboxComposeModal
           open={composeOpen}
