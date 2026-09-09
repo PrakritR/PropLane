@@ -913,12 +913,22 @@ export function inboxAvatarRampIndex(name: string): number {
   return hash % INBOX_AVATAR_RAMP.length;
 }
 
-/** Circular initials avatar. There are no profile photos in the product. */
+/**
+ * Circular initials avatar. There are no profile photos in the product.
+ *
+ * `cn` rather than string concatenation: the size is part of the default, so a
+ * caller passing a SMALLER one needs it to replace `h-10 w-10`, not sit beside
+ * it. Concatenated, both classes landed on the element with tied specificity
+ * and the 40px default silently won.
+ */
 export function InboxAvatar({ name, className = "" }: { name: string; className?: string }) {
   const [from, to] = INBOX_AVATAR_RAMP[inboxAvatarRampIndex(name)]!;
   return (
     <div
-      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold tracking-[0.02em] text-white shadow-[0_2px_10px_color-mix(in_srgb,var(--primary)_34%,transparent)] ${className}`}
+      className={cn(
+        "flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold tracking-[0.02em] text-white shadow-[0_2px_10px_color-mix(in_srgb,var(--primary)_34%,transparent)]",
+        className,
+      )}
       style={{ background: `linear-gradient(160deg, ${from} 0%, ${to} 100%)` }}
       aria-hidden
     >
