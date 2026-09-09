@@ -81,6 +81,16 @@ baseline afterwards. Use it only to deliberately reset staging.
 The sync covers the `public` and `auth` schemas. **Storage objects are not
 copied**, so uploaded files 404 on staging.
 
+The `Refresh staging data` GitHub workflow runs the incremental merge every 12
+hours, which leaves a retry window inside the 24-hour freshness target. It is
+serialized under the `staging-production-data-refresh` concurrency group and
+can also be dispatched manually. The `staging-data-sync` GitHub environment
+must provide `SUPABASE_ACCESS_TOKEN`; the public staging URL is pinned in the
+workflow and checked before a dump. The runner uses PostgreSQL 17 client tools, creates scratch files under a
+private umask, removes every SQL dump on success or failure, and publishes a
+small success-only freshness artifact. The workflow never uses
+`--full-replace` and has no production-write credential or flag.
+
 `prod_snapshot` and `prod_snapshot_auth` on the staging project are that
 baseline. They are not junk — dropping them costs the merge its memory of what
 production looked like last time, which turns the next refresh into

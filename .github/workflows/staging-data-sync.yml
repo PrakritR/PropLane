@@ -1,0 +1,69 @@
+name: Refresh staging data
+
+on:
+  schedule:
+    - cron: "23 */12 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: staging-production-data-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    if: github.repository_owner == 'PrakritR'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: staging-data-sync
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The staging schema must be represented by the checkout whose data
+          # is being refreshed. Promotion updates this branch before QA.
+          ref: staging
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install PostgreSQL 17 client
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ca-certificates curl gnupg
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor | sudo tee /usr/share/keyrings/postgresql.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/postgresql.gpg] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends postgresql-client-17
+          pg_dump --version
+
+      - name: Refresh production data into staging
+        shell: bash
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          NEXT_PUBLIC_SUPABASE_URL: https://xwszcafaontidfgznlxd.supabase.co
+          ALLOW_STAGING_PROD_CLONE: "1"
+          STAGING_SYNC_FRESHNESS_FILE: staging-sync-freshness.json
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$SUPABASE_ACCESS_TOKEN"
+          test "$NEXT_PUBLIC_SUPABASE_URL" = "https://xwszcafaontidfgznlxd.supabase.co"
+          npx -y supabase@2.117.0 --version
+          node scripts/sync-prod-to-staging.mjs --apply
+
+      - name: Publish successful refresh metadata
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: staging-sync-freshness-${{ github.run_id }}
+          path: staging-sync-freshness.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Remove local refresh files
+        if: always()
+        run: rm -rf .staging-prod-sync staging-sync-freshness.json

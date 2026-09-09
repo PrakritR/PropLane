@@ -47,6 +47,7 @@ declare
   col_list text;
   sel_list text;
   assigns  text;
+  prod_same text;
   n_ins bigint;
   n_upd bigint;
   n_del bigint;
@@ -88,6 +89,10 @@ begin
       select array_agg(a.attname order by a.attnum)
         into ins_cols
       from pg_attribute a
+      join prod_import._axis_import_columns m
+        on m.import_schema = pair.imp
+       and m.table_name = tbl.relname
+       and m.column_name = a.attname
       where a.attrelid = format('%I.%I', pair.live, tbl.relname)::regclass
         and a.attnum > 0
         and not a.attisdropped
@@ -95,6 +100,10 @@ begin
 
       if ins_cols is null or pk_cols is null then
         continue;
+      end if;
+
+      if exists (select 1 from unnest(pk_cols) c where not (c = any (ins_cols))) then
+        raise exception 'production dump omitted primary-key columns for %.%', pair.live, tbl.relname;
       end if;
 
       -- No snapshot row for this table: either the first refresh, or a table
@@ -113,6 +122,10 @@ begin
       select string_agg(format('p.%I = q.%I', c, c), ' and ') into join_pq from unnest(pk_cols) c;
       select string_agg(format('%I', c), ', ')      into col_list from unnest(ins_cols) c;
       select string_agg(format('p.%I', c), ', ')    into sel_list from unnest(ins_cols) c;
+      -- JSON key reads also work when production has just gained a column that
+      -- the previous snapshot table does not physically contain yet.
+      select string_agg(format('(to_jsonb(p) -> %L) is not distinct from (to_jsonb(q) -> %L)', c, c), ' and ')
+        into prod_same from unnest(ins_cols) c;
 
       upd_cols := array(select c from unnest(ins_cols) c where not (c = any (pk_cols)));
       select string_agg(format('%I = p.%I', c, c), ', ') into assigns from unnest(upd_cols) c;
@@ -137,11 +150,11 @@ begin
              from %I.%I p
              left join %I.%I q on %s
             where %s
-              and to_jsonb(p.*) is distinct from to_jsonb(q.*)',
+              and not (%s)',
           pair.live, tbl.relname, assigns,
           pair.imp,  tbl.relname,
           pair.snap, tbl.relname, join_pq,
-          join_sp
+          join_sp, prod_same
         );
         get diagnostics n_upd = row_count;
       else

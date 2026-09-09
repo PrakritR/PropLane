@@ -54,6 +54,59 @@ export function rewriteDumpSchema(sql, mapping = IMPORT_SCHEMAS) {
   return out.join("\n");
 }
 
+/** Columns actually emitted by pg_dump, grouped by source table. */
+export function extractDumpCopyColumns(sql) {
+  const tables = [];
+  let inCopy = false;
+  for (const line of sql.split("\n")) {
+    if (inCopy) {
+      if (line === "\\.") inCopy = false;
+      continue;
+    }
+    const match = line.match(/^COPY "([^"]+)"\."([^"]+)" \((.+)\) FROM stdin;$/);
+    if (!match) continue;
+    const columns = [...match[3].matchAll(/"((?:[^"]|"")+)"(?:, |$)/g)].map((entry) =>
+      entry[1].replaceAll('""', '"'),
+    );
+    if (columns.length === 0) throw new Error(`COPY column list could not be parsed for ${match[1]}.${match[2]}`);
+    tables.push({ schema: match[1], table: match[2], columns });
+    inCopy = true;
+  }
+  return tables;
+}
+
+function sqlLiteral(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+export function buildImportColumnManifestSql(dumps) {
+  const rows = dumps.flatMap(({ sql }) =>
+    extractDumpCopyColumns(sql).flatMap(({ schema, table, columns }) => {
+      const importSchema = IMPORT_SCHEMAS[schema];
+      if (!importSchema) return [];
+      return columns.map((column) => `(${sqlLiteral(importSchema)}, ${sqlLiteral(table)}, ${sqlLiteral(column)})`);
+    }),
+  );
+  if (rows.length === 0) throw new Error("production dumps contained no COPY column metadata");
+  return `
+do $$
+begin
+  if to_regclass('prod_import._axis_import_columns') is not null then
+    raise exception 'reserved import metadata table already exists';
+  end if;
+end $$;
+create table prod_import._axis_import_columns (
+  import_schema text not null,
+  table_name text not null,
+  column_name text not null,
+  primary key (import_schema, table_name, column_name)
+);
+insert into prod_import._axis_import_columns (import_schema, table_name, column_name)
+values
+${rows.join(",\n")};
+`;
+}
+
 /**
  * @param {{
  *   inProd: boolean,
