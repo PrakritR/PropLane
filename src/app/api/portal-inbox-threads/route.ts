@@ -1,3 +1,4 @@
+import { smsNoticeMembers, storedSmsNoticeIdentity, updateSmsNoticeMailboxState } from "@/lib/sms-inbox-state.server";
 import { NextResponse } from "next/server";
 import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { buildPortalInboxThreadUpsert } from "@/lib/portal-inbox-thread-upsert";
@@ -62,7 +63,7 @@ export async function GET(request: Request) {
 
     let query = ctx.db
       .from("portal_inbox_thread_records")
-      .select("id, row_data, updated_at")
+      .select("id, row_data, updated_at, owner_user_id, thread_type")
       .order("updated_at", { ascending: false })
       .limit(500);
 
@@ -82,10 +83,10 @@ export async function GET(request: Request) {
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    const records = (Array.isArray(data) ? data : []) as { id: string; row_data: unknown; updated_at: string }[];
+    const records = (Array.isArray(data) ? data : []) as { id: string; row_data: unknown; updated_at: string; owner_user_id: string; thread_type: string }[];
     const rows = records.map((record) => {
       const row = (record.row_data && typeof record.row_data === "object" ? record.row_data : record) as Record<string, unknown>;
-      return normalizeInboxRow(row);
+      return normalizeInboxRow({ ...row, id: record.id, ownerUserId: record.owner_user_id, threadType: record.thread_type });
     });
 
     const collapsed =
@@ -142,7 +143,14 @@ export async function POST(req: Request) {
           : [];
       let deleted = 0;
       for (const id of ids) {
-        let deleteQuery = ctx.db.from("portal_inbox_thread_records").delete().eq("id", id).select("id");
+        let targetQuery = ctx.db.from("portal_inbox_thread_records")
+          .select("id, owner_user_id, scope, thread_type, row_data").eq("id", id);
+        targetQuery = applyPortalInboxThreadScope(targetQuery, ctx.user, extraOwnerIds) as typeof targetQuery;
+        const { data: target, error: targetError } = await targetQuery.maybeSingle();
+        if (targetError) return NextResponse.json({ error: targetError.message }, { status: 500 });
+        if (!target) continue;
+        const members = await smsNoticeMembers(ctx.db, target);
+        let deleteQuery = ctx.db.from("portal_inbox_thread_records").delete().in("id", members.map((m) => m.id)).select("id");
         deleteQuery = applyPortalInboxThreadScope(deleteQuery, ctx.user, extraOwnerIds) as typeof deleteQuery;
         const { data, error } = await deleteQuery;
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -162,7 +170,7 @@ export async function POST(req: Request) {
 
       const { data: existing, error: existingError } = await ctx.db
         .from("portal_inbox_thread_records")
-        .select("id, owner_user_id, participant_email, scope")
+        .select("id, owner_user_id, participant_email, scope, thread_type, row_data")
         .eq("id", id)
         .limit(1);
       if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
@@ -179,6 +187,11 @@ export async function POST(req: Request) {
         if (visibleError) return NextResponse.json({ error: visibleError.message }, { status: 500 });
         if (!Array.isArray(visible) || visible.length === 0) {
           return NextResponse.json({ error: "Record not found." }, { status: 404 });
+        }
+
+        if (storedSmsNoticeIdentity(existing[0])) {
+          await updateSmsNoticeMailboxState(ctx.db, existing[0], normalized);
+          continue;
         }
 
         const prior = existing[0] as {

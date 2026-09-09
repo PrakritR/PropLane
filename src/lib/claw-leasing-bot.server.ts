@@ -624,6 +624,7 @@ async function mirrorLeasingInboundToCommunication(args: {
   text: string;
   propertyLabel: string | null;
   intent: LeasingIntent;
+  messageId?: string | null;
 }): Promise<void> {
   const db = createSupabaseServiceRoleClient();
   const { resolvePropertyScopedManagerRecipientIds } = await import(
@@ -642,6 +643,7 @@ async function mirrorLeasingInboundToCommunication(args: {
         managerUserId,
         idPrefix: "claw_lease",
         threadType: "claw_leasing_sms",
+        messageId: args.messageId ? `leasing_${args.messageId}` : undefined,
         from: args.from,
         subject: `(${subjectLabel}${args.propertyLabel ? ` — ${args.propertyLabel}` : ""}) ${args.from}`,
         preview: args.text.slice(0, 140) || "(empty)",
@@ -941,6 +943,7 @@ export async function handleClawLeasingInbound(args: {
               thread: threadRef,
               from,
               text,
+              messageId,
               service: args.service,
               subject: `${action.propertyLabel ? `${action.propertyLabel} · ` : ""}${action.residentName}`,
               body: brief,
@@ -1022,6 +1025,7 @@ export async function handleClawLeasingInbound(args: {
       text,
       propertyLabel,
       intent,
+      messageId,
     }).catch((e) => console.error("claw leasing inbox notice failed", e));
   }
 

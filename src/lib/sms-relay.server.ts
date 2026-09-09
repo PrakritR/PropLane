@@ -462,6 +462,8 @@ export async function relayInboundSms(
   await upsertManagerInboxNotice(db, {
     managerUserId,
     idPrefix: `sms_relay_${sender.thread_id}`,
+    counterpartyPhone: sender.role === "manager" ? String(recipients?.[0]?.participant_phone ?? "") : from,
+    messageId: args.messageSid ? `relay_${args.messageSid}` : undefined,
     threadType: "sms_relay",
     folder: sender.role === "manager" ? "sent" : "inbox",
     from: sender.role === "manager" ? "You (via text)" : counterpartyLabel,
