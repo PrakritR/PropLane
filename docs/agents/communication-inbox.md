@@ -98,6 +98,20 @@ conversations) plus the archive toggle. Invariants:
   `buildInboxMessageTimeline`, which tags only when the thread truly spans
   channels, so single-channel threads stay untagged with no flag to keep in
   sync. Coverage: `tests/unit/unified-inbox-person-merge.test.ts`.
+- **Resident and manager views of one property conversation use distinct global
+  row ids.** `portal_inbox_thread_records.id` is globally unique, so the
+  resident side keeps the legacy `property_mgr_*` id used by tour links and the
+  manager side uses its side-qualified id. Before creating either row, reuse a
+  compatible scoped person thread only when owner, counterparty email, role,
+  manager, and property metadata do not conflict. New rows use `insert`, never
+  `upsert`: a concurrent or incompatible id collision must fail without
+  replacing the row that won. Existing-row updates must surface persistence
+  errors. Resident compose also carries one UUID operation id across an
+  unchanged failed draft. The server binds it to the authenticated sender,
+  derives distinct per-side message ids, and skips a turn already recorded on
+  retry; reusing the id with changed content fails. This makes a resident-side
+  success followed by a manager-side failure safe to retry without duplicating
+  the first side. Coverage: `tests/unit/property-manager-inbox-thread.test.ts`.
 - **PropLane Assistant ice bubbles sit on the right.** Assistant-authored
   turns (`from` is PropLane Assistant) are a third kind: right-aligned like
   the viewer, ice fill (cobalt mixed into white; dark theme uses the purple

@@ -50,7 +50,10 @@ import {
   resolveChannels,
   type NotificationCategory,
 } from "@/lib/notification-preferences";
-import { deliverResidentPropertyManagerChatMessage } from "@/lib/property-manager-inbox-thread.server";
+import {
+  deliverResidentPropertyManagerChatMessage,
+  propertyManagerSendMessageIds,
+} from "@/lib/property-manager-inbox-thread.server";
 import { fileWorkflowFromInboundMessage } from "@/lib/inbox/inbound-message-workflows.server";
 // The recipient's stored chip label must match the sender's optimistic one, so
 // both derive it from the storage key with the SAME helper. The local copy this
@@ -200,6 +203,7 @@ export async function POST(req: Request) {
       propertyId?: string;
       propertyTitle?: string;
       managerUserId?: string;
+      sendId?: unknown;
       /** When set with a single manager recipient, also notify linked co-managers with inbox access. */
       fanOutPropertyInbox?: boolean;
       /** Gate email/SMS per recipient's saved preference for this category (inbox always on). */
@@ -212,6 +216,10 @@ export async function POST(req: Request) {
     const senderEmail = String(user.email ?? body.fromEmail ?? "portal@example.com").trim().toLowerCase();
     const subject = String(body.subject ?? "").trim();
     const rawText = String(body.text ?? "").trim();
+    const sendId = typeof body.sendId === "string" ? body.sendId.trim().toLowerCase() : "";
+    if (body.sendId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sendId)) {
+      return NextResponse.json({ ok: false, error: "Invalid send id." }, { status: 400 });
+    }
     const attachmentUrls = normalizeInboxAttachmentUrls(
       Array.isArray(body.attachmentUrls) ? body.attachmentUrls : [],
       user.id,
@@ -602,6 +610,13 @@ export async function POST(req: Request) {
         propertyTitle,
         subject,
         message: text,
+        ...(sendId ? {
+          messageIds: propertyManagerSendMessageIds(user.id, sendId, {
+            managerUserId: managerUserIdForProperty,
+            propertyId,
+            recipientEmail: recipients[0]!.email,
+          }),
+        } : {}),
       });
       propertyThreadId = chat.threadId;
       // This branch resolved the property's owning manager explicitly, so it is
