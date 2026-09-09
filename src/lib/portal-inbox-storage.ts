@@ -74,6 +74,8 @@ export type PersistedInboxThread = {
   thread_type?: string | null;
   /** Resident assistant: which manager's tools this thread is bound to. */
   boundManagerUserId?: string;
+  /** Server-verified SMS conversation identity for exact cross-channel folding. */
+  smsConversationKey?: string;
 };
 
 export const MANAGER_INBOX_STORAGE_KEY = "axis_portal_inbox_manager_v1";
@@ -820,6 +822,7 @@ export function collapsePersonInboxThreads(
       continue;
     }
     const last = ordered[ordered.length - 1]!;
+    const smsBindings = [...new Set(group.map((thread) => thread.smsConversationKey?.trim()).filter((key): key is string => Boolean(key)))];
     const canonicalRootId = `${canonical.id}-root`;
     const messages = ordered.slice(1).map((m) =>
       m.id === canonicalRootId ? { ...m, id: `merged:${m.id}` } : m,
@@ -832,6 +835,7 @@ export function collapsePersonInboxThreads(
       preview: last.body.slice(0, 100).replace(/\n/g, " "),
       messages,
       unread: group.some((t) => t.unread),
+      ...(smsBindings.length === 1 ? { smsConversationKey: smsBindings[0] } : { smsConversationKey: undefined }),
     });
   }
   return merged;

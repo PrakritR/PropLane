@@ -136,6 +136,14 @@ guest about, missing from the manager's own calendar. "No calendar linked" is
 the calendar toasts it the same way for confirm and cancel. Coverage:
 `tests/unit/tour-confirm-google-sync.test.ts`, `tests/unit/tour-planned-change.test.ts`.
 
+Confirmed, rescheduled, and canceled notices append to the resident's canonical
+manager-and-property Communication thread. Resolve the manager email and label
+from stored records and use a stable lifecycle/window message id. A failed
+canonical append is a notification failure. Manager tour-request notices remain
+portal messages; an exact existing prospect/applicant SMS identity may be
+recorded for unified Communication only after owner, phone, work number, and
+role all match. Never invent an SMS row or provider SID for a portal-only notice.
+
 A PENDING request is moved with a different route:
 `POST /api/portal-tour-inquiries/propose-reschedule` rewrites the requested
 window and emails the guest a *proposal* to confirm

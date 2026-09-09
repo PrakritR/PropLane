@@ -254,6 +254,8 @@ export async function appendResidentPropertyManagerInboxMessage(
     residentName?: string;
     counterpartyEmail?: string;
     fromName?: string;
+    managerName?: string;
+    messageId?: string;
   },
 ): Promise<void> {
   const guestEmail = input.participantEmail.trim().toLowerCase();
@@ -271,7 +273,7 @@ export async function appendResidentPropertyManagerInboxMessage(
   });
   const threadId = target.id;
   const when = formatPacificDateTime(new Date());
-  const displayFrom = propertyManagerThreadLabel(input.propertyTitle);
+  const displayFrom = input.managerName?.trim() || propertyManagerThreadLabel(input.propertyTitle);
   const counterpartyEmail = input.counterpartyEmail?.trim().toLowerCase() || "";
   const ackFrom = input.fromName ?? "PropLane";
   const residentMessage = input.residentMessage?.trim() ?? "";
@@ -281,6 +283,7 @@ export async function appendResidentPropertyManagerInboxMessage(
 
   if (existing?.row_data) {
     const rowData = asObject(existing.row_data) ?? {};
+    if (input.messageId && recordedMessage(rowData, input.messageId, input.subject, input.body)) return;
     const newTurns: ThreadMessage[] = residentMessage
       ? [
           {
@@ -300,11 +303,12 @@ export async function appendResidentPropertyManagerInboxMessage(
         ]
       : [
           {
-            id: `msg-${Date.now().toString(36)}`,
+            id: input.messageId ?? `msg-${Date.now().toString(36)}`,
             from: ackFrom,
             body: input.body,
             at: when,
             outbound: false,
+            subject: input.subject,
           },
         ];
 
@@ -364,6 +368,7 @@ export async function appendResidentPropertyManagerInboxMessage(
         subject: input.subject,
         preview: previewSource.slice(0, 100).replace(/\n/g, " "),
         body: residentMessage || input.body,
+        ...(input.messageId ? { rootMessageId: input.messageId, rootMessageSubject: input.subject } : {}),
         time: when,
         unread: true,
         scope: RESIDENT_INBOX_SCOPE,
@@ -527,6 +532,9 @@ export async function appendManagerPropertyLeadInboxMessage(
     subject: string;
     body: string;
     messageId?: string;
+    outbound?: boolean;
+    counterpartyRole?: "resident" | "applicant" | "prospect";
+    smsConversationKey?: string;
   },
 ): Promise<void> {
   const prospectEmail = input.prospectEmail.trim().toLowerCase();
@@ -552,7 +560,7 @@ export async function appendManagerPropertyLeadInboxMessage(
     from: input.prospectName.trim() || prospectEmail,
     body: input.body,
     at: when,
-    outbound: false,
+    outbound: input.outbound === true,
   };
 
   if (existing?.row_data) {
@@ -572,11 +580,12 @@ export async function appendManagerPropertyLeadInboxMessage(
           subject: threadSubject,
           preview: input.body.slice(0, 100).replace(/\n/g, " "),
           time: when,
-          unread: true,
+          unread: input.outbound !== true,
           propertyId: input.propertyId,
           managerUserId,
-          counterpartyRole: "resident",
+          counterpartyRole: input.counterpartyRole ?? "resident",
           propertyTitle: propertyLabel,
+          ...(input.smsConversationKey ? { smsConversationKey: input.smsConversationKey } : {}),
           messages: appendThreadMessages(rowData, [{ ...inboundTurn, id: input.messageId ?? inboundTurn.id, subject: threadSubject }]),
         },
         updated_at: new Date().toISOString(),
@@ -605,12 +614,14 @@ export async function appendManagerPropertyLeadInboxMessage(
         ...(input.messageId ? { rootMessageId: input.messageId } : {}),
         ...(input.messageId ? { rootMessageSubject: threadSubject } : {}),
         time: when,
-        unread: true,
+        unread: input.outbound !== true,
         scope: MANAGER_INBOX_SCOPE,
         propertyId: input.propertyId,
         managerUserId,
-        counterpartyRole: "resident",
+        counterpartyRole: input.counterpartyRole ?? "resident",
+        ...(input.outbound === true ? { rootOutbound: true } : {}),
         propertyTitle: propertyLabel,
+        ...(input.smsConversationKey ? { smsConversationKey: input.smsConversationKey } : {}),
       },
       updated_at: new Date().toISOString(),
     },

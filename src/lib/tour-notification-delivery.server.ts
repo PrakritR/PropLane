@@ -9,6 +9,8 @@ import { sendManagerNotificationSms } from "@/lib/manager-notification-routing.s
 import { sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
 import { recordScopedSmsConsent } from "@/lib/sms-consent";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
+import { fetchManagerSmsConversations } from "@/lib/manager-sms-messages.server";
+import { resolveExistingApplicantConversation } from "@/lib/application-lifecycle-sms.server";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import {
   resolveManagerRecipientProfiles,
@@ -43,6 +45,14 @@ function textField(row: Record<string, unknown> | null | undefined, key: string)
 
 function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+async function resolveTourManagerIdentity(db: Db, managerUserId: string): Promise<{ email: string; name: string } | null> {
+  const id = managerUserId.trim();
+  if (!id) return null;
+  const { data, error } = await db.from("profiles").select("id, email, full_name").eq("id", id).maybeSingle();
+  const email = String(data?.email ?? "").trim().toLowerCase();
+  return error || !email.includes("@") ? null : { email, name: String(data?.full_name ?? "").trim() || email };
 }
 
 export async function resolvePropertyAddressForTour(
@@ -358,6 +368,13 @@ export async function notifyManagerTourRequest(
   if (recipients.length === 0) return { ok: false, error: "Manager email not found." };
 
   for (const recipient of recipients) {
+    let smsConversationKey: string | undefined;
+    const guestPhone = textField(inquiry as Record<string, unknown>, "phone");
+    if (guestPhone) try {
+      const conversations = await fetchManagerSmsConversations(db, recipient.userId, { scopeManagerIdsOverride: [recipient.userId], provisionWorkNumber: false });
+      const existing = resolveExistingApplicantConversation(conversations.residents, { managerUserId: recipient.userId, applicantPhone: guestPhone, workNumber: conversations.workNumber });
+      if (existing.kind === "matched") smsConversationKey = existing.conversation.conversationKey;
+    } catch { smsConversationKey = undefined; }
     await appendManagerPropertyLeadInboxMessage(db, recipient.userId, {
       propertyId,
       propertyTitle: ctx.propertyTitle || "Property",
@@ -366,6 +383,10 @@ export async function notifyManagerTourRequest(
       topic: "Tour request",
       subject,
       body: text,
+      counterpartyRole: "prospect",
+      outbound: false,
+      messageId: `tour:${textField(inquiry as Record<string, unknown>, "id") || propertyId}:request:${tourStartIso}:${tourEndIso}`,
+      ...(smsConversationKey ? { smsConversationKey } : {}),
     });
   }
 
@@ -678,18 +699,13 @@ async function notifyTenantTourChanged(
   let inboxSent = false;
   const hasGuestEmail = guestEmail.includes("@");
   if (hasGuestEmail) {
-    const { data: guestProfile } = await db.from("profiles").select("id").eq("email", guestEmail).maybeSingle();
-    inboxSent = await upsertInboxThread(db, {
-      scope: RESIDENT_INBOX_SCOPE,
-      ownerUserId: (guestProfile?.id as string | null) ?? null,
-      participantEmail: guestEmail,
-      folder: "inbox",
-      fromName: "PropLane Tours",
-      fromEmail: "tours@axis.local",
-      toLine: guestEmail,
-      subject,
-      body: text,
-    });
+    const managerUserId = input.window.managerUserId || textField(row, "managerUserId");
+    const manager = await resolveTourManagerIdentity(db, managerUserId);
+    if (manager && propertyId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
+      participantEmail: guestEmail, managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
+      subject, body: text, counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name,
+      messageId: `tour:${textField(row, "id") || propertyId}:${input.kind}:${input.rescheduleGeneration?.trim() || `${input.previousWindow?.start ?? ""}:${input.previousWindow?.end ?? ""}:${input.window.start}:${input.window.end}`}`,
+    }).then(() => true).catch(() => false);
   }
   const email = wantsEmail
     ? hasGuestEmail
@@ -824,18 +840,12 @@ export async function notifyTenantTourConfirmed(
   let inboxSent = false;
   const hasGuestEmail = guestEmail.includes("@");
   if (hasGuestEmail) {
-    const { data: guestProfile } = await db.from("profiles").select("id").eq("email", guestEmail).maybeSingle();
-    inboxSent = await upsertInboxThread(db, {
-      scope: RESIDENT_INBOX_SCOPE,
-      ownerUserId: (guestProfile?.id as string | null) ?? null,
-      participantEmail: guestEmail,
-      folder: "inbox",
-      fromName: "PropLane Tours",
-      fromEmail: "tours@axis.local",
-      toLine: guestEmail,
-      subject,
-      body: text,
-    });
+    const manager = await resolveTourManagerIdentity(db, window.managerUserId);
+    if (manager && propertyId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
+      participantEmail: guestEmail, managerUserId: window.managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
+      subject, body: text, counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name,
+      messageId: `tour:${textField(inquiry as Record<string, unknown>, "id") || propertyId}:confirmed:${window.start}:${window.end}`,
+    }).then(() => true).catch(() => false);
   }
   const email = wantsEmail
     ? hasGuestEmail

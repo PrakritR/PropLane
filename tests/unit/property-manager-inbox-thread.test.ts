@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   appendResidentPropertyManagerInboxMessage,
+  appendManagerPropertyLeadInboxMessage,
   deliverResidentPropertyManagerChatMessage,
   propertyManagerConversationThreadId,
   propertyManagerConversationSideThreadId,
@@ -120,6 +121,51 @@ describe("canonical resident-manager thread writes", () => {
     propertyId: input.propertyId,
     recipientEmail: input.managerEmail,
   };
+
+  it("stores tour lifecycle messages once under the scoped manager label", async () => {
+    const { db, rows } = globalPrimaryKeyDb();
+    const notice = {
+      participantEmail: input.residentEmail, managerUserId: input.managerUserId,
+      propertyId: input.propertyId, propertyTitle: input.propertyTitle,
+      subject: "Tour confirmed", body: "Your tour is confirmed.",
+      counterpartyEmail: input.managerEmail, managerName: "Jordan Lee", fromName: "Jordan Lee",
+      messageId: "tour:one:confirmed:window",
+    };
+    await appendResidentPropertyManagerInboxMessage(db as never, notice);
+    await appendResidentPropertyManagerInboxMessage(db as never, notice);
+    const row = rows.get(propertyManagerConversationSideThreadId(input, "resident"))!;
+    expect(row.row_data).toMatchObject({ from: "Jordan Lee", managerUserId: "manager-user" });
+    expect(row.row_data.rootMessageId).toBe("tour:one:confirmed:window");
+  });
+
+  it("preserves explicit manager-side direction and SMS identity metadata without creating an SMS row", async () => {
+    const { db, rows } = globalPrimaryKeyDb([{
+      id: "existing-prospect",
+      scope: "axis_portal_inbox_manager_v1",
+      owner_user_id: input.managerUserId,
+      participant_email: input.residentEmail,
+      thread_type: "portal_message",
+      row_data: {
+        folder: "inbox", email: input.residentEmail, managerUserId: input.managerUserId,
+        propertyId: input.propertyId, counterpartyRole: "prospect",
+        messages: [{ id: "prior", from: "Veenu Jain", body: "Can I tour?", at: "Sep 8, 1:00 PM", outbound: false }],
+      },
+    }]);
+    await appendManagerPropertyLeadInboxMessage(db as never, input.managerUserId, {
+      propertyId: input.propertyId, propertyTitle: input.propertyTitle,
+      prospectName: input.residentName, prospectEmail: input.residentEmail,
+      topic: "Tour update", subject: "Tour update", body: "I moved your tour.",
+      outbound: true, counterpartyRole: "prospect", smsConversationKey: "manager-user:prospect:+12065550100",
+    });
+    expect([...rows.values()]).toHaveLength(1);
+    expect(rows.get("existing-prospect")?.row_data).toMatchObject({
+      counterpartyRole: "prospect", smsConversationKey: "manager-user:prospect:+12065550100",
+    });
+    expect(rows.get("existing-prospect")?.row_data.messages).toEqual([
+      expect.objectContaining({ id: "prior", outbound: false }),
+      expect.objectContaining({ body: "I moved your tour.", outbound: true }),
+    ]);
+  });
 
   it("keeps both portal sides when ids are globally unique", async () => {
     const { db, rows } = globalPrimaryKeyDb();

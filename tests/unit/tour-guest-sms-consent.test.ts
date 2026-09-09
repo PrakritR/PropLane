@@ -33,15 +33,25 @@ import {
 } from "@/lib/tour-notification-delivery.server";
 
 function makeDb() {
-  const chain = {
-    select: () => chain,
-    eq: () => chain,
-    or: () => chain,
-    limit: async () => ({ data: [], error: null }),
-    maybeSingle: async () => ({ data: null, error: null }),
-    upsert: async () => ({ data: null, error: null }),
-  };
-  return { from: () => chain } as unknown as Parameters<typeof notifyTenantTourRequestReceived>[0];
+  return { from: (table: string) => {
+    let id = "";
+    const chain = {
+      select: () => chain,
+      eq: (column: string, value: string) => { if (column === "id") id = value; return chain; },
+      or: () => chain,
+      order: () => chain,
+      limit: async () => ({ data: [], error: null }),
+      maybeSingle: async () => ({
+        data: table === "profiles" && id === confirmWindow.managerUserId
+          ? { id, email: "manager@example.com", full_name: "Jordan Lee" }
+          : null,
+        error: null,
+      }),
+      insert: async () => ({ data: null, error: null }),
+      upsert: async () => ({ data: null, error: null }),
+    };
+    return chain;
+  } } as unknown as Parameters<typeof notifyTenantTourRequestReceived>[0];
 }
 
 const req = new Request("http://localhost:3100/api/public/partner-inquiries");

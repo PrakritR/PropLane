@@ -15,6 +15,12 @@ vi.mock("@/lib/co-manager-notification-recipients.server", () => ({
 vi.mock("@/lib/resident-outbound-sms.server", () => ({
   sendResidentOutboundSms: vi.fn(async () => ({ ok: true })),
 }));
+vi.mock("@/lib/property-manager-inbox-thread.server", () => ({
+  appendManagerPropertyLeadInboxMessage: vi.fn(async () => undefined),
+  appendResidentPropertyManagerInboxMessage: vi.fn(async () => undefined),
+}));
+vi.mock("@/lib/manager-sms-messages.server", () => ({ fetchManagerSmsConversations: vi.fn() }));
+vi.mock("@/lib/application-lifecycle-sms.server", () => ({ resolveExistingApplicantConversation: vi.fn() }));
 
 import { notifyManagerTourRequest } from "@/lib/tour-notification-delivery.server";
 

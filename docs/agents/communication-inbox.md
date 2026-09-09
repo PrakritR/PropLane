@@ -31,6 +31,13 @@ inheriting it for a live inbox row destroys real mail. Coverage:
 
 ### Communication is one unified, conversation-based inbox (no folder tabs) — ALL portals
 
+Tour-request portal notices may carry `smsConversationKey` only after the server
+proves an existing prospect/applicant SMS conversation by exact owner, phone,
+work number, and role. The unified manager list uses that key on both channel
+rows, so only that SMS conversation folds with the portal notice. Other roles
+or owners on the same phone remain separate. This association never creates a
+synthetic SMS message or provider SID; SMS turns still represent real transport.
+
 Every portal's Communication (manager, resident, vendor, admin) is a single
 conversation list + threads, NOT the old Unopened / Opened / Sent / Trash /
 Schedule tab bar. Manager, resident, and vendor use the chat two-pane
