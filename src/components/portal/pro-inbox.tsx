@@ -1992,7 +1992,6 @@ export const ManagerInbox = forwardRef<
                 key={thread.id}
                 name={displayName}
                 subtitle={thread.subject}
-                showSubtitleLine
                 preview={previewLine(lastMsg?.body ?? thread.preview ?? "", 80)}
                 previewPrefix={inboxThreadLastTurnDirection(thread) === "outbound" ? "You: " : undefined}
                 time={thread.time}

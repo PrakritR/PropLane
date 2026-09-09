@@ -15,7 +15,10 @@
  */
 import { useEffect, useState } from "react";
 import { Copy, Check, Megaphone, Phone } from "lucide-react";
-import { PortalInboxNumberStrip } from "@/components/portal/portal-inbox-number-strip";
+import {
+  PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS,
+  PortalInboxContactCard,
+} from "@/components/portal/portal-inbox-contact-card";
 import { useManagerMessagingNumberStatus } from "@/hooks/use-manager-messaging-number-status";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
@@ -60,22 +63,26 @@ export function ManagerWorkNumberCard({
   });
 
   return (
-    <PortalInboxNumberStrip
+    <PortalInboxContactCard
       dataAttr="manager-work-number-card"
-      label="Work number"
       value={label}
-      caption={`Residents and prospects text this number. ${caption}.`}
-      ready={ready}
-      leading={<Phone className="h-[15px] w-[15px]" strokeWidth={1.9} />}
+      label="Your work number"
+      note={caption}
+      noteTone={ready ? "muted" : "warn"}
+      leading={
+        <span className={PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS}>
+          <Phone className="h-[18px] w-[18px]" strokeWidth={1.9} />
+        </span>
+      }
       actions={[
         {
           key: "copy",
           label: copied ? "Copied" : "Copy number",
           dataAttr: "manager-work-number-copy",
           icon: copied ? (
-            <Check className="h-[15px] w-[15px]" strokeWidth={2.2} />
+            <Check className="h-4 w-4" strokeWidth={2.2} />
           ) : (
-            <Copy className="h-[15px] w-[15px]" strokeWidth={1.9} />
+            <Copy className="h-4 w-4" strokeWidth={1.9} />
           ),
           // Clipboard access can be refused (insecure origin, permissions). A
           // refusal leaves the label unchanged rather than claiming a copy that
@@ -93,7 +100,7 @@ export function ManagerWorkNumberCard({
                 key: "tell",
                 label: "Tell residents",
                 dataAttr: "manager-work-number-tell-residents",
-                icon: <Megaphone className="h-[15px] w-[15px]" strokeWidth={1.9} />,
+                icon: <Megaphone className="h-4 w-4" strokeWidth={1.9} />,
                 onClick: onTellResidents,
               },
             ]

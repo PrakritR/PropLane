@@ -34,10 +34,9 @@ describe("resident manager number card", () => {
   it("shows the number as a tappable sms link", async () => {
     stubContacts([{ phone: "+12065559000", propertyLabel: "4709A", leaseStart: null, leaseEnd: null, status: "current" }]);
     const { container } = render(<ResidentManagerNumberCard />);
-    // "Manager" is the strip's kind label. It replaced the hero card's "Your
-    // property manager" heading when the card collapsed to one line so the
-    // conversation list could show eight rows.
-    await waitFor(() => expect(screen.getByText("Manager")).toBeTruthy());
+    // The label shares its line with the caption now that the card is compact,
+    // so match the label rather than the whole line.
+    await waitFor(() => expect(screen.getByText(/Your property manager/)).toBeTruthy());
     // A tel/sms link so a phone opens its messages app pre-addressed rather
     // than making the resident copy digits off the screen.
     const link = container.querySelector('[data-attr="resident-manager-number-link"]');
@@ -79,15 +78,11 @@ describe("resident manager number card", () => {
         status: "current",
       },
     ]);
-    const { container } = render(<ResidentManagerNumberCard />);
+    render(<ResidentManagerNumberCard />);
     await waitFor(() => expect(screen.getByText("Akash Jain")).toBeTruthy());
-    // The name is the strip's value, so it reads "Manager · Akash Jain" on one
-    // line. The old "Property Manager · PropLane" sub-line has no room and is
-    // not restated anywhere — the label already says which role this is.
-    expect(screen.getByText("Manager")).toBeTruthy();
-    expect(container.querySelector('[data-attr="resident-manager-number-link"]')?.getAttribute("href")).toBe(
-      "sms:+12065559000",
-    );
+    // The name leads and the label says the role. The compact card has no room
+    // for the old "Property Manager · PropLane" line and does not need it.
+    expect(screen.getByText(/Your property manager/)).toBeTruthy();
   });
 
   it("labels each number by property only when there are several", async () => {

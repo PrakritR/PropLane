@@ -797,9 +797,7 @@ export function InboxScheduledChannelTags({
 
 /** Shared list-toolbar chrome (segment tabs + search) for inbox panes. */
 export const PORTAL_INBOX_LIST_TOOLBAR_CLASS =
-  // Deliberately tight. Every pixel here is one the conversation list does not
-  // get, and the list has an eight-row floor to meet.
-  "portal-inbox-list-toolbar shrink-0 space-y-1.5 border-b border-border px-2 py-1.5 max-md:space-y-1 max-md:p-1.5";
+  "portal-inbox-list-toolbar shrink-0 space-y-2 border-b border-border p-2 max-md:space-y-1.5 max-md:p-1.5 sm:p-2.5 sm:space-y-2.5";
 
 /**
  * Underlined segment rail at the top of a conversation-list card.
@@ -817,38 +815,20 @@ export const PORTAL_INBOX_LIST_TOOLBAR_CLASS =
 export function InboxListSegmentRail({
   commBase,
   listSegment,
-  search,
-  trailing,
   className = "",
 }: {
   commBase: string;
   listSegment: InboxListSegment;
-  /**
-   * Search field, on the rail's own line rather than a row beneath it. The
-   * list pane is ~470px at this breakpoint, so the tabs never needed the whole
-   * width, and the row it replaces was 45px the conversation list now keeps.
-   */
-  search?: ReactNode;
-  /**
-   * Right-aligned slot on the rail's own line — the conversation count lives
-   * here rather than on a line of its own, which is 20px the list keeps.
-   */
-  trailing?: ReactNode;
   className?: string;
 }) {
   return (
-    <div
-      className={`portal-inbox-list-tabs flex shrink-0 items-end justify-between gap-2 border-b border-border px-2 pt-1 ${className}`}
-    >
+    <div className={`portal-inbox-list-tabs shrink-0 border-b border-border px-2 pt-1 ${className}`}>
       <DestinationNav
         appearance="command"
         ariaLabel="Conversation folders"
         // -mb-px laps the item's 2px underline over the rail's 1px border so
         // the active underline sits ON the rail, not a pixel above it.
-        // `w-auto` is load-bearing: DestinationNav's own command shell is
-        // `flex w-full`, and a 100%-wide child on a flex rail leaves nothing
-        // for the search field, which then lays out past the card's edge.
-        className="-mb-px w-auto min-w-0 shrink gap-1 border-0 bg-transparent p-0"
+        className="-mb-px w-full gap-1 border-0 bg-transparent p-0"
         items={[
           {
             id: "active",
@@ -865,11 +845,6 @@ export function InboxListSegmentRail({
         ]}
         activeId={listSegment === "unread" ? "active" : listSegment}
       />
-      {/* The count and the search compete for the same ~150px. A search field
-          is the more useful of the two, so a rail that has one drops the count
-          rather than squeezing both. */}
-      {trailing && !search ? <div className="min-w-0 shrink pb-1.5">{trailing}</div> : null}
-      {search ? <div className="min-w-[7rem] max-w-[15rem] flex-1 pb-1.5">{search}</div> : null}
     </div>
   );
 }
@@ -941,11 +916,10 @@ export function inboxAvatarRampIndex(name: string): number {
 /**
  * Circular initials avatar. There are no profile photos in the product.
  *
- * `cn` rather than string concatenation: the size is part of the default, and a
- * caller that passes a SMALLER one (the number strip's 24px slot) needs it to
- * actually replace `h-10 w-10`. Concatenation left both classes on the element,
- * where specificity is tied and stylesheet order decides — so the 40px default
- * silently won and the avatar overlapped its own label.
+ * `cn` rather than string concatenation: the size is part of the default, so a
+ * caller passing a SMALLER one needs it to replace `h-10 w-10`, not sit beside
+ * it. Concatenated, both classes landed on the element with tied specificity
+ * and the 40px default silently won.
  */
 export function InboxAvatar({ name, className = "" }: { name: string; className?: string }) {
   const [from, to] = INBOX_AVATAR_RAMP[inboxAvatarRampIndex(name)]!;
@@ -971,7 +945,6 @@ export function InboxConversationRow({
   time,
   unread = false,
   unreadCount,
-  showSubtitleLine = false,
   address,
   category,
   selected = false,
@@ -993,17 +966,6 @@ export function InboxConversationRow({
    * honest fallback wherever a count cannot be computed.
    */
   unreadCount?: number;
-  /**
-   * Renders `subtitle` on its own line above the preview, making the row three
-   * lines again.
-   *
-   * OFF everywhere in Communication, whose conversation list has an eight-row
-   * floor that a third line breaks. It exists for the manager's message SEARCH
-   * results, where `subtitle` is the message SUBJECT — the thing that was
-   * searched for — so folding it away would hide the match behind the row it
-   * matched.
-   */
-  showSubtitleLine?: boolean;
   /** Street line under the preview — the house this conversation is about. */
   address?: string;
   /** Tour / Application / Payments / Maintenance. Omit when the source is unknown; never guess. */
@@ -1027,79 +989,72 @@ export function InboxConversationRow({
   /** Optional slot after the row body (e.g. a quick action button). */
   trailing?: ReactNode;
 }) {
-  // TWO lines, not three. The list has to show eight conversations without
-  // scrolling on a 1512x805 laptop, and the arithmetic only closes at ~62px a
-  // row: three lines cap the list at 6.3 however much chrome is trimmed above
-  // it. So the category chip and the unread count move up beside the preview,
-  // and the secondary text line is the preview when there is one. The house
-  // address is not deleted — it is the thread header's subtitle, one click
-  // away, and it still fills line two on a conversation that has no message
-  // yet, which is exactly the row where it is the only thing worth reading.
-  const subtitleOwnsItsOwnLine = showSubtitleLine && Boolean(subtitle?.trim());
-  const secondary =
-    (subtitleOwnsItsOwnLine ? "" : subtitle?.trim() && !preview.trim() ? subtitle.trim() : "") ||
-    preview.trim() ||
-    address?.trim() ||
-    "";
-  const secondaryIsPreview = Boolean(preview.trim()) && secondary === preview.trim();
-
   return (
     <div
-      className={`portal-inbox-row flex items-center gap-2 border-b border-border/50 px-3 py-2.5 transition-colors max-md:gap-1.5 max-md:px-2.5 max-md:py-2 ${
+      className={`portal-inbox-row flex items-center gap-2 border-b border-border/50 px-3 py-3 transition-colors max-md:gap-1.5 max-md:px-2.5 max-md:py-2.5 ${
         selected
           ? "portal-inbox-row--selected border-l-[3px] border-l-primary bg-primary/[0.06]"
           : "border-l-[3px] border-l-transparent hover:bg-foreground/[0.03]"
       }`}
     >
       {leading}
-      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
-        <InboxAvatar name={name} className="h-9 w-9 text-[12px] max-md:h-8 max-md:w-8 max-md:text-[11px]" />
+      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        <InboxAvatar name={name} className="h-10 w-10 text-[13px] max-md:h-9 max-md:w-9 max-md:text-[12px]" />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <p
-              className={`truncate text-sm leading-[1.2] ${
+              className={`truncate text-sm leading-tight ${
                 unread ? "font-semibold text-foreground" : "font-medium text-foreground/90"
               }`}
             >
               {name}
             </p>
-            <span className="shrink-0 text-[11px] tabular-nums text-muted">{time}</span>
+            <span className="shrink-0 text-xs tabular-nums text-muted">{time}</span>
           </div>
-          {subtitleOwnsItsOwnLine ? (
-            <p className="truncate text-xs text-muted">{subtitle}</p>
-          ) : null}
-          <div className="mt-[3px] flex items-center gap-1.5">
+          {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
+          {preview.trim() ? (
+          <div className="mt-0.5 flex items-center gap-2">
             {channelBadge ? (
               <span className="shrink-0 rounded-full border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
                 {channelBadge}
               </span>
             ) : null}
             <p
-              className={`min-w-0 flex-1 truncate text-[12.5px] leading-[1.25] ${
-                unread && secondaryIsPreview ? "font-medium text-foreground/[0.78]" : "text-muted"
+              className={`min-w-0 flex-1 truncate text-[13px] ${
+                unread ? "font-medium text-foreground/[0.78]" : "text-muted"
               }`}
             >
-              {secondaryIsPreview ? (previewPrefix ?? "") : ""}
-              {secondary}
+              {previewPrefix ?? ""}
+              {preview}
             </p>
-            {category ? (
-              <span className="shrink-0 rounded-full border border-border bg-foreground/5 px-1.5 py-[1px] text-[10px] font-bold tracking-[0.02em] text-muted">
-                {category}
-              </span>
-            ) : null}
-            {unread ? (
-              unreadCount && unreadCount > 0 ? (
-                <span
-                  className="grid h-[18px] min-w-[18px] shrink-0 place-items-center rounded-full bg-primary px-1 text-[10.5px] font-bold text-primary-foreground"
-                  aria-label={`${unreadCount} unread`}
-                >
-                  {unreadCount > 99 ? "99+" : unreadCount}
-                </span>
-              ) : (
-                <span className="h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="Unread" />
-              )
-            ) : null}
           </div>
+          ) : null}
+          {/* Third line. Collapses entirely rather than leaving an empty row, so
+              a conversation with neither reads as two lines, not a gap. */}
+          {address || category || unread ? (
+            <div className="mt-1.5 flex items-center gap-2">
+              {address ? (
+                <span className="min-w-0 truncate text-xs text-muted/[0.78]">{address}</span>
+              ) : null}
+              {category ? (
+                <span className="shrink-0 rounded-full border border-border bg-foreground/5 px-2 py-0.5 text-[10px] font-bold tracking-[0.02em] text-muted">
+                  {category}
+                </span>
+              ) : null}
+              {unread ? (
+                unreadCount && unreadCount > 0 ? (
+                  <span
+                    className="ml-auto grid h-5 min-w-[1.3rem] shrink-0 place-items-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground"
+                    aria-label={`${unreadCount} unread`}
+                  >
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                ) : (
+                  <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="Unread" />
+                )
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </button>
       {trailing ? <div className="shrink-0">{trailing}</div> : null}

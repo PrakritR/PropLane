@@ -311,17 +311,7 @@ function ResidentUnifiedInbox({
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <ResidentManagerNumberCard />
-      <InboxListSegmentRail
-        commBase={commBase}
-        listSegment={listSegment}
-        trailing={
-          merged.length > 0 ? (
-            <p className="whitespace-nowrap text-[11px] text-muted">
-              {merged.length} conversation{merged.length === 1 ? "" : "s"}
-            </p>
-          ) : null
-        }
-      />
+      <InboxListSegmentRail commBase={commBase} listSegment={listSegment} />
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
         {merged.length === 0 ? (
           listSegment === "archived" ? (

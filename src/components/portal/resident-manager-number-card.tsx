@@ -9,8 +9,11 @@
  * assistant address). An absent card is correct; a card with nothing to act on
  * is not.
  */
-import { Mail, MessageCircle } from "lucide-react";
-import { PortalInboxNumberStrip } from "@/components/portal/portal-inbox-number-strip";
+import { Mail, MessageCircle, Phone } from "lucide-react";
+import {
+  PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS,
+  PortalInboxContactCard,
+} from "@/components/portal/portal-inbox-contact-card";
 import { InboxAvatar } from "@/components/portal/portal-inbox-ui";
 import {
   useResidentManagerContacts,
@@ -60,21 +63,33 @@ export function ResidentManagerNumberCard() {
           ? formatSmsPhoneLabel(contact.phone) || contact.phone
           : null;
         const name = contact.managerName?.trim() || null;
-        const value = name ?? phoneLabel ?? contact.assistantEmail ?? "PropLane";
         return (
-          <PortalInboxNumberStrip
+          <PortalInboxContactCard
             key={`${contact.phone ?? ""}-${contact.assistantEmail ?? ""}-${contact.propertyLabel ?? ""}`}
-            label={multiple && contact.propertyLabel ? contact.propertyLabel : "Manager"}
-            value={value}
-            caption={managerContactCaption(contact, multiple)}
-            leading={name ? <InboxAvatar name={name} className="h-6 w-6 text-[10px]" /> : undefined}
+            value={name ?? phoneLabel ?? contact.assistantEmail ?? "PropLane"}
+            label={
+              multiple && contact.propertyLabel
+                ? `Your property manager · ${contact.propertyLabel}`
+                : "Your property manager"
+            }
+            note={managerContactCaption(contact, multiple)}
+            leading={
+              name ? (
+                <InboxAvatar name={name} className="h-9 w-9 text-[12px]" />
+              ) : (
+                <span className={PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS}>
+                  <Phone className="h-[18px] w-[18px]" strokeWidth={1.9} />
+                </span>
+              )
+            }
             actions={[
               /*
                 Both resident actions open a TEXT, and neither is a `tel:` dial.
                 This is the manager's provisioned messaging work number —
                 nothing in the SMS layer ever configures a voice URL for it, so
                 dialling would reach a dead line, which reads to a resident as
-                their manager ignoring them.
+                their manager ignoring them. The phone glyph is the line's
+                identity, not a promise that it rings.
               */
               ...(contact.phone
                 ? [
@@ -83,7 +98,7 @@ export function ResidentManagerNumberCard() {
                       label: `Text ${phoneLabel ?? "your property manager"}`,
                       dataAttr: "resident-manager-number-link",
                       href: `sms:${contact.phone}`,
-                      icon: <MessageCircle className="h-[15px] w-[15px]" strokeWidth={1.9} />,
+                      icon: <MessageCircle className="h-4 w-4" strokeWidth={1.9} />,
                     },
                   ]
                 : []),
@@ -94,7 +109,7 @@ export function ResidentManagerNumberCard() {
                       label: `Email ${contact.assistantEmail}`,
                       dataAttr: "resident-manager-email-link",
                       href: `mailto:${contact.assistantEmail}`,
-                      icon: <Mail className="h-[15px] w-[15px]" strokeWidth={1.9} />,
+                      icon: <Mail className="h-4 w-4" strokeWidth={1.9} />,
                     },
                   ]
                 : []),
