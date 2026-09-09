@@ -81,10 +81,78 @@ baseline afterwards. Use it only to deliberately reset staging.
 The sync covers the `public` and `auth` schemas. **Storage objects are not
 copied**, so uploaded files 404 on staging.
 
+The `Refresh staging data` GitHub workflow runs the incremental merge every 12
+hours, which leaves a retry window inside the 24-hour freshness target. It is
+serialized under the `staging-production-data-refresh` concurrency group and
+can also be dispatched manually. The `staging-data-sync` GitHub environment
+must provide `SUPABASE_ACCESS_TOKEN`; the public staging URL is pinned in the
+workflow and checked before a dump. The runner uses PostgreSQL 17 client tools, creates scratch files under a
+private umask, removes every SQL dump on success or failure, and publishes a
+small success-only freshness artifact. The workflow never uses
+`--full-replace`; the script uses its CLI session only for production reads and
+never invokes a production write operation.
+
 `prod_snapshot` and `prod_snapshot_auth` on the staging project are that
 baseline. They are not junk — dropping them costs the merge its memory of what
 production looked like last time, which turns the next refresh into
 "insert/update everything, delete nothing".
+
+### Refresh cadence and external calendar isolation
+
+The `Refresh staging data` workflow runs at `00:23` and `12:23` UTC, plus
+manual dispatch. Check successful runs and their `staging-sync-freshness-*`
+artifacts; a configured cron is not proof of a successful refresh. The job needs
+`SUPABASE_ACCESS_TOKEN` in the `staging-data-sync` GitHub environment.
+
+The merge compares entire database rows, not elements within JSON arrays, so
+the staging-only guarantee applies per primary key. A row whose payload is one
+list many writers append to therefore has no element-level conflict resolution:
+production wins the whole row and every staging entry inside it is gone.
+
+`portal_schedule_records` holds `axis_admin_planned_events_v1`, one row carrying
+the planned-events array for every manager, which is exactly that shape. It is
+listed in `staging_owned_rows` in `scripts/lib/staging-merge-apply.sql`:
+production never overwrites or deletes it, so tours QA plans on staging survive
+each refresh. Staging still receives the row on a database that lacks it.
+Add to that list only for another shared singleton of the same shape; for an
+ordinary row, production-wins is the correct rule.
+
+Google Calendar OAuth connections carry `projectRef`, stamped when saved.
+Staging rejects unmarked legacy credentials and credentials from another project
+before decryption or provider access. Existing production connections remain
+valid. Reconnect explicitly on staging using a QA calendar account; importing
+production rows must never authorize use of production's calendar connection.
+
+On 2026-09-09, all five connected staging calendars matched the production
+snapshot's refresh tokens. They were disabled on staging only. The deployed
+browser bundle was independently verified to target `xwszcafaontidfgznlxd`.
+The durable project-binding guard is part of the staging isolation keeper.
+
+### The real-customer shield
+
+The refresh clones real people into staging, so one account's residents are
+reachable from every non-production environment. `src/lib/protected-accounts.server.ts`
+names that account and blocks contact with it:
+
+- **Outbound email** is stopped at the transport. Thirty modules POST to Resend
+  directly, so the guard wraps `fetch` once (`src/instrumentation.ts`) rather
+  than patching each call site and missing the next one.
+- **Outbound SMS** is stopped in `sendSms`, the same choke point as the consent
+  gate.
+- **Inbound** SMS and email from those contacts are acked and dropped, so QA
+  never sees a thread it might reply to.
+
+The protected set is the named account owner and co-manager plus every email and
+phone resolved from rows that account owns, so residents are covered without
+being listed in code. It is scoped to databases that actually hold the real
+customer (staging and production) and is inert against dev/test. Production is
+never shielded - that is where these accounts are the real customers.
+
+It fails **closed**: if the lookup cannot run, every recipient is treated as
+protected. Sending in error cannot be undone; blocking in error can.
+
+Adding an account to `PROTECTED_MANAGER_USER_IDS` extends the shield. Do not add
+one whose data QA needs to exercise.
 
 ### Signing in to staging
 

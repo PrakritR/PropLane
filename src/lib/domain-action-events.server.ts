@@ -5,6 +5,8 @@ import type { HouseholdCharge } from "@/lib/household-charges";
 import type { ServiceRequest } from "@/lib/service-requests-storage";
 import { residentHasSignedLease, type LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { emitActionEvent, type ActionEventAudience, type ActionEventRendered } from "@/lib/action-events.server";
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import { leaseDetailHref, residentDocumentsLeaseDetailHref } from "@/lib/portal-detail-routes";
 
 export const ACTION_EVENT_CATALOG = {
   payment: ["charge_created", "payment_processing", "payment_received", "payment_failed", "payment_refunded"],
@@ -391,6 +393,78 @@ export function leaseEventForTransition(previous: LeasePipelineRow | null, next:
   }
   if (!previous.voidedAt && next.voidedAt) return "lease_voided";
   return null;
+}
+
+export type DurableLeaseTransitionEnvelope = {
+  eventKey: string;
+  eventType: LeaseActionEvent;
+  managerUserId: string;
+  entityId: string;
+  senderUserId: string;
+  senderEmail: string;
+  senderName: string | null;
+  occurredAt: string;
+  payload: Record<string, unknown>;
+  deliveries: Array<{
+    audience: ActionEventAudience;
+    recipientKey: string;
+    recipientUserId: string | null;
+    recipientEmail: string | null;
+    rendered: ActionEventRendered;
+  }>;
+};
+
+/** Pure transition snapshot for the lease persistence RPC. External delivery is deferred. */
+export function buildDurableLeaseTransitionEnvelope(input: {
+  managerUserId: string;
+  previous: LeasePipelineRow | null;
+  lease: LeasePipelineRow;
+  actor: { userId: string; email: string; name?: string };
+  triggeringActorUserId?: string;
+  occurredAt?: string;
+}): DurableLeaseTransitionEnvelope | null {
+  const event = leaseEventForTransition(input.previous, input.lease);
+  if (!event) return null;
+  const marker = event === "lease_sent" ? input.lease.sentToResidentAt
+    : event === "lease_signed" ? input.lease.fullySignedAt
+      : event === "lease_signed_by_resident" ? input.lease.residentSignature?.signedAtIso || input.lease.signedAtIso
+        : event === "lease_countersigned" ? input.lease.managerSignature?.signedAtIso
+          : event === "lease_voided" ? input.lease.voidedAt : input.lease.updatedAtIso;
+  const labels = [input.lease.unit, input.lease.roomChoice].map((value) => String(value ?? "").trim()).filter(Boolean);
+  const propertyLabel = [...new Set(labels)].join(" · ") || undefined;
+  const facts: LeaseFacts = { residentName: input.lease.residentName || "Resident", propertyLabel, status: input.lease.status };
+  const base = resolveEmailLinkBaseUrl();
+  const managerPath = leaseDetailHref("/portal", event === "lease_signed" ? "completed" : "signed", input.lease.id);
+  const residentPath = residentDocumentsLeaseDetailHref("/resident", input.lease.id);
+  const recipients = [
+    { audience: "resident" as const, userId: input.lease.residentUserId ?? undefined, email: input.lease.residentEmail || undefined },
+    { audience: "manager" as const, userId: input.managerUserId, email: undefined },
+  ];
+  const deliveries = recipients.flatMap((recipient) => {
+    const rendered = renderLeaseActionEvent(event, recipient.audience, facts);
+    const recipientKey = recipient.userId?.trim() || recipient.email?.trim().toLowerCase() || "";
+    if (!rendered || !recipientKey) return [];
+    const directUrl = `${base}${recipient.audience === "manager" ? managerPath : residentPath}`;
+    return [{
+      audience: recipient.audience,
+      recipientKey,
+      recipientUserId: recipient.userId ?? null,
+      recipientEmail: recipient.email ?? null,
+      rendered: { ...rendered, text: `${rendered.text}\n\nOpen lease: ${directUrl}` },
+    }];
+  });
+  return {
+    eventKey: `${input.lease.id}:${event}:${marker || event}`,
+    eventType: event,
+    managerUserId: input.managerUserId,
+    entityId: input.lease.id,
+    senderUserId: input.actor.userId,
+    senderEmail: input.actor.email.trim().toLowerCase(),
+    senderName: input.actor.name?.trim() || null,
+    occurredAt: input.occurredAt ?? new Date().toISOString(),
+    payload: { status: input.lease.status, propertyId: input.lease.propertyId, propertyLabel, triggeringActorUserId: input.triggeringActorUserId ?? input.actor.userId },
+    deliveries,
+  };
 }
 
 export async function emitLeaseTransition(

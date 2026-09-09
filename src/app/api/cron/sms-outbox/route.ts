@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   dispatchOwnerSmsOutbox,
   loadUnknownSmsInventory,
+  reconcileSubmittedSmsConversationLogs,
 } from "@/lib/sms/owner-sms-dispatcher.server";
 import { reconcilePendingManagerNumberOperations } from "@/lib/sms/manager-number-provisioning.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -19,6 +20,7 @@ export async function GET(req: Request) {
   const startedAt = Date.now();
   const db = createSupabaseServiceRoleClient();
   const provisioning = await reconcilePendingManagerNumberOperations(db, 5);
+  const conversationLogRepair = await reconcileSubmittedSmsConversationLogs(db, 25);
   const total = { claimed: 0, submitted: 0, blocked: 0, unknown: 0 };
   const infrastructureErrors = new Set<string>();
   let capacityReached = false;
@@ -69,6 +71,8 @@ export async function GET(req: Request) {
 
   const alerts: string[] = [];
   if (infrastructureErrors.size > 0) alerts.push("dispatcher_infrastructure_unavailable");
+  if (!conversationLogRepair.ok) alerts.push(`conversation_log_repair_${conversationLogRepair.error}`);
+  else if (conversationLogRepair.failed > 0) alerts.push("conversation_log_repair_failed");
   if (!unknownInventory.ok) alerts.push("unknown_inventory_unavailable");
   else if (unknownInventory.count > 0) alerts.push("unknown_submission_inventory_nonempty");
   if (dueBacklogError) alerts.push("due_backlog_inventory_unavailable");
@@ -83,6 +87,7 @@ export async function GET(req: Request) {
     ok: alerts.length === 0,
     alerts,
     provisioning,
+    conversationLogRepair,
     unknownInventory,
     dueBacklogCount: dueBacklogCount ?? null,
     quarantinedNumberCount: quarantinedNumberCount ?? null,

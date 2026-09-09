@@ -679,19 +679,17 @@ export const ResidentInboxPanel = forwardRef<
   );
 
   const handleComposeSend = useCallback(
-    (p: ScopedInboxSendPayload) => {
-      setComposeOpen(false);
-      setComposeDraft(null);
+    async (p: ScopedInboxSendPayload): Promise<boolean> => {
       const senderName = p.senderName.trim() || "Resident";
       const senderEmail = session.email?.trim().toLowerCase() || p.senderEmail;
+      let optimisticId: string | null = null;
 
-      void (async () => {
-        try {
+      try {
           if (p.scheduleLater && p.sendAt) {
             const recipientEmail = p.directRecipientEmailLine.split(";").map((e) => e.trim()).filter(Boolean)[0];
             if (!recipientEmail) {
               showToast("Choose your property manager.");
-              return;
+              return false;
             }
             const contact = eligibleContacts.find((c) => c.email.trim().toLowerCase() === recipientEmail);
             const res = await fetch("/api/portal/scheduled-inbox-messages", {
@@ -710,20 +708,21 @@ export const ResidentInboxPanel = forwardRef<
             const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
             if (!res.ok || !data.ok) {
               showToast(data.error ?? "Could not schedule message.");
-              return;
+              return false;
             }
             showToast("Message scheduled.");
             void reloadScheduledMessages();
             if (!embeddedInCommunication) {
               navigate("/resident/communication/email/schedule");
             }
-            return;
+            setComposeOpen(false);
+            setComposeDraft(null);
+            return true;
           }
 
           const directEmails = p.directRecipientEmailLine.split(";").map((e) => e.trim()).filter(Boolean);
           const primaryRecipient =
             directEmails.length === 1 && p.broadcastCategories.length === 0 ? directEmails[0]! : null;
-          let optimisticId: string | null = null;
           let propertyThreadId: string | undefined;
 
           if (primaryRecipient) {
@@ -758,6 +757,7 @@ export const ResidentInboxPanel = forwardRef<
                 propertyId: p.propertyId,
                 propertyTitle: p.propertyTitle,
                 managerUserId: p.managerUserId,
+                sendId: p.sendId,
               }),
             });
             const data = (await res.json().catch(() => ({}))) as {
@@ -781,7 +781,7 @@ export const ResidentInboxPanel = forwardRef<
                 persistInboxRef.current = true;
               }
               showToast(data.error ?? "Message could not be sent.");
-              return;
+              return false;
             }
             propertyThreadId = data.propertyThreadId?.trim() || undefined;
           }
@@ -807,11 +807,24 @@ export const ResidentInboxPanel = forwardRef<
           } else {
             navigate("/resident/communication/email/sent");
           }
-        } catch {
-          persistInboxRef.current = true;
-          showToast("Message could not be sent.");
+          setComposeOpen(false);
+          setComposeDraft(null);
+          return true;
+      } catch {
+        if (optimisticId) {
+          const failedOptimisticId = optimisticId;
+          setPendingSendingThreadIds((prev) => {
+            const next = new Set(prev);
+            next.delete(failedOptimisticId);
+            return next;
+          });
+          setLocal((cur) => cur.filter((thread) => thread.id !== failedOptimisticId));
+          setExpandedId((current) => current === failedOptimisticId ? null : current);
         }
-      })();
+        persistInboxRef.current = true;
+        showToast("Message could not be sent.");
+        return false;
+      }
     },
     [eligibleContacts, embeddedInCommunication, findThreadForRecipient, navigate, reloadScheduledMessages, session.email, setExpandedId, showToast],
   );

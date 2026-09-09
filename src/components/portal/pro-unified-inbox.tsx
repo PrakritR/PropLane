@@ -76,6 +76,7 @@ import {
   parseUnifiedInboxKey,
   unifiedInboxKey,
   unifiedInboxPersonKey,
+  unifiedInboxSmsBindingKey,
   type CommunicationListSort,
   type UnifiedInboxListItem,
 } from "@/lib/unified-inbox-merge";
@@ -456,7 +457,7 @@ export function ManagerUnifiedInbox({
         channel: "email" as const,
         threadId: t.id,
         // Who this is with, so a text thread with the same person folds in.
-        personKey: unifiedInboxPersonKey(t.email),
+        personKey: unifiedInboxSmsBindingKey(t.smsConversationKey) ?? unifiedInboxPersonKey(t.email),
         personEmail: t.email?.trim() || undefined,
         name: displayName,
         subtitle: isPropLaneAssistantInboxThread(t)
@@ -486,6 +487,11 @@ export function ManagerUnifiedInbox({
       };
     });
   }, [filteredEmail, query, listSegment]);
+
+  const explicitlyBoundSmsKeys = useMemo(
+    () => new Set(filteredEmail.map((thread) => thread.smsConversationKey?.trim()).filter((key): key is string => Boolean(key))),
+    [filteredEmail],
+  );
 
   // SMS rows (scoped + de-hidden), each tagged with its haystack and
   // last-message direction. Empty unless the SMS UI flag is on.
@@ -525,7 +531,9 @@ export function ManagerUnifiedInbox({
           // Only a resolved address merges. An unknown number carries none, so
           // it stays its own conversation rather than being guessed onto a
           // resident.
-          personKey: unifiedInboxPersonKey(resident.residentEmail),
+          personKey: explicitlyBoundSmsKeys.has(resident.conversationKey ?? "")
+            ? unifiedInboxSmsBindingKey(resident.conversationKey)
+            : unifiedInboxPersonKey(resident.residentEmail),
           personEmail: resident.residentEmail?.trim() || undefined,
           // Prefer person name / unit / email; fall back to a readable phone.
           name: smsConversationDisplayName(resident),
@@ -559,7 +567,7 @@ export function ManagerUnifiedInbox({
         return { item, lastOutbound, haystack, archived, unread };
       })
       .filter((x): x is { item: UnifiedInboxListItem; lastOutbound: boolean; haystack: string; archived: boolean; unread: boolean } => x !== null);
-  }, [filterContacts, smsArchivedIds, smsHiddenIds, smsOpenedIds, smsResidents, threadFilters, smsUiEnabled]);
+  }, [explicitlyBoundSmsKeys, filterContacts, smsArchivedIds, smsHiddenIds, smsOpenedIds, smsResidents, threadFilters, smsUiEnabled]);
 
   const smsListItems = useMemo((): UnifiedInboxListItem[] => {
     const q = query.trim().toLowerCase();

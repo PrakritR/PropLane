@@ -1,10 +1,53 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   assertCloneEndpoint,
+  buildImportColumnManifestSql,
   decideRowFate,
+  extractDumpCopyColumns,
   PROD_REF,
   STAGING_REF,
 } from "../../scripts/lib/prod-staging-merge.mjs";
+
+describe("production dump column manifest", () => {
+  const dump = `COPY "public"."sms_outbox" ("id", "status", "body") FROM stdin;
+row-1\tpending\thello
+\\.
+`;
+
+  it("records only columns explicitly carried by the production dump", () => {
+    expect(extractDumpCopyColumns(dump)).toEqual([
+      { schema: "public", table: "sms_outbox", columns: ["id", "status", "body"] },
+    ]);
+    const sql = buildImportColumnManifestSql([{ sql: dump }]);
+    expect(sql).toContain("('prod_import', 'sms_outbox', 'body')");
+    expect(sql).not.toContain("conversation_log_status");
+  });
+
+  it("does not interpret COPY-shaped customer data as dump structure", () => {
+    const shapedPayload = `COPY "public"."notes" ("body") FROM stdin;
+COPY "public"."sms_outbox" ("id", "conversation_log_status") FROM stdin;
+\\.
+`;
+    expect(extractDumpCopyColumns(shapedPayload)).toEqual([
+      { schema: "public", table: "notes", columns: ["body"] },
+    ]);
+  });
+
+  it("fails closed when no table column metadata can be recovered", () => {
+    expect(() => buildImportColumnManifestSql([{ sql: "-- empty dump" }])).toThrow(
+      /no COPY column metadata/,
+    );
+  });
+
+  it("limits merge writes and comparisons to production-carried columns", () => {
+    const applySql = readFileSync("scripts/lib/staging-merge-apply.sql", "utf8");
+    expect(applySql).toContain("join prod_import._axis_import_columns");
+    expect(applySql).toContain("a.attgenerated = ''");
+    expect(applySql).toContain("to_jsonb(p)");
+    expect(applySql).not.toContain("to_jsonb(p.*)");
+  });
+});
 
 describe("decideRowFate", () => {
   it("keeps a staging-only row that was never in a snapshot", () => {

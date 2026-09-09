@@ -754,6 +754,7 @@ export async function mirrorResidentTextToManagerInbox(args: {
   service?: string | null;
   subject?: string | null;
   body?: string | null;
+  messageId?: string | null;
 }): Promise<void> {
   const db = createSupabaseServiceRoleClient();
   const body =
@@ -767,6 +768,9 @@ export async function mirrorResidentTextToManagerInbox(args: {
     managerUserId: args.thread.managerUserId,
     idPrefix: "claw_resident",
     threadType: "claw_resident_sms",
+    // Namespaced so a Twilio retry folds, but the leasing mirror of the same
+    // inbound SID is still its own turn in the consolidated conversation.
+    messageId: args.messageId ? `resident_${args.messageId}` : undefined,
     from: args.from,
     subject: args.subject?.trim() || `Resident text from ${args.from}`,
     preview: (args.text || body).slice(0, 140) || "(empty)",

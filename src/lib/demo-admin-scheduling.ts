@@ -3,6 +3,7 @@ import { normalizeTourFormat, type TourFormat } from "@/lib/tour-format";
 import { emitAdminUi } from "@/lib/demo-admin-ui";
 import { logDemoOutboundEmail } from "@/lib/demo-outbound-mail";
 import { notePortalResponse, portalSessionEnded } from "@/lib/auth/portal-session-gate";
+import type { TourGuestNotification } from "@/lib/tour-planned-change.client";
 
 const AVAIL_KEY = "axis_admin_avail_slots_v1";
 /** Per calendar date (local `YYYY-MM-DD`) + half-hour slot — supports future weeks. */
@@ -853,11 +854,14 @@ export async function acceptPartnerInquiryFromServer(
     subject?: string;
     body?: string;
     assignee?: import("@/lib/work-assignment").WorkAssignee | null;
+    deliverViaEmail?: boolean;
+    deliverViaSms?: boolean;
   },
 ): Promise<{
   ok: boolean;
   error?: string;
   notificationSkipped?: boolean;
+  tenantNotification?: TourGuestNotification;
   /** The manager's linked Google Calendar side of the confirm, when the route reports it. */
   calendarSync?: { ok: boolean; skipped?: boolean; error?: string };
 }> {
@@ -876,12 +880,14 @@ export async function acceptPartnerInquiryFromServer(
         subject: opts?.subject,
         body: opts?.body,
         assignee: opts?.assignee ?? undefined,
+        ...(opts?.deliverViaEmail === undefined ? {} : { deliverViaEmail: opts.deliverViaEmail }),
+        ...(opts?.deliverViaSms === undefined ? {} : { deliverViaSms: opts.deliverViaSms }),
       }),
     });
     const data = (await res.json().catch(() => ({}))) as {
       ok?: boolean;
       error?: string;
-      tenantNotification?: { ok?: boolean; skipped?: boolean; error?: string };
+      tenantNotification?: TourGuestNotification;
       calendarSync?: { ok?: boolean; skipped?: boolean; error?: string };
     };
     if (!res.ok || !data.ok) {
@@ -891,6 +897,7 @@ export async function acceptPartnerInquiryFromServer(
     return {
       ok: true,
       notificationSkipped: data.tenantNotification?.skipped === true,
+      tenantNotification: data.tenantNotification,
       error: data.tenantNotification?.error,
       calendarSync:
         data.calendarSync && typeof data.calendarSync.ok === "boolean"

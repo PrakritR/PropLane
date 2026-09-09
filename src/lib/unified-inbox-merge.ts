@@ -67,6 +67,11 @@ export function unifiedInboxPersonKey(email: string | null | undefined): string 
   return trimmed.includes("@") ? trimmed : undefined;
 }
 
+export function unifiedInboxSmsBindingKey(conversationKey: string | null | undefined): string | undefined {
+  const key = String(conversationKey ?? "").trim();
+  return key ? `sms-conversation:${key}` : undefined;
+}
+
 /**
  * Collapse rows that reach the SAME person onto one conversation, then sort.
  *

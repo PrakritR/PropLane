@@ -55,6 +55,16 @@ describe("buildManagerSmsRegistry — destructive tools stay portal-only", () =>
     }
   });
 
+  it("exposes existing work-number prospect conversations without making replies inline", () => {
+    expect(registry.has("list_sms_conversations")).toBe(true);
+    expect(registry.has("reply_to_sms_conversation")).toBe(true);
+
+    const reply = registry.get("reply_to_sms_conversation");
+    expect(reply?.kind).toBe("write");
+    expect(reply?.destructive).not.toBe(true);
+    expect(typeof reply?.preview).toBe("function");
+  });
+
   it("withholds landlord-wide tools only on a delegated turn", () => {
     const delegated: ManagerSmsAccess = {
       mode: "delegated",
@@ -199,5 +209,11 @@ describe("manager SMS prompt", () => {
 
   it("keeps facts tool-grounded", () => {
     expect(MANAGER_SMS_AGENT_SYSTEM_PROMPT).toMatch(/must come from a tool result/i);
+  });
+
+  it("requires prospect lookup and clarification instead of guessing a conversation", () => {
+    expect(MANAGER_SMS_AGENT_SYSTEM_PROMPT).toContain("list_sms_conversations");
+    expect(MANAGER_SMS_AGENT_SYSTEM_PROMPT).toContain("reply_to_sms_conversation");
+    expect(MANAGER_SMS_AGENT_SYSTEM_PROMPT).toMatch(/several conversations match, ask which one/i);
   });
 });

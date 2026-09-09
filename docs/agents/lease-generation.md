@@ -1931,3 +1931,6 @@ rejects a save that removes or reorders it. P7 must emit those markers around ea
 Deliberately left out: a rich-text editor, arbitrary images/links/embedded documents, and
 editing of uploaded PDFs. The source textarea plus preview keeps the allowed document grammar
 visible and gives the persistence layer one narrow attack surface.
+# Durable lease transition notifications
+
+An accepted lease transition and its action-event delivery intents are persisted in one database transaction. The route supplies the previously read `updated_at`; a stale save returns 409 and cannot overwrite newer signatures. External email, SMS, and inbox delivery occurs only from the retryable action-event worker. This does not alter signature order, signed-body immutability, or per-signature document hashes.

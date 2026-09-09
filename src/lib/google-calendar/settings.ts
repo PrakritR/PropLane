@@ -4,6 +4,8 @@ import { decryptSensitiveValue, encryptSensitiveValue, isEncryptedSensitiveValue
 import { debugGoogleCalendarLog } from "@/lib/google-calendar/debug-log.server";
 
 export type GoogleCalendarConnection = {
+  /** Database where OAuth was authorized; copied credentials are not a connection. */
+  projectRef?: string | null;
   connected: boolean;
   email: string | null;
   /** When true, PropLane tours are pushed to Google and Google events appear here. */
@@ -24,12 +26,28 @@ export const DEFAULT_GOOGLE_CALENDAR_CONNECTION: GoogleCalendarConnection = {
   calendarId: "primary",
 };
 
+function googleCalendarProjectRef(): string | null {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "").hostname.split(".")[0] || null;
+  } catch {
+    return null;
+  }
+}
+
 function tokenContext(managerUserId: string, field: "accessToken" | "refreshToken") {
   return { purpose: "google-calendar-oauth", ownerId: managerUserId, recordId: managerUserId, field };
 }
 
 function openStoredConnection(raw: unknown, managerUserId: string): GoogleCalendarConnection {
   const connection = normalizeGoogleCalendarConnection(raw);
+  const projectRef = googleCalendarProjectRef();
+  // Production legacy connections remain valid. A staging clone must reconnect
+  // explicitly before it can access or mutate a real external calendar.
+  if ((connection.projectRef && connection.projectRef !== projectRef)
+    || (!connection.projectRef && (projectRef === "xwszcafaontidfgznlxd"
+      || process.env.VERCEL_GIT_COMMIT_REF === "staging"))) {
+    return { ...DEFAULT_GOOGLE_CALENDAR_CONNECTION, syncEnabled: false };
+  }
   for (const field of ["refreshToken", "accessToken"] as const) {
     const value = connection[field];
     if (value && isEncryptedSensitiveValue(value)) {
@@ -57,6 +75,7 @@ export function normalizeGoogleCalendarConnection(raw: unknown): GoogleCalendarC
   const r = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
   const connected = r.connected === true && typeof r.refreshToken === "string" && r.refreshToken.trim().length > 0;
   return {
+    projectRef: typeof r.projectRef === "string" ? r.projectRef : null,
     connected,
     email: typeof r.email === "string" && r.email.trim() ? r.email.trim() : null,
     syncEnabled: r.syncEnabled !== false,
@@ -238,7 +257,7 @@ export async function saveGoogleCalendarConnection(
   // This path only erases credentials; it cannot disclose/decrypt anything.
   const disconnecting = patch.connected === false && patch.refreshToken === null && patch.accessToken === null;
   const current = disconnecting ? DEFAULT_GOOGLE_CALENDAR_CONNECTION : await loadGoogleCalendarConnection(db, managerUserId);
-  const next = normalizeGoogleCalendarConnection({ ...current, ...patch });
+  const next = normalizeGoogleCalendarConnection({ ...current, ...patch, projectRef: googleCalendarProjectRef() });
   const stored = sealConnection(next, managerUserId);
   const mode = await resolveCalendarStorageMode(db);
   const updatedAt = new Date().toISOString();

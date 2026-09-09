@@ -28,6 +28,8 @@ import {
   type NotificationCategory,
   type ResolvedChannels,
 } from "@/lib/notification-preferences";
+import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
+import { normalizeE164 } from "@/lib/phone-e164";
 
 const MANAGER_INBOX_SCOPE = "axis_portal_inbox_manager_v1";
 const RESIDENT_INBOX_SCOPE = "axis_portal_inbox_resident_v1";
@@ -38,6 +40,23 @@ export type InboxDeliveryRecipient = {
   userId: string | null;
   role: string | null;
   scope: string;
+};
+
+export type InboxSmsConversationTarget = {
+  conversationKey: string;
+  counterpartyRole: SmsCounterpartyRole;
+  /** Verified E.164 phone captured in the same authorization snapshot as the thread. */
+  recipientPhone: string;
+};
+
+export type InboxSmsOutcome = {
+  recipientEmail: string;
+  status: "submitted" | "queued" | "deferred" | "unknown" | "failed" | "unavailable";
+};
+
+export type InboxEmailOutcome = {
+  recipientEmail: string;
+  status: "submitted" | "failed" | "skipped";
 };
 
 export function scopeForRole(role: string | null | undefined): string {
@@ -506,8 +525,18 @@ export async function deliverPortalInboxMessage(
     suppressInbox?: boolean;
     /** Deterministic action-event message id. Replays append at most once. */
     messageId?: string;
+    /**
+     * Server-resolved existing work-number threads, keyed by recipient email.
+     * When supplied, missing/ambiguous entries are reported as unavailable
+     * instead of deriving a new user-id thread that could split a prospect's
+     * existing conversation.
+     */
+    smsConversationByEmail?: ReadonlyMap<string, InboxSmsConversationTarget>;
   },
-): Promise<{ ok: true; recipientCount: number } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; recipientCount: number; emailOutcomes: InboxEmailOutcome[]; smsOutcomes: InboxSmsOutcome[] }
+  | { ok: false; error: string }
+> {
   const senderEmail = opts.senderEmail.trim().toLowerCase();
   const subject = opts.subject.trim();
   const text = opts.text.trim();
@@ -639,6 +668,10 @@ export async function deliverPortalInboxMessage(
     recipients.filter((r) => emailWanted(r) && !shouldSkipOutboundEmail(r.email)).map((r) => r.email),
   );
   const toEmails = [...willEmail];
+  const emailOutcomes: InboxEmailOutcome[] = recipients.map((recipient) => ({
+    recipientEmail: recipient.email,
+    status: willEmail.has(recipient.email) ? "failed" : "skipped",
+  }));
 
   if (deliverToPortalInbox) {
     const senderScope = scopeForRole(senderRole);
@@ -732,18 +765,27 @@ export async function deliverPortalInboxMessage(
     const html = `<p style="white-space:pre-wrap;font-family:sans-serif;font-size:15px;line-height:1.6;color:#1e293b">${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p><hr style="margin:24px 0;border:none;border-top:1px solid #e2e8f0"><p style="font-family:sans-serif;font-size:12px;color:#94a3b8">Sent via PropLane portal by ${fromName}</p>`;
     // Per-recipient sends carrying the signed Reply-To + threading anchor.
     // Inbox already written — email stays best-effort, now per recipient.
-    const emailResults = await sendPortalConversationEmails({
-      senderUserId: opts.senderUserId,
-      toEmails,
-      subject,
-      text,
-      html,
-      // Resolved per SEND rather than cached: a manager can set up their work email at any
-      // time, and the next message should carry it without a deploy.
-      fromAddress: await resolveManagerOutboundFrom(db, opts.senderUserId),
-    });
+    let emailResults: Awaited<ReturnType<typeof sendPortalConversationEmails>> | null = null;
+    try {
+      emailResults = await sendPortalConversationEmails({
+        senderUserId: opts.senderUserId,
+        toEmails,
+        subject,
+        text,
+        html,
+        // Resolved per SEND rather than cached: a manager can set up their work email at any
+        // time, and the next message should carry it without a deploy.
+        fromAddress: await resolveManagerOutboundFrom(db, opts.senderUserId),
+      });
+    } catch {
+      // Portal is already durable. Preserve channel independence and allow the
+      // SMS leg to continue while every attempted email remains failed.
+    }
     for (const email of toEmails) {
-      if (!emailResults.get(email)?.sent) willEmail.delete(email);
+      const sent = emailResults?.get(email)?.sent === true;
+      if (!sent) willEmail.delete(email);
+      const outcome = emailOutcomes.find((candidate) => candidate.recipientEmail === email);
+      if (outcome) outcome.status = sent ? "submitted" : "failed";
     }
   }
 
@@ -775,15 +817,41 @@ export async function deliverPortalInboxMessage(
   const smsRecipients = recipients.filter((r) =>
     !opts.suppressSms && (channelByEmail ? channelByEmail.get(r.email)?.sms === true : deliverViaSms),
   );
+  const smsOutcomes: InboxSmsOutcome[] = [];
+  // A caller explicitly selected SMS, but a recipient preference can still
+  // close that channel. Report it instead of returning a text-shaped success
+  // with no outcome at all.
+  const smsExplicitlyRequested = !opts.suppressSms && (channelByEmail !== null || deliverViaSms);
+  if (smsExplicitlyRequested) {
+    const enabledSmsRecipients = new Set(smsRecipients.map((recipient) => recipient.email));
+    for (const recipient of recipients) {
+      if (!enabledSmsRecipients.has(recipient.email)) {
+        smsOutcomes.push({ recipientEmail: recipient.email, status: "unavailable" });
+      }
+    }
+  }
   if (smsRecipients.length > 0) {
     const smsFromNumber = String(senderProfile?.sms_from_number ?? "").trim();
-    if (canSendResidentOutboundSms(smsFromNumber)) {
+    // The managed dispatcher derives the authoritative work number from the
+    // owner. An explicit, server-resolved thread proves that it exists even if
+    // the old profiles.sms_from_number cache is blank.
+    if (canSendResidentOutboundSms(smsFromNumber) || opts.smsConversationByEmail !== undefined) {
       const recipientEmails = smsRecipients.map((r) => r.email);
       const { data: phones } = await db.from("profiles").select("email, phone").in("email", recipientEmails);
       const phoneByEmail = new Map((phones ?? []).map((p) => [String(p.email).toLowerCase(), String(p.phone ?? "").trim()]));
       for (const recipient of smsRecipients) {
         const recipientPhone = phoneByEmail.get(recipient.email) ?? "";
-        if (!recipientPhone) continue;
+        const existingThread = opts.smsConversationByEmail?.get(recipient.email);
+        const targetPhone = existingThread ? normalizeE164(existingThread.recipientPhone) : null;
+        const currentPhone = normalizeE164(recipientPhone);
+        if (
+          !currentPhone ||
+          (opts.smsConversationByEmail !== undefined &&
+            (!existingThread || !targetPhone || targetPhone !== currentPhone))
+        ) {
+          smsOutcomes.push({ recipientEmail: recipient.email, status: "unavailable" });
+          continue;
+        }
         const smsBody = (opts.smsText ?? text).trim();
         let body = smsBody.length <= 320 ? smsBody : `${subject}\n\n${smsBody}`.slice(0, 320);
         const recipientIsManager =
@@ -826,17 +894,38 @@ export async function deliverPortalInboxMessage(
                         ? ("applications" as const)
                         : eventCategory === "maintenance"
                           ? ("maintenance" as const)
-                          : ("general" as const),
+                        : ("general" as const),
+                ...(existingThread
+                  ? {
+                      conversationKey: existingThread.conversationKey,
+                      counterpartyRole: existingThread.counterpartyRole,
+                    }
+                  : {}),
               }
             : null;
-        const result = await sendResidentOutboundSms({
-          to: recipientPhone,
-          text: body,
-          fromNumber: smsFromNumber,
-          linkKind: null, // already appended above
-          sendClass: eventCategory ? "automated" : "transactional",
-          openThread,
-        });
+        let result: Awaited<ReturnType<typeof sendResidentOutboundSms>>;
+        try {
+          result = await sendResidentOutboundSms({
+            to: currentPhone,
+            text: body,
+            fromNumber: smsFromNumber,
+            linkKind: null, // already appended above
+            sendClass: eventCategory ? "automated" : "transactional",
+            openThread,
+          });
+        } catch {
+          smsOutcomes.push({ recipientEmail: recipient.email, status: "failed" });
+          continue;
+        }
+        const outboxStatus = String(result.outboxStatus ?? "").toLowerCase();
+        const outcome = outboxStatus === "queued" || outboxStatus === "deferred" || outboxStatus === "unknown"
+          ? outboxStatus
+          : result.sent
+            ? "submitted"
+            : result.accepted
+              ? "unknown"
+              : "failed";
+        smsOutcomes.push({ recipientEmail: recipient.email, status: outcome });
         if (result.sent) {
           const logId = `outbound_sms_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
           await db.from("portal_outbound_mail_records").upsert(
@@ -847,7 +936,7 @@ export async function deliverPortalInboxMessage(
               channel: "sms",
               row_data: {
                 id: logId,
-                to: recipientPhone,
+                to: currentPhone,
                 subject,
                 body: text,
                 sentAt,
@@ -859,8 +948,12 @@ export async function deliverPortalInboxMessage(
           );
         }
       }
+    } else {
+      for (const recipient of smsRecipients) {
+        smsOutcomes.push({ recipientEmail: recipient.email, status: "unavailable" });
+      }
     }
   }
 
-  return { ok: true, recipientCount: recipients.length };
+  return { ok: true, recipientCount: recipients.length, emailOutcomes, smsOutcomes };
 }

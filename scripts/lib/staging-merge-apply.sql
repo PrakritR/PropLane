@@ -8,6 +8,7 @@
 --   in both, prod matches snapshot               -> leave staging   (noop / keep-staging)
 --   not in prod, in staging, WAS in snapshot     -> delete          (delete-staging)
 --   not in prod, in staging, never in snapshot   -> leave staging   (keep-staging)
+--   listed in staging_owned_rows                 -> leave staging   (never overwritten)
 --
 -- That last line is the one QA cares about: a row created on staging was never
 -- in a production snapshot, so it survives every refresh. The row above it is
@@ -32,6 +33,25 @@ create temporary table staging_merge_stats (
   deleted     bigint
 );
 
+-- Rows staging owns outright: production never overwrites or deletes these, so
+-- what QA put there survives every refresh. Reserved for a shared singleton
+-- whose payload is one list many writers append to, where "production wins the
+-- whole row" is not a conflict resolution but a silent wipe of every staging
+-- entry at once. An ordinary row does not belong here - prod-wins is correct
+-- for those. A staging-owned row is still inserted when staging lacks it.
+create temporary table staging_owned_rows (
+  live_schema  text,
+  table_name   text,
+  pk_predicate text
+);
+insert into staging_owned_rows (live_schema, table_name, pk_predicate) values
+  -- axis_admin_planned_events_v1 holds the planned-events array for every
+  -- manager in a single row. Prod-wins erased every tour QA planned on staging
+  -- on each twice-daily refresh, which is why staging tours could not be
+  -- trusted. Staging keeps its own calendar; production's planned events are
+  -- not QA data.
+  ('public', 'portal_schedule_records', 's."id" = ''axis_admin_planned_events_v1''');
+
 begin;
 
 do $merge$
@@ -47,6 +67,8 @@ declare
   col_list text;
   sel_list text;
   assigns  text;
+  prod_same text;
+  owned_guard text;
   n_ins bigint;
   n_upd bigint;
   n_del bigint;
@@ -88,6 +110,10 @@ begin
       select array_agg(a.attname order by a.attnum)
         into ins_cols
       from pg_attribute a
+      join prod_import._axis_import_columns m
+        on m.import_schema = pair.imp
+       and m.table_name = tbl.relname
+       and m.column_name = a.attname
       where a.attrelid = format('%I.%I', pair.live, tbl.relname)::regclass
         and a.attnum > 0
         and not a.attisdropped
@@ -95,6 +121,10 @@ begin
 
       if ins_cols is null or pk_cols is null then
         continue;
+      end if;
+
+      if exists (select 1 from unnest(pk_cols) c where not (c = any (ins_cols))) then
+        raise exception 'production dump omitted primary-key columns for %.%', pair.live, tbl.relname;
       end if;
 
       -- No snapshot row for this table: either the first refresh, or a table
@@ -113,18 +143,32 @@ begin
       select string_agg(format('p.%I = q.%I', c, c), ' and ') into join_pq from unnest(pk_cols) c;
       select string_agg(format('%I', c), ', ')      into col_list from unnest(ins_cols) c;
       select string_agg(format('p.%I', c), ', ')    into sel_list from unnest(ins_cols) c;
+      -- JSON key reads also work when production has just gained a column that
+      -- the previous snapshot table does not physically contain yet.
+      select string_agg(format('(to_jsonb(p) -> %L) is not distinct from (to_jsonb(q) -> %L)', c, c), ' and ')
+        into prod_same from unnest(ins_cols) c;
 
       upd_cols := array(select c from unnest(ins_cols) c where not (c = any (pk_cols)));
       select string_agg(format('%I = p.%I', c, c), ', ') into assigns from unnest(upd_cols) c;
+
+      -- 'true' when this table has no staging-owned rows, so the predicate is
+      -- always safe to append.
+      select coalesce(string_agg(format('not (%s)', r.pk_predicate), ' and '), 'true')
+        into owned_guard
+      from staging_owned_rows r
+      where r.live_schema = pair.live
+        and r.table_name = tbl.relname;
 
       -- delete-staging: production dropped a row it had at the last refresh.
       execute format(
         'delete from %I.%I s
           where exists (select 1 from %I.%I q where %s)
-            and not exists (select 1 from %I.%I p where %s)',
+            and not exists (select 1 from %I.%I p where %s)
+            and %s',
         pair.live, tbl.relname,
         pair.snap, tbl.relname, join_sq,
-        pair.imp,  tbl.relname, join_sp
+        pair.imp,  tbl.relname, join_sp,
+        owned_guard
       );
       get diagnostics n_del = row_count;
 
@@ -137,11 +181,12 @@ begin
              from %I.%I p
              left join %I.%I q on %s
             where %s
-              and to_jsonb(p.*) is distinct from to_jsonb(q.*)',
+              and not (%s)
+              and %s',
           pair.live, tbl.relname, assigns,
           pair.imp,  tbl.relname,
           pair.snap, tbl.relname, join_pq,
-          join_sp
+          join_sp, prod_same, owned_guard
         );
         get diagnostics n_upd = row_count;
       else

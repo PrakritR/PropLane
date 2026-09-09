@@ -3,6 +3,28 @@
 Moved out of the root `AGENTS.md` to keep it loadable; this is the
 authoritative copy. Read it before changing code in this area.
 
+## SMS notices while the SMS panel is hidden
+
+`upsertManagerInboxNotice` stores one thread per mailbox owner and normalized
+counterparty phone. It appends with optimistic concurrency checks and supports
+message-id deduplication. `rootAt` preserves the first turn's time independently
+of the conversation's latest stamp.
+
+Namespace the delivery id per producer (`relay_`, `resident_`, `leasing_`). One
+inbound text can be mirrored by two producers that share its Twilio SID, so a
+bare SID makes the second mirror look like a retry of the first and it is
+dropped.
+
+Historical `claw_lease_*` / `claw_resident_*` notices are folded on reads using
+server-projected ownership plus an explicit phone label. Never infer phone
+identity from message text or a contact name. This notice grouping does not
+change the role-scoped SMS transport keys or authorize cross-person email links.
+
+Mailbox actions on these server-owned SMS threads update state only; they cannot
+replace message history from a stale browser snapshot. Archive, restore, and
+delete derive historical members from the authorized stored owner and phone,
+not client-provided member ids. Live and archived members are kept separate.
+
 ## Inbox panels: the standalone page shell is a /demo-only path
 
 `ManagerInbox` (and the resident / vendor / admin inbox panels, which share the
@@ -30,6 +52,13 @@ inheriting it for a live inbox row destroys real mail. Coverage:
 `tests/unit/manager-inbox-search.test.tsx`.
 
 ### Communication is one unified, conversation-based inbox (no folder tabs) — ALL portals
+
+Tour-request portal notices may carry `smsConversationKey` only after the server
+proves an existing prospect/applicant SMS conversation by exact owner, phone,
+work number, and role. The unified manager list uses that key on both channel
+rows, so only that SMS conversation folds with the portal notice. Other roles
+or owners on the same phone remain separate. This association never creates a
+synthetic SMS message or provider SID; SMS turns still represent real transport.
 
 Every portal's Communication (manager, resident, vendor, admin) is a single
 conversation list + threads, NOT the old Unopened / Opened / Sent / Trash /
@@ -98,6 +127,20 @@ conversations) plus the archive toggle. Invariants:
   `buildInboxMessageTimeline`, which tags only when the thread truly spans
   channels, so single-channel threads stay untagged with no flag to keep in
   sync. Coverage: `tests/unit/unified-inbox-person-merge.test.ts`.
+- **Resident and manager views of one property conversation use distinct global
+  row ids.** `portal_inbox_thread_records.id` is globally unique, so the
+  resident side keeps the legacy `property_mgr_*` id used by tour links and the
+  manager side uses its side-qualified id. Before creating either row, reuse a
+  compatible scoped person thread only when owner, counterparty email, role,
+  manager, and property metadata do not conflict. New rows use `insert`, never
+  `upsert`: a concurrent or incompatible id collision must fail without
+  replacing the row that won. Existing-row updates must surface persistence
+  errors. Resident compose also carries one UUID operation id across an
+  unchanged failed draft. The server binds it to the authenticated sender,
+  derives distinct per-side message ids, and skips a turn already recorded on
+  retry; reusing the id with changed content fails. This makes a resident-side
+  success followed by a manager-side failure safe to retry without duplicating
+  the first side. Coverage: `tests/unit/property-manager-inbox-thread.test.ts`.
 - **PropLane Assistant ice bubbles sit on the right.** Assistant-authored
   turns (`from` is PropLane Assistant) are a third kind: right-aligned like
   the viewer, ice fill (cobalt mixed into white; dark theme uses the purple

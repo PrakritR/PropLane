@@ -5,6 +5,10 @@ alwaysApply: true
 
 # Lavish plan gate (Phase ②)
 
+Prakrit only. When the user is **Akhil**, skip this gate unless he asks.
+See [`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md) /
+[`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md).
+
 Part of **`captain-dev-workflow.mdc`**. A Linear ticket **must exist** before a Lavish plan.
 **No product code** until the captain approves the plan.
 

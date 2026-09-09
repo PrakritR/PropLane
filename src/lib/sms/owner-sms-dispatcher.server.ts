@@ -13,7 +13,7 @@ import {
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { sendSms } from "@/lib/twilio";
 import { logManagerSmsMessage } from "@/lib/manager-sms-messages.server";
-import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
+import { conversationPhoneRef, isSmsCounterpartyRole, type SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 import {
   evaluateManagerCommsBillingGate,
 } from "@/lib/comms-billing/eligibility.server";
@@ -259,6 +259,91 @@ type ClaimedOutboxRow = {
   segment_count: number;
 };
 
+/** Only retain an outbox thread key when it still names this exact owner, role,
+ * and recipient. The key was server-resolved on enqueue, but a later profile
+ * link may prefer a user id over the original prospect phone; rebuilding it
+ * here would split the durable thread. */
+export type OutboxConversationKeyResolution =
+  | { kind: "absent"; conversationKey: null }
+  | { kind: "valid"; conversationKey: string }
+  | { kind: "invalid"; conversationKey: null };
+
+export function resolveOutboxConversationKey(row: Pick<ClaimedOutboxRow,
+  "manager_user_id" | "recipient_phone" | "recipient_user_id" | "counterparty_role" | "conversation_key"
+>): OutboxConversationKeyResolution {
+  const key = String(row.conversation_key ?? "").trim();
+  if (!key) return { kind: "absent", conversationKey: null };
+  const role = String(row.counterparty_role ?? "").trim();
+  if (!isSmsCounterpartyRole(role)) return { kind: "invalid", conversationKey: null };
+  const [owner, keyRole, recipient, ...rest] = key.split(":");
+  if (rest.length || !owner || !keyRole || !recipient) return { kind: "invalid", conversationKey: null };
+  if (owner !== row.manager_user_id || keyRole !== role) return { kind: "invalid", conversationKey: null };
+  const phone = conversationPhoneRef(row.recipient_phone);
+  const userId = String(row.recipient_user_id ?? "").trim();
+  return recipient === phone || (userId && recipient === userId)
+    ? { kind: "valid", conversationKey: key }
+    : { kind: "invalid", conversationKey: null };
+}
+
+/** Backwards-compatible valid-key projection for callers that only need a key. */
+export function validatedOutboxConversationKey(row: Pick<ClaimedOutboxRow,
+  "manager_user_id" | "recipient_phone" | "recipient_user_id" | "counterparty_role" | "conversation_key"
+>): string | null {
+  const resolved = resolveOutboxConversationKey(row);
+  return resolved.kind === "valid" ? resolved.conversationKey : null;
+}
+
+async function persistSubmittedConversationLog(
+  db: SupabaseClient,
+  row: ClaimedOutboxRow,
+  fromNumber: string,
+  messageSid: string,
+  priorAttempts = 0,
+  claim: { status: "pending" | "failed"; dueAt: string },
+): Promise<"persisted" | "failed" | "stale" | "invalid"> {
+  const key = resolveOutboxConversationKey(row);
+  const now = new Date();
+  if (key.kind === "invalid") {
+    const { data, error } = await db.from("sms_outbox").update({
+      conversation_log_status: "blocked",
+      conversation_log_last_error: "invalid_conversation_key",
+      conversation_log_next_attempt_at: null,
+      updated_at: now.toISOString(),
+    }).eq("id", row.id).eq("provider_message_sid", messageSid)
+      .eq("conversation_log_status", claim.status)
+      .eq("conversation_log_next_attempt_at", claim.dueAt)
+      .select("id").maybeSingle();
+    return error ? "failed" : data ? "invalid" : "stale";
+  }
+  // Legacy rows without an explicit key may only use logger derivation from
+  // this already trusted, owner-scoped outbox identity. Explicit bad keys never
+  // take this path.
+  const logged = await logManagerSmsMessage(db, {
+    managerUserId: row.manager_user_id,
+    residentPhone: row.recipient_phone,
+    residentUserId: row.recipient_user_id,
+    direction: "outbound",
+    body: row.body,
+    fromPhone: fromNumber,
+    toPhone: row.recipient_phone,
+    messageSid,
+    source: row.send_class === "automated" ? "automated" : "work_number",
+    counterpartyRole: isSmsCounterpartyRole(row.counterparty_role) ? row.counterparty_role : undefined,
+    conversationKey: key.conversationKey ?? undefined,
+  }).catch(() => false);
+  const { data, error } = await db.from("sms_outbox").update(
+    logged
+      ? { conversation_log_status: "persisted", conversation_log_attempts: priorAttempts + 1, conversation_log_next_attempt_at: null, conversation_log_last_error: null, updated_at: now.toISOString() }
+      : { conversation_log_status: "failed", conversation_log_attempts: priorAttempts + 1, conversation_log_next_attempt_at: new Date(now.getTime() + Math.min(60 * 60_000, 5 * 60_000 * 2 ** Math.min(priorAttempts, 3))).toISOString(), conversation_log_last_error: "manager_sms_log_unavailable", updated_at: now.toISOString() },
+  ).eq("id", row.id).eq("provider_message_sid", messageSid)
+    .eq("conversation_log_status", claim.status)
+    .eq("conversation_log_next_attempt_at", claim.dueAt)
+    .select("id").maybeSingle();
+  if (error) return "failed";
+  if (!data) return "stale";
+  return logged ? "persisted" : "failed";
+}
+
 async function blockOrDeferClaim(
   db: SupabaseClient,
   row: ClaimedOutboxRow,
@@ -431,7 +516,7 @@ export async function dispatchOwnerSmsOutbox(
     const dispatchStartedAt = new Date().toISOString();
     const { data: started, error: startError } = await db
       .from("sms_outbox")
-      .update({ status: "submitting", dispatch_started_at: dispatchStartedAt, updated_at: dispatchStartedAt })
+      .update({ status: "submitting", dispatch_started_at: dispatchStartedAt, provider_from_phone: policy.fromNumber, updated_at: dispatchStartedAt })
       .eq("id", row.id)
       .eq("lease_owner", workerId)
       .eq("status", "claimed")
@@ -514,11 +599,19 @@ export async function dispatchOwnerSmsOutbox(
         finished_at: new Date().toISOString(),
       })
       .eq("id", attempt.id);
+    const conversationLogDueAt = new Date().toISOString();
     const { data: submittedRow, error: submitPersistError } = await db
       .from("sms_outbox")
       .update({
         status: "submitted",
         provider_message_sid: sent.sid,
+        // This marker is persisted with the provider SID before attempting the
+        // separate Communication projection. A crash or marker-write failure
+        // can therefore be repaired without ever resubmitting the carrier SMS.
+        conversation_log_status: "pending",
+        conversation_log_attempts: 0,
+        conversation_log_next_attempt_at: conversationLogDueAt,
+        conversation_log_last_error: null,
         provider_status: "queued",
         provider_status_rank: 10,
         provider_status_at: new Date().toISOString(),
@@ -529,18 +622,6 @@ export async function dispatchOwnerSmsOutbox(
       .eq("id", row.id)
       .select("id")
       .maybeSingle();
-    await logManagerSmsMessage(db, {
-      managerUserId: row.manager_user_id,
-      residentPhone: row.recipient_phone,
-      residentUserId: row.recipient_user_id,
-      direction: "outbound",
-      body: row.body,
-      fromPhone: policy.fromNumber,
-      toPhone: row.recipient_phone,
-      messageSid: sent.sid,
-      source: row.send_class === "automated" ? "automated" : "work_number",
-      counterpartyRole: row.counterparty_role ?? undefined,
-    });
     if (isCommsPaygBillingEnabled()) {
       await recordManagerCommsUsage(db, {
         managerUserId: row.manager_user_id,
@@ -558,6 +639,18 @@ export async function dispatchOwnerSmsOutbox(
       }
       result.unknown += 1;
       continue;
+    }
+
+    // The carrier already accepted this SID. Logging is independently durable:
+    // failure is observable and repairable, but never changes delivery into a resend.
+    const projection = await persistSubmittedConversationLog(db, row, policy.fromNumber, sent.sid, 0, {
+      status: "pending",
+      dueAt: conversationLogDueAt,
+    });
+    if (projection === "failed") {
+      recordInfrastructureError("conversation_log_persistence_unavailable");
+    } else if (projection === "invalid") {
+      recordInfrastructureError("conversation_log_projection_invalid_identity");
     }
 
     // A very fast callback may have arrived before the SID was attached to the
@@ -587,6 +680,67 @@ export async function dispatchOwnerSmsOutbox(
 export type UnknownSmsInventory =
   | { ok: true; count: number; outboxIds: string[] }
   | { ok: false; error: string };
+
+type ConversationLogRepairRow = ClaimedOutboxRow & {
+  provider_message_sid: string;
+  provider_from_phone: string | null;
+  conversation_log_attempts: number;
+  conversation_log_next_attempt_at: string;
+  conversation_log_status: "pending" | "failed";
+};
+
+/**
+ * Repair only the Communication projection of a carrier-accepted SMS. This
+ * never calls Twilio or changes `sms_outbox.status`; `message_sid` makes a
+ * retry idempotent even if a process dies after the insert succeeds.
+ */
+export async function reconcileSubmittedSmsConversationLogs(
+  db: SupabaseClient = createSupabaseServiceRoleClient(),
+  limit = 50,
+): Promise<
+  | { ok: true; attempted: number; persisted: number; failed: number }
+  | { ok: false; error: "inventory_unavailable" | "claim_unavailable"; attempted: number; persisted: number; failed: number }
+> {
+  const now = new Date();
+  const { data, error: inventoryError } = await db.from("sms_outbox")
+    .select("id,manager_user_id,actor_user_id,recipient_user_id,recipient_email,recipient_phone,body,send_class,purpose,conversation_key,counterparty_role,property_id,recipient_timezone,dedupe_key,trace_id,segment_count,provider_message_sid,provider_from_phone,conversation_log_attempts,conversation_log_next_attempt_at")
+    .in("status", ["submitted", "sent", "delivered", "failed"])
+    .in("conversation_log_status", ["pending", "failed"])
+    .not("provider_message_sid", "is", null)
+    // A repair must never substitute a current work number for the actual
+    // sender. Legacy rows without a snapshot stay out of the automatic queue.
+    .not("provider_from_phone", "is", null)
+    .lte("conversation_log_next_attempt_at", now.toISOString())
+    .order("conversation_log_next_attempt_at", { ascending: true })
+    .limit(Math.max(1, Math.min(limit, 100)));
+  if (inventoryError) return { ok: false, error: "inventory_unavailable", attempted: 0, persisted: 0, failed: 0 };
+  let attempted = 0;
+  let persisted = 0;
+  let failed = 0;
+  for (const candidate of (data ?? []) as ConversationLogRepairRow[]) {
+    const due = String(candidate.conversation_log_next_attempt_at ?? "");
+    if (!candidate.provider_message_sid || !candidate.provider_from_phone || !due) continue;
+    const claimUntil = new Date(now.getTime() + 5 * 60_000).toISOString();
+    const { data: claim, error: claimError } = await db.from("sms_outbox")
+      .update({ conversation_log_next_attempt_at: claimUntil, updated_at: now.toISOString() })
+      .eq("id", candidate.id)
+      .eq("conversation_log_status", candidate.conversation_log_status)
+      .eq("conversation_log_next_attempt_at", due)
+      .select("id")
+      .maybeSingle();
+    if (claimError) return { ok: false, error: "claim_unavailable", attempted, persisted, failed };
+    if (!claim) continue;
+    attempted++;
+    const projection = await persistSubmittedConversationLog(
+      db, candidate, candidate.provider_from_phone ?? "", candidate.provider_message_sid,
+      Number(candidate.conversation_log_attempts ?? 0),
+      { status: candidate.conversation_log_status, dueAt: claimUntil },
+    );
+    if (projection === "persisted") persisted++;
+    else if (projection === "failed") failed++;
+  }
+  return { ok: true, attempted, persisted, failed };
+}
 
 /**
  * Inventory every terminal/ambiguous submission for the operator monitor.
