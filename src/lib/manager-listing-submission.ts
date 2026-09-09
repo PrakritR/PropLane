@@ -253,6 +253,15 @@ export type ManagerCustomFeeRow = {
    * recurring rent line for them to fold into.
    */
   includeInRent?: boolean;
+  /**
+   * Which lease types this charge is billed on, by their stored term labels.
+   *
+   * Absent or empty means every type, which is what every charge written before
+   * this field existed meant — so nothing a manager already saved changes. A
+   * charge is edited inside the lease-type card it applies to, and the same
+   * charge may name several types.
+   */
+  leaseTypes?: string[];
 };
 
 /** Rows for the public “Bundles & leasing” table (optional — defaults are generated from rooms). */
