@@ -15,7 +15,6 @@ import {
   leaseAllowsManagerDocumentEdits,
   leaseDocumentBody,
   leaseDocumentBodyChanged,
-  leaseClaimsExecution,
   leaseExecutionStripRefusal,
   replacesSignedLeaseDocument,
   wipesExecutedLeaseWithoutSupersedeIntent,
@@ -29,7 +28,7 @@ import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import { syncLeaseLifecycleTasks } from "@/lib/manager-default-tasks.server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
-import { emitLeaseTransition } from "@/lib/domain-action-events.server";
+import { buildDurableLeaseTransitionEnvelope, leaseEventForTransition } from "@/lib/domain-action-events.server";
 
 /** The resident-identity scope for this route's two reads; null = match nothing. */
 function residentIdentityFilter(user: { id?: string | null; email?: string | null }): string | null {
@@ -395,6 +394,7 @@ export async function POST(req: Request) {
         previouslySigned: boolean;
         untrustedDocument: boolean;
         previousRow: LeasePipelineRow | null;
+        expectedUpdatedAt: string | null;
       }
     >();
 
@@ -408,14 +408,14 @@ export async function POST(req: Request) {
 
       const { data: existing, error: existingError } = await ctx.db
         .from("portal_lease_pipeline_records")
-        .select("id, manager_user_id, resident_user_id, resident_email, property_id, row_data")
+        .select("id, manager_user_id, resident_user_id, resident_email, property_id, row_data, updated_at")
         .eq("id", id)
         .limit(1);
       if (existingError) return NextResponse.json({ error: existingError.message }, { status: 500 });
 
       const recordExists = Array.isArray(existing) && existing.length > 0;
       const existingRecord = (existing ?? [])[0] as
-        | (LeaseScopeRecord & StoredLeaseScopeColumns & { row_data?: Record<string, unknown> })
+        | (LeaseScopeRecord & StoredLeaseScopeColumns & { row_data?: Record<string, unknown>; updated_at?: string | null })
         | undefined;
 
       // The client edit helper restores P7 verbatim blocks too, but this is a
@@ -753,14 +753,39 @@ export async function POST(req: Request) {
         ),
         untrustedDocument,
         previousRow: storedRow ?? null,
+        expectedUpdatedAt: existingRecord?.updated_at ?? null,
       });
     }
 
     for (const plan of planned.values()) {
-      const { error } = await ctx.db
-        .from("portal_lease_pipeline_records")
-        .upsert(plan.record, { onConflict: "id" });
+      const managerUserId = plan.record.manager_user_id;
+      let notificationSender = { userId: ctx.user.id, email: ctx.user.email ?? "", name: ctx.user.name ?? undefined };
+      if (managerUserId && managerUserId !== ctx.user.id && leaseEventForTransition(plan.previousRow, plan.record.row_data as LeasePipelineRow)) {
+        const { data: managerProfile, error: managerProfileError } = await ctx.db
+          .from("profiles").select("email, full_name").eq("id", managerUserId).maybeSingle();
+        if (managerProfileError || !managerProfile?.email) {
+          return NextResponse.json({ error: "Could not resolve the lease notification sender." }, { status: 500 });
+        }
+        notificationSender = {
+          userId: managerUserId,
+          email: String(managerProfile.email).trim().toLowerCase(),
+          name: String(managerProfile.full_name ?? "").trim() || undefined,
+        };
+      }
+      const transition = managerUserId ? buildDurableLeaseTransitionEnvelope({
+        managerUserId,
+        previous: plan.previousRow,
+        lease: plan.record.row_data as LeasePipelineRow,
+        actor: notificationSender,
+        triggeringActorUserId: ctx.user.id,
+      }) : null;
+      const { data: persistence, error } = await ctx.db.rpc("persist_lease_with_action_event", {
+        p_record: plan.record,
+        p_expected_updated_at: plan.expectedUpdatedAt,
+        p_event: transition,
+      });
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (persistence !== "persisted") return NextResponse.json({ error: "The lease changed in another session. Refresh and try again." }, { status: 409 });
 
       // Auto-file the signed lease into the document library on the transition
       // into fully-signed (once), so repeated syncs of the same row don't
@@ -772,18 +797,7 @@ export async function POST(req: Request) {
         await autoFileLeaseDocument(ctx.db, plan.record.row_data as AutoFileLeaseRow).catch(() => undefined);
       }
 
-      const managerUserId = plan.record.manager_user_id;
       if (managerUserId) {
-        await emitLeaseTransition(ctx.db, {
-          managerUserId,
-          previous: plan.previousRow,
-          lease: plan.record.row_data as LeasePipelineRow,
-          actor: {
-            userId: ctx.user.id,
-            email: ctx.user.email ?? "",
-            name: ctx.user.name ?? undefined,
-          },
-        }).catch(() => undefined);
         void syncLeaseLifecycleTasks(
           ctx.db,
           managerUserId,

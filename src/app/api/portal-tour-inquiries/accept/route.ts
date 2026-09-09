@@ -26,6 +26,8 @@ export async function POST(req: Request) {
       body?: unknown;
       assignee?: unknown;
       hostUserId?: unknown;
+      deliverViaEmail?: unknown;
+      deliverViaSms?: unknown;
     };
     const id = typeof body.id === "string" ? body.id.trim() : "";
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -50,6 +52,10 @@ export async function POST(req: Request) {
       notifyTenant: body.notifyTenant === true,
       notificationSubject: typeof body.subject === "string" ? body.subject.trim() : undefined,
       notificationBody: customBody || undefined,
+      notificationChannels: {
+        ...(typeof body.deliverViaEmail === "boolean" ? { viaEmail: body.deliverViaEmail } : {}),
+        ...(typeof body.deliverViaSms === "boolean" ? { viaSms: body.deliverViaSms } : {}),
+      },
       assignee: normalizeAssignee(body.assignee),
       // Absent, approving claims the tour for the caller. Naming a host hands it
       // over; the confirm path re-checks that they may host this property and

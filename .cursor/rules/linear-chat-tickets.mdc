@@ -5,6 +5,10 @@ alwaysApply: true
 
 # Linear tickets from chat (Phase ①)
 
+Prakrit only. When the user is **Akhil**, do not file a ticket unless he asks.
+See [`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md) /
+[`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md).
+
 Part of **`captain-dev-workflow.mdc`**. Ticket comes **before** Lavish plan and build.
 
 When the captain asks to **create**, **file**, **log**, or **open** a Linear ticket

@@ -4,12 +4,14 @@ const mocks = vi.hoisted(() => ({
   dispatch: vi.fn(),
   unknownInventory: vi.fn(),
   reconcile: vi.fn(),
+  reconcileConversationLogs: vi.fn(),
   from: vi.fn(),
 }));
 
 vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({
   dispatchOwnerSmsOutbox: mocks.dispatch,
   loadUnknownSmsInventory: mocks.unknownInventory,
+  reconcileSubmittedSmsConversationLogs: mocks.reconcileConversationLogs,
 }));
 
 vi.mock("@/lib/sms/manager-number-provisioning.server", () => ({
@@ -68,6 +70,7 @@ describe("managed SMS outbox scheduler health gate", () => {
       attachmentChecked: 0,
       attachmentDrifted: 0,
     });
+    mocks.reconcileConversationLogs.mockReset().mockResolvedValue({ ok: true, attempted: 0, persisted: 0, failed: 0 });
     mocks.from.mockReset();
     inventoryQueries();
     vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -120,6 +123,31 @@ describe("managed SMS outbox scheduler health gate", () => {
     expect(response.status).toBe(503);
     expect(body.alerts).toContain("dispatcher_infrastructure_unavailable");
     expect(body.infrastructureErrors).toEqual(["outbox_claim_unavailable"]);
+  });
+
+  it("returns 503 when conversation-log inventory or claim work is unavailable", async () => {
+    mocks.reconcileConversationLogs.mockResolvedValueOnce({
+      ok: false, error: "inventory_unavailable", attempted: 0, persisted: 0, failed: 0,
+    });
+    const { GET } = await import("@/app/api/cron/sms-outbox/route");
+    const inventory = await GET(request());
+    expect(inventory.status).toBe(503);
+    expect((await inventory.json()).alerts).toContain("conversation_log_repair_inventory_unavailable");
+
+    mocks.reconcileConversationLogs.mockResolvedValueOnce({
+      ok: false, error: "claim_unavailable", attempted: 0, persisted: 0, failed: 0,
+    });
+    const claim = await GET(request());
+    expect(claim.status).toBe(503);
+    expect((await claim.json()).alerts).toContain("conversation_log_repair_claim_unavailable");
+  });
+
+  it("returns 503 when a claimed conversation projection cannot persist", async () => {
+    mocks.reconcileConversationLogs.mockResolvedValue({ ok: true, attempted: 1, persisted: 0, failed: 1 });
+    const { GET } = await import("@/app/api/cron/sms-outbox/route");
+    const response = await GET(request());
+    expect(response.status).toBe(503);
+    expect((await response.json()).alerts).toContain("conversation_log_repair_failed");
   });
 
   it("returns 503 while due messages or quarantined numbers remain after the run", async () => {

@@ -74,6 +74,8 @@ function storedListing(): MockProperty {
           photoDataUrls: [],
           videoDataUrl: null,
           utilitiesEstimate: "60",
+          utilitiesPaymentModel: "manager_billed",
+          securityDeposit: "650",
         },
       ],
       // None of the following may reach a prospect.
@@ -234,6 +236,7 @@ describe("publicListingProjection", () => {
     expect(projected.managerUserId).toBe("mgr-user");
     expect(projected.adminPublishLive).toBe(true);
     expect(sub.rooms[0]).toMatchObject({ id: "r1", monthlyRent: 900, availability: "Now", occupancyCapacity: 2 });
+    expect(sub.rooms[0]).toMatchObject({ securityDeposit: "650", utilitiesPaymentModel: "manager_billed" });
     expect(sub.quickFacts[0]).toEqual({ id: "q1", label: "Built", value: "1998" });
   });
 

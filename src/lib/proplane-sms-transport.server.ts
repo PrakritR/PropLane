@@ -143,6 +143,14 @@ export async function sendPropLaneSms(args: {
   const to = normalizeTo(args.to);
   if (!to) return { ok: false, error: "invalid_to" };
 
+  // Real-customer shield, ahead of the consent gate and of the transport choice:
+  // Claw is primary here, so guarding only Twilio's sendSms would miss every
+  // message staging actually sends. See protected-accounts.server.
+  const { isShieldedRecipient } = await import("@/lib/protected-accounts.server");
+  if (await isShieldedRecipient({ phone: to })) {
+    return { ok: false, error: "protected_account_shielded" };
+  }
+
   // Consent + quiet-hours gate — every channel, never bypassed.
   const blocked = await transportGateBlocks({
     to,

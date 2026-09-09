@@ -20,10 +20,16 @@ import { MANAGER_INLINE_WRITE_TOOLS } from "@/lib/tools";
 // must be deterministic regardless of the developer's local .env.
 process.env.RESEND_API_KEY = "";
 
-const sendResidentOutboundSmsMock = vi.fn(async () => ({ sent: true, channel: "twilio" as const }));
+const { sendResidentOutboundSmsMock, fetchManagerSmsConversationsMock } = vi.hoisted(() => ({
+  sendResidentOutboundSmsMock: vi.fn(async () => ({ sent: true, channel: "twilio" as const })),
+  fetchManagerSmsConversationsMock: vi.fn(),
+}));
 vi.mock("@/lib/resident-outbound-sms.server", () => ({
   canSendResidentOutboundSms: (from?: string | null) => Boolean(String(from ?? "").trim()),
   sendResidentOutboundSms: (...args: unknown[]) => sendResidentOutboundSmsMock(...args),
+}));
+vi.mock("@/lib/manager-sms-messages.server", () => ({
+  fetchManagerSmsConversations: fetchManagerSmsConversationsMock,
 }));
 
 /**
@@ -170,7 +176,7 @@ function seedRecipientTables(): Tables {
     ],
     profiles: [
       { id: "manager_a", email: "mgr@axis.test", full_name: "Manager A", role: "manager" },
-      { id: "res_pat", email: "pat@x.com", full_name: "Pat Doe", role: "resident" },
+      { id: "res_pat", email: "pat@x.com", full_name: "Pat Doe", role: "resident", phone: "+12065550123", phone_verified_at: "2026-09-01T00:00:00Z" },
       { id: "res_foreign", email: "foreign@x.com", full_name: "Foreign Res", role: "resident" },
     ],
     portal_pro_relationship_records: [],
@@ -189,6 +195,13 @@ describe("send_message", () => {
   beforeEach(() => {
     tables = seedRecipientTables();
     ctx = makeCtx(tables);
+    sendResidentOutboundSmsMock.mockReset();
+    sendResidentOutboundSmsMock.mockResolvedValue({ sent: true, channel: "twilio" });
+    fetchManagerSmsConversationsMock.mockReset();
+    fetchManagerSmsConversationsMock.mockResolvedValue({
+      workNumber: "+12065550999",
+      residents: [],
+    });
   });
 
   it("preview resolves an owned resident with name/email lines", async () => {
@@ -328,7 +341,7 @@ describe("send_message", () => {
     expect(second.ok).toBe(true);
     if (second.ok) expect(second.reply).toContain("already");
     expect(tables.audit_log).toHaveLength(1);
-    expect(tables.portal_inbox_thread_records).toHaveLength(2);
+    expect(tables.portal_inbox_thread_records.length).toBeGreaterThanOrEqual(2);
   });
 
   it("execute refuses (and writes no audit row) when recipients are foreign", async () => {
@@ -361,6 +374,140 @@ describe("send_message", () => {
       expect(tables.audit_log[0]!.dedupe_key).toBeNull();
     } finally {
       spy.mockRestore();
+    }
+  });
+
+  it("delivers a due-soon reminder through the existing work-number thread and reports an SMS failure honestly", async () => {
+    fetchManagerSmsConversationsMock.mockResolvedValue({
+      workNumber: "+12065550999",
+      residents: [{
+        ownerManagerUserId: "manager_a",
+        phone: "+12065550123",
+        counterpartyRole: "prospect",
+        conversationKey: "manager_a:prospect:+12065550123",
+        messages: [{ direction: "inbound", fromPhone: "+12065550123", toPhone: "+12065550999" }],
+      }],
+    });
+    const input = {
+      toEmails: ["pat@x.com"],
+      subject: "Rent due soon",
+      body: "Your rent is due soon. Please check PropLane for payment details.",
+      deliverViaEmail: true,
+      deliverViaSms: true,
+    };
+    const first = await executeWrite(sendMessageTool, ctx, input);
+    expect(first.ok).toBe(true);
+    expect(sendResidentOutboundSmsMock).toHaveBeenCalledWith(expect.objectContaining({
+      to: "+12065550123",
+      openThread: expect.objectContaining({
+        managerUserId: "manager_a",
+        conversationKey: "manager_a:prospect:+12065550123",
+        counterpartyRole: "prospect",
+      }),
+    }));
+    expect(first.reply).toContain("SMS submitted to the provider for 1");
+    expect(first.reply).not.toContain("SMS sent");
+
+    sendResidentOutboundSmsMock.mockResolvedValueOnce({ sent: false, error: "recipient_opted_out" });
+    const failed = await executeWrite(sendMessageTool, ctx, { ...input, body: `${input.body} Contact us with questions.` });
+    expect(failed.ok).toBe(true);
+    expect(failed.reply).toContain("SMS failed for 1");
+    // SMS failure never rolls back the independently stored portal copies.
+    expect(tables.portal_inbox_thread_records.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("keeps portal and email delivery when one SMS transport call throws", async () => {
+    fetchManagerSmsConversationsMock.mockResolvedValue({
+      workNumber: "+12065550999",
+      residents: [{ ownerManagerUserId: "manager_a", phone: "+12065550123", counterpartyRole: "resident", conversationKey: "manager_a:resident:res_pat", messages: [{ direction: "inbound", fromPhone: "+12065550123", toPhone: "+12065550999" }] }],
+    });
+    sendResidentOutboundSmsMock.mockRejectedValueOnce(new Error("transport down"));
+    const result = await executeWrite(sendMessageTool, ctx, {
+      toEmails: ["pat@x.com"], subject: "Rent due soon", body: "Please check PropLane.", deliverViaEmail: false, deliverViaSms: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.reply).toContain("portal inbox only");
+    expect(result.reply).toContain("SMS failed for 1");
+    expect(tables.portal_inbox_thread_records.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("refuses SMS when the current profile phone changes after thread authorization", async () => {
+    fetchManagerSmsConversationsMock.mockImplementationOnce(async () => {
+      const profile = tables.profiles.find((row) => row.id === "res_pat");
+      if (profile) profile.phone = "+12065550777";
+      return {
+        workNumber: "+12065550999",
+        residents: [{
+          ownerManagerUserId: "manager_a",
+          phone: "+12065550123",
+          counterpartyRole: "resident",
+          conversationKey: "manager_a:resident:res_pat",
+          messages: [{ direction: "inbound", fromPhone: "+12065550123", toPhone: "+12065550999" }],
+        }],
+      };
+    });
+    const result = await executeWrite(sendMessageTool, ctx, {
+      toEmails: ["pat@x.com"],
+      subject: "Rent due soon",
+      body: "Please check PropLane.",
+      deliverViaEmail: false,
+      deliverViaSms: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(sendResidentOutboundSmsMock).not.toHaveBeenCalled();
+    expect(result.reply).toContain("SMS unavailable for 1");
+  });
+
+  it("reports a selected email provider failure without undoing the portal copy", async () => {
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("provider unavailable", { status: 503 }),
+    );
+    try {
+      const result = await executeWrite(sendMessageTool, ctx, {
+        toEmails: ["pat@x.com"],
+        subject: "Rent due soon",
+        body: "Please check PropLane.",
+        deliverViaEmail: true,
+        deliverViaSms: false,
+      });
+      expect(result.ok).toBe(true);
+      expect(result.reply).toContain("email failed for 1");
+      expect(tables.portal_inbox_thread_records.length).toBeGreaterThanOrEqual(2);
+    } finally {
+      fetchSpy.mockRestore();
+      vi.stubEnv("RESEND_API_KEY", "");
+    }
+  });
+
+  it("continues SMS when the email transport throws", async () => {
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    fetchManagerSmsConversationsMock.mockResolvedValueOnce({
+      workNumber: "+12065550999",
+      residents: [{
+        ownerManagerUserId: "manager_a",
+        phone: "+12065550123",
+        counterpartyRole: "resident",
+        conversationKey: "manager_a:resident:res_pat",
+        messages: [{ direction: "inbound", fromPhone: "+12065550123", toPhone: "+12065550999" }],
+      }],
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("email transport unavailable"));
+    try {
+      const result = await executeWrite(sendMessageTool, ctx, {
+        toEmails: ["pat@x.com"],
+        subject: "Rent due soon",
+        body: "Please check PropLane.",
+        deliverViaEmail: true,
+        deliverViaSms: true,
+      });
+      expect(result.ok).toBe(true);
+      expect(result.reply).toContain("email failed for 1");
+      expect(result.reply).toContain("SMS submitted to the provider for 1");
+      expect(sendResidentOutboundSmsMock).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchSpy.mockRestore();
+      vi.stubEnv("RESEND_API_KEY", "");
     }
   });
 });

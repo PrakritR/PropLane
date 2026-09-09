@@ -1043,12 +1043,13 @@ export function ManagerApplications({
   const setRowBucket = async (
     id: string,
     nextBucket: ManagerApplicationBucket,
-    opts?: { skipWelcomeEmail?: boolean; skipNavigate?: boolean; quiet?: boolean },
+    opts?: { skipWelcomeEmail?: boolean; skipNavigate?: boolean; quiet?: boolean; approvalNotification?: { viaEmail: boolean; viaSms: boolean } },
   ) => {
     const row = rows.find((candidate) => candidate.id === id);
     const result = await transitionApplicationBucket(id, nextBucket, {
       userId: userId ?? null,
       skipWelcomeEmail: opts?.skipWelcomeEmail,
+      approvalNotification: opts?.approvalNotification,
       automation: applicationAutomation.forProperty(row ? applicationRowPropertyId(row) : ""),
     });
     if (!result) return null;
@@ -1764,7 +1765,7 @@ export function ManagerApplications({
     <>
       <PortalNotificationPreviewModal
         open={approvePreviewRow !== null}
-        title="Approve application: account setup email"
+        title="Approve application"
         onClose={() => {
           if (approveBusyId) return;
           setApprovePreviewRow(null);
@@ -1783,27 +1784,34 @@ export function ManagerApplications({
         }
         intro={
           approvePreviewRow
-            ? `Approving ${applicantDisplayName(approvePreviewRow)} will update their application status and can send their PropLane resident account setup email.`
+            ? `Approving ${applicantDisplayName(approvePreviewRow)} updates their application status and sends the notifications you select.`
             : undefined
         }
         warning={approveError ?? undefined}
         warningLead={approveError ? "Could not approve." : null}
         hideSendViaFooterNote
-        showWorkNumberHint={false}
-        confirmLabel="Approve & send setup email"
+        showWorkNumberHint
+        confirmLabel="Approve & notify"
         confirmLabelWithoutMessage="Approve only"
         deliverViaKind="applications"
         smsAvailable
         confirmBusy={approvePreviewRow !== null && approveBusyId === approvePreviewRow.id}
         confirmBusyLabel="Approving…"
-        onConfirm={(skipMessage) => {
+        onConfirm={(skipMessage, channels) => {
           if (!approvePreviewRow) return;
           const row = approvePreviewRow;
           setApproveError(null);
           setApproveBusyId(row.id);
           // Keep the dialog open until the server confirms (PRP-381). Closing
           // first made a 500 look identical to success.
-          void setRowBucket(row.id, "approved", { skipWelcomeEmail: skipMessage, skipNavigate: true }).then((result) => {
+          const selectedChannels = skipMessage
+            ? { viaEmail: false, viaSms: false }
+            : channels ?? { viaEmail: true, viaSms: false };
+          void setRowBucket(row.id, "approved", {
+            skipWelcomeEmail: skipMessage || !selectedChannels.viaEmail,
+            skipNavigate: true,
+            approvalNotification: selectedChannels,
+          }).then((result) => {
             setApproveBusyId(null);
             if (!result || result.blocked) {
               setApproveError(result?.message ?? "Approval could not be saved. Refresh and retry.");
@@ -1811,6 +1819,14 @@ export function ManagerApplications({
             }
             setApprovePreviewRow(null);
             setApproveError(null);
+            if (result.approvalSms && result.approvalSms.sms !== "submitted") {
+              const smsOutcome = result.approvalSms.sms === "queued"
+                ? "queued"
+                : result.approvalSms.sms === "unknown"
+                  ? "outcome is not yet known"
+                  : "failed";
+              showToast(`Application approved. Text message ${smsOutcome}${result.approvalSms.error ? `: ${result.approvalSms.error}` : "."}`);
+            }
             router.push(applicationsListHref("approved"));
           });
         }}

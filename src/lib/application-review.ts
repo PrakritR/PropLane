@@ -17,20 +17,38 @@ export function stageLabelForApplicationBucket(bucket: ManagerApplicationBucket)
   return "Submitted";
 }
 
-async function syncResidentApprovalStatus(row: DemoApplicantRow, nextBucket: ManagerApplicationBucket): Promise<Response | null> {
+export type ApplicationApprovalNotification = {
+  sms: "submitted" | "queued" | "unknown" | "skipped" | "failed";
+  error?: string;
+};
+
+async function syncResidentApprovalStatus(
+  row: DemoApplicantRow,
+  nextBucket: ManagerApplicationBucket,
+  notification?: { viaSms: boolean; viaEmail?: boolean },
+): Promise<{ response: Response | null; sms?: ApplicationApprovalNotification }> {
   const email = row.email?.trim().toLowerCase();
-  if (!email) return null;
+  if (!email) return { response: null };
   // /demo never writes real rows — and its sandbox rows are not on the server, so
   // a refusal here would only roll back a walkthrough that is working as intended.
-  if (isDemoModeActive()) return null;
+  if (isDemoModeActive()) return { response: null };
   // `applicationId` lets the server re-check the exact record's withdrawn stamp so a
   // withdrawn application can never be approved server-side (defense in depth).
-  return fetch("/api/portal/resident-approval", {
+  const response = await fetch("/api/portal/resident-approval", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ email, approved: nextBucket === "approved", applicationId: row.id }),
+    body: JSON.stringify({
+      email,
+      approved: nextBucket === "approved",
+      applicationId: row.id,
+      ...(nextBucket === "approved"
+        ? { notifySms: notification?.viaSms === true, notifyEmail: notification?.viaEmail === true }
+        : {}),
+    }),
   });
+  const body = await response.clone().json().catch(() => ({})) as { sms?: ApplicationApprovalNotification };
+  return { response, ...(body.sms ? { sms: body.sms } : {}) };
 }
 
 /** POST welcome email; does not open mailto (used for auto-send on approve). */
@@ -67,6 +85,8 @@ export type ApplicationBucketTransition = {
   message?: string;
   /** What the manager's enabled post-approval automation did, when any is on. */
   automation?: ApplicationAutomationResult;
+  /** Approval already committed even when the selected SMS leg failed. */
+  approvalSms?: ApplicationApprovalNotification;
 };
 
 type ResidentApprovalRefusal = {
@@ -103,6 +123,7 @@ export async function transitionApplicationBucket(
   opts: {
     userId: string | null;
     skipWelcomeEmail?: boolean;
+    approvalNotification?: { viaEmail: boolean; viaSms: boolean };
     /**
      * The manager's saved automation flags. Omitted (the default) means fully manual — the
      * approval behaves exactly as it did before automation existed.
@@ -165,9 +186,11 @@ export async function transitionApplicationBucket(
 
   // The application is now authoritative. A profile-sync failure cannot revoke
   // its committed placement or remove its charges; stop downstream notifications.
+  let approvalSms: ApplicationApprovalNotification | undefined;
   try {
-    const response = await syncResidentApprovalStatus(updatedRow, nextBucket);
-    if (nextBucket === "approved" && response && !response.ok) {
+    const sync = await syncResidentApprovalStatus(updatedRow, nextBucket, opts.approvalNotification);
+    approvalSms = sync.sms;
+    if (nextBucket === "approved" && sync.response && !sync.response.ok) {
       return { row: updatedRow, welcomeSent: false, blocked: "error", message: "Approval saved, but resident access could not be synchronized. Retry to finish setup." };
     }
   } catch {
@@ -175,7 +198,7 @@ export async function transitionApplicationBucket(
   }
 
   let welcomeSent = false;
-  if (nextBucket === "approved" && updatedRow.email?.trim() && !opts.skipWelcomeEmail) {
+  if (nextBucket === "approved" && updatedRow.email?.trim() && !opts.skipWelcomeEmail && opts.approvalNotification?.viaEmail !== false) {
     const welcome = await requestResidentWelcomeEmail(updatedRow);
     welcomeSent = welcome.status === "sent";
   }
@@ -209,5 +232,5 @@ export async function transitionApplicationBucket(
     }
   }
 
-  return { row: updatedRow, welcomeSent, automation };
+  return { row: updatedRow, welcomeSent, automation, ...(nextBucket === "approved" && approvalSms ? { approvalSms } : {}) };
 }

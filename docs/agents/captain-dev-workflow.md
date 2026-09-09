@@ -1,8 +1,10 @@
 # Captain dev workflow (PropPlane)
 
-**Default pipeline for every agent pane.** The captain reviews plans in **Lavish**
-before any build. Share **`ticket.md`** with friends via
-`docs/share/proplane-collaborator-workflow.md`.
+**Prakrit's pipeline.** Short copy for agents: [`AGENTS-prakrit.md`](AGENTS-prakrit.md).
+Akhil's agents skip this unless he asks: [`AGENTS-akhil.md`](AGENTS-akhil.md).
+
+The captain reviews plans in **Lavish** before any build. Share **`ticket.md`**
+with friends via `docs/share/proplane-collaborator-workflow.md`.
 
 ## The three gates (always in order)
 

@@ -8,7 +8,30 @@
  * did exactly that rewrite, which is why a cancelled tour reached nobody.
  */
 
-export type TourGuestNotification = { ok: boolean; skipped?: boolean; error?: string } | null;
+export type TourChannelOutcome = {
+  requested: boolean;
+  sent: boolean;
+  accepted?: boolean;
+  skipped: boolean;
+  error?: string;
+};
+export type TourGuestNotification = {
+  ok: boolean;
+  skipped?: boolean;
+  error?: string;
+  email?: TourChannelOutcome;
+  sms?: TourChannelOutcome;
+  inbox?: { sent: boolean; error?: string };
+} | null;
+
+export function tourGuestNotificationSummary(notification: TourGuestNotification | undefined): string {
+  if (!notification) return "the selected channels";
+  const channels: string[] = notification.inbox?.sent ? ["PropLane inbox"] : [];
+  if (notification.email?.sent) channels.push("email");
+  if (notification.sms?.sent) channels.push("SMS");
+  else if (notification.sms?.accepted) channels.push("queued SMS");
+  return channels.join(", ") || "the selected channels";
+}
 
 type ChangeResult = {
   ok: boolean;
@@ -29,7 +52,13 @@ type ChangeResult = {
  */
 export function tourGuestNotificationFailed(notification: TourGuestNotification | undefined): boolean {
   if (!notification) return false;
-  return notification.ok === false || Boolean(notification.error);
+  const requestedSmsMissing = Boolean(
+    notification.sms?.requested && !notification.sms.sent && !notification.sms.accepted,
+  );
+  const requestedEmailMissing = Boolean(
+    notification.email?.requested && !notification.email.sent && !notification.email.skipped,
+  );
+  return notification.ok === false || Boolean(notification.error) || requestedSmsMissing || requestedEmailMissing;
 }
 
 async function postTourChange(path: string, body: Record<string, unknown>): Promise<ChangeResult> {
@@ -54,6 +83,8 @@ export function cancelPlannedTourFromServer(input: {
   notifyGuest?: boolean;
   subject?: string;
   body?: string;
+  deliverViaEmail?: boolean;
+  deliverViaSms?: boolean;
 }): Promise<ChangeResult> {
   return postTourChange("/api/portal-tour-inquiries/cancel", {
     id: input.plannedEventId,
@@ -62,6 +93,8 @@ export function cancelPlannedTourFromServer(input: {
     subject: input.subject,
     body: input.body,
     messageBody: input.body,
+    ...(input.deliverViaEmail === undefined ? {} : { deliverViaEmail: input.deliverViaEmail }),
+    ...(input.deliverViaSms === undefined ? {} : { deliverViaSms: input.deliverViaSms }),
   });
 }
 
@@ -74,6 +107,8 @@ export function proposePendingTourRescheduleFromServer(input: {
   notifyGuest?: boolean;
   subject?: string;
   body?: string;
+  deliverViaEmail?: boolean;
+  deliverViaSms?: boolean;
 }): Promise<ChangeResult> {
   return postTourChange("/api/portal-tour-inquiries/propose-reschedule", {
     id: input.inquiryId,
@@ -85,6 +120,8 @@ export function proposePendingTourRescheduleFromServer(input: {
     subject: input.subject,
     body: input.body,
     messageBody: input.body,
+    ...(input.deliverViaEmail === undefined ? {} : { deliverViaEmail: input.deliverViaEmail }),
+    ...(input.deliverViaSms === undefined ? {} : { deliverViaSms: input.deliverViaSms }),
   });
 }
 
@@ -96,6 +133,8 @@ export function reschedulePlannedTourFromServer(input: {
   notifyGuest?: boolean;
   subject?: string;
   body?: string;
+  deliverViaEmail?: boolean;
+  deliverViaSms?: boolean;
 }): Promise<ChangeResult> {
   return postTourChange("/api/portal-tour-inquiries/reschedule", {
     id: input.plannedEventId,
@@ -106,5 +145,7 @@ export function reschedulePlannedTourFromServer(input: {
     subject: input.subject,
     body: input.body,
     messageBody: input.body,
+    ...(input.deliverViaEmail === undefined ? {} : { deliverViaEmail: input.deliverViaEmail }),
+    ...(input.deliverViaSms === undefined ? {} : { deliverViaSms: input.deliverViaSms }),
   });
 }

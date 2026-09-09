@@ -117,7 +117,8 @@
     "security:prepare-database": "node scripts/security/prepare-nonproduction-database.mjs",
     "security:document-backfill": "tsx --conditions=react-server scripts/security/backfill-application-documents.ts",
     "security:backfill-applicant-identities": "tsx --conditions=react-server scripts/security/backfill-applicant-identities.ts",
-    "qa:dom-sweep": "node scripts/qa-portal-dom-sweep.mjs"
+    "qa:dom-sweep": "node scripts/qa-portal-dom-sweep.mjs",
+    "test:lease-preview": "playwright test --config tests/browser/lease-preview.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
@@ -193,11 +194,13 @@
     "@vitest/coverage-v8": "^4.1.9",
     "dotenv": "^17.4.2",
     "dotenv-cli": "^11.0.0",
+    "esbuild": "0.28.2",
     "eslint": "^9",
     "eslint-config-next": "^16.2.12",
     "jsdom": "^29.1.1",
     "msw": "^2.14.6",
     "patch-package": "^8.0.1",
+    "postcss": "8.5.23",
     "tailwindcss": "^4",
     "tsx": "^4.23.13",
     "typescript": "^5",

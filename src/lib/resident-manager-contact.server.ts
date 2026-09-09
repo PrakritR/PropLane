@@ -20,6 +20,12 @@ import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 
 export type ResidentManagerContact = {
   managerUserId: string;
+  /**
+   * Manager's display name, for the resident's contact card. The manager's id
+   * is still withheld from the API response — a resident already sees this name
+   * on every message they receive, so it discloses nothing new.
+   */
+  managerName: string | null;
   /** Sendable work number in E.164, or null when they have none yet. */
   phone: string | null;
   /** Manager's PropLane assistant inbox, when provisioned. */
@@ -109,6 +115,7 @@ export async function resolveResidentManagerContacts(
     const leaseEnd = text(application.leaseEnd) ?? text(rowData.leaseEnd);
     const contact: ResidentManagerContact = {
       managerUserId,
+      managerName: null,
       phone: null,
       assistantEmail: null,
       propertyLabel: text(rowData.propertyLabel) ?? text(rowData.propertyName) ?? text(row.property_id),
@@ -139,12 +146,20 @@ export async function resolveResidentManagerPhones(
   const contacts = await resolveResidentManagerContacts(db, args);
   const withChannels = await Promise.all(
     contacts.map(async (contact) => {
-      const [phone, assistantRow] = await Promise.all([
+      const [phone, assistantRow, profileRow] = await Promise.all([
         resolveActiveManagerSendNumber(db, contact.managerUserId).catch(() => null),
         loadManagerAssistantEmail(db, contact.managerUserId).catch(() => null),
+        Promise.resolve(
+          db.from("profiles").select("full_name").eq("id", contact.managerUserId).maybeSingle(),
+        )
+          .then((res) => res.data)
+          .catch(() => null),
       ]);
       return {
         ...contact,
+        // An absent name is not an error — the card simply leads with the
+        // number, as it did before there was a name to show.
+        managerName: text((profileRow as { full_name?: unknown } | null)?.full_name),
         phone,
         assistantEmail: assistantRow?.address?.trim() || null,
       };

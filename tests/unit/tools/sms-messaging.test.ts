@@ -63,6 +63,64 @@ describe("assistant work-number conversations", () => {
     expect(mocks.enqueue).not.toHaveBeenCalled();
   });
 
+  it("returns every matching room-context prospect without proposing or sending", async () => {
+    rows[0]!.propertyLabel = "Room 3 at Cascade House";
+    rows.push({
+      ...rows[0]!,
+      conversationKey: "manager-a:prospect:+12065550124",
+      phone: "+12065550124",
+      name: "Potential tenant",
+      propertyLabel: "Cascade House",
+      messages: [{
+        id: "inbound-2",
+        direction: "inbound",
+        body: "I am also interested in Room 3.",
+        fromPhone: "+12065550124",
+        toPhone: "+12065550100",
+        messageSid: null,
+        source: "work_number",
+        createdAt: "2026-09-08",
+      }],
+    });
+
+    const found = await listSmsConversationsTool.handler(ctx, { q: "Room 3", limit: 30 });
+
+    expect(found.count).toBe(2);
+    expect(found.conversations.map((conversation) => conversation.conversationKey)).toEqual([
+      "manager-a:prospect:+12065550123",
+      "manager-a:prospect:+12065550124",
+    ]);
+    expect(found.conversations[1]).toMatchObject({
+      property: "Cascade House",
+      lastInboundAt: "2026-09-08",
+      recentInbound: [{
+        body: { untrustedContent: expect.stringContaining("interested in Room 3") },
+      }],
+    });
+    expect(mocks.audit).not.toHaveBeenCalled();
+    expect(mocks.enqueue).not.toHaveBeenCalled();
+    expect(mocks.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("keeps recent-message discovery inside the actor's scoped owners", async () => {
+    rows.push({
+      ...rows[0]!,
+      ownerManagerUserId: "manager-b",
+      conversationKey: "manager-b:prospect:+12065550999",
+      phone: "+12065550999",
+      messages: [{
+        ...rows[0]!.messages[0]!,
+        id: "foreign-inbound",
+        body: "I am interested in the penthouse.",
+      }],
+    });
+
+    const found = await listSmsConversationsTool.handler(ctx, { q: "penthouse", limit: 30 });
+
+    expect(found.count).toBe(0);
+    expect(mocks.enqueue).not.toHaveBeenCalled();
+  });
+
   it("previews without sending, then sends the confirmed prospect text through the manual outbox", async () => {
     const preview = await previewWrite(replyToSmsConversationTool, ctx, input);
     expect(preview.ok).toBe(true);

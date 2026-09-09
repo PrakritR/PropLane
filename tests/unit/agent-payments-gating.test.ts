@@ -94,6 +94,7 @@ function makeFakeDb(charges: HouseholdCharge[]) {
             eq: (col: string, val: unknown) => Chain;
             order: (col: string, opts?: unknown) => Chain;
             limit: (n: number) => Promise<{ data: unknown[]; error: null }> | Chain;
+            maybeSingle: () => Promise<{ data: unknown | null; error: null }>;
             range: (from: number, to: number) => Promise<{ data: unknown[]; error: null }>;
             then: (onFulfilled: (v: { data: unknown[]; error: null }) => unknown) => unknown;
           };
@@ -103,6 +104,7 @@ function makeFakeDb(charges: HouseholdCharge[]) {
             eq: () => builder,
             order: () => builder,
             limit: async () => ({ data: inboxData(), error: null }),
+            maybeSingle: async () => ({ data: null, error: null }),
             range: async (from: number, to: number) => {
               if (table === "portal_household_charge_records") {
                 const page = charges.slice(from, to + 1).map((c) => ({ row_data: c }));
@@ -177,14 +179,14 @@ describe("executeSendRentReminder (same-day dedupe)", () => {
     ]);
 
     const first = await executeSendRentReminder(ctx, "hc_fail");
-    expect(first).toMatchObject({ ok: true, delivery: "email_failed" });
+    expect(first).toMatchObject({ ok: true, delivery: { email: "failed", portal: "skipped", sms: "skipped" } });
     // The failed attempt's dedupe key is cleared so it cannot block a retry.
     expect(auditLog).toHaveLength(1);
     expect(auditLog[0].dedupe_key).toBeNull();
 
     const second = await executeSendRentReminder(ctx, "hc_fail");
-    expect(second).toMatchObject({ ok: true, delivery: "email_failed" });
-    expect(second).not.toMatchObject({ delivery: "already_sent" });
+    expect(second).toMatchObject({ ok: true, delivery: { email: "failed", portal: "skipped", sms: "skipped" } });
+    expect(second).not.toMatchObject({ alreadySent: true });
     expect(auditLog).toHaveLength(2);
   });
 
@@ -202,7 +204,7 @@ describe("executeSendRentReminder (same-day dedupe)", () => {
     expect(inboxThreads).toHaveLength(0);
     expect(auditLog).toHaveLength(2);
     for (const row of auditLog) {
-      expect((row.result_summary as { inboxRecorded: boolean }).inboxRecorded).toBe(false);
+      expect((row.result_summary as { delivery: { portal: string } }).delivery.portal).toBe("skipped");
     }
   });
 
@@ -216,15 +218,15 @@ describe("executeSendRentReminder (same-day dedupe)", () => {
     ]);
 
     const first = await executeSendRentReminder(ctx, "hc_ok");
-    expect(first).toMatchObject({ ok: true, delivery: "emailed" });
-    // A successful send is recorded in the manager's Sent folder.
-    expect(inboxThreads).toHaveLength(1);
-    expect((auditLog[0].result_summary as { inboxRecorded: boolean }).inboxRecorded).toBe(true);
+    expect(first).toMatchObject({ ok: true, delivery: { email: "sent", portal: "skipped", sms: "skipped" } });
+    // A portal inbox requires a resident account; an email-only external address
+    // never becomes a manager-side pseudo-Sent thread.
+    expect(inboxThreads).toHaveLength(0);
 
     const second = await executeSendRentReminder(ctx, "hc_ok");
-    expect(second).toMatchObject({ ok: true, delivery: "already_sent" });
+    expect(second).toMatchObject({ ok: true, alreadySent: true });
     expect(auditLog).toHaveLength(1);
-    expect(inboxThreads).toHaveLength(1);
+    expect(inboxThreads).toHaveLength(0);
   });
 
   it("blocks a duplicate same-day send for portal_only delivery", async () => {
@@ -234,14 +236,14 @@ describe("executeSendRentReminder (same-day dedupe)", () => {
     ]);
 
     const first = await executeSendRentReminder(ctx, "hc_portal");
-    expect(first).toMatchObject({ ok: true, delivery: "portal_only" });
-    // Portal-only delivery still records the Sent thread.
-    expect(inboxThreads).toHaveLength(1);
+    expect(first).toMatchObject({ ok: true, delivery: { email: "skipped", portal: "skipped", sms: "skipped" } });
+    // No address or account can receive a default channel, so a same-day retry remains possible.
+    expect(inboxThreads).toHaveLength(0);
 
     const second = await executeSendRentReminder(ctx, "hc_portal");
-    expect(second).toMatchObject({ ok: true, delivery: "already_sent" });
-    expect(auditLog).toHaveLength(1);
-    expect(inboxThreads).toHaveLength(1);
+    expect(second).not.toMatchObject({ alreadySent: true });
+    expect(auditLog).toHaveLength(2);
+    expect(inboxThreads).toHaveLength(0);
   });
 });
 

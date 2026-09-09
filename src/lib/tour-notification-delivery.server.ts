@@ -9,6 +9,8 @@ import { sendManagerNotificationSms } from "@/lib/manager-notification-routing.s
 import { sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
 import { recordScopedSmsConsent } from "@/lib/sms-consent";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
+import { fetchManagerSmsConversations } from "@/lib/manager-sms-messages.server";
+import { resolveExistingApplicantConversation } from "@/lib/application-lifecycle-sms.server";
 import { shouldSkipOutboundEmail } from "@/lib/portal-sandbox-accounts";
 import {
   resolveManagerRecipientProfiles,
@@ -43,6 +45,14 @@ function textField(row: Record<string, unknown> | null | undefined, key: string)
 
 function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+async function resolveTourManagerIdentity(db: Db, managerUserId: string): Promise<{ email: string; name: string } | null> {
+  const id = managerUserId.trim();
+  if (!id) return null;
+  const { data, error } = await db.from("profiles").select("id, email, full_name").eq("id", id).maybeSingle();
+  const email = String(data?.email ?? "").trim().toLowerCase();
+  return error || !email.includes("@") ? null : { email, name: String(data?.full_name ?? "").trim() || email };
 }
 
 export async function resolvePropertyAddressForTour(
@@ -111,6 +121,39 @@ async function deliverEmail(to: string[], subject: string, text: string, html?: 
   return { sent: true, skipped: false };
 }
 
+export type TourNotificationChannels = {
+  viaEmail?: boolean;
+  viaSms?: boolean;
+};
+
+export type TourNotificationResult = {
+  ok: boolean;
+  skipped?: boolean;
+  error?: string;
+  email: { requested: boolean; sent: boolean; skipped: boolean; error?: string };
+  sms: { requested: boolean; sent: boolean; accepted?: boolean; skipped: boolean; error?: string };
+  inbox: { sent: boolean; error?: string };
+};
+
+function notificationResult(
+  email: TourNotificationResult["email"],
+  sms: TourNotificationResult["sms"],
+  inbox: TourNotificationResult["inbox"] = { sent: false },
+): TourNotificationResult {
+  const smsMissing = sms.requested && !sms.sent && !sms.accepted;
+  const failed = Boolean(email.error || sms.error || smsMissing || inbox.error);
+  return {
+    ok: !failed,
+    skipped: email.skipped && sms.skipped,
+    ...(sms.error || smsMissing || email.error || inbox.error
+      ? { error: sms.error || (smsMissing ? "SMS was not sent." : inbox.error || email.error) }
+      : {}),
+    email,
+    sms,
+    inbox,
+  };
+}
+
 async function upsertInboxThread(
   db: Db,
   input: {
@@ -134,13 +177,13 @@ async function upsertInboxThread(
     }>;
     threadType?: string;
   },
-): Promise<void> {
+): Promise<boolean> {
   const when = formatPacificDateTime(new Date());
   const preview = (input.preview ?? input.body).slice(0, 100).replace(/\n/g, " ");
   const ts = Date.now();
   const rand = Math.random().toString(36).slice(2, 6);
   const threadId = `tour_${input.folder}_${ts}_${rand}`;
-  await db.from("portal_inbox_thread_records").upsert(
+  const { error } = await db.from("portal_inbox_thread_records").upsert(
     {
       id: threadId,
       scope: input.scope,
@@ -165,6 +208,7 @@ async function upsertInboxThread(
     },
     { onConflict: "id" },
   );
+  return !error;
 }
 
 /** Prospect/resident inbox row for tour acks, lead invites, etc. — backfilled on account creation. */
@@ -324,6 +368,13 @@ export async function notifyManagerTourRequest(
   if (recipients.length === 0) return { ok: false, error: "Manager email not found." };
 
   for (const recipient of recipients) {
+    let smsConversationKey: string | undefined;
+    const guestPhone = textField(inquiry as Record<string, unknown>, "phone");
+    if (guestPhone) try {
+      const conversations = await fetchManagerSmsConversations(db, recipient.userId, { scopeManagerIdsOverride: [recipient.userId], provisionWorkNumber: false });
+      const existing = resolveExistingApplicantConversation(conversations.residents, { managerUserId: recipient.userId, applicantPhone: guestPhone, workNumber: conversations.workNumber });
+      if (existing.kind === "matched") smsConversationKey = existing.conversation.conversationKey;
+    } catch { smsConversationKey = undefined; }
     await appendManagerPropertyLeadInboxMessage(db, recipient.userId, {
       propertyId,
       propertyTitle: ctx.propertyTitle || "Property",
@@ -332,6 +383,10 @@ export async function notifyManagerTourRequest(
       topic: "Tour request",
       subject,
       body: text,
+      counterpartyRole: "prospect",
+      outbound: false,
+      messageId: `tour:${textField(inquiry as Record<string, unknown>, "id") || propertyId}:request:${tourStartIso}:${tourEndIso}`,
+      ...(smsConversationKey ? { smsConversationKey } : {}),
     });
   }
 
@@ -373,16 +428,18 @@ async function textTourGuest(args: {
   text: string;
   purpose: string;
   inquiryId: string | null;
-}): Promise<void> {
+  deliveryKey?: string | null;
+}): Promise<TourNotificationResult["sms"]> {
   const phone = (args.guestPhone ?? "").trim();
-  if (!phone || !args.managerUserId) return;
+  if (!phone) return { requested: true, sent: false, skipped: true };
+  if (!args.managerUserId) return { requested: true, sent: false, skipped: true };
   // Carrier compliance (A2P 10DLC / CTIA): a prospect is texted ONLY when they
   // explicitly opted in on the tours-contact form. Absence of a prior STOP is
   // NOT consent — the send-time opt-out ledger fails open (see
   // resident-outbound-sms.server.ts), so the positive opt-in captured with the
   // lead is the load-bearing gate. This does not weaken STOP/HELP handling: a
   // later STOP still supersedes the recorded opt-in in the sms_consent ledger.
-  if (args.smsConsent !== true) return;
+  if (args.smsConsent !== true) return { requested: true, sent: false, skipped: true };
   const conversationKey = buildConversationKey({
     ownerManagerUserId: args.managerUserId,
     role: "prospect",
@@ -398,9 +455,9 @@ async function textTourGuest(args: {
     source: "tour_inquiry_opt_in",
     wordingVersion: "tour-sms-consent-v1",
     evidence: { inquiryId: args.inquiryId },
-  });
-  if (!scoped.ok) return;
-  await sendResidentOutboundSms({
+  }).catch(() => ({ ok: false as const }));
+  if (!scoped.ok) return { requested: true, sent: false, skipped: false, error: "Could not record SMS consent." };
+  const result: { sent: boolean; accepted?: boolean; error?: string } = await sendResidentOutboundSms({
     to: phone,
     text: args.text,
     openThread: {
@@ -411,9 +468,19 @@ async function textTourGuest(args: {
     },
     purpose: args.purpose,
     sendClass: "transactional",
-    dedupeKey: `${args.purpose}_${args.inquiryId ?? conversationKey}`,
+    dedupeKey: `${args.purpose}_${args.deliveryKey ?? args.inquiryId ?? conversationKey}`,
     mirrorToManager: false,
-  }).catch(() => undefined);
+  }).catch((error: unknown) => ({
+    sent: false,
+    error: error instanceof Error ? error.message : "SMS delivery failed.",
+  }));
+  return {
+    requested: true,
+    sent: result.sent,
+    ...(result.accepted ? { accepted: true } : {}),
+    skipped: false,
+    ...(result.error ? { error: result.error } : {}),
+  };
 }
 
 /** Read the explicit SMS opt-in flag persisted alongside a tour inquiry. */
@@ -581,16 +648,18 @@ async function notifyTenantTourChanged(
     previousWindow?: { start: string; end: string };
     reason?: string | null;
     instructions?: string | null;
+    /** Persisted by the real tour mutation; stable across notification retries. */
+    rescheduleGeneration?: string;
+    proposalRecordId?: string;
     subject?: string;
     body?: string;
+    channels?: TourNotificationChannels;
   },
-): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
+): Promise<TourNotificationResult> {
   const row = inquiry as Record<string, unknown>;
   const guestEmail = textField(row, "email");
-  if (!guestEmail || !guestEmail.includes("@")) {
-    return { ok: false, error: "Guest email is required to notify the guest." };
-  }
-
+  const wantsEmail = input.channels?.viaEmail !== false;
+  const wantsSms = input.channels?.viaSms !== false;
   const propertyId = textField(row, "propertyId");
   const propertyAddress = await resolvePropertyAddressForTour(db, propertyId);
   const origin = resolveEmailLinkBaseUrl();
@@ -627,24 +696,25 @@ async function notifyTenantTourChanged(
         input.reason,
       ));
 
-  const { data: guestProfile } = await db.from("profiles").select("id").eq("email", guestEmail).maybeSingle();
-
-  await upsertInboxThread(db, {
-    scope: RESIDENT_INBOX_SCOPE,
-    ownerUserId: (guestProfile?.id as string | null) ?? null,
-    participantEmail: guestEmail,
-    folder: "inbox",
-    fromName: "PropLane Tours",
-    fromEmail: "tours@axis.local",
-    toLine: guestEmail,
-    subject,
-    body: text,
-  });
-
-  const email = await deliverEmail([guestEmail], subject, text);
+  let inboxSent = false;
+  const hasGuestEmail = guestEmail.includes("@");
+  if (hasGuestEmail) {
+    const managerUserId = input.window.managerUserId || textField(row, "managerUserId");
+    const manager = await resolveTourManagerIdentity(db, managerUserId);
+    if (manager && propertyId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
+      participantEmail: guestEmail, managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
+      subject, body: text, counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name,
+      messageId: `tour:${textField(row, "id") || propertyId}:${input.kind}:${input.rescheduleGeneration?.trim() || `${input.previousWindow?.start ?? ""}:${input.previousWindow?.end ?? ""}:${input.window.start}:${input.window.end}`}`,
+    }).then(() => true).catch(() => false);
+  }
+  const email = wantsEmail
+    ? hasGuestEmail
+      ? await deliverEmail([guestEmail], subject, text)
+      : { sent: false, skipped: true, error: "Guest email is required to notify the guest." }
+    : { sent: false, skipped: true };
 
   const listingLink = propertyId ? `${origin}/rent/listings/${propertyId}` : origin;
-  await textTourGuest({
+  const sms: TourNotificationResult["sms"] = wantsSms ? await textTourGuest({
     db,
     managerUserId: input.window.managerUserId || textField(row, "managerUserId"),
     guestEmail,
@@ -652,6 +722,10 @@ async function notifyTenantTourChanged(
     smsConsent: inquirySmsConsent(inquiry),
     purpose: canceled ? "tour_canceled" : "tour_rescheduled",
     inquiryId: textField(row, "id") || null,
+    // Include the predecessor window. A → B → A is a fresh reschedule and
+    // must not be suppressed by the first historical A notification; a retry
+    // of the same B → A operation keeps this exact stable key.
+    deliveryKey: `${textField(row, "id") || "tour"}:${input.rescheduleGeneration?.trim() || `${input.previousWindow?.start ?? ""}:${input.previousWindow?.end ?? ""}:${input.window.start}:${input.window.end}`}`,
     text: canceled
       ? `PropLane: your tour of ${ctx.propertyTitle} on ${formatTourTimeRange(
           input.previousWindow?.start ?? input.window.start,
@@ -660,13 +734,36 @@ async function notifyTenantTourChanged(
       : `PropLane: your tour of ${ctx.propertyTitle} moved to ${formatTourTimeRange(
           input.window.start,
           input.window.end,
-        )}. Details: ${listingLink}. Reply STOP to opt out, HELP for help.`,
-  });
+        )}. Does this new time work for you? Reply YES to confirm or reply with another time that works. Details: ${listingLink}. Reply STOP to opt out, HELP for help.`,
+  }) : { requested: false, sent: false, skipped: true };
+
+  if (!canceled && (sms.sent || sms.accepted)) {
+    const { recordTourRescheduleSmsProposal } = await import("@/lib/tour-reschedule-sms-reply.server");
+    const proposalRecorded = await recordTourRescheduleSmsProposal(db, {
+      managerUserId: input.window.managerUserId || textField(row, "managerUserId"),
+      inquiryId: textField(row, "id"),
+      phone: textField(row, "phone"),
+      start: input.window.start,
+      end: input.window.end,
+      generation: input.rescheduleGeneration,
+      recordId: input.proposalRecordId,
+    }).catch(() => false);
+    if (!proposalRecorded) {
+      sms.error = "SMS was accepted, but its tour confirmation state was not saved.";
+    }
+  }
 
   // `skipped` means "deliberately not sent" (a sandbox address, no mail
   // provider) and reads as "nothing went wrong". A failed send is not that.
-  if (email.error) return { ok: false, skipped: false, error: email.error };
-  return { ok: true, skipped: email.skipped };
+  return notificationResult(
+    { requested: wantsEmail, ...email },
+    sms,
+    inboxSent
+      ? { sent: true }
+      : hasGuestEmail
+        ? { sent: false, error: "PropLane inbox notification was not saved." }
+        : { sent: false },
+  );
 }
 
 export async function notifyTenantTourCanceled(
@@ -677,8 +774,9 @@ export async function notifyTenantTourCanceled(
   window: { start: string; end: string; adminLabel?: string },
   reason?: string | null,
   opts?: { subject?: string; body?: string },
-): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
-  return notifyTenantTourChanged(db, req, inquiry, { kind: "canceled", window, reason, ...opts });
+  channels?: TourNotificationChannels,
+): Promise<TourNotificationResult> {
+  return notifyTenantTourChanged(db, req, inquiry, { kind: "canceled", window, reason, ...opts, channels });
 }
 
 export async function notifyTenantTourRescheduled(
@@ -691,10 +789,13 @@ export async function notifyTenantTourRescheduled(
     previousWindow: { start: string; end: string };
     reason?: string | null;
     instructions?: string | null;
+    rescheduleGeneration?: string;
+    proposalRecordId?: string;
     subject?: string;
     body?: string;
+    channels?: TourNotificationChannels;
   },
-): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
+): Promise<TourNotificationResult> {
   return notifyTenantTourChanged(db, req, inquiry, { kind: "rescheduled", ...input });
 }
 
@@ -706,12 +807,11 @@ export async function notifyTenantTourConfirmed(
   window: { start: string; end: string; managerUserId: string; adminLabel?: string },
   instructions?: string,
   opts?: { subject?: string; body?: string },
-): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
+  channels?: TourNotificationChannels,
+): Promise<TourNotificationResult> {
   const guestEmail = textField(inquiry as Record<string, unknown>, "email");
-  if (!guestEmail || !guestEmail.includes("@")) {
-    return { ok: false, error: "Guest email is required to send tour confirmation." };
-  }
-
+  const wantsEmail = channels?.viaEmail !== false;
+  const wantsSms = channels?.viaSms !== false;
   const propertyId = textField(inquiry as Record<string, unknown>, "propertyId");
   const propertyAddress = await resolvePropertyAddressForTour(db, propertyId);
   const origin = resolveEmailLinkBaseUrl();
@@ -737,25 +837,25 @@ export async function notifyTenantTourConfirmed(
   const text = opts?.body?.trim() || buildTourConfirmedTenantBody(ctx);
   const html = opts?.body?.trim() ? undefined : buildTourConfirmedTenantHtml(ctx);
 
-  const { data: guestProfile } = await db.from("profiles").select("id").eq("email", guestEmail).maybeSingle();
-
-  await upsertInboxThread(db, {
-    scope: RESIDENT_INBOX_SCOPE,
-    ownerUserId: (guestProfile?.id as string | null) ?? null,
-    participantEmail: guestEmail,
-    folder: "inbox",
-    fromName: "PropLane Tours",
-    fromEmail: "tours@axis.local",
-    toLine: guestEmail,
-    subject,
-    body: text,
-  });
-
-  const email = await deliverEmail([guestEmail], subject, text, html);
+  let inboxSent = false;
+  const hasGuestEmail = guestEmail.includes("@");
+  if (hasGuestEmail) {
+    const manager = await resolveTourManagerIdentity(db, window.managerUserId);
+    if (manager && propertyId) inboxSent = await appendResidentPropertyManagerInboxMessage(db, {
+      participantEmail: guestEmail, managerUserId: window.managerUserId, propertyId, propertyTitle: ctx.propertyTitle || propertyId,
+      subject, body: text, counterpartyEmail: manager.email, managerName: manager.name, fromName: manager.name,
+      messageId: `tour:${textField(inquiry as Record<string, unknown>, "id") || propertyId}:confirmed:${window.start}:${window.end}`,
+    }).then(() => true).catch(() => false);
+  }
+  const email = wantsEmail
+    ? hasGuestEmail
+      ? await deliverEmail([guestEmail], subject, text, html)
+      : { sent: false, skipped: true, error: "Guest email is required to send tour confirmation." }
+    : { sent: false, skipped: true };
 
   const guestPhone = textField(inquiry as Record<string, unknown>, "phone") || null;
   const listingLink = propertyId ? `${origin}/rent/listings/${propertyId}` : origin;
-  await textTourGuest({
+  const sms: TourNotificationResult["sms"] = wantsSms ? await textTourGuest({
     db,
     managerUserId: window.managerUserId,
     guestEmail,
@@ -763,11 +863,19 @@ export async function notifyTenantTourConfirmed(
     smsConsent: inquirySmsConsent(inquiry),
     purpose: "tour_confirmed",
     inquiryId: textField(inquiry as Record<string, unknown>, "id") || null,
+    deliveryKey: `${textField(inquiry as Record<string, unknown>, "id") || "tour"}:${window.start}:${window.end}`,
     text: `PropLane: your tour of ${ctx.propertyTitle} is confirmed${
       ctx.tourStartIso ? ` for ${formatTourTimeRange(ctx.tourStartIso, ctx.tourEndIso)}` : ""
     }.${instructions ? ` ${instructions.trim()}` : ""} Reply here with any questions. Details: ${listingLink}. Reply STOP to opt out, HELP for help.`,
-  });
+  }) : { requested: false, sent: false, skipped: true };
 
-  if (email.error) return { ok: true, skipped: true, error: email.error };
-  return { ok: true, skipped: email.skipped };
+  return notificationResult(
+    { requested: wantsEmail, ...email },
+    { ...sms, requested: wantsSms },
+    inboxSent
+      ? { sent: true }
+      : hasGuestEmail
+        ? { sent: false, error: "PropLane inbox notification was not saved." }
+        : { sent: false },
+  );
 }

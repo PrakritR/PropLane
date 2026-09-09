@@ -59,7 +59,14 @@ const lineRe = new RegExp(`^${key}=.*$`, "m");
 if (lineRe.test(text)) {
   text = text.replace(lineRe, `${key}=${origin}`);
 } else {
-  text = text.trimEnd() + (text.endsWith("\n") || text.length === 0 ? "" : "\n") + `${key}=${origin}\n`;
+  // The separator has to be decided from the TRIMMED body, not from `text`: a
+  // well-formed .env.local ends with a newline, trimEnd() takes it off, and
+  // testing the original string then says "already newline-terminated" and adds
+  // nothing. The pin was appended onto the end of the last line, which silently
+  // corrupted that variable AND left no line starting with the key - so the next
+  // run appended again instead of replacing.
+  const body = text.trimEnd();
+  text = body + (body.length === 0 ? "" : "\n") + `${key}=${origin}\n`;
 }
 
 writeFileSync(envPath, text, "utf8");

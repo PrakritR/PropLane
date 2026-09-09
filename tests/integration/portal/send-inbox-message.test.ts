@@ -115,6 +115,20 @@ describe("POST /api/portal/send-inbox-message", () => {
     expect(res.status).toBe(400);
   });
 
+  it("rejects a malformed client send id", async () => {
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user_1", email: "resident@example.com" } } }) },
+    } as never);
+
+    const res = await sendInboxMessage(jsonRequest("http://localhost/api/portal/send-inbox-message", {
+      method: "POST",
+      body: { subject: "Hello", text: "Body", sendId: "reuse-this" },
+    }));
+
+    expect(res.status).toBe(400);
+    await expect(parseJsonResponse(res)).resolves.toMatchObject({ data: { error: "Invalid send id." } });
+  });
+
   it("returns 429 when rate limited", async () => {
     vi.mocked(rateLimit).mockReturnValue({ ok: false } as ReturnType<typeof rateLimit>);
     vi.mocked(createSupabaseServerClient).mockResolvedValue({

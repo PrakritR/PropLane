@@ -2,7 +2,13 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { Pencil, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Pencil, Trash2 } from "lucide-react";
+import { inboxCounterpartyName } from "@/lib/manager-inbox-contacts";
+import { inboxRowAddressLabel } from "@/lib/communication-row-meta";
+import {
+  PortalMessageScheduleFields,
+  defaultScheduleSendAtLocal,
+} from "@/components/portal/portal-message-compose-fields";
 import { Button } from "@/components/ui/button";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import {
@@ -73,6 +79,8 @@ import {
   PortalInboxEmptyState,
   inboxTabEmptyCopy,
   type InboxBubbleMessage,
+  INBOX_THREAD_ICON_BTN,
+  INBOX_THREAD_ICON_BTN_DANGER,
 } from "./portal-inbox-ui";
 import {
   useInboxRowSelection,
@@ -322,6 +330,8 @@ export const ManagerInbox = forwardRef<
     [controlledExpandedId, onControlledExpandedIdChange],
   );
   const [composeOpen, setComposeOpen] = useState(false);
+  const [scheduleLater, setScheduleLater] = useState(false);
+  const [scheduleSendAt, setScheduleSendAt] = useState(() => defaultScheduleSendAtLocal());
   const [workflowWorkOrderOpen, setWorkflowWorkOrderOpen] = useState(false);
   const [workflowServiceOpen, setWorkflowServiceOpen] = useState(false);
   const [workflowMessageText, setWorkflowMessageText] = useState("");
@@ -1495,6 +1505,59 @@ export const ManagerInbox = forwardRef<
       showToast("Wait for uploads to finish.");
       return;
     }
+
+    // Ticked "Schedule for later" — the same press SCHEDULES rather than sends,
+    // so there is one send button and no second way to fire the message.
+    if (scheduleLater) {
+      const sendAt = new Date(scheduleSendAt);
+      if (Number.isNaN(sendAt.getTime())) {
+        showToast("Choose a valid send date and time.");
+        return;
+      }
+      if (sendAt.getTime() < Date.now() - 60_000) {
+        showToast("Send time must be in the future.");
+        return;
+      }
+      setReplySending(true);
+      try {
+        const res = await fetch("/api/portal/scheduled-inbox-messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            senderPortal: "manager",
+            subject: activeThread.subject || `Message for ${activeThread.from || activeThread.email}`,
+            body: text,
+            sendAt: sendAt.toISOString(),
+            recipientEmail: activeThread.email,
+            recipientName: activeThread.from || activeThread.email,
+            deliverViaEmail: replyViaEmail && activeEmailAvailable,
+            deliverViaSms: replyViaSms && activeSmsAvailable,
+          }),
+        });
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+          showToast(payload?.error ?? "Could not schedule message.");
+          return;
+        }
+        // Clear the reply only on success, so a refused schedule never loses
+        // what the manager typed.
+        setReplyDraft("");
+        setReplyAttachments([]);
+        setScheduleLater(false);
+        showToast("Message scheduled.");
+        // Pull the pinned "N scheduled" card back in. Without this the
+        // conversation still shows the OLD count, so a manager who just
+        // scheduled something sees no sign it worked and schedules it twice.
+        reloadScheduled();
+      } catch {
+        showToast("Could not schedule message.");
+      } finally {
+        setReplySending(false);
+      }
+      return;
+    }
+
     setReplySending(true);
     try {
       const outcome = await handleReply(
@@ -1947,8 +2010,9 @@ export const ManagerInbox = forwardRef<
   const threadContactEditButton = canEditThreadContact ? (
     <button
       type="button"
-      className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+      className={INBOX_THREAD_ICON_BTN}
       aria-label="Edit contact details"
+      title="Edit contact details"
       data-attr="inbox-thread-contact-edit"
       onClick={openThreadPhone}
     >
@@ -1956,46 +2020,100 @@ export const ManagerInbox = forwardRef<
     </button>
   ) : null;
 
-  const showThreadHeaderActions = !embeddedInCommunication || externalTitleActions;
+  /*
+   * The thread header carries its OWN conversation controls — edit, archive,
+   * delete. This used to be gated on `externalTitleActions`, a flag meaning
+   * "the page header is carrying them instead", which stopped being true once
+   * Communication's page chrome moved to the title band: the flag read false
+   * here and the header rendered a lone pen with no way to archive.
+   *
+   * The resident-detail chat tab is the one surface that keeps none: it hides
+   * the identity header entirely and archiving there belongs to the inbox.
+   */
+  const showThreadHeaderActions = !embeddedResidentChat;
+
+  /*
+   * The header names the PERSON and then says who they are and where they
+   * live. It used to lead with the raw address on a thread the manager had
+   * sent — "ethan.wright.workflow@test.proplane.local" over "Ethan Wright ·
+   * Application update" — which inverts the two: an address as the headline
+   * and the human as a caption.
+   */
+  const activeThreadTitle = activeThread
+    ? activeIsAssistantThread
+      ? activeThread.from || "PropLane Assistant"
+      : inboxCounterpartyName(activeThread.email, activeIsSent ? null : activeThread.from, filterContacts) ||
+        activeThread.email ||
+        "Unknown sender"
+    : "";
+
+  const activeThreadSubtitle = (() => {
+    if (!activeThread || activeIsAssistantThread) return undefined;
+    const contact = filterContacts?.find(
+      (c) => c.email.trim().toLowerCase() === activeThread.email.trim().toLowerCase(),
+    );
+    // The directory's role union is not the filter's ("manager" vs
+    // "management"), so map rather than cast — a cast would print "PropLane
+    // admin" for a manager.
+    const role =
+      contact?.role === "resident"
+        ? "Resident"
+        : contact?.role === "vendor"
+          ? "Vendor"
+          : contact?.role === "manager"
+            ? "Manager"
+            : null;
+    const parts = [role, inboxRowAddressLabel(contact?.propertyLabel)].filter(Boolean) as string[];
+    if (parts.length > 0) return parts.join(" · ");
+    // Nothing known about them beyond the address they write from — better than
+    // repeating the subject, which the open thread already shows.
+    return activeThread.email || activeThread.subject || undefined;
+  })();
 
   const threadHeaderActions =
     activeThread && showThreadHeaderActions ? (
     activeThread.folder === "trash" ? (
       <>
-        <Button
+        <button
           type="button"
-          variant="outline"
-          className="min-h-0 rounded-full px-3 py-1.5 text-xs"
+          className={INBOX_THREAD_ICON_BTN}
+          aria-label="Restore conversation"
+          title="Restore"
+          data-attr="inbox-thread-restore"
           onClick={() => restoreFromTrash(activeThread.id)}
         >
-          Restore
-        </Button>
-        <Button
+          <ArchiveRestore className="h-4 w-4" aria-hidden />
+        </button>
+        <button
           type="button"
-          variant="outline"
-          className="min-h-0 rounded-full border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-[var(--status-overdue-bg)]"
+          className={INBOX_THREAD_ICON_BTN_DANGER}
+          aria-label="Delete conversation"
+          title="Delete"
+          data-attr="inbox-thread-delete"
           onClick={() => deleteForever(activeThread.id)}
         >
-          Delete
-        </Button>
+          <Trash2 className="h-4 w-4" aria-hidden />
+        </button>
       </>
     ) : (
       <>
+        {/* One row of matching circular controls: edit, archive, delete. */}
         {threadContactEditButton}
-        <Button
+        <button
           type="button"
-          variant="outline"
-          className="min-h-0 rounded-full px-3 py-1.5 text-xs"
+          className={INBOX_THREAD_ICON_BTN}
+          aria-label="Archive conversation"
+          title="Archive"
           data-attr="inbox-thread-archive"
           onClick={() => moveToTrash(activeThread.id)}
         >
-          Archive
-        </Button>
-        {/* Same controls as the text thread header: pen, Archive, delete. */}
+          <Archive className="h-4 w-4" aria-hidden />
+        </button>
         <button
           type="button"
-          className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-danger focus-visible:ring-2 focus-visible:ring-primary/40"
+          className={INBOX_THREAD_ICON_BTN_DANGER}
           aria-label="Delete conversation"
+          title="Delete"
           data-attr="inbox-thread-delete"
           onClick={() => deleteForever(activeThread.id)}
         >
@@ -2044,21 +2162,13 @@ export const ManagerInbox = forwardRef<
 
   const threadPane = activeThread ? (
     <InboxThreadView
-      title={
-        activeIsSent
-          ? activeThread.email || "Unknown recipient"
-          : activeThread.from || activeThread.email || "Unknown sender"
-      }
+      title={activeThreadTitle}
       avatarName={
         activeIsSent
           ? activeThread.email || undefined
           : activeThread.from || activeThread.email || undefined
       }
-      subtitle={
-        activeIsAssistantThread
-          ? undefined
-          : activeThread.subject || (activeIsSent ? undefined : activeThread.email)
-      }
+      subtitle={activeThreadSubtitle}
       messages={activeBubbles}
       alignAssistantStart={activeIsAssistantThread}
       threadKey={activeThread.id}
@@ -2085,6 +2195,10 @@ export const ManagerInbox = forwardRef<
                 onSelect={openInboundWorkflow}
               />
             ) : null}
+            {/* Draft with AI and Ask PropLane sit on ONE row. Each renders its
+                own top border and padding for the standalone panel, so the
+                wrapper neutralises those and owns the row's chrome instead. */}
+            <div className="portal-inbox-compose-actions flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-card px-3.5 pb-1.5 pt-2.5 [&>*]:!m-0 [&>*]:!flex [&>*]:!items-center [&>*]:!border-0 [&>*]:!bg-transparent [&>*]:!p-0">
             {showAiDraftUi ? (
               <AiDraftReplyCard
                 drafting={draftingIds.has(activeThread.id) && !activeThread.aiDraft?.text}
@@ -2097,7 +2211,26 @@ export const ManagerInbox = forwardRef<
                 onApprove={() => void approveActiveDraft()}
                 onDiscard={() => void discardActiveDraft()}
                 channelControl={aiDraftChannelPicker}
-                generateLabel="Draft with AI"
+                /*
+                 * Hand the finished draft to the thread's own reply field
+                 * instead of rendering a second message box beside it.
+                 *
+                 * Only the STANDALONE panel opts out, and only while auto-send
+                 * is armed there: adopting discards the draft, and a discarded
+                 * draft is one the auto-send effect can no longer send.
+                 * Communication offers no auto-send control at all
+                 * (`onAutoSendChange` is undefined below), so gating on the
+                 * flag there just resurrected the two-box shape for anyone
+                 * whose stored preference happened to be on.
+                 */
+                onAdopt={
+                  aiAutoSend && !embeddedInCommunication
+                    ? undefined
+                    : (text) => {
+                        setReplyDraft(text);
+                        void discardActiveDraft();
+                      }
+                }
                 autoSend={aiAutoSend}
                 onAutoSendChange={embeddedInCommunication ? undefined : setAiAutoSend}
                 maxLength={
@@ -2126,6 +2259,17 @@ export const ManagerInbox = forwardRef<
                   : "Communication thread"
               }
             />
+            {inboxThreadHasEmail(activeThread.email) ? (
+              <PortalMessageScheduleFields
+                scheduleLater={scheduleLater}
+                onScheduleLaterChange={setScheduleLater}
+                sendAt={scheduleSendAt}
+                onSendAtChange={setScheduleSendAt}
+                scheduleDataAttr="inbox-thread-schedule-later"
+                sendAtDataAttr="inbox-thread-schedule-at"
+              />
+            ) : null}
+            </div>
             <InboxComposer
               value={replyDraft}
               onChange={setReplyDraft}

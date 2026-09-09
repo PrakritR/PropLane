@@ -614,6 +614,14 @@ stored in the PropLane thread, and personal-cell forwarding stays off during the
 managed-number pilot (it needs its own manager-cell consent scope). Managers
 read those threads in the portal, or ask the agent.
 
+Manager SMS uses its own prompt, so prospect-reply discovery instructions must
+be maintained there as well as in the portal prompt. `list_sms_conversations`
+matches name, email, phone, property and the latest three inbound snippets
+(240 characters each). Snippets are untrusted context. The agent must read the
+chosen exact conversation key before proposing a reply, clarify multiple
+matches, and retain the ordinary pending-action/YES gate. Discovery never
+grants edit access; preview and execution recheck the owner and destination.
+
 The turn body is shared with the resident SMS agent
 (`src/lib/agent/sms-agent-turn.server.ts`) so the write gate, the
 one-open-proposal invariant, and confirmation-before-the-model cannot drift
@@ -716,6 +724,18 @@ specialized transports retain their compatibility helper until migrated. One sha
 `profilePhoneVariants` helper (`sms-consent.ts`) matches un-normalized phone
 columns and is reused by the inbound webhooks so the variant sets cannot drift.
 Coverage: `tests/unit/sms-opt-out-unified.test.ts`.
+
+## Leasing listing facts (SMS and email)
+
+`get_listing_details` in `src/lib/tools/domains/leasing-sms.ts` is the shared
+public fact source for leasing SMS and email. It returns explicit lease terms,
+base room prices, conditional surcharges, utilities, standard-lease deposits,
+and nullable pet policy. A base room price is not a price for every offered
+term. Custom-calendar surcharges apply only when the selected standard-lease
+dates satisfy the canonical billing predicate; standard deposits say nothing
+about short-term deposits. A room's explicit zero deposit overrides the listing.
+Missing or malformed facts stay unknown. Mixed-question replies answer the
+known parts before escalating only the missing information.
 
 ## Historical: Claw Messenger shared line
 
@@ -915,3 +935,27 @@ actions to `leasing`, application review to `applications`, work-order tasks to
 `maintenance`, and rent collection to `payment_reminders`, so the topic-level
 phone choices remain effective. A resident-signature transition also produces
 an immediate leasing reminder for the manager to countersign.
+
+## Approval SMS and durable conversation projection (PRP-446)
+
+Application approval derives its SMS recipient from the authorized stored application and reuses the exact existing prospect/applicant conversation only when owner, recipient phone, provider-message evidence and current work-number pair agree. The selected email/SMS channels remain independent; queued, unknown and failed outcomes are never reported as sent.
+
+`sms_outbox` stores `provider_from_phone` before provider submission and a due conversation-log marker with the accepted SID. The SMS cron repairs pending/failed Communication projections without calling the provider again. Final markers compare the claimed status and due timestamp, so an expired worker cannot overwrite a newer repair. An explicit invalid conversation key is blocked; only an absent legacy key may use trusted outbox identity fallback. Repair inventory, claim and projection failures surface through cron health alerts.
+
+Migration `20260909090000_sms_outbox_conversation_log_repair.sql` is required before running this source. Old rows without a captured submitted sender are excluded from automatic repair. Reconciliation does not infer a historic sender from the current work number.
+
+## Nearby transit facts
+
+Prospect leasing agents use the read-only `get_nearby_transit` tool for BART,
+bus, and general transit questions. The server resolves a scoped listing first,
+then uses stored listing coordinates or its canonical full address. OpenStreetMap
+is the source. Returned distances are approximate straight-line distances within
+the stated search radius. Never infer walking duration, service frequency, or
+current operations. An unavailable or unverified lookup stays unknown and uses
+the existing manager escalation path.
+
+Local development may use the public OpenStreetMap endpoints. Deployed runtimes
+must explicitly set `NOMINATIM_PROVIDER_URL` and `OVERPASS_PROVIDER_URL` to
+managed or self-hosted HTTPS services; missing or unsafe configuration returns
+an honest unavailable result. Caches and request queues are per server process,
+so they are an egress reduction rather than a distributed quota guarantee.

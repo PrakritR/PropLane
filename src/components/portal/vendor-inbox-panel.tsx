@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { appendPortalMessageToAdminInbox } from "@/lib/demo-admin-partner-inbox";
-import { INBOX_TAB_DEFS, InboxBubbleMessage, InboxComposer, InboxReplyChannelPicker, InboxThreadEmpty, InboxThreadView, PortalInboxEmptyState, PortalInboxMessageTable, inboxTabEmptyCopy, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
+import { Archive, ArchiveRestore, MailOpen, Trash2 } from "lucide-react";
+import { INBOX_THREAD_ICON_BTN, INBOX_THREAD_ICON_BTN_DANGER, INBOX_TAB_DEFS, InboxBubbleMessage, InboxComposer, InboxReplyChannelPicker, InboxThreadEmpty, InboxThreadView, PortalInboxEmptyState, PortalInboxMessageTable, inboxTabEmptyCopy, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
 import {
   PortalInboxSelectionToolbar,
   useInboxRowSelection,
@@ -700,34 +701,65 @@ export const VendorInboxPanel = forwardRef<
       // would destroy a live conversation.
       const thread = local.find((t) => t.id === row.id);
       const folder = thread?.folder ?? (tabId === "trash" ? "trash" : "inbox");
+      // One row of matching circular controls, same as the manager's header.
       if (folder === "trash") {
         return (
           <>
-            <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN} onClick={() => restoreFromArchive(row.id)}>
-              Restore
-            </Button>
-            <Button type="button" variant="danger" className={PORTAL_DETAIL_BTN} onClick={() => deleteForever(row.id)}>
-              Delete forever
-            </Button>
+            <button
+              type="button"
+              className={INBOX_THREAD_ICON_BTN}
+              aria-label="Restore conversation"
+              title="Restore"
+              onClick={() => restoreFromArchive(row.id)}
+            >
+              <ArchiveRestore className="h-4 w-4" aria-hidden />
+            </button>
+            <button
+              type="button"
+              className={INBOX_THREAD_ICON_BTN_DANGER}
+              aria-label="Delete conversation"
+              title="Delete forever"
+              onClick={() => deleteForever(row.id)}
+            >
+              <Trash2 className="h-4 w-4" aria-hidden />
+            </button>
           </>
         );
       }
       if (folder === "inbox" && !thread?.unread) {
         return (
           <>
-            <Button type="button" variant="outline" className={PORTAL_DETAIL_BTN} onClick={() => markUnread(row.id)}>
-              Mark unread
-            </Button>
-            <Button type="button" variant="danger" className={PORTAL_DETAIL_BTN} onClick={() => moveToArchive(row.id)}>
-              Archive
-            </Button>
+            <button
+              type="button"
+              className={INBOX_THREAD_ICON_BTN}
+              aria-label="Mark conversation unread"
+              title="Mark unread"
+              onClick={() => markUnread(row.id)}
+            >
+              <MailOpen className="h-4 w-4" aria-hidden />
+            </button>
+            <button
+              type="button"
+              className={INBOX_THREAD_ICON_BTN}
+              aria-label="Archive conversation"
+              title="Archive"
+              onClick={() => moveToArchive(row.id)}
+            >
+              <Archive className="h-4 w-4" aria-hidden />
+            </button>
           </>
         );
       }
       return (
-        <Button type="button" variant="danger" className={PORTAL_DETAIL_BTN} onClick={() => moveToArchive(row.id)}>
-          Archive
-        </Button>
+        <button
+          type="button"
+          className={INBOX_THREAD_ICON_BTN}
+          aria-label="Archive conversation"
+          title="Archive"
+          onClick={() => moveToArchive(row.id)}
+        >
+          <Archive className="h-4 w-4" aria-hidden />
+        </button>
       );
     },
     [local, tabId, moveToArchive, restoreFromArchive, deleteForever, markUnread],
@@ -963,7 +995,7 @@ export const VendorInboxPanel = forwardRef<
                         !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
                       }
                       dataAttr="vendor-inbox-reply"
-                      channelControl={embeddedInCommunication ? undefined : replyChannelPicker}
+                      channelControl={replyChannelPicker}
                       attachments={replyAttachments}
                       onAttachmentsPick={pickReplyAttachments}
                       onAttachmentRemove={(id) => setReplyAttachments((prev) => prev.filter((a) => a.id !== id))}

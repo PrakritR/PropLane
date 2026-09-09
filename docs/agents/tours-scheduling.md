@@ -136,6 +136,14 @@ guest about, missing from the manager's own calendar. "No calendar linked" is
 the calendar toasts it the same way for confirm and cancel. Coverage:
 `tests/unit/tour-confirm-google-sync.test.ts`, `tests/unit/tour-planned-change.test.ts`.
 
+Confirmed, rescheduled, and canceled notices append to the resident's canonical
+manager-and-property Communication thread. Resolve the manager email and label
+from stored records and use a stable lifecycle/window message id. A failed
+canonical append is a notification failure. Manager tour-request notices remain
+portal messages; an exact existing prospect/applicant SMS identity may be
+recorded for unified Communication only after owner, phone, work number, and
+role all match. Never invent an SMS row or provider SID for a portal-only notice.
+
 A PENDING request is moved with a different route:
 `POST /api/portal-tour-inquiries/propose-reschedule` rewrites the requested
 window and emails the guest a *proposal* to confirm
@@ -144,6 +152,23 @@ stays `pending`. It refuses anything that is not a pending `tour` the caller
 owns, and refuses with 409 when `previousStart`/`previousEnd` no longer match the
 stored window, so two managers editing the same request cannot silently overwrite
 each other.
+
+**Guest SMS confirmation is generation-bound.** A reschedule SMS records the
+exact event, window, guest phone, and manager work number that received it in
+`guestRescheduleReply`; only that snapshot may consume a YES. A real planned
+reschedule persists one `rescheduleNotificationGeneration`, and its outbound
+dedupe key uses that generation. Repeated A → B → A → B transitions therefore
+remain distinct while a retry of one persisted move stays idempotent. Alternate-time and
+ambiguous replies create a durable manager Assistant/SMS notice before the
+reply is terminally consumed. If every manager notification channel is
+suppressed or fails, the proposal remains actionable and the guest is not told
+that a manager will follow up.
+
+A pending-inquiry reschedule stores the same reply proposal on the inquiry
+singleton, not the planned-event singleton. YES confirms that the guest accepts
+the proposed window for manager follow-up; it never books the pending inquiry.
+Once a guest notification is accepted, a later reply-state failure leaves the
+persisted window in place and returns a warning rather than rolling it back.
 
 **A manager can also book a tour with no inquiry behind it.**
 `POST /api/portal/manual-tour` → `createManualPlannedTour`

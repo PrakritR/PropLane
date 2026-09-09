@@ -5,6 +5,7 @@ import {
   ResidentManagerNumberCard,
   managerContactCaption,
 } from "@/components/portal/resident-manager-number-card";
+import { resetResidentManagerContactsCache } from "@/hooks/use-resident-manager-contacts";
 
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   // Spread the real module: this file only needs to override demo mode,
@@ -14,7 +15,12 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   isDemoModeActive: () => false,
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // The contact lookup is shared page-wide, so it caches at module level. Each
+  // case stubs a different account's reply and must not read the last one's.
+  resetResidentManagerContactsCache();
+});
 
 function stubContacts(contacts: unknown[]) {
   vi.stubGlobal(
@@ -28,7 +34,7 @@ describe("resident manager number card", () => {
   it("shows the number as a tappable sms link", async () => {
     stubContacts([{ phone: "+12065559000", propertyLabel: "4709A", leaseStart: null, leaseEnd: null, status: "current" }]);
     const { container } = render(<ResidentManagerNumberCard />);
-    await waitFor(() => expect(screen.getByText("Contact your manager")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Your property manager")).toBeTruthy());
     // A tel/sms link so a phone opens its messages app pre-addressed rather
     // than making the resident copy digits off the screen.
     const link = container.querySelector('[data-attr="resident-manager-number-link"]');
@@ -57,6 +63,22 @@ describe("resident manager number card", () => {
     await waitFor(() => expect(screen.getByText("assist-acme@prop-lane.space")).toBeTruthy());
     const link = container.querySelector('[data-attr="resident-manager-email-link"]');
     expect(link?.getAttribute("href")).toBe("mailto:assist-acme@prop-lane.space");
+  });
+
+  it("leads with the manager's name when the profile has one", async () => {
+    stubContacts([
+      {
+        managerName: "Akash Jain",
+        phone: "+12065559000",
+        propertyLabel: "4709A 8th Ave NE",
+        leaseStart: null,
+        leaseEnd: null,
+        status: "current",
+      },
+    ]);
+    render(<ResidentManagerNumberCard />);
+    await waitFor(() => expect(screen.getByText("Akash Jain")).toBeTruthy());
+    expect(screen.getByText("Property Manager · PropLane")).toBeTruthy();
   });
 
   it("labels each number by property only when there are several", async () => {

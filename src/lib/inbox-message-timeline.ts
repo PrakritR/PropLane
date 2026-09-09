@@ -1,4 +1,5 @@
-import { formatPacificDateTime } from "@/lib/pacific-time";
+import { formatPacificDate, formatPacificDateTime } from "@/lib/pacific-time";
+import { isCanonicalInboxStamp, parseInboxStampMs } from "@/lib/portal-inbox-storage";
 import type { InboxBubbleMessage } from "@/components/portal/portal-inbox-ui";
 import type { InboxThreadMessage, PersistedInboxThread } from "@/lib/portal-inbox-storage";
 
@@ -13,7 +14,54 @@ export type InboxTimelineItem =
       showMeta: boolean;
       showChannel: boolean;
       clusterStart: boolean;
+      /** First bubble of an inbound run — the only one that shows an avatar. */
+      showAvatar: boolean;
+    }
+  | {
+      type: "day";
+      key: string;
+      /** "Today", "Yesterday", or the stored stamp's own date part. */
+      label: string;
     };
+
+
+/**
+ * Day key for a stored stamp, in PACIFIC — the same zone every writer stamps in
+ * (`formatInboxStamp`). Reading the day in the viewer's own zone would split one
+ * conversation's evening across two separators for anyone east of Pacific.
+ *
+ * Stored stamps carry no year, so `parseInboxStampMs` infers one. A separator
+ * spanning a year boundary inherits that inference — the same one the list sort
+ * already makes — which is why an unparseable stamp yields no separator at all
+ * rather than a guessed date.
+ */
+function inboxDayKey(at?: string | null): string | null {
+  // Only a stamp this app wrote can be read as a DATE. `parseInboxStampMs` is
+  // lenient on purpose so ordering never collapses, but a lenient read of a
+  // bare "9:00" would print a heading for a day nobody can vouch for.
+  if (!isCanonicalInboxStamp(at)) return null;
+  const ms = parseInboxStampMs(at);
+  if (ms == null) return null;
+  return formatPacificDate(ms, { year: "numeric", month: "2-digit", day: "2-digit" });
+}
+
+/** "Today" / "Yesterday" / "Sep 7, 2024". */
+export function inboxDayLabel(at: string, nowMs: number = Date.now()): string | null {
+  if (!isCanonicalInboxStamp(at)) return null;
+  const ms = parseInboxStampMs(at);
+  if (ms == null) return null;
+  const key = inboxDayKey(at);
+  if (key && key === formatPacificDate(nowMs, { year: "numeric", month: "2-digit", day: "2-digit" })) {
+    return "Today";
+  }
+  if (
+    key &&
+    key === formatPacificDate(nowMs - 86_400_000, { year: "numeric", month: "2-digit", day: "2-digit" })
+  ) {
+    return "Yesterday";
+  }
+  return formatPacificDate(ms, { month: "short", day: "numeric", year: "numeric" });
+}
 
 function clusterPosition(sameDirAsPrev: boolean, sameDirAsNext: boolean): InboxBubbleClusterPosition {
   if (sameDirAsPrev && sameDirAsNext) return "middle";
@@ -29,12 +77,27 @@ export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): Inbox
   const items: InboxTimelineItem[] = [];
   const keyOccurrences = new Map<string, number>();
 
+  let lastDayKey: string | null = null;
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]!;
     const prev = messages[i - 1];
     const next = messages[i + 1];
-    const sameDirAsPrev = prev?.direction === message.direction;
-    const sameDirAsNext = next?.direction === message.direction;
+
+    // A separator both labels the day AND breaks the run above it: without the
+    // break a cluster's rounded corners span the divider, which reads as one
+    // message split in half.
+    const dayKey = inboxDayKey(message.at);
+    const dayChanged = dayKey != null && dayKey !== lastDayKey;
+    if (dayChanged) {
+      const label = inboxDayLabel(message.at);
+      if (label) items.push({ type: "day", key: `day-${dayKey}-${i}`, label });
+      lastDayKey = dayKey;
+    }
+    const nextDayKey = next ? inboxDayKey(next.at) : null;
+    const nextDayChanged = nextDayKey != null && dayKey != null && nextDayKey !== dayKey;
+
+    const sameDirAsPrev = prev?.direction === message.direction && !dayChanged;
+    const sameDirAsNext = next?.direction === message.direction && !nextDayChanged;
     const cluster = clusterPosition(sameDirAsPrev, sameDirAsNext);
     const showMeta = !sameDirAsNext;
     const showChannel = multiChannel && showMeta;
@@ -52,6 +115,7 @@ export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): Inbox
       showMeta,
       showChannel,
       clusterStart: !sameDirAsPrev,
+      showAvatar: !sameDirAsPrev,
     });
   }
 

@@ -1076,6 +1076,7 @@ function ManagerPropertyInlineDetails({
             onPublished={(listingId) => {
               setListingEditorOpen(false);
               onUpdated();
+              showToast(listingFormProps.editListingId ? "Changes saved." : "Listing submitted and published.");
               const published = listingId?.trim();
               if (published) {
                 detailRouter.replace(propertyDetailHref(propertiesBase, "listed", published, "preview"), {
@@ -1084,6 +1085,8 @@ function ManagerPropertyInlineDetails({
               }
             }}
             initialSubmission={listingFormProps.initialSubmission}
+            editListingId={listingFormProps.editListingId}
+            editListingOwnerUserId={listingFormProps.editListingOwnerUserId}
             showToast={showToast}
             userId={managerUserId}
             skuTier={skuTier}

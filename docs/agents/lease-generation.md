@@ -1,5 +1,33 @@
 # Lease generation — agent notes
 
+## Visual lease review
+
+The shared document editor shows the lease directly, with no Visual/HTML tabs
+or raw source editor. Managers edit the rendered document.
+
+`LeaseGenerateModal` gives its document editor an explicit bounded height. The
+shared `LeaseHtmlDirectEditor` also gives the iframe viewport its own height
+floor: an absolutely positioned iframe has no intrinsic height, and a minimum
+height on a distant wrapper does not guarantee a readable document.
+
+The editor reports `onPreviewReady(html)` only after the current document has
+text and a nonzero viewport. Loading/failure reports `null`; Retry reloads the
+same HTML. The generation acknowledgment is tied to that exact document and
+becomes unchecked when its contents change. This is a review affordance, not
+server authorization or proof that a manager read every section. Successful
+generation opens the existing saved-lease detail; sending remains separate.
+
+Keep iframe input listeners alive across unrelated parent renders, and preserve
+the caret when a visual edit is echoed back through props. Sanitize incoming
+HTML before injecting the trusted editor helpers. Preview failure telemetry
+contains a fixed error and a reason enum, never the HTML or the caught exception.
+
+Run `npm run test:lease-preview` for Chromium/WebKit coverage of actual geometry,
+full-document scrolling, editing, template changes, and saved manager/resident
+preview parity. See `tests/browser/lease-preview/README.md`. The jsdom height
+test alone cannot detect a blank viewport. Also smoke-test `/portal/leases` on
+the lane's sandbox with its real assistant rail before handoff.
+
 The lease-generation spec lives in `leases/`:
 
 | File | What it is |
@@ -1852,8 +1880,7 @@ Template changes affect newly generated documents, never executed lease bytes.
 
 ## Manager lease-body edits (P8)
 
-The manager-side lease-pipeline editor is intentionally a small HTML-source editor with a
-side-by-side preview. It is available only for a generated HTML lease in Manager Review,
+The manager-side lease-pipeline editor edits the rendered document directly. It is available only for a generated HTML lease in Manager Review,
 while `leaseAllowsManagerDocumentEdits(row)` is true. Uploaded-template PDFs are excluded:
 their base document plus P6 Terms Rider remains the manager's original agreement bytes.
 
@@ -1904,3 +1931,6 @@ rejects a save that removes or reorders it. P7 must emit those markers around ea
 Deliberately left out: a rich-text editor, arbitrary images/links/embedded documents, and
 editing of uploaded PDFs. The source textarea plus preview keeps the allowed document grammar
 visible and gives the persistence layer one narrow attack surface.
+# Durable lease transition notifications
+
+An accepted lease transition and its action-event delivery intents are persisted in one database transaction. The route supplies the previously read `updated_at`; a stale save returns 409 and cannot overwrite newer signatures. External email, SMS, and inbox delivery occurs only from the retryable action-event worker. This does not alter signature order, signed-body immutability, or per-signature document hashes.

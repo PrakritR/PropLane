@@ -37,28 +37,28 @@ describe("manager-first-listing-onboarding (PRP-396)", () => {
   });
 
   it("needs seed only when slots, drafts, and unlisted are all zero", () => {
-    expect(managerPortfolioNeedsFirstListingSeed({ listingSlots: 0, drafts: 0, unlisted: 0 })).toBe(
+    expect(managerPortfolioNeedsFirstListingSeed({ listingSlots: 0, drafts: 0, unlisted: 0, coManaged: 0 })).toBe(
       true,
     );
-    expect(managerPortfolioNeedsFirstListingSeed({ listingSlots: 0, drafts: 1, unlisted: 0 })).toBe(
+    expect(managerPortfolioNeedsFirstListingSeed({ listingSlots: 0, drafts: 1, unlisted: 0, coManaged: 0 })).toBe(
       false,
     );
-    expect(managerPortfolioNeedsFirstListingSeed({ listingSlots: 1, drafts: 0, unlisted: 0 })).toBe(
+    expect(managerPortfolioNeedsFirstListingSeed({ listingSlots: 1, drafts: 0, unlisted: 0, coManaged: 0 })).toBe(
       false,
     );
-    expect(managerPortfolioNeedsFirstListingSeed({ listingSlots: 0, drafts: 0, unlisted: 1 })).toBe(
+    expect(managerPortfolioNeedsFirstListingSeed({ listingSlots: 0, drafts: 0, unlisted: 1, coManaged: 0 })).toBe(
       false,
     );
   });
 
   it("needs soft onboarding when a draft exists but no listing slot yet", () => {
-    expect(managerNeedsFirstListingOnboarding({ listingSlots: 0, drafts: 1, unlisted: 0 })).toBe(
+    expect(managerNeedsFirstListingOnboarding({ listingSlots: 0, drafts: 1, unlisted: 0, coManaged: 0 })).toBe(
       true,
     );
-    expect(managerNeedsFirstListingOnboarding({ listingSlots: 1, drafts: 1, unlisted: 0 })).toBe(
+    expect(managerNeedsFirstListingOnboarding({ listingSlots: 1, drafts: 1, unlisted: 0, coManaged: 0 })).toBe(
       false,
     );
-    expect(managerNeedsFirstListingOnboarding({ listingSlots: 0, drafts: 1, unlisted: 1 })).toBe(
+    expect(managerNeedsFirstListingOnboarding({ listingSlots: 0, drafts: 1, unlisted: 1, coManaged: 0 })).toBe(
       false,
     );
   });

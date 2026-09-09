@@ -100,6 +100,19 @@ export async function POST(req: Request) {
   const messageSid = String(params.MessageSid ?? "").trim() || null;
   if (!fromPhone || !toPhone) return twimlOk();
 
+  // Real-customer shield: outside production, a text from (or to) a protected
+  // account is acknowledged and dropped. Processing it would file rows and can
+  // trigger an agent auto-reply, and staging runs on a clone of production so
+  // the person on the other end is real.
+  const { isShieldedRecipient } = await import("@/lib/protected-accounts.server");
+  if (
+    (await isShieldedRecipient({ phone: fromPhone })) ||
+    (await isShieldedRecipient({ phone: toPhone }))
+  ) {
+    console.error("protected-accounts: dropped an inbound text on a non-production runtime.");
+    return twimlOk();
+  }
+
   const db = createSupabaseServiceRoleClient();
   const ownedNumber = await resolveOwnedWorkNumber(db, toPhone);
 

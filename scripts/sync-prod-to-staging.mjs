@@ -21,13 +21,14 @@
  * explicitly wants staging reset.
  */
 import { spawnSync } from "node:child_process";
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   PROD_REF,
   STAGING_REF,
   assertCloneEndpoint,
+  buildImportColumnManifestSql,
   rewriteDumpSchema,
 } from "./lib/prod-staging-merge.mjs";
 
@@ -35,6 +36,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SNAPSHOT_DIR = join(ROOT, ".staging-prod-sync");
 const SNAPSHOT_MARK = join(SNAPSHOT_DIR, "last-prod-dump.ok");
 const LIBPQ_BINS = ["/opt/homebrew/opt/libpq/bin", "/usr/local/opt/libpq/bin"];
+const PRIVATE_DUMP_FILES = ["prod-public.sql", "prod-auth.sql", "import-public.sql", "import-auth.sql"];
+
+// Production dumps contain customer and auth data.
+process.umask(0o077);
 
 function hasFlag(name) {
   return process.argv.includes(name);
@@ -93,7 +98,7 @@ function parseExportEnv(text) {
 function cliLoginEnv(ref) {
   const result = spawnSync(
     "npx",
-    ["-y", "supabase@2.116.0", "db", "dump", "--project-ref", ref, "--data-only", "--schema", "public", "--dry-run", "--yes"],
+    ["-y", "supabase@2.117.0", "db", "dump", "--project-ref", ref, "--data-only", "--schema", "public", "--dry-run", "--yes"],
     { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
   const text = `${result.stdout || ""}\n${result.stderr || ""}`;
@@ -209,6 +214,14 @@ function mergeRefresh({ authFile, publicFile }) {
     label: "psql build import schemas",
   });
 
+  runStagingSql({
+    args: ["-c", buildImportColumnManifestSql([
+      { sql: readFileSync(authFile, "utf8") },
+      { sql: readFileSync(publicFile, "utf8") },
+    ])],
+    label: "psql record production dump columns",
+  });
+
   console.log("restoring production dump into import schemas…");
   runStagingSql({
     args: ["-c", "SET ROLE postgres;", "-f", importAuthFile, "-f", importPublicFile],
@@ -223,7 +236,7 @@ function mergeRefresh({ authFile, publicFile }) {
   return report;
 }
 
-function main() {
+export function main() {
   const apply = hasFlag("--apply");
   const fullReplace = hasFlag("--full-replace");
   const stagingEnv = { ...readEnvFile(".env.staging.local"), ...process.env };
@@ -255,7 +268,7 @@ function main() {
       "dry-run complete. --apply merges (staging-only rows kept); " +
         "--apply --full-replace wipes staging first.",
     );
-    process.exit(0);
+    return;
   }
 
   if (fullReplace) {
@@ -274,6 +287,15 @@ function main() {
   }
 
   writeFileSync(SNAPSHOT_MARK, `${new Date().toISOString()}\n`);
+  const freshnessFile = process.env.STAGING_SYNC_FRESHNESS_FILE?.trim();
+  if (freshnessFile) {
+    writeFileSync(freshnessFile, `${JSON.stringify({
+      completedAt: new Date().toISOString(),
+      sourceProject: PROD_REF,
+      targetProject: STAGING_REF,
+      mode: fullReplace ? "full-replace" : "incremental-merge",
+    }, null, 2)}\n`, { mode: 0o600 });
+  }
   console.log(
     fullReplace
       ? "staging replaced from production. Snapshot marked."
@@ -281,9 +303,17 @@ function main() {
   );
 }
 
+export function cleanupPrivateDumpFiles() {
+  // The durable merge baseline lives in staging's snapshot schemas. Local SQL
+  // files are sensitive scratch data and are removed on success and failure.
+  for (const file of PRIVATE_DUMP_FILES) rmSync(join(SNAPSHOT_DIR, file), { force: true });
+}
+
 try {
   main();
 } catch (error) {
   console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
+  process.exitCode = 1;
+} finally {
+  cleanupPrivateDumpFiles();
 }

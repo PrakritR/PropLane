@@ -3,8 +3,9 @@ import type { DemoApplicantRow } from "@/data/demo-portal";
 import { track } from "@/lib/analytics/posthog";
 import { notifyApplicantApplicationSms } from "@/lib/application-lifecycle-sms.server";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
+import { linkedOwnerScopeForModule, linkedPropertyIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import { canManageResidentApproval, setResidentApprovalForManager } from "@/lib/resident-approval.server";
+import { resolveResidentScopedActorRole } from "@/lib/auth/resident-role-access";
 import { normalizeApplicationAxisId } from "@/lib/manager-applications-storage";
 import { isWithdrawnApplicationRow } from "@/lib/rental-application/resident-application-list";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -20,6 +21,15 @@ type WithdrawnLookup = {
   stored: DemoApplicantRow | null;
   storedId: string;
   matchedBy: "id" | "email";
+};
+
+type StoredApprovalApplication = {
+  id: string;
+  resident_email: string | null;
+  manager_user_id: string | null;
+  property_id: string | null;
+  assigned_property_id: string | null;
+  row_data: DemoApplicantRow | null;
 };
 
 function normalizeEmail(value: unknown): string {
@@ -47,9 +57,9 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    let body: { email?: unknown; approved?: unknown; applicationId?: unknown };
+    let body: { email?: unknown; approved?: unknown; applicationId?: unknown; notifySms?: unknown; notifyEmail?: unknown };
     try {
-      body = (await req.json()) as { email?: unknown; approved?: unknown; applicationId?: unknown };
+      body = (await req.json()) as { email?: unknown; approved?: unknown; applicationId?: unknown; notifySms?: unknown; notifyEmail?: unknown };
     } catch {
       return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
@@ -57,6 +67,9 @@ export async function PATCH(req: Request) {
     const email = normalizeEmail(body.email);
     const approved = typeof body.approved === "boolean" ? body.approved : null;
     const applicationId = typeof body.applicationId === "string" ? body.applicationId.trim() : "";
+    const notifySms = body.notifySms === true;
+    // This selection changes only truthful copy; identity and authorization stay server-derived.
+    const notifyEmail = body.notifyEmail === true;
     if (!email || approved == null) {
       return NextResponse.json({ error: "Email and approved are required." }, { status: 400 });
     }
@@ -72,13 +85,67 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: requestorError?.message ?? "Profile not found." }, { status: 403 });
     }
 
+    // The shared resolver consults profile_roles and applies active-portal
+    // semantics for multi-role accounts. Never branch on profiles.role alone.
+    const actorRole = await resolveResidentScopedActorRole(svc, {
+      userId: user.id,
+      legacyRole: requestor.role,
+    });
+    const actorIsResident = actorRole === "resident";
+    const actorCanManage = canManageResidentApproval(actorRole);
+    const actorIsAdmin = actorRole === "admin" || (await isAdminUser(user.id));
+
     const requestorEmail = normalizeEmail(requestor.email);
-    if (requestor.role === "resident") {
+    if (actorIsResident) {
       if (requestorEmail !== email) {
         return NextResponse.json({ error: "Residents may only update their own access status." }, { status: 403 });
       }
-    } else if (!canManageResidentApproval(requestor.role)) {
+    } else if (!actorCanManage) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
+
+    let notificationApplication: StoredApprovalApplication | null = null;
+
+    // A selected approval SMS must be derived from the exact stored application.
+    // Request email and id identify the operation but never select a recipient,
+    // phone, owner, or co-manager scope for a notification.
+    if (!actorIsResident && approved && notifySms) {
+      if (!applicationId) {
+        return NextResponse.json({ error: "An application id is required to send an approval text." }, { status: 400 });
+      }
+      const { data, error } = await svc
+        .from("manager_application_records")
+        .select("id, resident_email, manager_user_id, property_id, assigned_property_id, row_data")
+        .in("id", idVariants(applicationId))
+        .limit(1)
+        .maybeSingle();
+      if (error) return NextResponse.json({ error: "Could not verify the application for SMS." }, { status: 500 });
+      const stored = data as StoredApprovalApplication | null;
+      if (!stored || normalizeEmail(stored.resident_email) !== email) {
+        return NextResponse.json({ error: "The application does not match this applicant." }, { status: 403 });
+      }
+      if (stored.row_data?.bucket !== "approved" || isWithdrawnApplicationRow(stored.row_data)) {
+        return NextResponse.json({ error: "The stored application is not approved for notification." }, { status: 409 });
+      }
+      const ownerId = String(stored.manager_user_id ?? "").trim();
+      let allowed = actorIsAdmin || ownerId === user.id;
+      if (!allowed) {
+        const [applicationScope, residentScope] = await Promise.all([
+          linkedOwnerScopeForModule(svc, user.id, "applications", "edit"),
+          linkedOwnerScopeForModule(svc, user.id, "residents", "edit"),
+        ]);
+        const propertyIds = new Set<string>([...applicationScope.propertyIds, ...residentScope.propertyIds]);
+        const ownerIds = new Set<string>([...applicationScope.ownerIds, ...residentScope.ownerIds]);
+        const propertyId = String(stored.property_id ?? "").trim();
+        const assignedPropertyId = String(stored.assigned_property_id ?? "").trim();
+        allowed = ownerIds.has(ownerId) && Boolean(
+          (propertyId && propertyIds.has(propertyId)) || (assignedPropertyId && propertyIds.has(assignedPropertyId)),
+        );
+      }
+      if (!allowed || !ownerId) {
+        return NextResponse.json({ error: "Forbidden: application is not in your portfolio." }, { status: 403 });
+      }
+      notificationApplication = stored;
     }
 
     // Money-path guard (defense in depth — the manager UI already hides Approve for
@@ -97,7 +164,7 @@ export async function PATCH(req: Request) {
     // or co-manages (an unrelated landlord's withdrawal must never reject this
     // manager's legitimate approval). A query error fails CLOSED (matching
     // `resolveApplicationWriteOwner`).
-    if (requestor.role !== "resident" && approved) {
+    if (!actorIsResident && approved) {
       const loadById = async (): Promise<WithdrawnLookup> => {
         const { data, error } = await svc
           .from("manager_application_records")
@@ -125,7 +192,7 @@ export async function PATCH(req: Request) {
         if (error) return { error: true, stored: null, storedId: "", matchedBy: "email" };
         const records = data ?? [];
         const resolved = async () => {
-          if (requestor.role === "admin") return records[0] ?? null;
+          if (actorIsAdmin) return records[0] ?? null;
           const owned = records.find((record) => String(record.manager_user_id ?? "") === user.id);
           if (owned) return owned;
           const [appIds, resIds] = await Promise.all([
@@ -177,7 +244,7 @@ export async function PATCH(req: Request) {
       }
     }
 
-    if (requestor.role === "resident") {
+    if (actorIsResident) {
       // Residents may only touch their own row — updated by id, never by email.
       const { error } = await svc
         .from("profiles")
@@ -190,8 +257,7 @@ export async function PATCH(req: Request) {
       // Non-admin managers may only update residents in their own portfolio —
       // enforced inside the shared lib the agent's set_resident_approval tool
       // also runs through, so there is one implementation of that check.
-      const isAdmin = requestor.role === "admin" || (await isAdminUser(user.id));
-      const result = await setResidentApprovalForManager(svc, { userId: user.id, isAdmin }, { email, approved });
+      const result = await setResidentApprovalForManager(svc, { userId: user.id, isAdmin: actorIsAdmin }, { email, approved });
       if (!result.ok) {
         return NextResponse.json({ error: result.error }, { status: result.status });
       }
@@ -200,7 +266,7 @@ export async function PATCH(req: Request) {
     // Manager deny → PropLane SMS. Approvals are covered by the welcome + assistant intro.
     // Scoped to the ACTING manager's own application row (never another
     // landlord's data) and deduped so approve/deny toggling can't re-text.
-    if (requestor.role !== "resident" && !approved) {
+    if (!actorIsResident && !approved) {
       try {
         const { data: appRow } = await svc
           .from("manager_application_records")
@@ -256,8 +322,41 @@ export async function PATCH(req: Request) {
       }
     }
 
+    let sms: { sms: "submitted" | "queued" | "unknown" | "skipped" | "failed"; error?: string } | undefined;
+    if (notificationApplication) {
+      const row = notificationApplication.row_data;
+      const applicantPhone = String(row?.application?.phone ?? "").trim() || null;
+      const notificationRow = row as (DemoApplicantRow & { propertyTitle?: string | null; assignedRoomTitle?: string | null }) | null;
+      const room = String(notificationRow?.assignedRoomTitle ?? "").trim();
+      const propertyTitle = [String(notificationRow?.propertyTitle ?? row?.property ?? "").trim(), room].filter(Boolean).join(" · ") || null;
+      try {
+        const outcome = await notifyApplicantApplicationSms(svc, {
+          event: "approved",
+          applicantEmail: normalizeEmail(notificationApplication.resident_email),
+          applicantPhone,
+          applicantName: row?.name || row?.application?.fullLegalName || null,
+          propertyTitle,
+          axisId: String(notificationApplication.id),
+          managerUserId: String(notificationApplication.manager_user_id),
+          fromNumber: String(requestor.sms_from_number ?? "").trim() || null,
+          dedupeKey: `application_approved_sms_${String(notificationApplication.manager_user_id)}_${String(notificationApplication.id)}`,
+          setupEmailSelected: notifyEmail,
+        });
+        const status = String(outcome.outboxStatus ?? "");
+        sms = outcome.sent
+          ? { sms: "submitted" }
+          : outcome.accepted && ["queued", "deferred"].includes(status)
+            ? { sms: "queued", ...(outcome.error ? { error: outcome.error } : {}) }
+            : outcome.accepted && status === "unknown"
+              ? { sms: "unknown", error: "The text was accepted for delivery, but its final outcome is not yet known." }
+              : { sms: "failed", ...(outcome.error ? { error: outcome.error } : {}) };
+      } catch {
+        sms = { sms: "failed", error: "The approval text could not be sent." };
+      }
+    }
+
     track("resident_approval_updated", user.id, { approved });
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, ...(sms ? { sms } : {}) });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to sync resident approval." },

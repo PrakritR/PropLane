@@ -140,6 +140,7 @@ import {
   buildProspectLinksTool,
   escalateLeasingToManagerTool,
   getListingDetailsTool,
+  getNearbyTransitTool,
   getSiteLinksTool,
   listLiveListingsTool,
 } from "./domains/leasing-sms";
@@ -331,6 +332,7 @@ export const vendorWorkOrderAgentRegistry = buildRegistry([
 export const leasingSmsAgentRegistry = buildRegistry([
   listLiveListingsTool,
   getListingDetailsTool,
+  getNearbyTransitTool,
   buildProspectLinksTool,
   getSiteLinksTool,
   escalateLeasingToManagerTool,
