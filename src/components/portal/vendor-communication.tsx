@@ -236,23 +236,28 @@ function VendorUnifiedInbox({
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <VendorWorkNumberCard onTellManagers={onAddConversation} />
-      <InboxListSegmentRail commBase={commBase} listSegment={listSegment} />
-      <div className="shrink-0 px-3 pb-1 pt-3">
-        <Input
-          type="search"
-          value={searchQuery}
-          onChange={(e) => onSearchQueryChange(e.target.value)}
-          placeholder="Search messages"
-          aria-label="Search messages"
-          className="h-10 min-h-10 rounded-lg"
-          data-attr="vendor-inbox-search"
-        />
-      </div>
-      {merged.length > 0 && searchQuery.trim() ? (
-        <p className="mb-2 hidden shrink-0 px-1 text-[11px] text-muted sm:block">
-          {merged.length} conversation{merged.length === 1 ? "" : "s"} matching “{searchQuery.trim()}”
-        </p>
-      ) : null}
+      <InboxListSegmentRail
+        commBase={commBase}
+        listSegment={listSegment}
+        trailing={
+          merged.length > 0 ? (
+            <p className="whitespace-nowrap text-[11px] text-muted">
+              {merged.length} conversation{merged.length === 1 ? "" : "s"}
+            </p>
+          ) : null
+        }
+        search={
+          <Input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => onSearchQueryChange(e.target.value)}
+            placeholder="Search messages"
+            aria-label="Search messages"
+            className="h-8 min-h-8 rounded-lg text-[13px]"
+            data-attr="vendor-inbox-search"
+          />
+        }
+      />
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
         {merged.length === 0 ? (
           searchQuery.trim() ? (

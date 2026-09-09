@@ -27,7 +27,6 @@ import {
   InboxListSegmentRail,
   InboxThreadEmpty,
   InboxTwoPane,
-  PORTAL_INBOX_LIST_TOOLBAR_CLASS,
   PortalInboxEmptyState,
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
@@ -766,31 +765,30 @@ export function ManagerUnifiedInbox({
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <ManagerWorkNumberCard onTellResidents={onAddConversation} />
-      <InboxListSegmentRail commBase={commBase} listSegment={listSegment} />
-      {listChrome === "internal" ? (
-        <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
-          <div className="relative min-w-0">
+      <InboxListSegmentRail
+        commBase={commBase}
+        listSegment={listSegment}
+        trailing={
+          listRows.length > 0 ? (
+            <p className="whitespace-nowrap text-[11px] text-muted">
+              {listRows.length} conversation{listRows.length === 1 ? "" : "s"}
+            </p>
+          ) : null
+        }
+        search={
+          listChrome === "internal" ? (
             <input
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search contacts or messages"
-              className="portal-inbox-search h-9 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+              placeholder="Search messages"
+              aria-label="Search contacts or messages"
+              className="portal-inbox-search h-8 w-full rounded-lg border border-border bg-background px-2.5 text-[13px] outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
               data-attr="unified-inbox-search"
             />
-          </div>
-          {listRows.length > 0 ? (
-            <p className="hidden px-1 text-[11px] text-muted sm:block">
-              {listRows.length} conversation{listRows.length === 1 ? "" : "s"}
-              {query.trim() ? ` matching “${query.trim()}”` : ""}
-            </p>
-          ) : null}
-        </div>
-      ) : listRows.length > 0 && query.trim() ? (
-        <p className="mb-2 hidden px-1 text-[11px] text-muted sm:block">
-          {listRows.length} conversation{listRows.length === 1 ? "" : "s"} matching “{query.trim()}”
-        </p>
-      ) : null}
+          ) : null
+        }
+      />
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
         {!isClient ? (
           <div className="min-h-[12rem]" aria-hidden />
