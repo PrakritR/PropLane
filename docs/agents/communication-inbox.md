@@ -3,6 +3,28 @@
 Moved out of the root `AGENTS.md` to keep it loadable; this is the
 authoritative copy. Read it before changing code in this area.
 
+## SMS notices while the SMS panel is hidden
+
+`upsertManagerInboxNotice` stores one thread per mailbox owner and normalized
+counterparty phone. It appends with optimistic concurrency checks and supports
+message-id deduplication. `rootAt` preserves the first turn's time independently
+of the conversation's latest stamp.
+
+Namespace the delivery id per producer (`relay_`, `resident_`, `leasing_`). One
+inbound text can be mirrored by two producers that share its Twilio SID, so a
+bare SID makes the second mirror look like a retry of the first and it is
+dropped.
+
+Historical `claw_lease_*` / `claw_resident_*` notices are folded on reads using
+server-projected ownership plus an explicit phone label. Never infer phone
+identity from message text or a contact name. This notice grouping does not
+change the role-scoped SMS transport keys or authorize cross-person email links.
+
+Mailbox actions on these server-owned SMS threads update state only; they cannot
+replace message history from a stale browser snapshot. Archive, restore, and
+delete derive historical members from the authorized stored owner and phone,
+not client-provided member ids. Live and archived members are kept separate.
+
 ## Inbox panels: the standalone page shell is a /demo-only path
 
 `ManagerInbox` (and the resident / vendor / admin inbox panels, which share the

@@ -97,6 +97,37 @@ baseline. They are not junk — dropping them costs the merge its memory of what
 production looked like last time, which turns the next refresh into
 "insert/update everything, delete nothing".
 
+### Refresh cadence and external calendar isolation
+
+The `Refresh staging data` workflow runs at `00:23` and `12:23` UTC, plus
+manual dispatch. Check successful runs and their `staging-sync-freshness-*`
+artifacts; a configured cron is not proof of a successful refresh. The job needs
+`SUPABASE_ACCESS_TOKEN` in the `staging-data-sync` GitHub environment.
+
+The merge compares entire database rows, not elements within JSON arrays, so
+the staging-only guarantee applies per primary key. A row whose payload is one
+list many writers append to therefore has no element-level conflict resolution:
+production wins the whole row and every staging entry inside it is gone.
+
+`portal_schedule_records` holds `axis_admin_planned_events_v1`, one row carrying
+the planned-events array for every manager, which is exactly that shape. It is
+listed in `staging_owned_rows` in `scripts/lib/staging-merge-apply.sql`:
+production never overwrites or deletes it, so tours QA plans on staging survive
+each refresh. Staging still receives the row on a database that lacks it.
+Add to that list only for another shared singleton of the same shape; for an
+ordinary row, production-wins is the correct rule.
+
+Google Calendar OAuth connections carry `projectRef`, stamped when saved.
+Staging rejects unmarked legacy credentials and credentials from another project
+before decryption or provider access. Existing production connections remain
+valid. Reconnect explicitly on staging using a QA calendar account; importing
+production rows must never authorize use of production's calendar connection.
+
+On 2026-09-09, all five connected staging calendars matched the production
+snapshot's refresh tokens. They were disabled on staging only. The deployed
+browser bundle was independently verified to target `xwszcafaontidfgznlxd`.
+The durable project-binding guard is part of the staging isolation keeper.
+
 ### Signing in to staging
 
 The refresh clones the whole `auth` schema, `encrypted_password` included, so
