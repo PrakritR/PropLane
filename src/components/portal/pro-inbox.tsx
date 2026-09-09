@@ -2097,7 +2097,19 @@ export const ManagerInbox = forwardRef<
                 onApprove={() => void approveActiveDraft()}
                 onDiscard={() => void discardActiveDraft()}
                 channelControl={aiDraftChannelPicker}
-                generateLabel="Draft with AI"
+                // Hand the finished draft to the thread's own reply field
+                // instead of rendering a second message box beside it. Skipped
+                // while auto-send is armed: adopting discards the draft, and a
+                // discarded draft is one the auto-send effect can no longer
+                // send.
+                onAdopt={
+                  aiAutoSend
+                    ? undefined
+                    : (text) => {
+                        setReplyDraft(text);
+                        void discardActiveDraft();
+                      }
+                }
                 autoSend={aiAutoSend}
                 onAutoSendChange={embeddedInCommunication ? undefined : setAiAutoSend}
                 maxLength={

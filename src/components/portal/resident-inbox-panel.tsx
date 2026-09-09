@@ -1539,7 +1539,18 @@ export const ResidentInboxPanel = forwardRef<
             onApprove={() => void approveResidentAiDraft()}
             onDiscard={discardResidentAiDraft}
             onGenerate={() => void requestResidentAiDraft()}
-            generateLabel="Draft with AI"
+            // Hand the finished draft to the thread's own reply field instead
+            // of rendering a second message box beside it. Skipped while
+            // auto-send is armed: adopting discards the draft, and a discarded
+            // draft is one the auto-send effect can no longer send.
+            onAdopt={
+              autoSend
+                ? undefined
+                : (text) => {
+                    setReplyDraft(text);
+                    discardResidentAiDraft();
+                  }
+            }
             channelControl={showReplyChannelPicker ? replyChannelPicker : undefined}
             autoSend={autoSend}
             onAutoSendChange={setAutoSend}

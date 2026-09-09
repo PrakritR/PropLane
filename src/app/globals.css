@@ -2523,6 +2523,17 @@ html[data-native] [class*="PORTAL_SECTION_SURFACE"] {
     border-radius: 0.75rem;
   }
 
+  /* `panes="split"` moves the card off the root and onto each pane, so the
+     radius has to follow it or the mobile cards keep the desktop radius. */
+  .portal-communication-inbox .portal-inbox-two-pane[data-panes="split"] {
+    border-radius: 0;
+  }
+
+  .portal-communication-inbox .portal-inbox-two-pane[data-panes="split"] .portal-inbox-list-pane,
+  .portal-communication-inbox .portal-inbox-two-pane[data-panes="split"] .portal-inbox-thread-pane {
+    border-radius: 0.75rem;
+  }
+
   /* G3 — keep the assistant FAB bottom-right without overlapping the send button. */
   .portal-communication-inbox .portal-inbox-composer-row {
     padding-right: 3.25rem;
@@ -2924,6 +2935,18 @@ html[data-communication-surface] .portal-inbox-thread-pane > * {
   html[data-communication-thread-reading] .portal-communication-inbox .portal-inbox-two-pane {
     border-radius: 0;
     border-bottom-width: 0;
+    margin-bottom: 0;
+    box-shadow: none;
+  }
+
+  /* Same full-bleed, now that the card lives on the pane. Without this a
+     rounded, shadowed, bordered card floats over the bottom nav while reading. */
+  html[data-communication-thread-reading]
+    .portal-communication-inbox
+    .portal-inbox-two-pane[data-panes="split"]
+    .portal-inbox-thread-pane {
+    border-radius: 0;
+    border-width: 0;
     margin-bottom: 0;
     box-shadow: none;
   }
@@ -3446,6 +3469,31 @@ html[data-native] [data-listing-sections-root] {
 html[data-native] [data-listing-subnav] {
   width: 100%;
   max-width: 100vw;
+}
+
+/*
+ * Communication puts Filter and New message at the FAR RIGHT of the title row.
+ * PortalPageTitleBand left-aligns its action slot by house convention
+ * (Properties, Applications and every other section depend on that), so this is
+ * scoped to the Communication surface rather than changed in the component — a
+ * global flip would re-lay-out every portal section.
+ *
+ * Desktop ONLY. Below `lg` the band gives the slot `flex-1` and lets the
+ * buttons shrink to fit; pinning them to `flex: 0 0 auto` there pushed
+ * "New message" clean off the right edge of a 390px screen.
+ */
+@media (min-width: 1024px) {
+  html[data-communication-surface] [data-slot="portal-page-title-band"] > [data-portal-action-slot] {
+    margin-left: auto;
+    flex: 0 0 auto;
+    justify-content: flex-end;
+  }
+
+  html[data-communication-surface] [data-slot="portal-page-title-band"] > [data-portal-action-slot] > * {
+    flex: 0 0 auto;
+    width: auto;
+    justify-content: flex-end;
+  }
 }
 
 .portal-inbox-bubble-wrap {

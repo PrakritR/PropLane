@@ -6,8 +6,8 @@ import {
   selectCommunicationThreadUrl,
 } from "@/lib/portal-communication-nav";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
+import { ManagerWorkNumberCard } from "@/components/portal/pro-work-number-card";
 import { ManagerSmsPanel, type ManagerSmsPanelHandle } from "@/components/portal/pro-sms-panel";
-import { DestinationNav } from "@/components/ui/destination-nav";
 import {
   CommunicationInboxRowCheckbox,
   CommunicationListBulkBar,
@@ -25,12 +25,18 @@ import {
   INBOX_LIST_SCROLL,
   InboxConversationListAddRow,
   InboxConversationRow,
+  InboxListSegmentRail,
   InboxThreadEmpty,
   InboxTwoPane,
   PORTAL_INBOX_LIST_TOOLBAR_CLASS,
   PortalInboxEmptyState,
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
+import {
+  inboxRowAddressLabel,
+  inboxThreadCategoryLabel,
+  inboxThreadUnreadCount,
+} from "@/lib/communication-row-meta";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import { isPropLaneAssistantInboxThread } from "@/lib/communication-inbox-assistant";
 import {
@@ -463,6 +469,15 @@ export function ManagerUnifiedInbox({
         previewPrefix: lastOutbound ? "You: " : undefined,
         time: t.time,
         unread: t.folder === "inbox" && t.unread,
+        unreadCount: inboxThreadUnreadCount(t),
+        // The house comes from the contact directory this panel already loads
+        // for its compose and filter pickers, joined by email. Nothing on the
+        // thread itself carries a property.
+        address: inboxRowAddressLabel(
+          filterContacts?.find((c) => c.email?.trim().toLowerCase() === t.email?.trim().toLowerCase())
+            ?.propertyLabel,
+        ),
+        category: inboxThreadCategoryLabel(t),
         // Sort on the SAME field the row is labelled with. `lastMsg.at` is the
         // raw stamp its writer happened to build; only `thread.time` is
         // normalized (`appendReplyToInboxThread` advances it to the latest
@@ -743,23 +758,10 @@ export function ManagerUnifiedInbox({
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <ManagerWorkNumberCard onTellResidents={onAddConversation} />
+      <InboxListSegmentRail commBase={commBase} listSegment={listSegment} />
       {listChrome === "internal" ? (
         <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
-          <DestinationNav
-            items={[
-              { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
-              {
-                id: "archived",
-                label: "Archived",
-                href: `${commBase}/archived`,
-                dataAttr: "communication-segment-archived",
-              },
-            ]}
-            activeId={listSegment === "unread" ? "active" : listSegment}
-            ariaLabel="Conversation folders"
-            size="toolbar"
-            className="mb-2 gap-0.5 rounded-xl border-0 bg-transparent p-0"
-          />
           <div className="relative min-w-0">
             <input
               type="search"
@@ -818,6 +820,9 @@ export function ManagerUnifiedInbox({
               previewPrefix={row.previewPrefix}
               time={row.time}
               unread={row.unread}
+              unreadCount={row.unreadCount}
+              address={row.address}
+              category={row.category}
               selected={selectedKey === row.key}
               onOpen={() => {
                 setSelectedKey(row.key);
@@ -927,11 +932,12 @@ export function ManagerUnifiedInbox({
   return (
     <>
       <InboxTwoPane
+        panes="split"
         heightMode="viewport"
         fillViewport={threadOpen}
         fillParent
         mobileCompact
-        className="min-h-0 flex-1 max-md:rounded-xl max-md:shadow-[var(--shadow-sm)]"
+        className="min-h-0 flex-1"
         threadOpen={threadOpen}
         list={listPane}
         thread={threadPane}

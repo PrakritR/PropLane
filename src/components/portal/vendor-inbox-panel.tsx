@@ -963,7 +963,7 @@ export const VendorInboxPanel = forwardRef<
                         !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
                       }
                       dataAttr="vendor-inbox-reply"
-                      channelControl={embeddedInCommunication ? undefined : replyChannelPicker}
+                      channelControl={replyChannelPicker}
                       attachments={replyAttachments}
                       onAttachmentsPick={pickReplyAttachments}
                       onAttachmentRemove={(id) => setReplyAttachments((prev) => prev.filter((a) => a.id !== id))}

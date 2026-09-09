@@ -66,11 +66,11 @@ afterEach(() => {
 });
 
 describe("resident conversation inbox", () => {
-    it("shows Active and Archived segments like the property portal", async () => {
+    it("shows Conversations and Archived segments like the property portal", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
     render(<ResidentCommunication />);
 
-    expect(screen.getByRole("link", { name: /^Active$/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /^Conversations$/i })).toBeTruthy();
     expect(screen.getByRole("link", { name: /Archived/i })).toBeTruthy();
     expect(screen.queryByRole("link", { name: /Unread/i })).toBeNull();
     await waitFor(() => expect(screen.getByText("Property manager")).toBeTruthy());

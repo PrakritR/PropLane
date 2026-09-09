@@ -327,7 +327,7 @@ describe("unified conversation inbox (no folder tabs)", () => {
     await waitFor(() => expect(screen.getByText("Dana Ramirez")).toBeTruthy());
     expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
 
-    const activeLink = screen.getByRole("link", { name: /^Active/ });
+    const activeLink = screen.getByRole("link", { name: /^Conversations/ });
     expect(activeLink.getAttribute("aria-current")).toBe("page");
     expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
   });

@@ -358,6 +358,15 @@ export async function deliverPortalMessageThreadSide(
     subject: string;
     body: string;
     preview: string;
+    /**
+     * What this conversation is ABOUT, recorded so the list can label it. The
+     * send path already resolves it to gate channels; persisting it here is the
+     * only way a reader can tell a tour thread from a rent thread, because
+     * nothing else on the row carries a topic. `row_data` is free-form, so
+     * there is no migration — but rows written before this carry no category
+     * and must render no chip rather than a guessed one.
+     */
+    category?: NotificationCategory;
     when: string;
     /** Inbox copies mark unread on every new message; sent copies never do. */
     unread: boolean;
@@ -421,6 +430,9 @@ export async function deliverPortalMessageThreadSide(
           preview: args.preview,
           time: args.when,
           unread: args.unread,
+          // Advance with the latest message, like `subject`: a conversation is
+          // about whatever it most recently became about.
+          ...(args.category ? { category: args.category } : {}),
         },
         updated_at: nowIso,
       },
@@ -448,6 +460,7 @@ export async function deliverPortalMessageThreadSide(
         time: args.when,
         unread: args.unread,
         scope: args.scope,
+        ...(args.category ? { category: args.category } : {}),
         // The root message lives in `body`, not `messages[]` — remember its
         // deterministic id so a redelivered webhook can still dedupe it.
         ...(args.messageId ? { rootMessageId: args.messageId } : {}),
@@ -652,6 +665,7 @@ export async function deliverPortalInboxMessage(
         when,
         unread: false,
         outbound: true,
+        category: opts.eventCategory,
         messageId: opts.messageId ? `${opts.messageId}:sent:${recipientLower}` : undefined,
       });
 
@@ -672,6 +686,7 @@ export async function deliverPortalInboxMessage(
         when,
         unread: true,
         outbound: false,
+        category: opts.eventCategory,
         messageId: opts.messageId ? `${opts.messageId}:inbox:${recipientLower}` : undefined,
       });
     }

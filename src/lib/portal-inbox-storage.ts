@@ -69,6 +69,13 @@ export type PersistedInboxThread = {
   messages?: InboxThreadMessage[];
   /** Manager-only pending AI reply draft (never present on resident-scope rows). */
   aiDraft?: InboxAiDraft;
+  /**
+   * What the conversation is about, stamped by the send path (see
+   * `deliverPortalInboxMessage`'s `eventCategory`). ABSENT on every row written
+   * before that stamp existed — an absent category renders no chip, never a
+   * guess from the subject line.
+   */
+  category?: string;
   /** Server thread_type when the row still carries it (resident_agent / vendor_agent). */
   threadType?: string | null;
   thread_type?: string | null;
@@ -725,6 +732,16 @@ export function formatInboxStamp(value: Date): string {
 
 /** The exact shape {@link formatInboxStamp} produces: "Aug 3, 5:31 PM". */
 const CANONICAL_INBOX_STAMP = /^[A-Za-z]{3} \d{1,2}, \d{1,2}:\d{2}\s?(AM|PM)$/;
+
+/**
+ * True only for a stamp this module wrote. Callers that need a DATE out of a
+ * stamp use it to refuse anything else: `parseInboxStampMs` is deliberately
+ * lenient so ordering degrades gracefully, but a lenient read of "9:00" is fine
+ * for sorting and wrong for printing a day heading.
+ */
+export function isCanonicalInboxStamp(value?: string | null): boolean {
+  return CANONICAL_INBOX_STAMP.test(String(value ?? "").trim());
+}
 
 /**
  * Re-render any stamp into {@link formatInboxStamp}. An unreadable stamp falls

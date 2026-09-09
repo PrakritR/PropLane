@@ -9,7 +9,8 @@
 //     must NOT clear a controlled selection (that regression left the right
 //     pane stuck on "Select a conversation").
 //  2. With the thread open, an incoming resident thread that carries a pending
-//     `aiDraft` shows the PropLane AI composer (editable draft, send, discard).
+//     `aiDraft` hands its draft to the thread's own reply field — never a
+//     second message box beside it.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, cleanup, waitFor } from "@testing-library/react";
 import { useEffect, useState } from "react";
@@ -146,10 +147,18 @@ describe("AI draft in the unified Communication inbox", () => {
 
     // The controlled selection was NOT wiped on mount…
     expect(controlledId).toBe("thr-2000000001");
-    // …and the AI draft composer renders for the resident thread.
-    expect(await screen.findByDisplayValue(/I'll look into availability/)).toBeTruthy();
-    expect(screen.getByLabelText("Discard draft")).toBeTruthy();
-    expect(document.querySelector('[data-attr="inbox-ai-draft-send"]')).toBeTruthy();
+    // …and the draft is adopted into the thread's OWN reply field rather than
+    // a second message box beside it.
+    const reply = await screen.findByDisplayValue(/I'll look into availability/);
+    expect(reply.getAttribute("data-attr")).toBe("inbox-reply");
+    // Adopting consumes the pending draft, so the AI affordance falls back to
+    // its slim "Draft with AI" pill above that one composer…
+    expect(await screen.findByRole("button", { name: "Draft with AI" })).toBeTruthy();
+    // …and there is NO second message box: the legacy draft composer, its send
+    // button, and its discard control are all gone.
+    expect(document.querySelector('[data-attr="inbox-ai-draft"]')).toBeNull();
+    expect(document.querySelector('[data-attr="inbox-ai-draft-send"]')).toBeNull();
+    expect(screen.queryByLabelText("Discard draft")).toBeNull();
     expect(screen.queryByText("Approve & Send")).toBeNull();
     expect(screen.queryByText("Edit")).toBeNull();
   });
@@ -185,7 +194,7 @@ describe("AI draft in the unified Communication inbox", () => {
       </>,
     );
 
-    await screen.findByText(/I’ll check the parking availability/);
+    await screen.findByDisplayValue(/I’ll check the parking availability/);
     await waitFor(() => expect(screen.getByTestId("inbox-change-count").textContent).not.toBe("0"));
     expect(consoleError.mock.calls.flat().join(" ")).not.toContain("Cannot update a component");
     consoleError.mockRestore();

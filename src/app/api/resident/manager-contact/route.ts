@@ -42,6 +42,7 @@ export async function GET() {
     return NextResponse.json(
       {
         contacts: contacts.map((contact) => ({
+          managerName: contact.managerName,
           phone: contact.phone,
           assistantEmail: contact.assistantEmail,
           propertyLabel: contact.propertyLabel,

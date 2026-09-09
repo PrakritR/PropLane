@@ -18,7 +18,7 @@ import {
   inboxBubbleClusterRadius,
   type InboxBubbleClusterPosition,
 } from "@/lib/inbox-message-timeline";
-import { ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Check, Clock, FileText, Paperclip, Plus, Sparkles, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Check, Clock, FileText, Paperclip, Plus, Send, Smile, Sparkles, X } from "lucide-react";
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
@@ -76,6 +76,7 @@ import {
   inboxAttachmentDisplayName,
   inboxAttachmentPathFromServeUrl,
 } from "@/lib/inbox-attachments";
+import { DestinationNav } from "@/components/ui/destination-nav";
 import { cn } from "@/lib/utils";
 import type { InboundWorkflowSuggestion } from "@/lib/inbox/inbound-message-workflow-suggestions";
 
@@ -798,6 +799,56 @@ export function InboxScheduledChannelTags({
 export const PORTAL_INBOX_LIST_TOOLBAR_CLASS =
   "portal-inbox-list-toolbar shrink-0 space-y-2 border-b border-border p-2 max-md:space-y-1.5 max-md:p-1.5 sm:p-2.5 sm:space-y-2.5";
 
+/**
+ * Underlined segment rail at the top of a conversation-list card.
+ *
+ * MUST be rendered inside the portal's own list-pane root div, never as a
+ * sibling of `<section class="portal-inbox-list-pane">`: a globals.css rule
+ * gives every DIRECT child of a pane `flex: 1` and clips it, so a rail placed
+ * there grows to fill half the card and hides its own tabs.
+ *
+ * These stay routed links, so they remain destinations rather than the folder
+ * tabs Communication deliberately removed (docs/agents/communication-inbox.md).
+ * The `dataAttr` values are frozen even though the visible labels changed —
+ * tests/unit/communication-segment-parity.test.ts matches on them.
+ */
+export function InboxListSegmentRail({
+  commBase,
+  listSegment,
+  className = "",
+}: {
+  commBase: string;
+  listSegment: InboxListSegment;
+  className?: string;
+}) {
+  return (
+    <div className={`portal-inbox-list-tabs shrink-0 border-b border-border px-2 pt-1 ${className}`}>
+      <DestinationNav
+        appearance="command"
+        ariaLabel="Conversation folders"
+        // -mb-px laps the item's 2px underline over the rail's 1px border so
+        // the active underline sits ON the rail, not a pixel above it.
+        className="-mb-px w-full gap-1 border-0 bg-transparent p-0"
+        items={[
+          {
+            id: "active",
+            label: "Conversations",
+            href: `${commBase}/active`,
+            dataAttr: "communication-segment-active",
+          },
+          {
+            id: "archived",
+            label: "Archived",
+            href: `${commBase}/archived`,
+            dataAttr: "communication-segment-archived",
+          },
+        ]}
+        activeId={listSegment === "unread" ? "active" : listSegment}
+      />
+    </div>
+  );
+}
+
 /** Scrollable body for a conversation list pane (inbox split view). */
 export const INBOX_LIST_SCROLL =
   "min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]";
@@ -817,12 +868,44 @@ export function inboxInitials(name: string): string {
   return `${parts[0]![0] ?? ""}${parts[1]![0] ?? ""}`.toUpperCase();
 }
 
-/** Circular initials avatar in the site accent (cobalt in light, indigo in dark). */
+/**
+ * Five stops along the ACTIVE theme's own accent ramp, so a conversation list
+ * reads as a list of people rather than a column of identical circles.
+ *
+ * Deliberately NOT a rainbow. The palette is four families — purple, blue,
+ * white, black — with red/amber/green reserved for status (globals.css), and
+ * the primary swaps blue→purple in dark. Mixing `--primary` with
+ * `--primary-alt` keeps every avatar inside whichever ramp is live.
+ */
+const INBOX_AVATAR_RAMP: readonly [string, string][] = [
+  ["var(--primary)", "var(--primary-alt)"],
+  [
+    "color-mix(in srgb, var(--primary) 74%, var(--primary-alt))",
+    "color-mix(in srgb, var(--primary-alt) 72%, #ffffff)",
+  ],
+  ["var(--primary-alt)", "color-mix(in srgb, var(--primary-alt) 52%, #ffffff)"],
+  ["color-mix(in srgb, var(--primary) 80%, #000000)", "var(--primary)"],
+  [
+    "color-mix(in srgb, var(--primary) 48%, var(--primary-alt))",
+    "color-mix(in srgb, var(--primary-alt) 84%, #ffffff)",
+  ],
+];
+
+/** Stable per-name stop. Same person, same colour, on every surface and reload. */
+export function inboxAvatarRampIndex(name: string): number {
+  const key = name.trim().toLowerCase();
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  return hash % INBOX_AVATAR_RAMP.length;
+}
+
+/** Circular initials avatar. There are no profile photos in the product. */
 export function InboxAvatar({ name, className = "" }: { name: string; className?: string }) {
+  const [from, to] = INBOX_AVATAR_RAMP[inboxAvatarRampIndex(name)]!;
   return (
     <div
-      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold tracking-[0.02em] text-white shadow-[0_2px_10px_color-mix(in_srgb,var(--primary)_40%,transparent)] ring-2 ring-[color-mix(in_srgb,var(--primary)_28%,transparent)] ${className}`}
-      style={{ background: "linear-gradient(160deg, var(--primary) 0%, var(--primary-alt) 100%)" }}
+      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold tracking-[0.02em] text-white shadow-[0_2px_10px_color-mix(in_srgb,var(--primary)_34%,transparent)] ${className}`}
+      style={{ background: `linear-gradient(160deg, ${from} 0%, ${to} 100%)` }}
       aria-hidden
     >
       {inboxInitials(name)}
@@ -837,6 +920,9 @@ export function InboxConversationRow({
   preview,
   time,
   unread = false,
+  unreadCount,
+  address,
+  category,
   selected = false,
   onOpen,
   leading,
@@ -850,6 +936,16 @@ export function InboxConversationRow({
   time: string;
   /** Unread threads show an Instagram-style dot on the right. */
   unread?: boolean;
+  /**
+   * Unread INBOUND turns, when the surface can derive one. Renders as a filled
+   * count pill instead of the dot. Falsy (or 0) keeps the dot, which is the
+   * honest fallback wherever a count cannot be computed.
+   */
+  unreadCount?: number;
+  /** Street line under the preview — the house this conversation is about. */
+  address?: string;
+  /** Tour / Application / Payments / Maintenance. Omit when the source is unknown; never guess. */
+  category?: string;
   selected?: boolean;
   onOpen: () => void;
   /** Optional slot before the avatar (e.g. a bulk-select checkbox). */
@@ -871,30 +967,25 @@ export function InboxConversationRow({
 }) {
   return (
     <div
-      className={`portal-inbox-row flex items-center gap-2 border-b border-border/50 px-2.5 py-2 transition-colors max-md:gap-1.5 max-md:px-2 max-md:py-1.5 ${
+      className={`portal-inbox-row flex items-center gap-2 border-b border-border/50 px-3 py-3 transition-colors max-md:gap-1.5 max-md:px-2.5 max-md:py-2.5 ${
         selected
           ? "portal-inbox-row--selected border-l-[3px] border-l-primary bg-primary/[0.06]"
           : "border-l-[3px] border-l-transparent hover:bg-foreground/[0.03]"
       }`}
     >
       {leading}
-      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
-        <InboxAvatar name={name} className="h-8 w-8 text-[11px]" />
+      <button type="button" onClick={onOpen} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+        <InboxAvatar name={name} className="h-10 w-10 text-[13px] max-md:h-9 max-md:w-9 max-md:text-[12px]" />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <p
-              className={`truncate text-[13px] leading-tight ${
+              className={`truncate text-sm leading-tight ${
                 unread ? "font-semibold text-foreground" : "font-medium text-foreground/90"
               }`}
             >
               {name}
             </p>
-            <div className="flex shrink-0 items-center gap-1.5">
-              {unread ? (
-                <span className="h-2 w-2 rounded-full bg-primary" aria-label="Unread" />
-              ) : null}
-              <span className="text-[11px] tabular-nums text-muted">{time}</span>
-            </div>
+            <span className="shrink-0 text-xs tabular-nums text-muted">{time}</span>
           </div>
           {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
           {preview.trim() ? (
@@ -905,14 +996,40 @@ export function InboxConversationRow({
               </span>
             ) : null}
             <p
-              className={`min-w-0 flex-1 truncate text-xs ${
-                unread ? "font-medium text-foreground/75" : "text-muted"
+              className={`min-w-0 flex-1 truncate text-[13px] ${
+                unread ? "font-medium text-foreground/[0.78]" : "text-muted"
               }`}
             >
               {previewPrefix ?? ""}
               {preview}
             </p>
           </div>
+          ) : null}
+          {/* Third line. Collapses entirely rather than leaving an empty row, so
+              a conversation with neither reads as two lines, not a gap. */}
+          {address || category || unread ? (
+            <div className="mt-1.5 flex items-center gap-2">
+              {address ? (
+                <span className="min-w-0 truncate text-xs text-muted/[0.78]">{address}</span>
+              ) : null}
+              {category ? (
+                <span className="shrink-0 rounded-full border border-border bg-foreground/5 px-2 py-0.5 text-[10px] font-bold tracking-[0.02em] text-muted">
+                  {category}
+                </span>
+              ) : null}
+              {unread ? (
+                unreadCount && unreadCount > 0 ? (
+                  <span
+                    className="ml-auto grid h-5 min-w-[1.3rem] shrink-0 place-items-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-primary-foreground"
+                    aria-label={`${unreadCount} unread`}
+                  >
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                ) : (
+                  <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="Unread" />
+                )
+              ) : null}
+            </div>
           ) : null}
         </div>
       </button>
@@ -976,6 +1093,7 @@ export function InboxBubble({
   cluster = "single",
   showMeta = true,
   showChannel = false,
+  showAvatar = false,
   alignAssistantStart = false,
 }: {
   message: InboxBubbleMessage;
@@ -983,6 +1101,8 @@ export function InboxBubble({
   cluster?: InboxBubbleClusterPosition;
   showMeta?: boolean;
   showChannel?: boolean;
+  /** First bubble of a left-aligned run — the only one that gets an avatar. */
+  showAvatar?: boolean;
   /** True only for the PropLane Assistant conversation — AI sits on the left. */
   alignAssistantStart?: boolean;
 }) {
@@ -1009,8 +1129,23 @@ export function InboxBubble({
 
   // `min-w-0` + `ml-auto`/`mr-auto` so long URLs cannot expand the row and
   // leave outbound (blue) bubbles sitting on the left.
+  // The avatar rail is reserved on EVERY left bubble, not only the one that
+  // draws it, so a run stays flush instead of stepping left mid-cluster.
+  const showRail = !alignEnd;
   return (
-    <div className="flex w-full min-w-0">
+    <div className="flex w-full min-w-0 items-end gap-2">
+      {showRail ? (
+        showAvatar ? (
+          <InboxAvatar
+            name={message.author || "?"}
+            className={`h-7 w-7 text-[10px] max-md:h-6 max-md:w-6 max-md:text-[9px] ${
+              showMeta && metaCaption ? "mb-6" : "mb-0.5"
+            }`}
+          />
+        ) : (
+          <span className="h-7 w-7 shrink-0 max-md:h-6 max-md:w-6" aria-hidden />
+        )
+      ) : null}
       <div
         className={`portal-inbox-bubble-wrap flex min-w-0 flex-col ${
           alignEnd ? "ml-auto items-end" : "mr-auto items-start"
@@ -1061,22 +1196,33 @@ export function InboxMessageTimeline({
   const items = buildInboxMessageTimeline(messages);
   return (
     <>
-      {items.map((item) => (
-        <div
-          key={item.key}
-          className={`w-full min-w-0 ${item.clusterStart ? "mt-3 first:mt-0" : "mt-0.5"}`}
-          data-inbox-cluster-start={item.clusterStart ? "true" : "false"}
-        >
-          <InboxBubble
-            message={item.message}
-            showAuthor={showAuthors}
-            cluster={item.cluster}
-            showMeta={item.showMeta}
-            showChannel={item.showChannel}
-            alignAssistantStart={alignAssistantStart}
-          />
-        </div>
-      ))}
+      {items.map((item) =>
+        item.type === "day" ? (
+          <div
+            key={item.key}
+            className="my-3 w-full text-center text-xs font-medium text-muted/80 first:mt-0"
+            data-inbox-day-separator
+          >
+            {item.label}
+          </div>
+        ) : (
+          <div
+            key={item.key}
+            className={`w-full min-w-0 ${item.clusterStart ? "mt-3 first:mt-0" : "mt-0.5"}`}
+            data-inbox-cluster-start={item.clusterStart ? "true" : "false"}
+          >
+            <InboxBubble
+              message={item.message}
+              showAuthor={showAuthors}
+              cluster={item.cluster}
+              showMeta={item.showMeta}
+              showChannel={item.showChannel}
+              showAvatar={item.showAvatar}
+              alignAssistantStart={alignAssistantStart}
+            />
+          </div>
+        ),
+      )}
     </>
   );
 }
@@ -1224,10 +1370,88 @@ export function InboxReplyChannelPicker({
 
 /** Shared thread-reply field + send affordance — keep identical across email/SMS/resident chat. */
 export const PORTAL_INBOX_COMPOSER_INPUT_CLASS =
-  "portal-inbox-composer-input max-h-28 min-h-9 flex-1 resize-none rounded-xl border border-border/80 bg-background px-3 py-2 text-sm leading-snug text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted/70 focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-60";
+  "portal-inbox-composer-input max-h-28 min-h-10 flex-1 resize-none rounded-[1.4rem] border border-input bg-card px-4 py-2.5 text-sm leading-snug text-foreground outline-none transition-[border-color,box-shadow] placeholder:text-muted/70 focus:border-primary/40 focus:ring-2 focus:ring-primary/15 disabled:opacity-60 md:min-h-[46px] md:px-4.5";
 
 export const PORTAL_INBOX_COMPOSER_SEND_CLASS =
-  "portal-inbox-composer-send mb-0.5 flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full bg-[var(--btn-primary)] text-primary-foreground shadow-[0_2px_8px_-4px_rgba(47,107,255,0.55)] transition-[filter,opacity] hover:brightness-110 disabled:opacity-40";
+  "portal-inbox-composer-send mb-0.5 flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full bg-[var(--btn-primary)] text-primary-foreground shadow-[0_8px_18px_-8px_color-mix(in_srgb,var(--btn-primary)_70%,transparent)] transition-[filter,opacity] hover:brightness-110 disabled:opacity-40 md:h-[46px] md:w-[46px]";
+
+
+/**
+ * Common reactions, inline. Deliberately a fixed list rather than a picker
+ * package: a landed dependency here has broken both the unit suite and the dev
+ * server before, and a reply box does not need 1,800 glyphs.
+ */
+const INBOX_COMPOSER_EMOJI = [
+  "👍", "🙏", "✅", "👋", "🙂", "😄", "🎉", "🔧",
+  "🏠", "🔑", "📅", "💬", "⚠️", "❤️", "👌", "🚿",
+] as const;
+
+function InboxEmojiButton({
+  onPick,
+  disabled,
+  dataAttr,
+}: {
+  onPick: (emoji: string) => void;
+  disabled?: boolean;
+  dataAttr?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocPointerDown = (e: PointerEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", onDocPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDocPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="absolute bottom-1.5 right-1.5">
+      {open ? (
+        <div
+          className="absolute bottom-[calc(100%+0.5rem)] right-0 z-30 grid w-[15.5rem] grid-cols-8 gap-0.5 rounded-2xl border border-border bg-popover p-2 shadow-[var(--shadow-card-hover)]"
+          role="menu"
+          aria-label="Insert emoji"
+        >
+          {INBOX_COMPOSER_EMOJI.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              role="menuitem"
+              className="grid h-7 w-7 place-items-center rounded-lg text-base leading-none hover:bg-accent/50"
+              onClick={() => {
+                onPick(emoji);
+                setOpen(false);
+              }}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <button
+        type="button"
+        disabled={disabled}
+        aria-label="Insert emoji"
+        aria-expanded={open}
+        data-attr={dataAttr}
+        className="grid h-8 w-8 place-items-center rounded-full text-muted transition-colors hover:bg-accent/40 hover:text-foreground disabled:opacity-50"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Smile className="h-[18px] w-[18px]" strokeWidth={1.8} />
+      </button>
+    </div>
+  );
+}
 
 /** Persistent composer pinned to the bottom of an open thread. */
 export function InboxComposer({
@@ -1276,6 +1500,7 @@ export function InboxComposer({
   /** Visible textarea rows (default 1 — grows with content in CSS). */
   composerRows?: number;
 }) {
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const hasReadyAttachment = (attachments ?? []).some((a) => !a.uploading && !a.error);
   const canSend = !sending && !disabled && (value.trim().length > 0 || hasReadyAttachment);
   const resolvedChannel = channelControl ?? null;
@@ -1330,7 +1555,7 @@ export function InboxComposer({
         <div className="portal-inbox-composer-row flex items-end gap-2">
           {leadingControl}
           {onAttachmentsPick ? (
-            <label className="mb-0.5 flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-border/80 text-muted hover:bg-accent/40 hover:text-foreground">
+            <label className="mb-0.5 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-border bg-secondary text-muted hover:bg-accent/40 hover:text-foreground md:h-[42px] md:w-[42px]">
               <Paperclip className="h-4 w-4" strokeWidth={2} />
               <input
                 type="file"
@@ -1346,24 +1571,35 @@ export function InboxComposer({
               />
             </label>
           ) : null}
+          <div className="relative flex min-w-0 flex-1 items-end">
+            <textarea
+              ref={inputRef}
+              rows={composerRows}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              placeholder={placeholder}
+              maxLength={maxLength}
+              disabled={disabled}
+              enterKeyHint="send"
+              data-attr={dataAttr}
+              className={`${PORTAL_INBOX_COMPOSER_INPUT_CLASS} pr-11`}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (canSend) onSubmit();
+                }
+              }}
+            />
+            <InboxEmojiButton
+              disabled={disabled}
+              onPick={(emoji) => {
+                onChange(`${value}${emoji}`);
+                inputRef.current?.focus();
+              }}
+              dataAttr={dataAttr ? `${dataAttr}-emoji` : undefined}
+            />
+          </div>
           {resolvedChannel}
-          <textarea
-            rows={composerRows}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
-            maxLength={maxLength}
-            disabled={disabled}
-            enterKeyHint="send"
-            data-attr={dataAttr}
-            className={PORTAL_INBOX_COMPOSER_INPUT_CLASS}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                if (canSend) onSubmit();
-              }
-            }}
-          />
           <button
             type="submit"
             disabled={!canSend}
@@ -1374,7 +1610,7 @@ export function InboxComposer({
             {sending ? (
               <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current/40 border-t-current" />
             ) : (
-              <ArrowUp className="h-4 w-4" strokeWidth={2.25} />
+              <Send className="h-4 w-4 translate-x-[1px]" strokeWidth={2} />
             )}
           </button>
         </div>
@@ -1518,6 +1754,74 @@ export function InboundMessageWorkflowCard({
  * drafts a reply; the manager edits inline and sends — or dismisses with ×.
  * Drafts live only on the manager's row, so residents never see this surface.
  */
+
+/**
+ * Status row for a draft that has been written INTO the reply field.
+ *
+ * Adoption fires once per draft (keyed on the text), so re-renders while the
+ * person edits their own reply never overwrite it with the original draft.
+ */
+function InboxAdoptedDraftBar({
+  draft,
+  onAdopt,
+  onDiscard,
+  onGenerate,
+  busy,
+}: {
+  draft: string;
+  onAdopt: (draft: string) => void;
+  onDiscard: () => void;
+  onGenerate?: () => void;
+  busy?: boolean;
+}) {
+  const adoptedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (adoptedRef.current === draft) return;
+    adoptedRef.current = draft;
+    onAdopt(draft);
+    // `onAdopt` is re-created every render by most call sites; keying the guard
+    // on the draft text is what makes this fire once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
+
+  return (
+    <div
+      className="portal-inbox-ai-draft shrink-0 border-t border-border bg-card px-3.5 pb-1 pt-2.5"
+      data-attr="inbox-ai-draft-adopted"
+    >
+      <div className="flex items-center gap-3">
+        <span className="inline-flex min-w-0 items-center gap-2 text-[12.5px] font-semibold text-primary">
+          <Sparkles className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} />
+          <span className="truncate">AI draft — edit before sending</span>
+        </span>
+        <span className="ml-auto flex shrink-0 items-center gap-3">
+          {onGenerate ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onGenerate()}
+              data-attr="inbox-ai-draft-regenerate"
+              className="text-[12px] font-semibold text-muted transition-colors hover:text-foreground disabled:opacity-50"
+            >
+              Redraft
+            </button>
+          ) : null}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onDiscard}
+            data-attr="inbox-ai-draft-discard"
+            className="inline-flex items-center gap-1 text-[12px] font-semibold text-muted transition-colors hover:text-foreground disabled:opacity-50"
+          >
+            <X className="h-3.5 w-3.5" strokeWidth={2.25} />
+            Discard
+          </button>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function AiDraftReplyCard({
   drafting = false,
   draft,
@@ -1532,7 +1836,8 @@ export function AiDraftReplyCard({
   onAutoSendChange,
   scheduledSection,
   maxLength,
-  generateLabel = "Draft reply with PropLane AI",
+  generateLabel = "Draft with AI",
+  onAdopt,
 }: {
   /** True while a draft is being generated. */
   drafting?: boolean;
@@ -1558,18 +1863,26 @@ export function AiDraftReplyCard({
   maxLength?: number;
   /** Label for the generate affordance when no draft is present yet. */
   generateLabel?: string;
+  /**
+   * Hand the finished draft to the surface's OWN reply field instead of
+   * rendering a second composer beside it. When supplied, this component is a
+   * slim status bar above the real composer and never a message box of its own.
+   * Omit it and the legacy two-composer shape is kept for back-compat.
+   */
+  onAdopt?: (draft: string) => void;
 }) {
   if (drafting) {
     return (
       <div
-        className="portal-inbox-ai-draft shrink-0 border-t border-border bg-accent/30 px-3.5 py-3"
+        className="portal-inbox-ai-draft shrink-0 border-t border-border bg-card px-3.5 pb-1 pt-2.5"
         data-attr="inbox-ai-draft-drafting"
       >
-        <div className="flex items-center gap-2 text-[13px] font-medium text-muted">
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/10">
-            <Sparkles className="h-3 w-3 text-primary" strokeWidth={2.25} />
-          </span>
-          <span className="animate-pulse">PropLane AI is drafting a reply…</span>
+        <div className="flex items-center gap-2 text-[13px] font-medium text-primary">
+          <span
+            className="h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-primary/30 border-t-primary"
+            aria-hidden
+          />
+          <span>PropLane AI is drafting a reply…</span>
         </div>
         {onAutoSendChange ? (
           <label className="mt-2.5 flex cursor-pointer items-center gap-2 text-[12px] text-foreground">
@@ -1604,21 +1917,34 @@ export function AiDraftReplyCard({
     }
     if (onGenerate) {
       return (
-        <div className="portal-inbox-ai-draft shrink-0 border-t border-border bg-card px-3.5 py-2.5">
-          <Button
+        <div className="portal-inbox-ai-draft shrink-0 border-t border-border bg-card px-3.5 pb-1 pt-2.5">
+          <button
             type="button"
-            variant="outline"
-            className={`${INBOX_AI_DRAFT_ACTION_BTN}`}
-            onClick={onGenerate}
+            onClick={() => onGenerate()}
             data-attr="inbox-ai-draft-generate"
+            className="inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-full border border-primary/30 bg-primary/[0.07] px-3.5 text-[12.5px] font-semibold text-primary transition-colors hover:bg-primary/10"
           >
-            <Sparkles className="h-3 w-3 text-primary" strokeWidth={2.25} />
+            <Sparkles className="h-3.5 w-3.5" strokeWidth={2.25} />
             {generateLabel}
-          </Button>
+          </button>
         </div>
       );
     }
     return null;
+  }
+
+  // Draft ready. The surface owns the reply field, so hand the text over and
+  // render a status row rather than a second message box.
+  if (onAdopt) {
+    return (
+      <InboxAdoptedDraftBar
+        draft={draft}
+        onAdopt={onAdopt}
+        onDiscard={onDiscard}
+        onGenerate={onGenerate}
+        busy={approving}
+      />
+    );
   }
 
   return (
@@ -2278,7 +2604,7 @@ export function InboxThreadView({
     <div className={pageScroll ? "flex flex-col" : "flex h-full min-h-0 flex-1 flex-col overflow-hidden"}>
       {showHeader ? (
       <header
-        className="portal-inbox-thread-header sticky top-0 z-10 flex shrink-0 items-center gap-0.5 border-b border-border bg-card px-1.5 py-1 max-md:py-1 md:gap-1 md:px-2 md:py-2 md:[padding-top:max(0.375rem,env(safe-area-inset-top,0px))] max-md:[padding-top:max(0.5rem,env(safe-area-inset-top,0px))]"
+        className="portal-inbox-thread-header sticky top-0 z-10 flex shrink-0 items-center gap-0.5 border-b border-border bg-card px-2 py-2 max-md:py-2 md:gap-1 md:px-4 md:py-3 md:[padding-top:max(0.375rem,env(safe-area-inset-top,0px))] max-md:[padding-top:max(0.5rem,env(safe-area-inset-top,0px))]"
       >
         {onBack ? (
           <button
@@ -2295,11 +2621,13 @@ export function InboxThreadView({
         {!hideIdentityHeader ? (
           <div className="flex min-w-0 flex-1 items-center gap-2 px-0.5 md:gap-2.5 md:px-1">
             {avatarName ? (
-              <InboxAvatar name={avatarName} className="h-8 w-8 text-[10px] md:h-9 md:w-9 md:text-[11px]" />
+              <InboxAvatar name={avatarName} className="h-9 w-9 text-[11px] md:h-11 md:w-11 md:text-[13px]" />
             ) : null}
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-foreground">{title}</p>
-              {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
+              <p className="truncate text-[15px] font-bold tracking-[-0.01em] text-foreground md:text-base">
+                {title}
+              </p>
+              {subtitle ? <p className="mt-0.5 truncate text-[13px] text-muted">{subtitle}</p> : null}
             </div>
           </div>
         ) : (
@@ -2366,6 +2694,13 @@ export function InboxTwoPane({
   fillViewport = false,
   /** Fill a flex parent (Communication page) instead of a capped pixel height. */
   fillParent = false,
+  /**
+   * `joined` is one card split by a divider (every embedded surface).
+   * `split` draws the list and thread as two separate cards with a gutter —
+   * Communication only. Opt-in on purpose: this component has nine callers and
+   * only the three Communication pages want two cards.
+   */
+  panes = "joined",
 }: {
   list: ReactNode;
   thread: ReactNode;
@@ -2377,7 +2712,9 @@ export function InboxTwoPane({
   mobileCompact?: boolean;
   fillViewport?: boolean;
   fillParent?: boolean;
+  panes?: "joined" | "split";
 }) {
+  const split = panes === "split";
   const rootRef = useRef<HTMLDivElement>(null);
   const [measuredHeight, setMeasuredHeight] = useState<number | null>(null);
 
@@ -2412,10 +2749,23 @@ export function InboxTwoPane({
     const raf = requestAnimationFrame(measure);
     const timer = window.setTimeout(measure, 300);
     window.addEventListener("resize", measure);
+    // The chrome ABOVE this pane can change height after the 300ms timer — the
+    // manager's work-number card resolves from a fetch, and filter chips appear
+    // and disappear. Height here is derived from our own top edge, so a late
+    // reflow above us silently leaves the pane overhanging the bottom nav (or
+    // short of it). Watch the page shell so those settle correctly.
+    const shell = document.querySelector('[data-slot="portal-page-shell"]');
+    const observer =
+      typeof ResizeObserver === "function" ? new ResizeObserver(() => measure()) : null;
+    if (observer) {
+      if (shell) observer.observe(shell);
+      if (rootRef.current) observer.observe(rootRef.current);
+    }
     return () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(timer);
       window.removeEventListener("resize", measure);
+      observer?.disconnect();
     };
   }, [fillParent, fillViewport, heightMode, mobileCompact]);
 
@@ -2433,27 +2783,47 @@ export function InboxTwoPane({
           ? `${measuredHeight}px`
           : fallback;
 
+  // In `split` the card moves OFF the root and onto each section, so the root
+  // exactly bounds the two cards. It must not clip, or it would cut the cards'
+  // own shadows on all four sides; nothing can escape regardless, because both
+  // sections keep their own `overflow-hidden`.
+  const rootCard = split
+    ? ""
+    : "rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] max-md:rounded-xl max-md:border-x-0 max-md:shadow-none";
+  const paneCard = split
+    ? "rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] max-md:rounded-xl"
+    : "";
   return (
     <div
       ref={rootRef}
-      className={`portal-inbox-two-pane rounded-2xl border border-border bg-card shadow-[var(--shadow-card)] max-md:rounded-xl max-md:border-x-0 max-md:shadow-none ${flowLayout ? "overflow-visible" : "overflow-hidden"} ${flexFillMobile || flexFillLayout ? "flex min-h-0 flex-1 flex-col" : ""} ${className}`}
+      className={`portal-inbox-two-pane ${rootCard} ${flowLayout || split ? "overflow-visible" : "overflow-hidden"} ${flexFillMobile || flexFillLayout ? "flex min-h-0 flex-1 flex-col" : ""} ${className}`}
       style={height ? { height } : undefined}
       data-attr="portal-inbox-two-pane"
+      data-panes={split ? "split" : undefined}
       data-fill-viewport={flexFillMobile ? "true" : undefined}
       data-height-mode={flowLayout ? "flow" : undefined}
     >
       <div
-        className={`grid min-h-0 flex-1 ${flowLayout ? "" : "h-full grid-rows-[minmax(0,1fr)]"} ${listHidden ? "grid-cols-1" : "lg:grid-cols-[minmax(240px,28%)_1fr]"}`}
+        className={`grid min-h-0 flex-1 ${flowLayout ? "" : "h-full grid-rows-[minmax(0,1fr)]"} ${
+          listHidden
+            ? "grid-cols-1"
+            : split
+              // Column gap only. Below `lg` exactly one pane is display:none and
+              // contributes nothing, but a row gap would silently subtract from
+              // the pane height at every breakpoint.
+              ? "lg:grid-cols-[minmax(260px,32%)_1fr] lg:gap-x-4"
+              : "lg:grid-cols-[minmax(240px,28%)_1fr]"
+        }`}
       >
         <section
-          className={`portal-inbox-list-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-border lg:border-r ${
-            listHidden ? "hidden" : threadOpen ? "hidden lg:flex" : "flex"
-          }`}
+          className={`portal-inbox-list-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${
+            split ? paneCard : "border-border lg:border-r"
+          } ${listHidden ? "hidden" : threadOpen ? "hidden lg:flex" : "flex"}`}
         >
           {list}
         </section>
         <section
-          className={`portal-inbox-thread-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${listHidden || threadOpen ? "flex" : "hidden lg:flex"}`}
+          className={`portal-inbox-thread-pane flex h-full min-h-0 min-w-0 flex-col overflow-hidden ${paneCard} ${listHidden || threadOpen ? "flex" : "hidden lg:flex"}`}
         >
           {thread}
         </section>

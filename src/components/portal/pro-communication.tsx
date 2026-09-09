@@ -17,9 +17,8 @@ import { PortalCommunicationShell } from "@/components/portal/portal-communicati
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
-  PORTAL_COMMAND_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
+  PORTAL_HEADER_ACTION_BTN,
+  PORTAL_HEADER_PRIMARY_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import {
   axisAdminFilterContact,
@@ -260,12 +259,11 @@ export function ManagerCommunication({
     <PortalFilterSortSheet
       activeCount={filterTouchCount}
       compactPanel
-      commandStripTrigger
       filterFieldCount={3}
+      // Three filter fields plus sort do not fit inside the title band's own
+      // height. Constraining the panel to the band clips the last field, which
+      // is what tests/unit/finance-documents-title-row-controls.test.ts pins.
       constrainDropdownToTitleBand={false}
-      // Content-width trigger: the command strip's default `flex-1` would
-      // stretch Filter across the row beside the fixed-width Settings/Message.
-      className="flex-none"
       mobileFlushBody={true}
       onReset={() => {
         setFilters(EMPTY_COMMUNICATION_THREAD_FILTERS);
@@ -280,8 +278,8 @@ export function ManagerCommunication({
   const communicationNewMessageButton = (
     <Button
       type="button"
-      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
+      variant="primary"
+      className={PORTAL_HEADER_PRIMARY_ACTION_BTN}
       data-attr="communication-new-message"
       aria-label="New message"
       onClick={() => openCompose("email")}
@@ -296,11 +294,12 @@ export function ManagerCommunication({
   const communicationCommandActions = (
     <>
       {communicationFilterSheet}
-      {/* Plan-gated setup CTA: shown regardless of the SMS-inbox A2P flag so a
-          paid manager can begin work-number setup (and a free manager sees the
-          upsell) before the inbox surface is switched on. It self-hides once a
-          number is assigned. */}
-      <ManagerWorkNumberButton className={PORTAL_COMMAND_ACTION_BTN} />
+      {/* Plan-gated SETUP cta. It self-hides once a number is assigned, at
+          which point ManagerWorkNumberCard shows the number itself at the top
+          of the conversation list — so the two never appear together, and
+          deleting this would remove the only entry to work-number setup (and
+          the free-tier upsell behind it). */}
+      <ManagerWorkNumberButton className={PORTAL_HEADER_ACTION_BTN} />
       {/*
         No Settings here. The panel behind it was phone verification, which is
         the resident's own Settings → Messaging — asking for it again from the
@@ -310,30 +309,16 @@ export function ManagerCommunication({
     </>
   );
 
-  const controlStack = (
-    <PortalListControlStack
-      variant="command"
-      stickyDestinations={false}
-      destinations={[
-        { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
-        {
-          id: "archived",
-          label: "Archived",
-          href: `${commBase}/archived`,
-          dataAttr: "communication-segment-archived",
-        },
-      ]}
-      activeDestinationId={listSegment === "unread" ? "active" : listSegment}
-      destinationAriaLabel="Conversation folders"
-      actions={communicationCommandActions}
-      activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
-    />
-  );
+  // The chips stay on the page background between the title band and the cards.
+  // PortalActiveFilterChips returns null when empty, and the shell drops its
+  // wrapper with it, so there is no phantom gap when nothing is filtered.
+  const controlStack = <PortalActiveFilterChips chips={activeFilterChips} />;
 
   return (
     <PortalCommunicationShell
       title="Communication"
-      titleInlineFilter={null}
+      subtitle="Every conversation with your residents, applicants and vendors, in one inbox."
+      titleAside={communicationCommandActions}
       hideTitleOnMobileNav
       controlStack={controlStack}
       hideMobileFilterRow={threadOpen}
@@ -370,7 +355,7 @@ export function ManagerCommunication({
         smsRef={smsRef}
         onThreadOpenChange={setThreadOpen}
         onThreadSelectedChange={setThreadSelected}
-        listChrome="external"
+        listChrome="internal"
         onAddConversation={() => openCompose("email")}
       />
       <ManagerPortalSettingsModal
