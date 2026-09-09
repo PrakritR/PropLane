@@ -575,8 +575,14 @@ export function roomRateVisibility(sub: ManagerListingSubmissionV1) {
     /** Only a term that can start mid-month needs a partial month split. */
     prorate: longTerm || custom,
     shortTerm: Boolean(sub.shortTermRentalsAllowed),
+    /**
+     * Airbnb has NO pricing here at all. The stay is booked and paid for on
+     * Airbnb, so PropLane raises no rent charge for it — the lease type exists
+     * only so that resident is tracked through the listing like any other. A
+     * nightly box beside it would collect a number nothing reads.
+     */
     airbnb: Boolean(sub.airbnbRentalsAllowed),
-    nightly: Boolean(sub.shortTermRentalsAllowed) || Boolean(sub.airbnbRentalsAllowed),
+    nightly: Boolean(sub.shortTermRentalsAllowed),
     shortStayCharges: Boolean(sub.shortTermRentalsAllowed),
   };
 }
@@ -801,6 +807,7 @@ function RoomDetail({
             </Select>
           </Field>
 
+
           {!rates.monthly && !rates.shortTerm && !rates.airbnb ? (
             <p className="rounded-xl border border-dashed border-border bg-card px-4 py-3 text-[12.5px] leading-relaxed text-muted">
               No lease types are offered yet, so there is nothing to price. Choose them under
@@ -808,14 +815,20 @@ function RoomDetail({
             </p>
           ) : null}
 
-          {rates.monthly ? (
+          {/*
+           * A card per lease type on offer, in the order a manager thinks of
+           * them. The three monthly terms share ONE monthly rent — that is how
+           * the record works — so the first card on screen carries it and the
+           * others say plainly that they use it, with only the surcharge that
+           * makes them different. Two rent boxes would be two numbers that
+           * could disagree, and only one of them is ever billed.
+           */}
+          {rates.longTerm ? (
             <div className="rounded-xl border border-border bg-card p-4">
-              <p className="text-[13px] font-bold text-foreground">
-                {[rates.longTerm ? "Long-term" : null, rates.custom ? "custom" : null, rates.monthToMonth ? "month-to-month" : null]
-                  .filter(Boolean)
-                  .join(" · ")}
+              <p className="text-[13px] font-bold text-foreground">Long-term</p>
+              <p className="mb-3 mt-0.5 text-[12px] text-muted">
+                A month or more from the 1st. The monthly figure here is the one every monthly term uses.
               </p>
-              <p className="mb-3 mt-0.5 text-[12px] text-muted">One monthly figure covers all of these.</p>
               <FieldRow cols={3}>
                 <Field
                   label="Rent / month"
@@ -847,41 +860,115 @@ function RoomDetail({
                   />
                 </Field>
               </FieldRow>
-              {rates.prorate ? (
-                <>
-                  <p className="mb-2 mt-3 text-[12.5px] font-bold text-foreground">Prorated rent</p>
-                  <p className="mb-3 text-[12px] leading-relaxed text-muted">
-                    Splits a partial first or last month — which is exactly what a custom term starting mid-month
-                    needs.
-                  </p>
-                  <FieldRow cols={3}>
-                    <Field label="How to split">
-                      <Select
-                        value={room.prorateMethod ?? "auto"}
-                        onChange={(e) => set({ prorateMethod: e.target.value as ManagerRoomSubmission["prorateMethod"] })}
-                      >
-                        <option value="auto">Work it out automatically</option>
-                        <option value="daily_rate">Set a per-day rate</option>
-                      </Select>
-                    </Field>
-                    <Field label="Rent / day" optional>
-                      <Input
-                        value={room.dailyRentRate ? String(room.dailyRentRate) : ""}
-                        inputMode="numeric"
-                        placeholder={suggestionPlaceholder(suggested?.dailyRent)}
-                        onChange={(e) => set({ dailyRentRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-                      />
-                    </Field>
-                    <Field label="Utilities / day" optional>
-                      <Input
-                        value={room.dailyUtilitiesRate ? String(room.dailyUtilitiesRate) : ""}
-                        inputMode="numeric"
-                        onChange={(e) => set({ dailyUtilitiesRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-                      />
-                    </Field>
-                  </FieldRow>
-                </>
+            </div>
+          ) : null}
+
+          {rates.custom ? (
+            <div className="mt-3 rounded-xl border border-border bg-card p-4">
+              <p className="text-[13px] font-bold text-foreground">Custom</p>
+              <p className="mb-3 mt-0.5 text-[12px] text-muted">
+                A month or more starting on some other day, so it is the monthly rent plus a partial first month.
+              </p>
+              {!rates.longTerm ? (
+                <FieldRow cols={3}>
+                  <Field label="Rent / month">
+                    <Input
+                      value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
+                      inputMode="numeric"
+                      placeholder={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "1,050"}
+                      onChange={(e) => set({ monthlyRent: Number(e.target.value.replace(/[^0-9.]/g, "")) || 0 })}
+                    />
+                  </Field>
+                  <Field label="Security deposit" optional>
+                    <Input
+                      value={money(room.securityDeposit)}
+                      placeholder={defaults.securityDeposit || suggestionPlaceholder(suggested?.securityDeposit)}
+                      onChange={(e) => set({ securityDeposit: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Move-in fee" optional>
+                    <Input
+                      value={money(room.moveInFee)}
+                      placeholder={defaults.moveInFee || suggestionPlaceholder(suggested?.moveInFee)}
+                      onChange={(e) => set({ moveInFee: e.target.value })}
+                    />
+                  </Field>
+                </FieldRow>
               ) : null}
+              <FieldRow cols={3}>
+                <Field
+                  label="Custom-term surcharge / month"
+                  optional
+                  hint="Set for the whole listing. Extra rent on a term that does not start on the 1st."
+                >
+                  <Input
+                    value={money(sub.customLeaseSurcharge)}
+                    onChange={(e) => patch({ customLeaseSurcharge: e.target.value })}
+                  />
+                </Field>
+                <Field label="Prorate the partial month">
+                  <Select
+                    value={room.prorateMethod ?? "auto"}
+                    onChange={(e) => set({ prorateMethod: e.target.value as ManagerRoomSubmission["prorateMethod"] })}
+                  >
+                    <option value="auto">Work it out automatically</option>
+                    <option value="daily_rate">Set a per-day rate</option>
+                  </Select>
+                </Field>
+                <Field label="Prorated rent / day" optional>
+                  <Input
+                    value={room.dailyRentRate ? String(room.dailyRentRate) : ""}
+                    inputMode="numeric"
+                    placeholder={suggestionPlaceholder(suggested?.dailyRent)}
+                    onChange={(e) => set({ dailyRentRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
+                  />
+                </Field>
+              </FieldRow>
+            </div>
+          ) : null}
+
+          {rates.monthToMonth ? (
+            <div className="mt-3 rounded-xl border border-border bg-card p-4">
+              <p className="text-[13px] font-bold text-foreground">Month to month</p>
+              <p className="mb-3 mt-0.5 text-[12px] text-muted">
+                Rolls on until either side ends it. Priced off the same monthly rent, plus a surcharge if you charge one.
+              </p>
+              {!rates.longTerm && !rates.custom ? (
+                <FieldRow cols={3}>
+                  <Field label="Rent / month">
+                    <Input
+                      value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
+                      inputMode="numeric"
+                      placeholder={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "1,050"}
+                      onChange={(e) => set({ monthlyRent: Number(e.target.value.replace(/[^0-9.]/g, "")) || 0 })}
+                    />
+                  </Field>
+                  <Field label="Security deposit" optional>
+                    <Input
+                      value={money(room.securityDeposit)}
+                      placeholder={defaults.securityDeposit || suggestionPlaceholder(suggested?.securityDeposit)}
+                      onChange={(e) => set({ securityDeposit: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Move-in fee" optional>
+                    <Input
+                      value={money(room.moveInFee)}
+                      placeholder={defaults.moveInFee || suggestionPlaceholder(suggested?.moveInFee)}
+                      onChange={(e) => set({ moveInFee: e.target.value })}
+                    />
+                  </Field>
+                </FieldRow>
+              ) : null}
+              <Field
+                label="Month-to-month surcharge / month"
+                optional
+                hint="Set for the whole listing. Extra rent for the flexibility of no fixed end date."
+              >
+                <Input
+                  value={money(sub.monthToMonthSurcharge)}
+                  onChange={(e) => patch({ monthToMonthSurcharge: e.target.value })}
+                />
+              </Field>
             </div>
           ) : null}
 
@@ -921,40 +1008,20 @@ function RoomDetail({
           ) : null}
 
           {rates.airbnb ? (
-            <div className="mt-3 rounded-xl border border-border bg-card p-4">
+            <div className="mt-3 rounded-xl border border-dashed border-border bg-card p-4">
               <p className="text-[13px] font-bold text-foreground">Airbnb</p>
-              <p className="mb-3 mt-0.5 text-[12px] text-muted">
-                Booked off PropLane, so no rent charge is raised here — this is the figure you advertise.
+              <p className="mt-0.5 text-[12px] leading-relaxed text-muted">
+                Nothing to price. An Airbnb stay is booked and paid for on Airbnb, so PropLane raises no rent charge —
+                it is here only so the resident is tracked through your listing like any other.
               </p>
-              <Field label="Rent / night" optional>
-                <Input
-                  value={room.dailyRentPrice ? String(room.dailyRentPrice) : ""}
-                  placeholder={suggestionPlaceholder(suggested?.dailyRent)}
-                  inputMode="numeric"
-                  onChange={(e) => set({ dailyRentPrice: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-                />
-              </Field>
             </div>
           ) : null}
 
-          {suggested ? (
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
-              <p className="min-w-0 text-[12.5px] leading-relaxed text-muted">
-                From ${effectiveRent}: deposit {suggested.securityDeposit} · move-in fee {suggested.moveInFee} ·
-                prorated {suggested.dailyRent}/day.
-              </p>
-              <button
-                type="button"
-                onClick={acceptSuggestions}
-                data-attr="listing-v2-accept-suggestions"
-                className="shrink-0 rounded-full border border-primary/35 bg-primary/10 px-4 py-2 text-[12.5px] font-bold text-primary"
-              >
-                Fill them in
-              </button>
-            </div>
-          ) : null}
-
-          <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Whatever the term</p>
+          <p className="mb-1 mt-5 text-[12.5px] font-bold text-foreground">Charged on every lease type</p>
+          <p className="mb-3 text-[12px] leading-relaxed text-muted">
+            The application fee and the house-wide charges below are set once for the listing and apply whichever term a
+            resident takes.
+          </p>
           <FieldRow cols={3}>
             <Field label="Utilities / month" optional>
               <Input
@@ -987,8 +1054,92 @@ function RoomDetail({
               </Select>
             </Field>
           </FieldRow>
-        </AdvancedGroup>
+          <FieldRow cols={3}>
+            <Field label="Application fee" hint="What an applicant pays to apply. Listing-wide.">
+              <Input value={money(sub.applicationFee)} onChange={(e) => patch({ applicationFee: e.target.value })} />
+            </Field>
+            <Field label="Holding deposit" optional hint="Taken to hold the room. Listing-wide.">
+              <Input value={money(sub.holdingDeposit)} onChange={(e) => patch({ holdingDeposit: e.target.value })} />
+            </Field>
+            <Field label="Parking / month" optional>
+              <Input value={money(sub.parkingMonthly)} onChange={(e) => patch({ parkingMonthly: e.target.value })} />
+            </Field>
+          </FieldRow>
+          <FieldRow cols={2}>
+            <Field label="HOA / month" optional>
+              <Input value={money(sub.hoaMonthly)} onChange={(e) => patch({ hoaMonthly: e.target.value })} />
+            </Field>
+            <Field label="Other monthly fees" optional>
+              <Input value={money(sub.otherMonthlyFees)} onChange={(e) => patch({ otherMonthlyFees: e.target.value })} />
+            </Field>
+          </FieldRow>
 
+          <p className="mb-1 mt-5 text-[12.5px] font-bold text-foreground">Your own charges</p>
+          <p className="mb-3 text-[12px] leading-relaxed text-muted">
+            Anything the fields above do not cover. Each one is billed on every lease type.
+          </p>
+          {(sub.customFees ?? []).map((fee, i) => (
+            <FieldRow cols={3} key={fee.id}>
+              <Field label={`Charge ${i + 1}`}>
+                <Input
+                  value={fee.label}
+                  placeholder="Storage locker"
+                  onChange={(e) =>
+                    patch({ customFees: (sub.customFees ?? []).map((f) => (f.id === fee.id ? { ...f, label: e.target.value } : f)) })
+                  }
+                />
+              </Field>
+              <Field label="Amount">
+                <Input
+                  value={money(fee.amount)}
+                  onChange={(e) =>
+                    patch({ customFees: (sub.customFees ?? []).map((f) => (f.id === fee.id ? { ...f, amount: e.target.value } : f)) })
+                  }
+                />
+              </Field>
+              <Field label="How often">
+                <Select
+                  value={fee.frequency ?? "monthly"}
+                  onChange={(e) =>
+                    patch({
+                      customFees: (sub.customFees ?? []).map((f) =>
+                        f.id === fee.id ? { ...f, frequency: e.target.value as ManagerCustomFeeRow["frequency"] } : f,
+                      ),
+                    })
+                  }
+                >
+                  <option value="monthly">Monthly</option>
+                  <option value="one-time">One-time</option>
+                </Select>
+              </Field>
+            </FieldRow>
+          ))}
+          <button
+            type="button"
+            data-attr="listing-v2-room-add-fee"
+            onClick={() => patch({ customFees: [...(sub.customFees ?? []), emptyCustomFeeRow()] })}
+            className="min-h-[38px] rounded-full border border-border bg-card px-4 text-[12.5px] font-bold text-primary"
+          >
+            Add a charge
+          </button>
+
+          {suggested ? (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
+              <p className="min-w-0 text-[12.5px] leading-relaxed text-muted">
+                From ${effectiveRent}: deposit {suggested.securityDeposit} · move-in fee {suggested.moveInFee} ·
+                prorated {suggested.dailyRent}/day.
+              </p>
+              <button
+                type="button"
+                onClick={acceptSuggestions}
+                data-attr="listing-v2-accept-suggestions"
+                className="shrink-0 rounded-full border border-primary/35 bg-primary/10 px-4 py-2 text-[12.5px] font-bold text-primary"
+              >
+                Fill them in
+              </button>
+            </div>
+          ) : null}
+        </AdvancedGroup>
 
         <AdvancedGroup
           title="Move-in"
