@@ -66,13 +66,23 @@ export function ResidentManagerNumberCard() {
         return (
           <PortalInboxContactCard
             key={`${contact.phone ?? ""}-${contact.assistantEmail ?? ""}-${contact.propertyLabel ?? ""}`}
-            value={name ?? phoneLabel ?? contact.assistantEmail ?? "PropLane"}
-            label={
-              multiple && contact.propertyLabel
-                ? `Your property manager · ${contact.propertyLabel}`
-                : "Your property manager"
+            /*
+              The CONTACT leads, the same way the manager's card leads with
+              their work number. The card used to lead with the name and spend
+              its second line on "Replies in PropLane show up in your
+              conversations below." — a sentence the resident can see is true by
+              looking at the list underneath it — which left the number or
+              address, the one thing they came here for, nowhere on the card.
+            */
+            value={phoneLabel ?? contact.assistantEmail ?? name ?? "PropLane"}
+            label={name ? `${name} · Your property manager` : "Your property manager"}
+            note={
+              multiple
+                ? [contact.propertyLabel, managerContactCaption(contact, true)]
+                    .filter(Boolean)
+                    .join(" · ")
+                : undefined
             }
-            note={managerContactCaption(contact, multiple)}
             leading={
               name ? (
                 <InboxAvatar name={name} className="h-9 w-9 text-[12px]" />
@@ -102,7 +112,10 @@ export function ResidentManagerNumberCard() {
                     },
                   ]
                 : []),
-              ...(contact.assistantEmail && !contact.phone
+              // Offered ALONGSIDE the text action, not only in its absence: a
+              // resident with both should be able to reach either, and the
+              // card can only print one of them as its value.
+              ...(contact.assistantEmail
                 ? [
                     {
                       key: "email",

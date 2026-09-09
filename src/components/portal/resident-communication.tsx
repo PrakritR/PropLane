@@ -15,6 +15,7 @@ import {
   InboxConversationRow,
   InboxListSegmentRail,
   InboxTwoPane,
+  PORTAL_INBOX_LIST_TOOLBAR_CLASS,
   PortalInboxEmptyState,
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
@@ -185,12 +186,18 @@ function ResidentUnifiedInbox({
     setSelectedKey(null);
   }, [listSegment]);
 
+  // Same search the manager's list has. The two portals share one skeleton and
+  // a resident with a year of charge notices needs to find a thread just as
+  // much as a manager does.
+  const [query, setQuery] = useState("");
+
   const filteredEmail = useMemo(() => {
     const base = filterEmailInboxThreads(emailThreads, { keepSmsLike: !smsUiEnabled });
     return withPinnedPropLaneAssistantThreads(base, "resident", viewerId, listSegment);
   }, [emailThreads, listSegment, smsUiEnabled, viewerId]);
 
   const emailItems = useMemo((): UnifiedInboxListItem[] => {
+    const q = query.trim().toLowerCase();
     let rows = filteredEmail;
     if (listSegment === "archived") {
       rows = rows.filter((t) => t.folder === "trash");
@@ -198,6 +205,14 @@ function ResidentUnifiedInbox({
       rows = rows.filter((t) => t.folder !== "trash" && t.folder === "inbox" && t.unread);
     } else {
       rows = rows.filter((t) => t.folder !== "trash");
+    }
+    if (q) {
+      // Search refines the selected segment; it must not leak read rows back
+      // into Unread or active rows back into Archived.
+      rows = rows.filter((t) => {
+        const hay = [t.from, t.email, t.subject, t.body, t.preview].filter(Boolean).join(" ").toLowerCase();
+        return hay.includes(q);
+      });
     }
 
     const items = rows.map((t) => {
@@ -232,12 +247,14 @@ function ResidentUnifiedInbox({
     });
     if (listSegment === "unread") return items.filter((item) => item.unread);
     return items;
-  }, [filteredEmail, homeAddress, listSegment]);
+  }, [filteredEmail, homeAddress, listSegment, query]);
 
   const smsItems = useMemo((): UnifiedInboxListItem[] => {
     if (!smsUiEnabled || listSegment === "archived") return [];
     const scoped = smsMessages;
     if (scoped.length === 0) return [];
+    const q = query.trim().toLowerCase();
+    if (q && !scoped.some((m) => m.body.toLowerCase().includes(q)) && !"text messages".includes(q)) return [];
     const last = [...scoped].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0]!;
     const unread = scoped.some((m) => m.direction === "inbound" && smsMessageBucket(m, smsOpened) === "unopened");
     const item: UnifiedInboxListItem = {
@@ -254,7 +271,7 @@ function ResidentUnifiedInbox({
     };
     if (listSegment === "unread" && !unread) return [];
     return [item];
-  }, [listSegment, smsMessages, smsOpened, smsUiEnabled]);
+  }, [listSegment, query, smsMessages, smsOpened, smsUiEnabled]);
 
   const merged = useMemo(() => {
     const rows = mergeUnifiedInboxItems([...emailItems, ...smsItems], "recent");
@@ -312,9 +329,32 @@ function ResidentUnifiedInbox({
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <ResidentManagerNumberCard />
       <InboxListSegmentRail commBase={commBase} listSegment={listSegment} />
+      <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
+        <div className="relative min-w-0">
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search messages"
+            aria-label="Search messages"
+            className="portal-inbox-search h-9 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+            data-attr="resident-inbox-search"
+          />
+        </div>
+        {merged.length > 0 ? (
+          <p className="hidden px-1 text-[11px] text-muted sm:block">
+            {merged.length} conversation{merged.length === 1 ? "" : "s"}
+            {query.trim() ? ` matching \u201C${query.trim()}\u201D` : ""}
+          </p>
+        ) : null}
+      </div>
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
         {merged.length === 0 ? (
-          listSegment === "archived" ? (
+          query.trim() ? (
+            <div className="p-4">
+              <PortalInboxEmptyState title={`No messages match \u201C${query.trim()}\u201D.`} />
+            </div>
+          ) : listSegment === "archived" ? (
             <div className="p-4">
               <PortalInboxEmptyState title="No archived conversations." />
             </div>

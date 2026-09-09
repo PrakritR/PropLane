@@ -67,7 +67,7 @@ describe("resident manager number card", () => {
     expect(link?.getAttribute("href")).toBe("mailto:assist-acme@prop-lane.space");
   });
 
-  it("leads with the manager's name when the profile has one", async () => {
+  it("leads with the contact and names the manager beside the role", async () => {
     stubContacts([
       {
         managerName: "Akash Jain",
@@ -78,11 +78,14 @@ describe("resident manager number card", () => {
         status: "current",
       },
     ]);
-    render(<ResidentManagerNumberCard />);
-    await waitFor(() => expect(screen.getByText("Akash Jain")).toBeTruthy());
-    // The name leads and the label says the role. The compact card has no room
-    // for the old "Property Manager · PropLane" line and does not need it.
-    expect(screen.getByText(/Your property manager/)).toBeTruthy();
+    const { container } = render(<ResidentManagerNumberCard />);
+    // The reachable CONTACT is the value, mirroring the manager's own card,
+    // which leads with their work number rather than their name.
+    await waitFor(() => expect(screen.getByText("+1 (206) 555-9000")).toBeTruthy());
+    expect(screen.getByText(/Akash Jain · Your property manager/)).toBeTruthy();
+    expect(container.querySelector('[data-attr="resident-manager-number-link"]')?.getAttribute("href")).toBe(
+      "sms:+12065559000",
+    );
   });
 
   it("labels each number by property only when there are several", async () => {
