@@ -1546,6 +1546,10 @@ export const ManagerInbox = forwardRef<
         setReplyAttachments([]);
         setScheduleLater(false);
         showToast("Message scheduled.");
+        // Pull the pinned "N scheduled" card back in. Without this the
+        // conversation still shows the OLD count, so a manager who just
+        // scheduled something sees no sign it worked and schedules it twice.
+        reloadScheduled();
       } catch {
         showToast("Could not schedule message.");
       } finally {
