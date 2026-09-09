@@ -23,20 +23,25 @@ type StoredRecord = {
 };
 
 const getUser = vi.fn();
+const smsNotify = vi.fn();
+const resolveActorRole = vi.fn();
 let REQUESTOR: { role: string; email: string; sms_from_number: string | null } | null;
 /** Application records the stub "stores", keyed the way the route filters them. */
 let APP_ROWS: StoredRecord[];
 let APP_QUERY_ERROR: { message: string } | null;
 let LINKED_PROPERTY_IDS: string[];
 let PROFILE_UPDATE_CALLS: number;
+const linkedEditScope = vi.fn();
 
 vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
 // Admin resolution is not what these tests pin; the guard runs for every
 // manager role. REQUESTOR.role === "admin" already short-circuits in the route.
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
-vi.mock("@/lib/application-lifecycle-sms.server", () => ({ notifyApplicantApplicationSms: vi.fn() }));
+vi.mock("@/lib/application-lifecycle-sms.server", () => ({ notifyApplicantApplicationSms: smsNotify }));
+vi.mock("@/lib/auth/resident-role-access", () => ({ resolveResidentScopedActorRole: resolveActorRole }));
 vi.mock("@/lib/auth/co-manager-module-scope", () => ({
   linkedPropertyIdsForModule: async () => new Set(LINKED_PROPERTY_IDS),
+  linkedOwnerScopeForModule: linkedEditScope,
 }));
 vi.mock("@/lib/manager-applications-storage", () => ({
   normalizeApplicationAxisId: (id: string) => id.trim(),
@@ -155,6 +160,10 @@ describe("PATCH /api/portal/resident-approval — withdrawn applications are not
     APP_QUERY_ERROR = null;
     LINKED_PROPERTY_IDS = [];
     PROFILE_UPDATE_CALLS = 0;
+    smsNotify.mockReset();
+    smsNotify.mockResolvedValue({ sent: false, accepted: true, error: "queued", outboxStatus: "queued" });
+    resolveActorRole.mockImplementation(async (_db: unknown, args: { legacyRole: string }) => args.legacyRole);
+    linkedEditScope.mockResolvedValue({ ownerIds: new Set(), propertyIds: new Set() });
   });
 
   it("rejects approving a withdrawn application (409) and never writes application_approved", async () => {
@@ -267,6 +276,53 @@ describe("PATCH /api/portal/resident-approval — withdrawn applications are not
     );
     expect(res.status).toBe(200);
     expect((await res.json()).ok).toBe(true);
+    expect(PROFILE_UPDATE_CALLS).toBe(1);
+  });
+
+  it("uses only the exact approved stored row for selected SMS and reports a queued delivery honestly", async () => {
+    APP_ROWS = [{
+      id: "AXIS-9001",
+      row_data: appRow({ bucket: "approved", application: { phone: "+12065550142" } }),
+      resident_email: "applicant@example.com",
+      manager_user_id: "mgr-1",
+      property_id: "mgr-demo-pioneer",
+    }];
+    const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+    const res = await PATCH(patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001", notifySms: true, notifyEmail: false }));
+    expect(res.status).toBe(200);
+    expect(smsNotify).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      applicantEmail: "applicant@example.com", applicantPhone: "+12065550142", managerUserId: "mgr-1",
+      setupEmailSelected: false,
+    }));
+    expect(await res.json()).toMatchObject({ ok: true, sms: { sms: "queued" } });
+  });
+
+  it("does not invoke SMS when the selected channel is false", async () => {
+    APP_ROWS = [{ id: "AXIS-9001", row_data: appRow({ bucket: "approved" }), resident_email: "applicant@example.com", manager_user_id: "mgr-1" }];
+    const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+    const res = await PATCH(patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001", notifySms: false }));
+    expect(res.status).toBe(200);
+    expect(smsNotify).not.toHaveBeenCalled();
+  });
+
+  it("refuses a foreign co-manager application without a current edit grant", async () => {
+    getUser.mockResolvedValue({ data: { user: { id: "co-manager" } } });
+    APP_ROWS = [{ id: "AXIS-9001", row_data: appRow({ bucket: "approved", application: { phone: "+12065550142" } }), resident_email: "applicant@example.com", manager_user_id: "owner-1", property_id: "property-1" }];
+    linkedEditScope.mockResolvedValue({ ownerIds: new Set(["owner-1"]), propertyIds: new Set(["other-property"]) });
+    const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+    const res = await PATCH(patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001", notifySms: true }));
+    expect(res.status).toBe(403);
+    expect(smsNotify).not.toHaveBeenCalled();
+    expect(PROFILE_UPDATE_CALLS).toBe(0);
+  });
+
+  it("keeps a committed approval successful when the selected SMS throws late", async () => {
+    APP_ROWS = [{ id: "AXIS-9001", row_data: appRow({ bucket: "approved", application: { phone: "+12065550142" } }), resident_email: "applicant@example.com", manager_user_id: "mgr-1" }];
+    smsNotify.mockRejectedValueOnce(new Error("provider unavailable"));
+    const { PATCH } = await import("@/app/api/portal/resident-approval/route");
+    const res = await PATCH(patch({ email: "applicant@example.com", approved: true, applicationId: "AXIS-9001", notifySms: true }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, sms: { sms: "failed" } });
     expect(PROFILE_UPDATE_CALLS).toBe(1);
   });
 

@@ -940,3 +940,11 @@ actions to `leasing`, application review to `applications`, work-order tasks to
 `maintenance`, and rent collection to `payment_reminders`, so the topic-level
 phone choices remain effective. A resident-signature transition also produces
 an immediate leasing reminder for the manager to countersign.
+
+## Approval SMS and durable conversation projection (PRP-446)
+
+Application approval derives its SMS recipient from the authorized stored application and reuses the exact existing prospect/applicant conversation only when owner, recipient phone, provider-message evidence and current work-number pair agree. The selected email/SMS channels remain independent; queued, unknown and failed outcomes are never reported as sent.
+
+`sms_outbox` stores `provider_from_phone` before provider submission and a due conversation-log marker with the accepted SID. The SMS cron repairs pending/failed Communication projections without calling the provider again. Final markers compare the claimed status and due timestamp, so an expired worker cannot overwrite a newer repair. An explicit invalid conversation key is blocked; only an absent legacy key may use trusted outbox identity fallback. Repair inventory, claim and projection failures surface through cron health alerts.
+
+Migration `20260909090000_sms_outbox_conversation_log_repair.sql` is required before running this source. Old rows without a captured submitted sender are excluded from automatic repair. Reconciliation does not infer a historic sender from the current work number.

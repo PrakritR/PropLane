@@ -6,7 +6,9 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { residentPortalUrl } from "@/lib/claw-resident-links";
+import { fetchManagerSmsConversations } from "@/lib/manager-sms-messages.server";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
+import { conversationPhoneRef, type SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 
 export type ApplicationSmsEvent = "submitted" | "approved" | "rejected" | "needs_info";
 
@@ -17,6 +19,7 @@ function applicationSmsBody(
     propertyTitle?: string | null;
     axisId?: string | null;
     signupUrl?: string | null;
+    setupEmailSelected?: boolean;
   },
 ): string {
   const name = (opts.applicantName ?? "").trim();
@@ -41,7 +44,9 @@ function applicationSmsBody(
     case "approved":
       return [
         `${hi} — your rental application${at} was approved.`,
-        `Next steps (account, lease, move-in): ${residentPortalUrl("applications")}`,
+        opts.setupEmailSelected
+          ? "Check your email for your PropLane resident portal setup link and next steps."
+          : `Next steps: ${residentPortalUrl("login")}`,
       ].join("\n");
     case "rejected":
       return [
@@ -72,6 +77,51 @@ async function resolveApplicantPhone(
   return { phone: String(fallbackPhone ?? "").trim(), userId: null };
 }
 
+type ExistingApplicantConversation = {
+  conversationKey: string;
+  counterpartyRole: SmsCounterpartyRole;
+};
+type ExistingApplicantConversationResolution =
+  | { kind: "matched"; conversation: ExistingApplicantConversation }
+  | { kind: "missing" }
+  | { kind: "ambiguous" }
+  | { kind: "sender_unavailable" };
+
+/**
+ * Reuse an existing prospect/applicant thread only when its owner and phone are
+ * exact and unambiguous. A phone can legitimately have several role threads;
+ * choosing one by recency would leak an approval into the wrong conversation.
+ */
+export function resolveExistingApplicantConversation(
+  rows: Awaited<ReturnType<typeof fetchManagerSmsConversations>>["residents"],
+  args: { managerUserId: string; applicantPhone: string; workNumber: string | null },
+): ExistingApplicantConversationResolution {
+  const owner = args.managerUserId.trim();
+  const phone = conversationPhoneRef(args.applicantPhone);
+  const workNumber = conversationPhoneRef(args.workNumber);
+  if (!owner || !phone) return { kind: "missing" };
+  if (!workNumber) return { kind: "sender_unavailable" };
+  const candidates = rows.filter((row) =>
+    String(row.ownerManagerUserId ?? "").trim() === owner &&
+    conversationPhoneRef(row.phone) === phone &&
+    Boolean(row.conversationKey) &&
+    (row.counterpartyRole === "prospect" || row.counterpartyRole === "applicant") &&
+    row.messages.some((message) =>
+      message.direction === "inbound"
+        ? conversationPhoneRef(message.fromPhone) === phone && conversationPhoneRef(message.toPhone) === workNumber
+        : conversationPhoneRef(message.toPhone) === phone && conversationPhoneRef(message.fromPhone) === workNumber,
+    ),
+  );
+  const matches = [...new Map(candidates.map((row) => [row.conversationKey!, row])).values()];
+  if (matches.length === 0) return { kind: "missing" };
+  if (matches.length > 1) return { kind: "ambiguous" };
+  const match = matches[0]!;
+  return { kind: "matched", conversation: {
+    conversationKey: match.conversationKey!,
+    counterpartyRole: match.counterpartyRole!,
+  } };
+}
+
 /**
  * Text the applicant about an application lifecycle event. Opens a Claw thread
  * under topic `applications` when a manager id is provided.
@@ -90,8 +140,10 @@ export async function notifyApplicantApplicationSms(
     fromNumber?: string | null;
     /** Stable owner-scoped idempotency key for lifecycle retries. */
     dedupeKey?: string | null;
+    /** The approved route accepted the setup-email channel for this message. */
+    setupEmailSelected?: boolean;
   },
-): Promise<{ sent: boolean; accepted?: boolean; error?: string }> {
+): Promise<{ sent: boolean; accepted?: boolean; error?: string; outboxStatus?: string }> {
   const email = input.applicantEmail.trim().toLowerCase();
   const managerUserId = input.managerUserId?.trim() || null;
   // Managed Twilio derives the authoritative sender from manager_sms_numbers,
@@ -104,11 +156,33 @@ export async function notifyApplicantApplicationSms(
   const { phone, userId } = await resolveApplicantPhone(db, email, input.applicantPhone);
   if (!phone) return { sent: false, error: "no_phone" };
 
+  let existingThread: ExistingApplicantConversation | null = null;
+  if (managerUserId && input.event === "approved") {
+    try {
+      const conversations = await fetchManagerSmsConversations(db, managerUserId, {
+        scopeManagerIdsOverride: [managerUserId],
+        provisionWorkNumber: false,
+      });
+      const resolution = resolveExistingApplicantConversation(conversations.residents, {
+        managerUserId,
+        applicantPhone: phone,
+        workNumber: conversations.workNumber,
+      });
+      if (resolution.kind !== "matched") {
+        return { sent: false, error: resolution.kind === "ambiguous" ? "conversation_ambiguous" : resolution.kind === "sender_unavailable" ? "conversation_sender_unavailable" : "conversation_not_found" };
+      }
+      existingThread = resolution.conversation;
+    } catch {
+      return { sent: false, error: "conversation_lookup_failed" };
+    }
+  }
+
   const text = applicationSmsBody(input.event, {
     applicantName: input.applicantName,
     propertyTitle: input.propertyTitle,
     axisId: input.axisId,
     signupUrl: input.signupUrl,
+    setupEmailSelected: input.setupEmailSelected,
   });
 
   const result = await sendResidentOutboundSms({
@@ -123,7 +197,8 @@ export async function notifyApplicantApplicationSms(
           residentUserId: userId,
           residentEmail: email || null,
           topic: "applications",
-          counterpartyRole: "applicant",
+          counterpartyRole: existingThread?.counterpartyRole ?? "applicant",
+          conversationKey: existingThread?.conversationKey ?? null,
         }
       : null,
     // Submitted often has no manager thread yet / prospect — skip inverted mirror.
@@ -132,5 +207,5 @@ export async function notifyApplicantApplicationSms(
     dedupeKey: input.dedupeKey ?? undefined,
   });
 
-  return { sent: result.sent, accepted: result.accepted, error: result.error };
+  return { sent: result.sent, accepted: result.accepted, error: result.error, outboxStatus: result.outboxStatus };
 }
