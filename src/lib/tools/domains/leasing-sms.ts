@@ -23,6 +23,7 @@ import {
 } from "@/lib/manager-listing-submission";
 import { listingOffersCustomLeaseSurcharge } from "@/lib/listing-fees";
 import { roomDailyRentPrice, roomHeadlinePriceLabel, roomIsDailyPriced } from "@/lib/room-pricing";
+import { getNearbyTransit, type TransitMode } from "@/lib/nearby-transit.server";
 
 export const LEASING_ESCALATE_TOOL_NAME = "escalate_to_manager";
 
@@ -532,6 +533,22 @@ export const getListingDetailsTool = defineTool({
         utilities: facts.utilities,
       },
     };
+  },
+});
+
+export const getNearbyTransitTool = defineTool({
+  name: "get_nearby_transit",
+  description: "Look up named nearby mapped transit stops for one resolved listing. Distances are approximate straight-line distances from verified listing coordinates and are sourced from OpenStreetMap. Walking time and service frequency are unavailable.",
+  kind: "read",
+  inputSchema: z.object({
+    propertyId: z.string().min(1).describe("Listing / property id returned by list_live_listings."),
+    mode: z.enum(["bart", "bus", "public_transit"]).optional(),
+  }).strict(),
+  handler: async (ctx, input) => {
+    const rec = await loadResolvableListing(ctx, input.propertyId);
+    if (!rec) return { found: false, error: "listing_not_found" };
+    const result = await getNearbyTransit(propertySource(rec) ?? {}, (input.mode ?? "public_transit") as TransitMode);
+    return { found: true, ...result };
   },
 });
 

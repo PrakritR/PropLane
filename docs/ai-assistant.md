@@ -442,3 +442,8 @@ function: owner-scoped consent, outbox deduplication, dispatch, status reporting
 and the server-confirmed `message_sent` event remain shared. A missing explicit
 conversation key never falls back to another person on the same phone. The
 existing agent loop traces both tools and hashes the updated manager prompt.
+
+The prospect leasing registry includes `get_nearby_transit`, a read-only,
+property-scoped OpenStreetMap lookup. Model input supplies only a listing id and
+fixed mode; the server owns coordinates, address geocoding, query radius, and
+provider request construction.

@@ -948,3 +948,19 @@ Application approval derives its SMS recipient from the authorized stored applic
 `sms_outbox` stores `provider_from_phone` before provider submission and a due conversation-log marker with the accepted SID. The SMS cron repairs pending/failed Communication projections without calling the provider again. Final markers compare the claimed status and due timestamp, so an expired worker cannot overwrite a newer repair. An explicit invalid conversation key is blocked; only an absent legacy key may use trusted outbox identity fallback. Repair inventory, claim and projection failures surface through cron health alerts.
 
 Migration `20260909090000_sms_outbox_conversation_log_repair.sql` is required before running this source. Old rows without a captured submitted sender are excluded from automatic repair. Reconciliation does not infer a historic sender from the current work number.
+
+## Nearby transit facts
+
+Prospect leasing agents use the read-only `get_nearby_transit` tool for BART,
+bus, and general transit questions. The server resolves a scoped listing first,
+then uses stored listing coordinates or its canonical full address. OpenStreetMap
+is the source. Returned distances are approximate straight-line distances within
+the stated search radius. Never infer walking duration, service frequency, or
+current operations. An unavailable or unverified lookup stays unknown and uses
+the existing manager escalation path.
+
+Local development may use the public OpenStreetMap endpoints. Deployed runtimes
+must explicitly set `NOMINATIM_PROVIDER_URL` and `OVERPASS_PROVIDER_URL` to
+managed or self-hosted HTTPS services; missing or unsafe configuration returns
+an honest unavailable result. Caches and request queues are per server process,
+so they are an egress reduction rather than a distributed quota guarantee.
