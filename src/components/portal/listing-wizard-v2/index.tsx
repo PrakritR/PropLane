@@ -63,6 +63,8 @@ export function ListingWizardV2({
   onPublished,
   initialSubmission = null,
   initialDraftId = null,
+  editListingId = null,
+  editListingOwnerUserId = null,
   showToast,
   userId,
   skuTier,
@@ -82,6 +84,10 @@ export function ListingWizardV2({
   onPublished?: (listingId: string) => void;
   initialSubmission?: ManagerListingSubmissionV1 | null;
   initialDraftId?: string | null;
+  /** Editing an existing live listing rather than creating one. */
+  editListingId?: string | null;
+  /** Its owner — a co-managed listing belongs to somebody else. */
+  editListingOwnerUserId?: string | null;
   showToast?: (message: string) => void;
   userId: string | null;
   skuTier: string | null | undefined;
@@ -93,6 +99,8 @@ export function ListingWizardV2({
     skuTier,
     propertyCount,
     initialDraftId,
+    editListingId,
+    editListingOwnerUserId,
   });
   // A new listing starts as an empty submission on step 1, not behind a
   // preamble. `createDefaultListingSubmission` already carries one room, so the
@@ -111,6 +119,19 @@ export function ListingWizardV2({
       onClose={onClose}
       busy={busy}
       onSaveExit={async (stepIndex) => {
+        if (editListingId?.trim()) {
+          // There is no draft behind an edit — "save and exit" writes the
+          // listing itself, which is the same write Publish makes.
+          const result = await publish(submission);
+          if (!result.ok) {
+            showToast?.(result.message);
+            return;
+          }
+          onSaved?.(submission);
+          showToast?.("Changes saved.");
+          onClose();
+          return;
+        }
         const result = await saveDraft(submission, stepIndex);
         if (!result.ok) {
           // The manager's work stays on screen; a failed save must never look
