@@ -20,3 +20,7 @@
 The additive migration extends the existing service-role-only `sms_outbox` table and partial repair index. It adds no client grants, RLS policies, resend procedure, or production action. `blocked` is included in the new projection-status check and excluded from the retry index.
 
 This migration must precede deployment of the source because the dispatcher reads and writes its five new columns. Apply it through the normal dev migration ladder only after `supabase migration list --linked` confirms the worktree is linked to dev project `emstjswhotsnyksqhqyf` and the pending list contains no unrelated worktree migrations.
+
+## Coordinator dev schema validation
+
+The required migration was applied to dev/test `emstjswhotsnyksqhqyf` through `npm run db:push` using Supabase CLI 2.117.0. Dry run listed exactly `20260909090000_sms_outbox_conversation_log_repair.sql`; apply exited 0. The repository and dev history use different historical version names, so an ignored isolated migration directory was populated by `migration fetch` and verified to match all 154 applied dev versions before adding this one migration. No historical migration, seed, grant or unrelated role operation was replayed. Production/staging were not targeted. Final 4GB TypeScript also exited 0. Combined browser/full-suite validation remains pending.
