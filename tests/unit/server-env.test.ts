@@ -77,9 +77,9 @@ describe("assertNonProdDatabase", () => {
     expect(() => assertNonProdDatabase()).not.toThrow();
   });
 
-  it("is a no-op when AXIS_PROD_SUPABASE_REF is unset", () => {
+  it("protects the known production database even without an opt-in env var", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = `https://${PROD_REF}.supabase.co`;
-    expect(() => assertNonProdDatabase()).not.toThrow();
+    expect(() => assertNonProdDatabase()).toThrow(/production/i);
   });
 
   it("allows the production runtime to use the production project", () => {

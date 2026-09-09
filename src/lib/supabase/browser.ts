@@ -1,3 +1,4 @@
+import { assertBrowserDatabaseTarget } from "@/lib/supabase/browser-target";
 import { createBrowserClient } from "@supabase/ssr";
 import { registerBrowserAuthRecovery } from "@/lib/supabase/safe-browser-session";
 
@@ -9,6 +10,7 @@ export function createSupabaseBrowserClient() {
   if (!url || !anon) {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
   }
+  if (typeof window !== "undefined") assertBrowserDatabaseTarget(url, window.location.hostname);
   supabaseBrowserClient ??= createBrowserClient(url, anon, {
     auth: {
       persistSession: true,
