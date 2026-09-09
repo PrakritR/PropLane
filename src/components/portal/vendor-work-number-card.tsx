@@ -75,9 +75,7 @@ export function VendorWorkNumberCard({
             <p className="truncate text-[20px] font-extrabold tabular-nums tracking-[-0.01em] text-foreground">
               {label}
             </p>
-            <p className="mt-0.5 truncate text-[13px] text-muted">
-              Give this to the managers who dispatch you
-            </p>
+            <p className="mt-0.5 text-[13px] leading-snug text-muted">Give this to the managers who dispatch you</p>
             <p className="mt-1.5 truncate text-xs text-muted">Change it in Settings</p>
           </div>
         </div>

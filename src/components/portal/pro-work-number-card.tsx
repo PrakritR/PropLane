@@ -77,9 +77,7 @@ export function ManagerWorkNumberCard({
             <p className="truncate text-[20px] font-extrabold tabular-nums tracking-[-0.01em] text-foreground">
               {label}
             </p>
-            <p className="mt-0.5 truncate text-[13px] text-muted">
-              Residents and prospects text this number
-            </p>
+            <p className="mt-0.5 text-[13px] leading-snug text-muted">Residents and prospects text this number</p>
             <p className="mt-1.5 flex items-center gap-2 text-xs text-muted">
               <span
                 className={`h-[7px] w-[7px] shrink-0 rounded-full ${
