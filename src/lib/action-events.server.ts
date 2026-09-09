@@ -60,6 +60,7 @@ async function deliverProjection(
     retryMode?: "sms" | "email" | "both";
     attempts: number;
     now: Date;
+    smsDeferredUntil?: string | null;
     finalizeGuard?: { status: "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred"; dueAt: string };
   },
 ): Promise<"delivered" | "submitted" | "deferred" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "stale"> {
@@ -86,13 +87,15 @@ async function deliverProjection(
   }));
   const updatedAt = input.now.toISOString();
   if (!result.ok) {
-    const retryStatus = input.retryMode === "sms" ? "sms_failed"
+    const retryStatus = input.retryMode === "email" && input.smsDeferredUntil ? "channels_failed"
+      : input.retryMode === "sms" ? "sms_failed"
       : input.retryMode === "email" ? "email_failed"
         : input.retryMode === "both" ? "channels_failed" : "failed";
     const failedUpdate = db.from("action_event_deliveries").update({
       status: retryStatus,
       attempts: input.attempts + 1,
       last_error: result.error,
+      sms_deferred_until: input.smsDeferredUntil ?? null,
       next_attempt_at: new Date(input.now.getTime() + 5 * 60_000).toISOString(),
       updated_at: updatedAt,
     }).eq("id", input.deliveryId);
@@ -114,20 +117,27 @@ async function deliverProjection(
   // Portal/email already succeeded when only SMS failed. Preserve that fact so
   // retry suppresses those completed legs. Accepted provider work is submitted,
   // not a claim that the handset received it.
-  const status = hasEmailFailure && hasSmsFailure ? "channels_failed"
+  const status = input.smsDeferredUntil && hasEmailFailure ? "channels_failed"
+    : hasEmailFailure && hasSmsFailure ? "channels_failed"
     : hasEmailFailure ? "email_failed"
       : hasSmsFailure ? "sms_failed"
-        : hasAcceptedSms ? "submitted" : input.retryMode ? "delivered" : input.suppressSms ? "deferred" : "delivered";
+        : hasAcceptedSms ? "submitted"
+          : input.suppressSms && input.smsDeferredUntil ? "deferred"
+            : input.retryMode ? "delivered" : input.suppressSms ? "deferred" : "delivered";
   const retrySmsAt = new Date(input.now.getTime() + 5 * 60_000).toISOString();
   const retryChannels = status === "email_failed" || status === "sms_failed" || status === "channels_failed";
   const finalPayload = retryChannels ? {
     status, attempts: input.attempts + 1, last_error: `${status}_delivery_unavailable`,
     next_attempt_at: retrySmsAt, delivered_at: null, updated_at: updatedAt,
+    sms_deferred_until: input.smsDeferredUntil ?? null,
   } : status === "deferred" ? {
     status, attempts: input.attempts + 1, last_error: null, updated_at: updatedAt,
+    ...(input.smsDeferredUntil ? { next_attempt_at: input.smsDeferredUntil } : {}),
+    sms_deferred_until: null,
   } : {
     status, attempts: input.attempts + 1, last_error: null,
-    next_attempt_at: null, delivered_at: status === "delivered" ? updatedAt : null, updated_at: updatedAt,
+    next_attempt_at: null, delivered_at: status === "delivered" ? updatedAt : null,
+    sms_deferred_until: null, updated_at: updatedAt,
   };
   const successUpdate = db.from("action_event_deliveries").update(finalPayload).eq("id", input.deliveryId);
   if (input.finalizeGuard) {
@@ -205,6 +215,7 @@ export async function emitActionEvent(
       recipient_email: recipient.email?.trim().toLowerCase() ?? null,
       status: initialStatus,
       next_attempt_at: policy.nextAttemptAt,
+      sms_deferred_until: policy.deferSms ? policy.nextAttemptAt : null,
       rendered: recipient.rendered,
     }, { onConflict: "event_id,audience,recipient_key", ignoreDuplicates: true }).select("id,status,attempts").maybeSingle();
     if (!delivery) continue;
@@ -222,6 +233,7 @@ export async function emitActionEvent(
       retryMode: undefined,
       attempts: Number(delivery.attempts ?? 0),
       now,
+      smsDeferredUntil: policy.deferSms ? policy.nextAttemptAt : null,
     });
     if (outcome === "delivered") delivered++;
     else if (outcome === "submitted") submitted++;
@@ -240,7 +252,7 @@ export async function retryDueActionEventDeliveries(
 ): Promise<{ attempted: number; delivered: number; submitted: number; failed: number }> {
   const now = opts.now ?? new Date();
   const { data, error } = await db.from("action_event_deliveries")
-    .select("id,event_id,audience,recipient_user_id,recipient_email,status,attempts,next_attempt_at,rendered")
+    .select("id,event_id,audience,recipient_user_id,recipient_email,status,attempts,next_attempt_at,sms_deferred_until,rendered")
     .in("status", ["pending", "failed", "email_failed", "sms_failed", "channels_failed", "deferred"])
     .lte("next_attempt_at", now.toISOString())
     .order("next_attempt_at", { ascending: true })
@@ -274,6 +286,8 @@ export async function retryDueActionEventDeliveries(
     if (eventError || !event?.sender_user_id || !event.sender_email) {
       throw new Error(`Could not resolve action event: ${eventError?.message ?? "missing sender"}`);
     }
+    const retainedSmsDue = row.sms_deferred_until ? String(row.sms_deferred_until) : null;
+    const retryingQuietEmail = Boolean(retainedSmsDue && Date.parse(retainedSmsDue!) > claimTime.getTime());
     const outcome = await deliverProjection(db, {
       deliveryId: String(row.id),
       eventKey: String(event.event_key),
@@ -287,12 +301,16 @@ export async function retryDueActionEventDeliveries(
         email: row.recipient_email ? String(row.recipient_email) : undefined,
       },
       rendered: row.rendered as ActionEventRendered,
-      suppressSms: row.status === "email_failed",
+      suppressSms: row.status === "email_failed" || retryingQuietEmail,
       digest: false,
       retryMode: row.status === "deferred" || row.status === "sms_failed"
-        ? "sms" : row.status === "email_failed" ? "email" : row.status === "channels_failed" ? "both" : undefined,
+        ? "sms"
+        : row.status === "email_failed" || (row.status === "channels_failed" && retryingQuietEmail)
+          ? "email"
+          : row.status === "channels_failed" ? "both" : undefined,
       attempts: Number(row.attempts ?? 0),
       now: claimTime,
+      smsDeferredUntil: retryingQuietEmail ? retainedSmsDue : null,
       finalizeGuard: { status: row.status as "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred", dueAt: claimUntil },
     });
     if (["failed", "email_failed", "sms_failed", "channels_failed"].includes(outcome)) failed++;

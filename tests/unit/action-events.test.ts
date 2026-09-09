@@ -133,6 +133,86 @@ describe("action-event idempotent consumer", () => {
     expect(tables.action_event_deliveries[0]?.next_attempt_at).not.toBeNull();
   });
 
+  it("retries failed email during quiet hours and preserves the deferred SMS without resending email", async () => {
+    const { db, tables } = fakeDb();
+    const quietNow = new Date("2026-09-04T08:00:00.000Z");
+    deliver.mockResolvedValueOnce({
+      ok: true,
+      recipientCount: 1,
+      emailOutcomes: [{ recipientEmail: "resident@example.com", status: "failed" }],
+      smsOutcomes: [],
+    } as never);
+    await emitActionEvent(db, { ...input, eventId: "quiet-email-failure", now: quietNow });
+    const row = tables.action_event_deliveries[0]!;
+    const retainedDue = String(row.sms_deferred_until);
+    expect(row).toMatchObject({ status: "channels_failed", delivered_at: null });
+    expect(Date.parse(retainedDue)).toBeGreaterThan(quietNow.getTime());
+    expect(deliver.mock.calls[0]?.[1]).toMatchObject({ suppressSms: true });
+
+    const firstEmailRetryAt = String(row.next_attempt_at);
+    deliver.mockResolvedValueOnce({ ok: false, error: "email transport unavailable" } as never);
+    await retryDueActionEventDeliveries(db, { now: new Date(firstEmailRetryAt) });
+    expect(deliver.mock.calls[1]?.[1]).toMatchObject({ suppressSms: true, suppressInbox: true });
+    expect(row).toMatchObject({ status: "channels_failed", sms_deferred_until: retainedDue, delivered_at: null });
+
+    const secondEmailRetryAt = String(row.next_attempt_at);
+    deliver.mockResolvedValueOnce({
+      ok: true,
+      recipientCount: 1,
+      emailOutcomes: [{ recipientEmail: "resident@example.com", status: "submitted" }],
+      smsOutcomes: [],
+    } as never);
+    await retryDueActionEventDeliveries(db, { now: new Date(secondEmailRetryAt) });
+    expect(deliver.mock.calls[2]?.[1]).toMatchObject({ suppressSms: true, suppressInbox: true });
+    expect(row).toMatchObject({ status: "deferred", next_attempt_at: retainedDue, sms_deferred_until: null, delivered_at: null });
+
+    deliver.mockResolvedValueOnce({
+      ok: true,
+      recipientCount: 1,
+      emailOutcomes: [{ recipientEmail: "resident@example.com", status: "skipped" }],
+      smsOutcomes: [{ recipientEmail: "resident@example.com", status: "queued" }],
+    } as never);
+    await retryDueActionEventDeliveries(db, { now: new Date(retainedDue) });
+    expect(deliver.mock.calls[3]?.[1]).toMatchObject({ suppressEmail: true, suppressInbox: true });
+    expect(row).toMatchObject({ status: "submitted", delivered_at: null });
+  });
+
+  it("does not turn an ordinary email-only retry into a second SMS attempt", async () => {
+    const { db, tables } = fakeDb();
+    await emitActionEvent(db, input);
+    const row = tables.action_event_deliveries[0]!;
+    Object.assign(row, {
+      status: "email_failed",
+      next_attempt_at: "2026-09-04T18:59:00.000Z",
+      sms_deferred_until: null,
+      delivered_at: null,
+    });
+    deliver.mockClear().mockResolvedValueOnce({
+      ok: true,
+      recipientCount: 1,
+      emailOutcomes: [{ recipientEmail: "resident@example.com", status: "failed" }],
+      smsOutcomes: [{ recipientEmail: "resident@example.com", status: "skipped" }],
+    } as never);
+    await retryDueActionEventDeliveries(db, { now: input.now });
+    expect(deliver.mock.calls[0]?.[1]).toMatchObject({ suppressSms: true, suppressInbox: true });
+    expect(row).toMatchObject({ status: "email_failed", sms_deferred_until: null });
+  });
+
+  it("does not send SMS early when the whole initial quiet-hours delivery throws", async () => {
+    const { db, tables } = fakeDb();
+    const quietNow = new Date("2026-09-04T08:00:00.000Z");
+    deliver.mockResolvedValueOnce({ ok: false, error: "inbox unavailable" } as never);
+    await emitActionEvent(db, { ...input, eventId: "quiet-total-failure", now: quietNow });
+    const row = tables.action_event_deliveries[0]!;
+    const retainedDue = String(row.sms_deferred_until);
+    expect(row.status).toBe("failed");
+
+    deliver.mockResolvedValueOnce({ ok: true, recipientCount: 1, emailOutcomes: [{ status: "submitted" }], smsOutcomes: [] } as never);
+    await retryDueActionEventDeliveries(db, { now: new Date(String(row.next_attempt_at)) });
+    expect(deliver.mock.calls[1]?.[1]).toMatchObject({ suppressSms: true, suppressInbox: false });
+    expect(row).toMatchObject({ status: "deferred", next_attempt_at: retainedDue, sms_deferred_until: null });
+  });
+
   it("counts provider-accepted SMS as submitted rather than delivered or failed", async () => {
     const { db } = fakeDb();
     deliver.mockResolvedValueOnce({
