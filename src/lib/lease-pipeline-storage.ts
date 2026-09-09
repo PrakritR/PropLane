@@ -637,7 +637,9 @@ export const RESIDENT_RETURNED_SIGNED_PDF_THREAD =
   "Resident uploaded the signed PDF and sent it back to the manager.";
 
 /** Resident signed offline and returned the PDF — no `residentSignature` object. */
-export function residentReturnedSignedPdfToManager(row: LeasePipelineRow): boolean {
+export function residentReturnedSignedPdfToManager(
+  row: Pick<LeasePipelineRow, "residentReturnedSignedPdfAt" | "thread">,
+): boolean {
   if (row.residentReturnedSignedPdfAt) return true;
   return (row.thread ?? []).some((message) => message.body?.includes(RESIDENT_RETURNED_SIGNED_PDF_THREAD));
 }
@@ -843,11 +845,27 @@ export type LeasePipelineRow = {
 function workflowStatusForRow(
   input: Pick<
     LeasePipelineRow,
-    "bucket" | "managerSignature" | "residentSignature" | "signatureName" | "signedAtIso" | "voidedAt" | "generatedHtml" | "managerUploadedPdf"
+    | "bucket"
+    | "managerSignature"
+    | "residentSignature"
+    | "signatureName"
+    | "signedAtIso"
+    | "voidedAt"
+    | "generatedHtml"
+    | "managerUploadedPdf"
+    | "residentReturnedSignedPdfAt"
+    | "thread"
   >,
 ): LeaseWorkflowStatus {
+  // A resident signs one of TWO ways: electronically, or offline by returning the
+  // signed PDF. Reading only the e-signature left an offline-signed lease stuck on
+  // "Manager Signature Pending" forever — the manager countersigned and the row
+  // never reached the Signed tab, while `hasBothLeaseSignatures` said both had
+  // signed. The two answers to "has the resident signed" must agree.
   const residentSigned = Boolean(
-    (input.residentSignature?.name && input.residentSignature?.signedAtIso) || (input.signatureName && input.signedAtIso),
+    (input.residentSignature?.name && input.residentSignature?.signedAtIso) ||
+      (input.signatureName && input.signedAtIso) ||
+      residentReturnedSignedPdfToManager(input),
   );
   const managerSigned = Boolean(input.managerSignature?.name && input.managerSignature?.signedAtIso);
   if (input.voidedAt) return "Voided";
@@ -990,6 +1008,9 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     voidedAt: typeof r.voidedAt === "string" ? r.voidedAt : null,
     generatedHtml: r.generatedHtml ?? null,
     managerUploadedPdf: r.managerUploadedPdf ?? null,
+    residentReturnedSignedPdfAt:
+      typeof r.residentReturnedSignedPdfAt === "string" ? r.residentReturnedSignedPdfAt : null,
+    thread: Array.isArray(r.thread) ? r.thread : [],
   });
   const stageLabel = stageLabelForStatus(status);
   // A row that is already executed is a FILING, not a document waiting to be
