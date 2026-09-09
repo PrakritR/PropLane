@@ -14,32 +14,102 @@ import {
 } from "@/lib/demo-admin-property-inventory";
 import { countManagerManagedPropertiesForUser } from "@/lib/demo-property-pipeline";
 import { createNewListingWizardSubmission } from "@/lib/manager-listing-submission";
+import { collectLinkedPropertyIds } from "@/lib/manager-portfolio-access";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 
 export type FirstListingPortfolioSnapshot = {
   listingSlots: number;
   drafts: number;
   unlisted: number;
+  /**
+   * Properties this account CO-MANAGES rather than owns.
+   *
+   * A co-manager working somebody else's portfolio has listings — they are just
+   * not on their own row. Counting only owned rows read them as a brand-new
+   * manager and pushed the first-listing wizard at someone who has been working
+   * in the product for months.
+   */
+  coManaged: number;
 };
 
 export function readFirstListingPortfolioSnapshot(
   managerUserId: string | null | undefined,
 ): FirstListingPortfolioSnapshot {
   const id = managerUserId?.trim() || null;
-  if (!id) return { listingSlots: 0, drafts: 0, unlisted: 0 };
+  if (!id) return { listingSlots: 0, drafts: 0, unlisted: 0, coManaged: 0 };
   const kpi = adminKpiCounts(id);
   return {
     listingSlots: countManagerManagedPropertiesForUser(id),
     drafts: kpi[5],
     unlisted: kpi[3],
+    coManaged: collectLinkedPropertyIds(id).size,
   };
+}
+
+/**
+ * Has this account got ANY property, by any route — owned, unlisted, or
+ * co-managed? A draft is deliberately not one: a draft is an unfinished
+ * listing, not a listing.
+ */
+export function managerHasAnyListing(snap: FirstListingPortfolioSnapshot): boolean {
+  return snap.listingSlots > 0 || snap.unlisted > 0 || snap.coManaged > 0;
+}
+
+const DISMISSED_KEY_PREFIX = "proplane:first-listing-wizard-dismissed:";
+
+export function firstListingWizardDismissedStorageKey(userId: string): string {
+  return `${DISMISSED_KEY_PREFIX}${userId.trim()}`;
+}
+
+/** Has this manager already closed the first-listing wizard once? */
+export function readFirstListingWizardDismissed(userId: string | null | undefined): boolean {
+  const id = userId?.trim();
+  if (!id || typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(firstListingWizardDismissedStorageKey(id)) === "1";
+  } catch {
+    // A browser that refuses storage must not become a browser that reopens the
+    // wizard forever, but it also cannot remember — treat it as not dismissed
+    // and let the listing count do the work.
+    return false;
+  }
+}
+
+export function markFirstListingWizardDismissed(userId: string | null | undefined): void {
+  const id = userId?.trim();
+  if (!id || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(firstListingWizardDismissedStorageKey(id), "1");
+  } catch {
+    /* storage refused; the wizard simply may open again on this device */
+  }
+}
+
+/**
+ * Should Properties open the create-listing wizard by itself?
+ *
+ * Exactly two conditions, and both must hold:
+ *
+ * 1. The account has NO listing of any kind — nothing owned, nothing unlisted,
+ *    and nothing co-managed. A leftover draft does not count, because a draft
+ *    is what the wizard makes.
+ * 2. The manager has never closed it. Closing it once is an answer, and the
+ *    old rule ("keep opening until a listing exists") re-asked the question on
+ *    every single visit to Properties.
+ */
+export function shouldAutoOpenFirstListingWizard(opts: {
+  snap: FirstListingPortfolioSnapshot;
+  dismissed: boolean;
+}): boolean {
+  if (opts.dismissed) return false;
+  return !managerHasAnyListing(opts.snap);
 }
 
 /** Empty owned portfolio — safe to mint the first seed draft. */
 export function managerPortfolioNeedsFirstListingSeed(
   snap: FirstListingPortfolioSnapshot,
 ): boolean {
-  return snap.listingSlots === 0 && snap.drafts === 0 && snap.unlisted === 0;
+  return snap.listingSlots === 0 && snap.drafts === 0 && snap.unlisted === 0 && snap.coManaged === 0;
 }
 
 /**
@@ -49,7 +119,7 @@ export function managerPortfolioNeedsFirstListingSeed(
 export function managerNeedsFirstListingOnboarding(
   snap: FirstListingPortfolioSnapshot,
 ): boolean {
-  return snap.listingSlots === 0 && snap.unlisted === 0 && snap.drafts > 0;
+  return snap.listingSlots === 0 && snap.unlisted === 0 && snap.coManaged === 0 && snap.drafts > 0;
 }
 
 export function shouldSkipFirstListingOnboarding(opts: {
