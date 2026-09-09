@@ -2648,6 +2648,23 @@ html[data-rental-wizard-active] {
     padding-bottom: calc(var(--portal-assistant-fab-clearance) + 1.25rem);
     scroll-padding-bottom: calc(var(--portal-assistant-fab-clearance) + 1.25rem);
   }
+
+  /*
+   * ...except Communication, which is a CLIPPED fixed-height surface rather
+   * than a scrolling page of CTAs. Reserving FAB clearance on a clipped element
+   * does not protect anything — it just shortens the panel and leaves 80px of
+   * dead canvas under the two cards. The composer's own FAB overlap is already
+   * handled by `.portal-communication-inbox .portal-inbox-composer-row`'s
+   * right padding.
+   *
+   * Specificity has to match the rule above (four class-level parts) or it
+   * loses, so the two :not() guards are repeated deliberately.
+   */
+  html[data-communication-surface]:has(.portal-shell):not([data-hide-assistant-fab]):not([data-rental-wizard-active])
+    #portal-main-content {
+    padding-bottom: 0;
+    scroll-padding-bottom: 0;
+  }
 }
 
 html[data-communication-surface] {

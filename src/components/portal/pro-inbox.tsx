@@ -2,7 +2,7 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { Pencil, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import {
@@ -73,6 +73,8 @@ import {
   PortalInboxEmptyState,
   inboxTabEmptyCopy,
   type InboxBubbleMessage,
+  INBOX_THREAD_ICON_BTN,
+  INBOX_THREAD_ICON_BTN_DANGER,
 } from "./portal-inbox-ui";
 import {
   useInboxRowSelection,
@@ -1947,8 +1949,9 @@ export const ManagerInbox = forwardRef<
   const threadContactEditButton = canEditThreadContact ? (
     <button
       type="button"
-      className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+      className={INBOX_THREAD_ICON_BTN}
       aria-label="Edit contact details"
+      title="Edit contact details"
       data-attr="inbox-thread-contact-edit"
       onClick={openThreadPhone}
     >
@@ -1962,40 +1965,46 @@ export const ManagerInbox = forwardRef<
     activeThread && showThreadHeaderActions ? (
     activeThread.folder === "trash" ? (
       <>
-        <Button
+        <button
           type="button"
-          variant="outline"
-          className="min-h-0 rounded-full px-3 py-1.5 text-xs"
+          className={INBOX_THREAD_ICON_BTN}
+          aria-label="Restore conversation"
+          title="Restore"
+          data-attr="inbox-thread-restore"
           onClick={() => restoreFromTrash(activeThread.id)}
         >
-          Restore
-        </Button>
-        <Button
+          <ArchiveRestore className="h-4 w-4" aria-hidden />
+        </button>
+        <button
           type="button"
-          variant="outline"
-          className="min-h-0 rounded-full border-rose-200 px-3 py-1.5 text-xs text-rose-700 hover:bg-[var(--status-overdue-bg)]"
+          className={INBOX_THREAD_ICON_BTN_DANGER}
+          aria-label="Delete conversation"
+          title="Delete"
+          data-attr="inbox-thread-delete"
           onClick={() => deleteForever(activeThread.id)}
         >
-          Delete
-        </Button>
+          <Trash2 className="h-4 w-4" aria-hidden />
+        </button>
       </>
     ) : (
       <>
+        {/* One row of matching circular controls: edit, archive, delete. */}
         {threadContactEditButton}
-        <Button
+        <button
           type="button"
-          variant="outline"
-          className="min-h-0 rounded-full px-3 py-1.5 text-xs"
+          className={INBOX_THREAD_ICON_BTN}
+          aria-label="Archive conversation"
+          title="Archive"
           data-attr="inbox-thread-archive"
           onClick={() => moveToTrash(activeThread.id)}
         >
-          Archive
-        </Button>
-        {/* Same controls as the text thread header: pen, Archive, delete. */}
+          <Archive className="h-4 w-4" aria-hidden />
+        </button>
         <button
           type="button"
-          className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-danger focus-visible:ring-2 focus-visible:ring-primary/40"
+          className={INBOX_THREAD_ICON_BTN_DANGER}
           aria-label="Delete conversation"
+          title="Delete"
           data-attr="inbox-thread-delete"
           onClick={() => deleteForever(activeThread.id)}
         >

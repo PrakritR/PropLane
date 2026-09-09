@@ -9,7 +9,6 @@ import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-i
 import { ManagerWorkNumberCard } from "@/components/portal/pro-work-number-card";
 import { ManagerSmsPanel, type ManagerSmsPanelHandle } from "@/components/portal/pro-sms-panel";
 import {
-  CommunicationInboxRowCheckbox,
   CommunicationListBulkBar,
 } from "@/components/portal/communication-list-bulk-bar";
 import {
@@ -807,13 +806,6 @@ export function ManagerUnifiedInbox({
           listRows.map((row) => (
             <InboxConversationRow
               key={row.key}
-              leading={
-                <CommunicationInboxRowCheckbox
-                  checked={bulk.selection.selectedIds.has(row.key)}
-                  onToggle={() => bulk.selection.toggleSelected(row.key)}
-                  label={`Select conversation with ${row.name}`}
-                />
-              }
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}

@@ -35,8 +35,8 @@ describe("InboxReplyChannelPicker", () => {
     expect(trigger).toHaveTextContent("Email");
     fireEvent.click(trigger);
     expect(screen.getByRole("option", { name: /Email/i })).toBeTruthy();
-    expect(screen.getByRole("option", { name: /SMS \(not enabled\)/i })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: /Email & SMS/i })).toBeNull();
+    expect(screen.getByRole("option", { name: /Text \(texting is off\)/i })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /Email & Text/i })).toBeNull();
   });
 
   it("still lists email when the thread has no address, and offers to add one", () => {
@@ -92,7 +92,7 @@ describe("InboxReplyChannelPicker", () => {
       />,
     );
     fireEvent.click(screen.getByLabelText("Send via"));
-    const smsOption = screen.getByRole("option", { name: /^SMS$/i });
+    const smsOption = screen.getByRole("option", { name: /^Text$/i });
     // A pick is pointerdown + pointerup at the same point; pointerdown alone is a scroll start.
     fireEvent.pointerDown(smsOption, { pointerId: 1, clientX: 10, clientY: 10 });
     fireEvent.pointerUp(smsOption, { pointerId: 1, clientX: 10, clientY: 10 });
@@ -100,7 +100,7 @@ describe("InboxReplyChannelPicker", () => {
     expect(onEmail).toHaveBeenCalledWith(true);
   });
 
-  it("shows Email & SMS on the trigger when both are selected", () => {
+  it("shows Email & Text on the trigger when both are selected", () => {
     render(
       <InboxReplyChannelPicker
         viaEmail
@@ -111,7 +111,7 @@ describe("InboxReplyChannelPicker", () => {
         smsAvailable
       />,
     );
-    expect(screen.getByLabelText("Send via")).toHaveTextContent("Email & SMS");
+    expect(screen.getByLabelText("Send via")).toHaveTextContent("Email & Text");
   });
 
   it("lists PropLane alongside email and sms when all channels are available", () => {
@@ -131,7 +131,7 @@ describe("InboxReplyChannelPicker", () => {
     fireEvent.click(screen.getByLabelText("Send via"));
     expect(screen.getByRole("option", { name: /^PropLane$/i })).toBeTruthy();
     expect(screen.getByRole("option", { name: /^Email$/i })).toBeTruthy();
-    expect(screen.getByRole("option", { name: /^SMS$/i })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /^Text$/i })).toBeTruthy();
   });
 });
 

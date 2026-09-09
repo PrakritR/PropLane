@@ -264,6 +264,10 @@ export function ManagerCommunication({
       // height. Constraining the panel to the band clips the last field, which
       // is what tests/unit/finance-documents-title-row-controls.test.ts pins.
       constrainDropdownToTitleBand={false}
+      // Content width. The shared compact trigger is a fixed 10.75rem, which on
+      // a one-word label leaves a visible gap inside the pill; `cn` is
+      // tailwind-merge, so the later class wins.
+      className="md:w-auto md:max-w-none"
       mobileFlushBody={true}
       onReset={() => {
         setFilters(EMPTY_COMMUNICATION_THREAD_FILTERS);

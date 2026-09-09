@@ -849,6 +849,20 @@ export function InboxListSegmentRail({
   );
 }
 
+/**
+ * Circular outline icon button for the thread header (edit, archive, delete).
+ *
+ * One class so the header reads as a row of matching controls rather than a
+ * text pill beside a bare glyph, and so every portal's header looks the same.
+ * Always pair it with an `aria-label` — these carry no visible text.
+ */
+export const INBOX_THREAD_ICON_BTN =
+  "flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full border border-border bg-card text-muted transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40";
+
+/** Destructive variant of {@link INBOX_THREAD_ICON_BTN} — text-only red, never a filled red. */
+export const INBOX_THREAD_ICON_BTN_DANGER =
+  "flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full border border-border bg-card text-muted transition-colors hover:border-danger/30 hover:bg-danger/5 hover:text-danger focus-visible:ring-2 focus-visible:ring-primary/40";
+
 /** Scrollable body for a conversation list pane (inbox split view). */
 export const INBOX_LIST_SCROLL =
   "min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]";
@@ -1289,7 +1303,11 @@ export function InboxReplyChannelPicker({
     },
     {
       value: "sms",
-      label: smsAvailable ? "SMS" : "SMS (not enabled)",
+      // "Text", not "SMS" — the rest of the surface says text ("Text us" on the
+      // contact card, "Residents and prospects text this number"). The disabled
+      // reason names the deployment switch rather than the channel, because
+      // texting being off is a deployment state, not a missing phone number.
+      label: smsAvailable ? "Text" : "Text (texting is off)",
       disabled: !smsAvailable,
     },
   ];
@@ -1311,7 +1329,7 @@ export function InboxReplyChannelPicker({
   const labels: string[] = [];
   if (effectiveSelected.includes("proplane")) labels.push("PropLane");
   if (effectiveSelected.includes("email")) labels.push("Email");
-  if (effectiveSelected.includes("sms")) labels.push("SMS");
+  if (effectiveSelected.includes("sms")) labels.push("Text");
   const selectionTriggerLabel =
     labels.length > 1 ? labels.join(" & ") : labels[0];
 

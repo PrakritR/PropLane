@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  CommunicationInboxRowCheckbox,
   CommunicationListBulkBar,
 } from "@/components/portal/communication-list-bulk-bar";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
@@ -328,13 +327,6 @@ function ResidentUnifiedInbox({
           merged.map((row) => (
             <InboxConversationRow
               key={row.key}
-              leading={
-                <CommunicationInboxRowCheckbox
-                  checked={bulk.selection.selectedIds.has(row.key)}
-                  onToggle={() => bulk.selection.toggleSelected(row.key)}
-                  label={`Select conversation with ${row.name}`}
-                />
-              }
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}
@@ -449,6 +441,8 @@ export function ResidentCommunication({
       activeCount={0}
       compactPanel
       filterFieldCount={1}
+      // Content width — see the note on the manager's sheet.
+      className="md:w-auto md:max-w-none"
       mobileFlushBody
       dataAttr="resident-communication-filter-open"
     >

@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VendorWorkNumberCard } from "@/components/portal/vendor-work-number-card";
 import {
-  CommunicationInboxRowCheckbox,
   CommunicationListBulkBar,
 } from "@/components/portal/communication-list-bulk-bar";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
@@ -273,13 +272,6 @@ function VendorUnifiedInbox({
           merged.map((row) => (
             <InboxConversationRow
               key={row.key}
-              leading={
-                <CommunicationInboxRowCheckbox
-                  checked={bulk.selection.selectedIds.has(row.key)}
-                  onToggle={() => bulk.selection.toggleSelected(row.key)}
-                  label={`Select conversation with ${row.name}`}
-                />
-              }
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}
