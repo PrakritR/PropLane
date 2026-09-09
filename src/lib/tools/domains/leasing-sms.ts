@@ -17,7 +17,11 @@ import {
 import { residentPortalUrl } from "@/lib/claw-resident-links";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
 import { getPublicListings } from "@/lib/public-listings.server";
-import { normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import {
+  normalizeManagerListingSubmissionV1,
+  resolveAllowedLeaseTerms,
+} from "@/lib/manager-listing-submission";
+import { listingOffersCustomLeaseSurcharge } from "@/lib/listing-fees";
 import { roomDailyRentPrice, roomHeadlinePriceLabel, roomIsDailyPriced } from "@/lib/room-pricing";
 
 export const LEASING_ESCALATE_TOOL_NAME = "escalate_to_manager";
@@ -87,6 +91,11 @@ function summarizeRooms(src: Record<string, unknown> | null) {
       priceLabel: string | null;
       availability: string | null;
       moveInAvailableDate: string | null;
+      securityDeposit: string | null;
+      utilitiesEstimate: string | null;
+      utilitiesPaymentModel: string | null;
+      shortLeaseSurchargeMonthly: string | null;
+      shortLeaseMaxMonths: number | null;
     }>;
   }
   try {
@@ -105,10 +114,101 @@ function summarizeRooms(src: Record<string, unknown> | null) {
         priceLabel: roomHeadlinePriceLabel(r, "") || null,
         availability: r.availability?.trim() || null,
         moveInAvailableDate: r.moveInAvailableDate?.trim() || null,
+        securityDeposit: r.securityDeposit?.trim() || null,
+        utilitiesEstimate: r.utilitiesEstimate?.trim() || null,
+        utilitiesPaymentModel: r.utilitiesPaymentModel?.trim() || null,
+        shortLeaseSurchargeMonthly: r.shortLeaseSurchargeMonthly?.trim() || null,
+        shortLeaseMaxMonths: typeof r.shortLeaseMaxMonths === "number" ? r.shortLeaseMaxMonths : null,
       }));
   } catch {
     return [];
   }
+}
+
+/**
+ * Prospect-safe facts that do not fit in a browse-card summary. Keep this
+ * deliberately narrow: the leasing agent may receive only published pricing
+ * and policy facts, never the listing submission blob.
+ */
+function leasingListingFacts(src: Record<string, unknown> | null, rooms: ReturnType<typeof summarizeRooms>) {
+  const subRaw = asObject(src?.listingSubmission);
+  let submission: ReturnType<typeof normalizeManagerListingSubmissionV1> | null = null;
+  if (subRaw) {
+    try {
+      submission = normalizeManagerListingSubmissionV1(subRaw as never);
+    } catch {
+      // A malformed legacy submission is unknown rather than a reason to
+      // expose its raw fields or to make up a policy.
+    }
+  }
+
+  // Do not normalize this boolean: normalization defaults an absent value to
+  // false, which would turn an unknown pet policy into "no pets".
+  const submissionPetFriendly = typeof subRaw?.petFriendly === "boolean" ? subRaw.petFriendly : null;
+  const petFriendly = typeof src?.petFriendly === "boolean" ? src.petFriendly : submissionPetFriendly;
+  // Resolve only a normalized submission. `resolveAllowedLeaseTerms` expects
+  // array/string values, so passing a malformed stored blob through would turn
+  // bad data into a tool failure instead of an honest unknown.
+  const availableTerms = submission ? resolveAllowedLeaseTerms(submission) : [];
+
+  const listingDeposit = submission?.securityDeposit.trim() || null;
+
+  return {
+    petFriendly,
+    leaseTerms: {
+      available: availableTerms,
+      publishedDescription: submission?.leaseTermsBody.trim() || null,
+      // Rates are deliberately unassociated with lease terms. The schema has
+      // no general term-to-price table, and repeating a monthly room price on a
+      // Short-Term Stay or Airbnb row would be a false quote.
+      baseRoomPrices: rooms.map((room) => ({
+        name: room.name,
+        priceLabel: room.priceLabel,
+        shortLeaseSurchargeMonthly: room.shortLeaseSurchargeMonthly,
+        shortLeaseMaxMonths: room.shortLeaseMaxMonths,
+      })),
+      termSurcharges: [
+        {
+          term: "Month-to-Month",
+          offered: availableTerms.includes("Month-to-Month"),
+          monthlySurcharge: submission?.monthToMonthSurcharge?.trim() || null,
+        },
+      ],
+      customCalendarSurcharge: {
+        eligible: submission ? listingOffersCustomLeaseSurcharge(submission) : false,
+        monthlySurcharge: submission?.customLeaseSurcharge?.trim() || null,
+        appliesOnlyWhen: "The selected standard lease dates use a non-standard calendar term.",
+      },
+    },
+    securityDeposit: {
+      listingAmount: listingDeposit,
+      rooms: rooms.map((room) => {
+        const roomAmount = room.securityDeposit;
+        return {
+          name: room.name,
+          overrideAmount: roomAmount,
+          // This is selection, not arithmetic. It matches the standard-lease
+          // room-first rule, including an explicit "0" override. Short-term
+          // deposits have different rules and are intentionally not implied.
+          standardLeaseEffectiveAmount: roomAmount ?? listingDeposit,
+        };
+      }),
+    },
+    utilities: {
+      costNotes: submission?.houseCostsDetail.trim() || null,
+      rooms: rooms.map((room) => ({
+        name: room.name,
+        estimate: room.utilitiesEstimate,
+        paymentModel: room.utilitiesPaymentModel,
+      })),
+      entireHome: submission
+        ? {
+            estimate: submission.entireHomeUtilitiesEstimate?.trim() || null,
+            paymentModel: submission.entireHomeUtilitiesPaymentModel?.trim() || null,
+          }
+        : null,
+    },
+  };
 }
 
 function summarizeBundles(src: Record<string, unknown> | null) {
@@ -251,7 +351,7 @@ export function summarizeListingRecord(rec: RawPropertyRecord) {
       const sub = normalizeManagerListingSubmissionV1(subRaw as never);
       if (!alsoListedAs && sub.alsoListedAs.trim()) alsoListedAs = sub.alsoListedAs.trim();
       if (!tagline && sub.tagline.trim()) tagline = sub.tagline.trim();
-      if (petFriendly === null) petFriendly = Boolean(sub.petFriendly);
+      if (petFriendly === null && typeof subRaw.petFriendly === "boolean") petFriendly = subRaw.petFriendly;
     } catch {
       /* keep top-level fields */
     }
@@ -382,7 +482,7 @@ export const listLiveListingsTool = defineTool({
 export const getListingDetailsTool = defineTool({
   name: "get_listing_details",
   description:
-    "Full details for one live listing: address, rent, rooms (ids/names/prices/availability), bundles, and amenities. On the shared PropLane line this resolves ANY live listing on the platform. Call before answering specifics about a house or room.",
+    "Full prospect-safe details for one live listing: address, rooms and their published prices/availability, available lease terms with represented surcharges, nullable pet policy, listing and room security deposits, and utility estimates/payment model. On the shared PropLane line this resolves ANY live listing on the platform. Call before answering specifics about a house or room.",
   kind: "read",
   inputSchema: z
     .object({
@@ -398,6 +498,7 @@ export const getListingDetailsTool = defineTool({
     if (!rec) return { found: false };
     const src = propertySource(rec);
     const rooms = summarizeRooms(src);
+    const facts = leasingListingFacts(src, rooms);
     const roomNeedle = (input.roomQuery ?? "").trim().toLowerCase();
     const matchedRooms = roomNeedle
       ? rooms.filter(
@@ -421,22 +522,14 @@ export const getListingDetailsTool = defineTool({
         tagline: str(src, "tagline"),
         marketingNotes: listingMarketingNotes(src),
         alsoListedAs: str(src, "alsoListedAs"),
-        petFriendly:
-          typeof src?.petFriendly === "boolean"
-            ? src.petFriendly
-            : (() => {
-                try {
-                  const subRaw = asObject(src?.listingSubmission);
-                  if (!subRaw) return null;
-                  return Boolean(normalizeManagerListingSubmissionV1(subRaw as never).petFriendly);
-                } catch {
-                  return null;
-                }
-              })(),
+        petFriendly: facts.petFriendly,
         description: str(src, "description")?.slice(0, 800) ?? null,
         rooms: matchedRooms,
         allRoomCount: rooms.length,
         bundles: summarizeBundles(src),
+        leaseTerms: facts.leaseTerms,
+        securityDeposit: facts.securityDeposit,
+        utilities: facts.utilities,
       },
     };
   },

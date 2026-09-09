@@ -717,6 +717,18 @@ specialized transports retain their compatibility helper until migrated. One sha
 columns and is reused by the inbound webhooks so the variant sets cannot drift.
 Coverage: `tests/unit/sms-opt-out-unified.test.ts`.
 
+## Leasing listing facts (SMS and email)
+
+`get_listing_details` in `src/lib/tools/domains/leasing-sms.ts` is the shared
+public fact source for leasing SMS and email. It returns explicit lease terms,
+base room prices, conditional surcharges, utilities, standard-lease deposits,
+and nullable pet policy. A base room price is not a price for every offered
+term. Custom-calendar surcharges apply only when the selected standard-lease
+dates satisfy the canonical billing predicate; standard deposits say nothing
+about short-term deposits. A room's explicit zero deposit overrides the listing.
+Missing or malformed facts stay unknown. Mixed-question replies answer the
+known parts before escalating only the missing information.
+
 ## Historical: Claw Messenger shared line
 
 The former PropLane messaging system used one shared agent line (Twilio

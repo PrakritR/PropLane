@@ -5,6 +5,9 @@ vi.mock("@/lib/public-listings.server", () => ({
 }));
 
 import { getPublicListings } from "@/lib/public-listings.server";
+import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
+import { shouldBillCustomLeaseSurcharge } from "@/lib/custom-lease-billing";
+import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { LEASING_SMS_AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
 import { leasingSmsAgentRegistry, LEASING_SMS_INLINE_WRITE_TOOLS } from "@/lib/tools";
 import type { AgentContext } from "@/lib/tools/context";
@@ -232,6 +235,147 @@ describe("pure listing helpers", () => {
     const details = await getListingDetailsTool.handler(ctx, { propertyId: "mgr-seed-pet" });
     expect(details.found).toBe(true);
     expect(details.listing?.petFriendly).toBe(true);
+  });
+
+  it("keeps a missing pet policy unknown instead of defaulting it to no pets (PRP-436)", async () => {
+    (getPublicListings as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      catalogListing({ listingSubmission: { v: 1, rooms: [] } }),
+    ]);
+    const details = await getListingDetailsTool.handler(ctxFor({ crossCatalog: true }), {
+      propertyId: "mgr-seed-4709a-8th-ave-ne",
+    });
+    expect(details.found).toBe(true);
+    expect(details.listing?.petFriendly).toBeNull();
+  });
+
+  it("returns only represented lease, deposit, and utility facts for a room (PRP-435, PRP-441, PRP-443)", async () => {
+    (getPublicListings as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      catalogListing({
+        listingSubmission: {
+          ...createDefaultListingSubmission(),
+          petFriendly: false,
+          allowedLeaseTerms: ["12-Month", "Long-term", "Month-to-Month"],
+          leaseTermsBody: "12-month, long-term, and month-to-month leases available.",
+          securityDeposit: "500",
+          monthToMonthSurcharge: "75",
+          customLeaseSurcharge: "25",
+          houseCostsDetail: "Utilities are about $175 per room per month.",
+          rooms: [
+            {
+              id: "room-2",
+              name: "Room 2",
+              monthlyRent: 825,
+              availability: "Now",
+              securityDeposit: "650",
+              utilitiesEstimate: "175",
+              utilitiesPaymentModel: "manager_billed",
+            },
+            {
+              id: "room-3",
+              name: "Room 3",
+              monthlyRent: 825,
+              availability: "Now",
+              utilitiesEstimate: "",
+              utilitiesPaymentModel: "tenant_direct",
+            },
+          ],
+        },
+      }),
+    ]);
+    const details = await getListingDetailsTool.handler(ctxFor({ crossCatalog: true }), {
+      propertyId: "mgr-seed-4709a-8th-ave-ne",
+      roomQuery: "Room 2",
+    });
+
+    expect(details.listing?.leaseTerms).toMatchObject({ available: ["12-Month", "Long-term", "Month-to-Month"] });
+    expect(details.listing?.leaseTerms.termSurcharges).toContainEqual(expect.objectContaining({
+      term: "Month-to-Month",
+      monthlySurcharge: "75",
+    }));
+    expect(details.listing?.leaseTerms.termSurcharges).not.toContainEqual(expect.objectContaining({
+      term: "Long-term",
+    }));
+    expect(details.listing?.leaseTerms.customCalendarSurcharge).toEqual({
+      eligible: true,
+      monthlySurcharge: "25",
+      appliesOnlyWhen: "The selected standard lease dates use a non-standard calendar term.",
+    });
+    expect(details.listing?.securityDeposit).toEqual({
+      listingAmount: "500",
+      rooms: [
+        { name: "Room 2", overrideAmount: "650", standardLeaseEffectiveAmount: "650" },
+        { name: "Room 3", overrideAmount: null, standardLeaseEffectiveAmount: "500" },
+      ],
+    });
+    expect(details.listing?.utilities).toMatchObject({
+      costNotes: "Utilities are about $175 per room per month.",
+      rooms: [
+        { name: "Room 2", estimate: "175", paymentModel: "manager_billed" },
+        { name: "Room 3", estimate: null, paymentModel: "tenant_direct" },
+      ],
+    });
+    expect(details.listing?.rooms).toEqual([expect.objectContaining({ name: "Room 2", securityDeposit: "650" })]);
+  });
+
+  it("keeps malformed listing facts unknown instead of throwing or quoting them", async () => {
+    (getPublicListings as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      catalogListing({
+        listingSubmission: { v: 1, allowedLeaseTerms: "12-Month", leaseTermsBody: 42, rooms: "not rooms" },
+      }),
+    ]);
+    const details = await getListingDetailsTool.handler(ctxFor({ crossCatalog: true }), {
+      propertyId: "mgr-seed-4709a-8th-ave-ne",
+    });
+    expect(details.found).toBe(true);
+    expect(details.listing?.leaseTerms).toMatchObject({ available: [], publishedDescription: null });
+    expect(details.listing?.securityDeposit).toEqual({ listingAmount: null, rooms: [] });
+    expect(details.listing?.utilities).toMatchObject({ costNotes: null, rooms: [], entireHome: null });
+  });
+
+  it("resolves an explicit zero room deposit for a standard lease without using the shared amount", async () => {
+    const submission = createDefaultListingSubmission();
+    submission.securityDeposit = "500";
+    submission.rooms = [{ ...submission.rooms[0]!, id: "room-zero", name: "Room Zero", monthlyRent: 825, securityDeposit: "0" }];
+    (getPublicListings as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      catalogListing({ listingSubmission: submission }),
+    ]);
+    const details = await getListingDetailsTool.handler(ctxFor({ crossCatalog: true }), {
+      propertyId: "mgr-seed-4709a-8th-ave-ne",
+    });
+    expect(details.listing?.securityDeposit.rooms).toEqual([
+      { name: "Room Zero", overrideAmount: "0", standardLeaseEffectiveAmount: "0" },
+    ]);
+  });
+
+  it("returns whole-home utility facts without turning them into a room-term quote", async () => {
+    const submission = createDefaultListingSubmission();
+    submission.listingPlaceCategoryId = "entire_home";
+    submission.entireHomeMonthlyRent = 3000;
+    submission.entireHomeUtilitiesEstimate = "250";
+    submission.entireHomeUtilitiesPaymentModel = "tenant_direct";
+    (getPublicListings as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([
+      catalogListing({ listingSubmission: submission }),
+    ]);
+    const details = await getListingDetailsTool.handler(ctxFor({ crossCatalog: true }), {
+      propertyId: "mgr-seed-4709a-8th-ave-ne",
+    });
+    expect(details.listing?.utilities.entireHome).toEqual({ estimate: "250", paymentModel: "tenant_direct" });
+    expect(details.listing?.leaseTerms.baseRoomPrices.every((room) => !("term" in room))).toBe(true);
+  });
+
+  it("keeps the custom-calendar surcharge conditional on non-standard lease dates", () => {
+    expect(shouldBillCustomLeaseSurcharge({
+      leaseTerm: LONG_TERM_LEASE_TERM,
+      leaseStart: "2026-10-01",
+      leaseEnd: "2027-09-30",
+      rentalType: "standard",
+    })).toBe(false);
+    expect(shouldBillCustomLeaseSurcharge({
+      leaseTerm: LONG_TERM_LEASE_TERM,
+      leaseStart: "2026-10-10",
+      leaseEnd: "2027-09-22",
+      rentalType: "standard",
+    })).toBe(true);
   });
 
   // PRP-426: a prospect quotes the Facebook ad title, which is not the PropLane
