@@ -67,6 +67,41 @@ describe("nearby transit parsing", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("geocodes a legacy wizard placeholder instead of quoting Seattle transit for its address", async () => {
+    const fetchMock = vi.fn(async (input: URL | RequestInfo, init?: RequestInit) => {
+      if (String(input).includes("nominatim")) {
+        return new Response(JSON.stringify([{ lat: "37.78", lon: "-122.42" }]), {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      expect(String(input)).toBe("https://overpass-api.de/api/interpreter");
+      expect(String(init?.body)).toContain("37.78");
+      expect(String(init?.body)).toContain("-122.42");
+      return new Response(JSON.stringify({ elements: [] }), { headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      getNearbyTransit(
+        { mapLat: 47.61405, mapLng: -122.31542, address: "1 Market St", zip: "94105" },
+        "bus",
+      ),
+    ).resolves.toMatchObject({ verified: true });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("nominatim");
+  });
+
+  it("fails closed when a legacy placeholder has no geocodable address", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      getNearbyTransit({ mapLat: 47.61405, mapLng: -122.31542, address: "123 Main St" }, "bus"),
+    ).resolves.toMatchObject({ verified: false, error: "location_unavailable" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("does not geocode an incomplete stored address or accept null coordinates", async () => {
     const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
     await expect(getNearbyTransit({ mapLat: null, mapLng: null, address: "123 Main St" }, "bus"))

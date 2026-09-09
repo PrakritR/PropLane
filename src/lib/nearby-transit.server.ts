@@ -34,6 +34,11 @@ const geocodeInflight = new Map<string, Promise<GeocodeCoords | null>>();
 let overpassTail: Promise<void> = Promise.resolve();
 let overpassQueued = 0;
 
+// buildMockPropertyFromDraft used this Seattle pair for every wizard-created
+// listing, regardless of its address. Keep treating all other stored points as
+// authoritative, but make old placeholder rows geocode their actual address.
+const LEGACY_WIZARD_PLACEHOLDER_COORDS: GeocodeCoords = { lat: 47.61405, lng: -122.31542 };
+
 async function withOverpassSlot<T>(work: () => Promise<T>): Promise<T> {
   if (overpassQueued >= 3) throw new Error("overpass_queue_full");
   overpassQueued += 1;
@@ -55,6 +60,17 @@ function validCoords(value: unknown): GeocodeCoords | null {
   if (raw.lat === null || raw.lat === undefined || raw.lng === null || raw.lng === undefined) return null;
   if (String(raw.lat).trim() === "" || String(raw.lng).trim() === "") return null;
   return parseGeocodeResult(value);
+}
+
+function storedListingCoords(source: Record<string, unknown>): GeocodeCoords | null {
+  const coords = validCoords({ lat: source.mapLat, lng: source.mapLng });
+  if (
+    coords?.lat === LEGACY_WIZARD_PLACEHOLDER_COORDS.lat &&
+    coords.lng === LEGACY_WIZARD_PLACEHOLDER_COORDS.lng
+  ) {
+    return null;
+  }
+  return coords;
 }
 
 function providerEndpoint(envName: "NOMINATIM_PROVIDER_URL" | "OVERPASS_PROVIDER_URL", localDefault: string): string | null {
@@ -164,7 +180,7 @@ function baseResult(): Pick<NearbyTransitResult, "source" | "sourceUrl" | "fetch
 }
 
 export async function getNearbyTransit(source: Record<string, unknown>, mode: TransitMode): Promise<NearbyTransitResult> {
-  const stored = validCoords({ lat: source.mapLat, lng: source.mapLng });
+  const stored = storedListingCoords(source);
   if (!stored && !providerEndpoint("NOMINATIM_PROVIDER_URL", NOMINATIM_URL)) {
     return { verified: false, ...baseResult(), stops: [], error: "provider_unavailable" };
   }
