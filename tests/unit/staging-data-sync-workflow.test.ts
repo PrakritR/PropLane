@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const workflow = readFileSync(".github/workflows/staging-data-sync.yml", "utf8");
@@ -35,16 +37,22 @@ describe("scheduled production-to-staging refresh", () => {
   });
 
   it("removes private dump files when a guard fails", () => {
-    const dir = ".staging-prod-sync";
-    const file = `${dir}/prod-public.sql`;
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "axis-staging-sync-test-"));
+    const scriptsDir = join(fixtureRoot, "scripts");
+    const libDir = join(scriptsDir, "lib");
+    const dir = join(fixtureRoot, ".staging-prod-sync");
+    const file = join(dir, "prod-public.sql");
+    mkdirSync(libDir, { recursive: true });
     mkdirSync(dir, { recursive: true });
+    copyFileSync("scripts/sync-prod-to-staging.mjs", join(scriptsDir, "sync-prod-to-staging.mjs"));
+    copyFileSync("scripts/lib/prod-staging-merge.mjs", join(libDir, "prod-staging-merge.mjs"));
     writeFileSync(file, "private fixture");
-    const result = spawnSync(process.execPath, ["scripts/sync-prod-to-staging.mjs"], {
+    const result = spawnSync(process.execPath, [join(scriptsDir, "sync-prod-to-staging.mjs")], {
       encoding: "utf8",
       env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: "https://wrong.example" },
     });
     expect(result.status).toBe(1);
     expect(existsSync(file)).toBe(false);
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(fixtureRoot, { recursive: true, force: true });
   });
 });

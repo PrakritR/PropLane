@@ -89,7 +89,8 @@ must provide `SUPABASE_ACCESS_TOKEN`; the public staging URL is pinned in the
 workflow and checked before a dump. The runner uses PostgreSQL 17 client tools, creates scratch files under a
 private umask, removes every SQL dump on success or failure, and publishes a
 small success-only freshness artifact. The workflow never uses
-`--full-replace` and has no production-write credential or flag.
+`--full-replace`; the script uses its CLI session only for production reads and
+never invokes a production write operation.
 
 `prod_snapshot` and `prod_snapshot_auth` on the staging project are that
 baseline. They are not junk — dropping them costs the merge its memory of what
