@@ -613,16 +613,24 @@ function FurnishingField({ value, onChange }: { value: string; onChange: (next: 
   const known = FURNISHING_ITEMS.filter((i) => parts.some((p) => p.toLowerCase() === i.toLowerCase()));
   const custom = parts.filter((p) => !FURNISHING_ITEMS.some((i) => i.toLowerCase() === p.toLowerCase()));
   return (
-    <>
-      <CheckboxOption
-        label="Furnished"
-        description="Unfurnished unless you say otherwise."
-        checked={furnished}
-        dataAttr="listing-v2-room-furnished"
-        onChange={(next) => onChange(next ? [...FURNISHING_ITEMS.slice(0, 3)].join(", ") : "")}
-      />
-      {furnished ? (
-        <div className="mt-2">
+    /*
+     * The tick and the list sit on one line: the list only exists because the
+     * box is ticked, and stacking them left the box looking like a heading
+     * above an unrelated field.
+     */
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <label className="flex shrink-0 cursor-pointer items-center gap-2.5">
+        <input
+          type="checkbox"
+          checked={furnished}
+          data-attr="listing-v2-room-furnished"
+          onChange={(e) => onChange(e.target.checked ? [...FURNISHING_ITEMS.slice(0, 3)].join(", ") : "")}
+          className="h-4 w-4 shrink-0 rounded border-border"
+        />
+        <span className="text-[13px] font-semibold text-foreground">Furnished</span>
+      </label>
+      <div className="min-w-[200px] flex-1">
+        {furnished ? (
           <CheckboxMultiSelect
             hideLabel
             label="What is included"
@@ -631,9 +639,11 @@ function FurnishingField({ value, onChange }: { value: string; onChange: (next: 
             emptyLabel="Choose what is included…"
             onChange={(next) => onChange([...FURNISHING_ITEMS.filter((i) => next.includes(i)), ...custom].join(", "))}
           />
-        </div>
-      ) : null}
-    </>
+        ) : (
+          <span className="text-[12px] text-muted">Unfurnished unless you tick the box.</span>
+        )}
+      </div>
+    </div>
   );
 }
 
