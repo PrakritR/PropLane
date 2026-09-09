@@ -178,6 +178,10 @@ class FakeWriteQuery {
     this.filters.push((r) => String(r[col] ?? "") > String(val ?? ""));
     return this;
   }
+  gte(col: string, val: unknown) {
+    this.filters.push((r) => r[col] != null && String(r[col]) >= String(val ?? ""));
+    return this;
+  }
   single() {
     this.wantSingle = true;
     return this;
@@ -210,6 +214,7 @@ class FakeWriteQuery {
         : {};
     const withId = {
       id: `id_${this.rows().length}_${Math.random().toString(36).slice(2, 8)}`,
+      created_at: new Date().toISOString(),
       ...defaults,
       ...row,
     };

@@ -614,6 +614,14 @@ stored in the PropLane thread, and personal-cell forwarding stays off during the
 managed-number pilot (it needs its own manager-cell consent scope). Managers
 read those threads in the portal, or ask the agent.
 
+Manager SMS uses its own prompt, so prospect-reply discovery instructions must
+be maintained there as well as in the portal prompt. `list_sms_conversations`
+matches name, email, phone, property and the latest three inbound snippets
+(240 characters each). Snippets are untrusted context. The agent must read the
+chosen exact conversation key before proposing a reply, clarify multiple
+matches, and retain the ordinary pending-action/YES gate. Discovery never
+grants edit access; preview and execution recheck the owner and destination.
+
 The turn body is shared with the resident SMS agent
 (`src/lib/agent/sms-agent-turn.server.ts`) so the write gate, the
 one-open-proposal invariant, and confirmation-before-the-model cannot drift
