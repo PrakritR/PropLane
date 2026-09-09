@@ -64,9 +64,26 @@ export function inboxThreadUnreadCount(thread: PersistedInboxThread): number {
 export function inboxRowAddressLabel(value: string | null | undefined): string | undefined {
   const raw = String(value ?? "").trim();
   if (!raw) return undefined;
-  // uuid, or an opaque slug with no spaces and no digits-then-street shape.
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) return undefined;
+  if (looksLikeMachineId(raw)) return undefined;
   const head = raw.split("·")[0]!.trim();
   const street = head.split(",")[0]!.trim();
-  return street || undefined;
+  if (!street || looksLikeMachineId(street)) return undefined;
+  return street;
+}
+
+/**
+ * A lease row that carried no human label falls back to the property id, and
+ * ids come in two shapes: a uuid, and a hand-made slug like
+ * `mgr-demo-lakeview`. Both printed verbatim under a conversation, which reads
+ * as a bug rather than as a house.
+ *
+ * The test is "no spaces AND joined by - or _", because every real label this
+ * renders has a space in it ("4709A 8th Ave NE", "Cedar Flat 2B", "Fir Lofts").
+ * A one-word name with no separator ("Lakeview") is kept — it is far more
+ * likely a building name than an id, and dropping a real name is the worse
+ * mistake here.
+ */
+function looksLikeMachineId(value: string): boolean {
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) return true;
+  return !/\s/.test(value) && /[-_]/.test(value);
 }
