@@ -8,6 +8,7 @@
 --   in both, prod matches snapshot               -> leave staging   (noop / keep-staging)
 --   not in prod, in staging, WAS in snapshot     -> delete          (delete-staging)
 --   not in prod, in staging, never in snapshot   -> leave staging   (keep-staging)
+--   listed in staging_owned_rows                 -> leave staging   (never overwritten)
 --
 -- That last line is the one QA cares about: a row created on staging was never
 -- in a production snapshot, so it survives every refresh. The row above it is
@@ -32,6 +33,25 @@ create temporary table staging_merge_stats (
   deleted     bigint
 );
 
+-- Rows staging owns outright: production never overwrites or deletes these, so
+-- what QA put there survives every refresh. Reserved for a shared singleton
+-- whose payload is one list many writers append to, where "production wins the
+-- whole row" is not a conflict resolution but a silent wipe of every staging
+-- entry at once. An ordinary row does not belong here - prod-wins is correct
+-- for those. A staging-owned row is still inserted when staging lacks it.
+create temporary table staging_owned_rows (
+  live_schema  text,
+  table_name   text,
+  pk_predicate text
+);
+insert into staging_owned_rows (live_schema, table_name, pk_predicate) values
+  -- axis_admin_planned_events_v1 holds the planned-events array for every
+  -- manager in a single row. Prod-wins erased every tour QA planned on staging
+  -- on each twice-daily refresh, which is why staging tours could not be
+  -- trusted. Staging keeps its own calendar; production's planned events are
+  -- not QA data.
+  ('public', 'portal_schedule_records', 's."id" = ''axis_admin_planned_events_v1''');
+
 begin;
 
 do $merge$
@@ -48,6 +68,7 @@ declare
   sel_list text;
   assigns  text;
   prod_same text;
+  owned_guard text;
   n_ins bigint;
   n_upd bigint;
   n_del bigint;
@@ -130,14 +151,24 @@ begin
       upd_cols := array(select c from unnest(ins_cols) c where not (c = any (pk_cols)));
       select string_agg(format('%I = p.%I', c, c), ', ') into assigns from unnest(upd_cols) c;
 
+      -- 'true' when this table has no staging-owned rows, so the predicate is
+      -- always safe to append.
+      select coalesce(string_agg(format('not (%s)', r.pk_predicate), ' and '), 'true')
+        into owned_guard
+      from staging_owned_rows r
+      where r.live_schema = pair.live
+        and r.table_name = tbl.relname;
+
       -- delete-staging: production dropped a row it had at the last refresh.
       execute format(
         'delete from %I.%I s
           where exists (select 1 from %I.%I q where %s)
-            and not exists (select 1 from %I.%I p where %s)',
+            and not exists (select 1 from %I.%I p where %s)
+            and %s',
         pair.live, tbl.relname,
         pair.snap, tbl.relname, join_sq,
-        pair.imp,  tbl.relname, join_sp
+        pair.imp,  tbl.relname, join_sp,
+        owned_guard
       );
       get diagnostics n_del = row_count;
 
@@ -150,11 +181,12 @@ begin
              from %I.%I p
              left join %I.%I q on %s
             where %s
-              and not (%s)',
+              and not (%s)
+              and %s',
           pair.live, tbl.relname, assigns,
           pair.imp,  tbl.relname,
           pair.snap, tbl.relname, join_pq,
-          join_sp, prod_same
+          join_sp, prod_same, owned_guard
         );
         get diagnostics n_upd = row_count;
       else
