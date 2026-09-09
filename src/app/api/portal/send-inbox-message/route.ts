@@ -652,6 +652,11 @@ export async function POST(req: Request) {
             when,
             unread: false,
             outbound: true,
+            // This route is a PARALLEL implementation of
+            // deliverPortalInboxMessage, so it has to record the category too —
+            // otherwise a conversation started from the app carries none and
+            // never shows a chip, while the same message sent server-side does.
+            category: eventCategory ?? undefined,
             attachments: inboxAttachmentsFromUrls(attachmentUrls),
           });
           continue;
@@ -673,6 +678,7 @@ export async function POST(req: Request) {
           when,
           unread: false,
           outbound: true,
+          category: eventCategory ?? undefined,
           attachments: inboxAttachmentsFromUrls(attachmentUrls),
         });
 
@@ -694,6 +700,7 @@ export async function POST(req: Request) {
           when,
           unread: true,
           outbound: false,
+          category: eventCategory ?? undefined,
           attachments: inboxAttachmentsFromUrls(attachmentUrls),
         });
       }

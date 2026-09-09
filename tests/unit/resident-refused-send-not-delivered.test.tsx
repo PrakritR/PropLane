@@ -165,9 +165,9 @@ async function enableEmailAndSmsChannels() {
     fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
   };
   await tapOption(/^Email$/i);
-  await tapOption(/^SMS$/i);
+  await tapOption(/^Text$/i);
   await tapOption(/^PropLane$/i);
-  await waitFor(() => expect(picker.textContent).toContain("Email & SMS"));
+  await waitFor(() => expect(picker.textContent).toContain("Email & Text"));
 }
 
 async function openThreadAndReply(text: string) {

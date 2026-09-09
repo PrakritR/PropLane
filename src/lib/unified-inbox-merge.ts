@@ -39,6 +39,12 @@ export type UnifiedInboxListItem = {
   memberKeys?: string[];
   /** Email address behind {@link personKey}, when the row has one. */
   personEmail?: string;
+  /** House this conversation is about. Omitted when it cannot be resolved. */
+  address?: string;
+  /** Tour / Payments / Maintenance / … Omitted when the source recorded none. */
+  category?: string;
+  /** Unread inbound turns. Only meaningful while `unread` is true. */
+  unreadCount?: number;
 };
 
 export function sortUnifiedInboxItems(
@@ -120,6 +126,13 @@ export function mergeUnifiedInboxItems(
         ...rest.flatMap((row) => row.memberKeys ?? [row.key]),
       ]),
       personEmail: winner.personEmail ?? ordered.find((row) => row.personEmail)?.personEmail,
+      // Meta is known on whichever side recorded it, so take the first that has
+      // one rather than the winner's blank.
+      address: winner.address ?? ordered.find((row) => row.address)?.address,
+      category: winner.category ?? ordered.find((row) => row.category)?.category,
+      // A merged row is one conversation, so its unread badge is the total
+      // across the channels folded into it.
+      unreadCount: ordered.reduce((sum, row) => sum + (row.unreadCount ?? 0), 0) || undefined,
     });
   }
 

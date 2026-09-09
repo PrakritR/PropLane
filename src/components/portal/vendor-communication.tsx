@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { VendorWorkNumberCard } from "@/components/portal/vendor-work-number-card";
 import {
-  CommunicationInboxRowCheckbox,
   CommunicationListBulkBar,
 } from "@/components/portal/communication-list-bulk-bar";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
@@ -12,13 +13,14 @@ import { RoleSmsPanel } from "@/components/portal/role-sms-panel";
 import {
   INBOX_LIST_SCROLL,
   InboxConversationRow,
+  InboxListSegmentRail,
   InboxTwoPane,
   PortalInboxEmptyState,
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { inboxThreadCategoryLabel, inboxThreadUnreadCount } from "@/lib/communication-row-meta";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
 import { communicationInboxListPreview } from "@/lib/communication-assistant-inbox-list";
 import {
@@ -72,6 +74,7 @@ function VendorUnifiedInbox({
   routeThreadId,
   onRouteThreadChange,
   searchQuery,
+  onSearchQueryChange,
   onThreadOpenChange,
   onThreadSelectedChange,
   commBase,
@@ -83,6 +86,7 @@ function VendorUnifiedInbox({
   routeThreadId?: string;
   onRouteThreadChange?: (threadId: string | undefined) => void;
   searchQuery: string;
+  onSearchQueryChange: (value: string) => void;
   onThreadOpenChange?: (open: boolean) => void;
   onThreadSelectedChange?: (selected: boolean) => void;
   commBase: string;
@@ -161,6 +165,10 @@ function VendorUnifiedInbox({
         previewPrefix: inboxThreadLastTurnDirection(t) === "outbound" ? "You: " : undefined,
         time: t.time,
         unread: t.folder === "inbox" && t.unread,
+        unreadCount: inboxThreadUnreadCount(t),
+        // Vendor threads carry no property: a vendor's work is per job, and the
+        // job is not on the conversation row. No address rather than a wrong one.
+        category: inboxThreadCategoryLabel(t),
         // Sort on the SAME field the row is labelled with — only `thread.time`
         // is normalized; `lastMsg.at` is whatever shape its writer built.
         sortMs: inboxThreadSortMs(t.id, t.time),
@@ -227,6 +235,19 @@ function VendorUnifiedInbox({
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <VendorWorkNumberCard onTellManagers={onAddConversation} />
+      <InboxListSegmentRail commBase={commBase} listSegment={listSegment} />
+      <div className="shrink-0 px-3 pb-1 pt-3">
+        <Input
+          type="search"
+          value={searchQuery}
+          onChange={(e) => onSearchQueryChange(e.target.value)}
+          placeholder="Search messages"
+          aria-label="Search messages"
+          className="h-10 min-h-10 rounded-lg"
+          data-attr="vendor-inbox-search"
+        />
+      </div>
       {merged.length > 0 && searchQuery.trim() ? (
         <p className="mb-2 hidden shrink-0 px-1 text-[11px] text-muted sm:block">
           {merged.length} conversation{merged.length === 1 ? "" : "s"} matching “{searchQuery.trim()}”
@@ -251,19 +272,15 @@ function VendorUnifiedInbox({
           merged.map((row) => (
             <InboxConversationRow
               key={row.key}
-              leading={
-                <CommunicationInboxRowCheckbox
-                  checked={bulk.selection.selectedIds.has(row.key)}
-                  onToggle={() => bulk.selection.toggleSelected(row.key)}
-                  label={`Select conversation with ${row.name}`}
-                />
-              }
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}
               previewPrefix={row.previewPrefix}
               time={row.time}
               unread={row.unread}
+              unreadCount={row.unreadCount}
+              address={row.address}
+              category={row.category}
               selected={selectedKey === row.key}
               onOpen={() => {
                 setSelectedKey(row.key);
@@ -326,11 +343,12 @@ function VendorUnifiedInbox({
   return (
     <>
       <InboxTwoPane
+        panes="split"
         heightMode="viewport"
         fillViewport={Boolean(selection)}
         fillParent
         mobileCompact
-        className="min-h-0 flex-1 max-md:rounded-xl max-md:shadow-[var(--shadow-sm)]"
+        className="min-h-0 flex-1"
         threadOpen={Boolean(selection)}
         list={listPane}
         thread={threadPane}
@@ -374,35 +392,12 @@ export function VendorCommunication({
     </Button>
   );
 
-  const controlStack = (
-    <PortalListControlStack
-      destinations={[
-        { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
-        {
-          id: "archived",
-          label: "Archived",
-          href: `${commBase}/archived`,
-          dataAttr: "communication-segment-archived",
-        },
-      ]}
-      activeDestinationId={listSegment === "unread" ? "active" : listSegment}
-      destinationAriaLabel="Conversation folders"
-      destinationNavSize="toolbar"
-      search={{
-        value: searchQuery,
-        onChange: setSearchQuery,
-        placeholder: "Search messages",
-        dataAttr: "vendor-inbox-search",
-      }}
-    />
-  );
-
   return (
     <PortalCommunicationShell
       title="Communication"
+      subtitle="Messages about the jobs you are assigned, and the managers who dispatch them."
       titleAside={newMessageButton}
       hideTitleOnMobileNav
-      controlStack={controlStack}
       hideMobileFilterRow={threadOpen}
       mobileThreadReading={threadOpen}
       threadSelected={threadSelected}
@@ -414,6 +409,7 @@ export function VendorCommunication({
         routeThreadId={activeThreadId}
         onRouteThreadChange={setActiveThreadId}
         searchQuery={searchQuery}
+        onSearchQueryChange={setSearchQuery}
         onThreadOpenChange={setThreadOpen}
         onThreadSelectedChange={setThreadSelected}
         commBase={commBase}
