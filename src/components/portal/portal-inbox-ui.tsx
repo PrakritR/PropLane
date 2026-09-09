@@ -1589,6 +1589,10 @@ export function InboxComposer({
               />
             </label>
           ) : null}
+          {/* Send via sits BEFORE the field, not after it. After the field it
+              lands hard against the right edge and its menu, which is anchored
+              to the trigger, overflowed the viewport by ~80px. */}
+          {resolvedChannel}
           <div className="relative flex min-w-0 flex-1 items-end">
             <textarea
               ref={inputRef}
@@ -1617,7 +1621,6 @@ export function InboxComposer({
               dataAttr={dataAttr ? `${dataAttr}-emoji` : undefined}
             />
           </div>
-          {resolvedChannel}
           <button
             type="submit"
             disabled={!canSend}
