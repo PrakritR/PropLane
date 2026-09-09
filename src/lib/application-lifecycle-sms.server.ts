@@ -8,7 +8,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { residentPortalUrl } from "@/lib/claw-resident-links";
 import { fetchManagerSmsConversations } from "@/lib/manager-sms-messages.server";
 import { canSendResidentOutboundSms, sendResidentOutboundSms } from "@/lib/resident-outbound-sms.server";
-import { conversationPhoneRef, type SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
+import {
+  resolveExistingSmsConversation,
+  type ExistingSmsConversation,
+  type ExistingSmsConversationResolution,
+} from "@/lib/sms/existing-conversation.server";
 
 export type ApplicationSmsEvent = "submitted" | "approved" | "rejected" | "needs_info";
 
@@ -77,16 +81,6 @@ async function resolveApplicantPhone(
   return { phone: String(fallbackPhone ?? "").trim(), userId: null };
 }
 
-type ExistingApplicantConversation = {
-  conversationKey: string;
-  counterpartyRole: SmsCounterpartyRole;
-};
-type ExistingApplicantConversationResolution =
-  | { kind: "matched"; conversation: ExistingApplicantConversation }
-  | { kind: "missing" }
-  | { kind: "ambiguous" }
-  | { kind: "sender_unavailable" };
-
 /**
  * Reuse an existing prospect/applicant thread only when its owner and phone are
  * exact and unambiguous. A phone can legitimately have several role threads;
@@ -95,31 +89,13 @@ type ExistingApplicantConversationResolution =
 export function resolveExistingApplicantConversation(
   rows: Awaited<ReturnType<typeof fetchManagerSmsConversations>>["residents"],
   args: { managerUserId: string; applicantPhone: string; workNumber: string | null },
-): ExistingApplicantConversationResolution {
-  const owner = args.managerUserId.trim();
-  const phone = conversationPhoneRef(args.applicantPhone);
-  const workNumber = conversationPhoneRef(args.workNumber);
-  if (!owner || !phone) return { kind: "missing" };
-  if (!workNumber) return { kind: "sender_unavailable" };
-  const candidates = rows.filter((row) =>
-    String(row.ownerManagerUserId ?? "").trim() === owner &&
-    conversationPhoneRef(row.phone) === phone &&
-    Boolean(row.conversationKey) &&
-    (row.counterpartyRole === "prospect" || row.counterpartyRole === "applicant") &&
-    row.messages.some((message) =>
-      message.direction === "inbound"
-        ? conversationPhoneRef(message.fromPhone) === phone && conversationPhoneRef(message.toPhone) === workNumber
-        : conversationPhoneRef(message.toPhone) === phone && conversationPhoneRef(message.fromPhone) === workNumber,
-    ),
-  );
-  const matches = [...new Map(candidates.map((row) => [row.conversationKey!, row])).values()];
-  if (matches.length === 0) return { kind: "missing" };
-  if (matches.length > 1) return { kind: "ambiguous" };
-  const match = matches[0]!;
-  return { kind: "matched", conversation: {
-    conversationKey: match.conversationKey!,
-    counterpartyRole: match.counterpartyRole!,
-  } };
+): ExistingSmsConversationResolution {
+  return resolveExistingSmsConversation(rows, {
+    managerUserId: args.managerUserId,
+    recipientPhone: args.applicantPhone,
+    workNumber: args.workNumber,
+    allowedRoles: ["prospect", "applicant"],
+  });
 }
 
 /**
@@ -156,7 +132,7 @@ export async function notifyApplicantApplicationSms(
   const { phone, userId } = await resolveApplicantPhone(db, email, input.applicantPhone);
   if (!phone) return { sent: false, error: "no_phone" };
 
-  let existingThread: ExistingApplicantConversation | null = null;
+  let existingThread: ExistingSmsConversation | null = null;
   if (managerUserId && input.event === "approved") {
     try {
       const conversations = await fetchManagerSmsConversations(db, managerUserId, {
