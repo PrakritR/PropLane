@@ -2,6 +2,9 @@
 
 ## Visual lease review
 
+The shared document editor shows the lease directly, with no Visual/HTML tabs
+or raw source editor. Managers edit the rendered document.
+
 `LeaseGenerateModal` gives its document editor an explicit bounded height. The
 shared `LeaseHtmlDirectEditor` also gives the iframe viewport its own height
 floor: an absolutely positioned iframe has no intrinsic height, and a minimum
@@ -1877,8 +1880,7 @@ Template changes affect newly generated documents, never executed lease bytes.
 
 ## Manager lease-body edits (P8)
 
-The manager-side lease-pipeline editor is intentionally a small HTML-source editor with a
-side-by-side preview. It is available only for a generated HTML lease in Manager Review,
+The manager-side lease-pipeline editor edits the rendered document directly. It is available only for a generated HTML lease in Manager Review,
 while `leaseAllowsManagerDocumentEdits(row)` is true. Uploaded-template PDFs are excluded:
 their base document plus P6 Terms Rider remains the manager's original agreement bytes.
 

@@ -10,7 +10,7 @@ server, accounts, database writes, or AI calls are needed. Only data providers,
 analytics, uploaded-PDF rendering, and the assistant are stubbed.
 
 Chromium and WebKit cover desktop, phone, and short viewports, scrolling to the
-last section, changed rent surviving HTML/Visual switching and saving, disclosure
+last section, direct visual rent edits surviving saving, absence of view tabs, disclosure
 locks, reopening, template changes, stable editor geometry while typing, and
 visual edits after an external update and unrelated parent render. This complements the jsdom tests, which cannot measure
 layout. The assistant rail and authenticated success navigation also need a

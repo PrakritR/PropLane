@@ -91,7 +91,7 @@ describe("lease visual document lifecycle", () => {
         .getAttribute("contenteditable"),
     ).toBe("false");
   });
-  it("reloads the latest HTML on every Visual remount", async () => {
+  it("renders updated document content without a view switch", async () => {
     const ready = vi.fn();
     const view = render(
       <LeaseHtmlDirectEditor
@@ -102,8 +102,8 @@ describe("lease visual document lifecycle", () => {
       />,
     );
     await waitFor(() => expect(ready).toHaveBeenLastCalledWith(LEASE));
-    fireEvent.click(view.getByRole("button", { name: "HTML", exact: true }));
-    expect(ready).toHaveBeenLastCalledWith(null);
+    expect(view.queryByRole("button", { name: "HTML", exact: true })).toBeNull();
+    expect(view.queryByRole("button", { name: "Visual", exact: true })).toBeNull();
     const next = LEASE.replace("Example Resident", "HTML change");
     view.rerender(
       <LeaseHtmlDirectEditor
@@ -113,7 +113,6 @@ describe("lease visual document lifecycle", () => {
         onPreviewReady={ready}
       />,
     );
-    fireEvent.click(view.getByRole("button", { name: "Visual", exact: true }));
     await waitFor(() => expect(ready).toHaveBeenLastCalledWith(next));
     expect(
       view.container.querySelector("iframe")!.contentDocument!.body.textContent,

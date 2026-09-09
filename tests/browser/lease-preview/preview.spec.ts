@@ -91,13 +91,14 @@ for (const viewport of [
       '[data-attr="lease-ai-review-acknowledgment"]',
     );
     await acknowledgment.check();
-    await page.getByRole("button", { name: "HTML", exact: true }).click();
-    const html = page.getByRole("textbox", { name: "Lease HTML editor" });
-    await html.fill(
-      (await html.inputValue()).replace("$1,500.00", "$1,650.00"),
-    );
+    await expect(page.getByRole("button", { name: "HTML", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Visual", exact: true })).toHaveCount(0);
+    const rent = frame.getByText("Rent: $1,500.00.", { exact: false });
+    const editedRent = (await rent.textContent())!.replace("$1,500.00", "$1,650.00");
+    await rent.click();
+    await rent.selectText();
+    await page.keyboard.insertText(editedRent);
     await expect(acknowledgment).not.toBeChecked();
-    await page.getByRole("button", { name: "Visual", exact: true }).click();
     await expect(
       frame.getByText("Rent: $1,650.00.", { exact: false }),
     ).toBeVisible();
@@ -133,7 +134,7 @@ for (const viewport of [
   });
 }
 
-test("external updates and unrelated renders preserve visual editing and mode switches", async ({
+test("external updates and unrelated renders preserve visual editing", async ({
   page,
 }) => {
   await page.goto("http://lease-preview.test/?standalone=1");
@@ -155,11 +156,6 @@ test("external updates and unrelated renders preserve visual editing and mode sw
   await expect(page.getByTestId("current-html")).toContainText(
     "Visible edit survives.",
   );
-  await page.getByRole("button", { name: "HTML", exact: true }).click();
-  await expect(
-    page.getByRole("textbox", { name: "Lease HTML editor" }),
-  ).toContainText("Visible edit survives.");
-  await page.getByRole("button", { name: "Visual", exact: true }).click();
   await expect(
     frame.getByText("Visible edit survives.", { exact: false }),
   ).toBeVisible();

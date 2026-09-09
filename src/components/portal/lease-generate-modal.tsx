@@ -182,7 +182,7 @@ export function LeaseGenerateModal({
 
   const confirm = () => {
     if (!previewReady) {
-      showToast("Open the Visual preview and review the lease before generating.");
+      showToast("Wait for the lease preview to load and review it before generating.");
       return;
     }
     if (!reviewAcknowledged) {
@@ -298,10 +298,10 @@ export function LeaseGenerateModal({
                 className={cn("text-xs text-muted", previewReady && "invisible")}
                 data-attr="lease-preview-review-hint"
               >
-                Open the <strong>Visual</strong> view below and wait for the lease to appear — use
+                Wait for the lease below to appear — use
                 Retry preview if it fails — before you can confirm your review and generate.
               </p>
-              <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
+              <p className={MODAL_FIELD_LABEL_CLASS}>Lease document</p>
             </div>
             <LeaseHtmlDirectEditor
               className="min-h-64 flex-1"

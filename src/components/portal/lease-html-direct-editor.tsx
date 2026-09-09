@@ -3,16 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import posthog from "posthog-js";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/input";
-import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import {
   injectLeaseVisualEditDocument,
   serializeLeaseEditorDocument,
 } from "@/lib/lease-html-sections";
 import { sanitizeLeaseDocumentHtml } from "@/lib/lease-document-sanitizer";
 import { cn } from "@/lib/utils";
-
-type EditorMode = "visual" | "html";
 
 type Props = {
   html: string;
@@ -32,7 +28,7 @@ type Props = {
   toolbarExtra?: React.ReactNode;
 };
 
-/** Full-lease direct editor with Visual / HTML modes — reusable outside the lease pipeline. */
+/** Full-lease visual editor — reusable outside the lease pipeline. */
 export function LeaseHtmlDirectEditor({
   html,
   baselineHtml,
@@ -48,7 +44,6 @@ export function LeaseHtmlDirectEditor({
   persistError = null,
   toolbarExtra,
 }: Props) {
-  const [mode, setMode] = useState<EditorMode>("visual");
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const documentKeyRef = useRef<{
     frame: HTMLIFrameElement;
@@ -81,10 +76,6 @@ export function LeaseHtmlDirectEditor({
 
   useEffect(() => {
     callbacksRef.current.onPreviewReady?.(null);
-    if (mode !== "visual") {
-      documentKeyRef.current = null;
-      return;
-    }
     const iframe = iframeRef.current;
     if (!iframe) return;
     let disposeInput: (() => void) | undefined;
@@ -204,15 +195,14 @@ export function LeaseHtmlDirectEditor({
       iframe.removeEventListener("load", checkReady);
       disposeInput?.();
     };
-  }, [html, mode, retry]);
+  }, [html, retry]);
 
   return (
     <div
       // Default height FLOOR, not `min-h-0`. The Visual pane is an `absolute inset-0`
       // iframe, so it contributes no intrinsic height: a host that is itself
       // content-sized gives this box nothing to distribute, it resolves to 0, and the
-      // lease renders as a blank white panel — while the HTML tab keeps working,
-      // because a textarea has an intrinsic rows height. `cn` is tailwind-merge, so a
+      // lease renders as a blank white panel. `cn` is tailwind-merge, so a
       // host that sizes the editor itself still overrides this.
       className={cn(
         "flex min-h-64 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card",
@@ -220,24 +210,11 @@ export function LeaseHtmlDirectEditor({
       )}
       data-attr="lease-html-direct-editor"
     >
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <LocalDestinationNav
-          items={[
-            {
-              id: "visual",
-              label: "Visual",
-              dataAttr: "lease-document-mode-visual",
-            },
-            { id: "html", label: "HTML", dataAttr: "lease-document-mode-html" },
-          ]}
-          activeId={mode}
-          onChange={(id) => setMode(id as EditorMode)}
-          ariaLabel="Lease editor view"
-        />
-        {toolbarExtra ? (
-          <div className="flex shrink-0 items-center gap-2">{toolbarExtra}</div>
-        ) : null}
-      </div>
+      {toolbarExtra ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+          {toolbarExtra}
+        </div>
+      ) : null}
 
       {persistError ? (
         <p className="shrink-0 px-3 py-1.5 text-sm text-rose-700">
@@ -248,24 +225,14 @@ export function LeaseHtmlDirectEditor({
       {/* Give the document viewport its own floor, even in content-sized hosts.
           An ancestor's minimum height alone cannot size an absolute iframe. */}
       <div className="relative min-h-48 flex-1 overflow-hidden bg-white">
-        {mode === "visual" ? (
-          <iframe
-            ref={iframeRef}
-            title="Lease visual editor"
-            sandbox="allow-same-origin allow-scripts"
-            scrolling="auto"
-            className="absolute inset-0 h-full w-full border-0 bg-white"
-          />
-        ) : (
-          <Textarea
-            value={html}
-            onChange={(e) => onChange(e.target.value)}
-            className="h-full min-h-0 resize-none rounded-none border-0 bg-white font-mono text-xs leading-relaxed shadow-none focus-visible:ring-0"
-            aria-label="Lease HTML editor"
-            data-attr="lease-document-html-editor"
-          />
-        )}
-        {mode === "visual" && previewState !== "ready" ? (
+        <iframe
+          ref={iframeRef}
+          title="Lease visual editor"
+          sandbox="allow-same-origin allow-scripts"
+          scrolling="auto"
+          className="absolute inset-0 h-full w-full border-0 bg-white"
+        />
+        {previewState !== "ready" ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white p-4 text-sm text-muted">
             <p role={previewState === "failed" ? "alert" : "status"}>
               {previewState === "failed"
