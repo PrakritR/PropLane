@@ -16,6 +16,11 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+// Transform the full portal before the assertion timer starts. The test still
+// seeds and exercises the real component, without charging cold module loading
+// against its behavior deadline.
+import { AppUiProvider } from "@/components/providers/app-ui-provider";
+import { ManagerProperties } from "@/components/portal/pro-properties";
 
 const MANAGER_ID = "mgr-free-plan-evidence";
 
@@ -88,9 +93,6 @@ describe("manager Properties at the Free plan cap — rendered surface", () => {
     );
     expect(published).toBe(true);
     expect(countManagerManagedPropertiesForUser(MANAGER_ID)).toBe(1);
-
-    const { AppUiProvider } = await import("@/components/providers/app-ui-provider");
-    const { ManagerProperties } = await import("@/components/portal/pro-properties");
 
     render(
       <AppUiProvider>

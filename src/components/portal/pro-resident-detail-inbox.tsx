@@ -1,9 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Pencil } from "lucide-react";
+import { Archive, Pencil, Trash2 } from "lucide-react";
+import {
+  PortalMessageScheduleFields,
+  defaultScheduleSendAtLocal,
+} from "@/components/portal/portal-message-compose-fields";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
 import {
+  INBOX_THREAD_ICON_BTN,
+  INBOX_THREAD_ICON_BTN_DANGER,
   InboxComposer,
   AiDraftReplyCard,
   InboxReplyChannelPicker,
@@ -139,6 +145,8 @@ export function ResidentDirectChatPane({
   smsResident,
   smsUiEnabled,
   onSent,
+  onArchive,
+  onDelete,
   onBack,
   scheduledRefreshKey = 0,
 }: {
@@ -147,6 +155,10 @@ export function ResidentDirectChatPane({
   smsResident?: ManagerSmsResidentConversation | null;
   smsUiEnabled: boolean;
   onSent: () => void;
+  /** Archive every thread folded into this person's conversation. */
+  onArchive?: () => void | Promise<void>;
+  /** Delete every thread folded into this person's conversation. */
+  onDelete?: () => void | Promise<void>;
   /** Mobile Communication tab: back to the conversation list + show tenant name in the thread header. */
   onBack?: () => void;
   scheduledRefreshKey?: number;
@@ -159,6 +171,8 @@ export function ResidentDirectChatPane({
   const [approvingAiDraft, setApprovingAiDraft] = useState(false);
   const smsAttemptRef = useRef<ManualSmsAttempt | null>(null);
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
+  const [scheduleLater, setScheduleLater] = useState(false);
+  const [scheduleSendAt, setScheduleSendAt] = useState(() => defaultScheduleSendAtLocal());
   const [sending, setSending] = useState(false);
   const [inboxTick, setInboxTick] = useState(0);
   const [manualScheduledMessages, setManualScheduledMessages] = useState<ScheduledInboxMessageRecord[]>([]);
@@ -197,6 +211,7 @@ export function ResidentDirectChatPane({
   const displayName = residentName?.trim() || email || "Resident";
   const smsAvailable = smsUiEnabled && Boolean(smsResident?.phone?.trim());
   const emailAvailable = Boolean(email);
+
   const [replyViaProplane, setReplyViaProplane] = useState(true);
   const [replyViaEmail, setReplyViaEmail] = useState(false);
   const [replyViaSms, setReplyViaSms] = useState(false);
@@ -405,6 +420,59 @@ export function ResidentDirectChatPane({
       showToast("Wait for uploads to finish.");
       return;
     }
+
+    // Ticked "Schedule for later" — the same press SCHEDULES rather than sends,
+    // so there is one send button and no second way to fire the message.
+    if (scheduleLater) {
+      const sendAt = new Date(scheduleSendAt);
+      if (Number.isNaN(sendAt.getTime())) {
+        showToast("Choose a valid send date and time.");
+        return;
+      }
+      if (sendAt.getTime() < Date.now() - 60_000) {
+        showToast("Send time must be in the future.");
+        return;
+      }
+      setSending(true);
+      try {
+        const res = await fetch("/api/portal/scheduled-inbox-messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            senderPortal: "manager",
+            subject: `Message for ${displayName}`,
+            body: text,
+            sendAt: sendAt.toISOString(),
+            recipientEmail: email,
+            recipientName: displayName,
+            deliverViaEmail: replyViaEmail && emailAvailable,
+            deliverViaSms: replyViaSms && smsAvailable,
+          }),
+        });
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+          showToast(payload?.error ?? "Could not schedule message.");
+          return;
+        }
+        // Clear only on success, so a refused schedule never loses the text.
+        setDraft("");
+        setReplyAttachments([]);
+        setScheduleLater(false);
+        showToast("Message scheduled.");
+        // Pull the pinned "N scheduled" card back in. Without this the
+        // conversation still shows the OLD count, so a manager who just
+        // scheduled something sees no sign it worked and schedules it twice.
+        reloadScheduled();
+        onSent();
+      } catch {
+        showToast("Could not schedule message.");
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
     setSending(true);
     try {
       let smsOk = !replyViaSms;
@@ -646,19 +714,47 @@ export function ResidentDirectChatPane({
     [displayName, email, onSent, showToast],
   );
 
+  // One row of matching circular controls, same as every other thread header.
   const threadHeaderActions = (
-    <button
-      type="button"
-      className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
-      aria-label="Edit contact details"
-      data-attr="inbox-thread-contact-edit"
-      onClick={() => {
-        setContactEditError(null);
-        setContactEditOpen(true);
-      }}
-    >
-      <Pencil className="h-4 w-4" aria-hidden />
-    </button>
+    <>
+      <button
+        type="button"
+        className={INBOX_THREAD_ICON_BTN}
+        aria-label="Edit contact details"
+        title="Edit contact details"
+        data-attr="inbox-thread-contact-edit"
+        onClick={() => {
+          setContactEditError(null);
+          setContactEditOpen(true);
+        }}
+      >
+        <Pencil className="h-4 w-4" aria-hidden />
+      </button>
+      {onArchive ? (
+        <button
+          type="button"
+          className={INBOX_THREAD_ICON_BTN}
+          aria-label="Archive conversation"
+          title="Archive"
+          data-attr="inbox-thread-archive"
+          onClick={() => void onArchive()}
+        >
+          <Archive className="h-4 w-4" aria-hidden />
+        </button>
+      ) : null}
+      {onDelete ? (
+        <button
+          type="button"
+          className={INBOX_THREAD_ICON_BTN_DANGER}
+          aria-label="Delete conversation"
+          title="Delete"
+          data-attr="inbox-thread-delete"
+          onClick={() => void onDelete()}
+        >
+          <Trash2 className="h-4 w-4" aria-hidden />
+        </button>
+      ) : null}
+    </>
   );
 
   return (
@@ -683,6 +779,7 @@ export function ResidentDirectChatPane({
               {scheduledCards}
             </div>
           ) : null}
+          <div className="portal-inbox-compose-actions flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-card px-3.5 pb-1.5 pt-2.5 [&>*]:!m-0 [&>*]:!flex [&>*]:!items-center [&>*]:!border-0 [&>*]:!bg-transparent [&>*]:!p-0">
           <AiDraftReplyCard
             drafting={aiDrafting}
             draft={aiDraftText.trim() ? aiDraftText : undefined}
@@ -695,8 +792,14 @@ export function ResidentDirectChatPane({
               setAiDraftError(null);
             }}
             onGenerate={() => void requestAiDraft()}
-            generateLabel="Draft with AI"
             channelControl={replyChannelPicker}
+            // The draft goes into the reply field below, not into a second
+            // message box beside it.
+            onAdopt={(text) => {
+              setDraft(text);
+              setAiDraftText("");
+              setAiDraftError(null);
+            }}
           />
           <InboxThreadAssistantStrip
             contextHint={buildInboxThreadAssistantContext({
@@ -706,6 +809,17 @@ export function ResidentDirectChatPane({
             })}
             storageScopeKey={`resident-detail-${email.trim().toLowerCase()}`}
           />
+          {emailAvailable ? (
+            <PortalMessageScheduleFields
+              scheduleLater={scheduleLater}
+              onScheduleLaterChange={setScheduleLater}
+              sendAt={scheduleSendAt}
+              onSendAtChange={setScheduleSendAt}
+              scheduleDataAttr="inbox-thread-schedule-later"
+              sendAtDataAttr="inbox-thread-schedule-at"
+            />
+          ) : null}
+          </div>
           <InboxComposer
             value={draft}
             onChange={setDraft}

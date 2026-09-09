@@ -88,24 +88,27 @@ export function isStagingGitRef(): boolean {
  * Staging is included even when `VERCEL_ENV=production` is set by mistake: QA
  * uses a production-shaped clone, never the live production project.
  *
- * The production project ref is supplied out-of-band via the optional
- * AXIS_PROD_SUPABASE_REF env var (set it in the Vercel Production scope and in
- * local `.env` files). When unset, the guard is a no-op so the check never
- * blocks environments that have not opted in.
+ * The known live project is always protected. AXIS_PROD_SUPABASE_REF can
+ * identify an additional production project; missing configuration never
+ * disables the guard.
  *
  * Throws when a non-production runtime (or the staging branch) targets the
  * production project.
  */
 export function assertNonProdDatabase(): void {
-  if (isProductionRuntime() && !isStagingGitRef()) return;
+  // Pinned to Vercel's own signal rather than isProductionRuntime(), which also
+  // answers true for a LOCAL production build (NODE_ENV=production with no
+  // VERCEL_ENV). That is exactly the `npm run build && npm start` case where a
+  // stray .env.production names the live project, and it used to return here
+  // before the URL was ever examined. Production runs on Vercel only.
+  if (process.env.VERCEL_ENV === "production" && !isStagingGitRef()) return;
 
-  const prodRef = process.env.AXIS_PROD_SUPABASE_REF?.trim();
-  if (!prodRef) return;
+  const prodRef = process.env.AXIS_PROD_SUPABASE_REF?.trim() || "qahnczmilgptcedaqype";
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   // Host-based match (`<ref>.supabase.co`) rather than a bare substring, so an
   // unrelated value that merely contains the ref cannot trip the guard.
-  if (url.includes(`${prodRef}.supabase.co`)) {
+  if ([prodRef, "qahnczmilgptcedaqype"].some((ref) => url.includes(`${ref}.supabase.co`))) {
     throw new Error(
       `Refusing to start: NEXT_PUBLIC_SUPABASE_URL points at the production ` +
         `Supabase project (${prodRef}) from a non-production runtime. Local ` +

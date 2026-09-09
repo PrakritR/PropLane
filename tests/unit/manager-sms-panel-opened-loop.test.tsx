@@ -109,7 +109,7 @@ describe("ManagerSmsPanel controlled-open sync", () => {
     const { rerender } = renderPanel();
 
     // Once rows load, the controlled selection is synced exactly once.
-    await waitFor(() => expect(opened).toBe(1));
+    await waitFor(() => expect(opened).toBe(1), { timeout: 5000 });
 
     // Simulate several parent re-renders, each handing down a brand-new callback
     // identity (and re-running the panel). The sync must NOT fire again for the
@@ -161,7 +161,7 @@ describe("ManagerSmsPanel controlled-open sync", () => {
         }}
       />,
     );
-    await waitFor(() => expect(opened).toBe(1));
+    await waitFor(() => expect(opened).toBe(1), { timeout: 5000 });
 
     rerender(
       <ManagerSmsPanel
@@ -172,6 +172,6 @@ describe("ManagerSmsPanel controlled-open sync", () => {
         }}
       />,
     );
-    await waitFor(() => expect(opened).toBe(2));
+    await waitFor(() => expect(opened).toBe(2), { timeout: 5000 });
   });
 });

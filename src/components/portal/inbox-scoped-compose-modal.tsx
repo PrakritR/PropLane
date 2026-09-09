@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { type CheckboxMultiSelectGroup } from "@/components/ui/checkbox-multi-select";
@@ -66,6 +66,8 @@ export type ScopedInboxSendPayload = {
   propertyId?: string;
   propertyTitle?: string;
   managerUserId?: string;
+  /** Stable id for retrying one unchanged resident compose operation. */
+  sendId?: string;
 };
 
 type ComposeCategory = InboxComposeDirectoryCategory;
@@ -164,7 +166,7 @@ export function ScopedInboxComposeModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onSend: (payload: ScopedInboxSendPayload) => void;
+  onSend: (payload: ScopedInboxSendPayload) => void | boolean | Promise<void | boolean>;
   portal: "resident" | "manager" | "vendor";
   title?: string;
   senderName?: string;
@@ -191,6 +193,7 @@ export function ScopedInboxComposeModal({
     propertyTitle?: string;
     managerUserId?: string;
   } | null>(null);
+  const sendOperationRef = useRef<{ fingerprint: string; id: string } | null>(null);
 
   const { viaEmail, viaSms } = portalMessageChannelsFromSelection(sendVia);
 
@@ -346,7 +349,7 @@ export function ScopedInboxComposeModal({
     setSelectedKeys(next as PersonKey[]);
   };
 
-  const submit = () => {
+  const submit = async () => {
     const s = subject.trim();
     const b = body.trim();
     if (!s || !b) {
@@ -453,7 +456,22 @@ export function ScopedInboxComposeModal({
       return;
     }
 
-    onSend({
+    const fingerprint = JSON.stringify({
+      subject: s,
+      body: b,
+      recipients: directEmails.map((email) => email.toLowerCase()).sort(),
+      broadcasts: [...broadcastCategories].sort(),
+      viaEmail,
+      viaSms,
+      scheduleLater,
+      sendAt: scheduleLater ? new Date(sendAt).toISOString() : null,
+      propertyId: propertyContext?.propertyId ?? null,
+      managerUserId: propertyContext?.managerUserId ?? null,
+    });
+    if (!sendOperationRef.current || sendOperationRef.current.fingerprint !== fingerprint) {
+      sendOperationRef.current = { fingerprint, id: crypto.randomUUID() };
+    }
+    const payload: ScopedInboxSendPayload = {
       subject: s,
       body: b,
       senderName,
@@ -471,22 +489,33 @@ export function ScopedInboxComposeModal({
       propertyId: propertyContext?.propertyId,
       propertyTitle: propertyContext?.propertyTitle,
       managerUserId: propertyContext?.managerUserId,
-    });
+      ...(portal === "resident" ? { sendId: sendOperationRef.current.id } : {}),
+    };
+    try {
+      const sent = await onSend(payload);
+      if (sent !== false) sendOperationRef.current = null;
+    } catch {
+      // Preserve the operation id with the unchanged draft so Retry is idempotent.
+    }
   };
 
   const sendLabel = scheduleLater ? "Schedule" : viaEmail && viaSms ? "Send message" : viaSms ? "Send SMS" : "Send email";
+  const closeCompose = () => {
+    sendOperationRef.current = null;
+    onClose();
+  };
 
   return (
     <Modal
       open={open}
       title={title}
-      onClose={onClose}
+      onClose={closeCompose}
       dense
       assistantStrip={portal !== "resident"}
       panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}
       footer={
         <ModalFooter>
-          <Button type="button" variant="primary" className="rounded-full" data-attr="inbox-compose-send" onClick={submit}>
+          <Button type="button" variant="primary" className="rounded-full" data-attr="inbox-compose-send" onClick={() => submit()}>
             {sendLabel}
           </Button>
         </ModalFooter>

@@ -22,15 +22,12 @@ export const PORTAL_MESSAGE_SEND_VIA_OPTIONS: CheckboxMultiSelectOption[] = [
   { value: "sms", label: "SMS" },
 ];
 
-export const PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE =
-  "SMS uses your work number when enabled.";
+/** No Send-via footnote — SMS availability is already shown in the dropdown. */
+export const PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE = "";
 
-/** Send-via helper copy — matches the Communication compose modal. */
-export function portalMessageSendViaFooterNote(smsAvailable: boolean): string {
-  // No setup CTA under Send via — the dropdown already shows "SMS (not enabled)".
-  return smsAvailable
-    ? "SMS uses your work number; recipients need a phone on file or under Other."
-    : "";
+/** Send-via helper copy — always empty (PRP-452: footnote flashed then cleared). */
+export function portalMessageSendViaFooterNote(_smsAvailable: boolean): string {
+  return "";
 }
 
 /** Primary CTA label for compose-style modals (Send email / SMS / message / Schedule). */
@@ -584,6 +581,19 @@ export function PortalMessageBodyField({
       )}
     </div>
   );
+}
+
+/**
+ * Default send time offered when someone ticks "Schedule for later": tomorrow
+ * morning. Shared so the compose modal and the in-thread composer cannot drift
+ * to different defaults for the same control.
+ */
+export function defaultScheduleSendAtLocal(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(9, 0, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export function PortalMessageScheduleFields({

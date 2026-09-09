@@ -21,6 +21,8 @@ export async function POST(req: Request) {
       notifyGuest?: unknown;
       subject?: unknown;
       messageBody?: unknown;
+      deliverViaEmail?: unknown;
+      deliverViaSms?: unknown;
       body?: unknown;
     };
     const id = typeof body.id === "string" ? body.id.trim() : "";
@@ -42,6 +44,10 @@ export async function POST(req: Request) {
       notifyGuest: body.notifyGuest !== false,
       notificationSubject: typeof body.subject === "string" ? body.subject.trim() : undefined,
       notificationBody: customBody || undefined,
+      notificationChannels: {
+        ...(typeof body.deliverViaEmail === "boolean" ? { viaEmail: body.deliverViaEmail } : {}),
+        ...(typeof body.deliverViaSms === "boolean" ? { viaSms: body.deliverViaSms } : {}),
+      },
       req,
     });
 

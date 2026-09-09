@@ -1086,8 +1086,6 @@ export function buildMockPropertyFromDraft(row: ManagerPendingPropertyRow, listi
     buildingId: `mgr-bld-${slugPart(buildingName)}`,
     buildingName,
     unitLabel,
-    mapLat: 47.61405,
-    mapLng: -122.31542,
     listingSubmission: row.submission,
     managerUserId: owner,
   };

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  CommunicationInboxRowCheckbox,
   CommunicationListBulkBar,
 } from "@/components/portal/communication-list-bulk-bar";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
@@ -14,16 +13,13 @@ import { ResidentManagerNumberCard } from "@/components/portal/resident-manager-
 import {
   INBOX_LIST_SCROLL,
   InboxConversationRow,
+  InboxListSegmentRail,
   InboxTwoPane,
   PortalInboxEmptyState,
   type InboxListSegment,
 } from "@/components/portal/portal-inbox-ui";
 import { PortalCommunicationShell } from "@/components/portal/portal-communication-shell";
-import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import {
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
-} from "@/components/portal/portal-metrics";
+import { PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { canonicalResidentAgentThreadId } from "@/lib/agent/resident-inbox-agent-ids";
 import {
   mergeUnifiedInboxItems,
@@ -54,6 +50,12 @@ import {
   withPinnedPropLaneAssistantThreads,
 } from "@/lib/communication-assistant-inbox-list";
 import { usePortalSession } from "@/hooks/use-portal-session";
+import { useResidentManagerContacts } from "@/hooks/use-resident-manager-contacts";
+import {
+  inboxRowAddressLabel,
+  inboxThreadCategoryLabel,
+  inboxThreadUnreadCount,
+} from "@/lib/communication-row-meta";
 import { inboxThreadLastTurnDirection } from "@/lib/inbox-turn-direction";
 import {
   clearCommunicationThreadUrl,
@@ -117,6 +119,13 @@ function ResidentUnifiedInbox({
 }) {
   const { userId } = usePortalSession({ userId: residentUserId ?? null });
   const viewerId = resolveCommunicationViewerId(residentUserId, userId);
+  // The resident has ONE house, so every row carries the same street line. The
+  // lookup is shared with the contact card above the list, not re-fetched.
+  const managerContacts = useResidentManagerContacts();
+  const homeAddress = useMemo(
+    () => inboxRowAddressLabel(managerContacts.find((c) => c.propertyLabel)?.propertyLabel),
+    [managerContacts],
+  );
   // Inbox rows hydrate from sessionStorage — never read them in useState initializers (SSR mismatch).
   const [emailThreads, setEmailThreads] = useState<PersistedInboxThread[]>([]);
   const [smsMessages, setSmsMessages] = useState<ManagerSmsMessageRow[]>([]);
@@ -213,6 +222,9 @@ function ResidentUnifiedInbox({
         previewPrefix: inboxThreadLastTurnDirection(t) === "outbound" ? "You: " : undefined,
         time: t.time,
         unread: t.folder === "inbox" && t.unread,
+        unreadCount: inboxThreadUnreadCount(t),
+        address: homeAddress,
+        category: inboxThreadCategoryLabel(t),
         // Sort on the SAME field the row is labelled with — only `thread.time`
         // is normalized; `lastMsg.at` is whatever shape its writer built.
         sortMs: inboxThreadSortMs(t.id, t.time),
@@ -220,7 +232,7 @@ function ResidentUnifiedInbox({
     });
     if (listSegment === "unread") return items.filter((item) => item.unread);
     return items;
-  }, [filteredEmail, listSegment]);
+  }, [filteredEmail, homeAddress, listSegment]);
 
   const smsItems = useMemo((): UnifiedInboxListItem[] => {
     if (!smsUiEnabled || listSegment === "archived") return [];
@@ -299,6 +311,7 @@ function ResidentUnifiedInbox({
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <ResidentManagerNumberCard />
+      <InboxListSegmentRail commBase={commBase} listSegment={listSegment} />
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
         {merged.length === 0 ? (
           listSegment === "archived" ? (
@@ -314,19 +327,15 @@ function ResidentUnifiedInbox({
           merged.map((row) => (
             <InboxConversationRow
               key={row.key}
-              leading={
-                <CommunicationInboxRowCheckbox
-                  checked={bulk.selection.selectedIds.has(row.key)}
-                  onToggle={() => bulk.selection.toggleSelected(row.key)}
-                  label={`Select conversation with ${row.name}`}
-                />
-              }
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}
               previewPrefix={row.previewPrefix}
               time={row.time}
               unread={row.unread}
+              unreadCount={row.unreadCount}
+              address={row.address}
+              category={row.category}
               selected={selectedKey === row.key}
               onOpen={() => {
                 setSelectedKey(row.key);
@@ -389,11 +398,12 @@ function ResidentUnifiedInbox({
   return (
     <>
       <InboxTwoPane
+        panes="split"
         heightMode="viewport"
         fillViewport={Boolean(selection)}
         fillParent
         mobileCompact
-        className="min-h-0 flex-1 max-md:rounded-xl max-md:shadow-[var(--shadow-sm)]"
+        className="min-h-0 flex-1"
         threadOpen={Boolean(selection)}
         list={listPane}
         thread={threadPane}
@@ -430,9 +440,9 @@ export function ResidentCommunication({
     <PortalFilterSortSheet
       activeCount={0}
       compactPanel
-      commandStripTrigger
       filterFieldCount={1}
-      className="flex-none"
+      // Content width — see the note on the manager's sheet.
+      className="md:w-auto md:max-w-none"
       mobileFlushBody
       dataAttr="resident-communication-filter-open"
     >
@@ -447,8 +457,8 @@ export function ResidentCommunication({
   const communicationNewMessageButton = (
     <Button
       type="button"
-      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
+      variant="primary"
+      className={PORTAL_HEADER_PRIMARY_ACTION_BTN}
       data-attr="communication-new-message"
       aria-label="New message"
       onClick={openCompose}
@@ -460,6 +470,10 @@ export function ResidentCommunication({
     </Button>
   );
 
+  // Band-only shape: this aside is UNGATED, so it renders once at every
+  // breakpoint. Never pair it with a separate mobile actions row — that draws
+  // every control twice on a phone. Guarded by
+  // tests/unit/portal-inline-title-band-duplicate-controls.test.tsx.
   const communicationCommandActions = (
     <>
       {communicationFilterSheet}
@@ -467,30 +481,12 @@ export function ResidentCommunication({
     </>
   );
 
-  const controlStack = (
-    <PortalListControlStack
-      variant="command"
-      stickyDestinations={false}
-      destinations={[
-        { id: "active", label: "Active", href: `${commBase}/active`, dataAttr: "communication-segment-active" },
-        {
-          id: "archived",
-          label: "Archived",
-          href: `${commBase}/archived`,
-          dataAttr: "communication-segment-archived",
-        },
-      ]}
-      activeDestinationId={listSegment === "unread" ? "active" : listSegment}
-      destinationAriaLabel="Conversation folders"
-      actions={communicationCommandActions}
-    />
-  );
-
   return (
     <PortalCommunicationShell
       title="Communication"
+      subtitle="Message your property manager, get updates, and ask questions — all in one place."
+      titleAside={communicationCommandActions}
       hideTitleOnMobileNav
-      controlStack={controlStack}
       hideMobileFilterRow={threadOpen}
       mobileThreadReading={threadOpen}
       threadSelected={threadSelected}

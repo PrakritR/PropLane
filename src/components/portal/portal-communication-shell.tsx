@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
  */
 export function PortalCommunicationShell({
   title,
+  subtitle,
   controlStack,
   /** @deprecated Prefer `controlStack`. Kept for resident/vendor/admin shells. */
   titleAside,
@@ -26,6 +27,8 @@ export function PortalCommunicationShell({
   hideAssistantFab = false,
 }: {
   title: string;
+  /** One muted line under the page title. Desktop only — the mobile nav bar already names the section. */
+  subtitle?: string;
   controlStack?: ReactNode;
   titleAside?: ReactNode;
   titleInlineFilter?: ReactNode;
@@ -54,6 +57,7 @@ export function PortalCommunicationShell({
   return (
     <ManagerPortalPageShell
       title={title}
+      subtitle={subtitle}
       titleAside={titleAside}
       titleInlineFilter={titleInlineFilter}
       hideTitleOnMobileNav={hideTitleOnMobileNav}

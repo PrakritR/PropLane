@@ -14,6 +14,7 @@ import {
   readLeasePipeline,
   seedDemoLeasePipeline,
   syncLeasePipelineFromApplications,
+  syncLeasePipelineFromServer,
   type LeasePipelineRow,
 } from "@/lib/lease-pipeline-storage";
 import { transitionApplicationBucket } from "@/lib/application-review";
@@ -80,6 +81,7 @@ function applicationRow(
 function resetStores() {
   window.sessionStorage.clear();
   window.localStorage.clear();
+  window.history.replaceState({}, "", "/portal/leases");
   vi.stubGlobal(
     "fetch",
     vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })),
@@ -199,5 +201,99 @@ describe("PRP-385 — approving one application preserves sibling leases", () =>
     const kept = leaseByAxis("AXIS-KEEP");
     expect(kept?.status).not.toBe("Draft");
     expect(kept?.generatedHtml).toContain("EXISTING LEASE BODY");
+  });
+
+  it("upserts only the newly approved unsigned lease instead of replacing sibling signed rows", async () => {
+    seedDemoManagerApplicationRows(
+      [applicationRow("AXIS-SIGNED-MIRROR", "approved"), applicationRow("AXIS-NEW-MIRROR", "approved")],
+      MANAGER_ID,
+    );
+    seedDemoLeasePipeline(
+      [
+        leaseRow("lease_signed_mirror", "AXIS-SIGNED-MIRROR", {
+          bucket: "signed",
+          status: "Fully Signed",
+          fullySignedAt: "2026-08-03T00:00:00.000Z",
+          managerSignature: { role: "manager", name: "Manager", signedAtIso: "2026-08-03T00:00:00.000Z" },
+          residentSignature: { role: "resident", name: "Resident", signedAtIso: "2026-08-03T00:00:00.000Z" },
+        }),
+      ],
+      MANAGER_ID,
+    );
+
+    syncLeasePipelineFromApplications(MANAGER_ID);
+    // A render while the first request is pending, and another after it is
+    // accepted, must not produce duplicate approval-draft upserts.
+    syncLeasePipelineFromApplications(MANAGER_ID);
+    await Promise.resolve();
+    await Promise.resolve();
+    syncLeasePipelineFromApplications(MANAGER_ID);
+
+    const requests = vi.mocked(fetch).mock.calls.map(([, init]) => JSON.parse(String(init?.body ?? "{}")));
+    expect(requests).toEqual([
+      expect.objectContaining({
+        action: "upsert",
+        row: expect.objectContaining({ axisId: "AXIS-NEW-MIRROR", id: "lease_app_AXIS-NEW-MIRROR" }),
+      }),
+    ]);
+    expect(requests.some((body) => body.action === "replace")).toBe(false);
+    expect(requests.some((body) => body.row?.axisId === "AXIS-SIGNED-MIRROR")).toBe(false);
+  });
+
+  it("backfills an approval draft missing from the latest server inventory after an earlier mirror failed", async () => {
+    seedDemoManagerApplicationRows(
+      [applicationRow("AXIS-SIGNED-RETRY", "approved"), applicationRow("AXIS-NEW-RETRY", "approved")],
+      MANAGER_ID,
+    );
+    seedDemoLeasePipeline(
+      [
+        leaseRow("lease_signed_retry", "AXIS-SIGNED-RETRY", {
+          bucket: "signed",
+          status: "Fully Signed",
+          fullySignedAt: "2026-08-03T00:00:00.000Z",
+          managerSignature: { role: "manager", name: "Manager", signedAtIso: "2026-08-03T00:00:00.000Z" },
+          residentSignature: { role: "resident", name: "Resident", signedAtIso: "2026-08-03T00:00:00.000Z" },
+        }),
+      ],
+      MANAGER_ID,
+    );
+    const signed = leaseByAxis("AXIS-SIGNED-RETRY")!;
+    vi.mocked(fetch).mockImplementation(async (_url, init) => {
+      if (init?.method === "POST") return new Response(JSON.stringify({ error: "old replace failure" }), { status: 409 });
+      return new Response(JSON.stringify({ rows: [signed] }), { status: 200 });
+    });
+
+    // The old mirror fails, leaving the newly approved draft only in local state.
+    syncLeasePipelineFromApplications(MANAGER_ID);
+    await syncLeasePipelineFromServer(MANAGER_ID, { force: true });
+    vi.mocked(fetch).mockClear();
+
+    syncLeasePipelineFromApplications(MANAGER_ID);
+
+    const requests = vi.mocked(fetch).mock.calls.map(([, init]) => JSON.parse(String(init?.body ?? "{}")));
+    expect(requests).toEqual([
+      expect.objectContaining({
+        action: "upsert",
+        row: expect.objectContaining({ axisId: "AXIS-NEW-RETRY", id: "lease_app_AXIS-NEW-RETRY" }),
+      }),
+    ]);
+  });
+
+  it("never mirrors an application sync that would turn an existing unsigned row into an executed lease", () => {
+    seedDemoManagerApplicationRows(
+      [
+        applicationRow("AXIS-OFF-PLATFORM", "approved", {
+          manuallyAdded: true,
+          manualResidentDetails: { signedLeaseDataUrl: "data:application/pdf;base64,QQ==" },
+        }),
+      ],
+      MANAGER_ID,
+    );
+    seedDemoLeasePipeline([leaseRow("lease_off_platform", "AXIS-OFF-PLATFORM")], MANAGER_ID);
+
+    syncLeasePipelineFromApplications(MANAGER_ID);
+
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(leaseByAxis("AXIS-OFF-PLATFORM")?.status).toBe("Fully Signed");
   });
 });

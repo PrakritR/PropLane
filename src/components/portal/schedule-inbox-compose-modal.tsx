@@ -17,15 +17,8 @@ import {
 import {
   PortalMessageSendViaField,
   portalMessageChannelsFromSelection,
+  defaultScheduleSendAtLocal as defaultSendAtLocal,
 } from "@/components/portal/portal-message-compose-fields";
-
-function defaultSendAtLocal(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setHours(9, 0, 0, 0);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 function toLocalInputValue(iso: string): string {
   const d = new Date(iso);
@@ -63,6 +56,7 @@ export function ScheduleInboxComposeForm({
   onSaved,
   contacts,
   editMessage,
+  initial,
   onToggleCancelled,
   onSendNow,
   showHeading = true,
@@ -71,18 +65,31 @@ export function ScheduleInboxComposeForm({
   onSaved: () => void;
   contacts: InboxScopedContact[];
   editMessage?: ScheduledInboxMessageRecord | null;
+  /**
+   * Seed a NEW scheduled message from the thread the person is already in —
+   * the reply they typed and who it is going to — so scheduling a reply does
+   * not mean retyping it into an empty form. Ignored when editing.
+   */
+  initial?: { subject?: string; body?: string; recipientEmail?: string };
   onToggleCancelled?: (cancelled: boolean) => void | Promise<void>;
   onSendNow?: () => void | Promise<void>;
   showHeading?: boolean;
 }) {
   const { showToast } = useAppUi();
-  const [subject, setSubject] = useState(editMessage?.subject ?? "");
-  const [body, setBody] = useState(editMessage?.body ?? "");
+  const [subject, setSubject] = useState(editMessage?.subject ?? initial?.subject ?? "");
+  const [body, setBody] = useState(editMessage?.body ?? initial?.body ?? "");
   const [sendAtLocal, setSendAtLocal] = useState(
     editMessage ? toLocalInputValue(editMessage.sendAt) : defaultSendAtLocal(),
   );
   const [recipientKey, setRecipientKey] = useState<ScheduleRecipientKey>(() => {
-    if (!editMessage) return defaultRecipientKey(contacts);
+    if (!editMessage) {
+      const seeded = initial?.recipientEmail?.trim().toLowerCase();
+      if (seeded) {
+        const match = contacts.find((c) => c.email.trim().toLowerCase() === seeded);
+        if (match) return `id:${match.id}`;
+      }
+      return defaultRecipientKey(contacts);
+    }
     if (editMessage.broadcastCategories?.includes("resident")) return "broadcast:resident";
     if (editMessage.broadcastCategories?.includes("management")) return "broadcast:management";
     if (editMessage.recipientUserId) return `id:${editMessage.recipientUserId}`;

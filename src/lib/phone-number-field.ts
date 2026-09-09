@@ -89,25 +89,7 @@ export type ParsedPhoneField = {
   nationalDigits: string;
 };
 
-/**
- * Read a stored phone (string, number, or empty) into country + national digits.
- * Bare 10-digit and +1 NANP values default to the United States.
- */
-export function parsePhoneFieldValue(value: unknown): ParsedPhoneField {
-  const raw = coercePhoneInput(value);
-  if (!raw) return { iso: DEFAULT_PHONE_COUNTRY_ISO, nationalDigits: "" };
-
-  const e164 = normalizeE164(raw);
-  const digits = (e164 ?? raw).replace(/\D/g, "");
-  if (!digits) return { iso: DEFAULT_PHONE_COUNTRY_ISO, nationalDigits: "" };
-
-  if (digits.length === 10) {
-    return { iso: DEFAULT_PHONE_COUNTRY_ISO, nationalDigits: digits };
-  }
-  if (digits.length === 11 && digits.startsWith("1")) {
-    return { iso: DEFAULT_PHONE_COUNTRY_ISO, nationalDigits: digits.slice(1) };
-  }
-
+function matchPhoneCountryDial(digits: string): ParsedPhoneField | null {
   const matches = PHONE_COUNTRIES.filter(
     (country) => digits.startsWith(country.dial) && digits.length > country.dial.length,
   ).sort((a, b) => {
@@ -117,14 +99,52 @@ export function parsePhoneFieldValue(value: unknown): ParsedPhoneField {
     return 0;
   });
   const match = matches[0];
-  if (match) {
-    return {
-      iso: match.iso,
-      nationalDigits: digits.slice(match.dial.length).slice(0, match.nationalLength),
-    };
+  if (!match) return null;
+  return {
+    iso: match.iso,
+    nationalDigits: digits.slice(match.dial.length).slice(0, match.nationalLength),
+  };
+}
+
+/**
+ * Read a stored phone (string, number, or empty) into country + national digits.
+ * Bare 10-digit and +1 NANP values default to the United States.
+ *
+ * Values that already start with `+` (including mid-entry emits from
+ * PhoneNumberField) always strip the dial code first. Otherwise
+ * `+1` + 9 national digits looks like a bare 10-digit NANP and the country
+ * `1` is prepended into the national box (PRP-454).
+ */
+export function parsePhoneFieldValue(value: unknown): ParsedPhoneField {
+  const raw = coercePhoneInput(value);
+  if (!raw) return { iso: DEFAULT_PHONE_COUNTRY_ISO, nationalDigits: "" };
+
+  const e164 = normalizeE164(raw);
+  const digits = (e164 ?? raw).replace(/\D/g, "");
+  if (!digits) return { iso: DEFAULT_PHONE_COUNTRY_ISO, nationalDigits: "" };
+
+  if (raw.startsWith("+")) {
+    return (
+      matchPhoneCountryDial(digits) ?? {
+        iso: DEFAULT_PHONE_COUNTRY_ISO,
+        nationalDigits: digits.replace(/^1/, "").slice(0, 10),
+      }
+    );
   }
 
-  return { iso: DEFAULT_PHONE_COUNTRY_ISO, nationalDigits: digits.slice(0, 10) };
+  if (digits.length === 10) {
+    return { iso: DEFAULT_PHONE_COUNTRY_ISO, nationalDigits: digits };
+  }
+  if (digits.length === 11 && digits.startsWith("1")) {
+    return { iso: DEFAULT_PHONE_COUNTRY_ISO, nationalDigits: digits.slice(1) };
+  }
+
+  return (
+    matchPhoneCountryDial(digits) ?? {
+      iso: DEFAULT_PHONE_COUNTRY_ISO,
+      nationalDigits: digits.slice(0, 10),
+    }
+  );
 }
 
 /** True when the value is a full number for its country, not a mid-entry E.164. */

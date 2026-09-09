@@ -444,9 +444,11 @@ export function ManagerLeasesPipelinePanel({
     setGenerateLeaseRow(resolveManagerLeaseGenerationRow(row.id, managerUserId) ?? row);
   };
 
-  const handleLeaseGenerated = (_rowId: string) => {
+  const handleLeaseGenerated = (rowId: string) => {
     setGenerateLeaseRow(null);
     setGenerateTemplateId(null);
+    const generatedRow = resolveManagerLeaseGenerationRow(rowId, managerUserId);
+    if (generatedRow) openLeaseDetail(generatedRow);
     void syncLeasePipelineFromServer(managerUserId, { force: true });
   };
 

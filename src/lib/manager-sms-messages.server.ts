@@ -315,6 +315,8 @@ export async function logManagerSmsMessage(
      * from the routing classification. Defaults to a conservative derivation.
      */
     counterpartyRole?: SmsCounterpartyRole;
+    /** A dispatcher-validated existing identity takes precedence over rebuilding from a later profile link. */
+    conversationKey?: string | null;
   },
 ): Promise<boolean> {
   const managerUserId = args.managerUserId.trim();
@@ -326,12 +328,13 @@ export async function logManagerSmsMessage(
   const counterpartyRole =
     args.counterpartyRole ??
     deriveCounterpartyRole({ hasResidentUserId: Boolean(residentUserId) });
-  const conversationKey = buildConversationKey({
+  const derivedConversationKey = buildConversationKey({
     ownerManagerUserId: managerUserId,
     role: counterpartyRole,
     counterpartyUserId: residentUserId,
     counterpartyPhone: residentPhone,
   });
+  const conversationKey = args.conversationKey?.trim() || derivedConversationKey;
 
   const row = {
     manager_user_id: managerUserId,

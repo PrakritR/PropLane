@@ -60,6 +60,8 @@ const TOUR = {
   slotKey: "2099-08-06:20",
   attendeeName: "Audit Prospect",
   attendeeEmail: "prospect@example.com",
+  attendeePhone: "+12065550100",
+  smsConsent: true,
   propertyTitle: "Ballard House",
   googleCalendarEventId: "gcal-1",
 };
@@ -93,6 +95,7 @@ describe("cancelPlannedTour", () => {
     expect(notifyCanceled).toHaveBeenCalledTimes(1);
     // The guest-facing reason reaches the notification, not just the audit log.
     expect(notifyCanceled.mock.calls[0]![4]).toBe("Unit is no longer available");
+    expect(notifyCanceled.mock.calls[0]![2]).toMatchObject({ smsConsent: true, phone: "+12065550100" });
   });
 
   it("removes the manager's Google Calendar entry too", async () => {
@@ -248,6 +251,7 @@ describe("reschedulePlannedTour", () => {
       window: { start: NEW_START, end: NEW_END },
       previousWindow: { start: TOUR.start, end: TOUR.end },
     });
+    expect(notifyRescheduled.mock.calls[0]![2]).toMatchObject({ smsConsent: true, phone: "+12065550100" });
   });
 
   it("drops the stale slotKey so the old window is not still blocked", async () => {

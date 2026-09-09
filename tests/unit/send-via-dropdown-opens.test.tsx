@@ -47,15 +47,20 @@ describe("Send via", () => {
 
   it("does not show the Communication → SMS setup footnote", () => {
     expect(portalMessageSendViaFooterNote(false)).toBe("");
+    expect(portalMessageSendViaFooterNote(true)).toBe("");
     render(
       <PortalMessageSendViaDropdown
         selected={["email"]}
         onChange={vi.fn()}
-        smsAvailable={false}
-        footerNote={portalMessageSendViaFooterNote(false)}
+        smsAvailable={true}
+        footerNote={portalMessageSendViaFooterNote(true)}
         dataAttr="test-send-via-2"
       />,
     );
     expect(screen.queryByText(/Add a work number under Communication/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/SMS uses your work number; recipients need a phone on file or under Other/i),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/SMS uses your work number when enabled/i)).not.toBeInTheDocument();
   });
 });

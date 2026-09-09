@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -88,6 +89,8 @@ export async function POST(req: Request) {
       subject?: unknown;
       messageBody?: unknown;
       body?: unknown;
+      deliverViaEmail?: unknown;
+      deliverViaSms?: unknown;
     };
     const id = typeof body.id === "string" ? body.id.trim() : "";
     const previousStart = typeof body.previousStart === "string" ? body.previousStart.trim() : "";
@@ -142,18 +145,18 @@ export async function POST(req: Request) {
     const nextWindows = windows.map((window, index) =>
       index === windowIndex ? { ...window, start, end } : window,
     );
+    const rescheduleGeneration = randomUUID();
     const updatedInquiry = {
       ...targetInquiry,
       requestedWindows: nextWindows,
       proposedStart: nextWindows[0]?.start ?? start,
       proposedEnd: nextWindows[0]?.end ?? end,
+      rescheduleNotificationGeneration: rescheduleGeneration,
     };
     const nextInquiries = [...currentInquiries];
     nextInquiries[targetIndex] = updatedInquiry;
 
     let guestNotification: { ok: boolean; skipped?: boolean; error?: string } | null = null;
-
-    const previousRowData = inquiryRecord?.row_data;
 
     const { error: writeError } = await db.from("portal_schedule_records").upsert(
       {
@@ -183,27 +186,19 @@ export async function POST(req: Request) {
           adminLabel: nextWindows[windowIndex]?.adminLabel,
         },
         previousWindow: { start: previousStart, end: previousEnd },
+        rescheduleGeneration,
+        proposalRecordId: INQUIRIES_RECORD_ID,
         subject: customSubject || undefined,
         body: customBody || undefined,
+        channels: {
+          ...(typeof body.deliverViaEmail === "boolean" ? { viaEmail: body.deliverViaEmail } : {}),
+          ...(typeof body.deliverViaSms === "boolean" ? { viaSms: body.deliverViaSms } : {}),
+        },
       });
       if (!guestNotification.ok && !guestNotification.skipped) {
-        if (previousRowData) {
-          await db.from("portal_schedule_records").upsert(
-            {
-              id: INQUIRIES_RECORD_ID,
-              manager_user_id: null,
-              property_id: null,
-              record_type: INQUIRIES_RECORD_ID,
-              row_data: previousRowData,
-              updated_at: new Date().toISOString(),
-            },
-            { onConflict: "id" },
-          );
-        }
-        return NextResponse.json(
-          { error: guestNotification.error ?? "Could not notify the guest about the new time." },
-          { status: 500 },
-        );
+        // The new window is already durable and an SMS/email may have reached
+        // the guest. Never roll it back and pretend the transition was unsent.
+        return NextResponse.json({ ok: true, guestNotification, warning: guestNotification.error ?? "Guest notification needs follow-up." });
       }
     }
 

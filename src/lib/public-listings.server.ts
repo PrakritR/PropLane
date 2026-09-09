@@ -167,6 +167,11 @@ const PUBLIC_ROOM_KEYS = [
   "videoDataUrl",
   "utilitiesEstimate",
   "utilitiesPaymentModel",
+  // The per-room override is the public security deposit a prospect will be
+  // charged. When it is absent, leasing falls back to the public listing-wide
+  // deposit; omitting it here made those answers silently wrong on the shared
+  // leasing line.
+  "securityDeposit",
   "rentBasis",
   "dailyRentPrice",
   // A prospect must be able to see "1 of 2 beds available" on a shared room.

@@ -17,7 +17,10 @@ vi.mock("@/lib/sms-consent", () => ({
 
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
-import { resolveManagerNotificationChannels } from "@/lib/manager-notification-routing.server";
+import {
+  isManagerNotificationSmsAccepted,
+  resolveManagerNotificationChannels,
+} from "@/lib/manager-notification-routing.server";
 
 const db = {} as SupabaseClient;
 const profile = {
@@ -103,5 +106,16 @@ describe("resolveManagerNotificationChannels", () => {
       resolveManagerNotificationChannels(db, "manager-1", "leasing", profile),
     ).resolves.toMatchObject({ inbox: false, sms: false, fellBackToAssistant: false });
     expect(resolveActiveManagerSendNumber).not.toHaveBeenCalled();
+  });
+});
+
+describe("isManagerNotificationSmsAccepted", () => {
+  it("treats a durable queued handoff as accepted", () => {
+    expect(isManagerNotificationSmsAccepted({ ok: false, durablyAccepted: true, outboxStatus: "queued" })).toBe(true);
+  });
+
+  it("never accepts an unknown or terminal failed outbox state", () => {
+    expect(isManagerNotificationSmsAccepted({ ok: true, durablyAccepted: true, outboxStatus: "unknown" })).toBe(false);
+    expect(isManagerNotificationSmsAccepted({ ok: true, durablyAccepted: true, outboxStatus: "failed" })).toBe(false);
   });
 });

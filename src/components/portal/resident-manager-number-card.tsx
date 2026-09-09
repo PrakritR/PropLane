@@ -1,21 +1,21 @@
 "use client";
 
 /**
- * Manager work line + assistant email for residents — shown above the conversation
- * list so it stays visible before a thread is opened.
+ * "Your property manager" — the card at the top of the resident's conversation
+ * list. Shown above the list so it stays visible before a thread is opened.
+ *
+ * It renders NOTHING when the resident has no reachable manager, which is a
+ * real and common state (no lease yet, or a manager with no work number and no
+ * assistant address). An absent card is correct; a card with nothing to act on
+ * is not.
  */
-import { useEffect, useState } from "react";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { MessageCircle, Phone } from "lucide-react";
+import { InboxAvatar } from "@/components/portal/portal-inbox-ui";
+import {
+  useResidentManagerContacts,
+  type ResidentManagerContact,
+} from "@/hooks/use-resident-manager-contacts";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
-
-type ResidentManagerContact = {
-  phone: string | null;
-  assistantEmail: string | null;
-  propertyLabel: string | null;
-  leaseStart: string | null;
-  leaseEnd: string | null;
-  status: "current" | "upcoming" | "ended";
-};
 
 function shortDate(value: string | null): string | null {
   if (!value) return null;
@@ -25,7 +25,7 @@ function shortDate(value: string | null): string | null {
 }
 
 /**
- * The one line under the number. Only earned when there is something to tell
+ * The one line under the identity. Only earned when there is something to tell
  * apart: with a single tenancy the resident does not need to be told which of
  * their one manager this is.
  */
@@ -46,67 +46,102 @@ export function managerContactCaption(
   return until ? `Until ${until}` : "Replies in PropLane show up in your conversations below.";
 }
 
-export function ResidentManagerNumberCard() {
-  const [contacts, setContacts] = useState<ResidentManagerContact[]>([]);
+const HERO_ACTION_CLASS =
+  "flex h-[42px] min-w-0 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-primary/35 bg-card px-2.5 text-[13px] font-semibold text-primary transition-colors hover:bg-primary/[0.06]";
 
-  useEffect(() => {
-    if (isDemoModeActive()) return;
-    let cancelled = false;
-    void fetch("/api/resident/manager-contact", { credentials: "include", cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body) => {
-        if (cancelled || !body || typeof body !== "object") return;
-        const rows = (body as { contacts?: ResidentManagerContact[] }).contacts;
-        setContacts(
-          Array.isArray(rows)
-            ? rows.filter((row) => Boolean(row?.phone?.trim() || row?.assistantEmail?.trim()))
-            : [],
-        );
-      })
-      .catch(() => {
-        // A missing number is not an error worth showing — the section is
-        // simply absent, exactly as it is for a manager who has none.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+export function ResidentManagerNumberCard() {
+  const contacts = useResidentManagerContacts();
 
   if (contacts.length === 0) return null;
   const multiple = contacts.length > 1;
 
   return (
-    <div className="space-y-2 px-3 pt-3" data-attr="resident-manager-number">
-      {contacts.map((contact) => (
-        <div
-          key={`${contact.phone ?? ""}-${contact.assistantEmail ?? ""}-${contact.propertyLabel ?? ""}`}
-          className="rounded-xl border border-primary/25 bg-primary/[0.05] px-3.5 py-3"
-        >
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">
-            Contact your manager
-            {multiple && contact.propertyLabel ? ` · ${contact.propertyLabel}` : ""}
-          </p>
-          {contact.phone ? (
-            <a
-              href={`sms:${contact.phone}`}
-              className="mt-1 block font-mono text-[17px] font-semibold text-foreground"
-              data-attr="resident-manager-number-link"
-            >
-              {formatSmsPhoneLabel(contact.phone) || contact.phone}
-            </a>
-          ) : null}
-          {contact.assistantEmail ? (
-            <a
-              href={`mailto:${contact.assistantEmail}`}
-              className={`block text-sm font-medium text-primary ${contact.phone ? "mt-1" : "mt-1"}`}
-              data-attr="resident-manager-email-link"
-            >
-              {contact.assistantEmail}
-            </a>
-          ) : null}
-          <p className="mt-1 text-xs text-muted">{managerContactCaption(contact, multiple)}</p>
-        </div>
-      ))}
+    <div className="shrink-0 space-y-3 px-3.5 pb-4 pt-3.5" data-attr="resident-manager-number">
+      {contacts.map((contact) => {
+        const phoneLabel = contact.phone
+          ? formatSmsPhoneLabel(contact.phone) || contact.phone
+          : null;
+        const name = contact.managerName?.trim() || null;
+        return (
+          <div
+            key={`${contact.phone ?? ""}-${contact.assistantEmail ?? ""}-${contact.propertyLabel ?? ""}`}
+            className="rounded-2xl border border-primary/25 bg-primary/[0.05] px-4 pb-4 pt-3.5"
+          >
+            <p className="text-[12.5px] font-bold tracking-[-0.01em] text-primary">
+              Your property manager
+              {multiple && contact.propertyLabel ? ` · ${contact.propertyLabel}` : ""}
+            </p>
+
+            <div className="mt-3 flex items-center gap-3">
+              {name ? <InboxAvatar name={name} className="h-[52px] w-[52px] text-[16px]" /> : null}
+              <div className="min-w-0">
+                {name ? (
+                  <p className="truncate text-[19px] font-extrabold tracking-[-0.025em] text-foreground">
+                    {name}
+                  </p>
+                ) : phoneLabel ? (
+                  <p className="truncate font-mono text-[19px] font-bold tracking-[-0.01em] text-foreground">
+                    {phoneLabel}
+                  </p>
+                ) : null}
+                <p className="mt-0.5 truncate text-[13px] text-muted">
+                  {name ? "Property Manager · PropLane" : "PropLane"}
+                </p>
+                <p className="mt-1.5 flex items-center gap-2 text-xs text-muted">
+                  <span
+                    className="h-[7px] w-[7px] shrink-0 rounded-full bg-[var(--status-confirmed-fg)]"
+                    aria-hidden
+                  />
+                  {managerContactCaption(contact, multiple)}
+                </p>
+              </div>
+            </div>
+
+            {contact.phone || contact.assistantEmail ? (
+              <div className="mt-4 flex gap-3">
+                {contact.phone ? (
+                  <>
+                    {/*
+                      Both buttons open a TEXT, and neither is a `tel:` dial.
+                      This is the manager's provisioned messaging work number —
+                      nothing in the SMS layer ever configures a voice URL for
+                      it, so dialling would reach a dead line, which reads to a
+                      resident as their manager ignoring them. The phone icon is
+                      the line's identity, not a promise that it rings.
+                    */}
+                    <a
+                      href={`sms:${contact.phone}`}
+                      className={HERO_ACTION_CLASS}
+                      data-attr="resident-manager-number-link"
+                    >
+                      <Phone className="h-4 w-4 shrink-0" strokeWidth={1.9} />
+                      <span className="truncate">{phoneLabel}</span>
+                    </a>
+                    <a
+                      href={`sms:${contact.phone}`}
+                      className={HERO_ACTION_CLASS}
+                      data-attr="resident-manager-text-link"
+                      aria-label={`Text ${phoneLabel ?? "your property manager"}`}
+                    >
+                      <MessageCircle className="h-4 w-4 shrink-0" strokeWidth={1.9} />
+                      <span className="truncate">Text us</span>
+                    </a>
+                  </>
+                ) : null}
+                {contact.assistantEmail && !contact.phone ? (
+                  <a
+                    href={`mailto:${contact.assistantEmail}`}
+                    className={HERO_ACTION_CLASS}
+                    data-attr="resident-manager-email-link"
+                  >
+                    <span className="truncate">{contact.assistantEmail}</span>
+                  </a>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
