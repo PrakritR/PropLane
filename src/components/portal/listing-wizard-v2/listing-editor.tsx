@@ -2026,10 +2026,7 @@ function BathroomDetail({
         </Field>
       </FieldRow>
       <FieldRow cols={2}>
-        <Field
-          label="Used by"
-          hint="Which rooms this bathroom serves."
-        >
+        <Field label="Used by">
         <CheckboxMultiSelect
           hideLabel
           label="Used by"
@@ -2088,7 +2085,7 @@ function BathroomDetail({
           })}
         </Field>
       ) : null}
-      <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Photos and video</p>
+      <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Media</p>
       <FieldRow cols={2}>
         <Field label="Photos of this bathroom" optional>
           <PhotoStrip
