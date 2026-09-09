@@ -32,6 +32,14 @@ export async function sendSms(
   const fromNorm = normalizeE164(fromNumber);
   if (!toNorm || !fromNorm) return { sent: false, error: `Cannot normalize phone: to=${to} from=${fromNumber}` };
 
+  // Real-customer shield: outside production, never text a number belonging to
+  // a protected account. Staging runs on a clone of the production database, so
+  // these are real people. Fails closed - see protected-accounts.server.
+  const { isShieldedRecipient } = await import("@/lib/protected-accounts.server");
+  if (await isShieldedRecipient({ phone: toNorm })) {
+    return { sent: false, error: "protected_account_shielded" };
+  }
+
   // Consent gate (single choke point): never text a number that has opted out
   // via STOP. Only compliance/verification messages (`skipOptOutCheck`) bypass —
   // e.g. the phone-verification OTP, where the user is actively re-opting in.

@@ -76,6 +76,14 @@ export async function POST(req: Request) {
   // Non-inbound events (deliveries, bounces, connectivity probes) ack quietly.
   if (!parsed) return ok({ ignored: "not-received" });
 
+  // Real-customer shield: outside production, mail from a protected account is
+  // acked and dropped rather than filed into an inbox that QA then replies to.
+  const { isShieldedRecipient } = await import("@/lib/protected-accounts.server");
+  if (await isShieldedRecipient({ email: parsed.fromEmail })) {
+    console.error("protected-accounts: dropped an inbound email on a non-production runtime.");
+    return ok({ ignored: "protected-account" });
+  }
+
   // Two shed valves, both acking 200 (a non-2xx makes the provider retry,
   // amplifying a flood) and both logged so a dropped message is diagnosable.
   //

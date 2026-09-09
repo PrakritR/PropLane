@@ -128,6 +128,32 @@ snapshot's refresh tokens. They were disabled on staging only. The deployed
 browser bundle was independently verified to target `xwszcafaontidfgznlxd`.
 The durable project-binding guard is part of the staging isolation keeper.
 
+### The real-customer shield
+
+The refresh clones real people into staging, so one account's residents are
+reachable from every non-production environment. `src/lib/protected-accounts.server.ts`
+names that account and blocks contact with it:
+
+- **Outbound email** is stopped at the transport. Thirty modules POST to Resend
+  directly, so the guard wraps `fetch` once (`src/instrumentation.ts`) rather
+  than patching each call site and missing the next one.
+- **Outbound SMS** is stopped in `sendSms`, the same choke point as the consent
+  gate.
+- **Inbound** SMS and email from those contacts are acked and dropped, so QA
+  never sees a thread it might reply to.
+
+The protected set is the named account owner and co-manager plus every email and
+phone resolved from rows that account owns, so residents are covered without
+being listed in code. It is scoped to databases that actually hold the real
+customer (staging and production) and is inert against dev/test. Production is
+never shielded - that is where these accounts are the real customers.
+
+It fails **closed**: if the lookup cannot run, every recipient is treated as
+protected. Sending in error cannot be undone; blocking in error can.
+
+Adding an account to `PROTECTED_MANAGER_USER_IDS` extends the shield. Do not add
+one whose data QA needs to exercise.
+
 ### Signing in to staging
 
 The refresh clones the whole `auth` schema, `encrypted_password` included, so
