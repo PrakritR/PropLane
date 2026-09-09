@@ -15,6 +15,7 @@
  * availability grid and these two actions all read one source.
  */
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
+import { randomUUID } from "node:crypto";
 import {
   runPlannedTourCalendarSync as runCalendarSync,
   type PlannedTourCalendarSync,
@@ -28,6 +29,7 @@ import {
   notifyTenantTourCanceled,
   notifyTenantTourRescheduled,
 } from "@/lib/tour-notification-delivery.server";
+import type { TourNotificationChannels, TourNotificationResult } from "@/lib/tour-notification-delivery.server";
 import { formatRangeLabel, PLANNED_RECORD_ID, rowsFromRecord } from "@/lib/tour-inquiry-confirm.server";
 import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
 
@@ -69,7 +71,7 @@ export type PlannedTourChangeResult =
   | {
       ok: true;
       message: string;
-      guestNotification: { ok: boolean; skipped?: boolean; error?: string } | null;
+      guestNotification: TourNotificationResult | null;
       calendarSync: PlannedTourCalendarSync;
     }
   | { ok: false; status: number; error: string };
@@ -171,6 +173,7 @@ export async function cancelPlannedTour(
     notifyGuest: boolean;
     notificationSubject?: string;
     notificationBody?: string;
+    notificationChannels?: TourNotificationChannels;
     req?: Request;
   },
 ): Promise<PlannedTourChangeResult> {
@@ -194,7 +197,7 @@ export async function cancelPlannedTour(
 
   // Only after the tour is really gone: a guest told "cancelled" for a tour
   // still on the calendar is worse than one told nothing.
-  let guestNotification: { ok: boolean; skipped?: boolean; error?: string } | null = null;
+  let guestNotification: TourNotificationResult | null = null;
   if (opts.notifyGuest) {
     const notifyReq = opts.req ?? new Request(PRODUCTION_APP_ORIGIN);
     guestNotification = await notifyTenantTourCanceled(
@@ -207,6 +210,7 @@ export async function cancelPlannedTour(
         subject: opts.notificationSubject,
         body: opts.notificationBody,
       },
+      opts.notificationChannels,
     );
   }
 
@@ -238,6 +242,7 @@ export async function reschedulePlannedTour(
     notifyGuest: boolean;
     notificationSubject?: string;
     notificationBody?: string;
+    notificationChannels?: TourNotificationChannels;
     req?: Request;
   },
 ): Promise<PlannedTourChangeResult> {
@@ -273,6 +278,10 @@ export async function reschedulePlannedTour(
   }
 
   const instructions = opts.instructions?.trim() ?? "";
+  // This UUID is created once for a real persisted transition, then threaded
+  // through delivery and reply recording. It is never minted by a notification
+  // retry, so it distinguishes repeated A → B cycles without breaking retries.
+  const rescheduleGeneration = randomUUID();
   const moved: Record<string, unknown> = {
     ...event,
     start,
@@ -283,6 +292,7 @@ export async function reschedulePlannedTour(
     // so drop it and let the time range speak.
     slotKey: undefined,
     ...(instructions ? { instructions } : {}),
+    rescheduleNotificationGeneration: rescheduleGeneration,
   };
   const nextRows = [...plannedRows];
   nextRows[index] = moved;
@@ -290,16 +300,18 @@ export async function reschedulePlannedTour(
   const writeError = await writePlannedRows(db, nextRows);
   if (writeError) return { ok: false, status: 500, error: writeError };
 
-  let guestNotification: { ok: boolean; skipped?: boolean; error?: string } | null = null;
+  let guestNotification: TourNotificationResult | null = null;
   if (opts.notifyGuest) {
     const notifyReq = opts.req ?? new Request(PRODUCTION_APP_ORIGIN);
     guestNotification = await notifyTenantTourRescheduled(db, notifyReq, inquiryFromPlannedEvent(event), {
       window: { start, end, adminLabel: textField(event, "adminLabel") || undefined },
       previousWindow: previous,
+      rescheduleGeneration,
       reason: opts.reason,
       instructions: instructions || textField(event, "instructions") || null,
       subject: opts.notificationSubject,
       body: opts.notificationBody,
+      channels: opts.notificationChannels,
     });
   }
 

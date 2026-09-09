@@ -1025,6 +1025,54 @@ export async function handleClawLeasingInbound(args: {
     }).catch((e) => console.error("claw leasing inbox notice failed", e));
   }
 
+  // A reschedule reply is a narrow, durable tour transition. The ordinary
+  // leasing agent must never interpret YES or an alternate time after we have
+  // matched it to one exact accepted proposal.
+  if (landlordId && workNumber && messageId) {
+    const { handleTourRescheduleSmsReply } = await import("@/lib/tour-reschedule-sms-reply.server");
+    const tourReply = await handleTourRescheduleSmsReply(createSupabaseServiceRoleClient(), {
+      managerUserId: landlordId,
+      fromPhone: from,
+      toPhone: workNumber,
+      body: text,
+      messageSid: messageId,
+    }).catch(() => ({
+      handled: true as const,
+      kind: "unavailable" as const,
+      reply: "We could not check that tour update just now. Please try again shortly.",
+    }));
+    if (tourReply.handled) {
+      const prepared = args.onPreparedReply
+        ? await args.onPreparedReply({ routeKind: "leasing_template", replyBody: tourReply.reply })
+        : true;
+      if (!prepared) {
+        releaseInboundMessageClaims(claimedMessageIds);
+        return { ok: false, intent, replied: false, error: "Reply preparation failed." };
+      }
+      const send = await replySms({
+        to: from,
+        text: tourReply.reply,
+        managerUserId: landlordId,
+        workNumber,
+        counterpartyRole: "prospect",
+        conversationKey: buildConversationKey({
+          ownerManagerUserId: landlordId,
+          role: "prospect",
+          counterpartyPhone: from,
+        }),
+        dedupeKey: `inbound_reply_${messageId}`,
+      });
+      return {
+        ok: send.ok || Boolean(send.durablyAccepted),
+        intent,
+        replied: send.ok || Boolean(send.durablyAccepted),
+        error: send.ok || send.durablyAccepted ? undefined : send.error,
+        outboxId: send.outboxId,
+        durablyAccepted: send.durablyAccepted,
+      };
+    }
+  }
+
   // Claude leasing agent on the manager's work number — grounds replies on live
   // listings, matches house/room, and mints apply links with phone/room prefills.
   // Keyword templates remain the fallback when the API key is missing or the

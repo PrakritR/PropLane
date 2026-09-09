@@ -19,6 +19,7 @@ import { syncPlannedTourToGoogleCalendar } from "@/lib/google-calendar/sync.serv
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { notifyTenantTourConfirmed } from "@/lib/tour-notification-delivery.server";
+import type { TourNotificationChannels, TourNotificationResult } from "@/lib/tour-notification-delivery.server";
 import { isActivePlannedTourEvent } from "@/lib/tour-slot-math";
 import { canAssign, normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 import { createPrepareForTourTask } from "@/lib/manager-default-tasks.server";
@@ -132,7 +133,7 @@ export type ConfirmTourResult =
       ok: true;
       plannedEvent: Record<string, unknown>;
       message: string;
-      tenantNotification: { ok: boolean; skipped?: boolean; error?: string } | null;
+      tenantNotification: TourNotificationResult | null;
       /** The push onto the manager's linked Google Calendar; `skipped` when none is linked. */
       calendarSync: PlannedTourCalendarSync;
     }
@@ -153,6 +154,7 @@ export type ConfirmTourOptions = {
   /** Manager-edited notification copy from the preview modal. */
   notificationSubject?: string;
   notificationBody?: string;
+  notificationChannels?: TourNotificationChannels;
   /**
    * When true (the auto-approve/tool path), refuse to book a slot a confirmed
    * tour already occupies — the stale-proposal double-book guard. The manual
@@ -294,6 +296,9 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     attendeeName: textField(row, "name") || undefined,
     attendeeEmail: textField(row, "email") || undefined,
     attendeePhone: textField(row, "phone") || undefined,
+    // Consent is a fact captured on the authorized inquiry. Preserve it so
+    // later cancel/reschedule notifications can use the same work-number thread.
+    smsConsent: row.smsConsent === true,
     notes: textField(row, "notes") || undefined,
     instructions: instructions || undefined,
     assignee: assignee ?? undefined,
@@ -355,7 +360,7 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     if (deleteError) return { ok: false, status: 500, error: deleteError.message };
   }
 
-  let tenantNotification: { ok: boolean; skipped?: boolean; error?: string } | null = null;
+  let tenantNotification: TourNotificationResult | null = null;
   if (opts.notifyTenant) {
     // The tool path has no live request; links then resolve to the production
     // origin, which is correct for a confirmed-tour email.
@@ -370,6 +375,7 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
         subject: opts.notificationSubject,
         body: opts.notificationBody,
       },
+      opts.notificationChannels,
     );
   }
 

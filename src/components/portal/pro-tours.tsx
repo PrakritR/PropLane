@@ -596,7 +596,7 @@ export function ManagerTours({
   const submitNotifyPreview = useCallback(
     async (
       skipMessage: boolean,
-      _channels?: unknown,
+      channels?: { viaEmail?: boolean; viaSms?: boolean },
       draft?: NotificationConfirmDraft,
       opts?: {
         scope?: "all" | "single";
@@ -645,6 +645,8 @@ export function ManagerTours({
               subject: rowSubject,
               body: rowBody,
               assignee: draft?.assignee ?? undefined,
+              deliverViaEmail: channels?.viaEmail !== false,
+              deliverViaSms: channels?.viaSms === true,
             });
             if (!result.ok) {
               showToast(result.error ?? "Could not confirm tour.");
@@ -716,6 +718,8 @@ export function ManagerTours({
               notifyGuest: !skipMessage,
               subject: rowSubject,
               body: rowBody,
+              deliverViaEmail: channels?.viaEmail !== false,
+              deliverViaSms: channels?.viaSms === true,
             });
             if (!result.ok) {
               showToast(result.error ?? "Could not cancel tour.");
@@ -751,6 +755,8 @@ export function ManagerTours({
                 notifyGuest: !skipMessage,
                 subject: rowSubject,
                 body: rowBody,
+                deliverViaEmail: channels?.viaEmail !== false,
+                deliverViaSms: channels?.viaSms === true,
               });
               if (!result.ok) {
                 showToast(result.error ?? "Could not reschedule tour.");
@@ -768,6 +774,8 @@ export function ManagerTours({
                 notifyGuest: !skipMessage,
                 subject: rowSubject,
                 body: rowBody,
+                deliverViaEmail: channels?.viaEmail !== false,
+                deliverViaSms: channels?.viaSms === true,
               });
               if (!result.ok) {
                 showToast(result.error ?? "Could not propose the new tour time.");

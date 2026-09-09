@@ -95,6 +95,7 @@ import { deleteProplaneGoogleTourFromServer } from "@/lib/google-calendar/delete
 import {
   cancelPlannedTourFromServer,
   tourGuestNotificationFailed,
+  tourGuestNotificationSummary,
 } from "@/lib/tour-planned-change.client";
 import {
   createScheduledWorkTask,
@@ -1433,7 +1434,7 @@ export function PortalCalendarPanels({
   );
 
   const submitTourGuestNotifyPreview = useCallback(
-    async (skipMessage: boolean, _channels?: unknown, draft?: NotificationConfirmDraft) => {
+    async (skipMessage: boolean, channels?: { viaEmail?: boolean; viaSms?: boolean }, draft?: NotificationConfirmDraft) => {
       if (!tourGuestNotifyPreview || tourNotifyPreviewBusy) return;
       const preview = tourGuestNotifyPreview;
       setTourNotifyPreviewBusy(true);
@@ -1447,6 +1448,8 @@ export function PortalCalendarPanels({
             subject: draft?.subject,
             body: draft?.body,
             assignee: draft?.assignee ?? undefined,
+            deliverViaEmail: channels?.viaEmail !== false,
+            deliverViaSms: channels?.viaSms === true,
           });
           if (!result.ok) {
             showToast(result.error ?? "Could not confirm tour.");
@@ -1479,14 +1482,16 @@ export function PortalCalendarPanels({
             );
           } else if (skipMessage) {
             showToast("Tour confirmed (no guest notification sent).");
+          } else if (tourGuestNotificationFailed(result.tenantNotification)) {
+            showToast("Tour confirmed, but one or more selected guest channels did not send.");
           } else if (result.notificationSkipped) {
             showToast(
               "Tour confirmed. Confirmation sent to PropLane inbox (email skipped for demo address or missing provider).",
             );
           } else if (result.error) {
-            showToast("Tour confirmed, but the confirmation email could not be sent.");
+            showToast(`Tour confirmed, but ${result.error}`);
           } else {
-            showToast("Tour confirmed and confirmation sent via inbox and email.");
+            showToast(`Tour confirmed. Sent via ${tourGuestNotificationSummary(result.tenantNotification)}.`);
           }
           return;
         }
@@ -1521,6 +1526,8 @@ export function PortalCalendarPanels({
             notifyGuest: !skipMessage,
             subject: draft?.subject,
             body: draft?.body,
+            deliverViaEmail: channels?.viaEmail !== false,
+            deliverViaSms: channels?.viaSms === true,
           });
           if (!result.ok) {
             showToast(result.error ?? "Could not cancel this tour.");
@@ -1541,7 +1548,9 @@ export function PortalCalendarPanels({
                 ? `Tour ${actionLabel} and the guest was notified, but your Google Calendar did not update.`
                 : skipMessage
                   ? `Tour ${actionLabel} (no guest notification sent).`
-                  : `Tour ${actionLabel} and the guest was notified.`,
+                  : result.guestNotification?.email || result.guestNotification?.sms
+                    ? `Tour ${actionLabel}. Sent via ${tourGuestNotificationSummary(result.guestNotification)}.`
+                    : `Tour ${actionLabel} and the guest was notified.`,
           );
         }
       } finally {

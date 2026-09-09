@@ -145,6 +145,23 @@ owns, and refuses with 409 when `previousStart`/`previousEnd` no longer match th
 stored window, so two managers editing the same request cannot silently overwrite
 each other.
 
+**Guest SMS confirmation is generation-bound.** A reschedule SMS records the
+exact event, window, guest phone, and manager work number that received it in
+`guestRescheduleReply`; only that snapshot may consume a YES. A real planned
+reschedule persists one `rescheduleNotificationGeneration`, and its outbound
+dedupe key uses that generation. Repeated A → B → A → B transitions therefore
+remain distinct while a retry of one persisted move stays idempotent. Alternate-time and
+ambiguous replies create a durable manager Assistant/SMS notice before the
+reply is terminally consumed. If every manager notification channel is
+suppressed or fails, the proposal remains actionable and the guest is not told
+that a manager will follow up.
+
+A pending-inquiry reschedule stores the same reply proposal on the inquiry
+singleton, not the planned-event singleton. YES confirms that the guest accepts
+the proposed window for manager follow-up; it never books the pending inquiry.
+Once a guest notification is accepted, a later reply-state failure leaves the
+persisted window in place and returns a warning rather than rolling it back.
+
 **A manager can also book a tour with no inquiry behind it.**
 `POST /api/portal/manual-tour` → `createManualPlannedTour`
 (`manual-planned-tour.server.ts`) writes a planned event directly for a walk-in

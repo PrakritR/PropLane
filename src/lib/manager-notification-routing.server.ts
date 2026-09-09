@@ -63,6 +63,19 @@ export async function resolveManagerNotificationChannels(
   };
 }
 
+export function isManagerNotificationSmsAccepted(result: {
+  ok?: boolean;
+  durablyAccepted?: boolean;
+  outboxStatus?: string;
+} | null | undefined): boolean {
+  const status = String(result?.outboxStatus ?? "");
+  if (["unknown", "failed", "blocked"].includes(status)) return false;
+  const acceptedOutboxStatus = new Set([
+    "queued", "deferred", "claimed", "submitting", "submitted", "sent", "delivered",
+  ]).has(status);
+  return Boolean(result?.ok || (result?.durablyAccepted && acceptedOutboxStatus));
+}
+
 export async function sendManagerNotificationSms(
   db: SupabaseClient,
   input: {
@@ -107,5 +120,8 @@ export async function sendManagerNotificationSms(
       counterpartyRole: "manager",
     },
   }).catch(() => null);
-  return { sent: Boolean(result && "sent" in result && result.sent) };
+  // Managed sends return `{ ok, outboxStatus, durablyAccepted }`; they do not
+  // expose a legacy `sent` field. A queued/deferred durable handoff is an
+  // accepted notification, while unknown/failed/blocked outcomes never are.
+  return { sent: isManagerNotificationSmsAccepted(result) };
 }
