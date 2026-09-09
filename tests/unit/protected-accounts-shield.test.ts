@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -88,6 +89,32 @@ describe("protected account shield", () => {
     selectError = "connection refused";
     const { isShieldedRecipient } = await freshModule();
     expect(await isShieldedRecipient({ email: "anyone@example.com" })).toBe(true);
+  });
+});
+
+describe("outbound SMS transport shield", () => {
+  /**
+   * There are two SMS transports and Claw is the primary one: staging has
+   * CLAW_MESSENGER_API_KEY and no SMS_RUNTIME_ENABLED, so every message it
+   * actually sends goes out through sendPropLaneSms, not Twilio's sendSms.
+   * Guarding only the Twilio helper would have shielded nothing in the one
+   * environment this exists for.
+   */
+  it("guards both transports, not just the Twilio helper", () => {
+    const claw = readFileSync("src/lib/proplane-sms-transport.server.ts", "utf8");
+    const twilio = readFileSync("src/lib/twilio.ts", "utf8");
+    for (const source of [claw, twilio]) {
+      expect(source).toContain("isShieldedRecipient");
+      expect(source).toContain("protected_account_shielded");
+    }
+  });
+
+  it("shields before the transport is chosen, so neither path can leak", () => {
+    const source = readFileSync("src/lib/proplane-sms-transport.server.ts", "utf8");
+    // Measured inside sendPropLaneSms; isClawTransportEnabled is defined above it.
+    const body = source.slice(source.indexOf("export async function sendPropLaneSms"));
+    expect(body).toContain("isShieldedRecipient");
+    expect(body.indexOf("isShieldedRecipient")).toBeLessThan(body.indexOf("if (isClawTransportEnabled())"));
   });
 });
 
