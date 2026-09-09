@@ -89,6 +89,7 @@ export function buildImportColumnManifestSql(dumps) {
   );
   if (rows.length === 0) throw new Error("production dumps contained no COPY column metadata");
   return `
+set role postgres;
 do $$
 begin
   if to_regclass('prod_import._axis_import_columns') is not null then
