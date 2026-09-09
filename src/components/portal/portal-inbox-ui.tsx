@@ -1330,8 +1330,11 @@ export function InboxReplyChannelPicker({
   if (effectiveSelected.includes("proplane")) labels.push("PropLane");
   if (effectiveSelected.includes("email")) labels.push("Email");
   if (effectiveSelected.includes("sms")) labels.push("Text");
-  const selectionTriggerLabel =
-    labels.length > 1 ? labels.join(" & ") : labels[0];
+  // Name the CONTROL, not just its value. A bare "PropLane" on a pill beside
+  // the reply box reads as a brand stamp rather than as the channel this reply
+  // will go out on.
+  const selection_ = labels.length > 1 ? labels.join(" & ") : labels[0];
+  const selectionTriggerLabel = selection_ ? `Send via · ${selection_}` : undefined;
 
   const addAction = !emailAvailable && onAddEmail
     ? { label: "Add an email address", onClick: onAddEmail, dataAttr: "inbox-reply-add-email" }
@@ -1344,7 +1347,7 @@ export function InboxReplyChannelPicker({
       <CheckboxMultiSelect
         label="Send via"
         labelClassName="px-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-muted"
-        className={`w-auto shrink-0 ${INBOX_REPLY_CHANNEL_COMPACT_TRIGGER_CLASS}`}
+        className={`w-auto max-w-[13.5rem] shrink-0 ${INBOX_REPLY_CHANNEL_COMPACT_TRIGGER_CLASS} !w-auto`}
         variant="pill"
         options={options}
         selected={effectiveSelected}

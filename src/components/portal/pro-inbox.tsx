@@ -2,7 +2,9 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { Archive, ArchiveRestore, Pencil, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Clock, Pencil, Trash2 } from "lucide-react";
+import { Modal } from "@/components/ui/modal";
+import { ScheduleInboxComposeForm } from "@/components/portal/schedule-inbox-compose-modal";
 import { Button } from "@/components/ui/button";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import {
@@ -324,6 +326,7 @@ export const ManagerInbox = forwardRef<
     [controlledExpandedId, onControlledExpandedIdChange],
   );
   const [composeOpen, setComposeOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [workflowWorkOrderOpen, setWorkflowWorkOrderOpen] = useState(false);
   const [workflowServiceOpen, setWorkflowServiceOpen] = useState(false);
   const [workflowMessageText, setWorkflowMessageText] = useState("");
@@ -1959,7 +1962,17 @@ export const ManagerInbox = forwardRef<
     </button>
   ) : null;
 
-  const showThreadHeaderActions = !embeddedInCommunication || externalTitleActions;
+  /*
+   * The thread header carries its OWN conversation controls — edit, archive,
+   * delete. This used to be gated on `externalTitleActions`, a flag meaning
+   * "the page header is carrying them instead", which stopped being true once
+   * Communication's page chrome moved to the title band: the flag read false
+   * here and the header rendered a lone pen with no way to archive.
+   *
+   * The resident-detail chat tab is the one surface that keeps none: it hides
+   * the identity header entirely and archiving there belongs to the inbox.
+   */
+  const showThreadHeaderActions = !embeddedResidentChat;
 
   const threadHeaderActions =
     activeThread && showThreadHeaderActions ? (
@@ -2094,6 +2107,10 @@ export const ManagerInbox = forwardRef<
                 onSelect={openInboundWorkflow}
               />
             ) : null}
+            {/* Draft with AI and Ask PropLane sit on ONE row. Each renders its
+                own top border and padding for the standalone panel, so the
+                wrapper neutralises those and owns the row's chrome instead. */}
+            <div className="portal-inbox-compose-actions flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-card px-3.5 pb-1.5 pt-2.5 [&>*]:!m-0 [&>*]:!flex [&>*]:!items-center [&>*]:!border-0 [&>*]:!bg-transparent [&>*]:!p-0">
             {showAiDraftUi ? (
               <AiDraftReplyCard
                 drafting={draftingIds.has(activeThread.id) && !activeThread.aiDraft?.text}
@@ -2106,13 +2123,20 @@ export const ManagerInbox = forwardRef<
                 onApprove={() => void approveActiveDraft()}
                 onDiscard={() => void discardActiveDraft()}
                 channelControl={aiDraftChannelPicker}
-                // Hand the finished draft to the thread's own reply field
-                // instead of rendering a second message box beside it. Skipped
-                // while auto-send is armed: adopting discards the draft, and a
-                // discarded draft is one the auto-send effect can no longer
-                // send.
+                /*
+                 * Hand the finished draft to the thread's own reply field
+                 * instead of rendering a second message box beside it.
+                 *
+                 * Only the STANDALONE panel opts out, and only while auto-send
+                 * is armed there: adopting discards the draft, and a discarded
+                 * draft is one the auto-send effect can no longer send.
+                 * Communication offers no auto-send control at all
+                 * (`onAutoSendChange` is undefined below), so gating on the
+                 * flag there just resurrected the two-box shape for anyone
+                 * whose stored preference happened to be on.
+                 */
                 onAdopt={
-                  aiAutoSend
+                  aiAutoSend && !embeddedInCommunication
                     ? undefined
                     : (text) => {
                         setReplyDraft(text);
@@ -2147,6 +2171,18 @@ export const ManagerInbox = forwardRef<
                   : "Communication thread"
               }
             />
+            {inboxThreadHasEmail(activeThread.email) ? (
+              <button
+                type="button"
+                data-attr="inbox-thread-schedule-send"
+                onClick={() => setScheduleOpen(true)}
+                className="inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-full border border-border bg-card px-3.5 text-[12.5px] font-semibold text-muted transition-colors hover:text-foreground"
+              >
+                <Clock className="h-3.5 w-3.5" strokeWidth={2} />
+                Schedule send
+              </button>
+            ) : null}
+            </div>
             <InboxComposer
               value={replyDraft}
               onChange={setReplyDraft}
@@ -2197,6 +2233,44 @@ export const ManagerInbox = forwardRef<
         </PortalSectionActionRow>
       ) : null}
 
+      <Modal
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        title="Schedule this message"
+        description="Choose when it sends. It appears in the conversation until then, and can be edited or cancelled."
+        panelClassName="max-w-lg"
+      >
+        {scheduleOpen && activeThread ? (
+          <ScheduleInboxComposeForm
+            onClose={() => setScheduleOpen(false)}
+            onSaved={() => {
+              setScheduleOpen(false);
+              // Clear the reply that is now scheduled, so it cannot also be
+              // sent by pressing send.
+              setReplyDraft("");
+            }}
+            /*
+             * Pinned to the person whose conversation this is. Handing the
+             * scheduler the whole directory here would let a reply typed in one
+             * thread be scheduled to somebody else.
+             */
+            contacts={[
+              {
+                id: `thread-${activeThread.email.trim().toLowerCase()}`,
+                name: activeThread.from || activeThread.email,
+                email: activeThread.email.trim(),
+                role: "resident",
+              },
+            ]}
+            showHeading={false}
+            initial={{
+              subject: activeThread.subject || `Message for ${activeThread.from || activeThread.email}`,
+              body: replyDraft,
+              recipientEmail: activeThread.email,
+            }}
+          />
+        ) : null}
+      </Modal>
       {!suppressCompose ? (
         <ScopedInboxComposeModal
           open={composeOpen}

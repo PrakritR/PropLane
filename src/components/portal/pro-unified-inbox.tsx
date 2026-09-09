@@ -854,6 +854,32 @@ export function ManagerUnifiedInbox({
       }
       smsUiEnabled={smsUiEnabled}
       onSent={refreshAfterDirectSend}
+      /*
+       * Archive and delete act on THIS conversation, which may be several
+       * stored threads folded into one person. Reusing the bulk handlers keyed
+       * to the open row's key is what makes that true — and it is now the only
+       * entry to those actions from the list, since the per-row checkbox went.
+       */
+      onArchive={
+        selectedRow
+          ? async () => {
+              bulk.selection.clearSelection();
+              bulk.selection.toggleSelected(selectedRow.key);
+              await bulk.handleArchive();
+              closeActiveThread();
+            }
+          : undefined
+      }
+      onDelete={
+        selectedRow && listSegment === "archived"
+          ? async () => {
+              bulk.selection.clearSelection();
+              bulk.selection.toggleSelected(selectedRow.key);
+              await bulk.handleDelete();
+              closeActiveThread();
+            }
+          : undefined
+      }
       onBack={closeActiveThread}
     />
   ) : selection?.channel === "email" ? (

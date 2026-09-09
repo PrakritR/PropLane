@@ -1,9 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Pencil } from "lucide-react";
+import { Archive, Clock, Pencil, Trash2 } from "lucide-react";
+import { Modal } from "@/components/ui/modal";
+import { ScheduleInboxComposeForm } from "@/components/portal/schedule-inbox-compose-modal";
+import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
 import {
+  INBOX_THREAD_ICON_BTN,
+  INBOX_THREAD_ICON_BTN_DANGER,
   InboxComposer,
   AiDraftReplyCard,
   InboxReplyChannelPicker,
@@ -139,6 +144,8 @@ export function ResidentDirectChatPane({
   smsResident,
   smsUiEnabled,
   onSent,
+  onArchive,
+  onDelete,
   onBack,
   scheduledRefreshKey = 0,
 }: {
@@ -147,6 +154,10 @@ export function ResidentDirectChatPane({
   smsResident?: ManagerSmsResidentConversation | null;
   smsUiEnabled: boolean;
   onSent: () => void;
+  /** Archive every thread folded into this person's conversation. */
+  onArchive?: () => void | Promise<void>;
+  /** Delete every thread folded into this person's conversation. */
+  onDelete?: () => void | Promise<void>;
   /** Mobile Communication tab: back to the conversation list + show tenant name in the thread header. */
   onBack?: () => void;
   scheduledRefreshKey?: number;
@@ -159,6 +170,7 @@ export function ResidentDirectChatPane({
   const [approvingAiDraft, setApprovingAiDraft] = useState(false);
   const smsAttemptRef = useRef<ManualSmsAttempt | null>(null);
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [inboxTick, setInboxTick] = useState(0);
   const [manualScheduledMessages, setManualScheduledMessages] = useState<ScheduledInboxMessageRecord[]>([]);
@@ -197,6 +209,20 @@ export function ResidentDirectChatPane({
   const displayName = residentName?.trim() || email || "Resident";
   const smsAvailable = smsUiEnabled && Boolean(smsResident?.phone?.trim());
   const emailAvailable = Boolean(email);
+  /*
+   * The scheduler picks a recipient from a directory. This pane is already
+   * pinned to ONE person, so it offers exactly that person rather than the whole
+   * portfolio — scheduling from inside a conversation should not be able to
+   * silently address someone else.
+   */
+  const scheduleContacts = useMemo<InboxScopedContact[]>(
+    () =>
+      email.trim()
+        ? [{ id: `direct-${email.trim().toLowerCase()}`, name: displayName, email: email.trim(), role: "resident" }]
+        : [],
+    [displayName, email],
+  );
+
   const [replyViaProplane, setReplyViaProplane] = useState(true);
   const [replyViaEmail, setReplyViaEmail] = useState(false);
   const [replyViaSms, setReplyViaSms] = useState(false);
@@ -646,19 +672,47 @@ export function ResidentDirectChatPane({
     [displayName, email, onSent, showToast],
   );
 
+  // One row of matching circular controls, same as every other thread header.
   const threadHeaderActions = (
-    <button
-      type="button"
-      className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
-      aria-label="Edit contact details"
-      data-attr="inbox-thread-contact-edit"
-      onClick={() => {
-        setContactEditError(null);
-        setContactEditOpen(true);
-      }}
-    >
-      <Pencil className="h-4 w-4" aria-hidden />
-    </button>
+    <>
+      <button
+        type="button"
+        className={INBOX_THREAD_ICON_BTN}
+        aria-label="Edit contact details"
+        title="Edit contact details"
+        data-attr="inbox-thread-contact-edit"
+        onClick={() => {
+          setContactEditError(null);
+          setContactEditOpen(true);
+        }}
+      >
+        <Pencil className="h-4 w-4" aria-hidden />
+      </button>
+      {onArchive ? (
+        <button
+          type="button"
+          className={INBOX_THREAD_ICON_BTN}
+          aria-label="Archive conversation"
+          title="Archive"
+          data-attr="inbox-thread-archive"
+          onClick={() => void onArchive()}
+        >
+          <Archive className="h-4 w-4" aria-hidden />
+        </button>
+      ) : null}
+      {onDelete ? (
+        <button
+          type="button"
+          className={INBOX_THREAD_ICON_BTN_DANGER}
+          aria-label="Delete conversation"
+          title="Delete"
+          data-attr="inbox-thread-delete"
+          onClick={() => void onDelete()}
+        >
+          <Trash2 className="h-4 w-4" aria-hidden />
+        </button>
+      ) : null}
+    </>
   );
 
   return (
@@ -683,6 +737,7 @@ export function ResidentDirectChatPane({
               {scheduledCards}
             </div>
           ) : null}
+          <div className="portal-inbox-compose-actions flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-card px-3.5 pb-1.5 pt-2.5 [&>*]:!m-0 [&>*]:!flex [&>*]:!items-center [&>*]:!border-0 [&>*]:!bg-transparent [&>*]:!p-0">
           <AiDraftReplyCard
             drafting={aiDrafting}
             draft={aiDraftText.trim() ? aiDraftText : undefined}
@@ -695,8 +750,14 @@ export function ResidentDirectChatPane({
               setAiDraftError(null);
             }}
             onGenerate={() => void requestAiDraft()}
-            generateLabel="Draft with AI"
             channelControl={replyChannelPicker}
+            // The draft goes into the reply field below, not into a second
+            // message box beside it.
+            onAdopt={(text) => {
+              setDraft(text);
+              setAiDraftText("");
+              setAiDraftError(null);
+            }}
           />
           <InboxThreadAssistantStrip
             contextHint={buildInboxThreadAssistantContext({
@@ -706,6 +767,16 @@ export function ResidentDirectChatPane({
             })}
             storageScopeKey={`resident-detail-${email.trim().toLowerCase()}`}
           />
+          <button
+            type="button"
+            data-attr="inbox-thread-schedule-send"
+            onClick={() => setScheduleOpen(true)}
+            className="inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-full border border-border bg-card px-3.5 text-[12.5px] font-semibold text-muted transition-colors hover:text-foreground"
+          >
+            <Clock className="h-3.5 w-3.5" strokeWidth={2} />
+            Schedule send
+          </button>
+          </div>
           <InboxComposer
             value={draft}
             onChange={setDraft}
@@ -730,6 +801,33 @@ export function ResidentDirectChatPane({
         </>
       }
     />
+    <Modal
+      open={scheduleOpen}
+      onClose={() => setScheduleOpen(false)}
+      title="Schedule this message"
+      description="Choose when it sends. It appears in the conversation until then, and can be edited or cancelled."
+      panelClassName="max-w-lg"
+    >
+      {scheduleOpen ? (
+        <ScheduleInboxComposeForm
+          onClose={() => setScheduleOpen(false)}
+          onSaved={() => {
+            setScheduleOpen(false);
+            // Clear the reply that is now scheduled, so it cannot also be sent
+            // by pressing send.
+            setDraft("");
+            onSent();
+          }}
+          contacts={scheduleContacts}
+          showHeading={false}
+          initial={{
+            subject: `Message for ${displayName}`,
+            body: draft,
+            recipientEmail: email,
+          }}
+        />
+      ) : null}
+    </Modal>
     <PortalContactDetailsModal
       open={contactEditOpen}
       onClose={() => setContactEditOpen(false)}
