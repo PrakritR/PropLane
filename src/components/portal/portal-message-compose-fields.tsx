@@ -22,15 +22,12 @@ export const PORTAL_MESSAGE_SEND_VIA_OPTIONS: CheckboxMultiSelectOption[] = [
   { value: "sms", label: "SMS" },
 ];
 
-export const PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE =
-  "SMS uses your work number when enabled.";
+/** No Send-via footnote — SMS availability is already shown in the dropdown. */
+export const PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE = "";
 
-/** Send-via helper copy — matches the Communication compose modal. */
-export function portalMessageSendViaFooterNote(smsAvailable: boolean): string {
-  // No setup CTA under Send via — the dropdown already shows "SMS (not enabled)".
-  return smsAvailable
-    ? "SMS uses your work number; recipients need a phone on file or under Other."
-    : "";
+/** Send-via helper copy — always empty (PRP-452: footnote flashed then cleared). */
+export function portalMessageSendViaFooterNote(_smsAvailable: boolean): string {
+  return "";
 }
 
 /** Primary CTA label for compose-style modals (Send email / SMS / message / Schedule). */

@@ -30,7 +30,6 @@ import {
   portalMessageConfirmSendLabel,
   portalMessageRecipientDisplay,
   portalMessageSendViaFooterNote,
-  PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE,
   portalMessageFieldLabel,
 } from "@/components/portal/portal-message-compose-fields";
 

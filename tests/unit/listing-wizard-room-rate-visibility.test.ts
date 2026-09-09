@@ -46,12 +46,14 @@ describe("which prices a room may show", () => {
     expect(v.nightly).toBe(true);
   });
 
-  it("gives Airbnb a nightly rate but no short-stay charges", () => {
-    // An Airbnb booking is taken off PropLane, so no deposit or move-in fee is
-    // raised here for it to attach to.
+  it("gives Airbnb no prices at all", () => {
+    // An Airbnb stay is booked and paid for on Airbnb, so PropLane raises no
+    // rent charge for it. The lease type is there to track the resident, and a
+    // rate box beside it would collect a number nothing reads.
     const v = roomRateVisibility(sub({ allowedLeaseTerms: [AIRBNB_LEASE_TERM], airbnbRentalsAllowed: true }));
     expect(v.airbnb).toBe(true);
-    expect(v.nightly).toBe(true);
+    expect(v.nightly).toBe(false);
     expect(v.shortStayCharges).toBe(false);
+    expect(v.monthly).toBe(false);
   });
 });
