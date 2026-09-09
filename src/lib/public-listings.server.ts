@@ -171,6 +171,9 @@ const PUBLIC_ROOM_KEYS = [
   "dailyRentPrice",
   // A prospect must be able to see "1 of 2 beds available" on a shared room.
   "occupancyCapacity",
+  // How many beds are actually in the room — a different question from how many
+  // residents may hold a lease, and one a prospect sharing a room will ask.
+  "bedCount",
   // PRP-329. Without these three the public payload silently keeps showing a
   // flexible room's stale `monthlyRent` as if it were the price. The AFFORDABILITY
   // RATIONALE behind flexible pricing is deliberately NOT projected — no sober-living

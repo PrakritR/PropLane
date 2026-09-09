@@ -365,9 +365,9 @@ export function AdvancedPanel({
         data-attr={dataAttr}
         className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition hover:bg-accent/30"
       >
-        <span className="min-w-0">
-          <span className="block text-[14px] font-bold text-foreground">Advanced</span>
-          <span className="mt-0.5 block truncate text-[12.5px] text-muted">{summary}</span>
+        <span className="min-w-0 no-underline">
+          <span className="block text-[14px] font-bold leading-5 text-foreground no-underline">Advanced</span>
+          <span className="mt-1 block truncate text-[12.5px] leading-5 text-muted no-underline">{summary}</span>
         </span>
         <span className="shrink-0 text-[13px] font-bold text-primary" aria-hidden>
           {open ? "▴" : "▾"}
@@ -406,9 +406,14 @@ export function AdvancedGroup({
         data-attr={dataAttr}
         className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-accent/20"
       >
-        <span className="min-w-0">
-          <span className="block text-[13.5px] font-bold text-foreground">{title}</span>
-          <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">{description}</span>
+        {/*
+         * `no-underline` and an explicit line box: the description sits inside a
+         * <button>, and the decoration a button can inherit was drawing short
+         * rules through the middle of words like "move-in".
+         */}
+        <span className="min-w-0 no-underline">
+          <span className="block text-[13.5px] font-bold leading-5 text-foreground no-underline">{title}</span>
+          <span className="mt-1 block break-words text-[12px] leading-5 text-muted no-underline">{description}</span>
         </span>
         <span className="shrink-0 text-[12px] font-bold text-primary" aria-hidden>
           {open ? "▴" : "▾"}
