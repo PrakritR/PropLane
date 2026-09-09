@@ -96,7 +96,12 @@ export function isStagingGitRef(): boolean {
  * production project.
  */
 export function assertNonProdDatabase(): void {
-  if (isProductionRuntime() && !isStagingGitRef()) return;
+  // Pinned to Vercel's own signal rather than isProductionRuntime(), which also
+  // answers true for a LOCAL production build (NODE_ENV=production with no
+  // VERCEL_ENV). That is exactly the `npm run build && npm start` case where a
+  // stray .env.production names the live project, and it used to return here
+  // before the URL was ever examined. Production runs on Vercel only.
+  if (process.env.VERCEL_ENV === "production" && !isStagingGitRef()) return;
 
   const prodRef = process.env.AXIS_PROD_SUPABASE_REF?.trim() || "qahnczmilgptcedaqype";
 

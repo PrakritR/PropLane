@@ -82,6 +82,14 @@ describe("assertNonProdDatabase", () => {
     expect(() => assertNonProdDatabase()).toThrow(/production/i);
   });
 
+  it("refuses a local production build that names the live project", () => {
+    // `npm run build && npm start` with a stray .env.production: NODE_ENV is
+    // production but VERCEL_ENV is unset, which used to satisfy the bypass.
+    process.env.NODE_ENV = "production";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = `https://${PROD_REF}.supabase.co`;
+    expect(() => assertNonProdDatabase()).toThrow(/production/i);
+  });
+
   it("allows the production runtime to use the production project", () => {
     process.env.VERCEL_ENV = "production";
     process.env.AXIS_PROD_SUPABASE_REF = PROD_REF;
