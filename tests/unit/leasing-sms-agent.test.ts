@@ -87,12 +87,13 @@ beforeEach(() => {
 });
 
 describe("leasing SMS agent registry", () => {
-  it("exposes listing, site-link, and escalate tools", () => {
+  it("exposes the scoped listing, transit, link, and escalation tools", () => {
     expect([...leasingSmsAgentRegistry.keys()].sort()).toEqual(
       [
         "build_prospect_links",
         "escalate_to_manager",
         "get_listing_details",
+        "get_nearby_transit",
         "get_site_links",
         "list_live_listings",
         "list_open_tour_slots",
