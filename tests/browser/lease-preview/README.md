@@ -11,7 +11,7 @@ analytics, uploaded-PDF rendering, and the assistant are stubbed.
 
 Chromium and WebKit cover desktop, phone, and short viewports, scrolling to the
 last section, changed rent surviving HTML/Visual switching and saving, disclosure
-locks, reopening, template changes, and visual edits after an external update and
-unrelated parent render. This complements the jsdom tests, which cannot measure
+locks, reopening, template changes, stable editor geometry while typing, and
+visual edits after an external update and unrelated parent render. This complements the jsdom tests, which cannot measure
 layout. The assistant rail and authenticated success navigation also need a
 sandbox smoke check on `/portal/leases`.

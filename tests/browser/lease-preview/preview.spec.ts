@@ -165,6 +165,46 @@ test("external updates and unrelated renders preserve visual editing and mode sw
   ).toBeVisible();
 });
 
+test("typing in the visual editor does not resize it or reflow the review gate", async ({
+  page,
+}) => {
+  await page.goto("http://lease-preview.test/");
+  const iframe = page.locator('iframe[title="Lease visual editor"]');
+  const frame = page.frameLocator('iframe[title="Lease visual editor"]');
+  const hint = page.locator('[data-attr="lease-preview-review-hint"]');
+  await expect(
+    frame.getByRole("heading", {
+      name: "Residential lease regression fixture",
+    }),
+  ).toBeVisible();
+  // Scroll-invariant: the modal body may scroll, but the gate must not grow or
+  // shrink the editor under the caret. `previewReady` drops for one frame per keystroke.
+  const geometry = async () => {
+    const editor = (await iframe.boundingBox())!;
+    const gate = (await hint.boundingBox())!;
+    return {
+      editorHeight: editor.height,
+      gateHeight: gate.height,
+      gateToEditor: Math.round(editor.y - gate.y),
+    };
+  };
+  await expect(hint).toBeAttached({ timeout: 2_000 });
+  const before = await geometry();
+  expect(before.editorHeight).toBeGreaterThanOrEqual(180);
+  const parties = frame.getByText("Example Resident", { exact: false }).first();
+  await parties.click();
+  await page.keyboard.press("End");
+  for (const chunk of [" One.", " Two.", " Three.", " Four."]) {
+    await page.keyboard.type(chunk);
+    await expect(hint).toBeAttached({ timeout: 2_000 });
+    expect(await geometry()).toEqual(before);
+  }
+  await expect(
+    frame.getByText("One. Two. Three. Four.", { exact: false }),
+  ).toBeVisible();
+  expect(await geometry()).toEqual(before);
+});
+
 test("changing the lease template invalidates the review and renders the new document", async ({
   page,
 }) => {

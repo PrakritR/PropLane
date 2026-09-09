@@ -291,12 +291,16 @@ export function LeaseGenerateModal({
                 disabled={!previewReady}
                 onCheckedChange={(checked) => setAcknowledgedHtml(checked ? displayHtml : null)}
               />
-              {previewReady ? null : (
-                <p className="text-xs text-muted" data-attr="lease-preview-review-hint">
-                  Open the <strong>Visual</strong> view below and wait for the lease to appear — use
-                  Retry preview if it fails — before you can confirm your review and generate.
-                </p>
-              )}
+              {/* Kept mounted so its space is reserved: `previewReady` drops for one frame
+                  after every visual keystroke, and remounting would resize the editor
+                  the manager is typing in. */}
+              <p
+                className={cn("text-xs text-muted", previewReady && "invisible")}
+                data-attr="lease-preview-review-hint"
+              >
+                Open the <strong>Visual</strong> view below and wait for the lease to appear — use
+                Retry preview if it fails — before you can confirm your review and generate.
+              </p>
               <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
             </div>
             <LeaseHtmlDirectEditor
