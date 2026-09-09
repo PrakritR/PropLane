@@ -65,7 +65,6 @@ import {
 import { LONG_TERM_UTILITIES_PAYMENT_OPTIONS } from "@/lib/listing-utilities-payment";
 import {
   derivedRoomCharges,
-  isUnsetCharge,
   suggestionPlaceholder,
 } from "@/lib/listing-room-derived-pricing";
 import { applyListingBedroomSlots } from "@/lib/manager-listing-submission";
@@ -156,6 +155,18 @@ function useDetailBack(open: boolean, close: () => void) {
 
 function money(value: string | undefined): string {
   return (value ?? "").replace(/^\$/, "");
+}
+
+/**
+ * A money field's value, where zero shows as EMPTY against a "0" placeholder.
+ *
+ * A charge a manager has not filled in yet reads as blank; "0" typed into the
+ * box by the form itself looks like a decision they made. The stored value is
+ * untouched — this only decides what the box displays.
+ */
+function moneyBlankIfZero(value: string | undefined): string {
+  const text = money(value).trim();
+  return text === "" || Number(text.replace(/[^0-9.]/g, "")) === 0 ? "" : text;
 }
 
 /**
@@ -717,7 +728,7 @@ function LeaseTypeCharges({
             />
             <Input
               aria-label="Charge amount"
-              value={money(fee.amount)}
+              value={moneyBlankIfZero(fee.amount)}
               placeholder="0"
               onChange={(e) => write(fee.id, { amount: e.target.value })}
             />
@@ -751,22 +762,23 @@ function LeaseTypeSharedFields({
   defaults,
   sub,
   patch,
+  byNight = false,
 }: {
   room: ManagerRoomSubmission;
   set: (patch: Partial<ManagerRoomSubmission>) => void;
   defaults: ListingHouseDefaults;
   sub: ManagerListingSubmissionV1;
   patch: Patch;
+  /** A short stay is counted in nights, so its utilities are quoted per day. */
+  byNight?: boolean;
 }) {
   return (
     <FieldRow cols={3}>
-      <Field label="Utilities / month" optional>
-        <Input
-          value={money(room.utilitiesEstimate)}
-          placeholder={defaults.utilitiesEstimate || "80"}
-          onChange={(e) => set({ utilitiesEstimate: e.target.value })}
-        />
-      </Field>
+      {/*
+       * How utilities are handled is asked BEFORE the amount, because it
+       * decides what the amount means: a figure billed to the resident, or an
+       * estimate shown to them, or nothing at all if it is folded into rent.
+       */}
       <Field label="How utilities are handled">
         <Select
           value={room.utilitiesPaymentModel ?? ""}
@@ -780,11 +792,26 @@ function LeaseTypeSharedFields({
           ))}
         </Select>
       </Field>
-      <Field
-        label="Application fee"
-        hint="One figure for the listing — an applicant pays it before a lease type exists, so editing it here changes it everywhere."
-      >
-        <Input value={money(sub.applicationFee)} onChange={(e) => patch({ applicationFee: e.target.value })} />
+      {byNight ? (
+        <Field label="Utilities / day" optional hint="A stay under a month is counted in nights.">
+          <Input
+            value={room.dailyUtilitiesRate ? String(room.dailyUtilitiesRate) : ""}
+            inputMode="numeric"
+            placeholder="5"
+            onChange={(e) => set({ dailyUtilitiesRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
+          />
+        </Field>
+      ) : (
+        <Field label="Utilities / month" optional>
+          <Input
+            value={moneyBlankIfZero(room.utilitiesEstimate)}
+            placeholder={defaults.utilitiesEstimate || "80"}
+            onChange={(e) => set({ utilitiesEstimate: e.target.value })}
+          />
+        </Field>
+      )}
+      <Field label="Application fee">
+        <Input value={moneyBlankIfZero(sub.applicationFee)} onChange={(e) => patch({ applicationFee: e.target.value })} />
       </Field>
     </FieldRow>
   );
@@ -813,18 +840,6 @@ function RoomDetail({
   const effectiveRent = room.monthlyRent > 0 ? room.monthlyRent : defaults.monthlyRent;
   const suggested = derivedRoomCharges(effectiveRent);
   const rates = roomRateVisibility(sub);
-
-  const acceptSuggestions = () => {
-    if (!suggested) return;
-    set({
-      securityDeposit: isUnsetCharge(room.securityDeposit) ? String(suggested.securityDeposit) : room.securityDeposit,
-      moveInFee: isUnsetCharge(room.moveInFee) ? String(suggested.moveInFee) : room.moveInFee,
-      dailyRentRate: room.dailyRentRate ?? suggested.dailyRent,
-      // Neither weeklyRentPrice nor dailyRentPrice is filled here: a weekly rate
-      // is a field the manager turns on, and a daily PRICE with a daily basis
-      // changes how rent is billed.
-    });
-  };
 
   return (
     <StepColumn>
@@ -1160,7 +1175,7 @@ function RoomDetail({
                   />
                 </Field>
               </FieldRow>
-              <LeaseTypeSharedFields room={room} set={set} defaults={defaults} sub={sub} patch={patch} />
+              <LeaseTypeSharedFields room={room} set={set} defaults={defaults} sub={sub} patch={patch} byNight />
               <LeaseTypeCharges leaseType={SHORT_TERM_LEASE_TERM} sub={sub} patch={patch} />
             </div>
           ) : null}
@@ -1175,38 +1190,6 @@ function RoomDetail({
             </div>
           ) : null}
 
-          {/*
-           * Billed by lives out here because it is not a charge: it decides how
-           * every rent charge is RAISED, whichever type a resident takes, and
-           * there is one of it on the record.
-           */}
-          <Field label="Billed by" hint="How every rent charge is raised.">
-            <Select
-              value={room.rentBasis ?? "monthly"}
-              onChange={(e) => set({ rentBasis: e.target.value as ManagerRoomSubmission["rentBasis"] })}
-            >
-              <option value="monthly">Month</option>
-              <option value="weekly">Week</option>
-              <option value="daily">Day</option>
-            </Select>
-          </Field>
-
-          {suggested ? (
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/25 bg-primary/[0.05] px-4 py-3">
-              <p className="min-w-0 text-[12.5px] leading-relaxed text-muted">
-                From ${effectiveRent}: deposit {suggested.securityDeposit} · move-in fee {suggested.moveInFee} ·
-                prorated {suggested.dailyRent}/day.
-              </p>
-              <button
-                type="button"
-                onClick={acceptSuggestions}
-                data-attr="listing-v2-accept-suggestions"
-                className="shrink-0 rounded-full border border-primary/35 bg-primary/10 px-4 py-2 text-[12.5px] font-bold text-primary"
-              >
-                Fill them in
-              </button>
-            </div>
-          ) : null}
         </AdvancedGroup>
 
         <AdvancedGroup
