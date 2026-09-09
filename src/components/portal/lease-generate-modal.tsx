@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { Button } from "@/components/ui/button";
-import { NativeSelect } from "@/components/ui/input";
+import { Select } from "@/components/ui/input";
 import {
   Modal,
   ModalFooter,
@@ -58,7 +58,8 @@ export function LeaseGenerateModal({
   const { showToast } = useAppUi();
   const [htmlOverride, setHtmlOverride] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
+  const [acknowledgedHtml, setAcknowledgedHtml] = useState<string | null>(null);
+  const [previewReadyHtml, setPreviewReadyHtml] = useState<string | null>(null);
   const landlordLegalName = cachedLandlordLegalName();
   const landlordNameMissing = !landlordLegalName.trim();
 
@@ -102,7 +103,8 @@ export function LeaseGenerateModal({
         ? choices.find((choice) => choice.template.id === initialTemplateId)?.id ?? defaultChoiceId
         : defaultChoiceId;
     setSelectedChoiceId(preferred);
-    setReviewAcknowledged(false);
+    setAcknowledgedHtml(null);
+    setPreviewReadyHtml(null);
   }, [open, defaultChoiceId, initialTemplateId, row?.id, choices]);
 
   const selectedTemplateId = useMemo(
@@ -132,6 +134,8 @@ export function LeaseGenerateModal({
 
   const editorHtml = htmlOverride.trim() || baselineHtml;
   const displayHtml = useMemo(() => stripDisclosureReviewFromLeaseHtml(editorHtml), [editorHtml]);
+  const previewReady = Boolean(displayHtml && previewReadyHtml === displayHtml);
+  const reviewAcknowledged = Boolean(displayHtml && acknowledgedHtml === displayHtml);
   const draftShowsPlaceholder = Boolean(draft?.html?.includes(LEASE_LANDLORD_PLACEHOLDER));
 
   const assistantContext = useMemo(
@@ -177,6 +181,10 @@ export function LeaseGenerateModal({
   };
 
   const confirm = () => {
+    if (!previewReady) {
+      showToast("Open the Visual preview and review the lease before generating.");
+      return;
+    }
     if (!reviewAcknowledged) {
       showToast("Confirm that you have reviewed this AI-generated draft before generating.");
       return;
@@ -193,6 +201,7 @@ export function LeaseGenerateModal({
       !draft?.error &&
       !(choices.length > 0 && !selectedTemplateId) &&
       reviewAcknowledged &&
+      previewReady &&
       !landlordNameMissing &&
       !draftShowsPlaceholder,
   );
@@ -210,7 +219,7 @@ export function LeaseGenerateModal({
       scrollableContent={false}
       // The document editor needs a real height to fill, not just a cap:
       // cap-only leaves the panel content-sized and the Visual pane collapses.
-      panelClassName={cn(MODAL_XL_PANEL_CLASS, MODAL_TALL_PANEL_CLASS, "min-h-[min(85dvh,52rem)]")}
+      panelClassName={cn(MODAL_XL_PANEL_CLASS, MODAL_TALL_PANEL_CLASS, "h-[min(85dvh,52rem)]")}
       assistantDefaultExpanded={false}
       assistantContext={assistantContext}
       assistantEditHint="Type in chat to edit the lease — changes apply after you confirm."
@@ -243,8 +252,9 @@ export function LeaseGenerateModal({
               template. Add a lease format on the property&apos;s Lease tab to pick one here.
             </p>
           ) : (
-            <NativeSelect
+            <Select
               id="lease-generate-type"
+              aria-label="Lease type"
               value={selectedChoiceId ?? ""}
               onChange={(e) => setSelectedChoiceId(e.target.value || null)}
               disabled={working}
@@ -255,7 +265,7 @@ export function LeaseGenerateModal({
                   {choice.label}
                 </option>
               ))}
-            </NativeSelect>
+            </Select>
           )}
           {actionRow.leaseKind === "joint_bundle" ? (
             <p className="mt-2 text-xs text-muted">
@@ -270,7 +280,7 @@ export function LeaseGenerateModal({
             {draft.error}
           </p>
         ) : editorHtml ? (
-          <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-1 overflow-hidden">
+          <div className="grid min-h-0 grid-rows-[auto_minmax(16rem,1fr)] gap-1">
             <div className="flex flex-col gap-2">
               {landlordNameMissing || draftShowsPlaceholder ? (
                 <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
@@ -280,15 +290,17 @@ export function LeaseGenerateModal({
               ) : null}
               <LeaseAiReviewAcknowledgment
                 checked={reviewAcknowledged}
-                onCheckedChange={setReviewAcknowledged}
+                disabled={!previewReady}
+                onCheckedChange={(checked) => setAcknowledgedHtml(checked ? displayHtml : null)}
               />
               <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
             </div>
             <LeaseHtmlDirectEditor
-              className="min-h-[min(380px,50vh)] flex-1"
+              className="min-h-64 flex-1"
               html={displayHtml}
               baselineHtml={baselineHtml}
               onChange={(next) => setHtmlOverride(next)}
+              onPreviewReady={setPreviewReadyHtml}
               showPersistBar={false}
             />
           </div>
