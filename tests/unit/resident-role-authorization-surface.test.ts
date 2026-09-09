@@ -33,9 +33,6 @@ const DEFERRED_ROUTES: Record<string, string> = {
   // manager applications list self-scopes off the same read), so it needs
   // manager-side verification before it moves onto the shared predicate.
   "manager-applications/route.ts": "axis-dual-portal-role-resolution",
-  // axis-dual-portal-role-resolution: the approve/deny path branches on the
-  // requestor role three times and drives resident provisioning.
-  "portal/resident-approval/route.ts": "axis-dual-portal-role-resolution",
   // axis-dual-portal-role-resolution: resolves an applicant-vs-manager session
   // kind for photo ownership; the manager branch wins for a multi-role account.
   "portal/application-photos/route.ts": "axis-dual-portal-role-resolution",
@@ -54,6 +51,7 @@ const DEFERRED_ROUTES: Record<string, string> = {
  * alone satisfies `CONSULTS_PROFILE_ROLES`.
  */
 const MIGRATED_ROUTES = [
+  "portal/resident-approval/route.ts",
   "resident/extend-lease/route.ts",
   "resident/check-move-out-availability/route.ts",
   "resident/sms-conversations/route.ts",
