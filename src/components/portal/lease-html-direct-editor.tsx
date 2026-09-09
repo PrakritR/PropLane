@@ -125,13 +125,33 @@ export function LeaseHtmlDirectEditor({
       setPreviewState("ready");
       callbacksRef.current.onPreviewReady?.(html);
     };
-    const timeout = window.setTimeout(() => {
+    // rAF and ResizeObserver are rendering-steps callbacks, which a hidden
+    // document suspends — silence there is not evidence the lease is unreadable.
+    const documentHidden = () =>
+      typeof document !== "undefined" && document.visibilityState === "hidden";
+    let timeout = 0;
+    const onDeadline = () => {
+      timeout = 0;
+      checkReady();
+      if (settled || documentHidden()) return;
       fail(
         iframe.contentDocument?.body?.textContent?.trim()
           ? "viewport_unavailable"
           : "empty_document",
       );
-    }, 4000);
+    };
+    const armDeadline = () => {
+      if (timeout) window.clearTimeout(timeout);
+      timeout = window.setTimeout(onDeadline, 4000);
+    };
+    const onVisibilityChange = () => {
+      if (settled) return;
+      checkReady();
+      if (settled || documentHidden()) return;
+      armDeadline();
+    };
+    armDeadline();
+    document.addEventListener("visibilitychange", onVisibilityChange);
     try {
       const doc = iframe.contentDocument;
       if (!doc) throw new Error("Document unavailable");
@@ -177,7 +197,8 @@ export function LeaseHtmlDirectEditor({
     }
     return () => {
       settled = true;
-      window.clearTimeout(timeout);
+      if (timeout) window.clearTimeout(timeout);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       cancelAnimationFrame(frameRequest);
       resizeObserver?.disconnect();
       iframe.removeEventListener("load", checkReady);

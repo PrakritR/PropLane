@@ -1,26 +1,49 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import * as sections from "@/lib/lease-html-sections";
 import { LeaseHtmlDirectEditor } from "@/components/portal/lease-html-direct-editor";
 const { captureException } = vi.hoisted(() => ({ captureException: vi.fn() }));
 vi.mock("posthog-js", () => ({ default: { captureException } }));
 const LEASE =
   '<!doctype html><html><body><h1>Lease</h1><h2>Parties</h2><p>Example Resident</p><p data-disclosure-rule="required">Locked disclosure</p></body></html>';
-beforeEach(() => {
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
-    width: 800,
-    height: 400,
+const rect = (width: number, height: number) =>
+  ({
+    width,
+    height,
     x: 0,
     y: 0,
     top: 0,
     left: 0,
-    right: 800,
-    bottom: 400,
+    right: width,
+    bottom: height,
     toJSON: () => ({}),
-  });
+  }) as DOMRect;
+const renderingGlobals = globalThis as unknown as {
+  requestAnimationFrame: typeof requestAnimationFrame;
+  cancelAnimationFrame: typeof cancelAnimationFrame;
+  ResizeObserver: typeof ResizeObserver | undefined;
+};
+const nativeRendering = {
+  requestAnimationFrame: renderingGlobals.requestAnimationFrame,
+  cancelAnimationFrame: renderingGlobals.cancelAnimationFrame,
+  ResizeObserver: renderingGlobals.ResizeObserver,
+};
+/** Suspend the rendering-steps callbacks the way a hidden document does. */
+const suspendRenderingCallbacks = () => {
+  renderingGlobals.requestAnimationFrame = (() => 0) as typeof requestAnimationFrame;
+  renderingGlobals.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
+  renderingGlobals.ResizeObserver = undefined;
+};
+let rectSpy: ReturnType<typeof vi.spyOn>;
+beforeEach(() => {
+  rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect");
+  rectSpy.mockReturnValue(rect(800, 400));
 });
 afterEach(() => {
+  Object.assign(renderingGlobals, nativeRendering);
+  delete (document as { visibilityState?: unknown }).visibilityState;
+  vi.useRealTimers();
   cleanup();
   vi.restoreAllMocks();
   vi.clearAllMocks();
@@ -153,5 +176,59 @@ describe("lease visual document lifecycle", () => {
       }),
     );
     expect(focus).not.toHaveBeenCalled();
+  });
+  it("re-checks the document at the deadline instead of failing a preview whose rendering callbacks never fired", async () => {
+    vi.useFakeTimers();
+    suspendRenderingCallbacks();
+    const ready = vi.fn();
+    const view = render(
+      <LeaseHtmlDirectEditor
+        html={LEASE}
+        baselineHtml={LEASE}
+        onChange={() => {}}
+        onPreviewReady={ready}
+      />,
+    );
+    expect(ready).not.toHaveBeenCalledWith(LEASE);
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+    expect(ready).toHaveBeenLastCalledWith(LEASE);
+    expect(captureException).not.toHaveBeenCalled();
+    expect(view.queryByRole("alert")).toBeNull();
+    vi.useRealTimers();
+  });
+  it("does not fail a preview while the document is hidden, and settles when it becomes visible", async () => {
+    vi.useFakeTimers();
+    suspendRenderingCallbacks();
+    let visibility = "hidden";
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => visibility,
+    });
+    rectSpy.mockReturnValue(rect(0, 0));
+    const ready = vi.fn();
+    const view = render(
+      <LeaseHtmlDirectEditor
+        html={LEASE}
+        baselineHtml={LEASE}
+        onChange={() => {}}
+        onPreviewReady={ready}
+      />,
+    );
+    act(() => {
+      vi.advanceTimersByTime(4000);
+    });
+    expect(captureException).not.toHaveBeenCalled();
+    expect(view.queryByRole("alert")).toBeNull();
+    expect(ready).not.toHaveBeenCalledWith(LEASE);
+    rectSpy.mockReturnValue(rect(800, 400));
+    visibility = "visible";
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    expect(ready).toHaveBeenLastCalledWith(LEASE);
+    expect(captureException).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });

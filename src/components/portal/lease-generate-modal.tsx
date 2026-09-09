@@ -243,9 +243,7 @@ export function LeaseGenerateModal({
     >
       <div className="grid h-full min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2">
         <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, "min-w-0")}>
-          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="lease-generate-type">
-            Lease type
-          </label>
+          <p className={MODAL_FIELD_LABEL_CLASS}>Lease type</p>
           {choices.length === 0 ? (
             <p className="text-sm text-muted">
               This property has no saved lease formats, so the draft uses PropLane&apos;s standard lease
@@ -293,6 +291,12 @@ export function LeaseGenerateModal({
                 disabled={!previewReady}
                 onCheckedChange={(checked) => setAcknowledgedHtml(checked ? displayHtml : null)}
               />
+              {previewReady ? null : (
+                <p className="text-xs text-muted" data-attr="lease-preview-review-hint">
+                  Open the <strong>Visual</strong> view below and wait for the lease to appear — use
+                  Retry preview if it fails — before you can confirm your review and generate.
+                </p>
+              )}
               <p className={MODAL_FIELD_LABEL_CLASS}>Lease format</p>
             </div>
             <LeaseHtmlDirectEditor
