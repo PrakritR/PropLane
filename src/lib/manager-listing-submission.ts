@@ -155,6 +155,22 @@ export type ManagerRoomSubmission = {
    */
   occupancyCapacity?: number;
   /**
+   * How many BEDS are physically in the room, for the listing to describe.
+   *
+   * Deliberately separate from {@link occupancyCapacity}, which is how many
+   * independent residents may hold a lease here at once and is the figure the
+   * database guard enforces on placement. The two are genuinely different
+   * questions: one queen bed can be let to a couple sharing a single lease
+   * (1 bed, 1 resident slot), and two singles can be let to two strangers on
+   * their own leases (2 beds, 2 resident slots). Absent means unstated — the
+   * listing then says nothing about beds rather than guessing from capacity.
+   *
+   * It is descriptive only. NOTHING is enforced from it: occupancy, placement
+   * and every capacity refusal read `occupancyCapacity` exactly as before, so
+   * a wrong bed count can never let an extra resident in.
+   */
+  bedCount?: number;
+  /**
    * Whether this room advertises ONE price or is negotiated per resident (PRP-329,
    * Marc's sober-living model, where residents pay according to what they can afford).
    *
@@ -1294,6 +1310,13 @@ export function normalizeManagerListingSubmissionV1(
       occupancyCapacity: normalizeRoomOccupancyCapacity(
         (legacyRoom as ManagerRoomSubmission & { occupancyCapacity?: unknown }).occupancyCapacity,
       ),
+      bedCount: (() => {
+        // Unstated stays unstated: a room that has never been asked how many
+        // beds it holds must not start claiming one.
+        const v = (legacyRoom as ManagerRoomSubmission & { bedCount?: unknown }).bedCount;
+        const n = typeof v === "number" ? v : typeof v === "string" ? parseInt(v, 10) : NaN;
+        return Number.isInteger(n) && n > 0 && n <= 20 ? n : undefined;
+      })(),
       weeklyRentPrice: (() => {
         const v = (legacyRoom as ManagerRoomSubmission & { weeklyRentPrice?: unknown }).weeklyRentPrice;
         const n = typeof v === "number" ? v : typeof v === "string" ? parseFloat(v) : NaN;

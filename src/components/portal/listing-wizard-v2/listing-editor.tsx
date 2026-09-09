@@ -42,7 +42,6 @@ import {
   listingAmenityLinesFromValue,
 } from "@/data/manager-listing-presets";
 import {
-  PAYMENT_AT_SIGNING_OPTIONS,
   emptyCustomFeeRow,
   emptyQuickFactRow,
   formatLeaseTermsBodyFromAllowed,
@@ -55,7 +54,6 @@ import {
   type ManagerCustomFeeRow,
   type ManagerRoomSubmission,
   type ManagerSharedSpaceSubmission,
-  type PaymentAtSigningOptionId,
 } from "@/lib/manager-listing-submission";
 import {
   AIRBNB_LEASE_TERM,
@@ -713,9 +711,22 @@ function RoomDetail({
           dataAttr="listing-v2-room-basics"
         >
           <FieldRow cols={2}>
+            <Field label="Beds in the room" optional hint="What is physically in there. Shown on the listing.">
+              <Select
+                value={room.bedCount ? String(room.bedCount) : ""}
+                onChange={(e) => set({ bedCount: Number(e.target.value) || undefined })}
+              >
+                <option value="">Not stated</option>
+                {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </Select>
+            </Field>
             <Field
-              label="Beds / residents allowed"
-              hint="One number: each approved application takes one bed, so this is both how many beds the room holds and how many people may live in it."
+              label="Residents allowed"
+              hint="How many people may hold a lease here at once. This is the figure occupancy is enforced against."
             >
               <Select
                 value={String(room.occupancyCapacity ?? 1)}
@@ -1242,7 +1253,7 @@ function DefaultsDetail({
         dataAttr="listing-v2-defaults-basics"
       >
         <FieldRow cols={2}>
-          <Field label="Beds in most rooms">
+          <Field label="Residents allowed in most rooms" hint="What occupancy is enforced against.">
             <Select
               value={String(defaults.occupancyCapacity)}
               onChange={(e) => editDefault("occupancyCapacity", Number(e.target.value) || 1)}
@@ -1802,20 +1813,6 @@ function StepRooms({
           {selected.size === 1 ? (
             <BulkButton tone="primary" onClick={() => setCopyOpen((v) => !v)}>Copy to another room</BulkButton>
           ) : null}
-          {defaults.monthlyRent > 0 ? (
-            <BulkButton
-              onClick={() => {
-                writeRooms(
-                  applyHouseDefaultsToRooms(rooms, defaults, {
-                    onlyFields: ["monthlyRent"],
-                    roomIds: [...selected],
-                  }),
-                );
-              }}
-            >
-              Set rent to ${defaults.monthlyRent}
-            </BulkButton>
-          ) : null}
           <BulkButton
             onClick={() => {
               const copies = rooms
@@ -2076,10 +2073,45 @@ function BathroomDetail({
   );
 }
 
+/** What "most bathrooms are" — the same idea as the rooms table's top row. */
+type BathroomDefaults = { location: string; type: "full" | "shower" | "half" | ""; amenitiesText: string };
+
+/** A bathroom's type, read back from the fixtures that define it. */
+function bathroomTypeOf(bath: ManagerBathroomSubmission): "full" | "shower" | "half" {
+  return bath.bathtub ? "full" : bath.shower ? "shower" : "half";
+}
+
+function writeBathroomType(bath: ManagerBathroomSubmission, type: "full" | "shower" | "half"): ManagerBathroomSubmission {
+  return { ...bath, toilet: true, sink: true, shower: type !== "half", bathtub: type === "full" };
+}
+
 function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openBathId, setOpenBathId] = useState<string | null>(null);
+  const [openDefaults, setOpenDefaults] = useState(false);
+  const [defaults, setDefaults] = useState<BathroomDefaults>({ location: "", type: "", amenitiesText: "" });
+  /*
+   * Which bathrooms the manager has edited by hand. Exactly the rule the rooms
+   * table follows: once a bathroom is touched it stops following the top row,
+   * including for the fields left alone, so a floor set on one bathroom is
+   * never moved by a later change to what most bathrooms are.
+   */
+  const [touched, setTouched] = useState<Set<string>>(new Set());
+  const markTouched = (id: string) => setTouched((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
   const baths = sub.bathrooms ?? [];
+
+  function editBathDefault<K extends keyof BathroomDefaults>(field: K, value: BathroomDefaults[K]) {
+    setDefaults((prev) => ({ ...prev, [field]: value }));
+    patch({
+      bathrooms: baths.map((b) => {
+        if (touched.has(b.id)) return b;
+        if (field === "location") return { ...b, location: value as string };
+        if (field === "type" && value) return writeBathroomType(b, value as "full" | "shower" | "half");
+        if (field === "amenitiesText") return { ...b, amenitiesText: value as string };
+        return b;
+      }),
+    });
+  }
   const openBath = baths.find((b) => b.id === openBathId) ?? null;
   useDetailBack(Boolean(openBath), () => setOpenBathId(null));
   if (openBath) {
@@ -2089,7 +2121,10 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
         index={baths.indexOf(openBath)}
         rooms={sub.rooms ?? []}
         onBack={() => setOpenBathId(null)}
-        onChange={(next) => patch({ bathrooms: baths.map((b) => (b.id === next.id ? next : b)) })}
+        onChange={(next) => {
+          markTouched(next.id);
+          patch({ bathrooms: baths.map((b) => (b.id === next.id ? next : b)) });
+        }}
       />
     );
   }
@@ -2107,9 +2142,63 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
         total={TOTAL_STEPS}
         name="Bathrooms"
         title={`Your ${baths.length} ${baths.length === 1 ? "bathroom" : "bathrooms"}`}
-        subtitle="One row each. Open a bathroom to add fixtures, amenities and photos."
+        subtitle="Set what is true for most bathrooms once. Change only the ones that differ."
       />
       <RowList columns={cols}>
+        {/*
+         * The top row is the same shape as the rooms table's: it answers the
+         * same questions in the same columns, and its Details holds what a
+         * default can carry — a bathroom's photos and the rooms it serves are
+         * what make one different from the next, so they stay on the bathroom.
+         */}
+        <div
+          className="grid items-center gap-2 border-b-2 border-primary/25 bg-primary/[0.05] px-3 py-2"
+          style={{ gridTemplateColumns: rowTemplate(cols.length) }}
+        >
+          <span aria-hidden className="h-10 w-6" />
+          <span className="px-1 text-[13px] font-bold text-foreground">Most bathrooms are…</span>
+          <RowSelectCell
+            ariaLabel="Floor for most bathrooms"
+            value={defaults.location}
+            options={floors}
+            placeholder="Floor…"
+            onChange={(v) => editBathDefault("location", v)}
+          />
+          <RowSelectCell
+            ariaLabel="Type of most bathrooms"
+            value={defaults.type}
+            options={[
+              { value: "full", label: "Full bath" },
+              { value: "shower", label: "Shower only" },
+              { value: "half", label: "Half bath" },
+            ]}
+            placeholder="Type…"
+            onChange={(v) => editBathDefault("type", v as BathroomDefaults["type"])}
+          />
+          <button
+            type="button"
+            onClick={() => setOpenDefaults((v) => !v)}
+            data-attr="listing-v2-more-bath-defaults"
+            aria-expanded={openDefaults}
+            className="justify-self-start rounded-full border border-primary/30 bg-card px-3 py-1.5 text-[12px] font-bold text-primary hover:bg-accent/40"
+          >
+            Details
+          </button>
+          <span />
+        </div>
+
+        {openDefaults ? (
+          <div className="border-b border-border bg-primary/[0.03] px-3 py-3">
+            <Field label="Finishes most bathrooms have" optional>
+              <AmenityChips
+                presets={BATHROOM_EXTRA_AMENITY_PRESETS}
+                value={defaults.amenitiesText}
+                onChange={(next) => editBathDefault("amenitiesText", next)}
+              />
+            </Field>
+          </div>
+        ) : null}
+
         {baths.map((bath, i) => (
           <Row
             key={bath.id}
@@ -2130,38 +2219,37 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
               ariaLabel={`Name for bathroom ${i + 1}`}
               value={bath.name}
               placeholder={`Bathroom ${i + 1}`}
-              onChange={(v) => patch({ bathrooms: baths.map((b) => (b.id === bath.id ? { ...b, name: v } : b)) })}
+              onChange={(v) => {
+                markTouched(bath.id);
+                patch({ bathrooms: baths.map((b) => (b.id === bath.id ? { ...b, name: v } : b)) });
+              }}
             />
             <RowSelectCell
               ariaLabel={`Floor for bathroom ${i + 1}`}
               value={bath.location ?? ""}
               options={floors}
               placeholder="Floor…"
-              onChange={(v) => patch({ bathrooms: baths.map((b) => (b.id === bath.id ? { ...b, location: v } : b)) })}
+              onChange={(v) => {
+                markTouched(bath.id);
+                patch({ bathrooms: baths.map((b) => (b.id === bath.id ? { ...b, location: v } : b)) });
+              }}
             />
             <RowSelectCell
               ariaLabel={`Type of bathroom ${i + 1}`}
-              value={bath.bathtub ? "full" : bath.shower ? "shower" : "half"}
+              value={bathroomTypeOf(bath)}
               options={[
                 { value: "full", label: "Full bath" },
                 { value: "shower", label: "Shower only" },
                 { value: "half", label: "Half bath" },
               ]}
-              onChange={(v) =>
+              onChange={(v) => {
+                markTouched(bath.id);
                 patch({
                   bathrooms: baths.map((b) =>
-                    b.id === bath.id
-                      ? {
-                          ...b,
-                          toilet: true,
-                          sink: true,
-                          shower: v !== "half",
-                          bathtub: v === "full",
-                        }
-                      : b,
+                    b.id === bath.id ? writeBathroomType(b, v as "full" | "shower" | "half") : b,
                   ),
-                })
-              }
+                });
+              }}
             />
             <button
               type="button"
@@ -2606,11 +2694,47 @@ function HouseLeaseTermsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1;
     </>
   );
 }
+/**
+ * The house-level Payments group: who pays the card fee, and how money arrives.
+ *
+ * Deliberately holds NO amounts. Every cost a resident is charged now lives in
+ * the room's Pricing section, inside the lease-type card it belongs to, so a
+ * figure is asked for exactly once and there is no second copy to disagree
+ * with. What is left here is not a cost: whose bill the processing fee lands
+ * on, and which rails you accept money over.
+ */
 function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  const signing = new Set<PaymentAtSigningOptionId>(sub.paymentAtSigningIncludes ?? []);
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
+  const payer = sub.serviceFeePayer ?? "resident";
   return (
     <>
+      <Field
+        label="Who pays the card processing fee"
+        hint="The only money question that is not part of a lease type."
+      >
+        <Select
+          value={payer}
+          onChange={(e) => patch({ serviceFeePayer: e.target.value as ManagerListingSubmissionV1["serviceFeePayer"] })}
+        >
+          <option value="resident">The resident pays it</option>
+          <option value="manager">I pay it</option>
+          <option value="proplane">PropLane absorbs it</option>
+        </Select>
+      </Field>
+      {payer === "proplane" ? (
+        <Field
+          label="PropLane promo code"
+          hint="The code that has PropLane absorb the processing fee on this listing."
+        >
+          <Input
+            value={sub.serviceFeeWaiverCode ?? ""}
+            placeholder="E.G. FREE100"
+            data-attr="listing-v2-service-fee-code"
+            onChange={(e) => patch({ serviceFeeWaiverCode: e.target.value.toUpperCase() })}
+          />
+        </Field>
+      ) : null}
+
       {wholePlace ? (
         <>
           {/*
@@ -2618,7 +2742,7 @@ function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
            * is the only place it can be asked. Without it a manager on "the
            * whole place" cannot price their listing at all.
            */}
-          <p className="mb-3 text-[12.5px] font-bold text-foreground">Rent for the whole place</p>
+          <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Rent for the whole place</p>
           <FieldRow cols={2}>
             <Field label="Rent / month" required>
               <Input
@@ -2661,65 +2785,29 @@ function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
               />
             </Field>
           </FieldRow>
+          <Field label="How utilities are handled">
+            <Select
+              value={sub.entireHomeUtilitiesPaymentModel ?? ""}
+              onChange={(e) =>
+                patch({ entireHomeUtilitiesPaymentModel: e.target.value as ManagerListingSubmissionV1["entireHomeUtilitiesPaymentModel"] })
+              }
+            >
+              <option value="">Select…</option>
+              {LONG_TERM_UTILITIES_PAYMENT_OPTIONS.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
         </>
-      ) : null}
-
-      <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Applying and signing</p>
-      <FieldRow cols={2}>
-        <Field label="Application fee">
-          <Input value={money(sub.applicationFee)} onChange={(e) => patch({ applicationFee: e.target.value })} />
-        </Field>
-        <Field label="When a holding deposit is taken">
-          <Select
-            value={sub.holdingDepositTiming ?? "after_approval"}
-            onChange={(e) => patch({ holdingDepositTiming: e.target.value as ManagerListingSubmissionV1["holdingDepositTiming"] })}
-          >
-            <option value="after_approval">After I approve the application</option>
-            <option value="at_application">When the application is submitted</option>
-          </Select>
-        </Field>
-      </FieldRow>
-      <Field label="Due at signing" hint="What a resident pays before they move in.">
-        <CheckboxMultiSelect
-          hideLabel
-          label="Due at signing"
-          options={PAYMENT_AT_SIGNING_OPTIONS.map((o) => ({ value: o.id, label: o.label }))}
-          selected={[...signing]}
-          emptyLabel="Nothing due at signing"
-          onChange={(next) => patch({ paymentAtSigningIncludes: next as PaymentAtSigningOptionId[] })}
-        />
-      </Field>
-
-      <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Rent day and late fees</p>
-      <Field group label="Late fee">
-        <CheckboxOption
-          label="Charge a late fee"
-          description="Applied once the grace days below have passed."
-          checked={Boolean(sub.lateFeeEnabled)}
-          onChange={(next) => patch({ lateFeeEnabled: next })}
-        />
-      </Field>
-      <FieldRow cols={3}>
-        <Field label="Rent is due">
-          <Select
-            value={sub.rentDueDayMode ?? "first_of_month"}
-            onChange={(e) => patch({ rentDueDayMode: e.target.value as ManagerListingSubmissionV1["rentDueDayMode"] })}
-          >
-            <option value="first_of_month">On the 1st</option>
-            <option value="last_of_month">On the last day</option>
-          </Select>
-        </Field>
-        <Field label="Late fee" optional>
-          <Input value={money(sub.lateFeeAmount)} onChange={(e) => patch({ lateFeeAmount: e.target.value })} />
-        </Field>
-        <Field label="Grace days" optional>
-          <Input
-            value={sub.lateFeeGraceDays ? String(sub.lateFeeGraceDays) : ""}
-            inputMode="numeric"
-            onChange={(e) => patch({ lateFeeGraceDays: Number(e.target.value.replace(/[^0-9]/g, "")) || undefined })}
-          />
-        </Field>
-      </FieldRow>
+      ) : (
+        <p className="mt-4 rounded-xl border border-border bg-card px-4 py-3 text-[12px] leading-relaxed text-muted">
+          Every charge a resident pays — rent, deposit, move-in fee, application fee, utilities and your own charges —
+          is set on the <span className="font-bold text-foreground">Rooms</span> step, inside the lease type it belongs
+          to, so no figure is asked for twice.
+        </p>
+      )}
 
       <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">How rent reaches you</p>
       <Field label="Accepted for rent" hint="Card or bank on PropLane is on unless you turn it off.">
@@ -2773,7 +2861,7 @@ function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
       ) : null}
 
       <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">How the application fee is paid</p>
-      <Field label="Accepted for the application fee" hint="Card is on unless you turn it off.">
+      <Field label="Accepted for the application fee" hint="Card is on unless you turn it off. The amount is set on the Rooms step.">
         <CheckboxMultiSelect
           hideLabel
           label="Accepted for the application fee"
@@ -2809,119 +2897,9 @@ function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
           />
         </Field>
       ) : null}
-
-      <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">House-wide amounts</p>
-      <p className="mb-3 text-[12px] leading-relaxed text-muted">
-        Used where a room does not set its own. Set them per room when they differ.
-      </p>
-      <FieldRow cols={3}>
-        <Field label="Security deposit" optional>
-          <Input value={money(sub.securityDeposit)} onChange={(e) => patch({ securityDeposit: e.target.value })} />
-        </Field>
-        <Field label="Move-in fee" optional>
-          <Input value={money(sub.moveInFee)} onChange={(e) => patch({ moveInFee: e.target.value })} />
-        </Field>
-        <Field label="Holding deposit" optional>
-          <Input value={money(sub.holdingDeposit)} onChange={(e) => patch({ holdingDeposit: e.target.value })} />
-        </Field>
-      </FieldRow>
-      <FieldRow cols={3}>
-        <Field label="Parking / month" optional>
-          <Input value={money(sub.parkingMonthly)} onChange={(e) => patch({ parkingMonthly: e.target.value })} />
-        </Field>
-        <Field label="HOA / month" optional>
-          <Input value={money(sub.hoaMonthly)} onChange={(e) => patch({ hoaMonthly: e.target.value })} />
-        </Field>
-        <Field label="Other monthly fees" optional>
-          <Input value={money(sub.otherMonthlyFees)} onChange={(e) => patch({ otherMonthlyFees: e.target.value })} />
-        </Field>
-      </FieldRow>
-      <FieldRow cols={2}>
-        <Field label="Month-to-month surcharge" optional>
-          <Input value={money(sub.monthToMonthSurcharge)} onChange={(e) => patch({ monthToMonthSurcharge: e.target.value })} />
-        </Field>
-        <Field label="Custom-term surcharge" optional>
-          <Input value={money(sub.customLeaseSurcharge)} onChange={(e) => patch({ customLeaseSurcharge: e.target.value })} />
-        </Field>
-      </FieldRow>
-      {wholePlace ? (
-        <Field label="How utilities are handled" hint="Whether the estimate above is billed or only shown.">
-          <Select
-            value={sub.entireHomeUtilitiesPaymentModel ?? ""}
-            onChange={(e) =>
-              patch({ entireHomeUtilitiesPaymentModel: e.target.value as ManagerListingSubmissionV1["entireHomeUtilitiesPaymentModel"] })
-            }
-          >
-            <option value="">Select…</option>
-            {LONG_TERM_UTILITIES_PAYMENT_OPTIONS.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      ) : null}
-
-      <Field label="Who pays the card processing fee" hint="Choosing PropLane applies the FREE100 code to this account.">
-        <Select
-          value={sub.serviceFeePayer ?? "resident"}
-          onChange={(e) => patch({ serviceFeePayer: e.target.value as ManagerListingSubmissionV1["serviceFeePayer"] })}
-        >
-          <option value="resident">The resident</option>
-          <option value="manager">I do</option>
-          <option value="proplane">PropLane absorbs it</option>
-        </Select>
-      </Field>
-
-      <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Extra charges on every lease</p>
-      {(sub.customFees ?? []).map((fee, i) => (
-        <FieldRow cols={3} key={fee.id}>
-          <Field label={`Charge ${i + 1}`}>
-            <Input
-              value={fee.label}
-              placeholder="Parking"
-              onChange={(e) =>
-                patch({ customFees: (sub.customFees ?? []).map((f) => (f.id === fee.id ? { ...f, label: e.target.value } : f)) })
-              }
-            />
-          </Field>
-          <Field label="Amount">
-            <Input
-              value={money(fee.amount)}
-              onChange={(e) =>
-                patch({ customFees: (sub.customFees ?? []).map((f) => (f.id === fee.id ? { ...f, amount: e.target.value } : f)) })
-              }
-            />
-          </Field>
-          <Field label="How often">
-            <Select
-              value={fee.frequency ?? "monthly"}
-              onChange={(e) =>
-                patch({
-                  customFees: (sub.customFees ?? []).map((f) =>
-                    f.id === fee.id ? { ...f, frequency: e.target.value as ManagerCustomFeeRow["frequency"] } : f,
-                  ),
-                })
-              }
-            >
-              <option value="monthly">Monthly</option>
-              <option value="one-time">One-time</option>
-            </Select>
-          </Field>
-        </FieldRow>
-      ))}
-      <button
-        type="button"
-        data-attr="listing-v2-add-fee"
-        onClick={() => patch({ customFees: [...(sub.customFees ?? []), emptyCustomFeeRow()] })}
-        className="min-h-[38px] rounded-full border border-border bg-card px-4 text-[12.5px] font-bold text-primary"
-      >
-        Add a charge
-      </button>
     </>
   );
 }
-
 function HouseMoveInGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   return (
     <>
