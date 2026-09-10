@@ -14,8 +14,7 @@ import type { MockProperty } from "@/data/types";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
 import { ListingStickySubnav } from "@/components/marketing/listing-detail-subnav";
 import { getListingRichContent } from "@/data/listing-rich-content";
-import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
-import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
+import { ManagerAddListingForm } from "@/components/portal/pro-add-listing-form";
 import { ManagerPropertyBookingsPanel } from "@/components/portal/pro-property-bookings-panel";
 import { ManagerPropertyHouseDetailsPanel } from "@/components/portal/pro-property-house-details-panel";
 import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property-room-move-in-panel";
@@ -1069,30 +1068,7 @@ function ManagerPropertyInlineDetails({
         reopened it — two different editors for one record.
       */}
       {listingEditorOpen && listingFormProps ? (
-        <ListingWizardOverlay>
-          <ListingWizardV2
-            onClose={() => setListingEditorOpen(false)}
-            onSaved={() => onUpdated()}
-            onPublished={(listingId) => {
-              setListingEditorOpen(false);
-              onUpdated();
-              showToast(listingFormProps.editListingId ? "Changes saved." : "Listing submitted and published.");
-              const published = listingId?.trim();
-              if (published) {
-                detailRouter.replace(propertyDetailHref(propertiesBase, "listed", published, "preview"), {
-                  scroll: false,
-                });
-              }
-            }}
-            initialSubmission={listingFormProps.initialSubmission}
-            editListingId={listingFormProps.editListingId}
-            editListingOwnerUserId={listingFormProps.editListingOwnerUserId}
-            showToast={showToast}
-            userId={managerUserId}
-            skuTier={skuTier}
-            propertyCount={propCount}
-          />
-        </ListingWizardOverlay>
+        <ManagerAddListingForm {...listingFormProps} wizardScope="full" />
       ) : null}
 
       {/*
@@ -1108,32 +1084,7 @@ function ManagerPropertyInlineDetails({
       ) : null}
 
       {draftEditorOpen && draftFormProps ? (
-        <ListingWizardOverlay>
-          <ListingWizardV2
-            onClose={() => setDraftEditorOpen(false)}
-            onSaved={() => onUpdated()}
-            onPublished={(listingId) => {
-              setDraftEditorOpen(false);
-              showToast("Listing submitted and published.");
-              onUpdated();
-              // This detail page IS the draft's URL, and publishing moves the
-              // row out of the Drafts bucket — staying put rendered "Property
-              // not found." as the reward for finishing (PRP-429).
-              const published = listingId?.trim();
-              if (published) {
-                detailRouter.replace(propertyDetailHref(propertiesBase, "listed", published, "preview"), {
-                  scroll: false,
-                });
-              }
-            }}
-            initialSubmission={draftFormProps.initialSubmission}
-            initialDraftId={draftFormProps.editDraftId ?? null}
-            showToast={showToast}
-            userId={managerUserId}
-            skuTier={skuTier}
-            propertyCount={propCount}
-          />
-        </ListingWizardOverlay>
+        <ManagerAddListingForm {...draftFormProps} wizardScope="full" />
       ) : null}
 
       {draftEditorOpen && !draftFormProps ? (

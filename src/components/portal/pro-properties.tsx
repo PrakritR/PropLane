@@ -93,7 +93,11 @@ export function ManagerProperties({
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    setUseV2Wizard(params.get("wizard") !== "v1");
+    // The ORIGINAL wizard is what everybody gets. The redesign stays reachable
+    // at ?wizard=v2 so it can still be worked on and reviewed, but it is no
+    // longer the default: the captain asked for the old flow back, pricing on
+    // its own step and all.
+    setUseV2Wizard(params.get("wizard") === "v2");
     // `?wizard=v2` also opens it straight away, which is how the redesign is
     // reviewed without going through the ADD affordance — that affordance turns
     // into a paywall link once a manager is at their plan limit. Publishing is
@@ -449,8 +453,8 @@ export function ManagerProperties({
       )}
       {wizardOpen && useV2Wizard === true ? (
         /*
-         * The redesigned wizard, opened with ?wizard=v2 so it can be reviewed
-         * against the live one without changing what anybody gets by default.
+         * The redesigned wizard, opened ONLY with ?wizard=v2 so it can be
+         * reviewed against the live one without changing what anybody gets.
          * It writes the same submission shape, so a draft saved here opens in
          * either wizard.
          */
