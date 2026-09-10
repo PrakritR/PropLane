@@ -6,7 +6,7 @@
 // browser client are stubbed), so they fail if the wizard ever stops calling it
 // or starts calling it for an untouched form.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ManagerAddListingForm } from "@/components/portal/pro-add-listing-form";
 import { readAdminPropertyRows } from "@/lib/demo-admin-property-inventory";
 import { readExtraListingsForUser, seedDemoManagerProperties } from "@/lib/demo-property-pipeline";
@@ -17,9 +17,17 @@ import {
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import { LISTING_DRAFT_AUTOSAVE_DEBOUNCE_MS } from "@/lib/manager-listing-draft-autosave";
+import { resetManagerSubscriptionTierClientCache } from "@/lib/manager-subscription-client";
 
 /** The route mints the object folder from the authenticated user, so it is a real uuid. */
 const LEASE_TEMPLATE_OWNER_UUID = "b5809cf3-dcff-4e46-a0cc-5dcc53bc8910";
+
+const SUBSCRIPTION_ROUTE = "/api/manager/subscription";
+/**
+ * A verified plan with NO PropLane fee coverage. Submit fails closed until this
+ * has been read, so the publish tests must see a real answer, not a blank one.
+ */
+const VERIFIED_SUBSCRIPTION = { tier: "pro", effectiveTier: "pro", paymentWaiverGranted: false };
 
 // A fresh manager per test — the side-bucket draft store is module-level memory
 // that outlives a single test.
@@ -78,6 +86,7 @@ beforeEach(() => {
   window.sessionStorage?.clear();
   MANAGER_ID = `mgr-wizard-autosave-${(seq += 1)}`;
   SESSION_USER_ID = null;
+  resetManagerSubscriptionTierClientCache();
   uploadFails = () => false;
   calls = [];
   // Publishing rooms without photos asks for confirmation, and jsdom's
@@ -104,6 +113,9 @@ beforeEach(() => {
           status: 200,
           json: async () => ({ path: `${LEASE_TEMPLATE_OWNER_UUID}/1753000000000-ab12cd.pdf` }),
         } as unknown as Response;
+      }
+      if (typeof url === "string" && url.startsWith(SUBSCRIPTION_ROUTE)) {
+        return { ok: true, status: 200, json: async () => VERIFIED_SUBSCRIPTION } as unknown as Response;
       }
       const body = init?.body ? (JSON.parse(init.body) as RecordedCall) : ({} as RecordedCall);
       if (body.action) calls.push({ action: body.action, id: body.id, status: body.status });
@@ -916,6 +928,20 @@ describe("submitting the wizard", () => {
     fireEvent.click(btn);
   }
 
+  /**
+   * Submit refuses until processing-fee coverage has been verified against the
+   * subscription route. Wait for that read to land in state before clicking,
+   * or the upload path under test is never reached.
+   */
+  async function awaitCoverageVerified() {
+    await waitFor(() =>
+      expect(globalThis.fetch).toHaveBeenCalledWith(SUBSCRIPTION_ROUTE, expect.objectContaining({ credentials: "include" })),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
   it("does not publish a listing whose attachments did not all upload", async () => {
     SESSION_USER_ID = "supabase-user-1";
     uploadFails = (contentType) => contentType === "image/png";
@@ -926,6 +952,7 @@ describe("submitting the wizard", () => {
       initialMaxStepReached: 5,
       onSubmitted,
     });
+    await awaitCoverageVerified();
 
     clickSubmit();
 
@@ -943,6 +970,7 @@ describe("submitting the wizard", () => {
       initialMaxStepReached: 5,
       onSubmitted,
     });
+    await awaitCoverageVerified();
 
     clickSubmit();
 

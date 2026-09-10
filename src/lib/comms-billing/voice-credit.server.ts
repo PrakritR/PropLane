@@ -9,6 +9,7 @@ import {
   twimlHangup,
   twimlSay,
 } from "@/lib/twilio-voice.server";
+import { unitPriceCentsForMeter } from "./rates";
 import {
   finishCommsCredit,
   loadCommsWallet,
@@ -18,6 +19,9 @@ import {
 export const VOICE_CREDIT_UNAVAILABLE =
   "This number cannot take calls right now. Please try again later.";
 
+/** Every inbound call is bounded, and never longer than this. */
+const MAX_BOUNDED_CALL_MINUTES = 5;
+
 export async function reserveBoundedVoiceCall(
   db: SupabaseClient,
   owner: string,
@@ -26,10 +30,23 @@ export async function reserveBoundedVoiceCall(
   const wallet = await loadCommsWallet(db, owner);
   if (wallet.paused) return false;
   const recording = isVoiceRecordingEnabled();
-  const minutes = Math.min(
-    5,
-    Math.floor((wallet.remainingCents - 20) / (recording ? 5 : 4)),
-  );
+  // Priced from the rate table, never from copied constants: a rate change must
+  // move the bound with it or a funded caller is turned away as unfunded.
+  const perMinuteCents =
+    unitPriceCentsForMeter("voice_minute") +
+    (recording ? unitPriceCentsForMeter("voice_recording_minute") : 0);
+  // Headroom for the first recognition + answer, which are reserved separately
+  // once the call connects.
+  const turnHeadroomCents =
+    unitPriceCentsForMeter("voice_speech_gather") +
+    unitPriceCentsForMeter("ai_agent_turn");
+  const minutes =
+    perMinuteCents > 0
+      ? Math.min(
+          MAX_BOUNDED_CALL_MINUTES,
+          Math.floor((wallet.remainingCents - turnHeadroomCents) / perMinuteCents),
+        )
+      : MAX_BOUNDED_CALL_MINUTES;
 
   const key = `voice_minute:${callSid}`;
   // Replayed inbound callbacks reuse their original duration instead of reserving again.
