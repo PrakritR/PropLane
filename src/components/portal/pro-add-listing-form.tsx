@@ -81,7 +81,6 @@ import {
 } from "@/lib/manager-access";
 import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
 import {
-  LISTING_PAYMENT_WAIVER_CODE,
   SERVICE_FEE_PAYER_OPTION_LABELS,
   listingPaymentWaiverCodeMatches,
   listingProplaneAbsorbNeedsWaiverCode,
@@ -694,6 +693,8 @@ function ShortTermRentSection({
   onMoveIn,
   onDeposit,
   rentInvalid,
+  showMoveInFee = true,
+  extraFields,
 }: {
   labelFor?: string;
   rent: string;
@@ -703,6 +704,10 @@ function ShortTermRentSection({
   onMoveIn: (sanitized: string) => void;
   onDeposit: (sanitized: string) => void;
   rentInvalid?: boolean;
+  /** Rooms price a move-in fee as a FEE now, not as part of the room (PRP-463). */
+  showMoveInFee?: boolean;
+  /** Extra rates that belong to this term — the room's week and day prices. */
+  extraFields?: ReactNode;
 }) {
   const suffix = labelFor ? ` for ${labelFor}` : "";
   return (
@@ -719,15 +724,18 @@ function ShortTermRentSection({
             placeholder="85"
           />
         </GridField>
-        <GridField>
-          <FieldLabel hint={MOVE_IN_FEE_HINT}>Move-in fee</FieldLabel>
-          <MoneyInput
-            ariaLabel={`Short-term move-in fee${suffix}`}
-            value={moveInFee}
-            onChange={(e) => onMoveIn(sanitizeMoneyInput(e.target.value))}
-            placeholder="150"
-          />
-        </GridField>
+        {showMoveInFee ? (
+          <GridField>
+            <FieldLabel>Move-in fee</FieldLabel>
+            <MoneyInput
+              ariaLabel={`Short-term move-in fee${suffix}`}
+              value={moveInFee}
+              onChange={(e) => onMoveIn(sanitizeMoneyInput(e.target.value))}
+              placeholder="150"
+            />
+          </GridField>
+        ) : null}
+        {extraFields}
         <GridField>
           <FieldLabel>Security deposit</FieldLabel>
           <MoneyInput
@@ -738,6 +746,45 @@ function ShortTermRentSection({
           />
         </GridField>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A lease type a room is offered on but does not price separately (PRP-463).
+ *
+ * Month-to-month and custom-length leases bill the LONG-TERM figures — that is how
+ * charge generation has always resolved them — so this states that plainly rather than
+ * showing empty inputs a manager would fill in and expect to take effect. Any surcharge
+ * the listing carries for that term is named here too, because that IS the difference.
+ */
+function AutoPricedLeaseSection({
+  term,
+  monthlyRent,
+  deposit,
+  surcharge,
+}: {
+  term: string;
+  monthlyRent: number;
+  deposit: string;
+  surcharge?: string;
+}) {
+  const money = (n: number) => `$${n.toLocaleString("en-US")}`;
+  const surchargeAmount = (surcharge ?? "").replace(/^\$/, "").trim();
+  return (
+    <div className="w-full rounded-lg border border-dashed border-border bg-accent/10 p-3">
+      <FieldLabel hint="Set automatically from Long-term.">{term}</FieldLabel>
+      <p className="mt-1 text-xs text-muted">
+        {monthlyRent > 0 ? (
+          <>
+            <span className="font-medium text-foreground">{money(monthlyRent)}/mo</span>
+            {deposit.trim() ? <> · {`$${deposit.replace(/^\$/, "").trim()}`} deposit</> : null}
+          </>
+        ) : (
+          "Follows the Long-term rent and deposit above."
+        )}
+        {surchargeAmount ? <> · plus the {term.toLowerCase()} surcharge of ${surchargeAmount}/mo</> : null}
+      </p>
     </div>
   );
 }
@@ -1169,14 +1216,6 @@ async function uploadVideoFile(file: File): Promise<string> {
  * weight (a plain optional input used to look identical to a required select).
  * Pass at most one of the two.
  */
-/**
- * Why the Move-in fee field exists (PRP-320). Landlords left it blank or guessed
- * because nothing said what it covers; every Move-in fee label — short-term,
- * per-room and per-bundle — shares this one line so the three never drift.
- */
-export const MOVE_IN_FEE_HINT =
-  "One-time charge at move-in for keys, cleaning and setup. Leave blank if you don't charge one.";
-
 function FieldLabel({
   children,
   hint,
@@ -3771,6 +3810,17 @@ export function ManagerAddListingForm({
   // Rent by room ON (shared-home) ALWAYS lists every room as its own rent row — the primary
   // content of this view. (Previously gated on longTermLeaseEnabled, which hid the rows on a
   // listing with no long-term term and left only the grouped-leases affordance showing.)
+  /**
+   * How many priced blocks a room row draws. Long-term always counts; the others only
+   * when the listing offers that lease type. One block needs no heading — more than one
+   * does, or a manager cannot tell which term they are typing a rate into.
+   */
+  const roomPricingSectionCount =
+    1 +
+    (leaseScopeOptions.includes("Month-to-Month") ? 1 : 0) +
+    (leaseScopeOptions.includes(CUSTOM_LEASE_TERM) ? 1 : 0) +
+    (sub.shortTermRentalsAllowed ? 1 : 0);
+
   const roomsFeeSection: FeeExpandableSection | null =
     rentByRoom
       ? {
@@ -3805,7 +3855,7 @@ export function ManagerAddListingForm({
                 <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
                   {/* Two labelled halves when the listing offers both, so a
                       manager can see which rate they are typing (PRP-146). */}
-                  <LongTermRentSection heading={Boolean(sub.shortTermRentalsAllowed)}>
+                  <LongTermRentSection heading={roomPricingSectionCount > 1}>
                   <GridField>
                     <FieldLabel>Monthly rent *</FieldLabel>
                     <div data-wizard-field={roomRentKey}>
@@ -3854,45 +3904,12 @@ export function ManagerAddListingForm({
                       <option value="fixed">Fixed — price locked</option>
                       <option value="flexible">Flexible — open to an offer</option>
                     </Select>
-                    <p className="mt-1 text-xs text-muted">
-                      {room.pricingMode === "flexible"
-                        ? "Same rent fields as Fixed. Prospects can propose a different amount in Communication; PropLane asks you before anything changes."
-                        : "Communication will only confirm the listed price — no counter-offers."}
-                    </p>
-                  </GridField>
-                  <GridField>
-                    <FieldLabel hint="A real price, not the monthly one divided up. Leave blank if you do not offer that length.">
-                      Rent / week
-                    </FieldLabel>
-                    <MoneyInput
-                      ariaLabel={`Weekly rent for ${roomLabel}`}
-                      data-attr="listing-room-weekly-rent"
-                      invalid={Boolean(stepFieldErrors[listingRoomWeeklyRentKey(room.id)])}
-                      value={room.weeklyRentPrice === undefined ? "" : String(room.weeklyRentPrice)}
-                      onChange={(e) => {
-                        const n = parseFloat(sanitizeMoneyInput(e.target.value));
-                        clearListingFieldError(listingRoomWeeklyRentKey(room.id));
-                        setRoom(i, { weeklyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
-                      }}
-                      placeholder="Weekly rate"
-                    />
-                    <StepFieldError msg={stepFieldErrors[listingRoomWeeklyRentKey(room.id)]} />
-                  </GridField>
-                  <GridField>
-                    <FieldLabel>Rent / day</FieldLabel>
-                    <MoneyInput
-                      ariaLabel={`Daily rent for ${roomLabel}`}
-                      data-attr="listing-room-daily-rent-basis"
-                      invalid={Boolean(roomDailyRentErr)}
-                      value={room.dailyRentPrice === undefined ? "" : String(room.dailyRentPrice)}
-                      onChange={(e) => {
-                        const n = parseFloat(sanitizeMoneyInput(e.target.value));
-                        clearListingFieldError(listingRoomDailyRentKey(room.id));
-                        setRoom(i, { dailyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
-                      }}
-                      placeholder="Daily rate"
-                    />
-                    <StepFieldError msg={roomDailyRentErr} />
+                    {room.pricingMode === "flexible" ? (
+                      <p className="mt-1 text-xs text-muted">
+                        Same rent fields as Fixed. Prospects can propose a different amount in
+                        Communication; PropLane asks you before anything changes.
+                      </p>
+                    ) : null}
                   </GridField>
                   <GridField>
                     <FieldLabel>Security deposit</FieldLabel>
@@ -3901,15 +3918,6 @@ export function ManagerAddListingForm({
                       value={(room.securityDeposit ?? "").replace(/^\$/, "").trim()}
                       onChange={(e) => setRoom(i, { securityDeposit: sanitizeMoneyInput(e.target.value) })}
                       placeholder="1000"
-                    />
-                  </GridField>
-                  <GridField>
-                    <FieldLabel hint={MOVE_IN_FEE_HINT}>Move-in fee</FieldLabel>
-                    <MoneyInput
-                      ariaLabel={`Move-in fee for ${roomLabel}`}
-                      value={(room.moveInFee ?? "").replace(/^\$/, "").trim()}
-                      onChange={(e) => setRoom(i, { moveInFee: sanitizeMoneyInput(e.target.value) })}
-                      placeholder="250"
                     />
                   </GridField>
                   <GridField>
@@ -3947,6 +3955,28 @@ export function ManagerAddListingForm({
                     />
                   </div>
                   </LongTermRentSection>
+                  {/*
+                    One block per lease type the listing offers (PRP-463). Long-term is
+                    priced above; month-to-month and custom leases bill those same figures,
+                    so they say so instead of showing inputs that would not take effect;
+                    short-term carries its own rates and its own deposit.
+                  */}
+                  {leaseScopeOptions.includes("Month-to-Month") ? (
+                    <AutoPricedLeaseSection
+                      term="Month-to-Month"
+                      monthlyRent={room.monthlyRent}
+                      deposit={room.securityDeposit ?? ""}
+                      surcharge={sub.monthToMonthSurcharge}
+                    />
+                  ) : null}
+                  {leaseScopeOptions.includes(CUSTOM_LEASE_TERM) ? (
+                    <AutoPricedLeaseSection
+                      term="Custom"
+                      monthlyRent={room.monthlyRent}
+                      deposit={room.securityDeposit ?? ""}
+                      surcharge={sub.customLeaseSurcharge}
+                    />
+                  ) : null}
                   {sub.shortTermRentalsAllowed ? (
                     <ShortTermRentSection
                       labelFor={roomLabel}
@@ -3956,6 +3986,43 @@ export function ManagerAddListingForm({
                       onRent={(v) => setRoom(i, { shortTermRent: v })}
                       onMoveIn={(v) => setRoom(i, { shortTermMoveInFee: v })}
                       onDeposit={(v) => setRoom(i, { shortTermDeposit: v })}
+                      showMoveInFee={false}
+                      extraFields={(
+                        <>
+                  <GridField>
+                        <FieldLabel>Rent / week</FieldLabel>
+                        <MoneyInput
+                          ariaLabel={`Weekly rent for ${roomLabel}`}
+                          data-attr="listing-room-weekly-rent"
+                          invalid={Boolean(stepFieldErrors[listingRoomWeeklyRentKey(room.id)])}
+                          value={room.weeklyRentPrice === undefined ? "" : String(room.weeklyRentPrice)}
+                          onChange={(e) => {
+                            const n = parseFloat(sanitizeMoneyInput(e.target.value));
+                            clearListingFieldError(listingRoomWeeklyRentKey(room.id));
+                            setRoom(i, { weeklyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
+                          }}
+                          placeholder="Weekly rate"
+                        />
+                        <StepFieldError msg={stepFieldErrors[listingRoomWeeklyRentKey(room.id)]} />
+                      </GridField>
+                      <GridField>
+                        <FieldLabel>Rent / day</FieldLabel>
+                        <MoneyInput
+                          ariaLabel={`Daily rent for ${roomLabel}`}
+                          data-attr="listing-room-daily-rent-basis"
+                          invalid={Boolean(roomDailyRentErr)}
+                          value={room.dailyRentPrice === undefined ? "" : String(room.dailyRentPrice)}
+                          onChange={(e) => {
+                            const n = parseFloat(sanitizeMoneyInput(e.target.value));
+                            clearListingFieldError(listingRoomDailyRentKey(room.id));
+                            setRoom(i, { dailyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
+                          }}
+                          placeholder="Daily rate"
+                        />
+                        <StepFieldError msg={roomDailyRentErr} />
+                      </GridField>
+                        </>
+                      )}
                     />
                   ) : null}
                 </div>
@@ -4062,7 +4129,7 @@ export function ManagerAddListingForm({
                   />
                 </GridField>
                 <GridField>
-                  <FieldLabel hint={MOVE_IN_FEE_HINT}>Move-in fee</FieldLabel>
+                  <FieldLabel>Move-in fee</FieldLabel>
                   <MoneyInput
                     ariaLabel={`Move-in fee for ${bundle.label.trim() || "bundle"}`}
                     value={(bundle.moveInFee ?? "").replace(/^\$/, "").trim()}
@@ -5084,155 +5151,154 @@ export function ManagerAddListingForm({
                       manager. */}
                 </div>
 
-                <div className="mt-4 grid gap-3 border-t border-border pt-4 sm:grid-cols-2">
-                  <GridField>
-                    <FieldLabel>Monthly due date</FieldLabel>
-                    <Select
-                      value={sub.rentDueDayMode ?? "first_of_month"}
-                      onChange={(e) =>
-                        setSub((s) => ({
-                          ...s,
-                          rentDueDayMode: e.target.value === "last_of_month" ? "last_of_month" : "first_of_month",
-                        }))
-                      }
-                    >
-                      <option value="first_of_month">1st of the month</option>
-                      <option value="last_of_month">Last day of the month</option>
-                    </Select>
-                  </GridField>
-                  <GridField>
-                    <FieldLabel>Processing fee paid by</FieldLabel>
-                    <Select
-                      value={serviceFeePayerUi}
-                      onChange={(e) => {
-                        const raw = e.target.value;
-                        const next: ServiceFeePayer =
-                          raw === "proplane" || raw === "manager" || raw === "resident" ? raw : "resident";
-                        if (next === "manager" && !canSelectManagerAbsorbFee) return;
-                        setSub((s) => ({
-                          ...s,
-                          serviceFeePayer: next,
-                          // Switching away from PropLane absorb drops any code that was
-                          // typed, so a stale code can never re-grant it later.
-                          serviceFeeWaiverCode: undefined,
-                        }));
-                      }}
-                      aria-invalid={Boolean(stepFieldErrors.serviceFeePayer)}
-                      data-attr="listing-service-fee-payer"
-                    >
-                      <option value="resident">{SERVICE_FEE_PAYER_OPTION_LABELS.resident}</option>
-                      <option value="manager" disabled={!canSelectManagerAbsorbFee}>
-                        {SERVICE_FEE_PAYER_OPTION_LABELS.manager}
-                        {canSelectManagerAbsorbFee ? "" : " — needs paid plan"}
-                      </option>
-                      {/*
-                        PropLane absorb is always OFFERED now (PRP-463). An account that
-                        already carries the entitlement selects it outright; everyone else
-                        gets the code field below and must type the waiver code. The gate
-                        did not move — `persistListingServiceFeePayer` still refuses to
-                        store `proplane` without either — it just became reachable.
-                      */}
-                      <option value="proplane">{SERVICE_FEE_PAYER_OPTION_LABELS.proplane}</option>
-                    </Select>
-                    {/*
-                      The code box appears whenever PropLane is the payer, entitled or not
-                      (the captain's call). An account that already carries the grant sees
-                      it as optional rather than as a demand; an account that does not is
-                      told plainly that without a valid code the listing stays on Resident
-                      pays — which is what `persistListingServiceFeePayer` will do.
-                    */}
-                    {serviceFeePayerUi === "proplane" ? (
-                      <div className="mt-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-2.5">
-                        <FieldLabel
-                          optional={
-                            !listingProplaneAbsorbNeedsWaiverCode(
-                              managerSkuTier,
-                              serviceFeePayerUi,
-                              paymentWaiverGranted === true,
-                            )
-                          }
-                        >
-                          PropLane processing waive code
-                        </FieldLabel>
-                        <Input
-                          aria-label="PropLane waiver code"
-                          data-attr="listing-service-fee-waiver-code"
-                          className="w-full font-mono uppercase"
-                          placeholder="Enter code"
-                          autoComplete="off"
-                          value={sub.serviceFeeWaiverCode ?? ""}
-                          onChange={(e) =>
-                            setSub((s) => ({ ...s, serviceFeeWaiverCode: e.target.value.toUpperCase() }))
-                          }
-                        />
-                        <p
-                          className={cn(
-                            "mt-1 text-xs",
-                            listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
-                              ? "font-medium text-success"
-                              : "text-muted",
-                          )}
-                          data-attr="listing-service-fee-waiver-status"
-                        >
-                          {listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
-                            ? "Code accepted — PropLane absorbs the processing fee on this listing."
-                            : listingProplaneAbsorbNeedsWaiverCode(
-                                  managerSkuTier,
-                                  serviceFeePayerUi,
-                                  paymentWaiverGranted === true,
-                                )
-                              ? `Enter ${LISTING_PAYMENT_WAIVER_CODE} to have PropLane absorb it. Without a valid code this listing stays on Resident pays.`
-                              : "Your plan already covers this, so no code is needed. Enter one only if PropLane gave you a listing code."}
-                        </p>
-                      </div>
-                    ) : null}
-                    {stepFieldErrors.serviceFeePayer ? (
-                      <p className="text-xs text-destructive">{stepFieldErrors.serviceFeePayer}</p>
-                    ) : null}
-                  </GridField>
-                  <GridField>
-                    <FieldLabel>Late fee grace (days)</FieldLabel>
-                    <Input
-                      inputMode="numeric"
-                      min={0}
-                      max={30}
-                      value={String(sub.lateFeeGraceDays ?? 5)}
-                      onChange={(e) =>
-                        setSub((s) => ({
-                          ...s,
-                          lateFeeGraceDays: Math.max(0, Math.min(30, parseSanitizedInteger(e.target.value, 5))),
-                        }))
-                      }
-                    />
-                  </GridField>
-                  <GridField>
-                    <FieldLabel>Late fee amount</FieldLabel>
-                    <MoneyInput
-                      value={(sub.lateFeeAmount ?? "50").replace(/^\$/, "").trim()}
-                      onChange={(e) => setSub((s) => ({ ...s, lateFeeAmount: sanitizeMoneyInput(e.target.value) }))}
-                      placeholder="50"
-                      ariaLabel="Late fee amount"
-                    />
-                  </GridField>
-                  <GridField>
-                    <FieldLabel>Automatic late fees</FieldLabel>
-                    <label className="flex cursor-pointer items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4 rounded border-border"
-                        checked={sub.lateFeeEnabled !== false}
-                        onChange={(e) => setSub((s) => ({ ...s, lateFeeEnabled: e.target.checked }))}
-                        data-attr="listing-late-fee-enabled"
+                {/*
+                  Two real columns (PRP-463). Rent timing and late fees on the left,
+                  the processing fee and its code on the right — so opening the code box
+                  grows its own column instead of shunting a late-fee field down the page.
+                */}
+                <div className="mt-4 grid gap-x-6 gap-y-4 border-t border-border pt-4 sm:grid-cols-2 sm:items-start">
+                  <div className="grid gap-3">
+                    <GridField>
+                      <FieldLabel>Monthly due date</FieldLabel>
+                      <Select
+                        value={sub.rentDueDayMode ?? "first_of_month"}
+                        onChange={(e) =>
+                          setSub((s) => ({
+                            ...s,
+                            rentDueDayMode: e.target.value === "last_of_month" ? "last_of_month" : "first_of_month",
+                          }))
+                        }
+                      >
+                        <option value="first_of_month">1st of the month</option>
+                        <option value="last_of_month">Last day of the month</option>
+                      </Select>
+                    </GridField>
+                    <GridField>
+                      <FieldLabel>Late fee grace (days)</FieldLabel>
+                      <Input
+                        inputMode="numeric"
+                        min={0}
+                        max={30}
+                        value={String(sub.lateFeeGraceDays ?? 5)}
+                        onChange={(e) =>
+                          setSub((s) => ({
+                            ...s,
+                            lateFeeGraceDays: Math.max(0, Math.min(30, parseSanitizedInteger(e.target.value, 5))),
+                          }))
+                        }
                       />
-                      Auto-charge & notify
-                    </label>
-                  </GridField>
+                    </GridField>
+                    <GridField>
+                      <FieldLabel>Late fee amount</FieldLabel>
+                      <MoneyInput
+                        value={(sub.lateFeeAmount ?? "50").replace(/^\$/, "").trim()}
+                        onChange={(e) => setSub((s) => ({ ...s, lateFeeAmount: sanitizeMoneyInput(e.target.value) }))}
+                        placeholder="50"
+                        ariaLabel="Late fee amount"
+                      />
+                    </GridField>
+                    <GridField>
+                      <FieldLabel>Automatic late fees</FieldLabel>
+                      <label className="flex cursor-pointer items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-border"
+                          checked={sub.lateFeeEnabled !== false}
+                          onChange={(e) => setSub((s) => ({ ...s, lateFeeEnabled: e.target.checked }))}
+                          data-attr="listing-late-fee-enabled"
+                        />
+                        Auto-charge & notify
+                      </label>
+                      <p className="mt-2 text-xs text-muted">
+                        Also turn on <span className="font-medium text-foreground">Late fee notices</span> in
+                        Payments → Settings — that account switch gates automatic late fees across listings
+                        (PRP-319).
+                      </p>
+                    </GridField>
+                  </div>
+
+                  <div className="grid gap-3">
+                    <GridField>
+                      <FieldLabel>Processing fee paid by</FieldLabel>
+                      <Select
+                        value={serviceFeePayerUi}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const next: ServiceFeePayer =
+                            raw === "proplane" || raw === "manager" || raw === "resident" ? raw : "resident";
+                          if (next === "manager" && !canSelectManagerAbsorbFee) return;
+                          setSub((s) => ({
+                            ...s,
+                            serviceFeePayer: next,
+                            // Switching away from PropLane absorb drops any code that was
+                            // typed, so a stale code can never re-grant it later.
+                            serviceFeeWaiverCode: undefined,
+                          }));
+                        }}
+                        aria-invalid={Boolean(stepFieldErrors.serviceFeePayer)}
+                        data-attr="listing-service-fee-payer"
+                      >
+                        <option value="resident">{SERVICE_FEE_PAYER_OPTION_LABELS.resident}</option>
+                        <option value="manager" disabled={!canSelectManagerAbsorbFee}>
+                          {SERVICE_FEE_PAYER_OPTION_LABELS.manager}
+                          {canSelectManagerAbsorbFee ? "" : " — needs paid plan"}
+                        </option>
+                        <option value="proplane">{SERVICE_FEE_PAYER_OPTION_LABELS.proplane}</option>
+                      </Select>
+                      {/*
+                        The code is what authorises PropLane absorb for a LISTING, on every
+                        plan (PRP-463). An account-wide entitlement is not the same as
+                        choosing it here, so there is no "your plan covers it" shortcut:
+                        no valid code, no absorb, and validation says so.
+                      */}
+                      {listingProplaneAbsorbNeedsWaiverCode(
+                        managerSkuTier,
+                        serviceFeePayerUi,
+                        paymentWaiverGranted === true,
+                      ) ? (
+                        <div
+                          className="mt-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-2.5"
+                          data-wizard-field="serviceFeeWaiverCode"
+                        >
+                          <FieldLabel required>PropLane processing waive code</FieldLabel>
+                          <Input
+                            aria-label="PropLane processing waive code"
+                            data-attr="listing-service-fee-waiver-code"
+                            className={cn(
+                              "w-full font-mono uppercase",
+                              wizardFieldErrorClass(Boolean(stepFieldErrors.serviceFeeWaiverCode)),
+                            )}
+                            placeholder="Enter code"
+                            autoComplete="off"
+                            aria-invalid={Boolean(stepFieldErrors.serviceFeeWaiverCode)}
+                            value={sub.serviceFeeWaiverCode ?? ""}
+                            onChange={(e) => {
+                              clearListingFieldError("serviceFeeWaiverCode");
+                              setSub((s) => ({ ...s, serviceFeeWaiverCode: e.target.value.toUpperCase() }));
+                            }}
+                          />
+                          <p
+                            className={cn(
+                              "mt-1 text-xs",
+                              listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
+                                ? "font-medium text-success"
+                                : "text-muted",
+                            )}
+                            data-attr="listing-service-fee-waiver-status"
+                          >
+                            {listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
+                              ? "Code accepted — PropLane absorbs the processing fee on this listing."
+                              : "Without a valid code this listing stays on Resident pays."}
+                          </p>
+                          <StepFieldError msg={stepFieldErrors.serviceFeeWaiverCode} />
+                        </div>
+                      ) : null}
+                      {stepFieldErrors.serviceFeePayer ? (
+                        <p className="text-xs text-destructive">{stepFieldErrors.serviceFeePayer}</p>
+                      ) : null}
+                    </GridField>
+                  </div>
                 </div>
-                <p className="mt-2 text-xs text-muted">
-                  Also turn on <span className="font-medium text-foreground">Late fee notices</span> in
-                  Payments → Settings — that account switch gates automatic late fees across listings
-                  (PRP-319).
-                </p>
 
                 <p className="mt-4 border-t border-border pt-4 text-xs text-muted">
                   Payment methods: configure in{" "}

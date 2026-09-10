@@ -82,12 +82,12 @@ describe("create wizard Other fees defaults", () => {
   // PRP-463 round 2, both the captain's calls. Neither is visible to a build or to a
   // behavioural test: a regression would just mean a manager silently loses the code box,
   // or gets back a second amount field for the same fee.
-  it("offers the PropLane waive code whenever PropLane is the payer, entitled or not", () => {
+  it("asks for the PropLane waive code whenever PropLane is the payer, on any plan", () => {
     const src = readFileSync("src/components/portal/pro-add-listing-form.tsx", "utf8");
-    expect(src).toContain('{serviceFeePayerUi === "proplane" ? (');
-    expect(src).toContain("PropLane processing waive code");
-    // The entitlement check survives, but only to decide whether the code is REQUIRED.
     expect(src).toContain("listingProplaneAbsorbNeedsWaiverCode(");
+    expect(src).toContain("<FieldLabel required>PropLane processing waive code</FieldLabel>");
+    // No plan-covers-it shortcut copy: the code is asked for on every plan.
+    expect(src).not.toContain("Your plan already covers this");
   });
 
   it("gives a fee one amount — no separate short-term box", () => {
