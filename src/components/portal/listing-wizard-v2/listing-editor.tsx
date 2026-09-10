@@ -2749,28 +2749,20 @@ function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
         label="Who pays the card processing fee"
         hint="The only money question that is not part of a lease type."
       >
+        {/*
+         * No promo-code field: PropLane coverage comes only from the staff-owned
+         * account override (`resolveServiceFeePayerFor`); a typed code is never
+         * stored (`serviceFeeWaiverCode` is stripped on save).
+         */}
         <Select
           value={payer}
-          onChange={(e) => patch({ serviceFeePayer: e.target.value as ManagerListingSubmissionV1["serviceFeePayer"] })}
+          onChange={(e) => patch({ serviceFeePayer: e.target.value as ManagerListingSubmissionV1["serviceFeePayer"], serviceFeeWaiverCode: undefined })}
         >
           <option value="resident">The resident pays it</option>
           <option value="manager">I pay it</option>
           <option value="proplane">PropLane absorbs it</option>
         </Select>
       </Field>
-      {payer === "proplane" ? (
-        <Field
-          label="PropLane promo code"
-          hint="The code that has PropLane absorb the processing fee on this listing."
-        >
-          <Input
-            value={sub.serviceFeeWaiverCode ?? ""}
-            placeholder="E.G. FREE100"
-            data-attr="listing-v2-service-fee-code"
-            onChange={(e) => patch({ serviceFeeWaiverCode: e.target.value.toUpperCase() })}
-          />
-        </Field>
-      ) : null}
 
       {wholePlace ? (
         <>
