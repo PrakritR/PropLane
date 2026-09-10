@@ -8,9 +8,9 @@ import {
   PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS,
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
   PortalMessageBodyField,
+  PortalMessageCheckboxRow,
   PortalMessageComposeModalBody,
   PortalMessageRecipientLockedField,
-  PortalMessageScheduleFields,
   PortalMessageSendViaDropdown,
   PortalMessageSubjectField,
   portalMessageChannelsFromSelection,
@@ -84,7 +84,6 @@ function BulkCarouselArrow({
 export function PortalBulkMessageCarouselModal({
   open,
   title,
-  intro,
   items,
   confirmLabel,
   confirmLabelAll,
@@ -103,7 +102,6 @@ export function PortalBulkMessageCarouselModal({
 }: {
   open: boolean;
   title: string;
-  intro?: string;
   items: BulkMessageCarouselItem[];
   confirmLabel: string;
   /** Override for multi-item primary CTA; defaults to `${confirmLabel} (${count})`. */
@@ -305,7 +303,6 @@ export function PortalBulkMessageCarouselModal({
       panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}
     >
       <PortalMessageComposeModalBody>
-        {intro ? <p className="text-sm leading-snug text-muted">{intro}</p> : null}
 
         {count > 1 ? (
           <label className="flex items-center gap-2 text-sm">
@@ -447,16 +444,12 @@ export function PortalBulkMessageCarouselModal({
         />
 
         {showSkipMessage ? (
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={skipMessage}
-              onChange={(e) => setSkipMessage(e.target.checked)}
-              data-attr="portal-bulk-carousel-skip-message"
-              className="mt-0.5 h-4 w-4 rounded border-border text-primary"
-            />
-            <span className="text-muted">{skipMessageLabel}</span>
-          </label>
+          <PortalMessageCheckboxRow
+            label={skipMessageLabel}
+            checked={skipMessage}
+            onChange={setSkipMessage}
+            dataAttr="portal-bulk-carousel-skip-message"
+          />
         ) : null}
 
         {count > 1 && !skipMessage ? (
@@ -473,7 +466,6 @@ export function PortalBulkMessageCarouselModal({
 export function PortalBulkMessageReadonlyCarouselModal({
   open,
   title,
-  intro,
   items,
   confirmLabel,
   confirmBusy = false,
@@ -482,7 +474,6 @@ export function PortalBulkMessageReadonlyCarouselModal({
 }: {
   open: boolean;
   title: string;
-  intro?: string;
   items: BulkMessageCarouselItem[];
   confirmLabel: string;
   confirmBusy?: boolean;
@@ -529,7 +520,6 @@ export function PortalBulkMessageReadonlyCarouselModal({
   return (
     <Modal open title={title} onClose={onClose} dense footer={footer} panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}>
       <PortalMessageComposeModalBody>
-        {intro ? <p className="text-sm leading-snug text-muted">{intro}</p> : null}
         {count > 1 ? (
           <div className="flex items-center justify-between gap-2">
             <BulkCarouselArrow

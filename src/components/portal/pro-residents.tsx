@@ -4467,9 +4467,7 @@ export function ManagerResidents({
               })
             : ""
         }
-        intro="Review the portal setup message before creating this resident record."
         showChannelPicker
-        showSchedule
         emailAvailable={Boolean(addResidentNoticePreview?.email?.includes("@"))}
         smsAvailable={Boolean(
           addResidentNoticePreview?.manualResidentDetails?.phone?.trim() ||
@@ -4804,15 +4802,9 @@ export function ManagerResidents({
               })
             : ""
         }
-        intro={
-          approvePreviewRow
-            ? `Approving ${approvePreviewRow.name || approvePreviewRow.email} will update their application status and can send their PropLane resident account setup email.`
-            : undefined
-        }
         warning={approveError ?? undefined}
         warningLead={approveError ? "Could not approve." : null}
         hideSendViaFooterNote
-        showWorkNumberHint={false}
         confirmLabel="Approve & send setup email"
         confirmLabelWithoutMessage="Approve only"
         confirmBusy={approvePreviewRow !== null && approveBusyId === approvePreviewRow.id}
@@ -4849,7 +4841,6 @@ export function ManagerResidents({
         }
         subject={RESIDENT_WELCOME_EMAIL_SUBJECT}
         body={welcomePreviewContent}
-        showSchedule
         smsAvailable={Boolean(
           welcomePreviewFor &&
             (() => {
@@ -4886,7 +4877,6 @@ export function ManagerResidents({
         }
         warningLead={null}
         hideSendViaFooterNote
-        showWorkNumberHint={false}
         confirmLabel="Send lease & notification"
         confirmLabelWithoutMessage="Send lease only"
         confirmBusy={leaseSendBusy}

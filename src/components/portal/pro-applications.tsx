@@ -1782,15 +1782,9 @@ export function ManagerApplications({
               })
             : ""
         }
-        intro={
-          approvePreviewRow
-            ? `Approving ${applicantDisplayName(approvePreviewRow)} updates their application status and sends the notifications you select.`
-            : undefined
-        }
         warning={approveError ?? undefined}
         warningLead={approveError ? "Could not approve." : null}
         hideSendViaFooterNote
-        showWorkNumberHint
         confirmLabel="Approve & notify"
         confirmLabelWithoutMessage="Approve only"
         deliverViaKind="applications"

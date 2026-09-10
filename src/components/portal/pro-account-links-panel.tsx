@@ -2670,9 +2670,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         recipient={linkInvitePreview?.recipientName ?? ""}
         subject={linkInvitePreview?.subject ?? ""}
         body={linkInvitePreview?.body ?? ""}
-        intro="Review the co-manager invite message before sending it."
         showChannelPicker
-        showSchedule
         deliverViaKind="account"
         emailAvailable={Boolean(linkInvitePreview?.recipientUserId)}
         smsAvailable
@@ -2695,9 +2693,7 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
           recipient={teamRemovePreview[0]!.recipient}
           subject={teamRemovePreview[0]!.subject}
           body={teamRemovePreview[0]!.body}
-          intro="Review the message before removing this team link."
           showChannelPicker
-          showSchedule={false}
           emailAvailable={teamRemovePreview[0]!.emailAvailable}
           smsAvailable={false}
           defaultViaSms={false}
@@ -2716,7 +2712,6 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
         <PortalBulkMessageCarouselModal
           open
           title={`Remove team links — notification preview (${teamRemovePreview.length})`}
-          intro="Review the message for each team member before removing these links."
           items={teamRemovePreview}
           confirmLabel="Remove all & send"
           confirmLabelSingle="Remove & send"
