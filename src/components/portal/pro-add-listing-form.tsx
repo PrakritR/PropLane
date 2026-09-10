@@ -3781,12 +3781,13 @@ export function ManagerAddListingForm({
             const roomRentKey = listingRoomRentKey(room.id);
             const roomRentErr = stepFieldErrors[roomRentKey];
             const roomDailyRentErr = stepFieldErrors[listingRoomDailyRentKey(room.id)];
+            const roomWeeklyRentErr = stepFieldErrors[listingRoomWeeklyRentKey(room.id)];
             const roomLabel = room.name.trim() || `Room ${i + 1}`;
             const priced = listingRoomHasRent(room);
             const roomSummary = listingRoomPricingSummaryLabel(room, sub);
             const priceKey = listingItemKey("roomPrice", room.id);
             const expanded = priced
-              ? isListingItemExpanded(priceKey) || Boolean(roomRentErr || roomDailyRentErr)
+              ? isListingItemExpanded(priceKey) || Boolean(roomRentErr || roomDailyRentErr || roomWeeklyRentErr)
               : true;
             return {
               id: room.id,
@@ -3798,7 +3799,7 @@ export function ManagerAddListingForm({
               expanded,
               onToggle: () => toggleListingItem(priceKey),
               onRemove: sub.rooms.length > 1 ? () => removeRoom(i) : undefined,
-              hasError: Boolean(roomRentErr || roomDailyRentErr || stepFieldErrors.monthlyRent),
+              hasError: Boolean(roomRentErr || roomDailyRentErr || roomWeeklyRentErr || stepFieldErrors.monthlyRent),
               toggleDataAttr: `listing-room-price-toggle-${room.id}`,
               detail: (
                 <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
@@ -3825,6 +3826,73 @@ export function ManagerAddListingForm({
                       />
                       <StepFieldError msg={roomRentErr} />
                     </div>
+                  </GridField>
+                  {/*
+                    Pricing mode and the week/day rates used to live in a SECOND
+                    "Room pricing" list above this table (PRP-463). One room, two places
+                    to price it, is how a manager ends up hunting for a rate — so the
+                    room's whole price now opens from its one row here.
+                  */}
+                  <GridField>
+                    <FieldLabel>Pricing mode</FieldLabel>
+                    <Select
+                      aria-label={`Pricing mode for ${roomLabel}`}
+                      className={selectInputCls}
+                      data-attr="listing-room-pricing-mode"
+                      value={room.pricingMode === "flexible" ? "flexible" : "fixed"}
+                      onChange={(e) =>
+                        setRoom(i, {
+                          pricingMode: e.target.value === "flexible" ? "flexible" : "fixed",
+                          // Switching back to a fixed price DROPS the advertised range
+                          // rather than leaving it stored and invisible.
+                          ...(e.target.value === "flexible"
+                            ? {}
+                            : { flexibleRentMin: undefined, flexibleRentMax: undefined }),
+                        })
+                      }
+                    >
+                      <option value="fixed">Fixed — price locked</option>
+                      <option value="flexible">Flexible — open to an offer</option>
+                    </Select>
+                    <p className="mt-1 text-xs text-muted">
+                      {room.pricingMode === "flexible"
+                        ? "Same rent fields as Fixed. Prospects can propose a different amount in Communication; PropLane asks you before anything changes."
+                        : "Communication will only confirm the listed price — no counter-offers."}
+                    </p>
+                  </GridField>
+                  <GridField>
+                    <FieldLabel hint="A real price, not the monthly one divided up. Leave blank if you do not offer that length.">
+                      Rent / week
+                    </FieldLabel>
+                    <MoneyInput
+                      ariaLabel={`Weekly rent for ${roomLabel}`}
+                      data-attr="listing-room-weekly-rent"
+                      invalid={Boolean(stepFieldErrors[listingRoomWeeklyRentKey(room.id)])}
+                      value={room.weeklyRentPrice === undefined ? "" : String(room.weeklyRentPrice)}
+                      onChange={(e) => {
+                        const n = parseFloat(sanitizeMoneyInput(e.target.value));
+                        clearListingFieldError(listingRoomWeeklyRentKey(room.id));
+                        setRoom(i, { weeklyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
+                      }}
+                      placeholder="Weekly rate"
+                    />
+                    <StepFieldError msg={stepFieldErrors[listingRoomWeeklyRentKey(room.id)]} />
+                  </GridField>
+                  <GridField>
+                    <FieldLabel>Rent / day</FieldLabel>
+                    <MoneyInput
+                      ariaLabel={`Daily rent for ${roomLabel}`}
+                      data-attr="listing-room-daily-rent-basis"
+                      invalid={Boolean(roomDailyRentErr)}
+                      value={room.dailyRentPrice === undefined ? "" : String(room.dailyRentPrice)}
+                      onChange={(e) => {
+                        const n = parseFloat(sanitizeMoneyInput(e.target.value));
+                        clearListingFieldError(listingRoomDailyRentKey(room.id));
+                        setRoom(i, { dailyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
+                      }}
+                      placeholder="Daily rate"
+                    />
+                    <StepFieldError msg={roomDailyRentErr} />
                   </GridField>
                   <GridField>
                     <FieldLabel>Security deposit</FieldLabel>
@@ -4847,116 +4915,11 @@ export function ManagerAddListingForm({
               </ListingSubsection>
 
               {/*
-                Every price for a room lives HERE, on Pricing — the captain's
-                rule. The room card on the Rooms step carries what a room IS
-                (floor, beds, size, furnishing, amenities, photos); what it
-                COSTS is this step's business, and splitting them across two
-                steps is what made a manager hunt for a rate.
+                One pricing surface (PRP-463). The separate "Room pricing" list is gone:
+                a room's rent, deposit, utilities, pricing mode and week/day rates all open
+                from that room's row inside this table, next to the fees they sit with.
               */}
-              {rentByRoom && sub.rooms.length > 0 ? (
-                <ListingSubsection title="Room pricing">
-                  <div className="space-y-3">
-                    {sortRoomIndicesByFloor(sub.rooms).map((i) => {
-                      const room = sub.rooms[i]!;
-                      const roomKey = listingItemKey("room-pricing", room.id);
-                      // The same keys the Rooms step used, so a rent error still
-                      // points at the field that raised it now that the field
-                      // lives on this step.
-                      const roomDailyRentKey = listingRoomDailyRentKey(room.id);
-                      const roomWeeklyRentKey = listingRoomWeeklyRentKey(room.id);
-                      const roomDailyRentErr = stepFieldErrors[roomDailyRentKey];
-                      const roomWeeklyRentErr = stepFieldErrors[roomWeeklyRentKey];
-                      return (
-                        <ListingWizardCollapsibleCard
-                          key={room.id}
-                          expanded={isListingItemExpanded(roomKey)}
-                          onToggle={() => toggleListingItem(roomKey)}
-                          title={room.name.trim() || `Room ${i + 1}`}
-                          subtitle={room.floor.trim() || "Set what this room costs"}
-                          meta={
-                            room.monthlyRent > 0 ? (
-                              <ListingWizardRowMeta value={`$${room.monthlyRent} / mo`} />
-                            ) : (
-                              <ListingWizardRowMeta value="Rent not set" muted />
-                            )
-                          }
-                          bodyClassName="grid gap-3"
-                          toggleDataAttr={`listing-room-pricing-toggle-${room.id}`}
-                        >
-                      <GridField>
-                        <FieldLabel>Pricing mode</FieldLabel>
-                        <Select
-                          aria-label={`Pricing mode for ${room.name || `room ${i + 1}`}`}
-                          className={selectInputCls}
-                          data-attr="listing-room-pricing-mode"
-                          value={room.pricingMode === "flexible" ? "flexible" : "fixed"}
-                          onChange={(e) =>
-                            setRoom(i, {
-                              pricingMode: e.target.value === "flexible" ? "flexible" : "fixed",
-                              ...(e.target.value === "flexible"
-                                ? {}
-                                : { flexibleRentMin: undefined, flexibleRentMax: undefined }),
-                            })
-                          }
-                        >
-                          <option value="fixed">Fixed — price locked</option>
-                          <option value="flexible">Flexible — open to an offer</option>
-                        </Select>
-                        <p className="mt-1 text-xs text-muted">
-                          {room.pricingMode === "flexible"
-                            ? "Same rent fields as Fixed. Prospects can propose a different amount in Communication; PropLane asks you before anything changes."
-                            : "Communication will only confirm the listed price — no counter-offers."}
-                        </p>
-                        <div className="mt-3 space-y-3">
-                          <p className="text-xs text-muted">
-                            Quote the rates you actually offer. A weekly or daily rate is a
-                            real price, not the monthly one divided up — leave a row blank if
-                            you do not offer that length.
-                          </p>
-                          <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-                            <GridField>
-                              <FieldLabel>Rent / week</FieldLabel>
-                              <MoneyInput
-                                ariaLabel={`Weekly rent for ${room.name || `room ${i + 1}`}`}
-                                data-attr="listing-room-weekly-rent"
-                                invalid={Boolean(roomWeeklyRentErr)}
-                                value={room.weeklyRentPrice === undefined ? "" : String(room.weeklyRentPrice)}
-                                onChange={(e) => {
-                                  const n = parseFloat(sanitizeMoneyInput(e.target.value));
-                                  clearListingFieldError(roomWeeklyRentKey);
-                                  setRoom(i, { weeklyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
-                                }}
-                                placeholder="Weekly rate"
-                              />
-                              <StepFieldError msg={roomWeeklyRentErr} />
-                            </GridField>
-                            <GridField>
-                              <FieldLabel>Rent / day</FieldLabel>
-                              <MoneyInput
-                                ariaLabel={`Daily rent for ${room.name || `room ${i + 1}`}`}
-                                data-attr="listing-room-daily-rent-basis"
-                                invalid={Boolean(roomDailyRentErr)}
-                                value={room.dailyRentPrice === undefined ? "" : String(room.dailyRentPrice)}
-                                onChange={(e) => {
-                                  const n = parseFloat(sanitizeMoneyInput(e.target.value));
-                                  clearListingFieldError(roomDailyRentKey);
-                                  setRoom(i, { dailyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
-                                }}
-                                placeholder="Daily rate"
-                              />
-                              <StepFieldError msg={roomDailyRentErr} />
-                            </GridField>
-                          </div>
-                        </div>
-                      </GridField>
-                        </ListingWizardCollapsibleCard>
-                      );
-                    })}
-                  </div>
-                </ListingSubsection>
-              ) : null}
-
-              <ListingSubsection title="Rent">
+              <ListingSubsection title="Rent & fees">
                 <label className="mb-3 flex cursor-pointer items-center gap-2 text-sm font-medium text-foreground">
                   <input
                     type="checkbox"

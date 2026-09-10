@@ -99,6 +99,22 @@ describe("create wizard Other fees defaults", () => {
     expect(table).toContain("{(ltOn || stOn) && (row.ltField || row.id === \"rent\") ? (");
   });
 
+  // PRP-463: one pricing surface. A room used to be priced in a "Room pricing" list AND
+  // again in the fees table's Rooms rows; a manager hunting for a rate is what that cost.
+  it("prices a room in one place, not two", () => {
+    const src = readFileSync("src/components/portal/pro-add-listing-form.tsx", "utf8");
+    expect(src).not.toContain('<ListingSubsection title="Room pricing">');
+    expect(src).toContain('<ListingSubsection title="Rent & fees">');
+    // Everything the removed list carried now opens from the room's own row.
+    for (const marker of [
+      'data-attr="listing-room-pricing-mode"',
+      'data-attr="listing-room-weekly-rent"',
+      'data-attr="listing-room-daily-rent-basis"',
+    ]) {
+      expect(src.split(marker).length - 1).toBe(1);
+    }
+  });
+
   it("no longer renders a rollover-to-month-to-month checkbox in the wizard", () => {
     const src = readFileSync("src/components/portal/pro-add-listing-form.tsx", "utf8");
     // The memoization dependency is a read, not a control; a rendered checkbox would write.
