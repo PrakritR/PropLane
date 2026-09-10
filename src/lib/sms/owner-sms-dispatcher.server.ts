@@ -527,11 +527,11 @@ export async function dispatchOwnerSmsOutbox(
       continue;
     }
 
-    // Spend only after this worker atomically owns the submit transition. A
-    // stale worker that loses the lease cannot burn the campaign budget and
-    // then let a later claimant spend it again for the same attempt.
-    const { data: budgetAvailable, error: budgetError } = await db.rpc("spend_sms_segment_budget", {
-      p_segments: row.segment_count,
+    // The RPC rechecks the claim and reserves once per outbox/UTC day, so a
+    // lost response or transient wallet failure cannot spend again on retry.
+    const { data: budgetAvailable, error: budgetError } = await db.rpc("spend_sms_outbox_segment_budget", {
+      p_outbox_id: row.id,
+      p_worker_id: workerId,
     });
     if (budgetError || budgetAvailable !== true) {
       const retryAt = new Date();

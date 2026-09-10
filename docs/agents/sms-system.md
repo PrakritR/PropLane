@@ -377,6 +377,14 @@ configuration, scoped consent evidence, the durable outbox/attempt ledger,
 provider events, delivery events, and atomic campaign segment budget. It seeds
 runtime mode `paused`; applying it cannot send or buy anything.
 
+`spend_sms_outbox_segment_budget` reserves the shared campaign allowance once
+per outbox message and UTC day, after checking the current worker's submitting
+claim. A lost RPC response or temporary wallet failure reuses that reservation;
+it does not consume the campaign cap again. Migration
+`20260910190000_sms_outbox_campaign_budget.sql` is required before this dispatcher.
+Concurrency, rollover, and claim checks are covered by
+`tests/integration/sms-campaign-budget-postgres.test.ts`.
+
 ### Managed first-slice scope
 
 The managed-number launch covers manager-to-resident/applicant/prospect portal

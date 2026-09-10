@@ -42,6 +42,7 @@ function dispatchDb({ failFirstConversationLogMarkerWrite = false } = {}) {
   };
   const attempts: Row[] = [];
   let claimAvailable = true;
+  let campaignAllocations = 0;
   let markerWriteFailed = false;
   const matching = (filters: Array<(r: Row) => boolean>) => filters.every((filter) => filter(outbox));
 
@@ -111,6 +112,11 @@ function dispatchDb({ failFirstConversationLogMarkerWrite = false } = {}) {
   };
   return {
     outbox,
+    reclaim() {
+      claimAvailable = true;
+      Object.assign(outbox, { status: "claimed", lease_owner: "worker-1", lease_expires_at: "2999-01-01T00:00:00.000Z" });
+    },
+    campaignAllocations: () => campaignAllocations,
     db: {
       from,
       rpc: vi.fn(async (name: string) => {
@@ -119,7 +125,14 @@ function dispatchDb({ failFirstConversationLogMarkerWrite = false } = {}) {
           claimAvailable = false;
           return { data: [{ ...outbox }], error: null };
         }
-        if (name === "spend_sms_segment_budget") return { data: true, error: null };
+        if (name === "spend_sms_outbox_segment_budget") {
+          const today = new Date().toISOString().slice(0, 10);
+          if (outbox.campaign_budget_spent_on !== today) {
+            campaignAllocations += 1;
+            outbox.campaign_budget_spent_on = today;
+          }
+          return { data: true, error: null };
+        }
         return { data: null, error: null };
       }),
     } as never,
@@ -224,6 +237,18 @@ describe("dispatcher credit reservation outcomes", () => {
       status: "deferred", blocked_reason: "credit_unavailable", lease_owner: null, dispatch_started_at: null,
     });
     expect(Date.parse(String(outbox.available_at))).toBeGreaterThanOrEqual(before + 5 * 60_000 - 1_000);
+  });
+
+  it("retries wallet failures without spending the campaign allocation again", async () => {
+    vi.mocked(reserveCommsCredit).mockRejectedValue(new Error("wallet unavailable"));
+    const fixture = dispatchDb();
+    await dispatchOwnerSmsOutbox({ workerId: "worker-1" }, fixture.db);
+    fixture.reclaim();
+    await dispatchOwnerSmsOutbox({ workerId: "worker-1" }, fixture.db);
+    expect(vi.mocked(reserveCommsCredit)).toHaveBeenCalledTimes(2);
+    expect(fixture.campaignAllocations()).toBe(1);
+    expect(fixture.outbox.status).toBe("deferred");
+    expect(mocks.sendSms).not.toHaveBeenCalled();
   });
 
   it("still blocks terminally when the wallet answered that credit is exhausted", async () => {

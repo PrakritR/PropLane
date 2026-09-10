@@ -16,7 +16,7 @@ Financial identity requires an authenticated user-ID link, never an email fallba
 - Merged current `prakrit` into the keeper, preserving its newer listing layout and
   staff-only processing coverage. The work-email integration regression is fixed:
   verified email access no longer depends on prepaid SMS/call credit.
-- Full merged test run: **1,430 files / 9,822 tests passed**, 3 files / 30 tests
+- Full merged test run: **1,431 files / 9,847 tests passed**, 4 files / 36 tests
   skipped (exit 0). Stripe subscription integration fixtures now exercise the
   strict user-ID-linked customer path; all 8 pass. Listing assertions match the
   approved staff-coverage behavior.
@@ -29,7 +29,9 @@ Financial identity requires an authenticated user-ID link, never an email fallba
 - Security and Bugbot integration reviews found no High/Critical/P1 issues.
   Their work-email P2 is fixed. All no-mistakes webhook, inbound identity, rate,
   cache, mock and voice-bound test commits are preserved in keeper ancestry.
-  The automated gate is still running; this is not a final gate-pass claim.
+  Review runs preserved their fixes through `5f868306b`. The final campaign
+  retry correction and incoming listing merge are covered by the dated
+  [security and regression review](../security/2026-09-10-communication-credit-review.md).
 - Prakrit selected **localhost:3006** for this workspace and future changes.
   `.env.local`, the local agent rule and Firstmate lane port are pinned to 3006.
   Review: http://localhost:3006/portal/profile?tab=billing.
@@ -57,8 +59,9 @@ no phone number was purchased and no live call was placed.
 
 ## Rollout and outstanding decisions
 
-Only dev/test migrations were applied: `20260910140000`, `20260910160000`, and
-`20260910170000`. Root and remote migration histories differed, so a temporary
+Only dev/test migrations were applied: `20260910140000`, `20260910160000`,
+`20260910170000`, `20260910180000`, and `20260910190000`.
+Root and remote migration histories differed, so a temporary
 Supabase workdir used the fetched remote history; dry-run listed only the new
 migrations. No history was repaired or overwritten. Follow the staging ladder
 before enabling manual checkout with `COMMS_PAYG_BILLING_ENABLED=1`; that flag
