@@ -263,7 +263,7 @@ function FeeScopeCells({
   const showRooms = scope.roomOptions.length > 0;
   return (
     <>
-      <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
+      <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-2">
         <FeeScopeSelect
           label={`Lease types for ${labelForAria}`}
           dataAttr={`${dataAttrBase}-lease-scope`}
@@ -275,7 +275,7 @@ function FeeScopeCells({
         />
       </div>
       {showRooms ? (
-        <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
+        <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-2">
           <FeeScopeSelect
             label={`Rooms for ${labelForAria}`}
             dataAttr={`${dataAttrBase}-room-scope`}
@@ -339,7 +339,7 @@ function ExpandableRows({ row, showRooms }: { row: FeeExpandableRow; showRooms: 
   return (
     <>
       <div className={cn("contents", row.hasError && "[&>*]:bg-red-500/5")}>
-        <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
+        <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-2">
           <button
             type="button"
             className="flex max-w-full items-center gap-2 text-left"
@@ -357,17 +357,17 @@ function ExpandableRows({ row, showRooms }: { row: FeeExpandableRow; showRooms: 
             </span>
           </button>
         </div>
-        <div className="flex min-w-0 flex-col justify-center border-b border-border/70 px-3 py-3 text-sm text-muted">
+        <div className="flex min-w-0 flex-col justify-center border-b border-border/70 px-3 py-2 text-sm text-muted">
           <span className="truncate">{row.summary}</span>
           {row.shortTermSummary ? (
             <span className="truncate text-xs text-muted">Short-term: {row.shortTermSummary}</span>
           ) : null}
         </div>
-        <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3 text-xs text-muted">—</div>
+        <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-2 text-xs text-muted">—</div>
         {showRooms ? (
-          <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3 text-xs text-muted">—</div>
+          <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-2 text-xs text-muted">—</div>
         ) : null}
-        <div className="flex items-center justify-end border-b border-border/70 px-3 py-3">
+        <div className="flex items-center justify-end border-b border-border/70 px-3 py-2">
           {row.onRemove ? (
             <Button
               type="button"
@@ -384,7 +384,7 @@ function ExpandableRows({ row, showRooms }: { row: FeeExpandableRow; showRooms: 
         </div>
       </div>
       {row.expanded ? (
-        <div className={cn(feeColSpan(showRooms), "border-b border-border/70 bg-accent/10 px-3 py-3")}>
+        <div className={cn(feeColSpan(showRooms), "border-b border-border/70 bg-accent/10 px-3 py-2")}>
           {row.detail}
         </div>
       ) : null}
@@ -500,7 +500,7 @@ export function ListingUnifiedFeesTable({
 
           return (
             <div key={row.id} className="contents">
-              <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
+              <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-2">
                 <div>
                   <div className="font-medium text-foreground">{row.label}</div>
                   {row.stHint || row.ltHint ? (
@@ -511,7 +511,7 @@ export function ListingUnifiedFeesTable({
                 </div>
               </div>
 
-              <div className="flex min-w-0 flex-col justify-center gap-2 border-b border-border/70 px-3 py-3">
+              <div className="flex min-w-0 flex-col justify-center gap-2 border-b border-border/70 px-3 py-2">
                 {!ltOn && !stOn ? <span className="text-xs text-muted">—</span> : null}
                 {ltOn && (row.ltField || row.id === "rent") ? (
                   <>
@@ -586,7 +586,7 @@ export function ListingUnifiedFeesTable({
                 dataAttrBase={`listing-fee-${rowId}`}
               />
 
-              <div className="flex items-center justify-end border-b border-border/70 px-3 py-3">
+              <div className="flex items-center justify-end border-b border-border/70 px-3 py-2">
                 {rowIsRemovable(rowId) ? (
                   <Button
                     type="button"
@@ -623,7 +623,7 @@ export function ListingUnifiedFeesTable({
             const ltOn = leaseScope.some((t) => t !== SHORT_TERM_LEASE_TERM);
             return (
               <div key={fee.id} className="contents">
-                <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
+                <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-2">
                   <Input
                     className="!min-h-9 h-9 w-full rounded-lg py-1 text-sm shadow-none"
                     value={fee.label}
@@ -633,7 +633,7 @@ export function ListingUnifiedFeesTable({
                   />
                 </div>
 
-                <div className="flex min-w-0 flex-col justify-center gap-2 border-b border-border/70 px-3 py-3">
+                <div className="flex min-w-0 flex-col justify-center gap-2 border-b border-border/70 px-3 py-2">
                   {!ltOn && !stOn ? <span className="text-xs text-muted">—</span> : null}
                   {ltOn ? (
                     <div className={FEE_CONTROL_ROW}>
@@ -670,7 +670,7 @@ export function ListingUnifiedFeesTable({
                   dataAttrBase={`listing-custom-fee-${i}`}
                 />
 
-                <div className="flex items-center justify-end border-b border-border/70 px-3 py-3">
+                <div className="flex items-center justify-end border-b border-border/70 px-3 py-2">
                   <Button
                     type="button"
                     variant="outline"

@@ -46,11 +46,13 @@ export type RoomPricingLike = {
   securityDeposit?: string | null;
   shortTermDeposit?: string | null;
   /**
-   * "flexible" means the room advertises NO billable price — the rent is agreed with
-   * each resident (PRP-329). Absent or "fixed" is the long-standing behaviour.
+   * "flexible" (PRP-462) means the room still lists and bills the same rent fields as
+   * Fixed; Communication / SMS will ask the manager before accepting a counter-offer.
+   * Absent or "fixed" locks the listed price in replies. Legacy `flexibleRentMin/Max`
+   * may still exist on old rows but are no longer the advertised price.
    */
   pricingMode?: "fixed" | "flexible";
-  /** Advertised guidance bounds for a flexible room. Never a charge. */
+  /** @deprecated Legacy guidance bounds — not the billed or primary advertised price (PRP-462). */
   flexibleRentMin?: number | null;
   flexibleRentMax?: number | null;
 };
@@ -221,40 +223,41 @@ export function roomFlexibleRange(
 }
 
 /**
- * What a PROSPECT is shown for this room.
+ * What a PROSPECT is shown for this room (PRP-462).
  *
- * Deliberately never returns a bare number for a flexible room: the range is guidance
- * the manager may agree an exception to, and a naked "$600" would read as the price.
- * With no bounds at all it says so in words rather than inventing $0 — PRP-329 acceptance 2.
+ * Flexible uses the same listed rent as Fixed, with a · Flexible suffix so they know
+ * a counter-offer can be discussed. Legacy Min/Max guidance only appears when there is
+ * no listed rent yet (old rows that never got a monthly/daily/weekly figure).
  */
 export function roomAdvertisedPriceLabel(
   room: RoomPricingLike | null | undefined,
   fallback = "—",
 ): string {
-  if (!roomPricingIsFlexible(room)) return roomHeadlinePriceLabel(room, fallback);
-  const suffix = roomPricePeriodSuffix(room);
-  const range = roomFlexibleRange(room);
-  if (!range) return "Flexible pricing · Contact manager to discuss pricing";
-  const { min, max } = range;
-  const span =
-    min !== undefined && max !== undefined
-      ? `${formatRoomPriceAmount(min)}\u2013${formatRoomPriceAmount(max)}`
-      : min !== undefined
-        ? `From ${formatRoomPriceAmount(min)}`
-        : `Up to ${formatRoomPriceAmount(max as number)}`;
-  return `${span}${suffix} · Flexible pricing`;
+  const listed = roomHeadlinePriceLabel(room, "");
+  if (roomPricingIsFlexible(room)) {
+    if (listed) return `${listed} · Flexible`;
+    const suffix = roomPricePeriodSuffix(room);
+    const range = roomFlexibleRange(room);
+    if (!range) return "Flexible · Contact manager to discuss pricing";
+    const { min, max } = range;
+    const span =
+      min !== undefined && max !== undefined
+        ? `${formatRoomPriceAmount(min)}\u2013${formatRoomPriceAmount(max)}`
+        : min !== undefined
+          ? `From ${formatRoomPriceAmount(min)}`
+          : `Up to ${formatRoomPriceAmount(max as number)}`;
+    return `${span}${suffix} · Flexible`;
+  }
+  return listed || fallback;
 }
 
 /**
- * The comparable figure a flexible room sorts and budget-filters on, or undefined when
- * it advertises no bounds.
- *
- * The MINIMUM, never a midpoint: a midpoint is a number the manager never wrote, and a
- * prospect filtering "under $700" should still be shown a $600-$900 room they may well
- * be able to agree. An unpriced flexible room returns undefined so callers can decide
- * to show-but-not-rank it rather than sorting it as free.
+ * Sort / budget figure for a flexible room: prefer the listed rent (PRP-462), else
+ * legacy Min/Max guidance when no listed amount exists.
  */
 export function roomFlexibleSortAmount(room: RoomPricingLike | null | undefined): number | undefined {
+  const listed = roomMonthlyEquivalent(room);
+  if (listed > 0) return listed;
   const range = roomFlexibleRange(room);
   if (!range) return undefined;
   return range.min ?? range.max;
@@ -527,25 +530,8 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
     };
   }
 
-  // A flexible room reaching here has NO agreed rent for this resident: every
-  // negotiated path above (manager override, signed/renewed rent) already returned.
-  // Falling through to the room's own monthly OR daily figure would bill a figure the public listing stopped
-  // showing the moment the manager switched to flexible pricing — a stale hidden
-  // fixed value, which PRP-329 acceptance 3 names explicitly. Undefined instead, so
-  // the caller must obtain an agreed amount before a lease or charge exists. The
-  // deposit still resolves: it is agreed separately and is not the negotiated rent.
-  if (roomPricingIsFlexible(room)) {
-    return {
-      stayKind: "long",
-      basis: "monthly",
-      dailyRate: undefined,
-      weeklyRate: undefined,
-      monthlyRate: undefined,
-      deposit,
-      shortLeaseSurcharge: 0,
-      source: "room",
-    };
-  }
+  // PRP-462: Flexible lists and bills the same rent as Fixed. A counter-offer is a
+  // Communication/SMS ask — not a blank ledger. Negotiated overrides above still win.
 
   if (roomDaily !== undefined) {
     // The daily basis alone does NOT make this a short stay. A daily-priced room is a

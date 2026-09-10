@@ -22,7 +22,12 @@ import {
   resolveAllowedLeaseTerms,
 } from "@/lib/manager-listing-submission";
 import { listingOffersCustomLeaseSurcharge } from "@/lib/listing-fees";
-import { roomDailyRentPrice, roomHeadlinePriceLabel, roomIsDailyPriced } from "@/lib/room-pricing";
+import {
+  roomDailyRentPrice,
+  roomAdvertisedPriceLabel,
+  roomIsDailyPriced,
+  roomPricingIsFlexible,
+} from "@/lib/room-pricing";
 import { getNearbyTransit, type TransitMode } from "@/lib/nearby-transit.server";
 
 export const LEASING_ESCALATE_TOOL_NAME = "escalate_to_manager";
@@ -90,6 +95,7 @@ function summarizeRooms(src: Record<string, unknown> | null) {
       rentBasis: "monthly" | "daily";
       dailyRentPrice: number | null;
       priceLabel: string | null;
+      pricingMode: "fixed" | "flexible";
       availability: string | null;
       moveInAvailableDate: string | null;
       securityDeposit: string | null;
@@ -112,7 +118,8 @@ function summarizeRooms(src: Record<string, unknown> | null) {
         monthlyRent: r.monthlyRent > 0 ? r.monthlyRent : null,
         rentBasis: roomIsDailyPriced(r) ? ("daily" as const) : ("monthly" as const),
         dailyRentPrice: roomDailyRentPrice(r) ?? null,
-        priceLabel: roomHeadlinePriceLabel(r, "") || null,
+        priceLabel: roomAdvertisedPriceLabel(r, "") || null,
+        pricingMode: roomPricingIsFlexible(r) ? ("flexible" as const) : ("fixed" as const),
         availability: r.availability?.trim() || null,
         moveInAvailableDate: r.moveInAvailableDate?.trim() || null,
         securityDeposit: r.securityDeposit?.trim() || null,
@@ -165,6 +172,7 @@ function leasingListingFacts(src: Record<string, unknown> | null, rooms: ReturnT
       baseRoomPrices: rooms.map((room) => ({
         name: room.name,
         priceLabel: room.priceLabel,
+        pricingMode: room.pricingMode,
         shortLeaseSurchargeMonthly: room.shortLeaseSurchargeMonthly,
         shortLeaseMaxMonths: room.shortLeaseMaxMonths,
       })),
