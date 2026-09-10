@@ -163,6 +163,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: existingError.message }, { status: 500 });
     }
     const existingOwnerId = existing ? String(existing.manager_user_id ?? "").trim() : "";
+    const existingStatus = (existing as { status?: string } | null)?.status ?? null;
     const isDelete = body.action === "delete";
 
     // A delete of a row that is not there is NOT FOUND — never a create.
@@ -292,7 +293,7 @@ export async function POST(req: Request) {
       ownerUserId: managerUserIdForWrite,
       recordId: id,
       nextStatus: body.status,
-      existingStatus: (existing as { status?: string } | null)?.status ?? null,
+      existingStatus,
     });
     if (!quota.ok) {
       return NextResponse.json(
@@ -336,6 +337,14 @@ export async function POST(req: Request) {
     // nothing to do with the promo code. The persisted submission is the
     // baseline for "did the manager touch this field", and it is read from the
     // same server row every other decision here anchors on.
+    //
+    // FIRST PUBLICATION is the exception, and it is not optional: a draft save
+    // stores the typed code but deliberately never touches the codes table, so
+    // on the draft -> listing transition the stored text is a record of what was
+    // typed, never of a code that exists. Comparing against it there would
+    // publish a listing advertising a code no applicant can redeem. An empty
+    // field still writes nothing — there is no code to create, and a blank
+    // wizard field must not revoke one set from Applications settings.
     const submittedWaiverCode =
       managerUserIdForWrite && body.status !== "draft"
         ? listingApplicationFeeWaiverCodeFromPayload(body.rowData, body.propertyData)
@@ -344,8 +353,12 @@ export async function POST(req: Request) {
       existing?.row_data,
       existing?.property_data,
     );
+    const publishingDraftWaiverCode =
+      existingStatus === "draft" && body.status !== "draft" && Boolean(submittedWaiverCode);
     const waiverCodeForWrite =
-      submittedWaiverCode != null && !sameApplicationFeeWaiverCodeText(submittedWaiverCode, storedWaiverCode)
+      submittedWaiverCode != null &&
+      (publishingDraftWaiverCode ||
+        !sameApplicationFeeWaiverCodeText(submittedWaiverCode, storedWaiverCode))
         ? submittedWaiverCode
         : null;
     const allowPortfolioConversion = managerUserIdForWrite === user.id;

@@ -173,6 +173,29 @@ path is still supported for callers that ask for it.
 `/api/public/application-fee-waiver`) can waive the application fee entirely**
 — a redeemed code skips Stripe altogether (no $0 charge, no session).
 
+**`manager_application_fee_waiver_codes` is the only authority on which code is
+live.** Two surfaces write it: Applications settings
+(`PATCH /api/portal/manager-application-settings`) and the listing save
+(`POST /api/property-records`, via `upsertPropertyApplicationFeeWaiverCode`). The
+listing save writes only when the request CHANGES the submitted code against the
+persisted listing submission, or when the row is being published out of `draft`
+for the first time (a draft save deliberately never writes the codes table, so
+that transition must apply the typed code). A retired code text is refused before
+any write — the unique index is `(manager_user_id, code_normalized)` and ignores
+status, so a revoked row still owns its text and is never revived.
+
+Known follow-up limitations (pre-existing, deliberately out of scope for
+PRP-456):
+
+- The wizard's "Application fee waive code" field renders
+  `submission.applicationFeeWaiverCode` off the stored listing submission, which
+  a settings write never rewrites, so the editor can display a code that is no
+  longer the live one. The settings GET already returns the property's active
+  code; sourcing the field from there is the real fix.
+- `listingApplicationFeeWaiverCodeFromPayload` reads `rowData.submission` before
+  `propertyData.listingSubmission`. Which container is authoritative for this one
+  field is worth normalizing now that a write decision depends on it.
+
 **How often the fee is collected is the manager's `applicationFeeChargePolicy`**
 (`first_only`, the default, or `every_time`; on the same manager-level
 Application settings row as the fee itself). Under `first_only` — the original

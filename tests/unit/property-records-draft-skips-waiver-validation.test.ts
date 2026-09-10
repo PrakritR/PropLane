@@ -18,6 +18,10 @@
  *    so replaying that stale text used to re-point the code away from the newer
  *    settings value — and, once the old text was retired, refused listing edits
  *    that had nothing to do with the promo code.
+ * 4. FIRST PUBLICATION is the exception: because (1) means a draft save never
+ *    wrote the code, the draft -> listing transition must apply the submitted
+ *    code even though the text matches what the draft stored. Skipping it
+ *    published a listing advertising a code with no row to redeem.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest } from "../helpers/api-request";
@@ -315,5 +319,95 @@ describe("POST /api/property-records — an untouched promo-code field is not a 
     expect(res.status).toBe(200);
     expect(PREVIEW_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "" }]);
     expect(WAIVER_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "" }]);
+  });
+});
+
+describe("POST /api/property-records — publishing a draft applies its promo code", () => {
+  /**
+   * The real shapes: a draft row keeps the submission under `row_data.submission`
+   * (`submissionToDraftAdminRow`), while `publishManagerListingSubmissionToServer`
+   * sends the same submission under `propertyData.listingSubmission` and a
+   * `rowData` that carries no submission at all.
+   */
+  function storedDraft(applicationFeeWaiverCode: string) {
+    return {
+      manager_user_id: MANAGER,
+      status: "draft",
+      row_data: draftRowData(applicationFeeWaiverCode),
+      property_data: null,
+    };
+  }
+
+  function publish(applicationFeeWaiverCode: string) {
+    return post({
+      action: "upsert",
+      id: "mgr-ravenna-draft",
+      managerUserId: MANAGER,
+      status: "live",
+      rowData: { adminRefId: "mgr-ravenna-draft", listingId: "mgr-ravenna-draft", managerUserId: MANAGER },
+      propertyData: {
+        listingSubmission: { buildingName: "Ravenna Craftsman", applicationFeeWaiverCode },
+      },
+    });
+  }
+
+  it("creates the code the draft carried, even though the text did not change", async () => {
+    EXISTING = storedDraft("SPRING25");
+
+    const res = await publish("SPRING25");
+
+    expect(res.status).toBe(200);
+    expect(UPSERTS).toHaveLength(1);
+    expect(UPSERTS[0]).toMatchObject({ status: "live" });
+    expect(PREVIEW_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "SPRING25" }]);
+    expect(WAIVER_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "SPRING25" }]);
+  });
+
+  it("refuses retired text on first publication without writing the listing", async () => {
+    EXISTING = storedDraft("SPRING");
+    RETIRED = ["SPRING"];
+
+    const res = await publish("SPRING");
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/retired/i);
+    expect(UPSERTS).toEqual([]);
+    expect(WAIVER_CALLS).toEqual([]);
+  });
+
+  it("refuses a half-typed code on first publication without writing the listing", async () => {
+    EXISTING = storedDraft("AB");
+
+    const res = await publish("AB");
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/4-32/);
+    expect(UPSERTS).toEqual([]);
+    expect(WAIVER_CALLS).toEqual([]);
+  });
+
+  it("never revokes a settings-set code when the published draft carried none", async () => {
+    EXISTING = storedDraft("");
+
+    const res = await publish("");
+
+    expect(res.status).toBe(200);
+    expect(PREVIEW_CALLS).toEqual([]);
+    expect(WAIVER_CALLS).toEqual([]);
+  });
+
+  it("goes back to the unchanged-field rule once the listing is published", async () => {
+    // Same payload, but the row is already live: Applications settings owns the
+    // code from here, so replaying the stale text must not touch it.
+    EXISTING = { manager_user_id: MANAGER, status: "live", row_data: draftRowData("SPRING"), property_data: null };
+    RETIRED = ["SPRING"];
+
+    const res = await publish("SPRING");
+
+    expect(res.status).toBe(200);
+    expect(PREVIEW_CALLS).toEqual([]);
+    expect(WAIVER_CALLS).toEqual([]);
   });
 });
