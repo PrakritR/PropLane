@@ -2990,7 +2990,7 @@ function HouseApplicationsGroup({ sub, patch }: { sub: ManagerListingSubmissionV
         <Field
           label="Application fee waive code"
           optional
-          hint="Give this to an applicant and their application fee is waived."
+          hint="Give this to an applicant and their application fee is waived. A code belongs to one home — give each listing its own."
         >
           <Input
             value={sub.applicationFeeWaiverCode ?? ""}

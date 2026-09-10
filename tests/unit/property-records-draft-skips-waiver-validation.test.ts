@@ -20,10 +20,12 @@ import { jsonRequest } from "../helpers/api-request";
 const getUser = vi.fn();
 let UPSERTS: Record<string, unknown>[] = [];
 let WAIVER_CALLS: Array<{ propertyId: string; code: string | null | undefined }> = [];
+let PREVIEW_CALLS: Array<{ propertyId: string; code: string | null | undefined }> = [];
 
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
 vi.mock("@/lib/auth/co-manager-access", () => ({
   assertCoManagerModuleAccess: async () => ({ ok: false, error: "Forbidden.", status: 403 }),
+  assertCoManagerModuleAccessStrict: async () => ({ ok: false, error: "Forbidden.", status: 403 }),
 }));
 vi.mock("@/lib/auth/clear-property-housing-access", () => ({
   clearHousingAccessForDeletedProperty: async () => {},
@@ -35,7 +37,21 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/manager-access-server", () => ({
   getEffectiveManagerSkuTier: async () => ({ ok: true, tier: "pro" }),
 }));
+const validateWaiverCode = (code: string | null | undefined) =>
+  (code ?? "").length >= 4
+    ? ({ ok: true } as const)
+    : ({ ok: false, error: "Codes must be 4-32 letters, numbers, or hyphens." } as const);
+
 vi.mock("@/lib/application-fee-waiver", () => ({
+  previewPropertyApplicationFeeWaiverCodeWrite: async (
+    _db: unknown,
+    _managerUserId: string,
+    propertyId: string,
+    code: string | null | undefined,
+  ) => {
+    PREVIEW_CALLS.push({ propertyId, code });
+    return validateWaiverCode(code);
+  },
   upsertPropertyApplicationFeeWaiverCode: async (
     _db: unknown,
     _managerUserId: string,
@@ -43,9 +59,8 @@ vi.mock("@/lib/application-fee-waiver", () => ({
     code: string | null | undefined,
   ) => {
     WAIVER_CALLS.push({ propertyId, code });
-    return (code ?? "").length >= 4
-      ? { ok: true, code }
-      : { ok: false, error: "Codes must be 4-32 letters, numbers, or hyphens." };
+    const result = validateWaiverCode(code);
+    return result.ok ? { ok: true, code } : result;
   },
 }));
 vi.mock("@/lib/supabase/service", () => ({
@@ -92,6 +107,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   UPSERTS = [];
   WAIVER_CALLS = [];
+  PREVIEW_CALLS = [];
   getUser.mockResolvedValue({ data: { user: { id: MANAGER } } });
 });
 
@@ -109,6 +125,7 @@ describe("POST /api/property-records — drafts are unvalidated", () => {
     expect(UPSERTS).toHaveLength(1);
     expect(UPSERTS[0]).toMatchObject({ id: "mgr-ravenna-draft", status: "draft" });
     expect(WAIVER_CALLS).toEqual([]);
+    expect(PREVIEW_CALLS).toEqual([]);
   });
 
   it("does not apply a VALID code for a draft either — that happens on publish", async () => {
@@ -122,6 +139,7 @@ describe("POST /api/property-records — drafts are unvalidated", () => {
 
     expect(res.status).toBe(200);
     expect(WAIVER_CALLS).toEqual([]);
+    expect(PREVIEW_CALLS).toEqual([]);
   });
 
   it("still validates the code when the same row is published, and names the field", async () => {
@@ -137,7 +155,11 @@ describe("POST /api/property-records — drafts are unvalidated", () => {
     const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/promo code/i);
     expect(body.error).toMatch(/4-32/);
-    expect(WAIVER_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "AB" }]);
+    expect(PREVIEW_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "AB" }]);
+    // The refusal is now answered from a read, BEFORE the listing row lands, so
+    // the manager is not told the save failed on a listing that went live.
+    expect(UPSERTS).toEqual([]);
+    expect(WAIVER_CALLS).toEqual([]);
   });
 
   it("applies a valid code on publish", async () => {
@@ -150,6 +172,7 @@ describe("POST /api/property-records — drafts are unvalidated", () => {
     });
 
     expect(res.status).toBe(200);
+    expect(PREVIEW_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "SPRING25" }]);
     expect(WAIVER_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "SPRING25" }]);
   });
 });

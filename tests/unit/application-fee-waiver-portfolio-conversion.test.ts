@@ -13,7 +13,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { upsertPropertyApplicationFeeWaiverCode } from "@/lib/application-fee-waiver";
+import {
+  previewPropertyApplicationFeeWaiverCodeWrite,
+  upsertPropertyApplicationFeeWaiverCode,
+} from "@/lib/application-fee-waiver";
 
 const OWNER = "owner-1";
 const PROPERTY = "prop-3";
@@ -220,5 +223,48 @@ describe("ordinary per-property saves are unaffected", () => {
     expect(result.ok).toBe(true);
     expect(mine.status).toBe("active");
     expect(rows.filter((r) => r.status === "active").length).toBe(1);
+  });
+});
+
+describe("the read-only precheck answers exactly what the write would", () => {
+  it("reports the cross-property conflict without touching a row", async () => {
+    const other = seed({ code: "SHARED", property_id: "prop-other", label: "listing:prop-other" });
+
+    const preview = await previewPropertyApplicationFeeWaiverCodeWrite(makeDb(), OWNER, PROPERTY, "SHARED");
+
+    expect(preview.ok).toBe(false);
+    expect(preview.ok === false && preview.error).toContain("already in use on another property");
+    expect(other.property_id).toBe("prop-other");
+    expect(rows).toHaveLength(1);
+  });
+
+  it("reports the owner-only portfolio conversion, and clears it for the owner", async () => {
+    seed({ code: "FREE100", property_id: null });
+
+    const delegate = await previewPropertyApplicationFeeWaiverCodeWrite(makeDb(), OWNER, PROPERTY, "FREE100", {
+      allowPortfolioConversion: false,
+    });
+    expect(delegate.ok).toBe(false);
+
+    const owner = await previewPropertyApplicationFeeWaiverCodeWrite(makeDb(), OWNER, PROPERTY, "FREE100", {
+      allowPortfolioConversion: true,
+    });
+    expect(owner.ok).toBe(true);
+    // Still a read: nothing moved.
+    expect(rows[0]!.property_id).toBeNull();
+  });
+
+  it("passes a code this property already owns, and a clear", async () => {
+    seed({ code: "MINE", property_id: PROPERTY, label: `listing:${PROPERTY}` });
+
+    expect((await previewPropertyApplicationFeeWaiverCodeWrite(makeDb(), OWNER, PROPERTY, "MINE")).ok).toBe(true);
+    expect((await previewPropertyApplicationFeeWaiverCodeWrite(makeDb(), OWNER, PROPERTY, "")).ok).toBe(true);
+    expect(rows[0]!.status).toBe("active");
+  });
+
+  it("rejects a malformed code the same way the write does", async () => {
+    const preview = await previewPropertyApplicationFeeWaiverCodeWrite(makeDb(), OWNER, PROPERTY, "no");
+    expect(preview.ok).toBe(false);
+    expect(preview.ok === false && preview.error).toContain("4-32 letters");
   });
 });

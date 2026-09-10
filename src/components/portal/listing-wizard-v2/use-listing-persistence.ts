@@ -109,10 +109,18 @@ export function useListingPersistence({
         setBusy(true);
         try {
           const ownerId = editListingOwnerUserId?.trim() || userId;
-          const ok = await updateExtraListingFromSubmissionOnServer(editing, ownerId, submission);
-          return ok
-            ? { ok: true, id: editing }
-            : { ok: false, message: "Could not save your changes. Check your connection and try again." };
+          let serverReason = "";
+          const ok = await updateExtraListingFromSubmissionOnServer(editing, ownerId, submission, {
+            onError: (message) => {
+              serverReason = message;
+            },
+          });
+          if (ok) return { ok: true, id: editing };
+          return {
+            ok: false,
+            message:
+              serverReason || "Could not save your changes. Check your connection and try again.",
+          };
         } finally {
           setBusy(false);
         }

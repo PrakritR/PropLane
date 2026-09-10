@@ -968,6 +968,8 @@ export async function updateExtraListingFromSubmissionOnServer(
   listingId: string,
   managerUserId: string,
   input: ManagerPropertyDraftInput,
+  /** Receives the route's own explanation so the editor can say WHY it refused. */
+  opts?: { onError?: (message: string, code?: string) => void },
 ): Promise<boolean> {
   if (!managerUserId.trim()) return false;
   const map = readExtrasMap();
@@ -990,6 +992,7 @@ export async function updateExtraListingFromSubmissionOnServer(
       status: "live",
       propertyData,
       rowData,
+      onError: opts?.onError,
     });
     if (!ok) return false;
     await syncPropertyPipelineFromServer({ force: true });
@@ -1007,6 +1010,7 @@ export async function updateExtraListingFromSubmissionOnServer(
     status: "live",
     propertyData,
     rowData,
+    onError: opts?.onError,
   });
   if (!ok) return false;
   list[idx] = propertyData;

@@ -36,7 +36,7 @@ import {
   loadManagerLandlordLegalNameFromProfile,
 } from "@/lib/manager-landlord-profile";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
-import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
+import { assertCoManagerModuleAccessStrict } from "@/lib/auth/co-manager-access";
 
 export const runtime = "nodejs";
 
@@ -51,13 +51,11 @@ export const runtime = "nodejs";
  * it. An unowned or unknown property falls back to the caller, which is exactly
  * the previous behaviour and exposes nothing new.
  *
- * The co-manager check resolves through `linkedOwnerScopeForModule`, NOT the
- * shared `assertCoManagerModuleAccess`: that helper still carries the retired
- * empty-map-means-full-access sentinel
+ * The co-manager check resolves through `assertCoManagerModuleAccessStrict`,
+ * NOT the shared `assertCoManagerModuleAccess`: that helper still carries the
+ * retired empty-map-means-full-access sentinel
  * (`managerHasCoManagerPermissionForProperty`), which would hand a co-manager
  * holding `{}` on this property the owner's waiver code to read and rewrite.
- * `coManagerModuleAllowed` — the one answer this path resolves through — denies
- * an empty map.
  */
 async function resolveWaiverCodeScope(
   db: SupabaseClient,
@@ -78,19 +76,11 @@ async function resolveWaiverCodeScope(
   if (!ownerUserId || ownerUserId === callerUserId) {
     return { ok: true, ownerUserId: ownerUserId || callerUserId, callerIsOwner: true };
   }
-  const { ownerIds, propertyIds } = await linkedOwnerScopeForModule(
-    db as never,
-    callerUserId,
-    "applications",
+  const access = await assertCoManagerModuleAccessStrict(db as never, callerUserId, propertyId, "applications", {
+    ownerManagerUserId: ownerUserId,
     level,
-  );
-  if (!propertyIds.has(propertyId) || !ownerIds.has(ownerUserId)) {
-    return {
-      ok: false,
-      status: 403,
-      error: "You do not have access to this section for this property.",
-    };
-  }
+  });
+  if (!access.ok) return { ok: false, status: access.status, error: access.error };
   return { ok: true, ownerUserId, callerIsOwner: false };
 }
 

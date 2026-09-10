@@ -56,7 +56,12 @@ describe("publishing an edit", () => {
       expect(r).toEqual({ ok: true, id: "listing-9" });
     });
     expect(submitPending).not.toHaveBeenCalled();
-    expect(updateExtraListing).toHaveBeenCalledWith("listing-9", "co-manager-1", sub);
+    expect(updateExtraListing).toHaveBeenCalledWith(
+      "listing-9",
+      "co-manager-1",
+      sub,
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
   });
 
   it("writes a co-managed listing under its OWNER, not the co-manager", async () => {
@@ -72,7 +77,12 @@ describe("publishing an edit", () => {
     await act(async () => {
       await result.current.publish(sub);
     });
-    expect(updateExtraListing).toHaveBeenCalledWith("listing-9", "owner-7", sub);
+    expect(updateExtraListing).toHaveBeenCalledWith(
+      "listing-9",
+      "owner-7",
+      sub,
+      expect.objectContaining({ onError: expect.any(Function) }),
+    );
   });
 
   it("still saves when the account is at its plan limit — an edit takes no new slot", async () => {
@@ -98,6 +108,34 @@ describe("publishing an edit", () => {
     await act(async () => {
       const r = await result.current.publish(sub);
       expect(r.ok).toBe(false);
+    });
+  });
+
+  it("repeats the server's own reason instead of blaming the connection", async () => {
+    // A promo code already live on another listing is refused by the route with
+    // a sentence that tells the manager what to change. Reporting "check your
+    // connection" for it sends them to fix the wrong thing.
+    updateExtraListing.mockImplementation(
+      async (
+        _id: string,
+        _owner: string,
+        _input: unknown,
+        opts?: { onError?: (message: string) => void },
+      ) => {
+        opts?.onError?.(
+          "Application-fee promo code: That code is already in use on another property. Give this one its own code.",
+        );
+        return false;
+      },
+    );
+    const { result } = renderHook(() =>
+      useListingPersistence({ userId: "m1", skuTier: "pro", propertyCount: 0, editListingId: "listing-9" }),
+    );
+    await act(async () => {
+      const r = await result.current.publish(sub);
+      expect(r.ok).toBe(false);
+      expect(r.message).toContain("already in use on another property");
+      expect(r.message).not.toContain("connection");
     });
   });
 

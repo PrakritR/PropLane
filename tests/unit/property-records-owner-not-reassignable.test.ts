@@ -54,6 +54,7 @@ vi.mock("@/lib/manager-access-server", () => ({
 }));
 vi.mock("@/lib/auth/co-manager-access", () => ({
   assertCoManagerModuleAccess: async () => CO_MANAGER_ACCESS,
+  assertCoManagerModuleAccessStrict: async () => CO_MANAGER_ACCESS,
 }));
 vi.mock("@/lib/auth/clear-property-housing-access", () => ({
   clearHousingAccessForDeletedProperty: async () => {},
