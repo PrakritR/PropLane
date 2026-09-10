@@ -25,7 +25,6 @@ let PREVIEW_CALLS: Array<{ propertyId: string; code: string | null | undefined }
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => false }));
 vi.mock("@/lib/auth/co-manager-access", () => ({
   assertCoManagerModuleAccess: async () => ({ ok: false, error: "Forbidden.", status: 403 }),
-  assertCoManagerModuleAccessStrict: async () => ({ ok: false, error: "Forbidden.", status: 403 }),
 }));
 vi.mock("@/lib/auth/clear-property-housing-access", () => ({
   clearHousingAccessForDeletedProperty: async () => {},

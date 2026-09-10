@@ -2,7 +2,7 @@ import { clearHousingAccessForDeletedProperty } from "@/lib/auth/clear-property-
 import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
 import { isAdminUser } from "@/lib/auth/admin-preview";
-import { assertCoManagerModuleAccessStrict } from "@/lib/auth/co-manager-access";
+import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
 import { asStringArray } from "@/lib/account-link-invite-row";
 import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -232,12 +232,11 @@ export async function POST(req: Request) {
       // Co-manager acting on a linked owner's listing: require the `properties`
       // module at edit (write) or delete level on THIS property. The owner is
       // preserved on write so a co-manager can never reassign ownership.
-      // STRICT: this write also sets or clears the property's application-fee
-      // promo code under the owner's id, so an assignment carrying no checked
-      // permissions must confer nothing. `assertCoManagerModuleAccess` still
-      // reads `{}` as full access; the strict resolver denies it and pairs the
-      // grant with the owner who issued it.
-      const access = await assertCoManagerModuleAccessStrict(db, user.id, id, "properties", {
+      // This write also sets or clears the property's application-fee promo
+      // code under the owner's id, so an assignment carrying no checked
+      // permissions must confer nothing — which the gate enforces, along with
+      // pairing the grant to the owner who issued it.
+      const access = await assertCoManagerModuleAccess(db, user.id, id, "properties", {
         ownerManagerUserId: existingOwnerId,
         level: isDelete ? "delete" : "edit",
       });

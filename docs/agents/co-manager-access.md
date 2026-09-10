@@ -171,7 +171,12 @@ GET paths of work orders, service requests, household charges, vendors, and
 manager documents; leases/applications/property-records already had their own
 (`fetchLeasesForManagerUser` etc.). Write enforcement goes through
 `assertCoManagerModuleAccess(..., { level: "edit" })`
-(`src/lib/auth/co-manager-access.ts`) — bills POST is the exemplar. Filing a
+(`src/lib/auth/co-manager-access.ts`) — bills POST is the exemplar. That is the
+ONE gate: it resolves through `linkedOwnerScopeForModule` → `coManagerModuleAllowed`
+(so `{}` denies), and it pairs the grant with the row's owner. Never add a second
+same-shaped gate beside it — the next route author picks the obvious name.
+Coverage: `tests/unit/co-manager-module-gate.test.ts`,
+`tests/unit/co-manager-empty-grant-write-routes.test.ts`. Filing a
 lease under a property is the per-property equivalent
 (`managerMayFileLeaseUnderProperty`, `leases` at EDIT); see
 [`lease-generation.md`](lease-generation.md).

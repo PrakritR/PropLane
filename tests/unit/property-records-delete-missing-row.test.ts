@@ -51,7 +51,6 @@ let WRITES: Array<{ table: string; op: "upsert" | "delete" | "update"; id?: stri
 vi.mock("@/lib/auth/admin-preview", () => ({ isAdminUser: async () => IS_ADMIN }));
 vi.mock("@/lib/auth/co-manager-access", () => ({
   assertCoManagerModuleAccess: async () => CO_MANAGER_ACCESS,
-  assertCoManagerModuleAccessStrict: async () => CO_MANAGER_ACCESS,
 }));
 vi.mock("@/lib/auth/clear-property-housing-access", () => ({
   clearHousingAccessForDeletedProperty: (...args: unknown[]) =>

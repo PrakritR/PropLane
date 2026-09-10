@@ -36,7 +36,7 @@ import {
   loadManagerLandlordLegalNameFromProfile,
 } from "@/lib/manager-landlord-profile";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
-import { assertCoManagerModuleAccessStrict } from "@/lib/auth/co-manager-access";
+import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
 
 export const runtime = "nodejs";
 
@@ -51,11 +51,10 @@ export const runtime = "nodejs";
  * it. An unowned or unknown property falls back to the caller, which is exactly
  * the previous behaviour and exposes nothing new.
  *
- * The co-manager check resolves through `assertCoManagerModuleAccessStrict`,
- * NOT the shared `assertCoManagerModuleAccess`: that helper still carries the
- * retired empty-map-means-full-access sentinel
- * (`managerHasCoManagerPermissionForProperty`), which would hand a co-manager
- * holding `{}` on this property the owner's waiver code to read and rewrite.
+ * A co-manager holding `{}` on this property must not read or rewrite the
+ * owner's waiver code, which is why `assertCoManagerModuleAccess` resolves
+ * through `coManagerModuleAllowed` rather than the retired empty-means-full
+ * sentinel.
  */
 async function resolveWaiverCodeScope(
   db: SupabaseClient,
@@ -76,7 +75,7 @@ async function resolveWaiverCodeScope(
   if (!ownerUserId || ownerUserId === callerUserId) {
     return { ok: true, ownerUserId: ownerUserId || callerUserId, callerIsOwner: true };
   }
-  const access = await assertCoManagerModuleAccessStrict(db as never, callerUserId, propertyId, "applications", {
+  const access = await assertCoManagerModuleAccess(db as never, callerUserId, propertyId, "applications", {
     ownerManagerUserId: ownerUserId,
     level,
   });
