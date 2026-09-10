@@ -5,10 +5,17 @@
  * writing the markup to EVIDENCE_DIR (when set) for screenshotting.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => (req: { description?: unknown }) =>
+    Promise.resolve(
+      typeof window === "undefined"
+        ? true
+        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+    ),
+
   useAppUi: () => ({ showToast: () => {} }),
 }));
 
@@ -80,6 +87,7 @@ describe("evidence · generate-lease picker follows the property's real formats"
       <LeaseGenerateModal open row={ROW} managerUserId="mgr-1" onClose={() => {}} onGenerated={() => {}} />,
     );
     expect(document.body.textContent).toContain("Long-term lease");
+    fireEvent.click(screen.getByRole("button", { name: "Lease type" }));
     expect(document.body.textContent).toContain("Short-term lease");
     writeShot(
       "generate-with-templates",

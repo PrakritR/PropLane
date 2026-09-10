@@ -19,6 +19,30 @@ function thread(partial: Partial<PersistedInboxThread> & Pick<PersistedInboxThre
 }
 
 describe("collapsePersonInboxThreads", () => {
+  it("merges historical notices for one owner's normalized phone and preserves every turn", () => {
+    const rows = collapsePersonInboxThreads([
+      thread({ id: "claw_lease_1000_a", email: "", ownerUserId: "manager-a", from: "(206) 555-0100", body: "First", folder: "inbox" }),
+      thread({ id: "claw_resident_2000_b", email: "", ownerUserId: "manager-a", from: "+12065550100", body: "Second", folder: "inbox", time: "Jan 2, 10:00 AM", unread: true }),
+      thread({ id: "claw_lease_3000_c", email: "", ownerUserId: "manager-b", from: "+12065550100", body: "Other manager", folder: "inbox" }),
+    ], { mergeFolders: true });
+    expect(rows).toHaveLength(2);
+    const merged = rows.find((r) => r.ownerUserId === "manager-a")!;
+    expect(inboxThreadMessages(merged).map((m) => m.body)).toEqual(["First", "Second"]);
+    expect(merged.sourceThreadIds).toEqual(["claw_lease_1000_a", "claw_resident_2000_b"]);
+    expect(merged.unread).toBe(true);
+    expect(merged.messages?.every((message) => message.outbound === false)).toBe(true);
+  });
+
+  it("never guesses phone identity from a message or a display name", () => {
+    const rows = collapsePersonInboxThreads([
+      thread({ id: "claw_lease_1", email: "", ownerUserId: "a", from: "Dana", body: "+12065550100" }),
+      thread({ id: "claw_lease_2", email: "", ownerUserId: "a", from: "Dana", body: "+12065550100" }),
+      thread({ id: "claw_lease_3", email: "", from: "+12065550100" }),
+      thread({ id: "claw_lease_4", email: "", from: "+12065550100" }),
+    ]);
+    expect(rows).toHaveLength(4);
+  });
+
   it("merges multiple sent threads for the same resident email", () => {
     const rows = collapsePersonInboxThreads([
       thread({

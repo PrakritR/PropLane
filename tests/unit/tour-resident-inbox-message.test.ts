@@ -16,14 +16,16 @@ describe("recordResidentProspectInboxMessage", () => {
           };
         }
         if (table === "portal_inbox_thread_records") {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-              }),
-            }),
+          const query = {
+            select: () => query,
+            eq: () => query,
+            order: () => query,
+            limit: async () => ({ data: [], error: null }),
+            maybeSingle: async () => ({ data: null, error: null }),
+            insert: upsert,
             upsert,
           };
+          return query;
         }
         return {};
       }),
@@ -55,14 +57,16 @@ describe("recordResidentProspectInboxMessage", () => {
           };
         }
         if (table === "portal_inbox_thread_records") {
-          return {
-            select: vi.fn().mockReturnValue({
-              eq: vi.fn().mockReturnValue({
-                maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-              }),
-            }),
+          const query = {
+            select: () => query,
+            eq: () => query,
+            order: () => query,
+            limit: async () => ({ data: [], error: null }),
+            maybeSingle: async () => ({ data: null, error: null }),
+            insert: upsert,
             upsert,
           };
+          return query;
         }
         return {};
       }),

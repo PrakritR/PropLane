@@ -32,6 +32,10 @@ vi.mock("@/lib/auth/remove-portal-access", () => ({
   removePortalAccess,
 }));
 
+vi.mock("@/lib/auth/purge-shared-account-attachments", () => ({ purgeSharedAccountAttachments: vi.fn(async () => undefined) }));
+
+vi.mock("@/lib/sms-relay.server", () => ({ closeRelayThreadsForUser: vi.fn(async () => undefined) }));
+
 vi.mock("@/lib/stripe", () => ({ getStripe }));
 vi.mock("@/lib/manager-admin-purchase", () => ({ isAdminManagedManagerPurchase }));
 
@@ -44,11 +48,31 @@ import {
   deleteResidentAccount,
 } from "@/lib/auth/delete-portal-account";
 
+
+function getUserById(id: string) {
+  const emails: Record<string, string> = {
+    "user-dual": "dual@test.com", "user-1": "manager@test.com",
+    "admin-target": "mgr@test.com", "left-over": "left@test.com",
+    "user-self": "me@test.com", "user-comp": "me@test.com",
+  };
+  return Promise.resolve({ data: { user: { id, email: emails[id] } }, error: null });
+}
+
+function purchaseQuery(data: Record<string, unknown>[] = []) {
+  const query = {
+    select: () => query, order: () => query, range: () => query,
+    eq: () => query, ilike: () => query,
+    then: (resolve: (value: unknown) => void) => resolve({ data, error: null }),
+  };
+  return query;
+}
+
 function mockDb(roleRows: { role: string }[], legacyRole = "resident") {
   const userId = "user-dual";
   findAuthUserIdByEmail.mockResolvedValue(userId);
   return {
     from: (table: string) => {
+      if (table === "manager_purchases") return purchaseQuery();
       if (table === "profiles") {
         return {
           select: () => ({
@@ -76,7 +100,7 @@ function mockDb(roleRows: { role: string }[], legacyRole = "resident") {
         delete: () => ({ eq: async () => ({ error: null }) }),
       };
     },
-    auth: { admin: { deleteUser: vi.fn(async () => ({ error: null })) } },
+    auth: { admin: { getUserById, deleteUser: vi.fn(async () => ({ error: null })) } },
   };
 }
 
@@ -111,7 +135,7 @@ describe("delete-portal-account", () => {
       from: () => ({
         select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
       }),
-      auth: { admin: { deleteUser: vi.fn() } },
+      auth: { admin: { getUserById, deleteUser: vi.fn() } },
     };
 
     const result = await deleteResidentAccount(db as never, {
@@ -123,6 +147,7 @@ describe("delete-portal-account", () => {
       email: "",
       userId: null,
       applicationId: "app-1",
+      complete: true,
     });
     expect(result).toEqual({ ok: true, mode: "purged_data_only" });
   });
@@ -131,6 +156,7 @@ describe("delete-portal-account", () => {
     const deleteUser = vi.fn(async () => ({ error: null }));
     const db = {
       from: (table: string) => {
+      if (table === "manager_purchases") return purchaseQuery();
         if (table === "profiles") {
           return {
             select: () => ({
@@ -157,12 +183,12 @@ describe("delete-portal-account", () => {
           }),
         };
       },
-      auth: { admin: { deleteUser } },
+      auth: { admin: { getUserById, deleteUser } },
     };
 
     const result = await deletePortalAccountCompletely(db as never, "user-1");
 
-    expect(purgeManagerPortalData).toHaveBeenCalledWith(db, "user-1");
+    expect(purgeManagerPortalData).toHaveBeenCalledWith(db, "user-1", true, "manager@test.com");
     expect(purgeResidentPortalData).toHaveBeenCalledWith(db, {
       email: "manager@test.com",
       userId: "user-1",
@@ -176,6 +202,7 @@ describe("delete-portal-account", () => {
     let roleReads = 0;
     const db = {
       from: (table: string) => {
+      if (table === "manager_purchases") return purchaseQuery();
         if (table === "profiles") {
           return {
             select: () => ({
@@ -206,7 +233,7 @@ describe("delete-portal-account", () => {
           select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
         };
       },
-      auth: { admin: { deleteUser: vi.fn() } },
+      auth: { admin: { getUserById, deleteUser: vi.fn() } },
     };
     removePortalAccess.mockResolvedValue({ ok: true, mode: "revoked_role", remainingRoles: ["manager"] });
 
@@ -250,18 +277,12 @@ describe("delete-portal-account", () => {
             }),
           };
         }
-        if (table === "manager_purchases") {
-          return {
-            select: () => ({
-              eq: () => ({ maybeSingle: async () => ({ data: null }) }),
-            }),
-          };
-        }
+        if (table === "manager_purchases") return purchaseQuery([]);
         return {
           select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
         };
       },
-      auth: { admin: { deleteUser: vi.fn() } },
+      auth: { admin: { getUserById, deleteUser: vi.fn() } },
     };
 
     const result = await deleteOwnPortalAccount(db as never, "user-dual", "manager");
@@ -269,7 +290,7 @@ describe("delete-portal-account", () => {
     expect(result.ok).toBe(true);
     expect(result.signedOut).toBe(false);
     expect(result.redirectTo).toBe("/resident");
-    expect(purgeManagerPortalData).toHaveBeenCalledWith(db, "user-dual");
+    expect(purgeManagerPortalData).toHaveBeenCalledWith(db, "user-dual", false, "dual@test.com");
   });
 
   it("admin delete runs the same full teardown as self-delete", async () => {
@@ -280,13 +301,7 @@ describe("delete-portal-account", () => {
     const deleteUser = vi.fn(async () => ({ error: null }));
     const db = {
       from: (table: string) => {
-        if (table === "manager_purchases") {
-          return {
-            select: () => ({
-              eq: () => ({ maybeSingle: async () => ({ data: null }) }),
-            }),
-          };
-        }
+        if (table === "manager_purchases") return purchaseQuery([]);
         if (table === "profiles") {
           return {
             select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { email: "mgr@test.com" } }) }) }),
@@ -301,12 +316,12 @@ describe("delete-portal-account", () => {
           delete: () => ({ eq: async () => ({ error: null }) }),
         };
       },
-      auth: { admin: { deleteUser } },
+      auth: { admin: { getUserById, deleteUser } },
     };
 
     const result = await deleteAdminPortalAccount(db as never, "admin-target");
 
-    expect(purgeManagerPortalData).toHaveBeenCalledWith(db, "admin-target");
+    expect(purgeManagerPortalData).toHaveBeenCalledWith(db, "admin-target", true, "mgr@test.com");
     expect(purgeResidentPortalData).toHaveBeenCalled();
     expect(deleteUser).toHaveBeenCalledWith("admin-target");
     expect(result).toEqual({ ok: true, mode: "deleted_auth_user" });
@@ -321,6 +336,7 @@ describe("delete-portal-account", () => {
     let profilesRead = 0;
     const db = {
       from: (table: string) => {
+      if (table === "manager_purchases") return purchaseQuery();
         if (table === "profiles") {
           return {
             select: () => ({
@@ -349,7 +365,7 @@ describe("delete-portal-account", () => {
           delete: () => ({ eq: async () => ({ error: null }) }),
         };
       },
-      auth: { admin: { deleteUser } },
+      auth: { admin: { getUserById, deleteUser } },
     };
 
     const result = await deleteOwnPortalAccount(db as never, "left-over", "manager");
@@ -371,17 +387,7 @@ describe("delete-portal-account", () => {
     const deleteUser = vi.fn(async () => ({ error: null }));
     const db = {
       from: (table: string) => {
-        if (table === "manager_purchases") {
-          return {
-            select: () => ({
-              eq: () => ({
-                maybeSingle: async () => ({
-                  data: { stripe_subscription_id: "sub_123", stripe_checkout_session_id: "cs_live_x" },
-                }),
-              }),
-            }),
-          };
-        }
+        if (table === "manager_purchases") return purchaseQuery([{ id: "purchase-1", stripe_subscription_id: "sub_123", stripe_checkout_session_id: "cs_live_x" }]);
         if (table === "profiles") {
           return {
             select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { email: "me@test.com" } }) }) }),
@@ -396,14 +402,14 @@ describe("delete-portal-account", () => {
           delete: () => ({ eq: async () => ({ error: null }) }),
         };
       },
-      auth: { admin: { deleteUser } },
+      auth: { admin: { getUserById, deleteUser } },
     };
 
     const result = await deleteOwnAccount(db as never, "user-self");
 
     expect(cancel).toHaveBeenCalledWith("sub_123");
     expect(purgeVendorPortalData).toHaveBeenCalledWith(db, { userId: "user-self", email: "me@test.com" });
-    expect(purgeManagerPortalData).toHaveBeenCalledWith(db, "user-self");
+    expect(purgeManagerPortalData).toHaveBeenCalledWith(db, "user-self", true, "me@test.com");
     expect(deleteUser).toHaveBeenCalledWith("user-self");
     expect(result).toEqual({ ok: true, mode: "deleted_auth_user" });
   });
@@ -416,15 +422,7 @@ describe("delete-portal-account", () => {
     const deleteUser = vi.fn(async () => ({ error: null }));
     const db = {
       from: (table: string) => {
-        if (table === "manager_purchases") {
-          return {
-            select: () => ({
-              eq: () => ({
-                maybeSingle: async () => ({ data: { stripe_subscription_id: "sub_admin", stripe_checkout_session_id: "admin_comp_x" } }),
-              }),
-            }),
-          };
-        }
+        if (table === "manager_purchases") return purchaseQuery([{ id: "purchase-2", stripe_subscription_id: "sub_admin", stripe_checkout_session_id: "admin_comp_x" }]);
         if (table === "profiles") {
           return {
             select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { email: "me@test.com" } }) }) }),
@@ -439,7 +437,7 @@ describe("delete-portal-account", () => {
           delete: () => ({ eq: async () => ({ error: null }) }),
         };
       },
-      auth: { admin: { deleteUser } },
+      auth: { admin: { getUserById, deleteUser } },
     };
 
     const result = await deleteOwnAccount(db as never, "user-comp");

@@ -10,7 +10,6 @@ import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { isScreeningTestModeActive } from "@/lib/screening/screening-test-mode";
 import { applyDemoBackgroundCheckResolution } from "@/lib/screening/apply-demo-background-check";
 import { buildBackgroundCheckReportHtml } from "@/lib/background-check-report-html";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -57,7 +56,7 @@ export function downloadBackgroundCheckForApplication(
   row: DemoApplicantRow,
   opts?: { cosignerSubmissionId?: string },
 ): void {
-  const demo = isDemoModeActive() || isScreeningTestModeActive();
+  const demo = isDemoModeActive();
   if (demo) {
     void import("@/lib/demo/demo-document-files")
       .then(({ downloadDemoBackgroundCheckPdf }) => downloadDemoBackgroundCheckPdf(row))
@@ -236,7 +235,7 @@ export function ApplicationScreeningPanel({
   cosignerSubmissionId?: string;
 }) {
   const { showToast } = useAppUi();
-  const demo = isDemoModeActive() || isScreeningTestModeActive();
+  const demo = isDemoModeActive();
   const screeningSubjects = useMemo(
     () => buildScreeningSubjects(row, cosignerSubmissions),
     [row, cosignerSubmissions],

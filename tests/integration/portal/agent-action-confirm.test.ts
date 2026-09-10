@@ -63,6 +63,7 @@ function overdueCharge(id: string, managerUserId: string) {
 function makeFakeServiceDb(opts: {
   pendingRows: Row[];
   charges: ReturnType<typeof overdueCharge>[];
+  residentProfile?: Row | false;
 }) {
   const auditLog: Row[] = [];
   const inboxThreads: Row[] = [];
@@ -126,6 +127,19 @@ function makeFakeServiceDb(opts: {
       },
       maybeSingle: async () => {
         if (table === "profiles") {
+          const emailFilter = filters.find(([, col]) => col === "email");
+          if (emailFilter) {
+            const profile = opts.residentProfile === false
+              ? null
+              : opts.residentProfile ?? {
+                  id: "44444444-4444-4444-8444-444444444444",
+                  email: emailFilter[2],
+                  role: "resident",
+                  phone: null,
+                  phone_verified_at: null,
+                };
+            return { data: profile, error: null };
+          }
           return { data: { email: "manager@axis.test", role: "manager" }, error: null };
         }
         const hit = rowsFor().find((r) => matches(r, filters));
@@ -222,6 +236,27 @@ describe("agent confirm gate (POST /api/agent/chat)", () => {
       MANAGER_ID,
       expect.objectContaining({ action: "send_rent_reminder", portal: "manager" }),
     );
+  });
+
+  it("clears the reminder dedupe key when every requested channel is unavailable", async () => {
+    mockAuthUser(MANAGER_ID);
+    const rows = [pendingRow()];
+    const fake = makeFakeServiceDb({
+      pendingRows: rows,
+      charges: [overdueCharge("hc_1", MANAGER_ID)],
+      residentProfile: false,
+    });
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(fake.db as never);
+
+    const res = await agentChat(actionRequest({ confirmActionId: ACTION_ID }));
+    expect(res.status).toBe(200);
+    expect(fake.auditLog).toHaveLength(1);
+    expect(fake.auditLog[0]!.dedupe_key).toBeNull();
+    expect((fake.auditLog[0]!.result_summary as { delivery?: unknown })?.delivery).toEqual({
+      portal: "skipped",
+      email: "skipped",
+      sms: "skipped",
+    });
   });
 
   it("cancel records the decision without executing anything", async () => {

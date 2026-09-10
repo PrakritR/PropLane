@@ -19,6 +19,7 @@ const state: {
   profile: { email: "manager@axis.test", role: "manager" },
   leases: [],
 };
+let RPC_RESULT: "persisted" | "stale" = "persisted";
 
 /** Minimal PostgREST stand-in: enough for select/eq/limit/maybeSingle/upsert. */
 function makeQuery(table: string) {
@@ -47,6 +48,14 @@ function makeQuery(table: string) {
 }
 
 const db = {
+  rpc: async (_name: string, args: { p_record: Row }) => {
+    if (RPC_RESULT === "stale") return { data: "stale", error: null };
+    const payload = args.p_record;
+    const idx = state.leases.findIndex((row) => row.id === payload.id);
+    if (idx === -1) state.leases.push({ ...payload });
+    else state.leases[idx] = { ...payload };
+    return { data: "persisted", error: null };
+  },
   from: (table: string) => {
     if (table === "profiles") {
       return {
@@ -70,7 +79,7 @@ vi.mock("@/lib/auth/manager-lease-scope", () => ({
 vi.mock("@/lib/documents/document-auto-file-hooks.server", () => ({
   autoFileLeaseDocument: async () => undefined,
 }));
-vi.mock("@/lib/domain-action-events.server", () => ({ emitLeaseTransition: vi.fn(async () => undefined) }));
+vi.mock("@/lib/domain-action-events.server", () => ({ buildDurableLeaseTransitionEnvelope: vi.fn(() => null), leaseEventForTransition: vi.fn(() => null) }));
 // Creating a lease record (no stored row) re-checks the manager role through the portal
 // context, not just the profile role this file's user mock carries.
 vi.mock("@/lib/auth/portal-access", () => ({
@@ -120,9 +129,18 @@ const storedRowData = () => state.leases[0]!.row_data as Row;
 
 describe("POST /api/portal-lease-pipeline: signed documents are immutable server-side", () => {
   beforeEach(() => {
+    RPC_RESULT = "persisted";
     state.user = { id: "11111111-2222-4333-8444-555555555555", email: "manager@axis.test" };
     state.profile = { email: "manager@axis.test", role: "manager" };
     seedExecuted();
+  });
+
+  it("returns 409 and preserves the newer stored lease when updated_at CAS is stale", async () => {
+    const before = structuredClone(state.leases[0]);
+    RPC_RESULT = "stale";
+    const response = await post({ action: "upsert", row: storedRowData() });
+    expect(response.status).toBe(409);
+    expect(state.leases[0]).toEqual(before);
   });
 
   it("refuses to replace the document body of a signed lease", async () => {

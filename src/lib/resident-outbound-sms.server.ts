@@ -31,6 +31,7 @@ export type ResidentOutboundSmsResult = {
   channel?: "claw" | "twilio";
   error?: string;
   sid?: string;
+  outboxStatus?: string;
 };
 
 export type ResidentOutboundThreadOpts = {
@@ -39,6 +40,8 @@ export type ResidentOutboundThreadOpts = {
   residentEmail?: string | null;
   topic: ClawThreadTopic;
   counterpartyRole?: SmsCounterpartyRole;
+  /** Existing scoped thread identity. Never accept this from an external request. */
+  conversationKey?: string | null;
 };
 
 function trimSmsBody(text: string, max = 480): string {
@@ -163,6 +166,7 @@ export async function sendResidentOutboundSms(args: {
     sendClass: args.sendClass ?? "automated",
     purpose: args.purpose ?? "legacy_automated_message",
     dedupeKey: args.dedupeKey,
+    conversationKey: args.openThread?.conversationKey,
     log: args.openThread?.managerUserId
       ? {
           managerUserId: args.openThread.managerUserId,
@@ -189,6 +193,7 @@ export async function sendResidentOutboundSms(args: {
     channel: result.channel,
     error: result.error,
     sid: result.sid,
+    outboxStatus: result.outboxStatus,
   };
 }
 

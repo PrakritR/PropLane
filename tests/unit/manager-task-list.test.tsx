@@ -20,7 +20,9 @@ vi.mock("@/components/providers/app-ui-provider", () => {
   // Stable identity: the real provider memoizes showToast, and the list's
   // refresh callback (and its load effect) keys off it.
   const appUi = { showToast: () => {} };
-  return { useAppUi: () => appUi };
+  const confirmViaWindow = (req: { description?: unknown }) =>
+    Promise.resolve(window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"));
+  return { useAppUi: () => appUi, useConfirm: () => confirmViaWindow };
 });
 vi.mock("@/hooks/use-work-assignment-directory", () => ({
   useWorkAssignmentDirectory: () => ({ teamMembers: [], vendors: [], ready: true }),

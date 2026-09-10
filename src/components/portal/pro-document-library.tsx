@@ -12,7 +12,7 @@ import {
 } from "@/components/portal/filter-field-lists";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import {
   ManagerPortalStatusPills,
   MANAGER_TABLE_TH,
@@ -293,6 +293,7 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
     ref,
   ) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const demo = isDemoModeActive();
   const searchParams = useSearchParams();
 
@@ -433,7 +434,7 @@ export const ManagerDocumentLibrary = forwardRef<ManagerDocumentLibraryHandle, M
 
   const handleDelete = useCallback(
     async (doc: ManagerDocumentDTO) => {
-      if (!window.confirm(`Delete "${doc.displayName}"? It will be removed from your library.`)) return;
+      if (!(await confirm({ description: `Delete "${doc.displayName}"? It will be removed from your library.` }))) return;
       try {
         const res = await fetch(`/api/manager-documents/${doc.id}`, { method: "DELETE", credentials: "include" });
         const data = await res.json().catch(() => ({}));
@@ -896,6 +897,7 @@ function UploadModal({
   versionMode?: boolean;
 }) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [displayName, setDisplayName] = useState("");
@@ -1144,6 +1146,7 @@ function EditDocumentModal({
   onSaved: (doc: ManagerDocumentDTO) => void;
 }) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const [name, setName] = useState("");
   const [category, setCategory] = useState<ManagerDocumentCategory>("other");
   const [visibility, setVisibility] = useState<ManagerDocumentVisibility>("manager");
@@ -1262,6 +1265,7 @@ function EditDocumentModal({
 
 function PreviewModal({ doc, onClose }: { doc: ManagerDocumentDTO | null; onClose: () => void }) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);

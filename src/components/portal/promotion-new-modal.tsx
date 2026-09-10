@@ -20,6 +20,7 @@ import type { PromotionAssetKind } from "@/lib/promotion-assets";
 import { buildPromotionNewModalAssistantContext } from "@/lib/promotion-assistant-context";
 import type { PromotionTextFormat } from "@/lib/promotion-text";
 import { PromotionUploadComposer } from "@/components/portal/promotion-upload-composer";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 
 const PROMOTION_KIND_OPTIONS: { id: PromotionAssetKind; label: string; description: string }[] = [
   { id: "flyer", label: "Flyer", description: "Printable or social-ready design." },
@@ -153,7 +154,9 @@ export function PromotionNewModal({
     textDirtyRef.current = dirty;
   }, []);
 
-  function requestSwitch(next: PromotionAssetKind) {
+  const confirm = useConfirm();
+
+  async function requestSwitch(next: PromotionAssetKind) {
     if (next === kind) return;
     if (flyerBusy || textBusy || uploadBusy) return;
     const leavingDirty =
@@ -164,8 +167,12 @@ export function PromotionNewModal({
           : Boolean(uploadFile);
     if (
       leavingDirty &&
-      typeof window !== "undefined" &&
-      !window.confirm("Switch promotion type? The content you've entered will be discarded.")
+      !(await confirm({
+        title: "Switch type",
+        description: "Switch promotion type?",
+        note: "The content you've entered will be discarded.",
+        confirmLabel: "Switch",
+      }))
     ) {
       return;
     }

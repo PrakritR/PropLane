@@ -77,9 +77,17 @@ describe("assertNonProdDatabase", () => {
     expect(() => assertNonProdDatabase()).not.toThrow();
   });
 
-  it("is a no-op when AXIS_PROD_SUPABASE_REF is unset", () => {
+  it("protects the known production database even without an opt-in env var", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = `https://${PROD_REF}.supabase.co`;
-    expect(() => assertNonProdDatabase()).not.toThrow();
+    expect(() => assertNonProdDatabase()).toThrow(/production/i);
+  });
+
+  it("refuses a local production build that names the live project", () => {
+    // `npm run build && npm start` with a stray .env.production: NODE_ENV is
+    // production but VERCEL_ENV is unset, which used to satisfy the bypass.
+    process.env.NODE_ENV = "production";
+    process.env.NEXT_PUBLIC_SUPABASE_URL = `https://${PROD_REF}.supabase.co`;
+    expect(() => assertNonProdDatabase()).toThrow(/production/i);
   });
 
   it("allows the production runtime to use the production project", () => {

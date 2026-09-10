@@ -18,6 +18,7 @@
  */
 
 import { useId, type ReactNode } from "react";
+import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /* ─────────────────────────── shell ─────────────────────────── */
@@ -25,55 +26,56 @@ import { cn } from "@/lib/utils";
 export function WizardModal({
   title,
   onClose,
-  onSaveExit,
   children,
   footer,
   stepper,
+  headerAside,
 }: {
   title: string;
   onClose?: () => void;
-  onSaveExit?: () => void;
   children: ReactNode;
   footer: ReactNode;
   stepper?: ReactNode;
+  /** The Ask PropLane trigger — kept from the previous wizard, which managers use. */
+  headerAside?: ReactNode;
 }) {
+  /*
+   * Solid white, like every other PropLane modal (Add resident, Inspections
+   * settings). The card previously inherited a translucent surface, which read
+   * as unfinished against the dimmed page behind it.
+   *
+   * The header carries ONLY Ask PropLane and the close control. Saving lives in
+   * the footer next to the other actions — a second save in the corner competed
+   * with it and is not what the rest of the product does.
+   */
   return (
-    <div className="flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border bg-card">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
-        <b className="truncate text-[15px] font-bold tracking-tight text-foreground">{title}</b>
+    <div className="flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] [html[data-theme=dark]_&]:bg-card">
+      <div className="flex shrink-0 items-center justify-between gap-3 px-6 pt-5">
+        <b className="truncate text-[19px] font-bold tracking-tight text-foreground">{title}</b>
         <div className="flex shrink-0 items-center gap-2">
-          {onSaveExit ? (
-            <button
-              type="button"
-              onClick={onSaveExit}
-              className="min-h-[36px] rounded-full border border-border bg-card px-4 text-[12.5px] font-bold text-foreground"
-              data-attr="listing-v2-save-exit"
-            >
-              Save &amp; exit
-            </button>
-          ) : null}
+          {headerAside}
           {onClose ? (
             <button
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="grid h-9 w-9 place-items-center rounded-full text-muted"
+              className="grid h-9 w-9 place-items-center rounded-full text-muted hover:bg-accent/50"
             >
               ✕
             </button>
           ) : null}
         </div>
       </div>
-      {stepper ? <div className="shrink-0 px-5 pt-4">{stepper}</div> : null}
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">{children}</div>
-      <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-accent/20 px-5 py-3.5">
+      {stepper ? <div className="shrink-0 border-b border-border/60 px-6 pb-4 pt-4">{stepper}</div> : null}
+      <div className="min-h-0 flex-1 overflow-y-auto bg-white px-6 py-6 [html[data-theme=dark]_&]:bg-card">{children}</div>
+      <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-white px-6 py-4 [html[data-theme=dark]_&]:bg-card">
         {footer}
       </div>
     </div>
   );
 }
 
-/** Named, numbered progress — Image-2 style: labels across, active bold. */
+/** Named, numbered progress. Both numerator and denominator are always shown. */
 export function WizardStepper({
   steps,
   current,
@@ -83,49 +85,56 @@ export function WizardStepper({
   current: number;
   onJump?: (index: number) => void;
 }) {
-  const pct = steps.length > 1 ? (current / (steps.length - 1)) * 100 : 100;
-  const currentLabel = steps[current]?.label ?? "";
   return (
-    <div data-attr="listing-v2-stepper">
-      <ol className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
-        {steps.map((step, i) => {
-          const done = i < current;
-          const on = i === current;
-          const reachable = i <= current;
-          return (
-            <li key={step.id}>
-              <button
-                type="button"
-                disabled={!reachable || !onJump}
-                onClick={() => reachable && onJump?.(i)}
-                aria-current={on ? "step" : undefined}
-                aria-label={`Step ${i + 1} of ${steps.length}: ${step.label}`}
+    <ol className="flex flex-wrap items-center gap-1.5">
+      {steps.map((step, i) => {
+        const done = i < current;
+        const on = i === current;
+        const reachable = i <= current;
+        return (
+          <li key={step.id}>
+            <button
+              type="button"
+              disabled={!reachable || !onJump}
+              onClick={() => reachable && onJump?.(i)}
+              aria-current={on ? "step" : undefined}
+              aria-label={`Step ${i + 1} of ${steps.length}: ${step.label}`}
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3 text-[12px] font-bold transition",
+                on
+                  ? "bg-primary/10 text-primary"
+                  : done
+                    ? "text-foreground hover:bg-accent/40"
+                    : "cursor-default text-muted/45",
+              )}
+            >
+              <span
                 className={cn(
-                  "text-[12.5px] font-bold tracking-tight transition-colors",
-                  on ? "text-foreground" : done ? "text-primary" : "cursor-default text-muted/50",
+                  "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-extrabold",
+                  done
+                    ? "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
+                    : on
+                      ? "bg-primary text-white"
+                      : "border border-border text-muted/60",
                 )}
+                aria-hidden
               >
-                {step.label}
-              </button>
-            </li>
-          );
-        })}
-      </ol>
-      <div className="relative mb-2 h-px rounded bg-border">
-        <span className="absolute left-0 top-0 block h-px rounded bg-primary" style={{ width: `${pct}%` }} />
-      </div>
-      <p className="text-[12.5px] font-bold text-foreground">
-        Step {current + 1} of {steps.length} · {currentLabel}
-      </p>
-    </div>
+                {done ? "✓" : i + 1}
+              </span>
+              {step.label}
+            </button>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
-/** The heading block at the top of every step body (title + subtitle only — progress lives in the stepper). */
+/** The heading block at the top of every step body. */
 export function StepHeading({
-  step: _step,
-  total: _total,
-  name: _name,
+  step,
+  total,
+  name,
   title,
   subtitle,
 }: {
@@ -137,6 +146,9 @@ export function StepHeading({
 }) {
   return (
     <div className="mb-5">
+      <p className="mb-2 text-[12px] font-bold text-muted">
+        Step {step} of {total} · {name}
+      </p>
       <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">{title}</h2>
       {subtitle ? <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{subtitle}</p> : null}
     </div>
@@ -144,8 +156,16 @@ export function StepHeading({
 }
 
 /** Constrains a step body to a single readable column. */
+/**
+ * The body of a step.
+ *
+ * It used to cap at 520px inside a modal more than twice that wide, so most of
+ * the screen was empty and a four-column row of short fields wrapped anyway.
+ * The cap is now generous enough to use the modal and still keep a line of
+ * prose readable; `wide` removes it for the table steps.
+ */
 export function StepColumn({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
-  return <div className={wide ? "max-w-3xl" : "max-w-[520px]"}>{children}</div>;
+  return <div className={wide ? "w-full" : "w-full max-w-[860px]"}>{children}</div>;
 }
 
 /* ─────────────────────────── fields ─────────────────────────── */
@@ -297,11 +317,109 @@ export function MoreOptions({
         onClick={onToggle}
         aria-expanded={open}
         data-attr={dataAttr}
-        className="w-full rounded-xl border border-dashed border-border px-3.5 py-3 text-left text-[13px] font-bold text-primary"
+        className="flex w-full items-center justify-between gap-3 rounded-xl border border-border bg-accent/25 px-4 py-3 text-left transition hover:bg-accent/40"
       >
-        {label} {open ? "⌃" : "⌄"}
+        <span className="min-w-0">
+          <span className="block text-[13px] font-bold text-foreground">{open ? "Hide extra options" : "More options"}</span>
+          <span className="mt-0.5 block truncate text-[12px] text-muted">{label}</span>
+        </span>
+        <span className="shrink-0 text-[13px] font-bold text-primary" aria-hidden>
+          {open ? "▴" : "▾"}
+        </span>
       </button>
-      {open ? <div className="mt-4 border-l-2 border-border pl-4">{children}</div> : null}
+      {open ? (
+        <div className="mt-4 rounded-xl border border-border bg-accent/15 p-4">{children}</div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * One Advanced panel holding named groups, used at both house and room level.
+ *
+ * Two "More options" cards asking a manager to guess which one held the late
+ * fee was the thing being fixed. There is one panel now, and inside it the
+ * groups are named for what a manager is looking for — Lease terms, Payments,
+ * Media, Move-in — so finding a field is reading a list rather than opening
+ * boxes.
+ */
+export function AdvancedPanel({
+  summary,
+  open,
+  onToggle,
+  children,
+  dataAttr,
+}: {
+  summary: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+  dataAttr?: string;
+}) {
+  return (
+    <div className="mt-5 overflow-hidden rounded-2xl border border-border bg-accent/15">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        data-attr={dataAttr}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left transition hover:bg-accent/30"
+      >
+        <span className="min-w-0 no-underline">
+          <span className="block text-[14px] font-bold leading-5 text-foreground no-underline">Advanced</span>
+          <span className="mt-1 block truncate text-[12.5px] leading-5 text-muted no-underline">{summary}</span>
+        </span>
+        <span className="shrink-0 text-[13px] font-bold text-primary" aria-hidden>
+          {open ? "▴" : "▾"}
+        </span>
+      </button>
+      {open ? <div className="border-t border-border bg-card">{children}</div> : null}
+    </div>
+  );
+}
+
+/**
+ * A named group inside {@link AdvancedPanel}. Closed until asked for, so the
+ * panel opens onto a readable list of names rather than a wall of fields.
+ */
+export function AdvancedGroup({
+  title,
+  description,
+  open,
+  onToggle,
+  children,
+  dataAttr,
+}: {
+  title: string;
+  description: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+  dataAttr?: string;
+}) {
+  return (
+    <div className="border-b border-border/60 last:border-b-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        data-attr={dataAttr}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-accent/20"
+      >
+        {/*
+         * `no-underline` and an explicit line box: the description sits inside a
+         * <button>, and the decoration a button can inherit was drawing short
+         * rules through the middle of words like "move-in".
+         */}
+        <span className="min-w-0 no-underline">
+          <span className="block text-[13.5px] font-bold leading-5 text-foreground no-underline">{title}</span>
+          <span className="mt-1 block break-words text-[12px] leading-5 text-muted no-underline">{description}</span>
+        </span>
+        <span className="shrink-0 text-[12px] font-bold text-primary" aria-hidden>
+          {open ? "▴" : "▾"}
+        </span>
+      </button>
+      {open ? <div className="border-t border-border/60 bg-accent/10 px-4 pb-5 pt-4">{children}</div> : null}
     </div>
   );
 }
@@ -334,6 +452,46 @@ export function ChipToggle({
     >
       {label}
     </button>
+  );
+}
+
+/**
+ * A checkbox with its label and a line of explanation.
+ *
+ * Replaces the pill toggles for anything that is genuinely a yes/no: a pill
+ * that fills in when pressed reads as a button you clicked, not as a box you
+ * ticked, and a manager could not tell "Move-in checklist required" ON from the
+ * same words sitting there unpressed.
+ */
+export function CheckboxOption({
+  label,
+  description,
+  checked,
+  onChange,
+  dataAttr,
+}: {
+  label: string;
+  description?: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  dataAttr?: string;
+}) {
+  return (
+    <label className="flex cursor-pointer items-start gap-2.5 py-1.5">
+      <input
+        type="checkbox"
+        checked={checked}
+        data-attr={dataAttr}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-4 w-4 shrink-0 rounded border-border"
+      />
+      <span className="min-w-0">
+        <span className="block text-[13px] font-semibold text-foreground">{label}</span>
+        {description ? (
+          <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">{description}</span>
+        ) : null}
+      </span>
+    </label>
   );
 }
 
@@ -470,45 +628,110 @@ export function RowCell({
   );
 }
 
+/** A dropdown inside a grid row — used for floor and bathroom, which are choices. */
+export function RowSelectCell({
+  value,
+  options,
+  placeholder,
+  inherited,
+  onChange,
+  ariaLabel,
+}: {
+  value: string;
+  options: readonly { value: string; label: string }[];
+  placeholder?: string;
+  inherited?: boolean;
+  onChange: (next: string) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={ariaLabel}
+      className={cn(
+        "min-h-[38px] w-full rounded-lg border px-2 py-1.5 text-[13px] text-foreground outline-none focus:border-primary",
+        inherited ? "border-dashed border-border bg-accent/15 text-muted" : "border-border bg-card",
+      )}
+    >
+      <option value="">{placeholder ?? "Select…"}</option>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /** The floating bar shown while rows are selected. */
+/**
+ * The floating bar shown while rows are selected.
+ *
+ * No count label: the selection is already visible in the rows themselves, and
+ * the portal's own bulk bars are `hideCount` for exactly that reason. The bar
+ * carries actions only.
+ */
 export function RowBulkBar({ count, children }: { count: number; children: ReactNode }) {
   if (count === 0) return null;
   return (
-    <div className="mt-3 inline-flex flex-wrap items-center gap-2 rounded-full bg-foreground px-4 py-2 text-[12.5px] font-bold text-white">
-      <span>{count} selected</span>
+    <div className="mt-3 inline-flex flex-wrap items-center gap-2 rounded-full border border-border bg-card px-2 py-2 shadow-[0_10px_28px_-14px_rgba(11,27,58,0.4)]">
       {children}
     </div>
   );
 }
 
-export function BulkButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+export function BulkButton({
+  onClick,
+  children,
+  tone = "default",
+}: {
+  onClick: () => void;
+  children: ReactNode;
+  /** `danger` is text-only red, per the design system — never a filled red button. */
+  tone?: "default" | "primary" | "danger";
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="rounded-full bg-white/15 px-3 py-1.5 text-[12px] font-semibold text-white"
+      className={cn(
+        "rounded-full px-4 py-2 text-[12.5px] font-bold transition",
+        tone === "primary" && "bg-primary text-white hover:brightness-110",
+        tone === "default" && "border border-border bg-card text-foreground hover:bg-accent/50",
+        tone === "danger" && "text-red-700 hover:bg-red-50",
+      )}
     >
       {children}
     </button>
   );
 }
 
+/**
+ * The dashed ADD row from the rest of the portal — blue, uppercase, with the
+ * section's own icon. Kept identical to `PortalListAddRow` so the wizard reads
+ * as part of the product rather than as a separate form.
+ */
 export function AddRowButton({
   label,
   onClick,
   dataAttr,
+  icon: Icon,
 }: {
   label: string;
   onClick: () => void;
   dataAttr?: string;
+  icon?: LucideIcon;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       data-attr={dataAttr}
-      className="mt-3 w-full rounded-xl border border-dashed border-border px-3 py-3 text-[13px] font-bold text-primary"
+      aria-label={label}
+      className="mt-3 flex w-full items-center justify-center gap-2.5 rounded-2xl border-2 border-dashed border-primary/45 bg-primary/[0.03] px-3 py-6 text-[12px] font-extrabold uppercase tracking-[0.14em] text-primary transition hover:bg-primary/[0.07]"
     >
+      {Icon ? <Icon className="h-5 w-5" aria-hidden /> : null}
       {label}
     </button>
   );

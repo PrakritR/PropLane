@@ -18,6 +18,7 @@ import { useInboxRowSelection } from "@/components/portal/portal-inbox-selection
 import { parseUnifiedInboxKey, type UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
 import type { InboxListSegment } from "@/components/portal/portal-inbox-ui";
 import type { PortalContactDetailsValues } from "@/components/portal/portal-contact-details-modal";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 
 type SelectedRow = {
   key: string;
@@ -153,10 +154,12 @@ export function useUnifiedCommunicationBulk({
     storageKey,
   ]);
 
+  const confirm = useConfirm();
+
   const handleDelete = useCallback(async () => {
     const emailIds = selectedRows.filter((row) => row.channel === "email").map((row) => row.threadId);
     if (emailIds.length === 0) return;
-    if (!window.confirm(`Delete ${emailIds.length} conversation${emailIds.length === 1 ? "" : "s"} forever?`)) {
+    if (!(await confirm({ description: `Delete ${emailIds.length} conversation${emailIds.length === 1 ? "" : "s"} forever?` }))) {
       return;
     }
     const { ok, next } = await deletePersistedInboxThreadsForever(storageKey, emailIds);

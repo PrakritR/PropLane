@@ -6,6 +6,7 @@ import { Modal, ModalFooter, MODAL_INSET_BOX_CLASS, MODAL_WARNING_BOX_CLASS } fr
 import { PortalComposeScheduledMessagesSection } from "@/components/portal/portal-compose-scheduled-messages-section";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { cn } from "@/lib/utils";
+import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { AssignableWorkKind, WorkAssignee } from "@/lib/work-assignment";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
 import { ManagerSmsWorkNumberHint } from "@/components/portal/pro-sms-work-number-hint";
@@ -20,6 +21,7 @@ import {
   PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS,
   PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS,
   PortalMessageBodyField,
+  PortalMessageCheckboxRow,
   PortalMessageComposeModalBody,
   PortalMessageRecipientLockedField,
   PortalMessageScheduleFields,
@@ -30,7 +32,6 @@ import {
   portalMessageConfirmSendLabel,
   portalMessageRecipientDisplay,
   portalMessageSendViaFooterNote,
-  PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE,
   portalMessageFieldLabel,
 } from "@/components/portal/portal-message-compose-fields";
 
@@ -63,13 +64,10 @@ export function PortalNotificationPreviewModal({
   recipient,
   subject,
   body,
-  intro,
   warning,
   warningLead = "AI-generated draft.",
   footerNote,
   hideSendViaFooterNote = false,
-  /** When false, omit the work-number copy field (lease send preview, etc.). SMS still sends from the work number. */
-  showWorkNumberHint = true,
   showSkipMessage = true,
   skipMessageLabel = "Don't message resident",
   showChannelPicker = true,
@@ -81,7 +79,6 @@ export function PortalNotificationPreviewModal({
   editableBody = true,
   editableSubject = true,
   recipientPhone,
-  showSchedule = true,
   initialScheduleLater = false,
   scheduledRecipientEmail,
   scheduledSmsAvailable = false,
@@ -108,14 +105,12 @@ export function PortalNotificationPreviewModal({
   recipient: string;
   subject: string;
   body: string;
-  intro?: string;
   warning?: string;
   /** Prefix before `warning` text. Omit for a plain warning with no lead-in label. */
   warningLead?: string | null;
   footerNote?: string;
   /** When true, no helper copy under Send via (lease send preview, etc.). */
   hideSendViaFooterNote?: boolean;
-  showWorkNumberHint?: boolean;
   showSkipMessage?: boolean;
   skipMessageLabel?: string;
   showChannelPicker?: boolean;
@@ -128,7 +123,6 @@ export function PortalNotificationPreviewModal({
   editableBody?: boolean;
   editableSubject?: boolean;
   recipientPhone?: string;
-  showSchedule?: boolean;
   /** When true, opens with Schedule for later checked (resident detail thread flow). */
   initialScheduleLater?: boolean;
   /** When set, lists this recipient's scheduled messages at the bottom of the modal. */
@@ -155,6 +149,8 @@ export function PortalNotificationPreviewModal({
   assigneeVendors?: readonly { id: string; name?: string | null; trade?: string | null; active?: boolean }[];
   assigneeLabel?: string;
 }) {
+  const { showToast } = useAppUi();
+  const [scheduleBusy, setScheduleBusy] = useState(false);
   const [skipMessage, setSkipMessage] = useState(false);
   const [sendVia, setSendVia] = useState<string[]>([]);
   const [scheduleLater, setScheduleLater] = useState(false);
@@ -232,11 +228,10 @@ export function PortalNotificationPreviewModal({
     (): NotificationConfirmDraft => ({
       subject: draftSubject.trim(),
       body: draftBody.trim(),
-      scheduleAt:
-        showSchedule && scheduleLater && !skipMessage ? new Date(sendAt).toISOString() : undefined,
+      scheduleAt: scheduleLater && !skipMessage ? new Date(sendAt).toISOString() : undefined,
       assignee: showAssigneePicker ? draftAssignee : undefined,
     }),
-    [draftAssignee, draftBody, draftSubject, scheduleLater, sendAt, showAssigneePicker, showSchedule, skipMessage],
+    [draftAssignee, draftBody, draftSubject, scheduleLater, sendAt, showAssigneePicker, skipMessage],
   );
 
   const effectiveConfirmLabel = skipMessage
@@ -263,12 +258,63 @@ export function PortalNotificationPreviewModal({
       showChannelPicker && !skipMessage ? viaSms : Boolean(recipientPhone?.trim()),
   });
 
+  const scheduling = scheduleLater && !skipMessage;
+  const scheduleEmail = recipient.trim().toLowerCase();
+  const canSchedule = scheduleEmail.includes("@");
+
+  /**
+   * One scheduling path for every popup that uses this modal. The surface's own
+   * action still runs now — it is told NOT to send its immediate message, and
+   * the message the manager just read is handed to the scheduler instead. Doing
+   * this per call site is how "Schedule for later" ended up drawn on surfaces
+   * that quietly ignored it.
+   */
+  async function handleConfirm() {
+    const channels = portalMessageChannelsFromSelection(sendVia);
+    if (!scheduling) {
+      onConfirm(skipMessage, channels, confirmDraft);
+      return;
+    }
+    if (!canSchedule) {
+      showToast("Scheduling needs an email address for this recipient.");
+      return;
+    }
+    setScheduleBusy(true);
+    try {
+      const res = await fetch("/api/portal/scheduled-inbox-messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          subject: confirmDraft.subject,
+          body: confirmDraft.body,
+          sendAt: confirmDraft.scheduleAt,
+          deliverViaEmail: channels.viaEmail,
+          deliverViaSms: channels.viaSms,
+          recipientEmail: scheduleEmail,
+        }),
+      });
+      if (!res.ok) {
+        const payload = (await res.json().catch(() => ({}))) as { error?: string };
+        showToast(payload.error ?? "Could not schedule message.");
+        return;
+      }
+      showToast("Message scheduled.");
+      onScheduledMessagesChanged?.();
+      onConfirm(true, channels, { ...confirmDraft, scheduleAt: undefined });
+    } catch {
+      showToast("Could not schedule message.");
+    } finally {
+      setScheduleBusy(false);
+    }
+  }
+
   const primaryButtonLabel = portalMessageConfirmSendLabel({
-    busy: confirmBusy,
+    busy: confirmBusy || scheduleBusy,
     busyLabel: confirmBusyLabel,
     skipMessage,
     staticLabel: effectiveConfirmLabel,
-    scheduleLater: showSchedule && scheduleLater && !skipMessage,
+    scheduleLater: scheduleLater && !skipMessage,
     viaEmail,
     viaSms,
     dynamic: dynamicSendLabel && !skipMessage,
@@ -286,8 +332,15 @@ export function PortalNotificationPreviewModal({
         variant="primary"
         className="rounded-full"
         data-attr="portal-notification-confirm"
-        disabled={confirmBusy || !channelsOk || !messageReady || smsBlocked}
-        onClick={() => onConfirm(skipMessage, portalMessageChannelsFromSelection(sendVia), confirmDraft)}
+        disabled={
+          confirmBusy ||
+          scheduleBusy ||
+          !channelsOk ||
+          !messageReady ||
+          smsBlocked ||
+          (scheduling && !canSchedule)
+        }
+        onClick={() => void handleConfirm()}
       >
         {primaryButtonLabel}
       </Button>
@@ -316,7 +369,6 @@ export function PortalNotificationPreviewModal({
             )}
           </p>
         ) : null}
-        {intro ? <p className="text-sm leading-snug text-muted">{intro}</p> : null}
 
         <PortalMessageRecipientLockedField recipient={toRecipientDisplay || recipient || "—"} />
 
@@ -346,7 +398,7 @@ export function PortalNotificationPreviewModal({
         </div>
 
         <ManagerSmsWorkNumberHint
-          show={Boolean(showWorkNumberHint && showChannelPicker && !skipMessage && viaSms)}
+          show={Boolean(showChannelPicker && !skipMessage && viaSms)}
           phone={smsSetup?.phone ?? null}
           canSend={smsSetup?.canSend === true}
         />
@@ -381,28 +433,28 @@ export function PortalNotificationPreviewModal({
         />
 
         {showSkipMessage ? (
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={skipMessage}
-              onChange={(e) => setSkipMessage(e.target.checked)}
-              data-attr="portal-notification-skip-message"
-              className="mt-0.5 h-4 w-4 rounded border-border text-primary"
-            />
-            <span className="text-muted">{skipMessageLabel}</span>
-          </label>
+          <PortalMessageCheckboxRow
+            label={skipMessageLabel}
+            checked={skipMessage}
+            onChange={setSkipMessage}
+            dataAttr="portal-notification-skip-message"
+          />
         ) : null}
 
-        {showSchedule ? (
-          <PortalMessageScheduleFields
-            scheduleLater={scheduleLater}
-            onScheduleLaterChange={setScheduleLater}
-            sendAt={sendAt}
-            onSendAtChange={setSendAt}
-            disabled={skipMessage}
-            scheduleDataAttr="portal-notification-schedule-later"
-            sendAtDataAttr="portal-notification-schedule-at"
-          />
+        <PortalMessageScheduleFields
+          scheduleLater={scheduleLater}
+          onScheduleLaterChange={setScheduleLater}
+          sendAt={sendAt}
+          onSendAtChange={setSendAt}
+          disabled={skipMessage}
+          scheduleDataAttr="portal-notification-schedule-later"
+          sendAtDataAttr="portal-notification-schedule-at"
+        />
+
+        {scheduling && !canSchedule ? (
+          <p className="text-xs font-medium text-red-600">
+            Scheduling needs an email address for this recipient.
+          </p>
         ) : null}
 
         {!showChannelPicker && footerNote && !skipMessage ? (
@@ -420,9 +472,9 @@ export function PortalNotificationPreviewModal({
             refreshKey={scheduledRefreshKey}
             onChanged={onScheduledMessagesChanged}
             onSendMessage={
-              skipMessage || !channelsOk || !messageReady || confirmBusy
+              skipMessage || !channelsOk || !messageReady || confirmBusy || scheduleBusy
                 ? undefined
-                : () => onConfirm(skipMessage, portalMessageChannelsFromSelection(sendVia), confirmDraft)
+                : () => void handleConfirm()
             }
             sendMessageLabel={effectiveConfirmLabel}
             sendMessageBusy={confirmBusy}
@@ -479,9 +531,6 @@ export function PortalBulkPaymentReminderPreviewModal({
 
   return (
     <Modal open={open} title={title} onClose={onClose} dense footer={footer} panelClassName={PORTAL_MESSAGE_COMPOSE_MODAL_PANEL_CLASS}>
-      <p className="mb-4 text-sm leading-snug text-muted">
-        Review each message below. Reminders are saved to PropLane inbox and sent by email when an address is on file.
-      </p>
       <div className="max-h-[min(52vh,26rem)] space-y-3 overflow-y-auto pr-0.5 [scrollbar-width:thin]">
         {items.map((item, index) => (
           <div key={item.id} className="space-y-2 rounded-xl border border-border bg-accent/10 p-3">

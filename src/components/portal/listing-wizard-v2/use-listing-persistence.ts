@@ -26,7 +26,10 @@ import {
   publishManagerPropertyDraftToServer,
   saveManagerPropertyDraftToServer,
 } from "@/lib/demo-admin-property-inventory";
-import { submitManagerPendingPropertyToServer } from "@/lib/demo-property-pipeline";
+import {
+  submitManagerPendingPropertyToServer,
+  updateExtraListingFromSubmissionOnServer,
+} from "@/lib/demo-property-pipeline";
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
 import { managerPropertyLimitMessage, managerTierPropertyLimitReached } from "@/lib/manager-access";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
@@ -38,12 +41,27 @@ export function useListingPersistence({
   skuTier,
   propertyCount,
   initialDraftId = null,
+  editListingId = null,
+  editListingOwnerUserId = null,
 }: {
   userId: string | null;
   /** Matches the portal's own loose plan type — the server is the authority. */
   skuTier: string | null | undefined;
   propertyCount: number;
   initialDraftId?: string | null;
+  /**
+   * The id of an existing LIVE listing being edited, rather than a new one
+   * being created. Without it, saving an edit created a second listing beside
+   * the one the manager opened.
+   */
+  editListingId?: string | null;
+  /**
+   * Who owns that listing. For a CO-MANAGED property the owner is somebody
+   * else, and the write has to be made under their id — ownership is never
+   * reassignable from a request body (see docs/agents/property-ownership.md),
+   * so saving under the co-manager's own id is refused and the edit is lost.
+   */
+  editListingOwnerUserId?: string | null;
 }) {
   const draftIdRef = useRef<string | null>(initialDraftId);
   const [busy, setBusy] = useState(false);
@@ -83,6 +101,22 @@ export function useListingPersistence({
   const publish = useCallback(
     async (submission: ManagerListingSubmissionV1): Promise<ListingPersistenceResult> => {
       if (!userId) return { ok: false, message: "Sign in to publish this listing." };
+      const editing = editListingId?.trim();
+      if (editing) {
+        // Editing an existing listing updates it IN PLACE. It consumes no new
+        // plan slot, so the quota pre-check below is skipped deliberately — a
+        // manager at their limit must still be able to fix a typo.
+        setBusy(true);
+        try {
+          const ownerId = editListingOwnerUserId?.trim() || userId;
+          const ok = await updateExtraListingFromSubmissionOnServer(editing, ownerId, submission);
+          return ok
+            ? { ok: true, id: editing }
+            : { ok: false, message: "Could not save your changes. Check your connection and try again." };
+        } finally {
+          setBusy(false);
+        }
+      }
       // Courtesy pre-check only — the server is the authority and its refusal is
       // returned to the caller below.
       if (managerTierPropertyLimitReached(skuTier, propertyCount)) {
@@ -110,7 +144,7 @@ export function useListingPersistence({
         setBusy(false);
       }
     },
-    [userId, skuTier, propertyCount],
+    [userId, skuTier, propertyCount, editListingId, editListingOwnerUserId],
   );
 
   return { saveDraft, publish, busy, draftId: draftIdRef };

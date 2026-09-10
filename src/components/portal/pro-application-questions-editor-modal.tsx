@@ -39,6 +39,7 @@ import {
   type ResolvedApplicationField,
 } from "@/lib/rental-application/application-field-catalog";
 import { RENTAL_APPLICATION_SECTIONS } from "@/lib/rental-application/application-sections";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 import {
   createPropertyApplicationTemplate,
   syncLegacyApplicationFieldsFromTemplates,
@@ -212,10 +213,11 @@ export function ManagerApplicationQuestionsEditorModal({
   const bulkIds = propertyIds?.filter((id) => id.trim()) ?? [];
   const isBulkSave = bulkIds.length > 0;
   const showDelete = templateEditorMode === "edit" && canDelete && Boolean(onDelete);
+  const confirm = useConfirm();
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!showDelete || !onDelete) return;
-    if (!window.confirm("Delete this application? This cannot be undone.")) return;
+    if (!(await confirm({ description: "Delete this application?" }))) return;
     onDelete();
   };
 
@@ -254,7 +256,7 @@ export function ManagerApplicationQuestionsEditorModal({
         : nextSlice,
     );
 
-  const commitSave = () => {
+  const commitSave = async () => {
     if (isTemplateEditor) {
       const trimmed = templateLabel.trim();
       if (!trimmed) {
@@ -269,9 +271,13 @@ export function ManagerApplicationQuestionsEditorModal({
     }
 
     if (isBulkSave) {
-      const ok = window.confirm(
-        `Apply these application settings to ${bulkIds.length} properties? Existing per-property differences will be replaced.`,
-      );
+      const ok = await confirm({
+        title: "Apply to properties",
+        description: `Apply these application settings to ${bulkIds.length} properties?`,
+        note: "Existing per-property differences will be replaced.",
+        confirmLabel: "Apply",
+        tone: "primary",
+      });
       if (!ok) return;
     }
     setSaving(true);
@@ -320,8 +326,8 @@ export function ManagerApplicationQuestionsEditorModal({
     onClose();
   };
 
-  const requestClose = () => {
-    if (dirty && !window.confirm("Discard unsaved changes to this application?")) return;
+  const requestClose = async () => {
+    if (dirty && !(await confirm({ title: "Discard changes", description: "Discard unsaved changes to this application?", confirmLabel: "Discard", note: null }))) return;
     onClose();
   };
 

@@ -21,7 +21,7 @@ import {
 import { ManagerPortalPageShell, ManagerPortalStatusPills, ManagerPortalFilterRow, PORTAL_FILTER_ACTIONS_MOBILE, PORTAL_HEADER_ACTION_BTN, PORTAL_PAGE_ACTIONS_DESKTOP } from "@/components/portal/portal-metrics";
 import { PortalListToolbar } from "@/components/portal/portal-list-toolbar";
 import { PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { formatPacificDateTime } from "@/lib/pacific-time";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { filterEmailInboxThreads } from "@/lib/communication-inbox-filters";
@@ -177,6 +177,7 @@ export const ResidentInboxPanel = forwardRef<
   ref,
 ) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const session = usePortalSession();
   const navigate = usePortalNavigate();
   const searchParams = useSearchParams();
@@ -630,13 +631,13 @@ export const ResidentInboxPanel = forwardRef<
     [local, showToast],
   );
 
-  const emptyTrash = useCallback(() => {
+  const emptyTrash = useCallback(async () => {
     const trashItems = local.filter((t) => t.folder === "trash");
     if (trashItems.length === 0) {
       showToast("Archive is already empty.");
       return;
     }
-    if (!window.confirm(`Delete all ${trashItems.length} trash message${trashItems.length === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    if (!(await confirm({ description: `Delete all ${trashItems.length} trash message${trashItems.length === 1 ? "" : "s"}? This cannot be undone.` }))) return;
     void (async () => {
       invalidatePersistedInboxCache(RESIDENT_INBOX_STORAGE_KEY);
       const ids = trashItems.map((t) => t.id).filter(Boolean);
@@ -678,19 +679,17 @@ export const ResidentInboxPanel = forwardRef<
   );
 
   const handleComposeSend = useCallback(
-    (p: ScopedInboxSendPayload) => {
-      setComposeOpen(false);
-      setComposeDraft(null);
+    async (p: ScopedInboxSendPayload): Promise<boolean> => {
       const senderName = p.senderName.trim() || "Resident";
       const senderEmail = session.email?.trim().toLowerCase() || p.senderEmail;
+      let optimisticId: string | null = null;
 
-      void (async () => {
-        try {
+      try {
           if (p.scheduleLater && p.sendAt) {
             const recipientEmail = p.directRecipientEmailLine.split(";").map((e) => e.trim()).filter(Boolean)[0];
             if (!recipientEmail) {
               showToast("Choose your property manager.");
-              return;
+              return false;
             }
             const contact = eligibleContacts.find((c) => c.email.trim().toLowerCase() === recipientEmail);
             const res = await fetch("/api/portal/scheduled-inbox-messages", {
@@ -709,20 +708,21 @@ export const ResidentInboxPanel = forwardRef<
             const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
             if (!res.ok || !data.ok) {
               showToast(data.error ?? "Could not schedule message.");
-              return;
+              return false;
             }
             showToast("Message scheduled.");
             void reloadScheduledMessages();
             if (!embeddedInCommunication) {
               navigate("/resident/communication/email/schedule");
             }
-            return;
+            setComposeOpen(false);
+            setComposeDraft(null);
+            return true;
           }
 
           const directEmails = p.directRecipientEmailLine.split(";").map((e) => e.trim()).filter(Boolean);
           const primaryRecipient =
             directEmails.length === 1 && p.broadcastCategories.length === 0 ? directEmails[0]! : null;
-          let optimisticId: string | null = null;
           let propertyThreadId: string | undefined;
 
           if (primaryRecipient) {
@@ -757,6 +757,7 @@ export const ResidentInboxPanel = forwardRef<
                 propertyId: p.propertyId,
                 propertyTitle: p.propertyTitle,
                 managerUserId: p.managerUserId,
+                sendId: p.sendId,
               }),
             });
             const data = (await res.json().catch(() => ({}))) as {
@@ -780,7 +781,7 @@ export const ResidentInboxPanel = forwardRef<
                 persistInboxRef.current = true;
               }
               showToast(data.error ?? "Message could not be sent.");
-              return;
+              return false;
             }
             propertyThreadId = data.propertyThreadId?.trim() || undefined;
           }
@@ -806,11 +807,24 @@ export const ResidentInboxPanel = forwardRef<
           } else {
             navigate("/resident/communication/email/sent");
           }
-        } catch {
-          persistInboxRef.current = true;
-          showToast("Message could not be sent.");
+          setComposeOpen(false);
+          setComposeDraft(null);
+          return true;
+      } catch {
+        if (optimisticId) {
+          const failedOptimisticId = optimisticId;
+          setPendingSendingThreadIds((prev) => {
+            const next = new Set(prev);
+            next.delete(failedOptimisticId);
+            return next;
+          });
+          setLocal((cur) => cur.filter((thread) => thread.id !== failedOptimisticId));
+          setExpandedId((current) => current === failedOptimisticId ? null : current);
         }
-      })();
+        persistInboxRef.current = true;
+        showToast("Message could not be sent.");
+        return false;
+      }
     },
     [eligibleContacts, embeddedInCommunication, findThreadForRecipient, navigate, reloadScheduledMessages, session.email, setExpandedId, showToast],
   );
@@ -1154,8 +1168,8 @@ export const ResidentInboxPanel = forwardRef<
     threadSelection.clearSelection();
   };
 
-  const bulkDeleteForever = () => {
-    if (!window.confirm(`Delete ${threadSelection.selectedIds.size} message(s) permanently?`)) return;
+  const bulkDeleteForever = async () => {
+    if (!(await confirm({ description: `Delete ${threadSelection.selectedIds.size} message(s) permanently?` }))) return;
     for (const id of threadSelection.selectedIds) deleteForever(id);
     threadSelection.clearSelection();
   };
@@ -1528,6 +1542,11 @@ export const ResidentInboxPanel = forwardRef<
     if (!activeThread || activeThread.folder === "trash" || tabId === "trash") return undefined;
     return (
       <>
+        {/* Draft with AI and Ask PropLane sit on ONE row, the same as the
+            manager's thread. Each renders its own top border and padding for
+            the standalone panel, so the wrapper neutralises those and owns the
+            row's chrome instead. */}
+        <div className="portal-inbox-compose-actions flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-card px-3.5 pb-1.5 pt-2.5 [&>*]:!m-0 [&>*]:!flex [&>*]:!items-center [&>*]:!border-0 [&>*]:!bg-transparent [&>*]:!p-0">
         {showResidentAiDraftUi ? (
           <AiDraftReplyCard
             drafting={aiDrafting}
@@ -1538,10 +1557,26 @@ export const ResidentInboxPanel = forwardRef<
             onApprove={() => void approveResidentAiDraft()}
             onDiscard={discardResidentAiDraft}
             onGenerate={() => void requestResidentAiDraft()}
-            generateLabel="Draft with AI"
+            // Hand the finished draft to the thread's own reply field instead
+            // of rendering a second message box beside it. Skipped while
+            // auto-send is armed: adopting discards the draft, and a discarded
+            // draft is one the auto-send effect can no longer send.
+            onAdopt={
+              autoSend
+                ? undefined
+                : (text) => {
+                    setReplyDraft(text);
+                    discardResidentAiDraft();
+                  }
+            }
             channelControl={showReplyChannelPicker ? replyChannelPicker : undefined}
             autoSend={autoSend}
-            onAutoSendChange={setAutoSend}
+            /*
+              Communication offers no auto-send control, matching the manager's
+              thread, which passes undefined for the same reason. The standalone
+              panel keeps it.
+            */
+            onAutoSendChange={embeddedInCommunication ? undefined : setAutoSend}
             maxLength={
               !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
             }
@@ -1555,6 +1590,7 @@ export const ResidentInboxPanel = forwardRef<
             sentSemantics: activeIsSent,
           })}
         />
+        </div>
         <InboxComposer
           value={replyDraft}
           onChange={setReplyDraft}

@@ -42,7 +42,7 @@ export function actionDeliveryPolicy(input: {
   return { deferSms: true, digest, nextAttemptAt: next.toISOString() };
 }
 
-type ActionEventResult = { eventId: string; duplicate: boolean; delivered: number; deferred: number; failed: number };
+type ActionEventResult = { eventId: string; duplicate: boolean; delivered: number; submitted: number; deferred: number; failed: number };
 
 async function deliverProjection(
   db: SupabaseClient,
@@ -57,11 +57,13 @@ async function deliverProjection(
     rendered: ActionEventRendered;
     suppressSms: boolean;
     digest: boolean;
-    smsOnly?: boolean;
+    retryMode?: "sms" | "email" | "both";
     attempts: number;
     now: Date;
+    smsDeferredUntil?: string | null;
+    finalizeGuard?: { status: "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred"; dueAt: string };
   },
-): Promise<"delivered" | "deferred" | "failed"> {
+): Promise<"delivered" | "submitted" | "deferred" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "stale"> {
   const text = input.digest
     ? `Several updates were recorded. Open PropLane for the latest status.`
     : input.rendered.text;
@@ -76,8 +78,8 @@ async function deliverProjection(
     toEmails: input.recipient.email ? [input.recipient.email] : undefined,
     eventCategory: input.category,
     suppressSms: input.suppressSms,
-    suppressEmail: input.smsOnly,
-    suppressInbox: input.smsOnly,
+    suppressEmail: input.retryMode === "sms",
+    suppressInbox: Boolean(input.retryMode),
     messageId: `action-event:${input.eventKey}:${input.recipient.audience}:${input.recipient.userId ?? input.recipient.email}`,
   }).catch((error: unknown) => ({
     ok: false as const,
@@ -85,23 +87,67 @@ async function deliverProjection(
   }));
   const updatedAt = input.now.toISOString();
   if (!result.ok) {
-    await db.from("action_event_deliveries").update({
-      status: "failed",
+    const retryStatus = input.retryMode === "email" && input.smsDeferredUntil ? "channels_failed"
+      : input.retryMode === "sms" ? "sms_failed"
+      : input.retryMode === "email" ? "email_failed"
+        : input.retryMode === "both" ? "channels_failed" : "failed";
+    const failedUpdate = db.from("action_event_deliveries").update({
+      status: retryStatus,
       attempts: input.attempts + 1,
       last_error: result.error,
+      sms_deferred_until: input.smsDeferredUntil ?? null,
       next_attempt_at: new Date(input.now.getTime() + 5 * 60_000).toISOString(),
       updated_at: updatedAt,
     }).eq("id", input.deliveryId);
+    if (input.finalizeGuard) {
+      const { data, error } = await failedUpdate.eq("status", input.finalizeGuard.status).eq("next_attempt_at", input.finalizeGuard.dueAt).select("id").maybeSingle();
+      if (error) throw new Error(`Could not finalize action-event delivery: ${error.message}`);
+      if (!data) return "stale";
+    } else {
+      const { error } = await failedUpdate;
+      if (error) throw new Error(`Could not finalize action-event delivery: ${error.message}`);
+    }
     return "failed";
   }
-  const status = input.suppressSms ? "deferred" : "delivered";
-  await db.from("action_event_deliveries").update({
-    status,
-    attempts: input.attempts + 1,
-    last_error: null,
-    delivered_at: updatedAt,
-    updated_at: updatedAt,
-  }).eq("id", input.deliveryId);
+  const smsOutcomes = (result as typeof result & { smsOutcomes?: Array<{ status: string }> }).smsOutcomes ?? [];
+  const emailOutcomes = (result as typeof result & { emailOutcomes?: Array<{ status: string }> }).emailOutcomes ?? [];
+  const hasSmsFailure = smsOutcomes.some((outcome) => outcome.status === "failed" || outcome.status === "unavailable");
+  const hasEmailFailure = emailOutcomes.some((outcome) => outcome.status === "failed");
+  const hasAcceptedSms = smsOutcomes.some((outcome) => ["submitted", "queued", "deferred", "unknown"].includes(outcome.status));
+  // Portal/email already succeeded when only SMS failed. Preserve that fact so
+  // retry suppresses those completed legs. Accepted provider work is submitted,
+  // not a claim that the handset received it.
+  const status = input.smsDeferredUntil && hasEmailFailure ? "channels_failed"
+    : hasEmailFailure && hasSmsFailure ? "channels_failed"
+    : hasEmailFailure ? "email_failed"
+      : hasSmsFailure ? "sms_failed"
+        : hasAcceptedSms ? "submitted"
+          : input.suppressSms && input.smsDeferredUntil ? "deferred"
+            : input.retryMode ? "delivered" : input.suppressSms ? "deferred" : "delivered";
+  const retrySmsAt = new Date(input.now.getTime() + 5 * 60_000).toISOString();
+  const retryChannels = status === "email_failed" || status === "sms_failed" || status === "channels_failed";
+  const finalPayload = retryChannels ? {
+    status, attempts: input.attempts + 1, last_error: `${status}_delivery_unavailable`,
+    next_attempt_at: retrySmsAt, delivered_at: null, updated_at: updatedAt,
+    sms_deferred_until: input.smsDeferredUntil ?? null,
+  } : status === "deferred" ? {
+    status, attempts: input.attempts + 1, last_error: null, updated_at: updatedAt,
+    ...(input.smsDeferredUntil ? { next_attempt_at: input.smsDeferredUntil } : {}),
+    sms_deferred_until: null,
+  } : {
+    status, attempts: input.attempts + 1, last_error: null,
+    next_attempt_at: null, delivered_at: status === "delivered" ? updatedAt : null,
+    sms_deferred_until: null, updated_at: updatedAt,
+  };
+  const successUpdate = db.from("action_event_deliveries").update(finalPayload).eq("id", input.deliveryId);
+  if (input.finalizeGuard) {
+    const { data, error } = await successUpdate.eq("status", input.finalizeGuard.status).eq("next_attempt_at", input.finalizeGuard.dueAt).select("id").maybeSingle();
+    if (error) throw new Error(`Could not finalize action-event delivery: ${error.message}`);
+    if (!data) return "stale";
+  } else {
+    const { error } = await successUpdate;
+    if (error) throw new Error(`Could not finalize action-event delivery: ${error.message}`);
+  }
   return status;
 }
 
@@ -151,6 +197,7 @@ export async function emitActionEvent(
   }
 
   let delivered = 0;
+  let submitted = 0;
   let deferred = 0;
   let failed = 0;
   for (const recipient of input.recipients) {
@@ -168,6 +215,7 @@ export async function emitActionEvent(
       recipient_email: recipient.email?.trim().toLowerCase() ?? null,
       status: initialStatus,
       next_attempt_at: policy.nextAttemptAt,
+      sms_deferred_until: policy.deferSms ? policy.nextAttemptAt : null,
       rendered: recipient.rendered,
     }, { onConflict: "event_id,audience,recipient_key", ignoreDuplicates: true }).select("id,status,attempts").maybeSingle();
     if (!delivery) continue;
@@ -182,55 +230,64 @@ export async function emitActionEvent(
       rendered: recipient.rendered,
       suppressSms: policy.deferSms,
       digest: policy.digest,
-      smsOnly: false,
+      retryMode: undefined,
       attempts: Number(delivery.attempts ?? 0),
       now,
+      smsDeferredUntil: policy.deferSms ? policy.nextAttemptAt : null,
     });
     if (outcome === "delivered") delivered++;
+    else if (outcome === "submitted") submitted++;
     else if (outcome === "deferred") deferred++;
     else failed++;
   }
   await db.from("action_events").update({ processed_at: now.toISOString() }).eq("id", eventRow.id);
-  return { eventId: eventKey, duplicate, delivered, deferred, failed };
+  return { eventId: eventKey, duplicate, delivered, submitted, deferred, failed };
 }
 
-/** Retry due failed/deferred projections. Deterministic message IDs make inbox
+/** Deliver due pending/failed/deferred projections. Deterministic message IDs make inbox
  * appends safe even when a previous attempt succeeded before its status write. */
 export async function retryDueActionEventDeliveries(
   db: SupabaseClient,
   opts: { now?: Date; limit?: number } = {},
-): Promise<{ attempted: number; delivered: number; failed: number }> {
+): Promise<{ attempted: number; delivered: number; submitted: number; failed: number }> {
   const now = opts.now ?? new Date();
   const { data, error } = await db.from("action_event_deliveries")
-    .select("id,event_id,audience,recipient_user_id,recipient_email,status,attempts,next_attempt_at,rendered")
-    .in("status", ["failed", "deferred"])
+    .select("id,event_id,audience,recipient_user_id,recipient_email,status,attempts,next_attempt_at,sms_deferred_until,rendered")
+    .in("status", ["pending", "failed", "email_failed", "sms_failed", "channels_failed", "deferred"])
     .lte("next_attempt_at", now.toISOString())
     .order("next_attempt_at", { ascending: true })
     .limit(Math.min(Math.max(opts.limit ?? 100, 1), 500));
   if (error) throw new Error(`Could not load due action-event deliveries: ${error.message}`);
   let delivered = 0;
+  let submitted = 0;
   let failed = 0;
   let attempted = 0;
   for (const row of data ?? []) {
     const priorNextAttemptAt = String(row.next_attempt_at ?? "");
     if (!priorNextAttemptAt) continue;
-    // Compare-and-swap the due timestamp. Only one overlapping cron worker can
-    // claim this projection; a crashed worker naturally becomes due again.
-    const claimUntil = new Date(now.getTime() + 5 * 60_000).toISOString();
-    const { data: claim } = await db.from("action_event_deliveries")
-      .update({ next_attempt_at: claimUntil, updated_at: now.toISOString() })
+    // Start the lease when this row is actually processed. Earlier external
+    // deliveries can make a batch several minutes old.
+    const claimTime = opts.now ?? new Date();
+    const claimUntil = new Date(claimTime.getTime() + 5 * 60_000).toISOString();
+    const { data: claim, error: claimError } = await db.from("action_event_deliveries")
+      .update({ next_attempt_at: claimUntil, updated_at: claimTime.toISOString() })
       .eq("id", row.id)
       .eq("next_attempt_at", priorNextAttemptAt)
-      .in("status", ["failed", "deferred"])
+      .eq("status", row.status)
       .select("id")
       .maybeSingle();
+    if (claimError) throw new Error(`Could not claim action-event delivery: ${claimError.message}`);
     if (!claim) continue;
     attempted++;
-    const { data: event } = await db.from("action_events")
+    const { data: event, error: eventError } = await db.from("action_events")
       .select("event_key,category,sender_user_id,sender_email,sender_name")
       .eq("id", row.event_id)
       .maybeSingle();
-    if (!event?.sender_user_id || !event.sender_email) continue;
+    if (eventError || !event?.sender_user_id || !event.sender_email) {
+      throw new Error(`Could not resolve action event: ${eventError?.message ?? "missing sender"}`);
+    }
+    const retainedSmsDue = row.sms_deferred_until ? String(row.sms_deferred_until) : null;
+    const retryingQuietEmail = Boolean(retainedSmsDue && Date.parse(retainedSmsDue!) > claimTime.getTime());
     const outcome = await deliverProjection(db, {
       deliveryId: String(row.id),
       eventKey: String(event.event_key),
@@ -244,14 +301,21 @@ export async function retryDueActionEventDeliveries(
         email: row.recipient_email ? String(row.recipient_email) : undefined,
       },
       rendered: row.rendered as ActionEventRendered,
-      suppressSms: false,
+      suppressSms: row.status === "email_failed" || retryingQuietEmail,
       digest: false,
-      smsOnly: row.status === "deferred",
+      retryMode: row.status === "deferred" || row.status === "sms_failed"
+        ? "sms"
+        : row.status === "email_failed" || (row.status === "channels_failed" && retryingQuietEmail)
+          ? "email"
+          : row.status === "channels_failed" ? "both" : undefined,
       attempts: Number(row.attempts ?? 0),
-      now,
+      now: claimTime,
+      smsDeferredUntil: retryingQuietEmail ? retainedSmsDue : null,
+      finalizeGuard: { status: row.status as "pending" | "failed" | "email_failed" | "sms_failed" | "channels_failed" | "deferred", dueAt: claimUntil },
     });
-    if (outcome === "failed") failed++;
-    else delivered++;
+    if (["failed", "email_failed", "sms_failed", "channels_failed"].includes(outcome)) failed++;
+    else if (outcome === "submitted") submitted++;
+    else if (outcome !== "stale") delivered++;
   }
-  return { attempted, delivered, failed };
+  return { attempted, delivered, submitted, failed };
 }

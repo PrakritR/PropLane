@@ -95,6 +95,7 @@ import { deleteProplaneGoogleTourFromServer } from "@/lib/google-calendar/delete
 import {
   cancelPlannedTourFromServer,
   tourGuestNotificationFailed,
+  tourGuestNotificationSummary,
 } from "@/lib/tour-planned-change.client";
 import {
   createScheduledWorkTask,
@@ -574,7 +575,16 @@ type CalendarBlockSelection =
 
 const slotRowIndices = Array.from({ length: SLOT_ROW_END - SLOT_ROW_START + 1 }, (_, i) => SLOT_ROW_START + i);
 
+/**
+ * End labels are EXCLUSIVE: slot 48 is midnight, the end of the day. Borrowing
+ * the start formatter printed it as "12 pm" — the SAME label noon already
+ * carries — so the end picker offered "12 pm" twice and picking the lower one
+ * set the window to midnight. The grid then ran to 11:30 pm and the modal
+ * scrolled far past any hour a tour is booked in. ("12 am", not "midnight":
+ * the picker trigger is sized for "10:30 pm" and truncates a longer word.)
+ */
 function formatSlotEndLabel(slotIndexExclusive: number): string {
+  if (slotIndexExclusive >= SLOTS_PER_DAY) return "12 am";
   return formatAvailabilitySlotLabel(slotIndexExclusive);
 }
 
@@ -629,7 +639,6 @@ const TOUR_GUEST_NOTIFY_PREVIEW_COPY: Record<
   TourGuestNotifyPreviewAction,
   {
     title: string;
-    intro: string;
     skipMessageLabel: string;
     confirmLabel: string;
     confirmLabelWithoutMessage: string;
@@ -638,7 +647,6 @@ const TOUR_GUEST_NOTIFY_PREVIEW_COPY: Record<
 > = {
   confirm: {
     title: "Confirm tour",
-    intro: "Confirming schedules the tour and sends this message to the guest.",
     skipMessageLabel: "Don't message guest",
     confirmLabel: "Confirm tour & send notification",
     confirmLabelWithoutMessage: "Confirm tour only",
@@ -646,7 +654,6 @@ const TOUR_GUEST_NOTIFY_PREVIEW_COPY: Record<
   },
   delete: {
     title: "Delete tour",
-    intro: "Deleting removes this tour request from your calendar and sends this message to the guest.",
     skipMessageLabel: "Don't message guest",
     confirmLabel: "Delete tour & send notification",
     confirmLabelWithoutMessage: "Delete tour only",
@@ -654,7 +661,6 @@ const TOUR_GUEST_NOTIFY_PREVIEW_COPY: Record<
   },
   cancel: {
     title: "Cancel tour",
-    intro: "Cancelling removes this tour and sends this message to the guest.",
     skipMessageLabel: "Don't message guest",
     confirmLabel: "Cancel tour & send notification",
     confirmLabelWithoutMessage: "Cancel tour only",
@@ -662,7 +668,6 @@ const TOUR_GUEST_NOTIFY_PREVIEW_COPY: Record<
   },
   "delete-confirmed": {
     title: "Delete tour",
-    intro: "Deleting removes this tour from your calendar and sends this message to the guest.",
     skipMessageLabel: "Don't message guest",
     confirmLabel: "Delete tour & send notification",
     confirmLabelWithoutMessage: "Delete tour only",
@@ -1433,7 +1438,7 @@ export function PortalCalendarPanels({
   );
 
   const submitTourGuestNotifyPreview = useCallback(
-    async (skipMessage: boolean, _channels?: unknown, draft?: NotificationConfirmDraft) => {
+    async (skipMessage: boolean, channels?: { viaEmail?: boolean; viaSms?: boolean }, draft?: NotificationConfirmDraft) => {
       if (!tourGuestNotifyPreview || tourNotifyPreviewBusy) return;
       const preview = tourGuestNotifyPreview;
       setTourNotifyPreviewBusy(true);
@@ -1447,6 +1452,8 @@ export function PortalCalendarPanels({
             subject: draft?.subject,
             body: draft?.body,
             assignee: draft?.assignee ?? undefined,
+            deliverViaEmail: channels?.viaEmail !== false,
+            deliverViaSms: channels?.viaSms === true,
           });
           if (!result.ok) {
             showToast(result.error ?? "Could not confirm tour.");
@@ -1479,14 +1486,16 @@ export function PortalCalendarPanels({
             );
           } else if (skipMessage) {
             showToast("Tour confirmed (no guest notification sent).");
+          } else if (tourGuestNotificationFailed(result.tenantNotification)) {
+            showToast("Tour confirmed, but one or more selected guest channels did not send.");
           } else if (result.notificationSkipped) {
             showToast(
               "Tour confirmed. Confirmation sent to PropLane inbox (email skipped for demo address or missing provider).",
             );
           } else if (result.error) {
-            showToast("Tour confirmed, but the confirmation email could not be sent.");
+            showToast(`Tour confirmed, but ${result.error}`);
           } else {
-            showToast("Tour confirmed and confirmation sent via inbox and email.");
+            showToast(`Tour confirmed. Sent via ${tourGuestNotificationSummary(result.tenantNotification)}.`);
           }
           return;
         }
@@ -1521,6 +1530,8 @@ export function PortalCalendarPanels({
             notifyGuest: !skipMessage,
             subject: draft?.subject,
             body: draft?.body,
+            deliverViaEmail: channels?.viaEmail !== false,
+            deliverViaSms: channels?.viaSms === true,
           });
           if (!result.ok) {
             showToast(result.error ?? "Could not cancel this tour.");
@@ -1541,7 +1552,9 @@ export function PortalCalendarPanels({
                 ? `Tour ${actionLabel} and the guest was notified, but your Google Calendar did not update.`
                 : skipMessage
                   ? `Tour ${actionLabel} (no guest notification sent).`
-                  : `Tour ${actionLabel} and the guest was notified.`,
+                  : result.guestNotification?.email || result.guestNotification?.sms
+                    ? `Tour ${actionLabel}. Sent via ${tourGuestNotificationSummary(result.guestNotification)}.`
+                    : `Tour ${actionLabel} and the guest was notified.`,
           );
         }
       } finally {
@@ -2493,12 +2506,10 @@ export function PortalCalendarPanels({
       recipientPhone={tourGuestNotifyPreview.meeting.phone?.trim() || undefined}
       subject={tourGuestNotifyPreview.subject}
       body={tourGuestNotifyPreview.body}
-      intro={TOUR_GUEST_NOTIFY_PREVIEW_COPY[tourGuestNotifyPreview.action].intro}
       skipMessageLabel={TOUR_GUEST_NOTIFY_PREVIEW_COPY[tourGuestNotifyPreview.action].skipMessageLabel}
       showChannelPicker
       emailAvailable={Boolean(tourGuestNotifyPreview.meeting.email?.includes("@"))}
       smsAvailable={Boolean(tourGuestNotifyPreview.meeting.phone?.trim())}
-      showSchedule={false}
       confirmLabel={TOUR_GUEST_NOTIFY_PREVIEW_COPY[tourGuestNotifyPreview.action].confirmLabel}
       confirmLabelWithoutMessage={
         TOUR_GUEST_NOTIFY_PREVIEW_COPY[tourGuestNotifyPreview.action].confirmLabelWithoutMessage
@@ -2508,7 +2519,7 @@ export function PortalCalendarPanels({
       assigneeKind={tourGuestNotifyPreview.action === "confirm" ? "tour" : undefined}
       assigneeTeamMembers={tourGuestNotifyPreview.action === "confirm" ? teamMembers : undefined}
       assigneeVendors={tourGuestNotifyPreview.action === "confirm" ? vendors : undefined}
-      panelClassName="z-[90] max-w-xl"
+      panelClassName="z-[90]"
       onConfirm={(skipMessage, _channels, draft) => void submitTourGuestNotifyPreview(skipMessage, _channels, draft)}
     />
   ) : null;
@@ -2530,11 +2541,10 @@ export function PortalCalendarPanels({
       emailAvailable
       smsAvailable={Boolean(guestMessagePreview.phone)}
       defaultViaSms={false}
-      showSchedule={false}
       confirmLabel="Send message"
       confirmBusy={guestMessageBusy}
       confirmBusyLabel="Sending…"
-      panelClassName="z-[90] max-w-xl"
+      panelClassName="z-[90]"
       onConfirm={(_skip, channels, draft) => void submitGuestMessage(false, channels, draft)}
     />
   ) : null;
@@ -2559,7 +2569,10 @@ export function PortalCalendarPanels({
       // simply clipped by the overflow-hidden parent — hours below the fold were
       // unreachable rather than scrollable.
       pageFlowScroll ? "portal-calendar-flow-scroll" : "min-h-0 flex-1",
-      embeddedInModal && "overflow-hidden",
+      // The nested-calendar bottom inset (phone nav + assistant FAB) is page
+      // chrome. Inside a modal the grid scrolls within the panel, above both,
+      // so that padding was ~116px of dead scroll under the last row.
+      embeddedInModal && "portal-calendar-in-modal overflow-hidden",
       !bareSurface && "overflow-hidden rounded-2xl border border-border bg-card shadow-sm",
     );
     const compactToolbarClass = cn(

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MessageSquarePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import {
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
@@ -70,6 +70,7 @@ export function PortalBugFeedbackPanel({
   embedded?: boolean;
 }) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const session = usePortalSession();
   const [rows, setRows] = useState<PortalBugFeedbackRow[]>(() => readBugFeedbackRows());
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -97,7 +98,7 @@ export function PortalBugFeedbackPanel({
   }, [rows, session.email, session.userId]);
 
   const handleDelete = async (row: PortalBugFeedbackRow) => {
-    if (!window.confirm("Delete this feedback item?")) return;
+    if (!(await confirm({ description: "Delete this feedback item?" }))) return;
     setDeletingId(row.id);
     try {
       await deleteBugFeedbackRow(row.id);

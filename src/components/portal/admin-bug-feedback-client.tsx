@@ -16,7 +16,7 @@ import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Button } from "@/components/ui/button";
 import { Select, Textarea } from "@/components/ui/input";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { ADMIN_UI_EVENT } from "@/lib/demo-admin-ui";
 import {
   deleteBugFeedbackRow,
@@ -76,6 +76,7 @@ function sortFeedbackRows(rows: PortalBugFeedbackRow[], sort: SortFilter): Porta
 
 export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolean }) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const [rows, setRows] = useState<PortalBugFeedbackRow[]>(() => readBugFeedbackRows());
   const [portalFilter, setPortalFilter] = useState<PortalFilter[]>([]);
   // The open status is the URL, like every other portal list tab.
@@ -193,7 +194,7 @@ export function AdminBugFeedbackClient({ embedded = false }: { embedded?: boolea
   };
 
   const handleDelete = async (row: PortalBugFeedbackRow) => {
-    if (!window.confirm("Delete this feedback item? This cannot be undone.")) return;
+    if (!(await confirm({ description: "Delete this feedback item? This cannot be undone." }))) return;
     setDeletingId(row.id);
     try {
       await deleteBugFeedbackRow(row.id, { admin: true });

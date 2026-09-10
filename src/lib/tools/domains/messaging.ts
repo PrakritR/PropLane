@@ -13,6 +13,7 @@ import type { AgentContext } from "../context";
 import { writeAuditLog, updateAuditResult, auditDayBucket } from "../audit";
 import { filterRecipientsBySenderScope, type InboxScopeSender } from "@/lib/inbox-recipient-scope";
 import { deliverPortalInboxMessage, resolveBroadcastRecipients } from "@/lib/portal-inbox-delivery";
+import type { InboxEmailOutcome, InboxSmsConversationTarget, InboxSmsOutcome } from "@/lib/portal-inbox-delivery";
 import { MANAGER_INBOX_SCOPE } from "@/lib/portal-inbox-thread-scope";
 import { smsInboxOwnerIds } from "@/lib/sms/manager-sms-access.server";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
@@ -24,6 +25,10 @@ import {
   canSendResidentOutboundSms,
   sendResidentOutboundSms,
 } from "@/lib/resident-outbound-sms.server";
+import { fetchManagerSmsConversations } from "@/lib/manager-sms-messages.server";
+import { resolveExistingSmsConversation } from "@/lib/sms/existing-conversation.server";
+import { normalizeE164 } from "@/lib/phone-e164";
+import type { SmsCounterpartyRole } from "@/lib/sms-conversation-identity";
 import {
   createScheduledInboxMessage,
   generateScheduledInboxMessageId,
@@ -69,6 +74,108 @@ async function messageOwnerEmail(ctx: AgentContext): Promise<string> {
 }
 
 type ResolvedRecipient = { email: string; userId: string | null; name: string };
+
+/**
+ * Resolve actual, durable work-number threads for generic resident SMS. The
+ * assistant cannot make a new key from a recipient id: a resident may have an
+ * older prospect thread under the same phone, and guessing would fragment it.
+ * A missing, rotated, or ambiguous phone simply leaves SMS unavailable while
+ * portal/email delivery continues.
+ */
+async function resolveMessageSmsThreads(
+  ctx: AgentContext,
+  recipients: ResolvedRecipient[],
+): Promise<Map<string, InboxSmsConversationTarget>> {
+  const targets = new Map<string, InboxSmsConversationTarget>();
+  const emails = recipients.map((recipient) => recipient.email);
+  if (!emails.length) return targets;
+  const { data: profiles, error } = await ctx.db
+    .from("profiles")
+    .select("id, email, phone, phone_verified_at, role")
+    .in("email", emails);
+  if (error) return targets;
+  const profileIds = (profiles ?? []).map((profile) => String(profile.id ?? "")).filter(Boolean);
+  const { data: roleRows, error: roleError } = profileIds.length
+    ? await ctx.db.from("profile_roles").select("user_id, role").in("user_id", profileIds)
+    : { data: [], error: null };
+  // A role read failure must not turn a generic message into an SMS send based
+  // on a legacy singular profile role.
+  if (roleError) return targets;
+  const rolesByUserId = new Map<string, string[]>();
+  for (const row of roleRows ?? []) {
+    const userId = String(row.user_id ?? "").trim();
+    const role = String(row.role ?? "").trim();
+    if (!userId || !role) continue;
+    rolesByUserId.set(userId, [...(rolesByUserId.get(userId) ?? []), role]);
+  }
+  let conversations: Awaited<ReturnType<typeof fetchManagerSmsConversations>>;
+  try {
+    conversations = await fetchManagerSmsConversations(ctx.db, ctx.landlordId, {
+      scopeManagerIdsOverride: [ctx.landlordId],
+      provisionWorkNumber: false,
+    });
+  } catch {
+    return targets;
+  }
+  for (const profile of profiles ?? []) {
+    if (!profile.phone_verified_at) continue;
+    const email = normalizeEmail(String(profile.email ?? ""));
+    const phone = normalizeE164(profile.phone);
+    if (!email || !phone) continue;
+    const resolved = resolveExistingSmsConversation(conversations.residents, {
+      managerUserId: ctx.landlordId,
+      recipientPhone: phone,
+      workNumber: conversations.workNumber,
+      allowedRoles: allowedConversationRoles(rolesByUserId.get(String(profile.id ?? "")) ?? [profile.role]),
+    });
+    if (resolved.kind === "matched") {
+      targets.set(email, { ...resolved.conversation, recipientPhone: phone });
+    }
+  }
+  return targets;
+}
+
+function allowedConversationRoles(profileRoles: unknown): SmsCounterpartyRole[] {
+  const roles = Array.isArray(profileRoles) ? profileRoles : [profileRoles];
+  const out = new Set<SmsCounterpartyRole>();
+  for (const profileRole of roles) switch (String(profileRole ?? "").trim().toLowerCase()) {
+    // A resident can have an older prospect/applicant conversation. The
+    // resolver still requires an exact current phone and one unambiguous key.
+    case "resident": out.add("resident"); out.add("prospect"); out.add("applicant"); break;
+    case "vendor": out.add("vendor"); break;
+    case "manager":
+    case "pro": out.add("manager"); break;
+    case "admin": out.add("admin"); break;
+  }
+  return out.size ? [...out] : ["unknown"];
+}
+
+function describeSmsOutcomes(outcomes: InboxSmsOutcome[]): string | null {
+  if (!outcomes.length) return null;
+  const counts = new Map<string, number>();
+  for (const outcome of outcomes) counts.set(outcome.status, (counts.get(outcome.status) ?? 0) + 1);
+  const labels: Record<InboxSmsOutcome["status"], string> = {
+    submitted: "submitted to the provider",
+    queued: "queued",
+    deferred: "deferred",
+    unknown: "outcome unknown",
+    failed: "failed",
+    unavailable: "unavailable",
+  };
+  return [...counts.entries()].map(([status, count]) => `SMS ${labels[status as InboxSmsOutcome["status"]]} for ${count}`).join("; ");
+}
+
+function describeEmailOutcomes(outcomes: InboxEmailOutcome[]): string | null {
+  if (!outcomes.length) return null;
+  const submitted = outcomes.filter((outcome) => outcome.status === "submitted").length;
+  const failed = outcomes.filter((outcome) => outcome.status === "failed").length;
+  const skipped = outcomes.filter((outcome) => outcome.status === "skipped").length;
+  return [
+    submitted ? `email submitted for ${submitted}` : null,
+    failed ? `email failed for ${failed}` : null,
+    skipped ? `email unavailable for ${skipped}` : null,
+  ].filter(Boolean).join("; ") || null;
+}
 
 /** email -> display name from the landlord's own approved application records. */
 async function residentNamesByEmail(ctx: AgentContext): Promise<Map<string, string>> {
@@ -314,6 +421,11 @@ export const sendMessageTool = defineWriteTool({
     // sender-scope filter internally — defense in depth.
     const toUserIds = allowed.filter((r) => r.userId).map((r) => r.userId!);
     const toEmails = allowed.filter((r) => !r.userId).map((r) => r.email);
+    // The generic Assistant action must reuse an existing verified work-number
+    // thread for SMS. Portal/email still fan out if there is no safe thread.
+    const smsConversationByEmail = deliverViaSms
+      ? await resolveMessageSmsThreads(ctx, allowed)
+      : undefined;
     const delivery = await deliverPortalInboxMessage(ctx.db, {
       senderUserId: ctx.landlordId,
       senderEmail,
@@ -326,6 +438,7 @@ export const sendMessageTool = defineWriteTool({
       eventCategory: "messages",
       ...(deliverViaEmail ? {} : { suppressEmail: true }),
       ...(deliverViaSms ? {} : { suppressSms: true }),
+      ...(smsConversationByEmail ? { smsConversationByEmail } : {}),
       senderRole: "manager",
     });
     if (!delivery.ok) {
@@ -333,13 +446,27 @@ export const sendMessageTool = defineWriteTool({
       await updateAuditResult(ctx, dedupeKey, { delivered: false }, { clearDedupeKey: true });
       throw new Error(delivery.error);
     }
-    await updateAuditResult(ctx, dedupeKey, { delivered: true, recipientCount: delivery.recipientCount });
-    const deliveryLabel = deliverViaSms
-      ? "portal inbox + email + text when available"
-      : describeDelivery(deliverViaEmail, false).toLowerCase();
+    const smsOutcomes = delivery.smsOutcomes ?? [];
+    const emailOutcomes = delivery.emailOutcomes ?? [];
+    await updateAuditResult(ctx, dedupeKey, {
+      delivered: true,
+      recipientCount: delivery.recipientCount,
+      smsOutcomes,
+      emailOutcomes,
+    });
+    const deliveryLabel = deliverViaEmail ? "portal inbox" : "portal inbox only";
+    const emailOutcome = deliverViaEmail ? describeEmailOutcomes(emailOutcomes) : null;
+    const smsOutcome = deliverViaSms ? describeSmsOutcomes(smsOutcomes) : null;
     return {
-      reply: `Sent "${subject}" to ${delivery.recipientCount} recipient${delivery.recipientCount === 1 ? "" : "s"} (${deliveryLabel}).`,
-      resultSummary: { recipientCount: delivery.recipientCount, deliverViaEmail, deliverViaSms, eventCategory: "messages" },
+      reply: `Sent "${subject}" to ${delivery.recipientCount} recipient${delivery.recipientCount === 1 ? "" : "s"} (${deliveryLabel})${emailOutcome ? `. ${emailOutcome}.` : "."}${smsOutcome ? ` ${smsOutcome}.` : ""}`,
+      resultSummary: {
+        recipientCount: delivery.recipientCount,
+        deliverViaEmail,
+        deliverViaSms,
+        eventCategory: "messages",
+        smsOutcomes,
+        emailOutcomes,
+      },
     };
   },
 });

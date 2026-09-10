@@ -1,21 +1,25 @@
 "use client";
 
 /**
- * Manager work line + assistant email for residents — shown above the conversation
- * list so it stays visible before a thread is opened.
+ * "Your property manager" — the card at the top of the resident's conversation
+ * list. Shown above the list so it stays visible before a thread is opened.
+ *
+ * It renders NOTHING when the resident has no reachable manager, which is a
+ * real and common state (no lease yet, or a manager with no work number and no
+ * assistant address). An absent card is correct; a card with nothing to act on
+ * is not.
  */
-import { useEffect, useState } from "react";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { Mail, MessageCircle, Phone } from "lucide-react";
+import {
+  PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS,
+  PortalInboxContactCard,
+} from "@/components/portal/portal-inbox-contact-card";
+import { InboxAvatar } from "@/components/portal/portal-inbox-ui";
+import {
+  useResidentManagerContacts,
+  type ResidentManagerContact,
+} from "@/hooks/use-resident-manager-contacts";
 import { formatSmsPhoneLabel } from "@/lib/phone-e164";
-
-type ResidentManagerContact = {
-  phone: string | null;
-  assistantEmail: string | null;
-  propertyLabel: string | null;
-  leaseStart: string | null;
-  leaseEnd: string | null;
-  status: "current" | "upcoming" | "ended";
-};
 
 function shortDate(value: string | null): string | null {
   if (!value) return null;
@@ -25,7 +29,7 @@ function shortDate(value: string | null): string | null {
 }
 
 /**
- * The one line under the number. Only earned when there is something to tell
+ * The one line under the identity. Only earned when there is something to tell
  * apart: with a single tenancy the resident does not need to be told which of
  * their one manager this is.
  */
@@ -47,66 +51,85 @@ export function managerContactCaption(
 }
 
 export function ResidentManagerNumberCard() {
-  const [contacts, setContacts] = useState<ResidentManagerContact[]>([]);
-
-  useEffect(() => {
-    if (isDemoModeActive()) return;
-    let cancelled = false;
-    void fetch("/api/resident/manager-contact", { credentials: "include", cache: "no-store" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body) => {
-        if (cancelled || !body || typeof body !== "object") return;
-        const rows = (body as { contacts?: ResidentManagerContact[] }).contacts;
-        setContacts(
-          Array.isArray(rows)
-            ? rows.filter((row) => Boolean(row?.phone?.trim() || row?.assistantEmail?.trim()))
-            : [],
-        );
-      })
-      .catch(() => {
-        // A missing number is not an error worth showing — the section is
-        // simply absent, exactly as it is for a manager who has none.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const contacts = useResidentManagerContacts();
 
   if (contacts.length === 0) return null;
   const multiple = contacts.length > 1;
 
   return (
-    <div className="space-y-2 px-3 pt-3" data-attr="resident-manager-number">
-      {contacts.map((contact) => (
-        <div
-          key={`${contact.phone ?? ""}-${contact.assistantEmail ?? ""}-${contact.propertyLabel ?? ""}`}
-          className="rounded-xl border border-primary/25 bg-primary/[0.05] px-3.5 py-3"
-        >
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">
-            Contact your manager
-            {multiple && contact.propertyLabel ? ` · ${contact.propertyLabel}` : ""}
-          </p>
-          {contact.phone ? (
-            <a
-              href={`sms:${contact.phone}`}
-              className="mt-1 block font-mono text-[17px] font-semibold text-foreground"
-              data-attr="resident-manager-number-link"
-            >
-              {formatSmsPhoneLabel(contact.phone) || contact.phone}
-            </a>
-          ) : null}
-          {contact.assistantEmail ? (
-            <a
-              href={`mailto:${contact.assistantEmail}`}
-              className={`block text-sm font-medium text-primary ${contact.phone ? "mt-1" : "mt-1"}`}
-              data-attr="resident-manager-email-link"
-            >
-              {contact.assistantEmail}
-            </a>
-          ) : null}
-          <p className="mt-1 text-xs text-muted">{managerContactCaption(contact, multiple)}</p>
-        </div>
-      ))}
+    <div className="shrink-0" data-attr="resident-manager-number">
+      {contacts.map((contact) => {
+        const phoneLabel = contact.phone
+          ? formatSmsPhoneLabel(contact.phone) || contact.phone
+          : null;
+        const name = contact.managerName?.trim() || null;
+        return (
+          <PortalInboxContactCard
+            key={`${contact.phone ?? ""}-${contact.assistantEmail ?? ""}-${contact.propertyLabel ?? ""}`}
+            /*
+              The CONTACT leads, the same way the manager's card leads with
+              their work number. The card used to lead with the name and spend
+              its second line on "Replies in PropLane show up in your
+              conversations below." — a sentence the resident can see is true by
+              looking at the list underneath it — which left the number or
+              address, the one thing they came here for, nowhere on the card.
+            */
+            value={phoneLabel ?? contact.assistantEmail ?? name ?? "PropLane"}
+            label={name ? `${name} · Your property manager` : "Your property manager"}
+            note={
+              multiple
+                ? [contact.propertyLabel, managerContactCaption(contact, true)]
+                    .filter(Boolean)
+                    .join(" · ")
+                : undefined
+            }
+            leading={
+              name ? (
+                <InboxAvatar name={name} className="h-9 w-9 text-[12px]" />
+              ) : (
+                <span className={PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS}>
+                  <Phone className="h-[18px] w-[18px]" strokeWidth={1.9} />
+                </span>
+              )
+            }
+            actions={[
+              /*
+                Both resident actions open a TEXT, and neither is a `tel:` dial.
+                This is the manager's provisioned messaging work number —
+                nothing in the SMS layer ever configures a voice URL for it, so
+                dialling would reach a dead line, which reads to a resident as
+                their manager ignoring them. The phone glyph is the line's
+                identity, not a promise that it rings.
+              */
+              ...(contact.phone
+                ? [
+                    {
+                      key: "text",
+                      label: `Text ${phoneLabel ?? "your property manager"}`,
+                      dataAttr: "resident-manager-number-link",
+                      href: `sms:${contact.phone}`,
+                      icon: <MessageCircle className="h-4 w-4" strokeWidth={1.9} />,
+                    },
+                  ]
+                : []),
+              // Offered ALONGSIDE the text action, not only in its absence: a
+              // resident with both should be able to reach either, and the
+              // card can only print one of them as its value.
+              ...(contact.assistantEmail
+                ? [
+                    {
+                      key: "email",
+                      label: `Email ${contact.assistantEmail}`,
+                      dataAttr: "resident-manager-email-link",
+                      href: `mailto:${contact.assistantEmail}`,
+                      icon: <Mail className="h-4 w-4" strokeWidth={1.9} />,
+                    },
+                  ]
+                : []),
+            ]}
+          />
+        );
+      })}
     </div>
   );
 }

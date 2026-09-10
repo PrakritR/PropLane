@@ -5,7 +5,7 @@ import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { ManagerPortalFilterRow, ManagerPortalPageShell, PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
@@ -25,6 +25,7 @@ const EMPTY_FORM = { name: "", description: "", price: "", deposit: "" };
 
 export function ManagerServicesPanel() {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const { userId: managerUserId, ready: authReady } = useManagerUserId();
   const [offersTick, setOffersTick] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
@@ -94,8 +95,8 @@ export function ManagerServicesPanel() {
     setModalOpen(false);
   };
 
-  const handleDelete = (offer: ManagerAmenityOffer) => {
-    if (!window.confirm(`Remove "${offer.name}" from your catalog?`)) return;
+  const handleDelete = async (offer: ManagerAmenityOffer) => {
+    if (!(await confirm({ description: `Remove "${offer.name}" from your catalog?` }))) return;
     if (!managerUserId) return;
     deleteAmenityOffer(offer.id, managerUserId);
     reload();

@@ -260,6 +260,8 @@ export function TourReminderTourPanel({
                         customSubject: next.subject,
                         customBody: next.body,
                         ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+                        ...(next.deliverViaEmail !== undefined ? { customDeliverViaEmail: next.deliverViaEmail } : {}),
+                        ...(next.deliverViaSms !== undefined ? { customDeliverViaSms: next.deliverViaSms } : {}),
                       });
                       await load();
                       setEditingReminder(null);

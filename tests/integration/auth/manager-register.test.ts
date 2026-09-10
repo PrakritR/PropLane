@@ -1,3 +1,5 @@
+const recoveryRedirect = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+vi.mock("@/lib/auth/account-recovery.server", () => ({ recoverySetupRedirect: recoveryRedirect }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest, parseJsonResponse } from "../../helpers/api-request";
 

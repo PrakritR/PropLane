@@ -22,15 +22,12 @@ export const PORTAL_MESSAGE_SEND_VIA_OPTIONS: CheckboxMultiSelectOption[] = [
   { value: "sms", label: "SMS" },
 ];
 
-export const PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE =
-  "SMS uses your work number when enabled.";
+/** No Send-via footnote — SMS availability is already shown in the dropdown. */
+export const PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE = "";
 
-/** Send-via helper copy — matches the Communication compose modal. */
-export function portalMessageSendViaFooterNote(smsAvailable: boolean): string {
-  // No setup CTA under Send via — the dropdown already shows "SMS (not enabled)".
-  return smsAvailable
-    ? "SMS uses your work number; recipients need a phone on file or under Other."
-    : "";
+/** Send-via helper copy — always empty (PRP-452: footnote flashed then cleared). */
+export function portalMessageSendViaFooterNote(_smsAvailable: boolean): string {
+  return "";
 }
 
 /** Primary CTA label for compose-style modals (Send email / SMS / message / Schedule). */
@@ -45,8 +42,11 @@ export function portalMessageConfirmSendLabel(args: {
   dynamic?: boolean;
 }): string {
   if (args.busy) return args.busyLabel ?? "Sending…";
-  if (args.skipMessage || !args.dynamic) return args.staticLabel;
+  if (args.skipMessage) return args.staticLabel;
+  // A scheduled send says Schedule on every surface — "Decline & send
+  // notification" on a message that leaves tomorrow describes the wrong thing.
   if (args.scheduleLater) return "Schedule";
+  if (!args.dynamic) return args.staticLabel;
   if (args.viaEmail && args.viaSms) return "Send message";
   if (args.viaSms) return "Send SMS";
   // PropLane-only: nothing leaves the product, so "Send email" was a promise
@@ -586,11 +586,68 @@ export function PortalMessageBodyField({
   );
 }
 
+/**
+ * Default send time offered when someone ticks "Schedule for later": tomorrow
+ * morning. Shared so the compose modal and the in-thread composer cannot drift
+ * to different defaults for the same control.
+ */
+export function defaultScheduleSendAtLocal(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(9, 0, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * The one checkbox row every compose popup uses — "Don't message …" and
+ * "Schedule for later" sat next to each other in different greys and weights.
+ */
+export function PortalMessageCheckboxRow({
+  label,
+  checked,
+  onChange,
+  disabled = false,
+  dataAttr,
+  children,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  disabled?: boolean;
+  dataAttr?: string;
+  /** Rendered beside the label — the schedule row's date picker. */
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-nowrap items-center gap-3">
+      <label
+        className={cn(
+          "flex shrink-0 items-center gap-2 text-sm",
+          disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+        )}
+      >
+        <input
+          type="checkbox"
+          className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.checked)}
+          data-attr={dataAttr}
+        />
+        <span className="font-medium text-foreground">{label}</span>
+      </label>
+      {children}
+    </div>
+  );
+}
+
 export function PortalMessageScheduleFields({
   scheduleLater,
   onScheduleLaterChange,
   sendAt,
   onSendAtChange,
+  hidden = false,
   disabled = false,
   scheduleDataAttr = "portal-message-schedule-later",
   sendAtDataAttr = "portal-message-schedule-at",
@@ -599,24 +656,23 @@ export function PortalMessageScheduleFields({
   onScheduleLaterChange: (next: boolean) => void;
   sendAt: string;
   onSendAtChange: (next: string) => void;
+  /** Drop the control entirely — the surface has no scheduling at all (residents). */
+  hidden?: boolean;
+  /** Keep the control on screen but inert (nothing is being sent right now). */
   disabled?: boolean;
   scheduleDataAttr?: string;
   sendAtDataAttr?: string;
 }) {
-  if (disabled) return null;
+  if (hidden) return null;
   return (
-    <div className="flex flex-nowrap items-center gap-3">
-      <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="h-4 w-4 shrink-0 rounded border-border accent-primary"
-          checked={scheduleLater}
-          onChange={(e) => onScheduleLaterChange(e.target.checked)}
-          data-attr={scheduleDataAttr}
-        />
-        <span className="font-medium text-foreground">Schedule for later</span>
-      </label>
-      {scheduleLater ? (
+    <PortalMessageCheckboxRow
+      label="Schedule for later"
+      checked={scheduleLater}
+      onChange={onScheduleLaterChange}
+      disabled={disabled}
+      dataAttr={scheduleDataAttr}
+    >
+      {scheduleLater && !disabled ? (
         <Input
           type="datetime-local"
           className="min-w-0 flex-1"
@@ -626,6 +682,6 @@ export function PortalMessageScheduleFields({
           data-attr={sendAtDataAttr}
         />
       ) : null}
-    </div>
+    </PortalMessageCheckboxRow>
   );
 }

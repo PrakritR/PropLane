@@ -14,8 +14,10 @@ import {
   mergeUnifiedInboxItems,
   unifiedInboxKey,
   unifiedInboxPersonKey,
+  unifiedInboxSmsBindingKey,
   type UnifiedInboxListItem,
 } from "@/lib/unified-inbox-merge";
+import { collapsePersonInboxThreads } from "@/lib/portal-inbox-storage";
 
 function emailRow(over: Partial<UnifiedInboxListItem> = {}): UnifiedInboxListItem {
   return {
@@ -50,6 +52,37 @@ function smsRow(over: Partial<UnifiedInboxListItem> = {}): UnifiedInboxListItem 
 }
 
 describe("unified inbox person merge", () => {
+  it("retains one exact SMS binding when older and newer portal rows collapse", () => {
+    const rows = collapsePersonInboxThreads([
+      { id: "tour", folder: "inbox", from: "Dana", email: "dana@example.com", subject: "Tour", preview: "Tour", body: "Tour", time: "Sep 1, 2:00 PM", unread: true, smsConversationKey: "mgr:prospect:+12065550100" },
+      { id: "later", folder: "inbox", from: "Dana", email: "dana@example.com", subject: "Later", preview: "Later", body: "Later", time: "Sep 1, 3:00 PM", unread: false },
+    ], { mergeFolders: true });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.smsConversationKey).toBe("mgr:prospect:+12065550100");
+  });
+  it("folds a portal notice only into its exact server-verified SMS conversation", () => {
+    const exact = unifiedInboxSmsBindingKey("manager-1:prospect:+12065550100")!;
+    const otherRole = unifiedInboxSmsBindingKey("manager-1:resident:+12065550100")!;
+    const rows = mergeUnifiedInboxItems([
+      emailRow({ personKey: exact, preview: "Tour moved", sortMs: 3 }),
+      smsRow({ personKey: exact, preview: "Earlier text", sortMs: 2 }),
+      smsRow({ key: "sms:resident-role", threadId: "resident-role", personKey: otherRole, sortMs: 1 }),
+    ]);
+    expect(rows).toHaveLength(2);
+    expect(rows.find((row) => row.personKey === exact)).toMatchObject({ preview: "Tour moved", channels: ["email", "sms"] });
+    expect(rows.find((row) => row.personKey === otherRole)?.memberKeys).toBeUndefined();
+  });
+
+  it("retains the outbound preview direction when an SMS fixture is the newest turn", () => {
+    const exact = unifiedInboxSmsBindingKey("manager-1:prospect:+12065550100")!;
+    const rows = mergeUnifiedInboxItems([
+      emailRow({ personKey: exact, preview: "Tour request", sortMs: 2 }),
+      smsRow({ personKey: exact, preview: "Your tour is confirmed", previewPrefix: "You: ", sortMs: 3 }),
+    ]);
+    expect(rows).toEqual([expect.objectContaining({
+      channel: "sms", preview: "Your tour is confirmed", previewPrefix: "You: ", channels: ["sms", "email"],
+    })]);
+  });
   it("collapses a resident's email and SMS rows into one conversation", () => {
     const rows = mergeUnifiedInboxItems([emailRow(), smsRow()]);
     expect(rows).toHaveLength(1);

@@ -7,22 +7,26 @@ export function LeaseAiReviewAcknowledgment({
   checked,
   onCheckedChange,
   className,
+  disabled = false,
 }: {
   checked: boolean;
   onCheckedChange: (next: boolean) => void;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
     <label
       className={cn(
         "flex cursor-pointer items-start gap-2.5 rounded-xl border border-amber-200/80 bg-amber-50/80 px-3 py-2.5 text-sm leading-relaxed text-amber-950",
         className,
+        disabled && "cursor-not-allowed opacity-60",
       )}
     >
       <input
         type="checkbox"
         className="mt-0.5 h-4 w-4 shrink-0 rounded border-amber-400"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onCheckedChange(e.target.checked)}
         data-attr="lease-ai-review-acknowledgment"
       />

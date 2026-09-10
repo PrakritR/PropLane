@@ -1,3 +1,4 @@
+import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import { resolveRequestOrigin } from "@/lib/app-url";
 import { reconcileAuthAccountsByEmail } from "@/lib/auth/reconcile-auth-accounts-by-email";
 import { resolveOAuthPortalRedirect } from "@/lib/auth/resolve-oauth-portal-access";
@@ -120,10 +121,28 @@ export async function handleOAuthCallback(
     );
   }
 
+  if (safePath === PASSWORD_RESET_NEXT_PATH) {
+    clearOAuthNextCookie(response);
+    return response;
+  }
+
   try {
     const user = sessionData.session?.user ?? (await supabase.auth.getUser()).data.user ?? null;
     if (user) {
       const service = createSupabaseServiceRoleClient();
+      // Fail closed before provider linking or identity reconciliation.
+      let recovery: string | null;
+      try { recovery = await recoverySetupRedirect(service, user.id); }
+      catch {
+        applyRedirect(new URL("/auth/recover-account", requestOrigin));
+        clearOAuthNextCookie(response);
+        return response;
+      }
+      if (recovery) {
+        applyRedirect(new URL(recovery, requestOrigin));
+        clearOAuthNextCookie(response);
+        return response;
+      }
       const oauthIntent = readOAuthIntentFromRequest(request);
       const oauthNextPath = readOAuthNextPathFromRequest(request) ?? safePath;
       let linkResult = { linked: false, reason: "no_session" };

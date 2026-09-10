@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import {
   ApplicationHouseholdCluster,
   PortalListClusterSelectCheckbox,
@@ -261,6 +261,7 @@ export function ManagerPaymentsLedgerPanel({
     [linkedPropertyIds],
   );
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const displayScheduledMessages = useMemo(
     () => combineScheduledPaymentMessages(scheduledMessages),
     [scheduledMessages],
@@ -448,13 +449,13 @@ export function ManagerPaymentsLedgerPanel({
     showToast(ok === 1 ? "Moved to pending." : `Moved ${ok} payments to pending.`);
   };
 
-  const deleteSelected = () => {
+  const deleteSelected = async () => {
     const targets = selectedRows.filter(rowDeletable);
     if (targets.length === 0) {
       if (selectedRows.length > 0) showToast("You do not have permission to remove these payments.");
       return;
     }
-    if (!window.confirm(`Delete ${targets.length} payment${targets.length === 1 ? "" : "s"}?`)) return;
+    if (!(await confirm({ description: `Delete ${targets.length} payment${targets.length === 1 ? "" : "s"}?` }))) return;
     let ok = 0;
     for (const row of targets) {
       const chargeId = row.householdChargeId?.trim() || row.id.trim();
@@ -1103,12 +1104,12 @@ export function ManagerPaymentsLedgerPanel({
     onRowsChanged?.();
   };
 
-  const removePayment = (row: DemoManagerPaymentLedgerRow) => {
+  const removePayment = async (row: DemoManagerPaymentLedgerRow) => {
     if (!rowDeletable(row)) {
       showToast("You do not have permission to remove this payment.");
       return;
     }
-    if (!window.confirm(`Delete "${row.chargeTitle}" for ${row.residentName}?`)) return;
+    if (!(await confirm({ description: `Delete "${row.chargeTitle}" for ${row.residentName}?` }))) return;
     const chargeId = row.householdChargeId?.trim() || row.id.trim();
     if (chargeId && deleteHouseholdCharge(chargeId, managerUserId, chargeScopeOpts)) {
       showToast("Payment removed.");
@@ -1330,7 +1331,13 @@ export function ManagerPaymentsLedgerPanel({
       const returnDeposit = async () => {
         // One deposit at a time and confirmed first: this sends real money and Stripe will not
         // un-refund it. A bulk version would make a mis-click expensive in a way no undo covers.
-        if (!window.confirm(`Return the security deposit to ${row.residentName}? This cannot be undone.`)) {
+        if (
+          !(await confirm({
+            title: "Return deposit",
+            description: `Return the security deposit to ${row.residentName}?`,
+            confirmLabel: "Return deposit",
+          }))
+        ) {
           return;
         }
         setReturningDepositId(row.householdChargeId ?? row.id);
@@ -1722,7 +1729,6 @@ export function ManagerPaymentsLedgerPanel({
         emailAvailable={Boolean(reminderPreview.row.residentEmail?.includes("@"))}
         smsAvailable
         deliverViaKind="payment_reminder"
-        showWorkNumberHint={false}
         hideSendViaFooterNote
         dynamicSendLabel
         assistantContext="Payment reminder compose"
@@ -1740,7 +1746,6 @@ export function ManagerPaymentsLedgerPanel({
             ? "Send payment reminder"
             : `Send ${bulkReminderPreview.length} payment reminders`
         }
-        intro="Review and edit each reminder before sending. Messages are saved to PropLane inbox."
         items={bulkReminderPreview.map((item) => ({
           id: item.id,
           label: item.chargeLabel,

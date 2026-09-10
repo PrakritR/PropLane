@@ -19,6 +19,13 @@ vi.mock("@/lib/portal-nav-client", () => ({
   usePortalNavigate: () => vi.fn(),
 }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => (req: { description?: unknown }) =>
+    Promise.resolve(
+      typeof window === "undefined"
+        ? true
+        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+    ),
+
   useAppUi: () => ({ showToast: () => {} }),
 }));
 // Spread the real module and stub only `Modal`. A hand-listed mock takes the

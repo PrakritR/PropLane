@@ -790,9 +790,7 @@ export function ManagerVendorFormModal({
         recipientPhone={invitePreview?.phone ?? ""}
         subject={invitePreview?.subject ?? ""}
         body={invitePreview?.body ?? ""}
-        intro="Review the vendor portal setup message. It explains how to sign up for PropLane, view services, and message you."
         showChannelPicker
-        showSchedule
         emailAvailable={Boolean(invitePreview?.email?.includes("@"))}
         smsAvailable={Boolean(invitePreview?.phone?.trim())}
         defaultViaSms={false}
@@ -812,9 +810,7 @@ export function ManagerVendorFormModal({
         recipientPhone={removePreview?.phone ?? ""}
         subject={removePreview?.subject ?? ""}
         body={removePreview?.body ?? ""}
-        intro="Review the message before removing this vendor from your roster."
         showChannelPicker
-        showSchedule={false}
         emailAvailable={Boolean(removePreview?.email?.includes("@"))}
         smsAvailable={Boolean(removePreview?.email?.includes("@") && removePreview?.phone?.trim())}
         defaultViaSms={false}

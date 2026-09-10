@@ -49,12 +49,17 @@ function VendorOauthFinishContent() {
           body: JSON.stringify(storedToken ? { token: storedToken } : {}),
         });
         const body = (await res.json()) as {
-          error?: string;
+          error?: string; recoveryRequired?: boolean; redirectTo?: string;
           unlinkedReason?: string | null;
           unlinkedNotice?: string | null;
         };
         if (!res.ok) {
           setErrorText(body.error ?? "Could not finish vendor signup.");
+          return;
+        }
+
+        if (body.recoveryRequired && body.redirectTo?.startsWith("/auth/recover-account")) {
+          window.location.replace(body.redirectTo);
           return;
         }
 

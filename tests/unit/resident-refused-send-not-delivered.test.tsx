@@ -84,6 +84,13 @@ vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} })
 
 const showToast = vi.fn();
 vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => (req: { description?: unknown }) =>
+    Promise.resolve(
+      typeof window === "undefined"
+        ? true
+        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+    ),
+
   useAppUi: () => ({ showToast: (msg: string) => showToast(msg) }),
 }));
 
@@ -158,9 +165,9 @@ async function enableEmailAndSmsChannels() {
     fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
   };
   await tapOption(/^Email$/i);
-  await tapOption(/^SMS$/i);
+  await tapOption(/^Text$/i);
   await tapOption(/^PropLane$/i);
-  await waitFor(() => expect(picker.textContent).toContain("Email & SMS"));
+  await waitFor(() => expect(picker.textContent).toContain("Email & Text"));
 }
 
 async function openThreadAndReply(text: string) {

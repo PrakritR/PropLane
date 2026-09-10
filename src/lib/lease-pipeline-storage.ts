@@ -19,6 +19,7 @@ import {
   asDocumentSha256,
   documentFingerprintLabel,
   leaseAllowsManagerDocumentEdits,
+  leaseClaimsExecution,
   leaseDocumentSha256,
   replacesSignedLeaseDocument,
   rowHasAnySignature,
@@ -95,6 +96,9 @@ let activeLeasePipelineScopeUserId: string | undefined;
 const LEASE_PIPELINE_SYNC_TTL_MS = 15_000;
 let leasePipelineLastSyncedAt = 0;
 let leasePipelineSyncPromise: Promise<LeasePipelineRow[]> | null = null;
+let leasePipelineLastServerIds: Set<string> | null = null;
+let approvalSeedSyncInFlight = new Set<string>();
+let approvalSeedSyncAttempted = new Set<string>();
 
 function leaseRowsChanged(a: LeasePipelineRow[], b: LeasePipelineRow[]) {
   return JSON.stringify(a) !== JSON.stringify(b);
@@ -637,7 +641,9 @@ export const RESIDENT_RETURNED_SIGNED_PDF_THREAD =
   "Resident uploaded the signed PDF and sent it back to the manager.";
 
 /** Resident signed offline and returned the PDF — no `residentSignature` object. */
-export function residentReturnedSignedPdfToManager(row: LeasePipelineRow): boolean {
+export function residentReturnedSignedPdfToManager(
+  row: Pick<LeasePipelineRow, "residentReturnedSignedPdfAt" | "thread">,
+): boolean {
   if (row.residentReturnedSignedPdfAt) return true;
   return (row.thread ?? []).some((message) => message.body?.includes(RESIDENT_RETURNED_SIGNED_PDF_THREAD));
 }
@@ -843,11 +849,27 @@ export type LeasePipelineRow = {
 function workflowStatusForRow(
   input: Pick<
     LeasePipelineRow,
-    "bucket" | "managerSignature" | "residentSignature" | "signatureName" | "signedAtIso" | "voidedAt" | "generatedHtml" | "managerUploadedPdf"
+    | "bucket"
+    | "managerSignature"
+    | "residentSignature"
+    | "signatureName"
+    | "signedAtIso"
+    | "voidedAt"
+    | "generatedHtml"
+    | "managerUploadedPdf"
+    | "residentReturnedSignedPdfAt"
+    | "thread"
   >,
 ): LeaseWorkflowStatus {
+  // A resident signs one of TWO ways: electronically, or offline by returning the
+  // signed PDF. Reading only the e-signature left an offline-signed lease stuck on
+  // "Manager Signature Pending" forever — the manager countersigned and the row
+  // never reached the Signed tab, while `hasBothLeaseSignatures` said both had
+  // signed. The two answers to "has the resident signed" must agree.
   const residentSigned = Boolean(
-    (input.residentSignature?.name && input.residentSignature?.signedAtIso) || (input.signatureName && input.signedAtIso),
+    (input.residentSignature?.name && input.residentSignature?.signedAtIso) ||
+      (input.signatureName && input.signedAtIso) ||
+      residentReturnedSignedPdfToManager(input),
   );
   const managerSigned = Boolean(input.managerSignature?.name && input.managerSignature?.signedAtIso);
   if (input.voidedAt) return "Voided";
@@ -990,6 +1012,9 @@ export function normalizeLeasePipelineRow(raw: unknown): LeasePipelineRow {
     voidedAt: typeof r.voidedAt === "string" ? r.voidedAt : null,
     generatedHtml: r.generatedHtml ?? null,
     managerUploadedPdf: r.managerUploadedPdf ?? null,
+    residentReturnedSignedPdfAt:
+      typeof r.residentReturnedSignedPdfAt === "string" ? r.residentReturnedSignedPdfAt : null,
+    thread: Array.isArray(r.thread) ? r.thread : [],
   });
   const stageLabel = stageLabelForStatus(status);
   // A row that is already executed is a FILING, not a document waiting to be
@@ -1120,6 +1145,9 @@ function ensureLeasePipelineScope(scopeUserId?: string | null) {
     activeLeasePipelineScopeUserId = nextScope;
     memoryRows = [];
     leasePipelineLastSyncedAt = 0;
+    leasePipelineLastServerIds = null;
+    approvalSeedSyncInFlight = new Set();
+    approvalSeedSyncAttempted = new Set();
     hydrateSuppressedLeaseKeys(nextScope);
   }
 }
@@ -1387,7 +1415,11 @@ function readRaw(scopeUserId?: string | null): LeasePipelineRow[] | null {
   return canUseStorage() ? memoryRows : null;
 }
 
-function write(unguardedRows: LeasePipelineRow[], scopeUserId?: string | null) {
+function write(
+  unguardedRows: LeasePipelineRow[],
+  scopeUserId?: string | null,
+  opts?: { approvalSeedSync?: boolean },
+) {
   if (!canUseStorage()) return;
   ensureLeasePipelineScope(scopeUserId);
   // `ensureLeasePipelineScope` blanks `memoryRows` on a scope change, and an
@@ -1396,14 +1428,41 @@ function write(unguardedRows: LeasePipelineRow[], scopeUserId?: string | null) {
   hydrateLeasePipelineFromSession(scopeUserId ?? activeLeasePipelineScopeUserId);
   const prevBaseline = memoryRows;
   const rows = preserveSignedLeaseDocuments(memoryRows, unguardedRows);
-  if (!leaseRowsChanged(memoryRows, rows)) return;
-  memoryRows = rows;
-  persistLeasePipelineToSession(rows, scopeUserId ?? activeLeasePipelineScopeUserId);
-  leasePipelineLastSyncedAt = Date.now();
-  emit();
+  const changed = leaseRowsChanged(memoryRows, rows);
+  const serverIds = leasePipelineLastServerIds;
+  const hasUnpersistedApprovalDraft =
+    opts?.approvalSeedSync === true &&
+    serverIds !== null &&
+    rows.some((row) => !leaseClaimsExecution(row) && !serverIds.has(row.id));
+  if (!changed && !hasUnpersistedApprovalDraft) return;
+  if (changed) {
+    memoryRows = rows;
+    persistLeasePipelineToSession(rows, scopeUserId ?? activeLeasePipelineScopeUserId);
+    leasePipelineLastSyncedAt = Date.now();
+    emit();
+  }
   // Demo sandbox is local-only: keep the in-memory/session write but never
   // mirror to the server.
   if (isDemoModeActive()) return;
+  // Approval only materializes its new lease draft from application data. It
+  // must not replay unrelated executed rows as part of a replace-all batch:
+  // those bodies are immutable and a legacy serialized representation must
+  // never prevent the newly approved applicant's own draft from reaching the
+  // server. Existing unsigned rows may still receive their derived app fields.
+  if (opts?.approvalSeedSync) {
+    const previousById = new Map(prevBaseline.map((row) => [row.id, row]));
+    for (const row of rows) {
+      const previous = previousById.get(row.id);
+      if (
+        (!previous || leaseRowsChanged([previous], [row]) || !leasePipelineLastServerIds?.has(row.id)) &&
+        !leaseClaimsExecution(previous ?? row) &&
+        !leaseClaimsExecution(row)
+      ) {
+        persistApprovalSeedLeaseRowToServer(row, scopeUserId);
+      }
+    }
+    return;
+  }
   // PRP-385: an empty local baseline + approval sync used to POST action:replace
   // with Draft stubs for every approved application id, upserting over Fully Signed
   // rows on the server. Never replace-all from empty; hydrate from server, then
@@ -1476,6 +1535,33 @@ function persistLeaseRowToServer(row: LeasePipelineRow) {
     credentials: "include",
     body: JSON.stringify({ action: "upsert", row }),
   }).catch(() => undefined);
+}
+
+function approvalSeedSyncKey(rowId: string, scopeUserId?: string | null): string {
+  return `${scopeUserId ?? activeLeasePipelineScopeUserId ?? "shared"}:${rowId}`;
+}
+
+/** A failed seed waits for a later successful inventory refresh; it never retries on every render. */
+function persistApprovalSeedLeaseRowToServer(row: LeasePipelineRow, scopeUserId?: string | null) {
+  if (!canUseStorage() || isDemoModeActive()) return;
+  const scope = scopeUserId ?? activeLeasePipelineScopeUserId ?? "shared";
+  const key = approvalSeedSyncKey(row.id, scope);
+  if (approvalSeedSyncInFlight.has(key) || approvalSeedSyncAttempted.has(key)) return;
+  approvalSeedSyncInFlight.add(key);
+  approvalSeedSyncAttempted.add(key);
+  void fetch("/api/portal-lease-pipeline", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ action: "upsert", row }),
+  })
+    .then((res) => {
+      if (res.ok && (activeLeasePipelineScopeUserId ?? "shared") === scope) {
+        leasePipelineLastServerIds?.add(row.id);
+      }
+    })
+    .catch(() => undefined)
+    .finally(() => approvalSeedSyncInFlight.delete(key));
 }
 
 function persistLeaseDeleteToServer(ids: string[]) {
@@ -1893,9 +1979,17 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
       const localSnapshot = readLeasePipeline(managerUserId);
       const res = await fetch("/api/portal-lease-pipeline", { credentials: "include", cache: "no-store" });
       notePortalResponse(res.status);
-      if (!res.ok) return localSnapshot;
+      if (!res.ok) {
+        // Still notify listeners: Residents classifies Current vs Potential off
+        // this cache, and a failed GET must not leave the UI stuck on a
+        // pre-sync classification (PRP-458).
+        emit();
+        return localSnapshot;
+      }
       const body = (await res.json()) as { rows?: unknown[] };
       const fetched = filterLeasesForManager((body.rows ?? []).map(normalizeLeasePipelineRow), managerUserId);
+      leasePipelineLastServerIds = new Set(fetched.map((row) => row.id));
+      approvalSeedSyncAttempted = new Set();
       // A server row is not automatically more trustworthy than the executed
       // copy already in hand, so the merge result is guarded too. Otherwise a
       // tampered row would land in memory unchallenged and then BECOME the
@@ -1918,19 +2012,23 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
 
 export function syncLeasePipelineFromApplications(managerUserId?: string | null): LeasePipelineRow[] {
   const next = readLeasePipeline(managerUserId);
-  if (!canUseStorage() || JSON.stringify(memoryRows) === JSON.stringify(next)) return next;
+  const serverIds = leasePipelineLastServerIds;
+  const hasUnpersistedApprovalDraft =
+    serverIds !== null &&
+    next.some((row) => !leaseClaimsExecution(row) && !serverIds.has(row.id));
+  if (!canUseStorage() || (JSON.stringify(memoryRows) === JSON.stringify(next) && !hasUnpersistedApprovalDraft)) return next;
   // A fresh browser session materializes draft rows before the server bucket is
   // hydrated. Defer the mirror until GET has merged executed leases into memory.
   if (leasePipelineLastSyncedAt === 0 && !isDemoModeActive()) {
     void syncLeasePipelineFromServer(managerUserId, { force: true }).then(() => {
       const afterHydrate = readLeasePipeline(managerUserId);
       if (JSON.stringify(memoryRows) !== JSON.stringify(afterHydrate)) {
-        write(afterHydrate, managerUserId);
+        write(afterHydrate, managerUserId, { approvalSeedSync: true });
       }
     });
     return next;
   }
-  write(next, managerUserId);
+  write(next, managerUserId, { approvalSeedSync: true });
   return next;
 }
 

@@ -10,6 +10,13 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => (req: { description?: unknown }) =>
+    Promise.resolve(
+      typeof window === "undefined"
+        ? true
+        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+    ),
+
   useAppUi: () => ({ showToast: () => {} }),
 }));
 vi.mock("posthog-js", () => ({ default: { reset: () => {} } }));
@@ -39,7 +46,7 @@ describe("PortalDeleteAccountButton", () => {
 
     render(<PortalDeleteAccountButton portalKind="manager" />);
     fireEvent.click(screen.getByText("Delete account"));
-    fireEvent.click(screen.getByText("Yes, permanently delete"));
+    fireEvent.click(screen.getByText("Yes, delete account"));
 
     await waitFor(() => expect(clearPortalBrowserCache).toHaveBeenCalled());
   });
@@ -53,9 +60,9 @@ describe("PortalDeleteAccountButton", () => {
 
     render(<PortalDeleteAccountButton portalKind="resident" />);
     fireEvent.click(screen.getByText("Delete account"));
-    fireEvent.click(screen.getByText("Yes, permanently delete"));
+    fireEvent.click(screen.getByText("Yes, delete account"));
 
-    await waitFor(() => expect(screen.getByText("Yes, permanently delete")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Yes, delete account")).toBeTruthy());
     expect(clearPortalBrowserCache).not.toHaveBeenCalled();
   });
 });

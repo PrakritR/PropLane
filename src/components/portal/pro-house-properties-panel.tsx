@@ -136,6 +136,7 @@ import {
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import { withListingContactSmsPhone } from "@/lib/listing-contact-sms";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 
 function submissionForListedEdit(p: MockProperty): ManagerListingSubmissionV1 {
   if (p.listingSubmission) return normalizeManagerListingSubmissionV1(p.listingSubmission);
@@ -1075,6 +1076,7 @@ function ManagerPropertyInlineDetails({
             onPublished={(listingId) => {
               setListingEditorOpen(false);
               onUpdated();
+              showToast(listingFormProps.editListingId ? "Changes saved." : "Listing submitted and published.");
               const published = listingId?.trim();
               if (published) {
                 detailRouter.replace(propertyDetailHref(propertiesBase, "listed", published, "preview"), {
@@ -1083,6 +1085,8 @@ function ManagerPropertyInlineDetails({
               }
             }}
             initialSubmission={listingFormProps.initialSubmission}
+            editListingId={listingFormProps.editListingId}
+            editListingOwnerUserId={listingFormProps.editListingOwnerUserId}
             showToast={showToast}
             userId={managerUserId}
             skuTier={skuTier}
@@ -1399,6 +1403,7 @@ export function ManagerHousePropertiesPanel({
     "delete-queue" | "unlist" | null
   >(null);
   const [bulkDestructiveBusy, setBulkDestructiveBusy] = useState(false);
+  const confirm = useConfirm();
 
   const confirmBulkDestructive = useCallback(() => {
     if (!pendingBulkDestructive || selectedPropertyEntries.length === 0) return;
@@ -1737,11 +1742,11 @@ export function ManagerHousePropertiesPanel({
                 variant="outline"
                 className={`${PORTAL_BULK_BAR_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`}
                 data-attr="properties-bulk-delete-draft"
-                onClick={() => {
+                onClick={async () => {
                   if (
-                    !window.confirm(
-                      `Delete ${selectedPropertyEntries.length} draft${selectedPropertyEntries.length === 1 ? "" : "s"}?`,
-                    )
+                    !(await confirm({
+                      description: `Delete ${selectedPropertyEntries.length} draft${selectedPropertyEntries.length === 1 ? "" : "s"}?`,
+                    }))
                   ) {
                     return;
                   }

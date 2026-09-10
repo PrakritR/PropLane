@@ -562,7 +562,6 @@ export function ManagerApplicationOnBehalfModal({
         recipient={sendPreview?.to ?? ""}
         subject={sendPreview?.subject ?? APPLICATION_STARTED_EMAIL_SUBJECT}
         body={sendPreview?.text ?? ""}
-        intro="The resident can continue the application and create their PropLane account from this email."
         showSkipMessage={false}
         confirmLabel="Send email"
         confirmBusy={sendBusy}

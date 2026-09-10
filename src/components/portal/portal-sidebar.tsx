@@ -50,7 +50,7 @@ import { groupNavItems, isAppNavHiddenInNativeShell, isHiddenFromMobileNav } fro
 import { PAYMENT_BUCKETS } from "@/lib/portal-detail-routes";
 import type { PortalDefinition, PortalKind } from "@/lib/portal-types";
 import { cn } from "@/lib/utils";
-import { ChevronsLeft, ChevronsRight, ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronsLeft, ChevronsRight, ChevronDown, ChevronRight, HelpCircle } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -991,6 +991,32 @@ export function PortalSidebar({
           ))}
         </nav>
       )}
+
+      {/*
+       * Help sits OUTSIDE the nav so it stays pinned while a long section list
+       * scrolls behind it — `/support` is the real destination; there is no
+       * separate help-centre route.
+       */}
+      <Link
+        href="/support"
+        data-attr="portal-sidebar-help"
+        className={cn(
+          "shrink-0 border-t border-border text-muted transition-colors hover:text-foreground",
+          collapsed
+            ? "grid h-[52px] place-items-center"
+            : "flex items-start gap-2.5 px-4 py-3.5",
+        )}
+        title={collapsed ? "Need help? Visit our help center" : undefined}
+        aria-label={collapsed ? "Need help? Visit our help center" : undefined}
+      >
+        <HelpCircle className="h-[19px] w-[19px] shrink-0 lg:mt-0.5" aria-hidden />
+        {collapsed ? null : (
+          <span className="min-w-0">
+            <span className="block text-[13px] font-semibold text-foreground">Need help?</span>
+            <span className="block text-[12px]">Visit our help center</span>
+          </span>
+        )}
+      </Link>
     </aside>
   );
 

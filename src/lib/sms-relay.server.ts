@@ -1,3 +1,5 @@
+import { assertAccountCleanupSucceeded } from "@/lib/auth/account-deletion-errors";
+import { loadAccountCleanupRows } from "@/lib/auth/load-account-cleanup-rows";
 /**
  * Proxy-pair SMS relay (see supabase/migrations/20260718120000_sms_relay_pool.sql).
  *
@@ -282,19 +284,25 @@ export async function closeRelayThread(
 async function closeThreadRow(
   db: SupabaseClient,
   thread: { id: string; proxyNumberId: string },
+  strict = false,
 ): Promise<void> {
-  await db.from("sms_relay_bindings").update({ active: false }).eq("thread_id", thread.id);
-  await db
-    .from("sms_relay_threads")
-    .update({ state: "closed", closed_at: new Date().toISOString() })
-    .eq("id", thread.id);
-  await db
+  const { error: bindingError } = await db.from("sms_relay_bindings").update({ active: false }).eq("thread_id", thread.id);
+  if (strict) assertAccountCleanupSucceeded(bindingError);
+  const { error: numberError } = await db
     .from("sms_relay_numbers")
     .update({
       status: "cooldown",
       cooldown_until: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     })
     .eq("id", thread.proxyNumberId);
+  if (strict) assertAccountCleanupSucceeded(numberError);
+  // Mark closed last: a failed cooldown must remain retryable.
+  const { error: threadError } = await db
+    .from("sms_relay_threads")
+    .update({ state: "closed", closed_at: new Date().toISOString() })
+    .eq("id", thread.id);
+  if (strict) assertAccountCleanupSucceeded(threadError);
+
 }
 
 /**
@@ -304,49 +312,51 @@ async function closeThreadRow(
  * user participates in and closes the affected threads, cooling down their
  * numbers exactly like a manual close.
  */
-export async function closeRelayThreadsForUser(db: SupabaseClient, userId: string): Promise<void> {
-  const { data: bindingRows } = await db
-    .from("sms_relay_bindings")
-    .select("thread_id")
-    .eq("user_id", userId);
-  const { data: managerThreads } = await db
-    .from("sms_relay_threads")
-    .select("id")
-    .eq("manager_user_id", userId);
+export async function closeRelayThreadsForUser(db: SupabaseClient, userId: string, portal?: "manager" | "resident"): Promise<void> {
+  const bindingRows = await loadAccountCleanupRows<{ thread_id: string }>((from, to) => {
+    const query = db.from("sms_relay_bindings").select("thread_id").eq("user_id", userId).order("id").range(from, to);
+    return portal ? query.eq("role", portal) : query;
+  });
+  const managerThreads = portal === "resident" ? [] : await loadAccountCleanupRows<{ id: string }>((from, to) => db
+    .from("sms_relay_threads").select("id").eq("manager_user_id", userId).order("id").range(from, to));
+  const counterpartyThreads = portal === "manager" ? [] : await loadAccountCleanupRows<{ id: string }>((from, to) => db
+    .from("sms_relay_threads").select("id").eq("counterparty_user_id", userId).order("id").range(from, to));
 
   // Bindings provisioned before the counterparty had an account carry
   // user_id: null — they can only be matched by phone. Match against the
   // profile phone ONLY when it is OTP-verified: an unverified (possibly
   // typo'd) number must never close a stranger's thread.
-  const { data: profile } = await db
+  const { data: profile, error: profileError } = await db
     .from("profiles")
     .select("phone, phone_verified_at")
     .eq("id", userId)
     .maybeSingle();
+  if (profileError) throw new Error(profileError.message);
   const verifiedPhone = profile?.phone_verified_at ? normalizeE164(String(profile.phone ?? "")) : null;
-  const { data: phoneBindingRows } = verifiedPhone
-    ? await db
-        .from("sms_relay_bindings")
-        .select("thread_id")
-        .eq("participant_phone", verifiedPhone)
-        .eq("active", true)
-    : { data: null };
+  const phoneBindingRows = verifiedPhone
+    ? await loadAccountCleanupRows<{ thread_id: string }>((from, to) => {
+        const query = db.from("sms_relay_bindings").select("thread_id").eq("participant_phone", verifiedPhone).order("id").range(from, to);
+        return portal ? query.eq("role", portal) : query;
+      })
+    : [];
 
   const threadIds = [
     ...new Set([
       ...(bindingRows ?? []).map((r) => String(r.thread_id)),
       ...(phoneBindingRows ?? []).map((r) => String(r.thread_id)),
       ...(managerThreads ?? []).map((r) => String(r.id)),
+      ...counterpartyThreads.map(r => String(r.id)),
     ]),
   ];
   for (const threadId of threadIds) {
-    const { data: thread } = await db
+    const { data: thread, error: threadError } = await db
       .from("sms_relay_threads")
       .select("id, proxy_number_id, state")
       .eq("id", threadId)
       .maybeSingle();
+    assertAccountCleanupSucceeded(threadError);
     if (!thread || thread.state === "closed") continue;
-    await closeThreadRow(db, { id: String(thread.id), proxyNumberId: String(thread.proxy_number_id) });
+    await closeThreadRow(db, { id: String(thread.id), proxyNumberId: String(thread.proxy_number_id) }, true);
   }
 }
 
@@ -449,9 +459,14 @@ export async function relayInboundSms(
   const mediaNote = storedMedia.length
     ? `\n\nAttachments:\n${storedMedia.map((m) => smsMediaAppUrl(m.path)).join("\n")}`
     : "";
+  // Never rethrow into the webhook: a 500 makes Twilio retry, and the retry
+  // returns early on the duplicate sms_relay_messages insert above, so the
+  // mirror would be skipped for good and the turn would vanish from the inbox.
   await upsertManagerInboxNotice(db, {
     managerUserId,
     idPrefix: `sms_relay_${sender.thread_id}`,
+    counterpartyPhone: sender.role === "manager" ? String(recipients?.[0]?.participant_phone ?? "") : from,
+    messageId: args.messageSid ? `relay_${args.messageSid}` : undefined,
     threadType: "sms_relay",
     folder: sender.role === "manager" ? "sent" : "inbox",
     from: sender.role === "manager" ? "You (via text)" : counterpartyLabel,
@@ -459,7 +474,7 @@ export async function relayInboundSms(
     preview: args.body,
     body: `${args.body}${mediaNote}`,
     unread: sender.role !== "manager",
-  });
+  }).catch((e) => console.error("sms relay inbox notice failed", e));
 
   return { handled: true, managerUserId, senderUserId };
 }

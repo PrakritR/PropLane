@@ -8,6 +8,13 @@ const showToast = vi.fn();
 
 vi.mock("next/navigation", () => ({ usePathname: () => pathname() }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => (req: { description?: unknown }) =>
+    Promise.resolve(
+      typeof window === "undefined"
+        ? true
+        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+    ),
+
   useAppUi: () => ({ showToast }),
 }));
 
@@ -78,14 +85,16 @@ describe("ManagerSmsWorkNumberHint", () => {
     expect(text).not.toContain("Finish setup");
   });
 
-  it("shows the usable number instead of a warning once it can send", () => {
-    render(<ManagerSmsWorkNumberHint show phone="+18559168031" canSend />);
+  it("says nothing at all once the number can send", () => {
+    const { container } = render(<ManagerSmsWorkNumberHint show phone="+18559168031" canSend />);
 
+    // A working number is Settings → Messaging's business. Compose popups all
+    // share one field set (To / Subject / Send via / Message / Schedule), and a
+    // work-number row appeared in some of them and not others.
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(screen.getByText("+1 (855) 916-8031")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Copy work number +1 (855) 916-8031" }),
-    ).toBeTruthy();
+    expect(screen.queryByText("+1 (855) 916-8031")).toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(container.textContent).toBe("");
   });
 
   it("copies the work number to the clipboard when clicked", async () => {

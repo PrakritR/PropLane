@@ -79,7 +79,14 @@ vi.mock("@/lib/portal-inbox-storage", async () => {
 });
 
 vi.mock("@/lib/portal-nav-client", () => ({ usePortalNavigate: () => () => {} }));
-vi.mock("@/components/providers/app-ui-provider", () => ({ useAppUi: () => ({ showToast: () => {} }) }));
+vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => (req: { description?: unknown }) =>
+    Promise.resolve(
+      typeof window === "undefined"
+        ? true
+        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+    ),
+ useAppUi: () => ({ showToast: () => {} }) }));
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   // Spread the real module: this file only needs to override demo mode,
   // and a hand-listed mock silently breaks every time the module gains an

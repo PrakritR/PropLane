@@ -48,4 +48,26 @@ describe("phone number field model", () => {
     expect(isCompletePhoneNumber("+44207946")).toBe(false);
     expect(isCompletePhoneNumber("+442079460958")).toBe(true);
   });
+
+  it("does not absorb the country dial into national digits on mid-entry +1", () => {
+    // Nine national digits → E.164 has ten digit chars after +; bare-10 parsing
+    // would wrongly treat that as a full NANP national and prepend a 1.
+    expect(parsePhoneFieldValue("+1112312312")).toEqual({
+      iso: "US",
+      nationalDigits: "112312312",
+    });
+    expect(parsePhoneFieldValue(composePhoneE164("US", "112312312"))).toEqual({
+      iso: "US",
+      nationalDigits: "112312312",
+    });
+    expect(parsePhoneFieldValue("+12065550123")).toEqual({
+      iso: "US",
+      nationalDigits: "2065550123",
+    });
+    // Bare 10-digit (no +) still means a full US national number.
+    expect(parsePhoneFieldValue("2065550123")).toEqual({
+      iso: "US",
+      nationalDigits: "2065550123",
+    });
+  });
 });

@@ -27,6 +27,8 @@ export type ApplicationFeeWaiverCode = {
   managerUserId: string;
   code: string;
   label: string | null;
+  /** Listing this code waives on. `null` = every property this manager owns (legacy). */
+  propertyId: string | null;
   status: ApplicationFeeWaiverCodeStatus;
   maxUses: number | null;
   usedCount: number;
@@ -49,6 +51,7 @@ type WaiverCodeRow = {
   manager_user_id: string;
   code: string;
   label: string | null;
+  property_id: string | null;
   status: string;
   max_uses: number | null;
   used_count: number;
@@ -72,6 +75,7 @@ function rowToCode(row: WaiverCodeRow): ApplicationFeeWaiverCode {
     managerUserId: row.manager_user_id,
     code: row.code,
     label: row.label,
+    propertyId: row.property_id ?? null,
     status: row.status === "revoked" ? "revoked" : "active",
     maxUses: row.max_uses,
     usedCount: row.used_count,
@@ -117,6 +121,8 @@ export type CreateWaiverCodeInput = {
   /** Custom code text; auto-generated when omitted. */
   code?: string;
   label?: string;
+  /** Listing this code waives on; omitted = portfolio-wide (legacy shape). */
+  propertyId?: string | null;
   /** null/omitted = unlimited (reusable) uses. */
   maxUses?: number | null;
   /** ISO timestamp; omitted = never expires. */
@@ -136,6 +142,7 @@ export async function createApplicationFeeWaiverCode(
   if (!managerId) return { ok: false, error: "managerUserId is required." };
 
   const label = input.label?.trim().slice(0, 200) || null;
+  const propertyId = input.propertyId?.trim() || null;
 
   let maxUses: number | null = null;
   if (input.maxUses != null) {
@@ -165,6 +172,7 @@ export async function createApplicationFeeWaiverCode(
       code: normalized,
       code_normalized: normalized,
       label,
+      property_id: propertyId,
       max_uses: maxUses,
       expires_at: expiresAt,
     })
@@ -238,18 +246,44 @@ const WAIVER_REDEEM_FAILURE_MESSAGES: Record<WaiverRedeemFailureReason, string> 
   EXHAUSTED: "That code has already been used the maximum number of times.",
 };
 
+/**
+ * The code row that applies to ONE property, out of every row this manager has
+ * under that text. Codes are per property, so the same text can exist on two
+ * listings; a null `property_id` is a legacy portfolio-wide code and still
+ * applies everywhere. Prefers an active pinned row, then an active portfolio
+ * row, then their inactive equivalents so a refusal can be explained precisely
+ * ("revoked" / "expired") instead of a blanket "not found".
+ */
+function pickWaiverCodeRowForProperty<T extends { property_id?: string | null; status?: string | null }>(
+  rows: readonly T[],
+  propertyId: string,
+): T | null {
+  return (
+    rows.find((r) => r.property_id === propertyId && r.status === "active") ??
+    rows.find((r) => r.property_id == null && r.status === "active") ??
+    rows.find((r) => r.property_id === propertyId) ??
+    rows.find((r) => r.property_id == null) ??
+    null
+  );
+}
+
 async function classifyWaiverRedeemFailure(
   db: SupabaseClient,
   managerUserId: string,
   normalizedCode: string,
+  propertyId: string,
 ): Promise<{ reason: WaiverRedeemFailureReason; error: string }> {
   const { data } = await db
     .from("manager_application_fee_waiver_codes")
-    .select("status, expires_at, max_uses, used_count")
+    .select("status, expires_at, max_uses, used_count, property_id")
     .eq("manager_user_id", managerUserId)
-    .eq("code_normalized", normalizedCode)
-    .maybeSingle();
-  const row = data as Pick<WaiverCodeRow, "status" | "expires_at" | "max_uses" | "used_count"> | null;
+    .eq("code_normalized", normalizedCode);
+  const row = pickWaiverCodeRowForProperty(
+    (data as (Pick<WaiverCodeRow, "status" | "expires_at" | "max_uses" | "used_count"> & {
+      property_id: string | null;
+    })[] | null) ?? [],
+    propertyId,
+  );
   if (!row) return { reason: "NOT_FOUND", error: WAIVER_REDEEM_FAILURE_MESSAGES.NOT_FOUND };
   if (row.status === "revoked") return { reason: "REVOKED", error: WAIVER_REDEEM_FAILURE_MESSAGES.REVOKED };
   if (row.expires_at && Date.parse(row.expires_at) <= Date.now()) {
@@ -289,15 +323,22 @@ export async function redeemApplicationFeeWaiverCode(
     return { ok: false, reason: "NOT_FOUND", error: WAIVER_REDEEM_FAILURE_MESSAGES.NOT_FOUND };
   }
 
-  const { data: codeRow, error: lookupError } = await db
+  // Codes are scoped per property, so the SAME text can legitimately exist on
+  // two of this manager's listings — `.maybeSingle()` would error on that
+  // instead of finding the right one. Select every candidate and prefer the one
+  // pinned to THIS property; a null `property_id` is a legacy portfolio-wide
+  // code and remains a fallback. The database still arbitrates: the redeem
+  // function re-checks the property, so a mis-picked row cannot waive anything.
+  const { data: codeRows, error: lookupError } = await db
     .from("manager_application_fee_waiver_codes")
-    .select("id")
+    .select("id, property_id, status")
     .eq("manager_user_id", managerUserId)
-    .eq("code_normalized", normalizedCode)
-    .maybeSingle();
+    .eq("code_normalized", normalizedCode);
   if (lookupError) {
     return { ok: false, reason: "NOT_FOUND", error: WAIVER_REDEEM_FAILURE_MESSAGES.NOT_FOUND };
   }
+  const candidates = (codeRows as { id: string; property_id: string | null; status: string }[] | null) ?? [];
+  const codeRow = pickWaiverCodeRowForProperty(candidates, propertyId);
   if (!codeRow) {
     return { ok: false, reason: "NOT_FOUND", error: WAIVER_REDEEM_FAILURE_MESSAGES.NOT_FOUND };
   }
@@ -317,7 +358,7 @@ export async function redeemApplicationFeeWaiverCode(
   }
   const rows = (redeemed as { id: string }[] | null) ?? [];
   if (rows.length === 0 || !rows[0]?.id) {
-    const failure = await classifyWaiverRedeemFailure(db, managerUserId, normalizedCode);
+    const failure = await classifyWaiverRedeemFailure(db, managerUserId, normalizedCode, propertyId);
     return { ok: false, ...failure };
   }
   return { ok: true, codeId: rows[0].id };
@@ -333,16 +374,26 @@ export async function previewApplicationFeeWaiverCode(
   db: SupabaseClient,
   managerUserId: string,
   code: string,
+  /**
+   * The listing being applied to. Required — without it this would tell an
+   * applicant a neighbouring property's code is valid, and the redeem call would
+   * then refuse it at payment.
+   */
+  propertyId: string,
 ): Promise<{ ok: true } | { ok: false; reason: WaiverRedeemFailureReason; error: string }> {
   const normalized = normalizeWaiverCode(code);
   if (!normalized) return { ok: false, reason: "NOT_FOUND", error: WAIVER_REDEEM_FAILURE_MESSAGES.NOT_FOUND };
   const { data } = await db
     .from("manager_application_fee_waiver_codes")
-    .select("status, expires_at, max_uses, used_count")
+    .select("status, expires_at, max_uses, used_count, property_id")
     .eq("manager_user_id", managerUserId.trim())
-    .eq("code_normalized", normalized)
-    .maybeSingle();
-  const row = data as Pick<WaiverCodeRow, "status" | "expires_at" | "max_uses" | "used_count"> | null;
+    .eq("code_normalized", normalized);
+  const row = pickWaiverCodeRowForProperty(
+    (data as (Pick<WaiverCodeRow, "status" | "expires_at" | "max_uses" | "used_count"> & {
+      property_id: string | null;
+    })[] | null) ?? [],
+    propertyId.trim(),
+  );
   if (!row) return { ok: false, reason: "NOT_FOUND", error: WAIVER_REDEEM_FAILURE_MESSAGES.NOT_FOUND };
   if (row.status === "revoked") return { ok: false, reason: "REVOKED", error: WAIVER_REDEEM_FAILURE_MESSAGES.REVOKED };
   if (row.expires_at && Date.parse(row.expires_at) <= Date.now()) {
@@ -392,11 +443,13 @@ export async function upsertPropertyApplicationFeeWaiverCode(
   if (!pid) return { ok: false, error: "propertyId is required." };
   const label = listingWaiverLabel(pid);
   const existing = await listApplicationFeeWaiverCodes(db, managerUserId);
-  const tagged = existing.filter((c) => c.label === label);
+  // A row belongs to this listing by `property_id`; the older `listing:<id>`
+  // label is still honoured for rows written before the column existed.
+  const mine = existing.filter((c) => c.propertyId === pid || (c.propertyId == null && c.label === label));
   const trimmed = (rawCode ?? "").trim();
 
   if (!trimmed) {
-    for (const c of tagged.filter((row) => row.status === "active")) {
+    for (const c of mine.filter((row) => row.status === "active")) {
       const revoked = await revokeApplicationFeeWaiverCode(db, managerUserId, c.id);
       if (!revoked.ok) return { ok: false, error: revoked.error };
     }
@@ -407,25 +460,46 @@ export async function upsertPropertyApplicationFeeWaiverCode(
     return { ok: false, error: "Codes must be 4-32 letters, numbers, or hyphens." };
   }
   const normalized = normalizeWaiverCode(trimmed);
+
+  // Code text is unique per manager, so the same text cannot sit on two
+  // listings. Reusing another property's row would MOVE the code off that
+  // property — silently un-waiving a code its applicants may already hold. Say
+  // so instead.
+  const onAnotherProperty = existing.find(
+    (c) =>
+      c.code === normalized &&
+      c.status === "active" &&
+      c.propertyId != null &&
+      c.propertyId !== pid,
+  );
+  if (onAnotherProperty) {
+    return {
+      ok: false,
+      error: "That code is already in use on another property. Give this one its own code.",
+    };
+  }
+
   const matching =
-    tagged.find((c) => c.code === normalized && c.status === "active") ??
-    existing.find((c) => c.code === normalized && c.status === "active") ??
+    mine.find((c) => c.code === normalized && c.status === "active") ??
+    // A legacy portfolio-wide code with this text is taken over by this
+    // property rather than left applying everywhere.
+    existing.find((c) => c.code === normalized && c.status === "active" && c.propertyId == null) ??
     null;
 
-  for (const c of tagged.filter((row) => row.status === "active" && row.id !== matching?.id)) {
+  for (const c of mine.filter((row) => row.status === "active" && row.id !== matching?.id)) {
     const revoked = await revokeApplicationFeeWaiverCode(db, managerUserId, c.id);
     if (!revoked.ok) return { ok: false, error: revoked.error };
   }
 
   if (matching) {
-    if (matching.label !== label) {
+    if (matching.label !== label || matching.propertyId !== pid) {
       const { error } = await db
         .from("manager_application_fee_waiver_codes")
-        .update({ label })
+        .update({ label, property_id: pid })
         .eq("id", matching.id)
         .eq("manager_user_id", managerUserId.trim());
       if (error) return { ok: false, error: error.message };
-      return { ok: true, code: { ...matching, label } };
+      return { ok: true, code: { ...matching, label, propertyId: pid } };
     }
     return { ok: true, code: matching };
   }
@@ -433,6 +507,7 @@ export async function upsertPropertyApplicationFeeWaiverCode(
   const created = await createApplicationFeeWaiverCode(db, managerUserId, {
     code: normalized,
     label,
+    propertyId: pid,
     maxUses: null,
   });
   if (!created.ok) return { ok: false, error: created.error };

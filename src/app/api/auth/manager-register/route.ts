@@ -1,3 +1,4 @@
+import { recoverySetupRedirect } from "@/lib/auth/account-recovery.server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   loadManagerAutomationSettings,
@@ -116,6 +117,9 @@ export async function POST(req: Request) {
       }
       userId = created.user.id;
     }
+
+    const recovery = await recoverySetupRedirect(supabase, userId);
+    if (recovery) return NextResponse.json({ ok: true, existingAccount: true, recoveryRequired: true, redirectTo: recovery });
 
     const existingPurchase = await findManagerPurchaseForAccount(supabase, userId, email);
     if (existingPurchase && isManagerOnboardingComplete(existingPurchase)) {

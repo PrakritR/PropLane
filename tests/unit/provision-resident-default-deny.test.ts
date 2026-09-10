@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+vi.mock("@/lib/auth/account-recovery.server", () => ({ pendingAccountRecovery: vi.fn(async () => null), recoverySetupRedirect: vi.fn(async () => null) }));
 
 // Keep the auth-user lookup / role-row writes inert so the test exercises only
 // the inheritance decision. Returning the same id avoids the migrate path.

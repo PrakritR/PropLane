@@ -1,3 +1,4 @@
+import { smsNoticeIdentity } from "@/lib/sms-inbox-identity";
 import {
   assistantInboxCollapseKey,
   boundManagerUserIdFromThread,
@@ -64,16 +65,29 @@ export type PersistedInboxThread = {
   unread: boolean;
   /** When true, the root turn renders as the owner's outbound message in inbox threads. */
   rootOutbound?: boolean;
+  rootAt?: string;
   /** Root-turn attachments when the thread was opened with media. */
   attachments?: { url: string; name?: string }[];
   messages?: InboxThreadMessage[];
   /** Manager-only pending AI reply draft (never present on resident-scope rows). */
   aiDraft?: InboxAiDraft;
+  /**
+   * What the conversation is about, stamped by the send path (see
+   * `deliverPortalInboxMessage`'s `eventCategory`). ABSENT on every row written
+   * before that stamp existed — an absent category renders no chip, never a
+   * guess from the subject line.
+   */
+  category?: string;
   /** Server thread_type when the row still carries it (resident_agent / vendor_agent). */
   threadType?: string | null;
   thread_type?: string | null;
   /** Resident assistant: which manager's tools this thread is bound to. */
   boundManagerUserId?: string;
+  /** Server-verified SMS conversation identity for exact cross-channel folding. */
+  smsConversationKey?: string;
+  ownerUserId?: string;
+  smsNoticePhone?: string;
+  sourceThreadIds?: string[];
 };
 
 export const MANAGER_INBOX_STORAGE_KEY = "axis_portal_inbox_manager_v1";
@@ -676,7 +690,7 @@ export function inboxThreadMessages(thread: PersistedInboxThread): InboxThreadMe
     id: rootId,
     from: thread.from,
     body: thread.body,
-    at: thread.time,
+    at: thread.rootAt || thread.time,
     ...(thread.rootOutbound ? { outbound: true } : {}),
     ...(thread.attachments?.length ? { attachments: thread.attachments } : {}),
   });
@@ -725,6 +739,16 @@ export function formatInboxStamp(value: Date): string {
 
 /** The exact shape {@link formatInboxStamp} produces: "Aug 3, 5:31 PM". */
 const CANONICAL_INBOX_STAMP = /^[A-Za-z]{3} \d{1,2}, \d{1,2}:\d{2}\s?(AM|PM)$/;
+
+/**
+ * True only for a stamp this module wrote. Callers that need a DATE out of a
+ * stamp use it to refuse anything else: `parseInboxStampMs` is deliberately
+ * lenient so ordering degrades gracefully, but a lenient read of "9:00" is fine
+ * for sorting and wrong for printing a day heading.
+ */
+export function isCanonicalInboxStamp(value?: string | null): boolean {
+  return CANONICAL_INBOX_STAMP.test(String(value ?? "").trim());
+}
 
 /**
  * Re-render any stamp into {@link formatInboxStamp}. An unreadable stamp falls
@@ -783,12 +807,12 @@ export function collapsePersonInboxThreads(
   const groups = new Map<string, PersistedInboxThread[]>();
 
   for (const thread of threads) {
-    const counterparty = inboxThreadCounterpartyEmail(thread);
-    if (!counterparty.includes("@") || thread.folder === "trash") {
+    const counterparty = smsNoticeIdentity(thread) || inboxThreadCounterpartyEmail(thread);
+    if ((!counterparty.includes("@") && !counterparty.startsWith("sms-notice:")) || (thread.folder === "trash" && !counterparty.startsWith("sms-notice:"))) {
       solo.push(thread);
       continue;
     }
-    const key = mergeFolders ? counterparty : `${thread.folder}:${counterparty}`;
+    const key = mergeFolders && thread.folder !== "trash" ? counterparty : `${thread.folder}:${counterparty}`;
     const bucket = groups.get(key) ?? [];
     bucket.push(thread);
     groups.set(key, bucket);
@@ -806,7 +830,9 @@ export function collapsePersonInboxThreads(
     const canonical = sorted[sorted.length - 1]!;
     const allMessages: InboxThreadMessage[] = [];
     for (const th of sorted) {
-      allMessages.push(...inboxThreadMessages(th));
+      allMessages.push(...inboxThreadMessages(th).map((message, index) => index === 0
+        ? { ...message, outbound: th.rootOutbound ?? (th.folder === "sent") }
+        : message));
     }
     const seenIds = new Set<string>();
     const ordered = allMessages.filter((m) => {
@@ -814,24 +840,30 @@ export function collapsePersonInboxThreads(
       seenIds.add(m.id);
       return true;
     });
+    ordered.sort((a, b) => inboxThreadSortMs(a.id, a.at) - inboxThreadSortMs(b.id, b.at));
     const first = ordered[0];
     if (!first) {
       merged.push(canonical);
       continue;
     }
     const last = ordered[ordered.length - 1]!;
+    const smsBindings = [...new Set(group.map((thread) => thread.smsConversationKey?.trim()).filter((key): key is string => Boolean(key)))];
     const canonicalRootId = `${canonical.id}-root`;
     const messages = ordered.slice(1).map((m) =>
       m.id === canonicalRootId ? { ...m, id: `merged:${m.id}` } : m,
     );
     merged.push({
       ...canonical,
+      sourceThreadIds: [...new Set(group.flatMap((t) => t.sourceThreadIds ?? [t.id]))],
       body: first.body,
+      rootAt: first.at,
+      rootOutbound: first.outbound === true,
       from: first.from,
       time: canonical.time,
       preview: last.body.slice(0, 100).replace(/\n/g, " "),
       messages,
       unread: group.some((t) => t.unread),
+      ...(smsBindings.length === 1 ? { smsConversationKey: smsBindings[0] } : { smsConversationKey: undefined }),
     });
   }
   return merged;
@@ -940,6 +972,8 @@ export function resolveCollapsedInboxThread(
   if (!expandedId) return null;
   const direct = collapsed.find((t) => t.id === expandedId);
   if (direct) return direct;
+  const member = collapsed.find((t) => t.sourceThreadIds?.includes(expandedId));
+  if (member) return member;
   const legacy = raw.find((t) => t.id === expandedId);
   if (!legacy) return null;
   const counterparty = inboxThreadCounterpartyEmail(legacy);

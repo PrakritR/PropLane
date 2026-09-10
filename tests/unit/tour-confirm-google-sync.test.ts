@@ -47,6 +47,7 @@ function inquiry(over: Record<string, unknown> = {}) {
     name: "Guest",
     email: "guest@example.com",
     phone: "2065550123",
+    smsConsent: true,
     managerUserId: MANAGER,
     eligibleHostUserIds: [MANAGER],
     propertyId: "prop-1",
@@ -124,6 +125,7 @@ describe("confirmTourInquiry pushes the tour to Google before answering", () => 
       attendeeName: "Guest",
       attendeeEmail: "guest@example.com",
     });
+    expect(written.planned.at(-1)).toMatchObject({ smsConsent: true, attendeePhone: "2065550123" });
   });
 
   it("books the tour and reports a Google failure rather than failing the confirm", async () => {

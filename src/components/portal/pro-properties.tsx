@@ -33,6 +33,7 @@ import {
   PROPERTY_PIPELINE_EVENT,
 } from "@/lib/demo-property-pipeline";
 import { collectLinkedPropertyIds, syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
+import { accountLinksKnown, fetchAccountLinksCached } from "@/lib/portal-data-store";
 import { isServerSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -44,6 +45,10 @@ import {
 import { loadManagerEffectivePlanTierClient } from "@/lib/manager-subscription-client";
 import {
   ensureManagerFirstListingDraft,
+  managerHasAnyListing,
+  markFirstListingWizardDismissed,
+  readFirstListingWizardDismissed,
+  shouldAutoOpenFirstListingWizard,
   managerNeedsFirstListingOnboarding,
   readFirstListingPortfolioSnapshot,
   shouldSkipFirstListingOnboarding,
@@ -98,6 +103,18 @@ export function ManagerProperties({
   }, []);
   /** Resume the seeded / first draft in the wizard (PRP-396). */
   const [resumeDraftId, setResumeDraftId] = useState<string | null>(null);
+  /**
+   * Closing the create-listing wizard is an ANSWER, remembered for good.
+   *
+   * It used to reopen on every visit to Properties until a listing existed, so
+   * a manager who closed it found it waiting again the next time they came
+   * back — including on the Drafts tab they were trying to read.
+   */
+  const dismissFirstListingWizard = useCallback(() => {
+    setWizardOpen(false);
+    setResumeDraftId(null);
+    markFirstListingWizardDismissed(userId);
+  }, [userId]);
   const [portfolioTick, setPortfolioTick] = useState(0);
   const firstListingSeedAttemptedRef = useRef(false);
   const [shareListingOpen, setShareListingOpen] = useState(false);
@@ -185,18 +202,15 @@ export function ManagerProperties({
           });
         }
         // PRP-396 / PRP-429: after a CONFIRMED sync, seed one draft when the
-        // owned portfolio is empty (skip demo + sandbox accounts), then open it.
+        // portfolio is empty (skip demo + sandbox accounts), then decide where
+        // this manager should land and whether the wizard opens itself.
         //
-        // The wizard opens on EVERY visit to Properties until the account's
-        // first property is actually listed — not only on the visit that minted
-        // the draft. A new manager who came back to finish setting up used to
-        // land on an empty Drafts tab and have to find their own way back into
-        // the wizard. Two things keep that from becoming a trap: it is gated on
-        // `managerNeedsFirstListingOnboarding` re-read AFTER the seed, so an
-        // account with any listed or unlisted property never sees it (a leftover
-        // draft beside real listings is just a draft), and it fires once per
-        // mount, so closing the wizard leaves it closed until the manager
-        // navigates back to Properties themselves.
+        // The wizard used to reopen on EVERY visit until a listing existed. That
+        // made closing it meaningless — it was waiting again the next time, on
+        // top of the Drafts tab the manager was trying to read. It now opens on
+        // exactly two conditions, both in `shouldAutoOpenFirstListingWizard`:
+        // no listing of ANY kind (owned, unlisted, or co-managed), and never
+        // closed before.
         if (
           userId &&
           scopeUserId &&
@@ -206,20 +220,43 @@ export function ManagerProperties({
           !shouldSkipFirstListingOnboarding({ email })
         ) {
           firstListingSeedAttemptedRef.current = true;
+          // Wait for a real answer about co-manager links before judging the
+          // portfolio empty. The link cache reads `[]` both before it loads and
+          // when there genuinely are none, and seeding on the first of those
+          // handed a co-manager a draft on every visit (their three properties
+          // live on somebody else's row, so nothing they own says otherwise).
+          try {
+            await fetchAccountLinksCached();
+          } catch {
+            /* the known-flag stays false, which is itself the refusal below */
+          }
+          const linksKnown = accountLinksKnown();
           const seeded = await ensureManagerFirstListingDraft(userId, {
             email,
             portfolioSynced,
+            coManagerLinksKnown: linksKnown,
           });
           if (seeded) {
             setPropCount(countManagerManagedPropertiesForUser(scopeUserId));
             setPortfolioTick((t) => t + 1);
-            if (managerNeedsFirstListingOnboarding(readFirstListingPortfolioSnapshot(userId))) {
-              if (activeStage !== "drafts") {
-                setActiveStage("drafts");
-              }
-              setResumeDraftId(seeded.draftId);
-              setWizardOpen(true);
-            }
+          }
+          // Read AFTER any seed, and outside the `seeded` branch: an account
+          // that already had a draft still needs to land on Drafts, and one
+          // where seeding was declined must not be stranded on an empty Listed.
+          const snap = readFirstListingPortfolioSnapshot(userId);
+          if (linksKnown && !managerHasAnyListing(snap) && activeStage !== "drafts") {
+            setActiveStage("drafts");
+          }
+          if (
+            seeded &&
+            shouldAutoOpenFirstListingWizard({
+              snap,
+              dismissed: readFirstListingWizardDismissed(userId),
+              coManagerLinksKnown: linksKnown,
+            })
+          ) {
+            setResumeDraftId(seeded.draftId);
+            setWizardOpen(true);
           }
         }
       });
@@ -419,10 +456,7 @@ export function ManagerProperties({
          */
         <ListingWizardOverlay>
           <ListingWizardV2
-            onClose={() => {
-              setWizardOpen(false);
-              setResumeDraftId(null);
-            }}
+            onClose={dismissFirstListingWizard}
             onSaved={() => refreshPending()}
             onPublished={(listingId) => {
               setWizardOpen(false);
@@ -448,10 +482,7 @@ export function ManagerProperties({
       ) : wizardOpen && useV2Wizard === false ? (
         <ManagerAddListingForm
           key={resumeDraftId ?? "new-listing"}
-          onClose={() => {
-            setWizardOpen(false);
-            setResumeDraftId(null);
-          }}
+          onClose={dismissFirstListingWizard}
           onSubmitted={(listingId) => {
             setWizardOpen(false);
             setResumeDraftId(null);

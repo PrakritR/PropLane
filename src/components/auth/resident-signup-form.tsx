@@ -20,6 +20,7 @@ import { normalizeAuthEmail } from "@/lib/auth/normalize-auth-email";
 import { withAuthTimeout } from "@/lib/auth/with-timeout";
 
 type RegisterResponse = {
+  recoveryRequired?: boolean;
   error?: string;
   redirectTo?: string;
   axisId?: string;
@@ -143,6 +144,10 @@ export function ResidentSignupForm({
         return;
       }
       if (signInData?.user) posthog.identify(signInData.user.id);
+      if (body.recoveryRequired && body.redirectTo?.startsWith("/auth/recover-account")) {
+        window.location.replace(nativeAwarePath(body.redirectTo));
+        return;
+      }
       // When a listing context was passed (Create account from a listing's apply
       // gate), land the renter ON that application inside their portal. We go
       // straight there rather than through the post-auth resolver, which would

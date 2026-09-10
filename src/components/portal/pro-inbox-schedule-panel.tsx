@@ -301,7 +301,7 @@ export function ManagerInboxSchedulePanel({
           deliverViaSms={scheduled.deliverViaSms}
           emailAvailable
           smsAvailable={smsAvailable}
-          channelEditable={row.kind === "manual" && scheduled.editable && isScheduled}
+          channelEditable={scheduled.editable && isScheduled}
           source={scheduled.source}
           editable={scheduled.editable && isScheduled}
           busy={editBusy}
@@ -371,6 +371,8 @@ export function ManagerInboxSchedulePanel({
                       customSubject: next.subject,
                       customBody: next.body,
                       ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+                      ...(next.deliverViaEmail !== undefined ? { customDeliverViaEmail: next.deliverViaEmail } : {}),
+                      ...(next.deliverViaSms !== undefined ? { customDeliverViaSms: next.deliverViaSms } : {}),
                     });
                   }
                   showToast("Scheduled message updated.");

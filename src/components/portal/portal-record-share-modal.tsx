@@ -260,7 +260,7 @@ export function PortalRecordShareModal({
                 selected={sendVia}
                 onChange={setSendVia}
                 smsAvailable={smsAvailable}
-                footerNote={smsAvailable ? "SMS uses your PropLane work number." : ""}
+                footerNote=""
                 dataAttr="record-share-send-via"
               />
               <div className={PORTAL_MESSAGE_COMPOSE_TWO_COL_CLASS}>
@@ -349,10 +349,8 @@ export function PortalRecordShareModal({
         recipientPhone={recipientPhone.trim() || undefined}
         subject={recordShareSubject(kind, titleLabel)}
         body={previewBody}
-        intro="Review the message before sending."
         showSkipMessage={false}
         showChannelPicker
-        showSchedule={false}
         emailAvailable
         smsAvailable={smsAvailable}
         defaultViaEmail={viaEmail}

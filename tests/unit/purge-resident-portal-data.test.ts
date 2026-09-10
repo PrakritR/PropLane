@@ -12,6 +12,8 @@ vi.mock("@/lib/auth/purge-orphaned-co-manager-links", () => ({
 function mockDeleteChain() {
   return {
     select: vi.fn().mockReturnThis(),
+    order: vi.fn().mockReturnThis(),
+    range: vi.fn().mockReturnThis(),
     delete: vi.fn().mockReturnThis(),
     // Detach writes (null a pointer on somebody else's row) go through update().
     update: vi.fn().mockReturnThis(),
@@ -24,7 +26,7 @@ function mockDeleteChain() {
     // Resolves both delete ops ({ error }) and the manager_application_records
     // id lookup ({ data }) so the email-based screening/cosigner purge runs.
     then: (resolve: (value: { error: null; data: { id: string }[] }) => void) =>
-      resolve({ error: null, data: [{ id: "app-1" }] }),
+      resolve({ error: null, data: [{ id: "app-1", manager_user_id: "mgr-user-1", row_data: {} }] }),
   };
 }
 
@@ -43,10 +45,17 @@ function mockStorage() {
   return { storage, removed };
 }
 
+function serviceFixture(chain: ReturnType<typeof mockDeleteChain>, storage = mockStorage().storage) {
+  return { from: vi.fn(() => chain), storage,
+    rpc: vi.fn(async () => ({ data: 0, error: null })),
+    auth: { admin: { getUserById: async (id: string) => ({ data: { user: { id, email: "manager@example.com" } }, error: null }) } },
+  };
+}
+
 describe("purgeResidentPortalData", () => {
-  it("purges service requests, ledger, screening, cosigner, and scheduled inbox rows", async () => {
+  it("purges personal records while preserving the manager ledger", async () => {
     const chain = mockDeleteChain();
-    const db = { from: vi.fn(() => chain) } as unknown as Parameters<typeof purgeResidentPortalData>[0];
+    const db = serviceFixture(chain);
 
     await purgeResidentPortalData(db, {
       email: "resident@example.com",
@@ -56,12 +65,12 @@ describe("purgeResidentPortalData", () => {
 
     const tables = db.from.mock.calls.map((call) => call[0]);
     expect(tables).toContain("portal_service_request_records");
-    expect(tables).toContain("ledger_entries");
+    expect(db.rpc).toHaveBeenCalledWith("account_preserve_financial_records", expect.objectContaining({ p_table: "ledger_entries" }));
     expect(tables).toContain("cosigner_submission_records");
     expect(tables).toContain("screening_orders");
     expect(tables).toContain("portal_scheduled_inbox_message_records");
     expect(tables).toContain("portal_reminder_records");
-    expect(tables).toContain("portal_household_charge_records");
+    expect(db.rpc).toHaveBeenCalledWith("account_preserve_financial_records", expect.objectContaining({ p_table: "portal_household_charge_records" }));
     expect(db.from).toHaveBeenCalled();
   });
 
@@ -70,7 +79,7 @@ describe("purgeResidentPortalData", () => {
     // photos for every application row tied to that email.
     const chain = mockDeleteChain();
     const { storage, removed } = mockStorage();
-    const db = { from: vi.fn(() => chain), storage } as unknown as Parameters<typeof purgeResidentPortalData>[0];
+    const db = serviceFixture(chain, storage);
 
     await purgeResidentPortalData(db, { email: "resident@example.com", applicationId: "PROPLANE-DCA4B226" });
 
@@ -86,13 +95,13 @@ describe("purgeApplicationPortalData", () => {
   it("purges only application-scoped rows and reclaims photos", async () => {
     const chain = mockDeleteChain();
     const { storage, removed } = mockStorage();
-    const db = { from: vi.fn(() => chain), storage } as unknown as Parameters<typeof purgeApplicationPortalData>[0];
+    const db = serviceFixture(chain, storage);
 
     await purgeApplicationPortalData(db, "PROPLANE-APP1");
 
     const tables = db.from.mock.calls.map((call) => call[0]);
     expect(tables).toContain("manager_application_records");
-    expect(tables).toContain("portal_household_charge_records");
+    expect(tables).not.toContain("portal_household_charge_records");
     expect(tables).toContain("screening_orders");
     expect(tables).not.toContain("profiles");
     expect(storage.from).toHaveBeenCalledWith("application-documents");
@@ -104,7 +113,7 @@ describe("purgeManagerPortalData", () => {
   it("reclaims photo bytes for the manager's deleted application rows too", async () => {
     const chain = mockDeleteChain();
     const { storage, removed } = mockStorage();
-    const db = { from: vi.fn(() => chain), storage } as unknown as Parameters<typeof purgeManagerPortalData>[0];
+    const db = serviceFixture(chain, storage);
 
     await purgeManagerPortalData(db, "mgr-user-1");
 
@@ -115,9 +124,7 @@ describe("purgeManagerPortalData", () => {
 
   it("purges ledger, GL, vendor AP, service requests, and agent rows", async () => {
     const chain = mockDeleteChain();
-    const db = { from: vi.fn(() => chain), storage: mockStorage().storage } as unknown as Parameters<
-      typeof purgeManagerPortalData
-    >[0];
+    const db = serviceFixture(chain);
 
     await purgeManagerPortalData(db, "mgr-user-1");
 
@@ -125,7 +132,7 @@ describe("purgeManagerPortalData", () => {
     expect(tables).toContain("ledger_entries");
     expect(tables).toContain("gl_journal_entries");
     expect(tables).toContain("portal_service_request_records");
-    expect(tables).toContain("vendor_invoices");
+    expect(db.rpc).toHaveBeenCalledWith("account_preserve_financial_records", expect.objectContaining({ p_table: "vendor_invoices" }));
     expect(tables).toContain("agent_pending_actions");
     expect(tables).toContain("manager_sms_numbers");
   });

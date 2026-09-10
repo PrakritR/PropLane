@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+const recoveryRedirect = vi.hoisted(() => vi.fn(async (): Promise<string | null> => null));
+vi.mock("@/lib/auth/account-recovery.server", () => ({ recoverySetupRedirect: recoveryRedirect }));
 import type { User } from "@supabase/supabase-js";
 
 const ensureFreeManagerPortalAccess = vi.fn();
@@ -351,4 +353,14 @@ describe("resolveOAuthPortalRedirect", () => {
     expect(ensureProfileRoleRow).toHaveBeenCalledWith(supabase, "founder", "manager");
     expect(path).toBe("/portal/dashboard");
   });
+});
+
+
+it("returns pending recovery before reading roles or provisioning a portal", async () => {
+  const { resolveOAuthPortalRedirect } = await import("@/lib/auth/resolve-oauth-portal-access");
+  recoveryRedirect.mockResolvedValueOnce("/auth/recover-account?portal=resident");
+  const db = { from: vi.fn(() => { throw new Error("Provisioning must not run"); }) };
+  const result = await resolveOAuthPortalRedirect(db as never, { id: "retained-user" } as User, "/auth/resident-oauth-finish");
+  expect(result).toBe("/auth/recover-account?portal=resident");
+  expect(db.from).not.toHaveBeenCalled();
 });

@@ -110,6 +110,13 @@ vi.mock("@/lib/portal-base-path-client", () => ({
 }));
 
 vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => (req: { description?: unknown }) =>
+    Promise.resolve(
+      typeof window === "undefined"
+        ? true
+        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+    ),
+
   useAppUi: () => ({ showToast: () => {} }),
 }));
 
@@ -121,7 +128,11 @@ vi.mock("@/components/portal/pro-inbox-schedule-panel", () => ({
   ManagerInboxSchedulePanel: () => null,
 }));
 
-vi.mock("@/lib/manager-inbox-contacts", () => ({
+vi.mock("@/lib/manager-inbox-contacts", async (importOriginal) => ({
+  // Spread the real module: this file only needs an empty live directory, and a
+  // hand-listed mock silently breaks every time the module gains an export a
+  // component calls — which is exactly how this broke.
+  ...(await importOriginal<typeof import("@/lib/manager-inbox-contacts")>()),
   buildManagerInboxLiveContacts: () => [],
 }));
 

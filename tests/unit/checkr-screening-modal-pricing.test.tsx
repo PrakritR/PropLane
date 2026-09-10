@@ -9,6 +9,13 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock("@/components/providers/app-ui-provider", () => ({
+  useConfirm: () => (req: { description?: unknown }) =>
+    Promise.resolve(
+      typeof window === "undefined"
+        ? true
+        : window.confirm(typeof req?.description === "string" ? req.description : "Are you sure?"),
+    ),
+
   useAppUi: () => ({ showToast: () => {} }),
 }));
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
@@ -17,9 +24,6 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   // export a component calls at import time.
   ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
   isDemoModeActive: () => false,
-}));
-vi.mock("@/lib/screening/screening-test-mode", () => ({
-  isScreeningTestModeActive: () => false,
 }));
 vi.mock("@/lib/analytics/track-client", () => ({
   track: () => undefined,

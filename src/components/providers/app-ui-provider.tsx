@@ -11,9 +11,23 @@ import {
   type ReactNode,
 } from "react";
 import { Modal } from "@/components/ui/modal";
+import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { applyDevResetEpoch } from "@/lib/dev/reset-epoch";
 
 type Toast = { id: number; message: string };
+
+/** What {@link AppUiContextValue.confirm} asks the person. */
+export type ConfirmRequest = {
+  /** Modal heading. Defaults to "Delete" because most confirms are deletes. */
+  title?: string;
+  /** The question itself, e.g. `Delete "September rent" for Ada?`. */
+  description: ReactNode;
+  confirmLabel?: string;
+  /** Line under the question; pass null when the action IS reversible. */
+  note?: ReactNode;
+  tone?: "danger" | "primary";
+  dataAttr?: string;
+};
 
 type AppUiContextValue = {
   toasts: Toast[];
@@ -21,6 +35,8 @@ type AppUiContextValue = {
   modal: { title: string; body: string } | null;
   openModal: (payload: { title: string; body: string }) => void;
   closeModal: () => void;
+  /** Resolves true when the person confirms, false on cancel or dismiss. */
+  confirm: (request: ConfirmRequest) => Promise<boolean>;
 };
 
 const AppUiContext = createContext<AppUiContextValue | null>(null);
@@ -54,6 +70,36 @@ export function AppUiProvider({ children }: { children: ReactNode }) {
 
   const closeModal = useCallback(() => setModal(null), []);
 
+  // One confirm dialog for the whole app, driven by a promise so a call site
+  // reads like the `window.confirm` it replaced. The resolver is held in a ref
+  // rather than state: it must survive the re-render that opens the modal, and
+  // it is called exactly once — settling it on close is what keeps a dismissed
+  // dialog from leaving the caller awaiting forever.
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const confirmResolver = useRef<((ok: boolean) => void) | null>(null);
+
+  const settleConfirm = useCallback((ok: boolean) => {
+    const resolve = confirmResolver.current;
+    confirmResolver.current = null;
+    setConfirmRequest(null);
+    resolve?.(ok);
+  }, []);
+
+  const confirm = useCallback(
+    (request: ConfirmRequest) =>
+      new Promise<boolean>((resolve) => {
+        // A second confirm while one is open would strand the first caller.
+        // Decline it rather than overwrite the resolver.
+        if (confirmResolver.current) {
+          resolve(false);
+          return;
+        }
+        confirmResolver.current = resolve;
+        setConfirmRequest(request);
+      }),
+    [],
+  );
+
   const value = useMemo(
     () => ({
       toasts,
@@ -61,8 +107,9 @@ export function AppUiProvider({ children }: { children: ReactNode }) {
       modal,
       openModal,
       closeModal,
+      confirm,
     }),
-    [toasts, showToast, modal, openModal, closeModal],
+    [toasts, showToast, modal, openModal, closeModal, confirm],
   );
 
   return (
@@ -85,6 +132,17 @@ export function AppUiProvider({ children }: { children: ReactNode }) {
       >
         <p className="text-sm text-muted">{modal?.body}</p>
       </Modal>
+      <ConfirmDeleteModal
+        open={Boolean(confirmRequest)}
+        title={confirmRequest?.title ?? "Delete"}
+        description={confirmRequest?.description ?? ""}
+        confirmLabel={confirmRequest?.confirmLabel ?? "Delete"}
+        note={confirmRequest?.note === undefined ? "This cannot be undone." : confirmRequest.note}
+        tone={confirmRequest?.tone ?? "danger"}
+        dataAttr={confirmRequest?.dataAttr}
+        onClose={() => settleConfirm(false)}
+        onConfirm={() => settleConfirm(true)}
+      />
     </AppUiContext.Provider>
   );
 }
@@ -100,4 +158,27 @@ export function useAppUi() {
 /** Like {@link useAppUi} but returns null outside a provider (unit tests, isolated renders). */
 export function useOptionalAppUi() {
   return useContext(AppUiContext);
+}
+
+/**
+ * The in-theme replacement for `window.confirm`.
+ *
+ * Returns a promise, so a call site keeps its original shape:
+ * `if (!(await confirm({ description: "Delete Ada?" }))) return;`
+ *
+ * Outside a provider it falls back to the native dialog rather than throwing —
+ * that keeps panels renderable in isolation (unit tests mount many of them bare)
+ * without any surface silently losing its confirmation step.
+ */
+export function useConfirm(): (request: ConfirmRequest) => Promise<boolean> {
+  const ctx = useContext(AppUiContext);
+  return useCallback(
+    (request: ConfirmRequest) => {
+      if (ctx) return ctx.confirm(request);
+      if (typeof window === "undefined") return Promise.resolve(false);
+      const text = typeof request.description === "string" ? request.description : "Are you sure?";
+      return Promise.resolve(window.confirm(text));
+    },
+    [ctx],
+  );
 }

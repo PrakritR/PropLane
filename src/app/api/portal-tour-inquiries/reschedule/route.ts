@@ -25,6 +25,8 @@ export async function POST(req: Request) {
       subject?: unknown;
       body?: unknown;
       messageBody?: unknown;
+      deliverViaEmail?: unknown;
+      deliverViaSms?: unknown;
     };
     const id = typeof body.id === "string" ? body.id.trim() : "";
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -48,6 +50,10 @@ export async function POST(req: Request) {
       notifyGuest: body.notifyGuest !== false,
       notificationSubject: customSubject || undefined,
       notificationBody: customBody || undefined,
+      notificationChannels: {
+        ...(typeof body.deliverViaEmail === "boolean" ? { viaEmail: body.deliverViaEmail } : {}),
+        ...(typeof body.deliverViaSms === "boolean" ? { viaSms: body.deliverViaSms } : {}),
+      },
       req,
     });
 

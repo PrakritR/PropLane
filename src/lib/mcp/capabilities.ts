@@ -48,8 +48,8 @@ export const API_KEY_PRODUCT_AREAS: readonly ApiKeyProductArea[] = [
     id: "communication",
     label: "Communication",
     description: "Inbox threads, replies, scheduled messages, and automations.",
-    readTools: ["list_inbox_threads", "get_thread_messages", "list_scheduled_messages", "get_automation_settings"],
-    writeTools: ["send_message", "reply_to_thread", "schedule_message", "cancel_scheduled_message", "update_thread", "update_automation_settings", "cancel_scheduled_reminder", "restore_scheduled_reminder", "reschedule_reminder"],
+    readTools: ["list_sms_conversations", "list_inbox_threads", "get_thread_messages", "list_scheduled_messages", "get_automation_settings"],
+    writeTools: ["reply_to_sms_conversation", "send_message", "reply_to_thread", "schedule_message", "cancel_scheduled_message", "update_thread", "update_automation_settings", "cancel_scheduled_reminder", "restore_scheduled_reminder", "reschedule_reminder"],
   },
   {
     id: "calendar",

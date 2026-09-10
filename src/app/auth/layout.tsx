@@ -1,3 +1,4 @@
+import { AccountRecoverySetupGate } from "@/components/auth/account-recovery-setup-gate";
 import { AuthLayoutFooter, AuthLayoutHomeMark, AuthLayoutSubstrate } from "@/components/auth/auth-layout-chrome";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
@@ -6,7 +7,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <AuthLayoutSubstrate />
       <AuthLayoutHomeMark />
       <main className="auth-layout-main">
-        <div className="auth-layout-panel w-full max-w-[min(100%,52rem)]">{children}</div>
+        <div className="auth-layout-panel w-full max-w-[min(100%,52rem)]"><AccountRecoverySetupGate>{children}</AccountRecoverySetupGate></div>
       </main>
       <AuthLayoutFooter />
     </div>

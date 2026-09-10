@@ -13,6 +13,9 @@ import {
 } from "./payments-logic";
 import { deliverPortalMessageThreadSide } from "@/lib/portal-inbox-delivery";
 import { appendResidentPortalLoginInstructions } from "@/lib/resident-portal-login-copy";
+import { buildConversationKey } from "@/lib/sms-conversation-identity";
+import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
+import { normalizeE164 } from "@/lib/phone-e164";
 
 /** Server-side read of the landlord's charges, scoped by manager_user_id. */
 async function loadManagerCharges(ctx: AgentContext): Promise<HouseholdCharge[]> {
@@ -92,7 +95,35 @@ function buildReminderBody(p: RentReminderPreview): string {
   });
 }
 
-export type ReminderDelivery = "emailed" | "portal_only" | "email_failed" | "already_sent";
+export type ReminderChannel = "portal" | "email" | "sms";
+type ChannelOutcome = "sent" | "queued" | "deferred" | "failed" | "unknown" | "skipped";
+
+export type ReminderDelivery = {
+  portal: ChannelOutcome;
+  email: ChannelOutcome;
+  sms: ChannelOutcome;
+};
+
+const DEFAULT_REMINDER_CHANNELS: readonly ReminderChannel[] = ["portal", "email"];
+
+function requestedChannels(channels: readonly ReminderChannel[] | undefined): Set<ReminderChannel> {
+  return new Set(channels?.length ? channels : DEFAULT_REMINDER_CHANNELS);
+}
+
+function smsOutcomeFromOutbox(status: string): ChannelOutcome {
+  if (status === "queued") return "queued";
+  if (status === "deferred") return "deferred";
+  if (status === "unknown") return "unknown";
+  return "failed";
+}
+
+function deliveryReplyPart(label: string, outcome: ChannelOutcome): string {
+  if (outcome === "sent") return `${label} sent`;
+  if (outcome === "queued" || outcome === "deferred") return `${label} ${outcome}`;
+  if (outcome === "unknown") return `${label} outcome unknown`;
+  if (outcome === "skipped") return `${label} unavailable`;
+  return `${label} failed`;
+}
 
 /**
  * Per-charge reminder core. The charge MUST already be re-resolved from the
@@ -103,11 +134,12 @@ export type ReminderDelivery = "emailed" | "portal_only" | "email_failed" | "alr
 async function sendReminderForCharge(
   ctx: AgentContext,
   charge: HouseholdCharge,
-): Promise<{ preview: RentReminderPreview; delivery: ReminderDelivery }> {
+  channelsInput?: readonly ReminderChannel[],
+): Promise<{ preview: RentReminderPreview; delivery: ReminderDelivery; alreadySent?: boolean }> {
   const preview = buildRentReminderPreview(charge);
   const subject = `Payment reminder: ${preview.chargeTitle}`;
   const body = buildReminderBody(preview);
-  const nowIso = new Date().toISOString();
+  const channels = requestedChannels(channelsInput);
 
   // 1. Record intent first, idempotently. A duplicate on the dedupe key means
   //    this charge was already reminded today — do not send again. Any other
@@ -121,7 +153,13 @@ async function sendReminderForCharge(
     dedupeKey,
   });
   if (!audit.recorded) {
-    if (audit.duplicate) return { preview, delivery: "already_sent" };
+    if (audit.duplicate) {
+      return {
+        preview,
+        delivery: { portal: "skipped", email: "skipped", sms: "skipped" },
+        alreadySent: true,
+      };
+    }
     throw new Error("Could not record the action; no reminder was sent.");
   }
 
@@ -132,10 +170,8 @@ async function sendReminderForCharge(
   // An empty/invalid resident email (e.g. missing in untrusted row_data) has no
   // deliverable address: record in the portal rather than attempting a doomed send.
   const hasDeliverableEmail = preview.residentEmail.includes("@");
-  let delivery: "emailed" | "portal_only" | "email_failed";
-  if (!apiKey || isDemoAddress || !hasDeliverableEmail) {
-    delivery = "portal_only";
-  } else {
+  let email: ChannelOutcome = "skipped";
+  if (channels.has("email") && apiKey && !isDemoAddress && hasDeliverableEmail) {
     try {
       const from = process.env.RESEND_FROM?.trim() || "PropLane <onboarding@resend.dev>";
       const res = await fetch("https://api.resend.com/emails", {
@@ -143,51 +179,92 @@ async function sendReminderForCharge(
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ from, to: [preview.residentEmail], subject, text: body }),
       });
-      delivery = res.ok ? "emailed" : "email_failed";
+      email = res.ok ? "sent" : "failed";
     } catch {
-      delivery = "email_failed";
+      email = "failed";
     }
   }
 
-  // 3. Best-effort manager "sent" inbox record (owned by the landlord). Only
-  //    record a "sent" thread when delivery actually happened; a hard email
-  //    failure must never show up in the manager's Sent folder, and skipping it
-  //    keeps same-day retries from accumulating duplicate "sent" threads.
-  let inboxRecorded = false;
-  if (delivery === "emailed" || delivery === "portal_only") {
+  // 3. Portal is a resident-side inbox delivery, not a manager Sent-row stand-in.
+  // The profile lookup also supplies the only server-trusted phone/account identity
+  // for the optional SMS leg below.
+  const { data: residentProfile, error: residentProfileError } = await ctx.db
+    .from("profiles")
+    .select("id, phone, phone_verified_at")
+    .eq("email", preview.residentEmail)
+    .maybeSingle();
+  const residentUserId = String(residentProfile?.id ?? "").trim() || null;
+  let portal: ChannelOutcome = residentProfileError ? "failed" : "skipped";
+  if (channels.has("portal") && residentUserId && !residentProfileError) {
     const ts = Date.now();
     const rand = Math.random().toString(36).slice(2, 6);
     const when = formatPacificDateTime(new Date());
     try {
       await deliverPortalMessageThreadSide(ctx.db, {
-        scope: "axis_portal_inbox_manager_v1",
-        folder: "sent",
-        ownerUserId: ctx.userId,
-        participantEmail: null,
-        otherPartyEmail: preview.residentEmail,
-        fallbackId: `payment_sent_${ctx.userId}_${ts}_${rand}`,
+        scope: "axis_portal_inbox_resident_v1",
+        folder: "inbox",
+        ownerUserId: residentUserId,
+        participantEmail: preview.residentEmail,
+        otherPartyEmail: ctx.email,
+        fallbackId: `payment_reminder_${ctx.landlordId}_${ts}_${rand}`,
         fromName: "PropLane Assistant",
         subject,
         body,
         preview: body.slice(0, 100).replace(/\n/g, " "),
         when,
-        unread: false,
-        outbound: true,
+        unread: true,
+        outbound: false,
       });
-      inboxRecorded = true;
+      portal = "sent";
     } catch {
-      inboxRecorded = false;
+      portal = "failed";
     }
   }
 
-  // Stamp the realized delivery outcome. On a hard email failure, clear the
-  // dedupe key so a same-day retry can record a fresh attempt instead of
-  // short-circuiting to "already_sent".
+  let sms: ChannelOutcome = residentProfileError ? "failed" : "skipped";
+  if (channels.has("sms")) {
+    const phone = residentProfile?.phone_verified_at ? normalizeE164(residentProfile.phone) : null;
+    if (phone) {
+      const conversationKey = buildConversationKey({
+        ownerManagerUserId: ctx.landlordId,
+        role: "resident",
+        counterpartyUserId: residentUserId,
+        counterpartyPhone: phone,
+      });
+      try {
+        const smsResult = await enqueueOwnerSms({
+          managerUserId: ctx.landlordId,
+          actorUserId: ctx.userId,
+          recipientPhone: phone,
+          recipientUserId: residentUserId,
+          recipientEmail: preview.residentEmail,
+          propertyId: charge.propertyId,
+          body: `Hi ${preview.residentName}, just a reminder that your ${preview.chargeTitle} payment is outstanding. Please check PropLane for your payment details.`,
+          sendClass: "transactional",
+          purpose: "manual_rent_reminder",
+          conversationKey,
+          counterpartyRole: "resident",
+          dedupeKey: `manual_rent_reminder:${ctx.landlordId}:${preview.chargeId}:${auditDayBucket()}`,
+        }, ctx.db);
+        sms = smsResult.ok ? smsOutcomeFromOutbox(smsResult.status) : "failed";
+      } catch {
+        sms = "failed";
+      }
+    }
+  }
+
+  const delivery = { portal, email, sms };
+
+  // Stamp the actual per-channel state. An accepted SMS is queued/deferred,
+  // never represented as delivered before the outbox/provider path says so.
+  const noChannelAccepted = ![portal, email, sms].some(
+    (outcome) => outcome === "sent" || outcome === "queued" || outcome === "deferred",
+  );
   await updateAuditResult(
     ctx,
     dedupeKey,
-    { residentEmail: preview.residentEmail, delivery, inboxRecorded },
-    { clearDedupeKey: delivery === "email_failed" },
+    { residentEmail: preview.residentEmail, delivery },
+    { clearDedupeKey: noChannelAccepted },
   );
 
   return { preview, delivery };
@@ -198,7 +275,7 @@ async function sendReminderForCharge(
  * below is the batch-capable public surface.
  */
 export type SendRentReminderResult =
-  | { ok: true; preview: RentReminderPreview; delivery: ReminderDelivery }
+  | { ok: true; preview: RentReminderPreview; delivery: ReminderDelivery; alreadySent?: boolean }
   | { ok: false; error: string };
 
 export async function executeSendRentReminder(
@@ -210,8 +287,8 @@ export async function executeSendRentReminder(
     return { ok: false, error: "No matching overdue charge for this landlord." };
   }
   try {
-    const { preview, delivery } = await sendReminderForCharge(ctx, charge);
-    return { ok: true, preview, delivery };
+    const { preview, delivery, alreadySent } = await sendReminderForCharge(ctx, charge);
+    return { ok: true, preview, delivery, ...(alreadySent ? { alreadySent: true } : {}) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "The reminder could not be sent." };
   }
@@ -227,7 +304,7 @@ const PREVIEW_LINE_CAP = 8;
 export const sendRentReminderTool = defineWriteTool({
   name: "send_rent_reminder",
   description:
-    "Send a payment reminder (email + portal inbox record) to residents with overdue charges. Pass the charge ids from get_overdue_charges — one id for a single resident, or many ids to remind everyone at once.",
+    "Send a confirmed payment reminder to residents with overdue charges. Choose portal, email, and/or SMS; SMS is durably queued from the manager's property work number and is never reported as delivered before the outbox records that outcome. Pass charge ids from get_overdue_charges.",
   inputSchema: z
     .object({
       chargeIds: z
@@ -235,6 +312,12 @@ export const sendRentReminderTool = defineWriteTool({
         .min(1)
         .max(50)
         .describe("Ids of overdue charges (from get_overdue_charges) to send reminders for."),
+      channels: z
+        .array(z.enum(["portal", "email", "sms"]))
+        .min(1)
+        .max(3)
+        .optional()
+        .describe("Requested delivery channels. Use portal, email, and sms when the landlord explicitly asks for all three."),
     })
     .strict(),
   preview: async (ctx, input) => {
@@ -257,8 +340,16 @@ export const sendRentReminderTool = defineWriteTool({
     if (resolved.length > PREVIEW_LINE_CAP) {
       lines.push({ label: "…", value: `and ${resolved.length - PREVIEW_LINE_CAP} more` });
     }
+    const selectedChannels = requestedChannels(input.channels);
+    lines.push({
+      label: "Delivery",
+      value: [...selectedChannels].map((channel) => (channel === "sms" ? "SMS (queued)" : channel)).join(" + "),
+    });
     return {
-      confirmedInput: { chargeIds: resolved.map((p) => p.chargeId) },
+      confirmedInput: {
+        chargeIds: resolved.map((p) => p.chargeId),
+        ...(input.channels?.length ? { channels: [...new Set(input.channels)] } : {}),
+      },
       kind: "send_rent_reminder",
       title: resolved.length === 1 ? "Send rent reminder" : "Send rent reminders",
       summary:
@@ -266,16 +357,21 @@ export const sendRentReminderTool = defineWriteTool({
           ? `Send a payment reminder to ${resolved[0]!.residentName} for ${resolved[0]!.chargeTitle}${resolved[0]!.balanceDue ? ` (${resolved[0]!.balanceDue})` : ""}.`
           : `Send payment reminders to ${resolved.length} residents with overdue charges.`,
       fields: lines,
+      warnings: selectedChannels.has("sms")
+        ? ["SMS is queued through the property work-number outbox. Confirmation does not prove provider delivery."]
+        : undefined,
       confirmLabel: resolved.length === 1 ? "Send reminder" : `Send ${resolved.length} reminders`,
       ...(resolved.length > 1 ? { batchCount: resolved.length } : {}),
     };
   },
   handler: async (ctx, input) => {
     const charges = await loadManagerCharges(ctx);
-    let emailed = 0;
-    let portalOnly = 0;
+    const outcomes: Record<ReminderChannel, Record<ChannelOutcome, number>> = {
+      portal: { sent: 0, queued: 0, deferred: 0, failed: 0, unknown: 0, skipped: 0 },
+      email: { sent: 0, queued: 0, deferred: 0, failed: 0, unknown: 0, skipped: 0 },
+      sms: { sent: 0, queued: 0, deferred: 0, failed: 0, unknown: 0, skipped: 0 },
+    };
     let alreadySent = 0;
-    let emailFailed = 0;
     let skipped = 0;
     for (const id of input.chargeIds) {
       // Re-resolve at execute time: overdue state may have changed since preview.
@@ -285,24 +381,30 @@ export const sendRentReminderTool = defineWriteTool({
         continue;
       }
       try {
-        const { delivery } = await sendReminderForCharge(ctx, charge);
-        if (delivery === "emailed") emailed += 1;
-        else if (delivery === "portal_only") portalOnly += 1;
-        else if (delivery === "already_sent") alreadySent += 1;
-        else emailFailed += 1;
+        const { delivery, alreadySent: duplicate } = await sendReminderForCharge(ctx, charge, input.channels);
+        if (duplicate) {
+          alreadySent += 1;
+          continue;
+        }
+        for (const channel of ["portal", "email", "sms"] as const) outcomes[channel][delivery[channel]] += 1;
       } catch {
-        emailFailed += 1;
+        outcomes.email.failed += 1;
       }
     }
     const parts: string[] = [];
-    if (emailed) parts.push(`emailed ${emailed} reminder${emailed === 1 ? "" : "s"}`);
-    if (portalOnly) parts.push(`recorded ${portalOnly} in the portal (no email configured or demo address)`);
+    const requested = requestedChannels(input.channels);
+    for (const channel of ["portal", "email", "sms"] as const) {
+      if (!requested.has(channel)) continue;
+      for (const outcome of ["sent", "queued", "deferred", "unknown", "failed", "skipped"] as const) {
+        const count = outcomes[channel][outcome];
+        if (count) parts.push(`${deliveryReplyPart(channel, outcome)} for ${count}`);
+      }
+    }
     if (alreadySent) parts.push(`${alreadySent} already sent today`);
-    if (emailFailed) parts.push(`${emailFailed} failed to send`);
     if (skipped) parts.push(`${skipped} no longer overdue and skipped`);
     const reply = parts.length
       ? `Done — ${parts.join("; ")}.`
       : "Nothing to send — no matching overdue charges remained.";
-    return { reply, resultSummary: { emailed, portalOnly, alreadySent, emailFailed, skipped } };
+    return { reply, resultSummary: { outcomes, alreadySent, skipped } };
   },
 });

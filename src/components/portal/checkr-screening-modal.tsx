@@ -14,7 +14,6 @@ import { applyDemoBackgroundCheckResolution } from "@/lib/screening/apply-demo-b
 import type { CheckrPackage } from "@/lib/checkr/config";
 import type { ApplicationBackgroundCheck } from "@/lib/checkr/types";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { isScreeningTestModeActive } from "@/lib/screening/screening-test-mode";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { applicantDisplayName } from "@/lib/rental-application/applicant-name";
 import { BackgroundCheckHouseholdTable } from "@/components/portal/background-check-household-table";
@@ -117,7 +116,7 @@ export function CheckrScreeningModal({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const isDemo = isDemoModeActive() || isScreeningTestModeActive();
+  const isDemo = isDemoModeActive();
   const [configured, setConfigured] = useState(() => isDemo);
   const [screeningAllowed, setScreeningAllowed] = useState(() => isDemo);
   const [packagesLoaded, setPackagesLoaded] = useState(() => isDemo);

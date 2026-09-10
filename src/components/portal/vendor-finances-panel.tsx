@@ -32,6 +32,7 @@ import {
   type VendorIncomeRow,
 } from "@/lib/vendor-income";
 import { fetchVendorPayoutsResult, type VendorPayout } from "@/lib/vendor-payouts";
+import { useConfirm } from "@/components/providers/app-ui-provider";
 import {
   formatInvoiceMoney,
   normalizeLineItems,
@@ -621,8 +622,10 @@ function VendorInvoicesView({ tabItems, tabId }: { tabItems: { id: string; label
     [invoices, statusFilter],
   );
 
+  const confirm = useConfirm();
+
   async function withdrawInvoice(invoice: VendorInvoice) {
-    if (!window.confirm("Withdraw this invoice? You can submit a corrected one afterward.")) return;
+    if (!(await confirm({ title: "Withdraw invoice", description: "Withdraw this invoice?", confirmLabel: "Withdraw", note: "You can submit a corrected one afterward." }))) return;
     setWithdrawingId(invoice.id);
     try {
       const res = await fetch(`/api/vendor/invoices/${invoice.id}`, { method: "DELETE" });

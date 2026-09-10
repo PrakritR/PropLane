@@ -130,6 +130,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("conversation rows carry no select checkbox", () => {
+  it("renders rows without a leading checkbox", () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    const { container } = render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" />);
+
+    // The checkbox was removed from the conversation list on purpose: it put a
+    // control on every row for an action people take from the open thread.
+    // Per-conversation archive and delete live in the thread header.
+    expect(container.querySelectorAll('.portal-inbox-row input[type="checkbox"]').length).toBe(0);
+    // The rows themselves are still there — this is not an empty-list false pass.
+    expect(screen.getByText("Dana Ramirez")).toBeTruthy();
+  });
+});
+
 describe("unified conversation inbox (no folder tabs)", () => {
   it("shows live inbox + sent conversations in one list and archives via a toggle", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
@@ -327,7 +341,7 @@ describe("unified conversation inbox (no folder tabs)", () => {
     await waitFor(() => expect(screen.getByText("Dana Ramirez")).toBeTruthy());
     expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
 
-    const activeLink = screen.getByRole("link", { name: /^Active/ });
+    const activeLink = screen.getByRole("link", { name: /^Conversations/ });
     expect(activeLink.getAttribute("aria-current")).toBe("page");
     expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
   });

@@ -71,6 +71,12 @@ export function ManagerWorkNumberCopyControl({
   );
 }
 
+/**
+ * SMS blocker warning for compose surfaces. A WORKING number is deliberately
+ * silent here: the work-number field and its copy control belong to
+ * Settings → Messaging, not to every message popup, which all share one field
+ * set (To / Subject / Send via / Message / Schedule).
+ */
 export function ManagerSmsWorkNumberHint({
   show,
   phone,
@@ -87,9 +93,7 @@ export function ManagerSmsWorkNumberHint({
   if (!show) return null;
 
   const trimmed = typeof phone === "string" ? phone.trim() : "";
-  if (canSend && trimmed) {
-    return <ManagerWorkNumberCopyControl phone={trimmed} className={className} />;
-  }
+  if (canSend && trimmed) return null;
 
   // This hint renders inside the messaging settings page itself as well as in
   // compose surfaces, so pointing at "Settings → Messaging" can send the reader

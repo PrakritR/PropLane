@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { MODAL_LARGE_PANEL_CLASS } from "@/components/ui/modal-styles";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { ADMIN_UI_EVENT } from "@/lib/demo-admin-ui";
 import { AdminInboxSchedulePanel } from "@/components/portal/admin-inbox-schedule-panel";
 import { isUpcomingScheduledInboxMessage, type ScheduledInboxMessageRecord } from "@/lib/scheduled-inbox-messages";
@@ -103,6 +103,7 @@ function ComposeModal({
   initialSchedule?: boolean;
 }) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const [mode, setMode] = useState<AdminComposeSendMode>("pick_managers");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [topic, setTopic] = useState("");
@@ -462,6 +463,7 @@ export const AdminInboxClient = forwardRef<
   ref,
 ) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const navigate = usePortalNavigate();
   const [tick, setTick] = useState(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -591,10 +593,10 @@ export const AdminInboxClient = forwardRef<
     if (embeddedInCommunication) onTabCountsChange?.(folderCounts);
   }, [embeddedInCommunication, onTabCountsChange, folderCounts]);
 
-  const emptyTrash = useCallback(() => {
+  const emptyTrash = useCallback(async () => {
     const trashCount = folderCounts.trash;
     if (trashCount === 0) return;
-    if (!window.confirm(`Delete all ${trashCount} trash message${trashCount === 1 ? "" : "s"}? This cannot be undone.`)) return;
+    if (!(await confirm({ description: `Delete all ${trashCount} trash message${trashCount === 1 ? "" : "s"}? This cannot be undone.` }))) return;
     void emptyAdminInboxTrash().then((ok) => {
       if (ok) {
         showToast("Trash cleared.");

@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { PortalRecordShareLinkButton } from "@/components/portal/portal-record-share-link-button";
 import { PortalNotificationPreviewModal } from "@/components/portal/portal-notification-preview-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
   ManagerPortalPageShell,
@@ -266,6 +266,7 @@ export function ApplicationPdfDownloadButton({
   className?: string;
 }) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   return (
     <Button
       type="button"
@@ -521,6 +522,7 @@ export function ManagerApplications({
   applicationDetailTab?: ApplicationDetailTabId;
 }) {
   const { showToast } = useAppUi();
+  const confirm = useConfirm();
   const { userId, ready: authReady } = useManagerUserId();
   const applicationAutomation = useApplicationAutomation(userId);
   // Guards a single auto-approve pass per mount, so a re-render cannot fire a second one.
@@ -1041,12 +1043,13 @@ export function ManagerApplications({
   const setRowBucket = async (
     id: string,
     nextBucket: ManagerApplicationBucket,
-    opts?: { skipWelcomeEmail?: boolean; skipNavigate?: boolean; quiet?: boolean },
+    opts?: { skipWelcomeEmail?: boolean; skipNavigate?: boolean; quiet?: boolean; approvalNotification?: { viaEmail: boolean; viaSms: boolean } },
   ) => {
     const row = rows.find((candidate) => candidate.id === id);
     const result = await transitionApplicationBucket(id, nextBucket, {
       userId: userId ?? null,
       skipWelcomeEmail: opts?.skipWelcomeEmail,
+      approvalNotification: opts?.approvalNotification,
       automation: applicationAutomation.forProperty(row ? applicationRowPropertyId(row) : ""),
     });
     if (!result) return null;
@@ -1181,7 +1184,7 @@ export function ManagerApplications({
       ids.length === 1
         ? applicantDisplayName(rows.find((row) => row.id === ids[0])!) || "this application"
         : `${ids.length} applications`;
-    if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return;
+    if (!(await confirm({ description: `Delete ${label}? This cannot be undone.` }))) return;
 
     let deleted = 0;
     for (const id of ids) {
@@ -1762,7 +1765,7 @@ export function ManagerApplications({
     <>
       <PortalNotificationPreviewModal
         open={approvePreviewRow !== null}
-        title="Approve application: account setup email"
+        title="Approve application"
         onClose={() => {
           if (approveBusyId) return;
           setApprovePreviewRow(null);
@@ -1779,29 +1782,30 @@ export function ManagerApplications({
               })
             : ""
         }
-        intro={
-          approvePreviewRow
-            ? `Approving ${applicantDisplayName(approvePreviewRow)} will update their application status and can send their PropLane resident account setup email.`
-            : undefined
-        }
         warning={approveError ?? undefined}
         warningLead={approveError ? "Could not approve." : null}
         hideSendViaFooterNote
-        showWorkNumberHint={false}
-        confirmLabel="Approve & send setup email"
+        confirmLabel="Approve & notify"
         confirmLabelWithoutMessage="Approve only"
         deliverViaKind="applications"
         smsAvailable
         confirmBusy={approvePreviewRow !== null && approveBusyId === approvePreviewRow.id}
         confirmBusyLabel="Approving…"
-        onConfirm={(skipMessage) => {
+        onConfirm={(skipMessage, channels) => {
           if (!approvePreviewRow) return;
           const row = approvePreviewRow;
           setApproveError(null);
           setApproveBusyId(row.id);
           // Keep the dialog open until the server confirms (PRP-381). Closing
           // first made a 500 look identical to success.
-          void setRowBucket(row.id, "approved", { skipWelcomeEmail: skipMessage, skipNavigate: true }).then((result) => {
+          const selectedChannels = skipMessage
+            ? { viaEmail: false, viaSms: false }
+            : channels ?? { viaEmail: true, viaSms: false };
+          void setRowBucket(row.id, "approved", {
+            skipWelcomeEmail: skipMessage || !selectedChannels.viaEmail,
+            skipNavigate: true,
+            approvalNotification: selectedChannels,
+          }).then((result) => {
             setApproveBusyId(null);
             if (!result || result.blocked) {
               setApproveError(result?.message ?? "Approval could not be saved. Refresh and retry.");
@@ -1809,6 +1813,14 @@ export function ManagerApplications({
             }
             setApprovePreviewRow(null);
             setApproveError(null);
+            if (result.approvalSms && result.approvalSms.sms !== "submitted") {
+              const smsOutcome = result.approvalSms.sms === "queued"
+                ? "queued"
+                : result.approvalSms.sms === "unknown"
+                  ? "outcome is not yet known"
+                  : "failed";
+              showToast(`Application approved. Text message ${smsOutcome}${result.approvalSms.error ? `: ${result.approvalSms.error}` : "."}`);
+            }
             router.push(applicationsListHref("approved"));
           });
         }}
@@ -1819,19 +1831,23 @@ export function ManagerApplications({
         description={
           rejectPreviewRows?.length === 1 ? (
             <>
-              Rejecting <span className="font-semibold">{applicantDisplayName(rejectPreviewRows[0]!)}</span>{" "}
-              will move this application to the Rejected tab. The applicant will not receive an automatic email.
+              Moves <span className="font-semibold text-foreground">{applicantDisplayName(rejectPreviewRows[0]!)}</span>{" "}
+              to the Rejected tab. No email is sent.
             </>
           ) : rejectPreviewRows && rejectPreviewRows.length > 1 ? (
             <>
-              Reject <span className="font-semibold">{rejectPreviewRows.length} applications</span>? They will move to
-              the Rejected tab and applicants will not receive an automatic email.
+              Moves <span className="font-semibold text-foreground">{rejectPreviewRows.length} applications</span> to
+              the Rejected tab. No email is sent.
             </>
           ) : (
             ""
           )
         }
         confirmLabel="Reject"
+        busyLabel="Rejecting…"
+        // A rejected row moves tabs; it is not destroyed, so the delete warning
+        // would overstate what this does.
+        note={null}
         busy={rejectBusy}
         dataAttr="application-reject-confirm"
         onClose={() => {
