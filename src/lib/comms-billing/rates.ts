@@ -1,4 +1,4 @@
-/** Retail USD rates for manager communication pay-as-you-go billing. */
+/** Retail USD rates for manager communication credit (prepaid; see docs/agents/comms-billing.md). */
 
 export type CommsBillingMeter =
   | "sms_outbound_segment"
@@ -39,27 +39,20 @@ export const COMMS_BILLING_METER_LABELS: Record<CommsBillingMeter, string> = {
 };
 
 /**
- * Whether usage is actually CHARGED to a card.
+ * Whether manual credit-pack checkout is offered (`POST /api/manager/comms-billing/checkout`).
  *
- * Opt-in, and deliberately separate from {@link areCommsLimitsEnforced}: money
- * leaving a manager's card is the one behaviour that must never switch on by
- * default because an environment variable went missing.
+ * Opt-in: money leaving a manager's card is the one behaviour that must never
+ * switch on by default because an environment variable went missing. It does
+ * NOT gate credit enforcement — reservations and blocks apply regardless.
  */
 export function isCommsPaygBillingEnabled(): boolean {
   return process.env.COMMS_PAYG_BILLING_ENABLED?.trim() === "1";
 }
 
 /**
- * Whether per-plan communication allowances are metered and enforced.
- *
- * ON unless explicitly disabled, because this flag fails OPEN: when it is off
- * nothing meters and nothing stops, so every plan — Free included — gets
- * unlimited texting, calling and AI. That is the opposite of the intent, and it
- * is invisible, since an unlimited account looks exactly like a working one.
- *
- * Enforcing a limit is not the same as charging for it. Limits can be on while
- * {@link isCommsPaygBillingEnabled} is off: a manager past their allowance is
- * asked to add a card, and nothing is billed until PAYG is switched on too.
+ * @deprecated No caller consults this. Prepaid credit is always enforced
+ * (`wallet.server.ts` reserves before every outgoing action); `COMMS_LIMITS_ENFORCED=0`
+ * cannot disable it. Kept only so an env still setting the flag does not break.
  */
 export function areCommsLimitsEnforced(): boolean {
   return process.env.COMMS_LIMITS_ENFORCED?.trim() !== "0";
