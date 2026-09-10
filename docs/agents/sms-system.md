@@ -269,8 +269,13 @@ after that still returns `ok: true` so Twilio does not drop the receipt.
 `resolveOwnedWorkNumber` also falls back to a unique phone match when the row
 is not yet attached to `TWILIO_MESSAGING_SERVICE_SID`.
 
-**Proxy-pair relay: manager ↔ resident text from their personal phones through
-a pooled number, neither seeing the other's real number**
+**Proxy-pair relay (RETIRED for message routing, September 2026): manager ↔
+resident text from their personal phones through a pooled number, neither seeing
+the other's real number.** `/api/twilio/inbound` no longer consults
+`relayInboundSms`, and `sendSms` refuses any manager-funded send without a
+work-number dispatcher credit reservation, so relay legs cannot go out; what
+remains is thread bookkeeping (provision/close, cooldown sweep, account-deletion
+sweep). Historical design:
 (`src/lib/sms-relay.server.ts`; schema + rationale in
 `supabase/migrations/20260718120000_sms_relay_pool.sql`). Routing is the
 globally unique active pair `(participant_phone, proxy_phone)` → thread + role
@@ -352,19 +357,20 @@ server state machine in `src/lib/sms/manager-number-provisioning.server.ts`.
 - **Signup** (`scheduleManagerMessagingReady`) always seeds a parked record via
   `ensureManagerNumberRecord`. Release on deactivation is reversible
   (`releaseManagerNumber` → `released`, history kept; `restoreManagerNumber`).
-- **Plan-based entitlement is enforced when PAYG is disabled.** Explicit setup
-  reconciles billing into `sms_manager_entitlements`; past-due, canceled,
-  legacy-unknown, and unreadable plans fail closed. The
-  [billing policy](comms-billing.md#temporary-trial-work-number-onboarding) owns
-  the temporary trial exception and eligibility recovery flow. Comp grants carry
-  no Stripe subscription to revalidate, so `reconcileManagerSmsEntitlement`
-  recognises all THREE shapes the portal's own plan resolver does — `billing =
-  'admin'`, an `admin_`-prefixed checkout session, and a payment waiver
-  (`promo_code`). Stored reads revalidate those same grant shapes against the
-  current purchase, so removing a grant also removes access. Dispatch uses the
-  persisted state and never calls billing providers in the hot path. The pilot
-  allowlist controls rollout only; it is never accepted as proof of payment.
-  Stripe and RevenueCat lifecycle webhooks refresh this cache.
+- **Every plan can request a work number.** `getEffectiveManagerSmsEntitlement`
+  / `reconcileManagerSmsEntitlement` resolve number access from the effective
+  SKU (`getEffectiveManagerSkuTier`), Free included; an unreadable plan fails
+  closed (`plan_unreadable`). What the number may *do* is gated by prepaid
+  communication credit, not by plan — [comms-billing.md](comms-billing.md).
+  Only the `preferPaid: true` path (assistant email) still reconciles a paid
+  grant into `sms_manager_entitlements`; there, comp grants carry no Stripe
+  subscription to revalidate, so it recognises all THREE shapes the portal's
+  own plan resolver does — `billing = 'admin'`, an `admin_`-prefixed checkout
+  session, and a payment waiver (`promo_code`) — and stored reads revalidate
+  those grant shapes against the current purchase, so removing a grant also
+  removes access. Dispatch never calls billing providers in the hot path. The
+  pilot allowlist controls rollout only; it is never accepted as proof of
+  payment. Stripe and RevenueCat lifecycle webhooks refresh this cache.
 
 The additive `20260825120000_sms_control_plane.sql` migration owns runtime
 configuration, scoped consent evidence, the durable outbox/attempt ledger,
@@ -393,9 +399,8 @@ introductions, and other platform-to-manager notices) are still outside it.
 Managers receive those through the durable portal inbox, email, and push paths,
 and they must not be silently moved onto a manager work number until they have
 a consent scope of their own. The legacy pooled proxy-number relay is
-also not a managed-runtime launch rail; `/api/twilio/inbound` bypasses it while
-`SMS_RUNTIME_ENABLED=1` and uses `sms_inbound_receipts` as the execution
-idempotency authority.
+retired: `/api/twilio/inbound` routes only owned work numbers and uses
+`sms_inbound_receipts` as the execution idempotency authority.
 
 ### Activation order (fail closed)
 
@@ -484,6 +489,16 @@ never a global phone search, so a random verified manager cannot hop onto
 someone else's number. `detectManagerSelfReply` still handles the owner-cell
 match inside that resolver; do not remove it.
 
+Fork order on an owned number is manager (above) → vendor session, scoped by
+sender AND destination owner (`resolveVendorAgentSessionForInbound(db, from,
+body, managerId)`) → resident → leasing prospect. Before any wallet read the
+route inserts the incoming body into `inbound_sms_log` with `counterparty_role:
+"unknown"`, and each fork then UPDATES that row's identity (the final
+belt-and-suspenders pass claims only a row still marked `unknown`), so an
+unavailable wallet never drops an incoming text and a handler's resolved
+identity is never overwritten. Inbound segments are debited from available
+credit only; unavoidable excess is absorbed ([comms-billing.md](comms-billing.md)).
+
 - **Leg 1 (resident → manager):** stored in the PropLane thread AND mirrored to
   the manager's own verified cell from the work number
   (`forwardResidentInboundToManagerCell`), for the resident-agent fork as well
@@ -502,10 +517,12 @@ catalog, over text, with proposals confirmed by a `YES` reply. Session kind
 `agent_pending_actions` row executed by the same confirm gate the portal chat
 route uses.
 
-**Who gets a work number and an assistant email.** Every manager account that
-clears the applicable [billing eligibility check](comms-billing.md) can provision **its own** number or **its own**
-`assist-…@` address — including a pure co-manager, who inherits plan eligibility
-from an inviter (`getEffectiveManagerSmsEntitlement`). A co-manager used to be
+**Who gets a work number and an assistant email.** Every manager account on
+any plan can provision **its own** number ([comms-billing.md](comms-billing.md));
+an account that clears the paid entitlement can provision **its own**
+`assist-…@` address — including a pure co-manager, who inherits that paid
+eligibility from an inviter (`getEffectiveManagerSmsEntitlement(..., { preferPaid: true })`).
+A co-manager used to be
 refused the address and told to email the owner's, which meant two people shared
 one mailbox and one assistant identity: the owner saw the co-manager's questions
 in their own thread, and the co-manager had nothing to hand a resident.
@@ -527,11 +544,13 @@ must be verified separately from provisioning a work number. Phone matching uses
 canonical E.164 equality (including country code), and a phone shared by the
 owner and an invitee is ambiguous, never an owner authorization.
 
-Setup and outbound dispatch both use effective SMS eligibility, including a
-pure co-manager's accepted paid-owner link. Removing the link removes inherited
-eligibility. PAYG billing remains attached to the number's own account and its
-allowance/payment gate; a co-manager invitation does not authorize billing an
-inviter for the co-manager's personal line.
+Number setup resolves eligibility from the co-manager's OWN effective plan
+(every plan qualifies), and outbound dispatch checks the number owner's
+communication credit; only the assistant-email path (`preferPaid: true`) still
+inherits a pure co-manager's accepted paid-owner link, and removing the link
+removes that inherited eligibility. Communication credit remains attached to
+the number's own account and its wallet; a co-manager invitation does not
+authorize spending an inviter's credit on the co-manager's personal line.
 
 An authenticated inbound manager text records scoped reply-consent evidence
 for that exact owner + actor assistant conversation. Existing STOP and scoped
@@ -678,11 +697,16 @@ When `SMS_RUNTIME_ENABLED=1` and `SMS_OUTBOX_SCHEDULER_READY=1`, every
 manager-owned Twilio send goes through
 `owner-sms-dispatcher.server.ts`; caller-provided From numbers and the raw
 `profiles.sms_from_number` fallback are ignored. The dispatcher fails closed on
-global suppression, purpose/class/conversation-scoped positive consent, paid
-entitlement, exact service/campaign identity, carrier registration, attachment,
-runtime mode, quiet hours, and the atomic segment budget. Legacy platform alerts
-without an owner scope do not borrow a manager number. Vendor one-job SMS,
-Twilio Verify, and the proxy relay remain explicitly separate transports.
+global suppression, purpose/class/conversation-scoped positive consent, the
+owner's communication credit (reserved per segment before provider submission
+and settled or released after — [comms-billing.md](comms-billing.md)), exact
+service/campaign identity, carrier registration, attachment, runtime mode,
+quiet hours, and the atomic segment budget. Legacy platform alerts without an
+owner scope do not borrow a manager number. All manager-funded outgoing SMS —
+resident welcome and vendor replies included — goes through `enqueueOwnerSms`;
+the central `sendSms` transport requires that owner-scoped reservation, and
+authenticated phone verification is the sole platform-funded exemption.
+Twilio Verify remains a separate transport; the pooled proxy relay is retired.
 
 `sendClass` ∈ `control | transactional | automated`; quiet hours defer only
 `automated` traffic. The **weekly rent reminder**
@@ -959,11 +983,3 @@ must explicitly set `NOMINATIM_PROVIDER_URL` and `OVERPASS_PROVIDER_URL` to
 managed or self-hosted HTTPS services; missing or unsafe configuration returns
 an honest unavailable result. Caches and request queues are per server process,
 so they are an egress reduction rather than a distributed quota guarantee.
-
-## Prepaid communication update (September 2026)
-
-Every plan can request a work number. All manager-funded outgoing SMS routes through
-`enqueueOwnerSms` and reserves credit before provider submission. The transport
-requires that owner’s reserved hold; phone verification is platform-funded. Legacy
-pooled relay routing is retired. Vendor replies route by sender plus destination
-owner before the leasing fallback. See [comms-billing.md](comms-billing.md).

@@ -84,9 +84,10 @@ display copy + pre-signup `preferredLanguage`/phone from the invite modal.
 
 **Deploy**: `npm run db:push` for `20260715120000` (vendor_dispatch), `20260715130000`
 (manager_property_access), `20260715140000` (profiles contact), `20260716120000`
-(agent sessions); env `AXIS_AGENT_SMS_FROM` (+ optional `TWILIO_WEBHOOK_URL`); Twilio
-console: number + A2P 10DLC campaign + inbound webhook + Advanced Opt-Out. `vercel.json`
-unchanged. Not yet built from the plan: vendor portal UX overhaul (M7) and Spanish-first
+(agent sessions); optional env `TWILIO_WEBHOOK_URL` (`AXIS_AGENT_SMS_FROM` is no longer
+read — vendor SMS goes out from the manager's own work number via the prepaid
+dispatcher); Twilio console: number + A2P 10DLC campaign + inbound webhook + Advanced
+Opt-Out. `vercel.json` unchanged. Not yet built from the plan: vendor portal UX overhaul (M7) and Spanish-first
 vendor i18n (M8) — see `/Users/akhilvemuri/.claude/plans/i-want-to-work-sorted-bengio.md`.
 
 Work-number inbound resolution additionally scopes sessions by `landlord_id` from

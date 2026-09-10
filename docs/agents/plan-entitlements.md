@@ -102,13 +102,15 @@ on an account with five listings and no paywall anywhere).
   `tests/unit/manager-relist-in-place.test.ts`.
 - **Section entitlements are a separate, page-level gate** and deliberately
   unchanged here: `managerSectionAllowedForTier` + `subscriptionGated` in
-  `render-portal-section.tsx` paywall Residents/Leases/Services/Communication
-  for a committed Free plan, but an account with NO `manager_purchases` row
-  still resolves to `null` in `getManagerSubscriptionTier` (legacy full access).
-  Locking those sections would make existing records unreachable, so it is a
-  product decision, not a bug to quietly fix. Their API routes are also ungated
-  — a free manager can still read/write residents, leases and inbox rows over
-  HTTP. Known gap, deliberately not closed alongside the property cap.
+  `render-portal-section.tsx` paywall Residents/Leases/Services for a
+  committed Free plan (Communication is in `FREE_SUBSCRIPTION_SECTIONS` — every
+  plan gets the inbox and a work number, see [comms-billing.md](comms-billing.md)),
+  but an account with NO `manager_purchases` row still resolves to `null` in
+  `getManagerSubscriptionTier` (legacy full access). Locking those sections
+  would make existing records unreachable, so it is a product decision, not a
+  bug to quietly fix. Their API routes are also ungated — a free manager can
+  still read/write residents and leases over HTTP. Known gap, deliberately not
+  closed alongside the property cap.
 - Coverage: `tests/unit/manager-effective-plan-tier.test.ts`,
   `property-records-plan-property-limit.test.ts`,
   `property-listing-slot-statuses.test.ts`,
@@ -119,39 +121,22 @@ on an account with five listings and no paywall anywhere).
   `manager-trial-expiry-quota.test.ts`,
   `tools/property-resident-writes.test.ts`.
 
-## Communication & AI allowance by plan (PRP-282)
+## Communication credit and processing fees
 
 The tiers differ on TWO axes: what a plan unlocks (properties, co-managers,
 sections — above) and how much texting, calling and assistant use is included
-each month. The second axis is a usage **value**, not a message count, because
-the meters are not comparable (`src/lib/comms-billing/rates.ts`: an outbound
-SMS segment is 3¢, an inbound segment 2¢, a voice minute 4¢, an AI assistant
-turn 15¢; the work number itself is free on every plan).
-
-| Plan | Included per month (`COMMS_INCLUDED_ALLOWANCE_CENTS`) | Roughly |
-| --- | --- | --- |
-| Free | $2.50 | ~80 texts, or ~16 assistant turns |
-| Pro | $15.00 | ~500 texts, or ~100 assistant turns |
-| Business | $150.00 | ~5,000 texts, or ~1,000 assistant turns |
-
-Rules (`src/lib/comms-billing/allowances.ts`):
-
-- The allowance is the ONLY entitlement on this axis. Every plan is capped —
-  Business is capped high, not unmetered — and the cap is a value, so a rate
-  change never silently changes a message count that copy promised.
-- Past the allowance, usage is **pay-as-you-go at the listed rates** when a
-  card is on file (`COMMS_PAYG_BILLING_ENABLED`); with NO card the account is
-  blocked from sending until one is added. That block is the paywall, and
-  `commsAllowanceBlockedMessage(tier)` is the one place its copy lives.
-- Usage is metered by `recordManagerCommsUsage` regardless of whether billing
-  is switched on, so PostHog and the Settings → Communication meter always
-  show real numbers; enforcement and charging are separate flags.
-
+each month. The second axis is owned by [comms-billing.md](comms-billing.md):
+every plan includes Communication and a work number; the monthly retail credit
+per plan is `COMMS_INCLUDED_ALLOWANCE_CENTS` (`src/lib/comms-billing/allowances.ts`),
+manual top-ups carry forward, and a saved card never authorizes an automatic
+charge. Quotas read only the effective SKU (`getEffectiveManagerSkuTier`).
 Customer-facing copy (pricing cards and FAQ, `src/data/manager-plan-tiers.ts`
-and `src/app/(public)/pricing/page.tsx`) is DERIVED from
-`COMMS_INCLUDED_ALLOWANCE_CENTS` through `commsAllowanceFeatureText`, so the
-page cannot promise a number the code does not enforce. Coverage:
-`tests/unit/plan-comms-allowance-copy.test.ts`.
+and `src/app/(public)/pricing/page.tsx`) is DERIVED from that constant through
+`commsAllowanceFeatureText`, so the page cannot promise a number the code does
+not enforce. Coverage: `tests/unit/plan-comms-allowance-copy.test.ts`.
+
+No subscription grants payment-processing coverage; only the staff-owned
+account override does — [resident-payments.md](resident-payments.md).
 
 ## Admin Billing (staff view + per-account overrides)
 
@@ -233,10 +218,3 @@ Coverage: `tests/unit/admin-billing-rows.test.ts`,
 `manager-property-cap-override.test.ts`, plus
 `admin-list-surface-adoption.test.ts` and `platform-parity.test.ts` for the
 section wiring.
-
-## Communication and processing fees
-
-All plans include Communication and work-number access. Monthly prepaid credit is
-Free $2, Pro $10, Business $100; manual top-ups carry forward. Quotas use only the
-effective SKU. A paid subscription does not grant payment-processing coverage; only
-the staff account override does. Full contract: [comms-billing.md](comms-billing.md).
