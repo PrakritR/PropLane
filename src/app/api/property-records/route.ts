@@ -8,7 +8,8 @@ import { isCrossSandboxPortalPair } from "@/lib/portal-sandbox-accounts";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import {
-  previewPropertyApplicationFeeWaiverCodeWrite,
+  previewApplicationFeeWaiverCodeWrite,
+  sameApplicationFeeWaiverCodeText,
   upsertPropertyApplicationFeeWaiverCode,
 } from "@/lib/application-fee-waiver";
 import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
@@ -326,13 +327,30 @@ export async function POST(req: Request) {
     // means the manager is told why instead of finding the listing published
     // and the save reported as failed. It is a read, not a lock: the write
     // below still returns its own refusal if the rows moved in between.
-    const waiverCodeForWrite =
+    //
+    // Only a field the request actually CHANGES is a waiver write. Applications
+    // settings writes the codes table without rewriting this listing's stored
+    // submission, so every later listing save replays whatever text the wizard
+    // last stored — which would re-point the code away from the newer settings
+    // value, or (once that text has been retired) refuse an edit that has
+    // nothing to do with the promo code. The persisted submission is the
+    // baseline for "did the manager touch this field", and it is read from the
+    // same server row every other decision here anchors on.
+    const submittedWaiverCode =
       managerUserIdForWrite && body.status !== "draft"
         ? listingApplicationFeeWaiverCodeFromPayload(body.rowData, body.propertyData)
         : null;
+    const storedWaiverCode = listingApplicationFeeWaiverCodeFromPayload(
+      existing?.row_data,
+      existing?.property_data,
+    );
+    const waiverCodeForWrite =
+      submittedWaiverCode != null && !sameApplicationFeeWaiverCodeText(submittedWaiverCode, storedWaiverCode)
+        ? submittedWaiverCode
+        : null;
     const allowPortfolioConversion = managerUserIdForWrite === user.id;
     if (managerUserIdForWrite && waiverCodeForWrite != null) {
-      const preview = await previewPropertyApplicationFeeWaiverCodeWrite(
+      const preview = await previewApplicationFeeWaiverCodeWrite(
         db,
         managerUserIdForWrite,
         id,

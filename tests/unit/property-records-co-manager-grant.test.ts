@@ -15,7 +15,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getUser = vi.fn();
 const isAdminUser = vi.fn();
 const upsertPropertyApplicationFeeWaiverCode = vi.fn();
-const previewPropertyApplicationFeeWaiverCodeWrite = vi.fn();
+const previewApplicationFeeWaiverCodeWrite = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => ({ auth: { getUser: () => getUser() } }),
@@ -33,8 +33,9 @@ vi.mock("@/lib/auth/clear-property-housing-access", () => ({
 }));
 vi.mock("@/lib/application-fee-waiver", () => ({
   upsertPropertyApplicationFeeWaiverCode: (...a: unknown[]) => upsertPropertyApplicationFeeWaiverCode(...a),
-  previewPropertyApplicationFeeWaiverCodeWrite: (...a: unknown[]) =>
-    previewPropertyApplicationFeeWaiverCodeWrite(...a),
+  previewApplicationFeeWaiverCodeWrite: (...a: unknown[]) => previewApplicationFeeWaiverCodeWrite(...a),
+  sameApplicationFeeWaiverCodeText: (a: string | null | undefined, b: string | null | undefined) =>
+    (a ?? "").trim().toUpperCase() === (b ?? "").trim().toUpperCase(),
 }));
 
 const route = await import("@/app/api/property-records/route");
@@ -124,7 +125,7 @@ beforeEach(() => {
   recordUpserts = [];
   recordDeletes = 0;
   isAdminUser.mockResolvedValue(false);
-  previewPropertyApplicationFeeWaiverCodeWrite.mockResolvedValue({ ok: true });
+  previewApplicationFeeWaiverCodeWrite.mockResolvedValue({ ok: true });
   upsertPropertyApplicationFeeWaiverCode.mockResolvedValue({ ok: true, code: null });
   getUser.mockResolvedValue({ data: { user: { id: DELEGATE } } });
 });
@@ -137,7 +138,7 @@ describe("a delegate whose grant confers nothing", () => {
 
     expect(res.status).toBe(403);
     expect(recordUpserts).toHaveLength(0);
-    expect(previewPropertyApplicationFeeWaiverCodeWrite).not.toHaveBeenCalled();
+    expect(previewApplicationFeeWaiverCodeWrite).not.toHaveBeenCalled();
     expect(upsertPropertyApplicationFeeWaiverCode).not.toHaveBeenCalled();
   });
 
@@ -211,7 +212,7 @@ describe("the owner", () => {
   });
 
   it("refuses a known promo-code conflict BEFORE the listing is written", async () => {
-    previewPropertyApplicationFeeWaiverCodeWrite.mockResolvedValue({
+    previewApplicationFeeWaiverCodeWrite.mockResolvedValue({
       ok: false,
       error: "That code is already in use on another property. Give this one its own code.",
     });
@@ -230,7 +231,7 @@ describe("the owner", () => {
     const res = await post({ ...LISTING_WITH_CODE, status: "draft" });
 
     expect(res.status).toBe(200);
-    expect(previewPropertyApplicationFeeWaiverCodeWrite).not.toHaveBeenCalled();
+    expect(previewApplicationFeeWaiverCodeWrite).not.toHaveBeenCalled();
     expect(upsertPropertyApplicationFeeWaiverCode).not.toHaveBeenCalled();
     expect(recordUpserts).toHaveLength(1);
   });

@@ -13,11 +13,18 @@
  * 1. A DRAFT write never consults the waiver validator, whatever the code says.
  * 2. A LISTING write still does, and a bad code is still refused with a message
  *    that names the field.
+ * 3. Only a field this request CHANGES is a waiver write. Applications settings
+ *    rewrites the codes table without touching the listing's stored submission,
+ *    so replaying that stale text used to re-point the code away from the newer
+ *    settings value — and, once the old text was retired, refused listing edits
+ *    that had nothing to do with the promo code.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { jsonRequest } from "../helpers/api-request";
 
 const getUser = vi.fn();
+let EXISTING: Record<string, unknown> | null = null;
+let RETIRED: string[] = [];
 let UPSERTS: Record<string, unknown>[] = [];
 let WAIVER_CALLS: Array<{ propertyId: string; code: string | null | undefined }> = [];
 let PREVIEW_CALLS: Array<{ propertyId: string; code: string | null | undefined }> = [];
@@ -36,13 +43,25 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/manager-access-server", () => ({
   getEffectiveManagerSkuTier: async () => ({ ok: true, tier: "pro" }),
 }));
-const validateWaiverCode = (code: string | null | undefined) =>
-  (code ?? "").length >= 4
+const validateWaiverCode = (code: string | null | undefined) => {
+  const text = (code ?? "").trim().toUpperCase();
+  // An empty field is a CLEAR, which the real planner accepts.
+  if (!text) return { ok: true } as const;
+  if (RETIRED.includes(text)) {
+    return {
+      ok: false,
+      error: "That code was used before and has been retired, so it cannot be brought back. Pick different text.",
+    } as const;
+  }
+  return (code ?? "").length >= 4
     ? ({ ok: true } as const)
     : ({ ok: false, error: "Codes must be 4-32 letters, numbers, or hyphens." } as const);
+};
 
 vi.mock("@/lib/application-fee-waiver", () => ({
-  previewPropertyApplicationFeeWaiverCodeWrite: async (
+  sameApplicationFeeWaiverCodeText: (a: string | null | undefined, b: string | null | undefined) =>
+    (a ?? "").trim().toUpperCase() === (b ?? "").trim().toUpperCase(),
+  previewApplicationFeeWaiverCodeWrite: async (
     _db: unknown,
     _managerUserId: string,
     propertyId: string,
@@ -67,7 +86,7 @@ vi.mock("@/lib/supabase/service", () => ({
     from: () => ({
       select: (_cols: string, opts?: { count?: string }) => {
         if (!opts?.count) {
-          return { eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) };
+          return { eq: () => ({ maybeSingle: async () => ({ data: EXISTING, error: null }) }) };
         }
         const builder = {
           eq: () => builder,
@@ -104,6 +123,8 @@ function draftRowData(applicationFeeWaiverCode: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  EXISTING = null;
+  RETIRED = [];
   UPSERTS = [];
   WAIVER_CALLS = [];
   PREVIEW_CALLS = [];
@@ -173,5 +194,126 @@ describe("POST /api/property-records — drafts are unvalidated", () => {
     expect(res.status).toBe(200);
     expect(PREVIEW_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "SPRING25" }]);
     expect(WAIVER_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "SPRING25" }]);
+  });
+});
+
+describe("POST /api/property-records — an untouched promo-code field is not a write", () => {
+  /** The listing row as the wizard last stored it. */
+  function storedListing(applicationFeeWaiverCode: string | null) {
+    return {
+      manager_user_id: MANAGER,
+      status: "live",
+      row_data:
+        applicationFeeWaiverCode == null
+          ? { submission: { buildingName: "Ravenna Craftsman" } }
+          : draftRowData(applicationFeeWaiverCode),
+      property_data: null,
+    };
+  }
+
+  it("saves an unrelated edit after Applications settings replaced the code", async () => {
+    // Wizard stored SPRING; settings then moved the account to SUMMER, which
+    // retired SPRING. The listing payload still carries the stale SPRING.
+    EXISTING = storedListing("SPRING");
+    RETIRED = ["SPRING"];
+
+    const res = await post({
+      action: "upsert",
+      id: "mgr-ravenna-draft",
+      managerUserId: MANAGER,
+      status: "live",
+      rowData: { submission: { buildingName: "Ravenna Craftsman II", applicationFeeWaiverCode: "SPRING" } },
+    });
+
+    expect(res.status).toBe(200);
+    expect(UPSERTS).toHaveLength(1);
+    // Nothing consulted or rewrote the codes table, so SUMMER is still the
+    // property's active code.
+    expect(PREVIEW_CALLS).toEqual([]);
+    expect(WAIVER_CALLS).toEqual([]);
+  });
+
+  it("treats a re-cased or padded field as the same code", async () => {
+    EXISTING = storedListing("SPRING25");
+
+    const res = await post({
+      action: "upsert",
+      id: "mgr-ravenna-draft",
+      managerUserId: MANAGER,
+      status: "live",
+      rowData: draftRowData(" spring25 "),
+    });
+
+    expect(res.status).toBe(200);
+    expect(PREVIEW_CALLS).toEqual([]);
+    expect(WAIVER_CALLS).toEqual([]);
+  });
+
+  it("never revokes a settings-set code when the listing field was always empty", async () => {
+    EXISTING = storedListing(null);
+
+    const res = await post({
+      action: "upsert",
+      id: "mgr-ravenna-draft",
+      managerUserId: MANAGER,
+      status: "live",
+      rowData: draftRowData(""),
+    });
+
+    expect(res.status).toBe(200);
+    expect(PREVIEW_CALLS).toEqual([]);
+    expect(WAIVER_CALLS).toEqual([]);
+  });
+
+  it("still refuses a DELIBERATE edit back to retired text, writing nothing", async () => {
+    EXISTING = storedListing("SUMMER");
+    RETIRED = ["SPRING"];
+
+    const res = await post({
+      action: "upsert",
+      id: "mgr-ravenna-draft",
+      managerUserId: MANAGER,
+      status: "live",
+      rowData: draftRowData("SPRING"),
+    });
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/retired/i);
+    expect(UPSERTS).toEqual([]);
+    expect(WAIVER_CALLS).toEqual([]);
+    expect(PREVIEW_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "SPRING" }]);
+  });
+
+  it("still applies a deliberate change to a fresh code", async () => {
+    EXISTING = storedListing("SPRING25");
+
+    const res = await post({
+      action: "upsert",
+      id: "mgr-ravenna-draft",
+      managerUserId: MANAGER,
+      status: "live",
+      rowData: draftRowData("AUTUMN25"),
+    });
+
+    expect(res.status).toBe(200);
+    expect(PREVIEW_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "AUTUMN25" }]);
+    expect(WAIVER_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "AUTUMN25" }]);
+  });
+
+  it("still applies a deliberate CLEAR of the field", async () => {
+    EXISTING = storedListing("SPRING25");
+
+    const res = await post({
+      action: "upsert",
+      id: "mgr-ravenna-draft",
+      managerUserId: MANAGER,
+      status: "live",
+      rowData: draftRowData(""),
+    });
+
+    expect(res.status).toBe(200);
+    expect(PREVIEW_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "" }]);
+    expect(WAIVER_CALLS).toEqual([{ propertyId: "mgr-ravenna-draft", code: "" }]);
   });
 });

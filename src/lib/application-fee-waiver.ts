@@ -101,6 +101,19 @@ export function normalizeWaiverCode(raw: string): string {
   return raw.trim().toUpperCase().replace(/\s+/g, "");
 }
 
+/**
+ * Do two typed-in code fields mean the SAME code? Normalization decides, because
+ * the uniqueness constraint keys off `code_normalized`: "spring" and " SPRING "
+ * are one code, and a caller comparing raw text would read a re-cased field as
+ * an edit. An absent field and an empty one are both "no code".
+ */
+export function sameApplicationFeeWaiverCodeText(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  return normalizeWaiverCode(a ?? "") === normalizeWaiverCode(b ?? "");
+}
+
 const WAIVER_CODE_PATTERN = /^[A-Z0-9-]{4,32}$/;
 
 export function isValidWaiverCodeFormat(raw: string): boolean {
@@ -557,11 +570,11 @@ function planPropertyWaiverCodeWrite(
 /**
  * Whether a per-property waiver write WOULD be accepted, without writing.
  *
- * Lets a caller that must commit something else first (the listing record)
- * refuse the whole request before touching either. It is a read, so it is not
- * a lock: the write still returns its own refusal if the rows moved in between.
+ * Internal: `previewApplicationFeeWaiverCodeWrite` is the single exported gate,
+ * so a route cannot pick the narrower of two same-shaped prechecks by name and
+ * silently skip the portfolio path.
  */
-export async function previewPropertyApplicationFeeWaiverCodeWrite(
+async function previewPropertyApplicationFeeWaiverCodeWrite(
   db: SupabaseClient,
   managerUserId: string,
   propertyId: string,
