@@ -10,11 +10,16 @@
  * 2. A property-scoped co-manager typing the owner's PORTFOLIO-wide code pinned
  *    that code to their one property, silently charging the full application fee
  *    on every other listing it used to waive.
+ * 3. A mixed PATCH wrote the fee settings BEFORE authorizing the waiver portion,
+ *    so a refused request still left part of itself behind.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const requireManagerRouteUser = vi.fn();
 const listApplicationFeeWaiverCodes = vi.fn();
+const previewApplicationFeeWaiverCodeWrite = vi.fn();
+const saveManagerApplicationSettings = vi.fn();
+const saveApplicationAutomationForProperty = vi.fn();
 const upsertPropertyApplicationFeeWaiverCode = vi.fn();
 const setPrimaryApplicationFeeWaiverCode = vi.fn();
 const pickPrimaryApplicationFeeWaiverCode = vi.fn();
@@ -28,7 +33,7 @@ vi.mock("@/lib/manager-application-settings", async (importOriginal) => {
   return {
     ...actual,
     loadManagerApplicationSettings: async () => SETTINGS,
-    saveManagerApplicationSettings: async () => SETTINGS,
+    saveManagerApplicationSettings: (...a: unknown[]) => saveManagerApplicationSettings(...a),
   };
 });
 vi.mock("@/lib/manager-application-settings.server", () => ({
@@ -44,7 +49,7 @@ vi.mock("@/lib/application-automation-preferences", async (importOriginal) => {
       byPropertyId: {},
     }),
     saveApplicationAutomation: async () => actual.DEFAULT_APPLICATION_AUTOMATION,
-    saveApplicationAutomationForProperty: async () => actual.DEFAULT_APPLICATION_AUTOMATION,
+    saveApplicationAutomationForProperty: (...a: unknown[]) => saveApplicationAutomationForProperty(...a),
   };
 });
 vi.mock("@/lib/task-automation-preferences", async (importOriginal) => {
@@ -56,6 +61,7 @@ vi.mock("@/lib/manager-landlord-profile", () => ({
 }));
 vi.mock("@/lib/application-fee-waiver", () => ({
   listApplicationFeeWaiverCodes: (...a: unknown[]) => listApplicationFeeWaiverCodes(...a),
+  previewApplicationFeeWaiverCodeWrite: (...a: unknown[]) => previewApplicationFeeWaiverCodeWrite(...a),
   upsertPropertyApplicationFeeWaiverCode: (...a: unknown[]) => upsertPropertyApplicationFeeWaiverCode(...a),
   setPrimaryApplicationFeeWaiverCode: (...a: unknown[]) => setPrimaryApplicationFeeWaiverCode(...a),
   pickPrimaryApplicationFeeWaiverCode: (...a: unknown[]) => pickPrimaryApplicationFeeWaiverCode(...a),
@@ -134,7 +140,10 @@ beforeEach(() => {
   listApplicationFeeWaiverCodes.mockResolvedValue([]);
   pickPrimaryApplicationFeeWaiverCode.mockReturnValue(null);
   pickPortfolioApplicationFeeWaiverCode.mockReturnValue(null);
+  previewApplicationFeeWaiverCodeWrite.mockResolvedValue({ ok: true });
   upsertPropertyApplicationFeeWaiverCode.mockResolvedValue({ ok: true, code: { code: "X" } });
+  saveManagerApplicationSettings.mockResolvedValue(SETTINGS);
+  saveApplicationAutomationForProperty.mockResolvedValue({});
 });
 
 describe("a co-manager with an EMPTY permission map gets nothing", () => {
@@ -160,6 +169,21 @@ describe("a co-manager with an EMPTY permission map gets nothing", () => {
   it("403s the PATCH instead of rewriting the owner's code", async () => {
     const res = await route.PATCH(patch({ propertyId: PROPERTY, waiverCode: "TAKEOVER" }));
     expect(res.status).toBe(403);
+    expect(upsertPropertyApplicationFeeWaiverCode).not.toHaveBeenCalled();
+  });
+
+  it("writes NOTHING when the same PATCH also carries fee settings and automation", async () => {
+    const res = await route.PATCH(
+      patch({
+        propertyId: PROPERTY,
+        applicationFeeCents: 12345,
+        automation: { autoApprove: true },
+        waiverCode: "TAKEOVER",
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(saveManagerApplicationSettings).not.toHaveBeenCalled();
+    expect(saveApplicationAutomationForProperty).not.toHaveBeenCalled();
     expect(upsertPropertyApplicationFeeWaiverCode).not.toHaveBeenCalled();
   });
 });
@@ -196,6 +220,16 @@ describe("a co-manager granted `applications` keeps working", () => {
       "FREE100",
       { allowPortfolioConversion: false },
     );
+  });
+
+  it("leaves the fee settings alone when the code itself is refused", async () => {
+    // A collision the precheck can answer (the text belongs to a retired code)
+    // must not commit the fee half of the same request.
+    previewApplicationFeeWaiverCodeWrite.mockResolvedValue({ ok: false, error: "has been retired" });
+    const res = await route.PATCH(patch({ propertyId: PROPERTY, applicationFeeCents: 7500, waiverCode: "SPRING" }));
+    expect(res.status).toBe(400);
+    expect(saveManagerApplicationSettings).not.toHaveBeenCalled();
+    expect(upsertPropertyApplicationFeeWaiverCode).not.toHaveBeenCalled();
   });
 
   it("never reports a portfolio code it cannot act on", async () => {

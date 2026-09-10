@@ -5,6 +5,7 @@ import {
   listApplicationFeeWaiverCodes,
   pickPortfolioApplicationFeeWaiverCode,
   pickPrimaryApplicationFeeWaiverCode,
+  previewApplicationFeeWaiverCodeWrite,
   setPrimaryApplicationFeeWaiverCode,
   upsertPropertyApplicationFeeWaiverCode,
   listingWaiverLabel,
@@ -146,13 +147,38 @@ export async function PATCH(req: Request) {
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
+    const propertyId =
+      typeof body.propertyId === "string" && body.propertyId.trim() ? body.propertyId.trim() : "";
+
+    // Authorize AND pre-validate the waiver portion of this PATCH before ANYTHING
+    // is written. A mixed payload (`{ propertyId, applicationFeeCents, waiverCode }`)
+    // used to persist the fee settings and only then discover the caller has no
+    // `applications` edit on that property, or that the code collides — leaving a
+    // partial save behind the 403/400. A rejected save must change nothing.
+    let waiverWrite:
+      | { raw: string; propertyId: string; ownerUserId: string; callerIsOwner: boolean }
+      | null = null;
+    if ("waiverCode" in body) {
+      const raw = body.waiverCode == null ? "" : String(body.waiverCode);
+      const scope = await resolveWaiverCodeScope(ctx.db, ctx.userId, propertyId, "edit");
+      if (!scope.ok) return NextResponse.json({ error: scope.error }, { status: scope.status });
+      const preview = await previewApplicationFeeWaiverCodeWrite(ctx.db, scope.ownerUserId, propertyId, raw, {
+        allowPortfolioConversion: scope.callerIsOwner,
+      });
+      if (!preview.ok) return NextResponse.json({ error: preview.error }, { status: 400 });
+      waiverWrite = {
+        raw,
+        propertyId,
+        ownerUserId: scope.ownerUserId,
+        callerIsOwner: scope.callerIsOwner,
+      };
+    }
+
     // The automation flags share this route because they share the settings surface AND the
     // underlying row. A PATCH that names ONLY `automation` must leave the fee untouched: the
     // fee branch below reads an absent key as "clear it", so saving automation through that path
     // would silently zero the manager's application fee.
     let automation: ApplicationAutomationPreferences | undefined;
-    const propertyId =
-      typeof body.propertyId === "string" && body.propertyId.trim() ? body.propertyId.trim() : "";
     if ("automation" in body) {
       automation = propertyId
         ? await saveApplicationAutomationForProperty(ctx.db, ctx.userId, propertyId, body.automation)
@@ -205,22 +231,19 @@ export async function PATCH(req: Request) {
     });
     const saved = await saveManagerApplicationSettings(ctx.db, ctx.userId, nextSettings);
 
-    if (!("waiverCode" in body)) {
+    if (!waiverWrite) {
       return NextResponse.json({ settings: saved, automation, taskAutomation });
     }
 
-    const raw = body.waiverCode == null ? "" : String(body.waiverCode);
-    const waiverPropertyId =
-      typeof body.propertyId === "string" && body.propertyId.trim() ? body.propertyId.trim() : "";
-    const waiverScope = await resolveWaiverCodeScope(ctx.db, ctx.userId, waiverPropertyId, "edit");
-    if (!waiverScope.ok) {
-      return NextResponse.json({ error: waiverScope.error }, { status: waiverScope.status });
-    }
-    const result = waiverPropertyId
-      ? await upsertPropertyApplicationFeeWaiverCode(ctx.db, waiverScope.ownerUserId, waiverPropertyId, raw, {
-          allowPortfolioConversion: waiverScope.callerIsOwner,
-        })
-      : await setPrimaryApplicationFeeWaiverCode(ctx.db, waiverScope.ownerUserId, raw);
+    const result = waiverWrite.propertyId
+      ? await upsertPropertyApplicationFeeWaiverCode(
+          ctx.db,
+          waiverWrite.ownerUserId,
+          waiverWrite.propertyId,
+          waiverWrite.raw,
+          { allowPortfolioConversion: waiverWrite.callerIsOwner },
+        )
+      : await setPrimaryApplicationFeeWaiverCode(ctx.db, waiverWrite.ownerUserId, waiverWrite.raw);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }

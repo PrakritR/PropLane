@@ -77,7 +77,11 @@ describe("inbox thread omnichannel primitives", () => {
     expect(screen.queryByText("Cancel send")).toBeNull();
   });
 
-  it("compose popup: Schedule saves edits without an Edit step", () => {
+  // A body-only save must NOT emit channel flags. An automated reminder with no
+  // override of its own has no stored channel, and that absence is what keeps it
+  // following the automation settings — stamping the channels the card merely
+  // DISPLAYED would freeze them as an explicit override nobody chose.
+  it("compose popup: Schedule saves edits without an Edit step, and without touching channels", () => {
     const onSaveEdit = vi.fn();
     render(
       <InboxScheduledCard
@@ -97,10 +101,44 @@ describe("inbox thread omnichannel primitives", () => {
     fireEvent.change(bodyField, { target: { value: "Edited body" } });
     fireEvent.click(screen.getByText("Schedule"));
     expect(onSaveEdit).toHaveBeenCalledTimes(1);
+    const saved = onSaveEdit.mock.calls[0][0] as Record<string, unknown>;
+    expect(saved).toMatchObject({ body: "Edited body" });
+    expect("deliverViaEmail" in saved).toBe(false);
+    expect("deliverViaSms" in saved).toBe(false);
+  });
+
+  it("compose popup: a DELIBERATE channel change is still sent with the save", async () => {
+    const onSaveEdit = vi.fn();
+    render(
+      <InboxScheduledCard
+        sendLabel="Jul 25, 2026, 9:00 AM"
+        subject="Rent reminder"
+        body="Original body"
+        source="manual"
+        smsAvailable
+        editable
+        onCancel={vi.fn()}
+        onSendNow={vi.fn()}
+        onSaveEdit={onSaveEdit}
+      />,
+    );
+    openScheduledDetail();
+    // The dropdown trigger itself carries the data-attr; the popup locks pointer
+    // events on <body>, so drive the menu with plain clicks.
+    const sendVia = document.querySelector('[data-attr="inbox-scheduled-edit-send-via"]') as HTMLElement;
+    expect(sendVia).toBeTruthy();
+    fireEvent.click(sendVia);
+    const smsOption = await screen.findByRole("option", { name: /^SMS$/ });
+    // A pick is pointerdown + pointerup at the same point.
+    fireEvent.pointerDown(smsOption, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(smsOption, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.click(screen.getByText("Schedule"));
+
+    expect(onSaveEdit).toHaveBeenCalledTimes(1);
     expect(onSaveEdit.mock.calls[0][0]).toMatchObject({
-      body: "Edited body",
+      body: "Original body",
       deliverViaEmail: true,
-      deliverViaSms: false,
+      deliverViaSms: true,
     });
   });
 

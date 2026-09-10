@@ -14,7 +14,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  previewApplicationFeeWaiverCodeWrite,
   previewPropertyApplicationFeeWaiverCodeWrite,
+  setPrimaryApplicationFeeWaiverCode,
   upsertPropertyApplicationFeeWaiverCode,
 } from "@/lib/application-fee-waiver";
 
@@ -266,5 +268,73 @@ describe("the read-only precheck answers exactly what the write would", () => {
     const preview = await previewPropertyApplicationFeeWaiverCodeWrite(makeDb(), OWNER, PROPERTY, "no");
     expect(preview.ok).toBe(false);
     expect(preview.ok === false && preview.error).toContain("4-32 letters");
+  });
+});
+
+/**
+ * Re-typing a code that was REVOKED earlier.
+ *
+ * The unique index is `(manager_user_id, code_normalized)` and ignores status, so
+ * the retired row still owns its text. Nothing caught that: the plan saw no
+ * ACTIVE collision, the listing/settings write committed, the property's live
+ * code was revoked, and only then did the insert come back 23505 — leaving the
+ * save reported as failed with no working code at all.
+ */
+describe("a code text that belongs to a retired row", () => {
+  it("is refused before anything is written, leaving the live code active", async () => {
+    seed({ code: "SPRING", property_id: PROPERTY, label: `listing:${PROPERTY}`, status: "revoked" });
+    const live = seed({ code: "SUMMER", property_id: PROPERTY, label: `listing:${PROPERTY}` });
+
+    const result = await upsertPropertyApplicationFeeWaiverCode(
+      makeDb(),
+      OWNER,
+      PROPERTY,
+      "SPRING",
+      { allowPortfolioConversion: true },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error).toContain("retired");
+    // The revoke sweep never ran and no second row was created.
+    expect(live.status).toBe("active");
+    expect(rows).toHaveLength(2);
+  });
+
+  it("is reported by the read-only precheck, so the listing save refuses first", async () => {
+    seed({ code: "SPRING", property_id: PROPERTY, label: `listing:${PROPERTY}`, status: "revoked" });
+
+    const preview = await previewPropertyApplicationFeeWaiverCodeWrite(makeDb(), OWNER, PROPERTY, "SPRING");
+
+    expect(preview.ok).toBe(false);
+    expect(preview.ok === false && preview.error).toContain("retired");
+  });
+
+  it("is refused when the retired row sat on ANOTHER property too", async () => {
+    seed({ code: "SPRING", property_id: "prop-other", label: "listing:prop-other", status: "revoked" });
+
+    const preview = await previewPropertyApplicationFeeWaiverCodeWrite(makeDb(), OWNER, PROPERTY, "SPRING");
+
+    expect(preview.ok).toBe(false);
+    expect(preview.ok === false && preview.error).toContain("retired");
+  });
+
+  it("is refused on the PORTFOLIO path as well, before the active code is swept", async () => {
+    seed({ code: "SPRING", property_id: null, status: "revoked" });
+    const live = seed({ code: "SUMMER", property_id: null });
+
+    const preview = await previewApplicationFeeWaiverCodeWrite(makeDb(), OWNER, "", "SPRING");
+    expect(preview.ok).toBe(false);
+
+    const result = await setPrimaryApplicationFeeWaiverCode(makeDb(), OWNER, "SPRING");
+    expect(result.ok).toBe(false);
+    expect(live.status).toBe("active");
+    expect(rows).toHaveLength(2);
+  });
+
+  it("still lets an unrelated new text through on both paths", async () => {
+    seed({ code: "SPRING", property_id: PROPERTY, label: `listing:${PROPERTY}`, status: "revoked" });
+
+    expect((await previewPropertyApplicationFeeWaiverCodeWrite(makeDb(), OWNER, PROPERTY, "AUTUMN")).ok).toBe(true);
+    expect((await previewApplicationFeeWaiverCodeWrite(makeDb(), OWNER, "", "AUTUMN")).ok).toBe(true);
   });
 });

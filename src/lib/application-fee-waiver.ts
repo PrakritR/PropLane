@@ -449,6 +449,25 @@ export function pickPortfolioApplicationFeeWaiverCode(
   return [...active].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))[0] ?? null;
 }
 
+/**
+ * The unique index is `(manager_user_id, code_normalized)` — it does NOT include
+ * `status`. A REVOKED row therefore still owns its text, so re-typing a code the
+ * manager retired earlier cannot be created, and the insert comes back as an
+ * opaque 23505 only AFTER the caller has already revoked whatever code was live.
+ * Both write planners refuse it up front instead, so nothing is written and the
+ * currently active code survives. Reviving the old row is deliberately NOT the
+ * answer: its usage count, cap and expiry belong to the grant that was ended.
+ */
+const RETIRED_WAIVER_CODE_ERROR =
+  "That code was used before and has been retired, so it cannot be brought back. Pick different text.";
+
+function findRetiredWaiverCodeWithText(
+  existing: ApplicationFeeWaiverCode[],
+  normalized: string,
+): ApplicationFeeWaiverCode | null {
+  return existing.find((c) => c.code === normalized && c.status === "revoked") ?? null;
+}
+
 type PropertyWaiverCodePlan =
   | { ok: false; error: string }
   | {
@@ -522,6 +541,9 @@ function planPropertyWaiverCodeWrite(
     };
   }
   const matching = ownMatch ?? portfolioMatch;
+  if (!matching && findRetiredWaiverCodeWithText(existing, normalized)) {
+    return { ok: false, error: RETIRED_WAIVER_CODE_ERROR };
+  }
 
   return {
     ok: true,
@@ -611,6 +633,65 @@ export async function upsertPropertyApplicationFeeWaiverCode(
   return { ok: true, code: created.code };
 }
 
+type PortfolioWaiverCodePlan =
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      revoke: ApplicationFeeWaiverCode[];
+      matching: ApplicationFeeWaiverCode | null;
+      normalized: string;
+    };
+
+/**
+ * Decide what a PORTFOLIO-wide waiver write would do, from rows already read.
+ * Pure, for the same reason the per-property planner is: the refusal has to be
+ * available before the caller revokes the code that is live today.
+ */
+function planPortfolioWaiverCodeWrite(
+  existing: ApplicationFeeWaiverCode[],
+  rawCode: string | null | undefined,
+): PortfolioWaiverCodePlan {
+  const trimmed = (rawCode ?? "").trim();
+  const active = existing.filter((c) => c.status === "active");
+
+  if (!trimmed) return { ok: true, revoke: active, matching: null, normalized: "" };
+
+  if (!isValidWaiverCodeFormat(trimmed)) {
+    return { ok: false, error: "Codes must be 4-32 letters, numbers, or hyphens." };
+  }
+  const normalized = normalizeWaiverCode(trimmed);
+  const matching = active.find((c) => c.code === normalized) ?? null;
+  if (!matching && findRetiredWaiverCodeWithText(existing, normalized)) {
+    return { ok: false, error: RETIRED_WAIVER_CODE_ERROR };
+  }
+
+  return { ok: true, revoke: active.filter((c) => c.id !== matching?.id), matching, normalized };
+}
+
+/**
+ * Whether a waiver write WOULD be accepted, without writing — per-property when
+ * `propertyId` is given, portfolio-wide when it is empty.
+ *
+ * Every caller that must commit something else in the same request (a listing
+ * record, the fee settings row) runs this FIRST, so a refused code leaves zero
+ * mutations behind instead of a half-applied save.
+ */
+export async function previewApplicationFeeWaiverCodeWrite(
+  db: SupabaseClient,
+  managerUserId: string,
+  propertyId: string | null | undefined,
+  rawCode: string | null | undefined,
+  opts?: { allowPortfolioConversion?: boolean },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const pid = (propertyId ?? "").trim();
+  if (pid) {
+    return previewPropertyApplicationFeeWaiverCodeWrite(db, managerUserId, pid, rawCode, opts);
+  }
+  const existing = await listApplicationFeeWaiverCodes(db, managerUserId);
+  const plan = planPortfolioWaiverCodeWrite(existing, rawCode);
+  return plan.ok ? { ok: true } : { ok: false, error: plan.error };
+}
+
 /**
  * Collapse the manager's waiver codes to at most one unlimited primary code.
  * Compatible with the multi-code table: extras are revoked, not deleted.
@@ -621,30 +702,17 @@ export async function setPrimaryApplicationFeeWaiverCode(
   managerUserId: string,
   rawCode: string | null | undefined,
 ): Promise<SetPrimaryWaiverCodeResult> {
-  const trimmed = (rawCode ?? "").trim();
   const existing = await listApplicationFeeWaiverCodes(db, managerUserId);
-  const active = existing.filter((c) => c.status === "active");
+  const plan = planPortfolioWaiverCodeWrite(existing, rawCode);
+  if (!plan.ok) return { ok: false, error: plan.error };
+  const { matching, normalized } = plan;
 
-  if (!trimmed) {
-    for (const c of active) {
-      const revoked = await revokeApplicationFeeWaiverCode(db, managerUserId, c.id);
-      if (!revoked.ok) return { ok: false, error: revoked.error };
-    }
-    return { ok: true, code: null };
-  }
-
-  if (!isValidWaiverCodeFormat(trimmed)) {
-    return { ok: false, error: "Codes must be 4-32 letters, numbers, or hyphens." };
-  }
-  const normalized = normalizeWaiverCode(trimmed);
-  const matching = active.find((c) => c.code === normalized) ?? null;
-
-  for (const c of active) {
-    if (matching && c.id === matching.id) continue;
+  for (const c of plan.revoke) {
     const revoked = await revokeApplicationFeeWaiverCode(db, managerUserId, c.id);
     if (!revoked.ok) return { ok: false, error: revoked.error };
   }
 
+  if (!normalized) return { ok: true, code: null };
   if (matching) return { ok: true, code: matching };
 
   const created = await createApplicationFeeWaiverCode(db, managerUserId, {
