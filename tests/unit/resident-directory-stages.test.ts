@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { isResidentDirectoryRow, residentDirectoryStage } from "@/lib/current-resident";
@@ -151,5 +152,32 @@ describe("leaseIsFullyExecuted", () => {
         lease({ fullySignedAt: "2026-01-03T00:00:00.000Z", voidedAt: "2026-02-01T00:00:00.000Z" }),
       ),
     ).toBe(false);
+  });
+});
+
+/**
+ * PRP-458 — Potential/Current counts flipped on refresh because Current needs
+ * the lease-pipeline cache, and the Residents mount sync used to bump only
+ * application ticks after Promise.allSettled (lease refresh relied solely on
+ * LEASE_PIPELINE_EVENT). A failed or late lease GET left approved tenants in
+ * Potential. These source contracts keep the dual-settle gate in place.
+ */
+describe("residents directory hydration (PRP-458)", () => {
+  const residentsSrc = readFileSync(`${process.cwd()}/src/components/portal/pro-residents.tsx`, "utf8");
+  const leaseSrc = readFileSync(`${process.cwd()}/src/lib/lease-pipeline-storage.ts`, "utf8");
+
+  it("bumps leaseTick when the initial Residents sync batch settles", () => {
+    expect(residentsSrc).toContain("directorySourcesReady");
+    expect(residentsSrc).toMatch(/Promise\.allSettled\(\[[\s\S]*syncLeasePipelineFromServer\(userId\)/);
+    expect(residentsSrc).toMatch(/setLeaseTick\(\(n\) => n \+ 1\);\s*\n\s*setDirectorySourcesReady\(true\)/);
+  });
+
+  it("holds directory rows until applications and leases have both settled", () => {
+    expect(residentsSrc).toMatch(/if \(!directorySourcesReady\)/);
+    expect(residentsSrc).toContain('return "Loading residents…"');
+  });
+
+  it("emits the lease-pipeline event even when the lease GET fails", () => {
+    expect(leaseSrc).toMatch(/if \(!res\.ok\) \{\s*\n\s*\/\/ Still notify listeners[\s\S]*?\n\s*emit\(\);\s*\n\s*return localSnapshot;/);
   });
 });

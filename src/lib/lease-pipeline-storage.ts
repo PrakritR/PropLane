@@ -1979,7 +1979,13 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
       const localSnapshot = readLeasePipeline(managerUserId);
       const res = await fetch("/api/portal-lease-pipeline", { credentials: "include", cache: "no-store" });
       notePortalResponse(res.status);
-      if (!res.ok) return localSnapshot;
+      if (!res.ok) {
+        // Still notify listeners: Residents classifies Current vs Potential off
+        // this cache, and a failed GET must not leave the UI stuck on a
+        // pre-sync classification (PRP-458).
+        emit();
+        return localSnapshot;
+      }
       const body = (await res.json()) as { rows?: unknown[] };
       const fetched = filterLeasesForManager((body.rows ?? []).map(normalizeLeasePipelineRow), managerUserId);
       leasePipelineLastServerIds = new Set(fetched.map((row) => row.id));
