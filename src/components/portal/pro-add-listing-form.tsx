@@ -2103,7 +2103,17 @@ export function ManagerAddListingForm({
     sizeSqft: number;
     furnishing: string;
     amenitiesText: string;
-  }>({ floor: "", occupancyCapacity: 0, sizeSqft: 0, furnishing: "", amenitiesText: "" });
+    moveInInspectionRequired: boolean;
+    moveOutInspectionRequired: boolean;
+  }>({
+    floor: "",
+    occupancyCapacity: 0,
+    sizeSqft: 0,
+    furnishing: "",
+    amenitiesText: "",
+    moveInInspectionRequired: false,
+    moveOutInspectionRequired: false,
+  });
   const [bathDefaults, setBathDefaults] = useState<{
     location: string;
     type: "full" | "shower" | "half" | "";
@@ -2119,9 +2129,26 @@ export function ManagerAddListingForm({
   }, []);
 
   const editRoomDefault = useCallback(
-    <K extends "floor" | "occupancyCapacity" | "sizeSqft" | "furnishing" | "amenitiesText">(
+    <
+      K extends
+        | "floor"
+        | "occupancyCapacity"
+        | "sizeSqft"
+        | "furnishing"
+        | "amenitiesText"
+        | "moveInInspectionRequired"
+        | "moveOutInspectionRequired",
+    >(
       field: K,
-      value: { floor: string; occupancyCapacity: number; sizeSqft: number; furnishing: string; amenitiesText: string }[K],
+      value: {
+        floor: string;
+        occupancyCapacity: number;
+        sizeSqft: number;
+        furnishing: string;
+        amenitiesText: string;
+        moveInInspectionRequired: boolean;
+        moveOutInspectionRequired: boolean;
+      }[K],
     ) => {
       setRoomDefaults((prev) => ({ ...prev, [field]: value }));
       setSub((s) => ({
@@ -2132,6 +2159,38 @@ export function ManagerAddListingForm({
       }));
     },
     [touchedRoomIds],
+  );
+
+  /**
+   * Furnished is not a stored value here — it is a checkbox over an empty
+   * furnishing list, exactly as `setRoomFurnished` treats one room. The band
+   * mirrors that for every room still following it rather than writing a
+   * furnishing string the room editor would then disagree with.
+   */
+  const [roomDefaultsFurnished, setRoomDefaultsFurnished] = useState(false);
+  const setRoomDefaultsFurnishedForFollowing = useCallback(
+    (on: boolean) => {
+      setRoomDefaultsFurnished(on);
+      // Both writes are driven off the rooms this render is showing, so the
+      // checkbox and the furnished-open set can never disagree about which
+      // rooms moved. Never nest one setState inside another's updater.
+      const following = sub.rooms.filter((room) => !touchedRoomIds.has(room.id)).map((room) => room.id);
+      setFurnishedOpenRooms((prev) => {
+        const next = new Set(prev);
+        for (const id of following) {
+          if (on) next.add(id);
+          else next.delete(id);
+        }
+        return next;
+      });
+      setSub((s) => ({
+        ...s,
+        rooms: s.rooms.map((room) =>
+          touchedRoomIds.has(room.id) ? room : { ...room, furnishing: on ? "" : "Unfurnished" },
+        ),
+      }));
+    },
+    [sub.rooms, touchedRoomIds],
   );
 
   const editBathDefault = useCallback(
@@ -4447,6 +4506,222 @@ export function ManagerAddListingForm({
           {stepIndex === 4 ? (
           <FormSection id="edit-lease" title="Pricing">
             <div className="space-y-5">
+              {/*
+                Every price for a room lives HERE, on Pricing — the captain's
+                rule. The room card on the Rooms step carries what a room IS
+                (floor, beds, size, furnishing, amenities, photos); what it
+                COSTS is this step's business, and splitting them across two
+                steps is what made a manager hunt for a rate.
+              */}
+              {rentByRoom && sub.rooms.length > 0 ? (
+                <ListingSubsection title="Room pricing">
+                  <div className="space-y-3">
+                    {sortRoomIndicesByFloor(sub.rooms).map((i) => {
+                      const room = sub.rooms[i]!;
+                      const roomKey = listingItemKey("room-pricing", room.id);
+                      // The same keys the Rooms step used, so a rent error still
+                      // points at the field that raised it now that the field
+                      // lives on this step.
+                      const roomDailyRentKey = listingRoomDailyRentKey(room.id);
+                      const roomWeeklyRentKey = listingRoomWeeklyRentKey(room.id);
+                      const roomDailyRentErr = stepFieldErrors[roomDailyRentKey];
+                      const roomWeeklyRentErr = stepFieldErrors[roomWeeklyRentKey];
+                      return (
+                        <ListingWizardCollapsibleCard
+                          key={room.id}
+                          expanded={isListingItemExpanded(roomKey)}
+                          onToggle={() => toggleListingItem(roomKey)}
+                          title={room.name.trim() || `Room ${i + 1}`}
+                          subtitle={room.floor.trim() || "Set what this room costs"}
+                          meta={
+                            room.monthlyRent > 0 ? (
+                              <ListingWizardRowMeta value={`$${room.monthlyRent} / mo`} />
+                            ) : (
+                              <ListingWizardRowMeta value="Rent not set" muted />
+                            )
+                          }
+                          bodyClassName="grid gap-3"
+                          toggleDataAttr={`listing-room-pricing-toggle-${room.id}`}
+                        >
+                      <GridField>
+                        <FieldLabel hint="Flexible pricing agrees a price with each resident. Any range you give is guidance shown to prospects — it is never billed.">
+                          Pricing
+                        </FieldLabel>
+                        <Select
+                          aria-label={`Pricing mode for ${room.name || `room ${i + 1}`}`}
+                          className={selectInputCls}
+                          data-attr="listing-room-pricing-mode"
+                          value={room.pricingMode === "flexible" ? "flexible" : "fixed"}
+                          onChange={(e) =>
+                            setRoom(i, {
+                              pricingMode: e.target.value === "flexible" ? "flexible" : "fixed",
+                              // Switching back to a fixed price DROPS the advertised range
+                              // rather than leaving it stored and invisible, so it can never
+                              // reappear later as a quote the manager believes they removed.
+                              ...(e.target.value === "flexible"
+                                ? {}
+                                : { flexibleRentMin: undefined, flexibleRentMax: undefined }),
+                            })
+                          }
+                        >
+                          <option value="fixed">Fixed price</option>
+                          <option value="flexible">Flexible pricing</option>
+                        </Select>
+                        {room.pricingMode !== "flexible" ? (
+                          <div className="mt-3 space-y-3">
+                            <p className="text-xs text-muted">
+                              Quote the rates you actually offer. A weekly or daily rate is a
+                              real price, not the monthly one divided up — leave a row blank if
+                              you do not offer that length.
+                            </p>
+                            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                              <GridField>
+                                <FieldLabel>Rent / week</FieldLabel>
+                                <MoneyInput
+                                  ariaLabel={`Weekly rent for ${room.name || `room ${i + 1}`}`}
+                                  data-attr="listing-room-weekly-rent"
+                                  invalid={Boolean(roomWeeklyRentErr)}
+                                  value={room.weeklyRentPrice === undefined ? "" : String(room.weeklyRentPrice)}
+                                  onChange={(e) => {
+                                    const n = parseFloat(sanitizeMoneyInput(e.target.value));
+                                    clearListingFieldError(roomWeeklyRentKey);
+                                    setRoom(i, { weeklyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
+                                  }}
+                                  placeholder="Weekly rate"
+                                />
+                                <StepFieldError msg={roomWeeklyRentErr} />
+                              </GridField>
+                              <GridField>
+                                <FieldLabel>Rent / day</FieldLabel>
+                                <MoneyInput
+                                  ariaLabel={`Daily rent for ${room.name || `room ${i + 1}`}`}
+                                  data-attr="listing-room-daily-rent-basis"
+                                  invalid={Boolean(roomDailyRentErr)}
+                                  value={room.dailyRentPrice === undefined ? "" : String(room.dailyRentPrice)}
+                                  onChange={(e) => {
+                                    const n = parseFloat(sanitizeMoneyInput(e.target.value));
+                                    clearListingFieldError(roomDailyRentKey);
+                                    setRoom(i, { dailyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
+                                  }}
+                                  placeholder="Daily rate"
+                                />
+                                <StepFieldError msg={roomDailyRentErr} />
+                              </GridField>
+                              <GridField>
+                                <FieldLabel hint="Which rate leads the listing and drives billing.">
+                                  Billed by
+                                </FieldLabel>
+                                <Select
+                                  aria-label={`Billing basis for ${room.name || `room ${i + 1}`}`}
+                                  className={selectInputCls}
+                                  data-attr="listing-room-rent-basis"
+                                  value={room.rentBasis ?? "monthly"}
+                                  onChange={(e) =>
+                                    setRoom(i, { rentBasis: e.target.value as "monthly" | "weekly" | "daily" })
+                                  }
+                                >
+                                  <option value="monthly">Month</option>
+                                  <option value="weekly">Week</option>
+                                  <option value="daily">Day</option>
+                                </Select>
+                              </GridField>
+                            </div>
+                            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                              <GridField>
+                                <FieldLabel hint="Extra monthly rent on a short tenancy. Folded into the rent, not billed as a separate fee.">
+                                  Short-lease surcharge / mo
+                                </FieldLabel>
+                                <MoneyInput
+                                  ariaLabel={`Short-lease surcharge for ${room.name || `room ${i + 1}`}`}
+                                  data-attr="listing-room-short-lease-surcharge"
+                                  value={(room.shortLeaseSurchargeMonthly ?? "").replace(/^\$/, "").trim()}
+                                  onChange={(e) =>
+                                    setRoom(i, { shortLeaseSurchargeMonthly: sanitizeMoneyInput(e.target.value) })
+                                  }
+                                  placeholder="Extra per month"
+                                />
+                              </GridField>
+                              <GridField>
+                                <FieldLabel>Short lease is up to</FieldLabel>
+                                <Input
+                                  inputMode="numeric"
+                                  aria-label={`Short lease threshold in months for ${room.name || `room ${i + 1}`}`}
+                                  data-attr="listing-room-short-lease-months"
+                                  placeholder="Months"
+                                  value={room.shortLeaseMaxMonths === undefined ? "" : String(room.shortLeaseMaxMonths)}
+                                  onChange={(e) =>
+                                    setRoom(i, { shortLeaseMaxMonths: normalizeShortLeaseMaxMonths(e.target.value) })
+                                  }
+                                />
+                              </GridField>
+                            </div>
+                            {(room.shortLeaseSurchargeMonthly ?? "").trim() &&
+                            room.shortLeaseMaxMonths === undefined ? (
+                              <p className="text-xs text-danger" role="alert">
+                                Set how many months counts as a short lease, or this surcharge
+                                will not apply to anyone.
+                              </p>
+                            ) : null}
+                            {room.monthlyRent > 0 &&
+                            room.shortLeaseMaxMonths !== undefined &&
+                            (room.shortLeaseSurchargeMonthly ?? "").trim() ? (
+                              <p className="text-xs text-muted" data-attr="listing-room-short-lease-preview">
+                                A short lease is quoted as{" "}
+                                <strong>
+                                  ${(room.monthlyRent + roomShortLeaseSurcharge(room)).toLocaleString("en-US")}
+                                </strong>{" "}
+                                / month on a lease of {room.shortLeaseMaxMonths}{" "}
+                                {room.shortLeaseMaxMonths === 1 ? "month" : "months"} or less —{" "}
+                                ${room.monthlyRent.toLocaleString("en-US")} rent plus the surcharge.
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                        {room.pricingMode === "flexible" ? (
+                          <div className="mt-3 space-y-2">
+                            <p className="text-xs text-muted">
+                              Agree a price with each resident. Leave both boxes empty to show no
+                              numbers at all.
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                inputMode="decimal"
+                                aria-label={`Advertised minimum rent for ${room.name || `room ${i + 1}`}`}
+                                data-attr="listing-room-flexible-min"
+                                placeholder="Min (optional)"
+                                value={room.flexibleRentMin ?? ""}
+                                onChange={(e) =>
+                                  setRoom(i, { flexibleRentMin: normalizeFlexibleRentBound(e.target.value) })
+                                }
+                              />
+                              <span className="text-xs text-muted">to</span>
+                              <Input
+                                inputMode="decimal"
+                                aria-label={`Advertised maximum rent for ${room.name || `room ${i + 1}`}`}
+                                data-attr="listing-room-flexible-max"
+                                placeholder="Max (optional)"
+                                value={room.flexibleRentMax ?? ""}
+                                onChange={(e) =>
+                                  setRoom(i, { flexibleRentMax: normalizeFlexibleRentBound(e.target.value) })
+                                }
+                              />
+                            </div>
+                            {room.flexibleRentMin !== undefined &&
+                            room.flexibleRentMax !== undefined &&
+                            room.flexibleRentMax < room.flexibleRentMin ? (
+                              <p className="text-xs text-danger" role="alert">
+                                The maximum is below the minimum, so no range will be shown.
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </GridField>
+                        </ListingWizardCollapsibleCard>
+                      );
+                    })}
+                  </div>
+                </ListingSubsection>
+              ) : null}
               <ListingSubsection title="Leasing">
                 <div className="space-y-3">
                   <div data-wizard-field="allowedLeaseTerms" className={wizardSectionErrorClass(Boolean(stepFieldErrors.allowedLeaseTerms))}>
@@ -4807,23 +5082,7 @@ export function ManagerAddListingForm({
 
           {/* ── Step 1: Rooms ── */}
           {stepIndex === 1 ? (
-          <FormSection
-            id="edit-rooms"
-            title="Rooms"
-            description={
-              isEntireHome
-                ? "List each bedroom — name, floor, furnishing, amenities, and optional photos or video. Rent and utilities are set on Pricing. House move-in instructions are on Home."
-                : "Name, floor, furnishing, amenities, photos, video, and per-room move-in notes. Rent is set on Pricing."
-            }
-          >
-            <p
-              className="mb-4 rounded-xl border border-border bg-accent/30 px-3 py-2.5 text-sm text-muted"
-              data-attr="listing-shared-spaces-amenities-hint"
-            >
-              Kitchen, laundry, lounge, yard, and other shared-area amenities belong on the{" "}
-              <span className="font-semibold text-foreground">Shared spaces</span> step — not under room
-              amenities. Prospects see those spaces on every room listing.
-            </p>
+          <FormSection id="edit-rooms" title="Rooms">
             <div
               className={`space-y-3 ${wizardSectionErrorClass(Boolean(stepFieldErrors.rooms))}`}
               data-wizard-field="rooms"
@@ -4885,6 +5144,58 @@ export function ManagerAddListingForm({
                           </option>
                         ))}
                       </Select>
+                    </GridField>
+                    <GridField>
+                      <FieldLabel hint="Shown beside the rent so a prospect can see why one room costs more.">
+                        Size (sq ft)
+                      </FieldLabel>
+                      <Input
+                        inputMode="numeric"
+                        aria-label="Size in square feet for most rooms"
+                        data-attr="listing-room-defaults-size"
+                        placeholder="e.g. 120"
+                        value={roomDefaults.sizeSqft ? String(roomDefaults.sizeSqft) : ""}
+                        onChange={(e) =>
+                          editRoomDefault("sizeSqft", normalizeRoomSizeSqft(e.target.value) ?? 0)
+                        }
+                      />
+                    </GridField>
+                    <GridField>
+                      <FieldLabel hint="Check Furnished to list included items on each room.">
+                        Furnishing
+                      </FieldLabel>
+                      <label className="flex cursor-pointer items-center gap-3 py-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-primary"
+                          data-attr="listing-room-defaults-furnished"
+                          checked={roomDefaultsFurnished}
+                          onChange={(e) => setRoomDefaultsFurnishedForFollowing(e.target.checked)}
+                        />
+                        Furnished
+                        <span className="text-muted">— default is unfurnished</span>
+                      </label>
+                    </GridField>
+                    <GridField className="sm:col-span-2">
+                      <FieldLabel>Room inspections</FieldLabel>
+                      <div className="flex flex-wrap gap-x-6 gap-y-2 py-1">
+                        {(["moveIn", "moveOut"] as const).map((kind) => {
+                          const field =
+                            kind === "moveIn" ? "moveInInspectionRequired" : "moveOutInspectionRequired";
+                          return (
+                            <label key={kind} className="flex cursor-pointer items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                className="h-4 w-4 accent-primary"
+                                data-attr={`listing-room-defaults-${kind === "moveIn" ? "move-in" : "move-out"}-inspection`}
+                                checked={roomDefaults[field]}
+                                onChange={(e) => editRoomDefault(field, e.target.checked)}
+                              />
+                              Require {kind === "moveIn" ? "move-in" : "move-out"} inspection
+                            </label>
+                          );
+                        })}
+                      </div>
                     </GridField>
                   </div>
                 </div>
@@ -5012,179 +5323,6 @@ export function ManagerAddListingForm({
                             </option>
                           ))}
                         </Select>
-                      </GridField>
-                      <GridField>
-                        <FieldLabel hint="Flexible pricing agrees a price with each resident. Any range you give is guidance shown to prospects — it is never billed.">
-                          Pricing
-                        </FieldLabel>
-                        <Select
-                          aria-label={`Pricing mode for ${room.name || `room ${i + 1}`}`}
-                          className={selectInputCls}
-                          data-attr="listing-room-pricing-mode"
-                          value={room.pricingMode === "flexible" ? "flexible" : "fixed"}
-                          onChange={(e) =>
-                            setRoom(i, {
-                              pricingMode: e.target.value === "flexible" ? "flexible" : "fixed",
-                              // Switching back to a fixed price DROPS the advertised range
-                              // rather than leaving it stored and invisible, so it can never
-                              // reappear later as a quote the manager believes they removed.
-                              ...(e.target.value === "flexible"
-                                ? {}
-                                : { flexibleRentMin: undefined, flexibleRentMax: undefined }),
-                            })
-                          }
-                        >
-                          <option value="fixed">Fixed price</option>
-                          <option value="flexible">Flexible pricing</option>
-                        </Select>
-                        {room.pricingMode !== "flexible" ? (
-                          <div className="mt-3 space-y-3">
-                            <p className="text-xs text-muted">
-                              Quote the rates you actually offer. A weekly or daily rate is a
-                              real price, not the monthly one divided up — leave a row blank if
-                              you do not offer that length.
-                            </p>
-                            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-                              <GridField>
-                                <FieldLabel>Rent / week</FieldLabel>
-                                <MoneyInput
-                                  ariaLabel={`Weekly rent for ${room.name || `room ${i + 1}`}`}
-                                  data-attr="listing-room-weekly-rent"
-                                  invalid={Boolean(roomWeeklyRentErr)}
-                                  value={room.weeklyRentPrice === undefined ? "" : String(room.weeklyRentPrice)}
-                                  onChange={(e) => {
-                                    const n = parseFloat(sanitizeMoneyInput(e.target.value));
-                                    clearListingFieldError(roomWeeklyRentKey);
-                                    setRoom(i, { weeklyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
-                                  }}
-                                  placeholder="Weekly rate"
-                                />
-                                <StepFieldError msg={roomWeeklyRentErr} />
-                              </GridField>
-                              <GridField>
-                                <FieldLabel>Rent / day</FieldLabel>
-                                <MoneyInput
-                                  ariaLabel={`Daily rent for ${room.name || `room ${i + 1}`}`}
-                                  data-attr="listing-room-daily-rent-basis"
-                                  invalid={Boolean(roomDailyRentErr)}
-                                  value={room.dailyRentPrice === undefined ? "" : String(room.dailyRentPrice)}
-                                  onChange={(e) => {
-                                    const n = parseFloat(sanitizeMoneyInput(e.target.value));
-                                    clearListingFieldError(roomDailyRentKey);
-                                    setRoom(i, { dailyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
-                                  }}
-                                  placeholder="Daily rate"
-                                />
-                                <StepFieldError msg={roomDailyRentErr} />
-                              </GridField>
-                              <GridField>
-                                <FieldLabel hint="Which rate leads the listing and drives billing.">
-                                  Billed by
-                                </FieldLabel>
-                                <Select
-                                  aria-label={`Billing basis for ${room.name || `room ${i + 1}`}`}
-                                  className={selectInputCls}
-                                  data-attr="listing-room-rent-basis"
-                                  value={room.rentBasis ?? "monthly"}
-                                  onChange={(e) =>
-                                    setRoom(i, { rentBasis: e.target.value as "monthly" | "weekly" | "daily" })
-                                  }
-                                >
-                                  <option value="monthly">Month</option>
-                                  <option value="weekly">Week</option>
-                                  <option value="daily">Day</option>
-                                </Select>
-                              </GridField>
-                            </div>
-                            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-                              <GridField>
-                                <FieldLabel hint="Extra monthly rent on a short tenancy. Folded into the rent, not billed as a separate fee.">
-                                  Short-lease surcharge / mo
-                                </FieldLabel>
-                                <MoneyInput
-                                  ariaLabel={`Short-lease surcharge for ${room.name || `room ${i + 1}`}`}
-                                  data-attr="listing-room-short-lease-surcharge"
-                                  value={(room.shortLeaseSurchargeMonthly ?? "").replace(/^\$/, "").trim()}
-                                  onChange={(e) =>
-                                    setRoom(i, { shortLeaseSurchargeMonthly: sanitizeMoneyInput(e.target.value) })
-                                  }
-                                  placeholder="Extra per month"
-                                />
-                              </GridField>
-                              <GridField>
-                                <FieldLabel>Short lease is up to</FieldLabel>
-                                <Input
-                                  inputMode="numeric"
-                                  aria-label={`Short lease threshold in months for ${room.name || `room ${i + 1}`}`}
-                                  data-attr="listing-room-short-lease-months"
-                                  placeholder="Months"
-                                  value={room.shortLeaseMaxMonths === undefined ? "" : String(room.shortLeaseMaxMonths)}
-                                  onChange={(e) =>
-                                    setRoom(i, { shortLeaseMaxMonths: normalizeShortLeaseMaxMonths(e.target.value) })
-                                  }
-                                />
-                              </GridField>
-                            </div>
-                            {(room.shortLeaseSurchargeMonthly ?? "").trim() &&
-                            room.shortLeaseMaxMonths === undefined ? (
-                              <p className="text-xs text-danger" role="alert">
-                                Set how many months counts as a short lease, or this surcharge
-                                will not apply to anyone.
-                              </p>
-                            ) : null}
-                            {room.monthlyRent > 0 &&
-                            room.shortLeaseMaxMonths !== undefined &&
-                            (room.shortLeaseSurchargeMonthly ?? "").trim() ? (
-                              <p className="text-xs text-muted" data-attr="listing-room-short-lease-preview">
-                                A short lease is quoted as{" "}
-                                <strong>
-                                  ${(room.monthlyRent + roomShortLeaseSurcharge(room)).toLocaleString("en-US")}
-                                </strong>{" "}
-                                / month on a lease of {room.shortLeaseMaxMonths}{" "}
-                                {room.shortLeaseMaxMonths === 1 ? "month" : "months"} or less —{" "}
-                                ${room.monthlyRent.toLocaleString("en-US")} rent plus the surcharge.
-                              </p>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        {room.pricingMode === "flexible" ? (
-                          <div className="mt-3 space-y-2">
-                            <p className="text-xs text-muted">
-                              Agree a price with each resident. Leave both boxes empty to show no
-                              numbers at all.
-                            </p>
-                            <div className="flex items-center gap-2">
-                              <Input
-                                inputMode="decimal"
-                                aria-label={`Advertised minimum rent for ${room.name || `room ${i + 1}`}`}
-                                data-attr="listing-room-flexible-min"
-                                placeholder="Min (optional)"
-                                value={room.flexibleRentMin ?? ""}
-                                onChange={(e) =>
-                                  setRoom(i, { flexibleRentMin: normalizeFlexibleRentBound(e.target.value) })
-                                }
-                              />
-                              <span className="text-xs text-muted">to</span>
-                              <Input
-                                inputMode="decimal"
-                                aria-label={`Advertised maximum rent for ${room.name || `room ${i + 1}`}`}
-                                data-attr="listing-room-flexible-max"
-                                placeholder="Max (optional)"
-                                value={room.flexibleRentMax ?? ""}
-                                onChange={(e) =>
-                                  setRoom(i, { flexibleRentMax: normalizeFlexibleRentBound(e.target.value) })
-                                }
-                              />
-                            </div>
-                            {room.flexibleRentMin !== undefined &&
-                            room.flexibleRentMax !== undefined &&
-                            room.flexibleRentMax < room.flexibleRentMin ? (
-                              <p className="text-xs text-danger" role="alert">
-                                The maximum is below the minimum, so no range will be shown.
-                              </p>
-                            ) : null}
-                          </div>
-                        ) : null}
                       </GridField>
                       <GridField>
                         <FieldLabel>Room inspections</FieldLabel>
