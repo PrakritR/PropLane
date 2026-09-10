@@ -102,16 +102,43 @@ beforeEach(() => {
   mocks.isPureCoManagerWorkspace.mockResolvedValue(false);
 });
 
-describe("assistant-email trial isolation", () => {
-  it.each([false, true])("excludes trial SMS grants with existing address=%s", async (existing) => {
+/**
+ * The work email answers eligibility EXACTLY as the work number does.
+ *
+ * This used to be the opposite: an eligible trial was demoted to
+ * `{eligible:false, reason:"trialing"}` before the route ever saw it, and the
+ * entitlement was read with `preferPaid`. So with trial onboarding open, the
+ * same manager could set up a work number and then be refused the email — one
+ * product, two answers. `decideManagerCommsRequest` is now the single authority
+ * for both, and `reconcileTrialEntitlement` remains the only thing that decides
+ * whether a trial is enrolled at all.
+ */
+describe("work-email eligibility matches the work number", () => {
+  it.each([false, true])("accepts an enrolled trial grant with existing address=%s", async (existing) => {
     vi.stubEnv("RESEND_API_KEY", "test-key");
     const trial = { eligible: true, tier: "pro", source: "stripe", trial: true };
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue(trial);
     mocks.reconcileManagerSmsEntitlement.mockResolvedValue(trial);
     mocks.loadManagerAssistantEmail.mockResolvedValue(existing ? { address: "assistant@test.invalid" } : null);
     expect(await (await GET()).json()).toMatchObject({
-      canRequest: false, canUse: false, entitlement: { eligible: false, reason: "trialing" },
+      canRequest: !existing,
+      canUse: existing,
+      entitlement: { eligible: true },
     });
+    const response = await POST(new Request("https://prop-lane.test/api/manager/assistant-email", {
+      method: "POST", body: JSON.stringify({ action: "request_address" }),
+    }));
+    expect(response.status).toBe(200);
+    expect(mocks.ensureManagerAssistantEmail).toHaveBeenCalledTimes(existing ? 0 : 1);
+  });
+
+  it("still refuses a trial the billing source did not enrol", async () => {
+    vi.stubEnv("RESEND_API_KEY", "test-key");
+    const notEnrolled = { eligible: false, reason: "trialing" };
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue(notEnrolled);
+    mocks.reconcileManagerSmsEntitlement.mockResolvedValue(notEnrolled);
+    mocks.loadManagerAssistantEmail.mockResolvedValue(null);
+    expect(await (await GET()).json()).toMatchObject({ canRequest: false, canUse: false });
     const response = await POST(new Request("https://prop-lane.test/api/manager/assistant-email", {
       method: "POST", body: JSON.stringify({ action: "request_address" }),
     }));
@@ -124,6 +151,38 @@ describe("assistant-email trial isolation", () => {
     mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "business", source });
     mocks.loadManagerAssistantEmail.mockResolvedValue({ address: "assistant@test.invalid" });
     expect(await (await GET()).json()).toMatchObject({ canUse: true });
+  });
+
+  /**
+   * An address that exists but cannot send is NOT "ready". It used to report
+   * ready and was handed to residents and listings, where it silently swallowed
+   * every message.
+   */
+  it("reports an address it cannot send from as assigned, not ready", async () => {
+    vi.stubEnv("RESEND_API_KEY", "");
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "pro", source: "stripe" });
+    mocks.loadManagerAssistantEmail.mockResolvedValue({ address: "assistant@test.invalid" });
+    expect(await (await GET()).json()).toMatchObject({
+      state: "assigned_send_off",
+      canUse: false,
+    });
+  });
+
+  /**
+   * The two ways the same address goes quiet must not read the same. Telling a
+   * manager "this is a PropLane setting, not something to chase" when the truth
+   * is their card expired sends them to support instead of to billing.
+   */
+  it("separates a deployment with mail off from a lapsed plan", async () => {
+    mocks.loadManagerAssistantEmail.mockResolvedValue({ address: "assistant@test.invalid" });
+
+    vi.stubEnv("RESEND_API_KEY", "");
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: true, tier: "pro", source: "stripe" });
+    expect(await (await GET()).json()).toMatchObject({ state: "assigned_send_off", canUse: false });
+
+    vi.stubEnv("RESEND_API_KEY", "test-key");
+    mocks.getEffectiveManagerSmsEntitlement.mockResolvedValue({ eligible: false, reason: "past_due" });
+    expect(await (await GET()).json()).toMatchObject({ state: "assigned_plan_hold", canUse: false });
   });
 });
 

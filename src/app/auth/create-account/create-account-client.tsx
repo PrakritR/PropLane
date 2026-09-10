@@ -105,6 +105,7 @@ export default function CreateAccountClient() {
    * intent — signup never buys a number (see the register route).
    */
   const [wantsWorkNumber, setWantsWorkNumber] = useState(true);
+  const [wantsWorkEmail, setWantsWorkEmail] = useState(true);
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [axisId, setAxisId] = useState(axisIdFromUrl);
@@ -397,6 +398,7 @@ export default function CreateAccountClient() {
             fullName: fullName.trim(),
             phone: phone.trim(),
             wantsWorkNumber,
+            wantsWorkEmail,
           }),
         });
         const body = (await res.json()) as { error?: string; redirectTo?: string; existingAccount?: boolean };
@@ -910,7 +912,24 @@ export default function CreateAccountClient() {
                     <span className="text-sm font-medium text-foreground">Set up a PropLane phone number</span>
                     <span className="mt-0.5 block text-xs text-muted">
                       A number your residents and applicants can text. Messages land in your PropLane inbox, and you can
-                      reply from your own phone. You can turn this on later in Settings → Messaging.
+                      reply from your own phone. You can turn this on later in Settings → Communication.
+                    </span>
+                  </span>
+                </label>
+                <label className="mt-3 flex cursor-pointer items-start gap-2.5 border-t border-border/70 pt-3">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={wantsWorkEmail}
+                    onChange={(e) => setWantsWorkEmail(e.target.checked)}
+                    data-attr="signup-wants-work-email"
+                  />
+                  <span>
+                    <span className="text-sm font-medium text-foreground">Set up a PropLane work email</span>
+                    <span className="mt-0.5 block text-xs text-muted">
+                      An address your residents and applicants can email. Messages land in the same PropLane inbox, and
+                      PropLane Assistant answers whoever writes in. You can turn this on later in Settings →
+                      Communication.
                     </span>
                   </span>
                 </label>

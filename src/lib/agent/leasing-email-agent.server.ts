@@ -117,9 +117,18 @@ export async function runLeasingEmailAgentTurn(
     role: "user",
     content: text,
     channel: "email",
-    external_id: args.inboundEmailId.trim() || null,
+    // `source_message_sid`, not `external_id`. There has never been an
+    // `external_id` column on `agent_messages` — no migration creates one — so
+    // every prospect who emailed a manager's work email failed this insert,
+    // fell into the `return null` below, and got silence. The whole leasing
+    // branch of the work email has been dead since it shipped.
+    //
+    // This is the column the SMS paths already write, and the one carrying the
+    // unique partial index (`source_message_sid is not null and role = 'user'`)
+    // that makes the 23505 check below mean something.
+    source_message_sid: args.inboundEmailId.trim() || null,
   });
-  // A duplicate external id means Resend redelivered — the reply below is still
+  // A duplicate source id means Resend redelivered — the reply below is still
   // regenerated, but the caller's own claim row is what stops a second send.
   if (inboundError && inboundError.code !== "23505") {
     console.error("leasing-email inbound persistence failed", session.id, inboundError.message);
