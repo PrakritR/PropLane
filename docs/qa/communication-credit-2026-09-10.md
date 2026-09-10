@@ -1,95 +1,77 @@
-# Communication credit and processing-fee coverage
+# Communication credit, processing coverage and saved cards
 
 Subscription prices remain Free / $20 / $200 monthly ($192 / $1,920 annual).
-Monthly communication credit is $2 / $10 / $100. All tiers retain work-number and
-Communication access. Processing fees are separate; only staff account approval
+Monthly communication credit is $2 / $10 / $100. Every tier retains work-number
+and Communication access. Processing fees are separate; only staff account approval
 allows PropLane coverage. Manual credit packs are $5, $10, $25 and $50.
 
-## Validation in this branch
+Billing & plan owns the plan, saved cards, credit balance, purchases, usage history
+and budget alerts. Communication settings owns work-number setup. Stripe Checkout
+setup mode saves cards without collecting payment. Default selection updates the
+customer and active subscription; credit purchases remain separately confirmed.
+Financial identity requires an authenticated user-ID link, never an email fallback.
 
-- Full unit run: 1,369 files, 9,444 tests passed (exit 0), followed by focused
-  checks after the final vendor-consent and incoming-owner fixes.
-- PostgreSQL: 10 tests passed (exit 0), including concurrent reservations, duplicate
-  paid fulfillment, refunds, UTC resets/upgrades, inherited allowance, atomic budget
-  alerts and concurrent staff revocation versus manager preference saves.
-- TypeScript and production build: exit 0. Changed-file ESLint: exit 0; existing
-  warnings in listing/payment components and legacy settings remain.
-- Real seeded manager at localhost:3013: Business coverage resolves false, current
-  $150 allowance preserved with $100 next-month disclosure, invalid pack API returns
-  400. Work-number and Communication UI remain accessible.
-- Stripe **test mode**, dev/test database: actual $5 card checkout completed. Replaying
-  its signed event twice yielded one $5 ledger adjustment. Actual $2 partial refund
-  followed by two signed refund deliveries yielded one -$2 adjustment, leaving $3.
-- Mobile web at 390px: no horizontal overflow; credit pack modal verified visually.
-  UI tests cover zero balance, unreadable balance, pending redirect and native checkout
-  restrictions. Browser console error collection was empty.
-- Security review and Bugbot found no remaining high/P1 issues in their final spot-checks.
+## Current validation
 
-## Rollout and limitations
+- Combined keeper: 68 targeted tests across 4 files passed (exit 0), covering saved
+  cards, credit purchases and listing submission. This includes all 18 card tests
+  and all 27 listing-wizard tests. First-time customer creation, failed identity
+  saves, foreign ownership, canceled subscriptions and concurrent default clicks
+  are covered.
+- Combined `npm run build`: exit 0, including TypeScript. New-card ESLint: exit 0,
+  zero warnings/errors. Existing warnings remain in older listing/payment components.
+- Initial full unit run: 1,369 files / 9,444 tests passed. A later full run found
+  two listing upload-test fixture failures (9,464 passed); those fixtures now
+  provide verified coverage and await loading, and their 27-test file passes.
+  The broader no-mistakes validation is still running; this is not a final gate pass.
+- PostgreSQL: 10 tests passed (exit 0), including concurrent reservations,
+  idempotent fulfillment/refunds, UTC resets/upgrades, inherited allowances,
+  atomic budget alerts and concurrent staff revocation versus preference saves.
+- Security review and Bugbot found no remaining high/P1 issues in their spot-checks.
+  The review's committed webhook, inbound identity, rate lookup, cache and fixture
+  fixes have been merged into the keeper with their ancestry preserved.
 
-Only dev/test migrations were applied. Production and staging data are untouched.
-Root migration history differed from dev/test history, so deployment used a temporary
-Supabase workdir with the fetched remote history; dry-run listed only the new migrations.
-No migration history was repaired or overwritten. Apply the two additive migrations
-through the repository staging ladder before enabling manual checkout via
-`COMMS_PAYG_BILLING_ENABLED=1`. This flag does not control credit enforcement.
+## Real dev/test verification
 
-Native balances are shared, but Apple consumable products/RevenueCat credit fulfillment
-are not configured. The native app therefore exposes no Stripe checkout or external
-purchase link. See `docs/agents/apple-iap.md` and the updated Lavish plan.
+The seeded manager's Business coverage resolves false. Its existing $150 current
+allowance is preserved with a $100 next-month disclosure. Invalid credit packs return
+400. Work-number and Communication settings remain accessible.
 
-No real SMS was sent, no phone number was purchased and no live call was placed during
-verification. Provider paths use existing number registration and runtime controls.
-Unknown carrier submissions stay reserved for operator reconciliation; they never
-resend automatically. Won disputes remain paused for staff review.
+An actual Stripe **test-mode** $5 checkout completed. Replaying its signed event
+twice yielded one $5 ledger adjustment. An actual $2 partial refund followed by two
+signed deliveries yielded one -$2 adjustment, leaving $3 purchased credit.
 
-Local graph refresh completed with the repository's existing missing Swift-grammar
-warning; portable-check passed. The installed hook did not create a TypeScript runtime
-marker. No graph lifecycle files were added to git.
+The embedded Stripe setup form saved Visa 4242 (12/2030), returned to Billing & plan,
+and the card was selected as default. Stripe confirmed `mode=setup`, a completed
+session and no PaymentIntent. The API and Stripe customer default agreed. Purchased
+credit remained $3. An uncompleted $5 credit checkout used the same customer; the
+saved card has `allow_redisplay=always`.
 
-## Billing & plan follow-up
+Desktop and 390px mobile were exercised without horizontal document overflow. The
+Communication tab contained work-number controls and neither saved cards nor the
+credit panel. Browser console error collection was empty. No real SMS was sent,
+no phone number was purchased and no live call was placed.
 
-The credit panel, rates/history and budget alerts now live in Billing & plan.
-Communication settings contains work-number setup only. Payment methods uses Stripe
-Checkout setup mode; adding a card collects no payment. Default selection applies
-to the manager's customer and active subscription, without automatic credit recharge.
-Financial identity is linked by authenticated user ID, never the entitlement loader's
-legacy email fallback. Conflicting customer/subscription identities fail closed.
+## Rollout and outstanding decisions
 
-Dev/test migration `20260910170000_manager_billing_customer.sql` was applied through
-the isolated migration workdir; no production writes. Stripe test-mode browser
-verification on port 3014 saved Visa 4242 (12/2030) through the embedded setup form,
-returned to Billing & plan and selected that card as default. Stripe confirmed the
-completed session had `mode=setup` and no PaymentIntent, and the selected default
-matched the API response. Existing purchased credit remained 300 cents. An uncompleted
-$5 credit checkout used that same customer and retained the separately confirmed
-payment flow. The saved card has `allow_redisplay=always`.
+Only dev/test migrations were applied: `20260910140000`, `20260910160000`, and
+`20260910170000`. Root and remote migration histories differed, so a temporary
+Supabase workdir used the fetched remote history; dry-run listed only the new
+migrations. No history was repaired or overwritten. Follow the staging ladder
+before enabling manual checkout with `COMMS_PAYG_BILLING_ENABLED=1`; that flag
+cannot disable credit enforcement.
 
-Desktop and 390px mobile were exercised; no horizontal document overflow. The
-Communication tab had work-number controls and neither the credit panel nor saved
-cards. Card loading/error retry, explicit default mutation and native purchase-control
-exclusion are covered by component tests. Ownership tests include a foreign email-matched
-purchase, foreign payment method/customer, conflicting subscription customer and a
-canceled subscription. Security re-review found no remaining high/critical issues.
+The existing Lavish review contains the full policy findings and proposed states.
+The user has been asked about staff recovery for reviewed credit pauses, disabling
+the retired relay's provisioning/number-buying, and visibility for paid purchases
+needing manual review. The proposed resolution retains fail-closed fee verification
+and reconciliation holds for uncertain SMS outcomes, and leaves unrelated account
+retention code unchanged. Those policy decisions are pending; no keeper push or
+production deployment has occurred.
 
-Validation in the follow-up worktree: 4 focused files / 33 tests passed, then 11 card
-ownership tests passed after added canceled-subscription cases. Full unit run returned
-9464 passed / 2 failed: existing listing-wizard attachment tests lack a valid subscription
-coverage response and stop before upload assertions. This fixture gap is pending the
-original review pipeline and must be resolved before final handoff. Final card-focused rerun passed 16 tests across 2 files, including the shared default-change pending guard. New-card ESLint
-returned zero warnings/errors; TypeScript returned zero errors. Graph rebuild completed
-with the existing missing Swift grammar warning; portable-check passed.
-
-The follow-up's standard `npm run build` subsequently passed (exit 0): bundle
-compiled in 19.5s and TypeScript finished in 26.7s. The initial Webpack-only attempt
-failed on the repository's existing Node crypto import; replacing the isolated
-worktree's dependency symlink with a local dependency copy restored the normal
-Turbopack build. Final graph hook exited 0 and portable-check passed. The standalone
-redundant TypeScript check was stopped during resource contention; the successful
-standard build includes the final TypeScript check.
-
-First-time customer setup is now covered as well: all 18 card tests pass, including
-creating an owner-linked Stripe customer for a manager without a prior purchase and
-refusing to open setup if that identity cannot be saved. The original review branch
-also repaired the listing coverage fixture; its complete 27-test file passed (exit 0).
-Those review fixes are preserved in the pipeline and will be integrated before handoff.
+Native balances are shared, but Apple consumables/RevenueCat credit fulfillment are
+not configured. Native hides Stripe checkout, card setup/default controls and external
+purchase links. See `docs/agents/apple-iap.md`. The successful standard build uses
+Turbopack; the isolated checkout needed a local dependency copy rather than a symlink.
+Graph refreshes passed with the existing missing Swift-grammar warning, and portable
+checks passed. The installed hook did not create a TypeScript runtime marker.
