@@ -128,7 +128,7 @@ function patchListingServiceFeePayer(
     payer === "proplane" && accountWaiverGranted
       ? LISTING_PAYMENT_WAIVER_CODE
       : submission.serviceFeeWaiverCode;
-  const persisted = persistListingServiceFeePayer(payer, waiverCode);
+  const persisted = persistListingServiceFeePayer(payer, waiverCode, accountWaiverGranted);
   return { ...submission, ...persisted };
 }
 
