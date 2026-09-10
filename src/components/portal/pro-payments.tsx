@@ -823,6 +823,7 @@ export function ManagerPayments({
         activeBucket={bucket}
         scheduledMessages={scheduledMessages}
         reminderScheduleSummary={reminderScheduleSummary}
+        reminderAutomationSettings={reminderSettings}
         onOpenReminderSettings={() => setPaymentSettingsOpen(true)}
         onScheduleChanged={() => void reloadSchedule()}
         onRowsChanged={() => setHcTick((n) => n + 1)}

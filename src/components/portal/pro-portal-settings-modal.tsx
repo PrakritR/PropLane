@@ -107,6 +107,9 @@ export function ProPortalSettingsModal({
   const [propertyIds, setPropertyIds] = useState<string[]>([]);
   const [automation, setAutomation] = useState<ApplicationAutomationPreferences>(DEFAULT_APPLICATION_AUTOMATION);
   const [waiverCode, setWaiverCode] = useState("");
+  // A legacy code with no property is still redeemable on every listing. It is
+  // read-only here: this field is scoped to one property and cannot revoke it.
+  const [portfolioWaiverCode, setPortfolioWaiverCode] = useState<string | null>(null);
   const [panelFooter, setPanelFooter] = useState<ManagerSettingsPanelFooter | null>(null);
   const lockPropertyField = Boolean(initialPropertyId?.trim()) && propertyOptions.length <= 1;
 
@@ -145,6 +148,7 @@ export function ProPortalSettingsModal({
       const data = (await res.json().catch(() => ({}))) as {
         automation?: unknown;
         waiverCode?: string | null;
+        portfolioWaiverCode?: string | null;
         error?: string;
       };
       if (!res.ok) {
@@ -153,6 +157,11 @@ export function ProPortalSettingsModal({
       }
       setAutomation(normalizeApplicationAutomation(data.automation));
       setWaiverCode(typeof data.waiverCode === "string" ? data.waiverCode : "");
+      setPortfolioWaiverCode(
+        typeof data.portfolioWaiverCode === "string" && data.portfolioWaiverCode.trim()
+          ? data.portfolioWaiverCode
+          : null,
+      );
     } catch {
       showToast("Could not load settings.");
     } finally {
@@ -336,6 +345,7 @@ export function ProPortalSettingsModal({
           }}
           onAutomationChange={changeAutomation}
           waiverCode={waiverCode}
+          portfolioWaiverCode={portfolioWaiverCode}
           onWaiverCodeChange={setWaiverCode}
           onWaiverCodeCommit={commitWaiverCode}
           hidePropertyField={lockPropertyField}

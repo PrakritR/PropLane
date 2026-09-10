@@ -2215,7 +2215,19 @@ export function InboxScheduledCard({
 
   const activeSendVia = canCompose ? draftSendVia : viewSendVia;
   const draftChannels = portalMessageChannelsFromSelection(activeSendVia);
-  const draftChannelsOk = !canEditChannels || draftChannels.viaEmail || draftChannels.viaSms;
+  const shownChannels = portalMessageChannelsFromSelection(viewSendVia);
+  /*
+    Whether the manager actually MOVED the channel. An automated reminder with
+    no override of its own has no stored channel, and that absence is what keeps
+    it following the automation settings — so a body- or date-only save must not
+    emit one, and must not be blocked by a selection the card only displayed.
+    A surface that cannot offer SMS renders an SMS-only reminder as PropLane
+    alone; that is a display limit, not the manager choosing no channel.
+  */
+  const channelsChanged =
+    canEditChannels &&
+    (draftChannels.viaEmail !== shownChannels.viaEmail || draftChannels.viaSms !== shownChannels.viaSms);
+  const draftChannelsOk = !channelsChanged || draftChannels.viaEmail || draftChannels.viaSms;
 
   const recipientDisplay =
     portalMessageRecipientDisplay({
@@ -2254,7 +2266,7 @@ export function InboxScheduledCard({
       onSaveEdit({
         subject: draftSubject.trim(),
         body: draftBody.trim(),
-        ...(canEditChannels
+        ...(channelsChanged
           ? { deliverViaEmail: channels.viaEmail, deliverViaSms: channels.viaSms }
           : {}),
         ...(nextSendAt ? { sendAt: nextSendAt } : {}),

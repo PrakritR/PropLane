@@ -183,6 +183,7 @@ export function ApplicationsSettingsPanel({
   onPropertyIdsChange,
   onAutomationChange,
   waiverCode = "",
+  portfolioWaiverCode = null,
   onWaiverCodeChange,
   onWaiverCodeCommit,
   hidePropertyField = false,
@@ -201,6 +202,12 @@ export function ApplicationsSettingsPanel({
   onPropertyIdsChange?: (propertyIds: string[]) => void;
   onAutomationChange: (next: ApplicationAutomationPreferences) => void;
   waiverCode?: string;
+  /**
+   * An account-wide code with no property of its own. Still waives the fee on
+   * THIS property, so hiding it shows an empty field over a live waiver — but
+   * this per-property field cannot turn it off, so it is stated, not edited.
+   */
+  portfolioWaiverCode?: string | null;
   onWaiverCodeChange?: (code: string) => void;
   /** Persist the promo code to every selected property (blur / Apply). */
   onWaiverCodeCommit?: () => void;
@@ -278,6 +285,13 @@ export function ApplicationsSettingsPanel({
               ? `Applicants who enter this code on any of the ${selectedIds.length} selected properties waive the application fee. Leave empty to turn it off for those listings.`
               : "Applicants who enter this code on this property's application waive the application fee. Leave empty to turn it off."}
           </p>
+          {portfolioWaiverCode ? (
+            <p className="text-xs text-muted" data-attr="manager-application-settings-portfolio-promo-code">
+              <span className="font-mono font-semibold uppercase text-foreground">{portfolioWaiverCode}</span>{" "}
+              also waives the application fee here — it applies to every property on this account. Clearing
+              the field above does not turn it off.
+            </p>
+          ) : null}
         </div>
       ) : null}
       <label className="flex items-start gap-3">

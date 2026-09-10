@@ -7,7 +7,9 @@ import { lateFeePolicyFromSubmission } from "@/lib/payment-policy";
 import {
   loadManagerAutomationSettings,
   loadScheduledMessageOverrides,
+  scheduledOverrideId,
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
+  type ScheduledMessageOverride,
 } from "@/lib/payment-automation-settings";
 import {
   projectScheduledPaymentMessages,
@@ -329,6 +331,14 @@ export async function GET(req: Request) {
           });
           const residentLower = charge.residentEmail.trim().toLowerCase();
           const noticeDedupId = `late_fee_notice_${lateFeeId}`;
+          const lateFeeNoticeOverride = overrides.get(
+            scheduledOverrideId({
+              managerUserId: managerId,
+              chargeId: charge.id,
+              kind: "late_fee",
+              daysBeforeDue: null,
+            }),
+          ) as ScheduledMessageOverride | undefined;
 
           if (settings.lateFeeNoticeEnabled && !sentDedupIds.has(noticeDedupId)) {
             if (residentEmailBudgetLeft(charge.residentEmail)) {
@@ -346,8 +356,14 @@ export async function GET(req: Request) {
                 html: reminderHtmlFromText(noticeText),
                 slotLabel: "late_fee_created",
                 eventCategory: "payments",
-                managerDeliverViaEmail: settings.paymentReminderDeliverViaEmail,
-                managerDeliverViaSms: settings.paymentReminderDeliverViaSms,
+                // The late-fee notice is sent from here rather than the reminder
+                // loop, so it has to read the same per-slot override the inbox
+                // card writes — otherwise the card shows SMS and the notice goes
+                // out by email.
+                managerDeliverViaEmail:
+                  lateFeeNoticeOverride?.customDeliverViaEmail ?? settings.paymentReminderDeliverViaEmail,
+                managerDeliverViaSms:
+                  lateFeeNoticeOverride?.customDeliverViaSms ?? settings.paymentReminderDeliverViaSms,
                 managerDeliverViaInbox: settings.paymentReminderDeliverViaInbox,
               });
               if (result.error) errors.push(result.error);

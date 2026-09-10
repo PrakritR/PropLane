@@ -26,6 +26,7 @@ import {
   useScheduledPaymentMessages,
 } from "@/components/portal/payment-schedule-ui";
 import {
+  automationChannelDefaultsFromSettings,
   threadScheduledItemFromAutomationMessage,
   threadScheduledItemFromManualMessage,
 } from "@/lib/inbox-scheduled-thread";
@@ -96,8 +97,12 @@ export function ManagerInboxSchedulePanel({
   const [horizonId, setHorizonId] = useState<InboxScheduleHorizonId>("14");
   const horizonDays = inboxScheduleHorizonDays(horizonId);
 
-  const { messages: automationMessages, loading: automationLoading, reload: reloadAutomation } =
-    useScheduledPaymentMessages({ includeHidden: true });
+  const {
+    messages: automationMessages,
+    settings: reminderAutomationSettings,
+    loading: automationLoading,
+    reload: reloadAutomation,
+  } = useScheduledPaymentMessages({ includeHidden: true });
 
   const [manualMessages, setManualMessages] = useState<ScheduledInboxMessageRecord[]>([]);
   const [manualLoading, setManualLoading] = useState(true);
@@ -269,7 +274,10 @@ export function ManagerInboxSchedulePanel({
     const scheduled =
       row.kind === "manual"
         ? threadScheduledItemFromManualMessage(row.message)
-        : threadScheduledItemFromAutomationMessage(row.message);
+        : threadScheduledItemFromAutomationMessage(
+            row.message,
+            automationChannelDefaultsFromSettings(reminderAutomationSettings),
+          );
     const isScheduled = row.message.status === "scheduled";
     const recipientEmail = (
       row.kind === "manual" ? row.message.recipientEmail : row.message.residentEmail

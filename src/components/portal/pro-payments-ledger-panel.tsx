@@ -61,6 +61,7 @@ import {
   patchScheduledMessage,
   restoreFutureRemindersForPendingCharge,
 } from "@/components/portal/payment-schedule-ui";
+import type { ManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { PaymentScheduledMessagesLead } from "@/components/portal/payment-scheduled-lead";
 import type { ScheduledPaymentMessage } from "@/lib/scheduled-payment-messages";
 import { manageableRemindersForCharge, formatScheduledSendAt } from "@/lib/scheduled-payment-messages";
@@ -201,6 +202,7 @@ export function ManagerPaymentsLedgerPanel({
   activeBucket,
   scheduledMessages = [],
   reminderScheduleSummary,
+  reminderAutomationSettings,
   onOpenReminderSettings,
   onRowsChanged,
   onScheduleChanged,
@@ -222,6 +224,11 @@ export function ManagerPaymentsLedgerPanel({
   activeBucket: ManagerPaymentBucket;
   scheduledMessages?: ScheduledPaymentMessage[];
   reminderScheduleSummary?: string;
+  /**
+   * The manager's saved reminder-delivery settings, so the per-charge edit card
+   * shows the channel a reminder without its own override will actually use.
+   */
+  reminderAutomationSettings?: ManagerAutomationSettings | null;
   onOpenReminderSettings?: () => void;
   onRowsChanged?: () => void;
   onScheduleChanged?: () => void;
@@ -1782,6 +1789,11 @@ export function ManagerPaymentsLedgerPanel({
           24,
         )}
         scheduleSummary={reminderScheduleSummary}
+        automationSettings={reminderAutomationSettings}
+        // Same assumption every other payment-reminder surface in this panel
+        // makes: the delivery layer resolves the resident's number, so SMS is
+        // an offerable channel for a reminder.
+        smsAvailable
         onMessageSaved={() => {
           onScheduleChanged?.();
         }}

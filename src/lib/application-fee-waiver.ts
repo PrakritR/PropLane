@@ -429,6 +429,27 @@ export function listingWaiverLabel(propertyId: string): string {
 }
 
 /**
+ * The manager's active PORTFOLIO-WIDE code — `property_id IS NULL` and not a
+ * legacy `listing:<id>` row. `pickWaiverCodeRowForProperty` keeps these
+ * redeemable on EVERY property, so a per-property settings screen that surfaces
+ * only the property-scoped code hides a waiver that is still live on that
+ * property. Reported alongside, never instead of, the property's own code: a
+ * property-scoped field must not look like it can revoke a portfolio code.
+ */
+export function pickPortfolioApplicationFeeWaiverCode(
+  codes: ApplicationFeeWaiverCode[],
+): ApplicationFeeWaiverCode | null {
+  const active = codes.filter(
+    (c) =>
+      c.status === "active" &&
+      c.propertyId == null &&
+      !(c.label ?? "").startsWith(LISTING_WAIVER_LABEL_PREFIX),
+  );
+  if (active.length === 0) return null;
+  return [...active].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))[0] ?? null;
+}
+
+/**
  * Upsert the waiver code tied to one listing/property. Uses the code `label` column
  * (`listing:<propertyId>`) so multiple properties can each have their own active code
  * without revoking the manager's other listings.
@@ -438,7 +459,17 @@ export async function upsertPropertyApplicationFeeWaiverCode(
   managerUserId: string,
   propertyId: string,
   rawCode: string | null | undefined,
+  /**
+   * Whether this write may CONVERT a legacy portfolio-wide code (`property_id
+   * IS NULL`, redeemable on every one of the owner's listings) into a code
+   * pinned to `propertyId`. Off by default: this function is called with the
+   * OWNER's id even when a property-scoped co-manager is the one typing, so it
+   * cannot tell the two apart on its own. Only a caller that has established
+   * the authenticated user IS the owner may pass `true`.
+   */
+  opts?: { allowPortfolioConversion?: boolean },
 ): Promise<SetPrimaryWaiverCodeResult> {
+  const allowPortfolioConversion = opts?.allowPortfolioConversion === true;
   const pid = propertyId.trim();
   if (!pid) return { ok: false, error: "propertyId is required." };
   const label = listingWaiverLabel(pid);
@@ -479,12 +510,21 @@ export async function upsertPropertyApplicationFeeWaiverCode(
     };
   }
 
-  const matching =
-    mine.find((c) => c.code === normalized && c.status === "active") ??
-    // A legacy portfolio-wide code with this text is taken over by this
-    // property rather than left applying everywhere.
-    existing.find((c) => c.code === normalized && c.status === "active" && c.propertyId == null) ??
-    null;
+  const ownMatch = mine.find((c) => c.code === normalized && c.status === "active") ?? null;
+  // A legacy portfolio-wide code with this text is taken over by this property
+  // rather than left applying everywhere — but that un-waives the fee on every
+  // OTHER listing the owner has, so only the owner may do it.
+  const portfolioMatch = ownMatch
+    ? null
+    : existing.find((c) => c.code === normalized && c.status === "active" && c.propertyId == null) ?? null;
+  if (portfolioMatch && !allowPortfolioConversion) {
+    return {
+      ok: false,
+      error:
+        "That code applies to every property on this account. Only the account owner can point it at a single property. Give this listing its own code.",
+    };
+  }
+  const matching = ownMatch ?? portfolioMatch;
 
   for (const c of mine.filter((row) => row.status === "active" && row.id !== matching?.id)) {
     const revoked = await revokeApplicationFeeWaiverCode(db, managerUserId, c.id);

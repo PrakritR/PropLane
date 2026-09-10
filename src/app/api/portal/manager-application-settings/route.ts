@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   listApplicationFeeWaiverCodes,
+  pickPortfolioApplicationFeeWaiverCode,
   pickPrimaryApplicationFeeWaiverCode,
   setPrimaryApplicationFeeWaiverCode,
   upsertPropertyApplicationFeeWaiverCode,
@@ -35,7 +36,7 @@ import {
   loadManagerLandlordLegalNameFromProfile,
 } from "@/lib/manager-landlord-profile";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
-import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
+import { linkedOwnerScopeForModule } from "@/lib/auth/co-manager-module-scope";
 
 export const runtime = "nodejs";
 
@@ -49,14 +50,25 @@ export const runtime = "nodejs";
  * redemption (which looks codes up under the property's owner) could never find
  * it. An unowned or unknown property falls back to the caller, which is exactly
  * the previous behaviour and exposes nothing new.
+ *
+ * The co-manager check resolves through `linkedOwnerScopeForModule`, NOT the
+ * shared `assertCoManagerModuleAccess`: that helper still carries the retired
+ * empty-map-means-full-access sentinel
+ * (`managerHasCoManagerPermissionForProperty`), which would hand a co-manager
+ * holding `{}` on this property the owner's waiver code to read and rewrite.
+ * `coManagerModuleAllowed` — the one answer this path resolves through — denies
+ * an empty map.
  */
 async function resolveWaiverCodeScope(
   db: SupabaseClient,
   callerUserId: string,
   propertyId: string,
   level: "read" | "edit",
-): Promise<{ ok: true; ownerUserId: string } | { ok: false; status: number; error: string }> {
-  if (!propertyId) return { ok: true, ownerUserId: callerUserId };
+): Promise<
+  | { ok: true; ownerUserId: string; callerIsOwner: boolean }
+  | { ok: false; status: number; error: string }
+> {
+  if (!propertyId) return { ok: true, ownerUserId: callerUserId, callerIsOwner: true };
   const { data } = await db
     .from("manager_property_records")
     .select("manager_user_id")
@@ -64,14 +76,22 @@ async function resolveWaiverCodeScope(
     .maybeSingle();
   const ownerUserId = String((data as { manager_user_id?: string | null } | null)?.manager_user_id ?? "").trim();
   if (!ownerUserId || ownerUserId === callerUserId) {
-    return { ok: true, ownerUserId: ownerUserId || callerUserId };
+    return { ok: true, ownerUserId: ownerUserId || callerUserId, callerIsOwner: true };
   }
-  const access = await assertCoManagerModuleAccess(db as never, callerUserId, propertyId, "applications", {
-    ownerManagerUserId: ownerUserId,
+  const { ownerIds, propertyIds } = await linkedOwnerScopeForModule(
+    db as never,
+    callerUserId,
+    "applications",
     level,
-  });
-  if (!access.ok) return { ok: false, status: access.status, error: access.error };
-  return { ok: true, ownerUserId };
+  );
+  if (!propertyIds.has(propertyId) || !ownerIds.has(ownerUserId)) {
+    return {
+      ok: false,
+      status: 403,
+      error: "You do not have access to this section for this property.",
+    };
+  }
+  return { ok: true, ownerUserId, callerIsOwner: false };
 }
 
 export async function GET(req: Request) {
@@ -106,6 +126,15 @@ export async function GET(req: Request) {
             (c.propertyId === propertyId || (c.propertyId == null && c.label === listingWaiverLabel(propertyId))),
         )?.code ?? null
       : pickPrimaryApplicationFeeWaiverCode(codes)?.code ?? null;
+    // A legacy portfolio-wide code stays redeemable on THIS property (the row
+    // lookup matches `property_id is null or property_id = p_property_id`), so
+    // omitting it entirely shows an empty field over a live waiver. Reported
+    // separately, and only to the owner, because the property-scoped field
+    // cannot revoke it.
+    const portfolioWaiverCode =
+      propertyId && scope.callerIsOwner
+        ? pickPortfolioApplicationFeeWaiverCode(codes)?.code ?? null
+        : null;
     return NextResponse.json({
       settings,
       automation,
@@ -114,6 +143,7 @@ export async function GET(req: Request) {
       landlord,
       suggestedFeeCents,
       waiverCode: propertyWaiverCode,
+      portfolioWaiverCode,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
@@ -198,7 +228,9 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: waiverScope.error }, { status: waiverScope.status });
     }
     const result = waiverPropertyId
-      ? await upsertPropertyApplicationFeeWaiverCode(ctx.db, waiverScope.ownerUserId, waiverPropertyId, raw)
+      ? await upsertPropertyApplicationFeeWaiverCode(ctx.db, waiverScope.ownerUserId, waiverPropertyId, raw, {
+          allowPortfolioConversion: waiverScope.callerIsOwner,
+        })
       : await setPrimaryApplicationFeeWaiverCode(ctx.db, waiverScope.ownerUserId, raw);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });

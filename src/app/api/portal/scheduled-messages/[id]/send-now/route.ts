@@ -110,8 +110,11 @@ export async function POST(_req: Request, ctx: { params: Promise<{ id: string }>
       text: message.body,
       html: reminderHtmlFromText(message.body),
       slotLabel: message.typeLabel,
-      managerDeliverViaEmail: automationSettings.paymentReminderDeliverViaEmail,
-      managerDeliverViaSms: automationSettings.paymentReminderDeliverViaSms,
+      // Identical fallback to the cron path: a channel the manager set on THIS
+      // reminder wins, absence means the automation default. `??`, not `||`, so
+      // "do not email this one" survives.
+      managerDeliverViaEmail: message.deliverViaEmail ?? automationSettings.paymentReminderDeliverViaEmail,
+      managerDeliverViaSms: message.deliverViaSms ?? automationSettings.paymentReminderDeliverViaSms,
       managerDeliverViaInbox: automationSettings.paymentReminderDeliverViaInbox,
       skipManualPaymentInstructions: chargeIds.length > 1,
     });

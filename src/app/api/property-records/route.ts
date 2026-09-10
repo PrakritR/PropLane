@@ -342,6 +342,11 @@ export async function POST(req: Request) {
           managerUserIdForWrite,
           id,
           waiverCode,
+          // A co-manager saves under the OWNER's id here, so the owner check has
+          // to happen at this layer: converting a portfolio-wide code into a
+          // per-listing one un-waives the fee on every other listing, which is
+          // the owner's call alone.
+          { allowPortfolioConversion: managerUserIdForWrite === user.id },
         );
         if (!waiverResult.ok) {
           return NextResponse.json(

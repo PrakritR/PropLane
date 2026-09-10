@@ -10,6 +10,7 @@ import {
 } from "@/components/portal/portal-inbox-selection";
 import { readPortalApiError } from "@/lib/portal-api-error";
 import {
+  automationChannelDefaultsFromSettings,
   scheduledItemsForRecipient,
   type ThreadScheduledItem,
 } from "@/lib/inbox-scheduled-thread";
@@ -43,7 +44,11 @@ export function PortalComposeScheduledMessagesSection({
   const [manualMessages, setManualMessages] = useState<ScheduledInboxMessageRecord[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [editing, setEditing] = useState<ThreadScheduledItem | null>(null);
-  const { messages: automationMessages, reload: reloadAutomation } = useScheduledPaymentMessages({
+  const {
+    messages: automationMessages,
+    settings: reminderAutomationSettings,
+    reload: reloadAutomation,
+  } = useScheduledPaymentMessages({
     includeHidden: false,
   });
 
@@ -72,8 +77,14 @@ export function PortalComposeScheduledMessagesSection({
   }, [active, refreshKey, reloadAll]);
 
   const items = useMemo(
-    () => scheduledItemsForRecipient(recipientEmail, manualMessages, automationMessages),
-    [recipientEmail, manualMessages, automationMessages],
+    () =>
+      scheduledItemsForRecipient(
+        recipientEmail,
+        manualMessages,
+        automationMessages,
+        automationChannelDefaultsFromSettings(reminderAutomationSettings),
+      ),
+    [recipientEmail, manualMessages, automationMessages, reminderAutomationSettings],
   );
 
   const notifyChanged = useCallback(() => {

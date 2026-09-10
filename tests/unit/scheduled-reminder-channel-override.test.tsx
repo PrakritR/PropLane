@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { InboxScheduledCard } from "@/components/portal/portal-inbox-ui";
 import {
   DEFAULT_MANAGER_AUTOMATION_SETTINGS,
@@ -9,7 +10,10 @@ import {
 } from "@/lib/payment-automation-settings";
 import { projectScheduledPaymentMessages } from "@/lib/scheduled-payment-messages";
 import { combineScheduledPaymentMessages } from "@/lib/combined-payment-reminders";
-import { threadScheduledItemFromAutomationMessage } from "@/lib/inbox-scheduled-thread";
+import {
+  automationChannelDefaultsFromSettings,
+  threadScheduledItemFromAutomationMessage,
+} from "@/lib/inbox-scheduled-thread";
 import type { HouseholdCharge } from "@/lib/household-charges";
 
 /**
@@ -143,6 +147,36 @@ describe("per-reminder channel override", () => {
     expect(textedCard.deliverViaSms).toBe(true);
     expect(textedCard.channel).toBe("sms");
   });
+
+  it("shows what a NEVER-overridden reminder will actually do, not an email-only guess", () => {
+    // A manager whose payment reminders go out by SMS only saw "Email" on every
+    // untouched reminder — and the card is editable now, so that guess was one
+    // save away from becoming the stored truth.
+    const smsOnly = automationChannelDefaultsFromSettings({
+      paymentReminderDeliverViaEmail: false,
+      paymentReminderDeliverViaSms: true,
+    });
+    const [plain] = project([makeCharge()]);
+    const card = threadScheduledItemFromAutomationMessage(plain!, smsOnly);
+    expect(card.deliverViaEmail).toBe(false);
+    expect(card.deliverViaSms).toBe(true);
+    expect(card.channel).toBe("sms");
+  });
+
+  it("lets the reminder's OWN choice beat the automation default", () => {
+    const smsOnly = automationChannelDefaultsFromSettings({
+      paymentReminderDeliverViaEmail: false,
+      paymentReminderDeliverViaSms: true,
+    });
+    const charge = makeCharge();
+    const [emailed] = project(
+      [charge],
+      overridesFor(charge.id, { customDeliverViaEmail: true, customDeliverViaSms: false }),
+    );
+    const card = threadScheduledItemFromAutomationMessage(emailed!, smsOnly);
+    expect(card.deliverViaEmail).toBe(true);
+    expect(card.deliverViaSms).toBe(false);
+  });
 });
 
 afterEach(cleanup);
@@ -176,7 +210,7 @@ describe("Send via on an automated reminder", () => {
     expect(trigger.getAttribute("aria-disabled")).not.toBe("true");
   });
 
-  it("hands the chosen channel to the save", async () => {
+  it("hands the chosen channel to the save when the manager moves it", async () => {
     const onSaveEdit = vi.fn();
     render(
       <InboxScheduledCard
@@ -196,12 +230,80 @@ describe("Send via on an automated reminder", () => {
         onSaveEdit={onSaveEdit}
       />,
     );
+    await userEvent.click(screen.getByLabelText("Send via"));
+    await userEvent.click(await screen.findByText(/^SMS$/i));
     fireEvent.click(screen.getByRole("button", { name: /Schedule|Save/i }));
+
     expect(onSaveEdit).toHaveBeenCalled();
     const arg = onSaveEdit.mock.calls[0]![0] as { deliverViaEmail?: boolean; deliverViaSms?: boolean };
     // The channel travels with the save now, rather than being dropped because
     // the row happened to come from an automation.
     expect(arg.deliverViaEmail).toBe(true);
-    expect(arg.deliverViaSms).toBe(false);
+    expect(arg.deliverViaSms).toBe(true);
+  });
+
+  it("does NOT write a channel when the manager only edited the body", async () => {
+    // An automated reminder with no override of its own follows the automation
+    // settings, and absence is what keeps it doing that. Emitting the displayed
+    // channel on a body-only save froze the reminder onto whatever the card
+    // happened to show.
+    const onSaveEdit = vi.fn();
+    render(
+      <InboxScheduledCard
+        sendLabel="Sep 30, 2026, 9:00 AM"
+        subject="Payment due in 21 days: Security deposit"
+        body="This is a reminder that your Security deposit payment is due."
+        source="automation"
+        presentation="detail"
+        emailAvailable
+        smsAvailable
+        deliverViaEmail
+        deliverViaSms={false}
+        recipient="marcus.chen@test.proplane.local"
+        editable
+        onCancel={vi.fn()}
+        onSendNow={vi.fn()}
+        onSaveEdit={onSaveEdit}
+      />,
+    );
+    fireEvent.change(screen.getByPlaceholderText(/Write your message/i), {
+      target: { value: "Fixed a typo." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Schedule|Save/i }));
+
+    expect(onSaveEdit).toHaveBeenCalled();
+    const arg = onSaveEdit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(arg.body).toBe("Fixed a typo.");
+    expect("deliverViaEmail" in arg).toBe(false);
+    expect("deliverViaSms" in arg).toBe(false);
+  });
+
+  it("keeps an SMS-only reminder on SMS when a surface cannot offer SMS", () => {
+    // The charge Reminders modal used to pass no channel props at all, so the
+    // card fell back to email-only and every save moved the reminder off SMS.
+    const onSaveEdit = vi.fn();
+    render(
+      <InboxScheduledCard
+        sendLabel="Sep 30, 2026, 9:00 AM"
+        subject="Payment due in 21 days: Security deposit"
+        body="This is a reminder that your Security deposit payment is due."
+        source="automation"
+        presentation="detail"
+        emailAvailable
+        smsAvailable={false}
+        deliverViaEmail={false}
+        deliverViaSms
+        recipient="marcus.chen@test.proplane.local"
+        editable
+        onCancel={vi.fn()}
+        onSendNow={vi.fn()}
+        onSaveEdit={onSaveEdit}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Schedule|Save/i }));
+
+    const arg = onSaveEdit.mock.calls[0]![0] as Record<string, unknown>;
+    expect("deliverViaEmail" in arg).toBe(false);
+    expect("deliverViaSms" in arg).toBe(false);
   });
 });
