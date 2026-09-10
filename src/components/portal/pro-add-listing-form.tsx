@@ -4423,7 +4423,7 @@ export function ManagerAddListingForm({
                       }
                       extraFields={(
                         <>
-                  <GridField>
+                      <GridField>
                         <FieldLabel>Rent / week</FieldLabel>
                         <MoneyInput
                           ariaLabel={`Weekly rent for ${roomLabel}`}
@@ -4438,22 +4438,6 @@ export function ManagerAddListingForm({
                           placeholder="Weekly rate"
                         />
                         <StepFieldError msg={stepFieldErrors[listingRoomWeeklyRentKey(room.id)]} />
-                      </GridField>
-                      <GridField>
-                        <FieldLabel>Rent / day</FieldLabel>
-                        <MoneyInput
-                          ariaLabel={`Daily rent for ${roomLabel}`}
-                          data-attr="listing-room-daily-rent-basis"
-                          invalid={Boolean(roomDailyRentErr)}
-                          value={room.dailyRentPrice === undefined ? "" : String(room.dailyRentPrice)}
-                          onChange={(e) => {
-                            const n = parseFloat(sanitizeMoneyInput(e.target.value));
-                            clearListingFieldError(listingRoomDailyRentKey(room.id));
-                            setRoom(i, { dailyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
-                          }}
-                          placeholder="Daily rate"
-                        />
-                        <StepFieldError msg={roomDailyRentErr} />
                       </GridField>
                         </>
                       )}
