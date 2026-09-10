@@ -159,7 +159,6 @@ import {
   sharedSpaceAmenityPresetsForKind,
   pruneSharedSpaceAmenitiesForKind,
   type SharedSpaceKind,
-  mergeFurnitureToggle,
   parseFurnitureSet,
   roomFurnishingIsFurnished,
   sanitizeRoomAmenityText,
@@ -625,8 +624,11 @@ function ProrationMethodFields({
 }) {
   // Prorated rent: Auto = (rent + utilities) ÷ days in month; "Set per day" bills an
   // explicit per-day rent AND per-day utilities separately.
+  // A fragment, not a wrapper: these are three fields, so they become three cells of the
+  // surrounding price grid rather than one tall cell that stacks them and leaves every
+  // field beside it hanging under a column of white space (PRP-463).
   return (
-    <div className="flex flex-wrap items-end gap-2">
+    <>
       <div>
         <FieldLabel hint={prorateMethod === "auto" ? "Auto = (rent + utilities) ÷ days in the month." : undefined}>
           Prorated rent
@@ -661,7 +663,7 @@ function ProrationMethodFields({
           </div>
         </>
       ) : null}
-    </div>
+    </>
   );
 }
 
@@ -688,10 +690,12 @@ function LongTermRentSection({
   children: ReactNode;
   footer?: ReactNode;
 }) {
+  // The grid is the same either way (PRP-463): only the titled box comes and goes, so a
+  // listing with one lease type lays its fields out exactly like a listing with four.
   if (!heading)
     return (
       <>
-        {children}
+        <div className={ROOM_PRICE_GRID}>{children}</div>
         {footer}
       </>
     );
@@ -1828,12 +1832,10 @@ export function ManagerAddListingForm({
     sub.rolloverToMonthToMonth,
     sub.listingPlaceCategoryId,
   ]);
-  // Furnishing is a "Furnished" checkbox (default off = unfurnished). This holds rooms the
-  // manager just checked Furnished on that have no furniture ticked yet (an empty furnished
-  // state the `furnishing` string alone can't represent), plus the furniture we remember so
-  // unchecking + re-checking restores their picks instead of wiping them.
-  const [furnishedOpenRooms, setFurnishedOpenRooms] = useState<Set<string>>(() => new Set());
-  const rememberedFurnitureRef = useRef<Map<string, string>>(new Map());
+  // Furnishing is now the LIST of what a room includes (PRP-463) — an empty list is
+  // unfurnished. This still tracks rooms the band has furnished so the "Most rooms are…"
+  // row and each room agree about which ones are following it.
+  const [, setFurnishedOpenRooms] = useState<Set<string>>(() => new Set());
   // "Rent by room" is the explicit stored signal that replaced the rental-model dropdown:
   // checked ⟺ shared-home (rent by bedroom), unchecked ⟺ entire-place (one rent for the
   // whole unit). Switching to entire-place syncs/zeroes per-room rents, so we remember each
@@ -1909,26 +1911,6 @@ export function ManagerAddListingForm({
       else next.delete(roomId);
       return next;
     });
-  const roomIsFurnished = (room: ManagerRoomSubmission): boolean =>
-    furnishedOpenRooms.has(room.id) || roomFurnishingIsFurnished(room.furnishing);
-  const setRoomFurnished = (index: number, room: ManagerRoomSubmission, on: boolean) => {
-    if (on) {
-      const remembered = rememberedFurnitureRef.current.get(room.id);
-      setFurnishedOpenRooms((prev) => new Set(prev).add(room.id));
-      setRoom(index, { furnishing: remembered && remembered.toLowerCase() !== "unfurnished" ? remembered : "" });
-    } else {
-      if (room.furnishing.trim() && room.furnishing.trim().toLowerCase() !== "unfurnished") {
-        rememberedFurnitureRef.current.set(room.id, room.furnishing);
-      }
-      setFurnishedOpenRooms((prev) => {
-        const next = new Set(prev);
-        next.delete(room.id);
-        return next;
-      });
-      setRoom(index, { furnishing: "Unfurnished" });
-    }
-  };
-
   const toggleListingItem = (key: string) => {
     setExpandedListingItems((prev) => {
       const next = new Set(prev);
@@ -4287,7 +4269,6 @@ export function ManagerAddListingForm({
                       ) : null}
                     </div>
                   </GridField>
-                  <div className="w-full">
                     <ProrationMethodFields
                       prorateMethod={room.prorateMethod ?? "auto"}
                       monthlyRent={room.monthlyRent}
@@ -4297,7 +4278,6 @@ export function ManagerAddListingForm({
                       onDailyRent={(n) => setRoom(i, { dailyRentRate: n })}
                       onDailyUtilities={(n) => setRoom(i, { dailyUtilitiesRate: n })}
                     />
-                  </div>
                   </LongTermRentSection>
                   {/*
                     One block per lease type the listing offers (PRP-463). Long-term is
@@ -4719,7 +4699,6 @@ export function ManagerAddListingForm({
                             ) : null}
                           </div>
                         </GridField>
-                        <div className="w-full">
                           <ProrationMethodFields
                             prorateMethod={sub.entireHomeProrateMethod ?? "auto"}
                             monthlyRent={entireHomeRent}
@@ -4729,7 +4708,6 @@ export function ManagerAddListingForm({
                             onDailyRent={(n) => setSub((s) => applyEntireHomeListingPricing(s, { entireHomeDailyRentRate: n }))}
                             onDailyUtilities={(n) => setSub((s) => applyEntireHomeListingPricing(s, { entireHomeDailyUtilitiesRate: n }))}
                           />
-                        </div>
                       </>
                     ) : null}
                     {sub.shortTermRentalsAllowed ? (
@@ -5809,9 +5787,7 @@ export function ManagerAddListingForm({
                   */}
                   <div className={cn("mt-3", ROOM_PRICE_GRID)}>
                     <GridField>
-                      <FieldLabel hint="Each resident signs their own lease and pays this room's full rent.">
-                        Beds (residents)
-                      </FieldLabel>
+                      <FieldLabel>Beds (residents)</FieldLabel>
                       <Select
                         aria-label="Number of residents for most rooms"
                         className={selectInputCls}
@@ -5830,9 +5806,7 @@ export function ManagerAddListingForm({
                       </Select>
                     </GridField>
                     <GridField>
-                      <FieldLabel hint="Shown beside the rent so a prospect can see why one room costs more.">
-                        Size (sq ft)
-                      </FieldLabel>
+                      <FieldLabel>Size (sq ft)</FieldLabel>
                       <Input
                         inputMode="numeric"
                         aria-label="Size in square feet for most rooms"
@@ -5866,7 +5840,6 @@ export function ManagerAddListingForm({
               ) : null}
               {sortRoomIndicesByFloor(sub.rooms).map((i) => {
                 const room = sub.rooms[i]!;
-                const furnished = roomIsFurnished(room);
                 const checkedFurniture = parseFurnitureSet(room.furnishing);
                 const roomNameKey = listingRoomNameKey(room.id);
                 const roomRentKey = listingRoomRentKey(room.id);
@@ -5967,9 +5940,7 @@ export function ManagerAddListingForm({
                         </Select>
                       </GridField>
                       <GridField>
-                        <FieldLabel hint="Each resident signs their own lease and pays this room's full rent.">
-                          Beds (residents)
-                        </FieldLabel>
+                        <FieldLabel>Beds (residents)</FieldLabel>
                         <Select
                           aria-label={`Number of residents for ${room.name || `room ${i + 1}`}`}
                           className={selectInputCls}
@@ -5989,20 +5960,7 @@ export function ManagerAddListingForm({
                         </Select>
                       </GridField>
                       <GridField>
-                        <FieldLabel>Room inspections</FieldLabel>
-                        <div className="space-y-3 py-2">
-                          {(["moveIn", "moveOut"] as const).map(kind => <label key={kind} className="flex items-center gap-3 text-sm">
-                            <input type="checkbox" className="h-4 w-4 accent-primary" checked={room[`${kind}InspectionRequired`] === true}
-                              data-attr={`listing-room-${kind === "moveIn" ? "move-in" : "move-out"}-inspection-required`}
-                              onChange={e => setRoom(i, { [`${kind}InspectionRequired`]: e.target.checked })} />
-                            Require {kind === "moveIn" ? "move-in" : "move-out"} inspection
-                          </label>)}
-                        </div>
-                      </GridField>
-                      <GridField>
-                        <FieldLabel optional hint="Shown beside the rent so a prospect can see why one room costs more.">
-                          Size (sq ft)
-                        </FieldLabel>
+                        <FieldLabel optional>Size (sq ft)</FieldLabel>
                         <Input
                           inputMode="numeric"
                           aria-label={`Size in square feet for ${room.name || `room ${i + 1}`}`}
@@ -6017,75 +5975,66 @@ export function ManagerAddListingForm({
                         />
                       </GridField>
                       <div className="sm:col-span-2">
-                        <FieldLabel hint="Check Furnished to list included items.">Furnishing</FieldLabel>
-                        <div className="mt-2 rounded-xl border border-border bg-card p-3">
+                        <FieldLabel>Furnishing</FieldLabel>
+                        {/*
+                          One dropdown of what the room includes (PRP-463). The Furnished
+                          checkbox plus eight tiles said the same thing in nine controls:
+                          an empty list IS unfurnished, which is what an empty furnishing
+                          string has always meant to every reader.
+                        */}
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <CheckboxMultiSelect
+                            label={`Furniture included in ${room.name.trim() || `room ${i + 1}`}`}
+                            hideLabel
+                            dataAttr="listing-room-furnishing"
+                            className="w-full max-w-[16rem]"
+                            options={dedupedPresets.furniture.map((f) => ({ value: f.label, label: f.label }))}
+                            selected={dedupedPresets.furniture
+                              .map((f) => f.label)
+                              .filter((label) => checkedFurniture.has(label))}
+                            onChange={(next) =>
+                              setRoom(i, {
+                                furnishing:
+                                  next.length > 0
+                                    ? dedupedPresets.furniture
+                                        .map((f) => f.label)
+                                        .filter((label) => next.includes(label))
+                                        .join(", ")
+                                    : "Unfurnished",
+                              })
+                            }
+                            emptyLabel="Unfurnished"
+                            selectionTriggerLabel={
+                              checkedFurniture.size >= dedupedPresets.furniture.length
+                                ? "Fully furnished"
+                                : undefined
+                            }
+                          />
                           <label className="flex cursor-pointer items-center gap-2 text-sm">
                             <input
                               type="checkbox"
-                              className="h-4 w-4 rounded border-border"
-                              checked={furnished}
-                              onChange={(e) => setRoomFurnished(i, room, e.target.checked)}
+                              className="h-4 w-4 shrink-0 rounded border-border"
+                              checked={otherFurnishingOpenRooms.has(room.id) || room.detail.trim() !== ""}
+                              data-attr={`listing-room-furnishing-other-${room.id}`}
+                              onChange={(e) => {
+                                toggleOtherFurnishingOpen(room.id, e.target.checked);
+                                // Unticking clears the note, or the box would re-open
+                                // itself on the next render.
+                                if (!e.target.checked && room.detail.trim()) setRoom(i, { detail: "" });
+                              }}
                             />
-                            <span className="font-semibold text-foreground">Furnished</span>
-                            <span className="text-xs text-muted">— default is unfurnished</span>
+                            <span className="font-medium text-foreground">Other</span>
                           </label>
-                          {furnished ? (
-                            <>
-                              <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                                {dedupedPresets.furniture.map((p) => {
-                                  const on = checkedFurniture.has(p.label);
-                                  return (
-                                    <label key={p.id} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition ${on ? "border-primary/30 bg-primary/[0.05]" : "border-border bg-card"}`}>
-                                      <input
-                                        type="checkbox"
-                                        className="h-4 w-4 rounded border-border"
-                                        checked={on}
-                                        onChange={(e) => setRoom(i, { furnishing: mergeFurnitureToggle(room.furnishing, p.label, e.target.checked) })}
-                                      />
-                                      <span className="font-medium text-foreground">{p.label}</span>
-                                    </label>
-                                  );
-                                })}
-                              </div>
-                              {(() => {
-                                const otherOn =
-                                  otherFurnishingOpenRooms.has(room.id) || room.detail.trim() !== "";
-                                return (
-                                  <>
-                                    <label
-                                      className={`mt-2 flex w-full cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition sm:w-auto ${otherOn ? "border-primary/30 bg-primary/[0.05]" : "border-border bg-card"}`}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        className="h-4 w-4 rounded border-border"
-                                        checked={otherOn}
-                                        data-attr={`listing-room-furnishing-other-${room.id}`}
-                                        onChange={(e) => {
-                                          toggleOtherFurnishingOpen(room.id, e.target.checked);
-                                          // Unticking clears the note, or the box
-                                          // would re-open itself on the next render.
-                                          if (!e.target.checked && room.detail.trim()) {
-                                            setRoom(i, { detail: "" });
-                                          }
-                                        }}
-                                      />
-                                      <span className="font-medium text-foreground">Other</span>
-                                    </label>
-                                    {otherOn ? (
-                                      <Input
-                                        className="mt-2 h-9 text-sm"
-                                        value={room.detail}
-                                        onChange={(e) => setRoom(i, { detail: e.target.value })}
-                                        onKeyDown={(e) => e.stopPropagation()}
-                                        placeholder="Other furnishing, comma-separated"
-                                      />
-                                    ) : null}
-                                  </>
-                                );
-                              })()}
-                            </>
-                          ) : null}
                         </div>
+                        {otherFurnishingOpenRooms.has(room.id) || room.detail.trim() !== "" ? (
+                          <Input
+                            className="mt-2 h-9 text-sm"
+                            value={room.detail}
+                            onChange={(e) => setRoom(i, { detail: e.target.value })}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            placeholder="Other furnishing, comma-separated"
+                          />
+                        ) : null}
                       </div>
                       <div className="sm:col-span-2">
                         <FieldLabel>Room amenities</FieldLabel>
@@ -6097,6 +6046,9 @@ export function ManagerAddListingForm({
                           otherForcedOpen={otherAmenitiesOpenRooms.has(room.id)}
                           onOtherForcedOpenChange={(open) => toggleOtherAmenitiesOpen(room.id, open)}
                           otherPlaceholder="Other amenities, comma-separated"
+                          variant="dropdown"
+                          dropdownLabel={`Amenities in ${room.name.trim() || `room ${i + 1}`}`}
+                          dataAttr="listing-room-amenities"
                         />
                       </div>
 
