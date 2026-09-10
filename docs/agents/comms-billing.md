@@ -2,8 +2,8 @@
 
 Free, Pro and Business all include a work number and Communication access. Provisioning,
 phone verification, carrier registration, consent and runtime rollout controls still apply.
-The phone itself has no setup or monthly usage deduction. Assistant email retains its
-separate paid-plan entitlement (`preferPaid: true`).
+The phone itself has no setup or monthly usage deduction. Work email uses the same verified plan entitlement and remains unmetered; an empty
+communication wallet never disables its address or setup.
 
 | Plan | Subscription | Monthly retail communication credit |
 | --- | --- | --- |

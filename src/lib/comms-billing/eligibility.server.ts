@@ -47,7 +47,7 @@ export function commsBillingBlockMessage(
     case "allowance_exhausted":
       // The one refusal a manager can act on immediately, so it says the
       // number and the fix rather than "not allowed".
-      return "You’ve used your available communication credit. Buy more usage in Settings → Communication to keep sending.";
+      return "You’ve used your available communication credit. Buy more usage in Settings → Billing & plan to keep sending.";
     case "no_payment_method":
       return forEmail
         ? "Add a payment method in Settings before setting up your work email. Communication usage is billed as you go on any plan, including Free."

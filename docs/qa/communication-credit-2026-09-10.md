@@ -13,23 +13,26 @@ Financial identity requires an authenticated user-ID link, never an email fallba
 
 ## Current validation
 
-- Combined keeper: 68 targeted tests across 4 files passed (exit 0), covering saved
-  cards, credit purchases and listing submission. This includes all 18 card tests
-  and all 27 listing-wizard tests. First-time customer creation, failed identity
-  saves, foreign ownership, canceled subscriptions and concurrent default clicks
-  are covered.
-- Combined `npm run build`: exit 0, including TypeScript. New-card ESLint: exit 0,
-  zero warnings/errors. Existing warnings remain in older listing/payment components.
-- Initial full unit run: 1,369 files / 9,444 tests passed. A later full run found
-  two listing upload-test fixture failures (9,464 passed); those fixtures now
-  provide verified coverage and await loading, and their 27-test file passes.
-  The broader no-mistakes validation is still running; this is not a final gate pass.
+- Merged current `prakrit` into the keeper, preserving its newer listing layout and
+  staff-only processing coverage. The work-email integration regression is fixed:
+  verified email access no longer depends on prepaid SMS/call credit.
+- Full merged test run: **1,430 files / 9,822 tests passed**, 3 files / 30 tests
+  skipped (exit 0). Stripe subscription integration fixtures now exercise the
+  strict user-ID-linked customer path; all 8 pass. Listing assertions match the
+  approved staff-coverage behavior.
+- Merged production build and TypeScript: exit 0. Changed-file ESLint: exit 0;
+  pre-existing hook warnings remain. Mobile balance layout was visually corrected
+  and rechecked at 390px; exhausted-credit guidance points to Billing & plan.
 - PostgreSQL: 10 tests passed (exit 0), including concurrent reservations,
   idempotent fulfillment/refunds, UTC resets/upgrades, inherited allowances,
   atomic budget alerts and concurrent staff revocation versus preference saves.
-- Security review and Bugbot found no remaining high/P1 issues in their spot-checks.
-  The review's committed webhook, inbound identity, rate lookup, cache and fixture
-  fixes have been merged into the keeper with their ancestry preserved.
+- Security and Bugbot integration reviews found no High/Critical/P1 issues.
+  Their work-email P2 is fixed. All no-mistakes webhook, inbound identity, rate,
+  cache, mock and voice-bound test commits are preserved in keeper ancestry.
+  The automated gate is still running; this is not a final gate-pass claim.
+- Prakrit selected **localhost:3006** for this workspace and future changes.
+  `.env.local`, the local agent rule and Firstmate lane port are pinned to 3006.
+  Review: http://localhost:3006/portal/profile?tab=billing.
 
 ## Real dev/test verification
 

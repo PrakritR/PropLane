@@ -96,5 +96,5 @@ export function commsAllowanceFeatureText(tier: CommsPlanTier): string {
 export function commsAllowanceBlockedMessage(tier: CommsPlanTier): string {
   const allowance = includedAllowanceCents(tier);
   const label = allowance === null ? "" : `$${(allowance / 100).toFixed(2)}`;
-  return `You've used the ${label} of communication credit included with your plan this month. Buy more usage in Settings → Communication to resume texting, calls and AI. A saved card does not enable automatic charges.`;
+  return `You've used the ${label} of communication credit included with your plan this month. Buy more usage in Settings → Billing & plan to resume texting, calls and AI. A saved card does not enable automatic charges.`;
 }

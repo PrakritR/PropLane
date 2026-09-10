@@ -166,6 +166,7 @@ export function ManagerCommsBillingPanel() {
         <>
           <PortalSettingsGroup>
             <PortalSettingsRow
+              className="flex-col items-start sm:flex-row sm:items-center [&>div]:max-w-full"
               label="Available communication credit"
               description={`${summary.wallet.tier[0].toUpperCase()}${summary.wallet.tier.slice(1)} plan`}
             >
