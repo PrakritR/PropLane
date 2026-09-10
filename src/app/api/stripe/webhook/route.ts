@@ -378,9 +378,13 @@ export async function POST(req: Request) {
           typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id;
         if (chargeId) {
           if (paymentIntentId) {
+            // The companion `charge.refunded` event carries the charge inline and
+            // owns the refund-before-fulfillment check, so an unmatched refund
+            // here is acknowledged without a Stripe round-trip.
             await runCommsCreditStep("refund event comms credit", () =>
               reverseCommsCreditForPaymentIntent(db, paymentIntentId, event.id, {
                 loadCharge: () => stripe.charges.retrieve(chargeId),
+                onUnmatched: "defer",
               }),
             );
           }

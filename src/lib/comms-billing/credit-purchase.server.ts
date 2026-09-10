@@ -109,6 +109,23 @@ export class CommsCreditValidationError extends Error {
 }
 
 /**
+ * Only the fulfillment function's OWN refusals are terminal: the purchase row
+ * is gone (`no_data_found`), the metadata is not a uuid, or the stored amount /
+ * session / payment intent disagrees. Any other database error is transient
+ * and keeps the event retryable.
+ */
+function isTerminalFulfillmentError(error: {
+  code?: string;
+  message?: string;
+}): boolean {
+  if (error.code === "P0002" || error.code === "22P02") return true;
+  return (
+    error.code === "P0001" &&
+    (error.message ?? "").includes("Credit purchase mismatch")
+  );
+}
+
+/**
  * Durably flag a paid session whose amount/currency/owner never matched the
  * purchase. A zero-cent adjustment moves no money; it is the manual-review
  * record, and its unique provider event id makes redelivery idempotent.
@@ -139,8 +156,14 @@ export async function recordCommsCreditPaymentReview(
       reason: "payment_mismatch_review",
     });
   // A duplicate means the review record already exists; a foreign-key failure
-  // means the metadata pointed at no real purchase, and neither is retryable.
-  if (error && error.code !== "23505" && error.code !== "23503")
+  // or a non-uuid id means the metadata pointed at no real purchase. None of
+  // those can succeed on redelivery, so none of them keeps the event retrying.
+  if (
+    error &&
+    error.code !== "23505" &&
+    error.code !== "23503" &&
+    error.code !== "22P02"
+  )
     throw new Error("Credit purchase review could not be recorded.");
 }
 
@@ -184,7 +207,13 @@ export async function fulfillCommsCreditPurchase(
     p_event: eventId,
     p_receipt: null,
   });
-  if (error) throw new Error("Communication credit could not be added.");
+  if (error) {
+    if (isTerminalFulfillmentError(error))
+      throw new CommsCreditValidationError(
+        "Communication payment did not match a purchase on this account.",
+      );
+    throw new Error("Communication credit could not be added.");
+  }
   return data === true;
 }
 
@@ -212,18 +241,34 @@ export async function reverseCommsCreditForCharge(
 }
 
 /**
- * The same reconciliation for events that carry only a payment intent id. The
- * charge is fetched through `loadCharge` and ONLY when it is actually needed,
- * so a refund or dispute on unrelated money (application fees, rent) never
- * spends a Stripe round-trip on communication billing.
+ * The same reconciliation for events that carry only a payment intent id; the
+ * charge is fetched through `loadCharge` when the reconciliation needs it.
+ *
+ * When no purchase matches the payment intent there are two possibilities: the
+ * money is unrelated to communication credit (most refunds — application fees,
+ * rent), or a communication purchase was refunded before its own fulfillment
+ * landed. Telling them apart needs `charge.metadata.purpose`, which is a Stripe
+ * round-trip on events that only carry ids. `onUnmatched` decides:
+ *
+ * - `"inspect_charge"` — load it and, if it IS a communication purchase, throw
+ *   so Stripe redelivers instead of the credit being granted after the money
+ *   left. Disputes must always do this.
+ * - `"defer"` — return without loading. Only correct for `refund.*` events,
+ *   because Stripe emits the companion `charge.refunded` with the charge inline,
+ *   and `reverseCommsCreditForCharge` runs that same check there for free.
  */
 export async function reverseCommsCreditForPaymentIntent(
   db: SupabaseClient,
   paymentIntentId: string | null | undefined,
   eventId: string,
-  opts: { dispute?: boolean; loadCharge: () => Promise<Stripe.Charge> },
+  opts: {
+    dispute?: boolean;
+    loadCharge: () => Promise<Stripe.Charge>;
+    onUnmatched?: "inspect_charge" | "defer";
+  },
 ) {
   const dispute = opts.dispute === true;
+  const onUnmatched = dispute ? "inspect_charge" : (opts.onUnmatched ?? "inspect_charge");
   // An event that carries no payment intent still gets reconciled: fall back to
   // the charge rather than silently skipping a refund of purchased credit.
   const paymentId = (paymentIntentId ?? "").trim() || chargePaymentIntentId(await opts.loadCharge());
@@ -235,8 +280,7 @@ export async function reverseCommsCreditForPaymentIntent(
     .maybeSingle();
   if (readError) throw new Error("Credit reversal could not be verified.");
   if (!purchase) {
-    // A refund can arrive before checkout fulfillment. Ask Stripe to retry
-    // rather than acknowledge a reversal and later grant the refunded credit.
+    if (onUnmatched === "defer") return false;
     const charge = await opts.loadCharge();
     if (charge.metadata?.purpose === COMMS_CREDIT_PURPOSE)
       throw new Error("Credit purchase fulfillment is pending.");
