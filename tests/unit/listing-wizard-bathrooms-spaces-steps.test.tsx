@@ -92,12 +92,15 @@ describe("PRP-221 bathrooms step", () => {
   });
 
   it("presets the fixtures the type implies — a full bath has a shower, a half bath does not", () => {
-    // The fixture CHECKBOX exists either way; what differs is whether the tile ticked it.
+    // The fixture OPTION exists either way; what differs is whether the tile ticked it.
     // Reading the label text alone would pass for both types and prove nothing.
+    // PRP-463 put the fixtures behind a dropdown, so the option has to be opened before
+    // its state can be read.
     const showerChecked = () => {
-      const boxes = screen.getAllByLabelText(/^shower$/i) as HTMLInputElement[];
-      expect(boxes).toHaveLength(1);
-      return boxes[0]!.checked;
+      fireEvent.click(screen.getAllByRole("button", { name: /fixtures in bathroom 1/i })[0]!);
+      const options = screen.getAllByRole("option", { name: /^shower$/i });
+      expect(options).toHaveLength(1);
+      return options[0]!.getAttribute("aria-selected") === "true";
     };
 
     renderStep(STEP_BATHROOMS);

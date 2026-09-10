@@ -24,8 +24,21 @@ import { ListingAddressAutocomplete } from "@/components/portal/listing-address-
 import {
   ListingUnifiedFeesTable,
   type FeeExpandableSection,
+  type FeeScopeControls,
 } from "@/components/portal/listing-unified-fees-table";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { LISTING_FEE_PRESETS } from "@/lib/listing-fees";
+import {
+  derivePaymentAtSigningIncludesFromMatrix,
+  expandFeeScope,
+  listingLeaseTypeScopeOptions,
+  narrowFeeScope,
+  paymentAtSigningMatrix,
+  paymentAtSigningRows,
+  setPaymentAtSigningCell,
+  standardFeeScopeFor,
+  withStandardFeeScope,
+} from "@/lib/listing-fee-scope";
 import {
   submitManagerPendingPropertyToServer,
   syncPropertyPipelineFromServer,
@@ -68,8 +81,10 @@ import {
 } from "@/lib/manager-access";
 import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
 import {
-  LISTING_PROCESSING_FEE_PAYER_HELP,
+  LISTING_PAYMENT_WAIVER_CODE,
   SERVICE_FEE_PAYER_OPTION_LABELS,
+  listingPaymentWaiverCodeMatches,
+  listingProplaneAbsorbNeedsWaiverCode,
   listingServiceFeePayerUiValue,
   managerCanSelectManagerAbsorbServiceFee,
   managerCanSelectProplaneServiceFee,
@@ -111,7 +126,6 @@ import {
   type ManagerSharedSpaceSubmission,
   type PaymentAtSigningOptionId,
   normalizeFlexibleRentBound,
-  normalizeShortLeaseMaxMonths,
 } from "@/lib/manager-listing-submission";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { applyListingFeeContextDefaults } from "@/lib/listing-fee-defaults";
@@ -196,7 +210,7 @@ import {
   listingSharedSpaceNameKey,
   validateListingWizardStep,
 } from "@/lib/listing-wizard-validation";
-import { roomHeadlinePriceLabel, roomShortLeaseSurcharge } from "@/lib/room-pricing";
+import { roomHeadlinePriceLabel } from "@/lib/room-pricing";
 import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import { listingRoomPricingSummaryLabel } from "@/lib/rental-application/listing-fees-display";
 import {
@@ -813,6 +827,15 @@ const SHARED_SPACE_TEMPLATES = [
 function ignoreMultiClick(e: { detail: number }) {
   return e.detail > 1;
 }
+
+/** The fixtures a bathroom row offers, in the order the dropdown lists them. */
+const BATHROOM_FIXTURES: readonly { key: "shower" | "toilet" | "bathtub" | "sink" | "mirror"; label: string }[] = [
+  { key: "bathtub", label: "Tub" },
+  { key: "shower", label: "Shower" },
+  { key: "toilet", label: "Toilet" },
+  { key: "sink", label: "Sink" },
+  { key: "mirror", label: "Mirror" },
+];
 
 function buildBathroomPreset(
   index: number,
@@ -1920,6 +1943,129 @@ export function ManagerAddListingForm({
     if (row?.stField) clearListingFieldError(String(row.stField));
   };
 
+  /**
+   * Lease types and rooms a fee may be scoped to (PRP-463). Lease options follow the
+   * lengths ticked in Leasing, so unticking one there removes it from every fee's
+   * dropdown and from the signing table's columns in the same motion.
+   */
+  const leaseScopeOptions = useMemo(() => listingLeaseTypeScopeOptions(sub), [sub]);
+  const nonShortTermLeaseOptions = useMemo(
+    () => leaseScopeOptions.filter((t) => t !== SHORT_TERM_LEASE_TERM),
+    [leaseScopeOptions],
+  );
+  const roomScopeOptions = useMemo(
+    () =>
+      rentByRoom
+        ? sub.rooms.map((room, i) => ({ id: room.id, name: room.name.trim() || `Room ${i + 1}` }))
+        : [],
+    [rentByRoom, sub.rooms],
+  );
+  const roomScopeIds = useMemo(() => roomScopeOptions.map((r) => r.id), [roomScopeOptions]);
+
+  /**
+   * The bridge between one dropdown and two different stores.
+   *
+   * A CUSTOM fee keeps its own `leaseTypes` / `roomIds`. A STANDARD row is backed by fixed
+   * submission fields, so its short-term/long-term split still rides the existing toggles
+   * (they are what clear the amounts) while the finer lease-type list and the room list
+   * live in `standardFeeScopes`. Everything below writes "all" as ABSENT, never as the
+   * full list — see `listing-fee-scope.ts`.
+   */
+  const feeScopeControls: FeeScopeControls = {
+    leaseOptions: leaseScopeOptions,
+    roomOptions: roomScopeOptions,
+    leaseScope: (target) => {
+      if (target.kind === "custom") {
+        const fee = (sub.customFees ?? [])[target.index];
+        return expandFeeScope(fee?.leaseTypes, leaseScopeOptions);
+      }
+      const rowId = target.rowId;
+      const picked = new Set<string>();
+      if (ltFeeToggles[rowId]) {
+        for (const term of expandFeeScope(
+          standardFeeScopeFor(sub, rowId).leaseTypes,
+          nonShortTermLeaseOptions,
+        )) {
+          picked.add(term);
+        }
+      }
+      if (stFeeToggles[rowId] && leaseScopeOptions.includes(SHORT_TERM_LEASE_TERM)) {
+        picked.add(SHORT_TERM_LEASE_TERM);
+      }
+      return leaseScopeOptions.filter((t) => picked.has(t));
+    },
+    setLeaseScope: (target, next) => {
+      const wantsShortTerm = next.includes(SHORT_TERM_LEASE_TERM);
+      if (target.kind === "custom") {
+        const fee = (sub.customFees ?? [])[target.index];
+        setCustomFee(target.index, {
+          leaseTypes: narrowFeeScope(next, leaseScopeOptions),
+          // Dropping short-term from the scope must un-bill the short-term amount too,
+          // or the fee keeps charging on exactly the stay just excluded.
+          shortTermAmount: wantsShortTerm ? (fee?.shortTermAmount ?? "") : undefined,
+        });
+        return;
+      }
+      const rowId = target.rowId;
+      const longTermPicks = next.filter((t) => t !== SHORT_TERM_LEASE_TERM);
+      if (wantsShortTerm !== Boolean(stFeeToggles[rowId])) handleStFeeToggle(rowId, wantsShortTerm);
+      if (longTermPicks.length > 0 !== Boolean(ltFeeToggles[rowId])) {
+        handleLtFeeToggle(rowId, longTermPicks.length > 0);
+      }
+      setSub((s) => ({
+        ...s,
+        standardFeeScopes: withStandardFeeScope(s.standardFeeScopes, rowId, {
+          leaseTypes: narrowFeeScope(longTermPicks, nonShortTermLeaseOptions),
+        }),
+      }));
+    },
+    roomScope: (target) => {
+      const stored =
+        target.kind === "custom"
+          ? (sub.customFees ?? [])[target.index]?.roomIds
+          : standardFeeScopeFor(sub, target.rowId).roomIds;
+      return expandFeeScope(stored, roomScopeIds);
+    },
+    setRoomScope: (target, next) => {
+      const narrowed = narrowFeeScope(next, roomScopeIds);
+      if (target.kind === "custom") {
+        setCustomFee(target.index, { roomIds: narrowed });
+        return;
+      }
+      setSub((s) => ({
+        ...s,
+        standardFeeScopes: withStandardFeeScope(s.standardFeeScopes, target.rowId, {
+          roomIds: narrowed,
+        }),
+      }));
+    },
+  };
+
+  /* Payment at signing, per lease type (PRP-463). */
+  const signingRows = useMemo(
+    () => paymentAtSigningRows(sub, { includeRoomRent: rentByRoom }),
+    [sub, rentByRoom],
+  );
+  const signingMatrix = useMemo(() => paymentAtSigningMatrix(sub), [sub]);
+  const toggleSigningCell = (leaseTerm: string, rowKey: string, on: boolean) => {
+    setSub((s) => {
+      const next = setPaymentAtSigningCell(paymentAtSigningMatrix(s), leaseTerm, rowKey, on);
+      const nextSub = {
+        ...s,
+        paymentAtSigningByLeaseType: next,
+        // The flat list stays the DERIVED union so lease documents, charges and the public
+        // listing keep reading the field they always read.
+        paymentAtSigningIncludes: derivePaymentAtSigningIncludesFromMatrix(next),
+      };
+      // A standard payment also owns a fee row's `dueAtSigning` flag; keep the two stores
+      // of that one fact in step exactly as the old checkbox did.
+      const standardId = PAYMENT_AT_SIGNING_OPTIONS.find((o) => o.id === rowKey)?.id;
+      if (!standardId) return nextSub;
+      const stillOn = derivePaymentAtSigningIncludesFromMatrix(next).includes(standardId);
+      return applyPaymentAtSigningSelection(nextSub, standardId, stillOn);
+    });
+  };
+
   const handleAddStandardRow = (feeId: ListingFeeRowId) => {
     setSub((s) =>
       ensureSubmissionListingFees({
@@ -2266,44 +2412,62 @@ export function ManagerAddListingForm({
     }));
   };
 
-  const toggleBathroomRoom = (bathIndex: number, roomId: string, on: boolean) => {
+  /**
+   * Set a bathroom's whole room list at once — what the multi-select hands back.
+   *
+   * Keeps the two rules `toggleBathroomRoom` enforced one room at a time: a room belongs
+   * to at most one bathroom that is not the whole-house bath, and per-room access kinds
+   * follow the bathroom's own access rather than being left behind on a room that was
+   * just unassigned.
+   */
+  const setBathroomRooms = (bathIndex: number, nextRoomIds: string[]) => {
     setSub((s) => {
-      if (s.bathrooms[bathIndex]?.allResidents) return s;
-      const nextBathrooms = s.bathrooms.map((b, bi) => {
+      const target = s.bathrooms[bathIndex];
+      if (!target || target.allResidents) return s;
+      const claimed = new Set(nextRoomIds);
+      const ordered = s.rooms.map((r) => r.id).filter((id) => claimed.has(id));
+      const kind: ManagerBathroomRoomAccessKind = target.accessKind === "ensuite" ? "ensuite" : "shared";
+      const bathrooms = s.bathrooms.map((b, bi) => {
         if (bi === bathIndex) {
-          const set = new Set(b.assignedRoomIds ?? []);
-          if (on) set.add(roomId);
-          else set.delete(roomId);
-          const nextIds = s.rooms.map((r) => r.id).filter((id) => set.has(id));
-          let access = b.accessKindByRoomId;
-          if (!on && access?.[roomId]) {
-            access = { ...access };
-            delete access[roomId];
-            if (Object.keys(access).length === 0) access = undefined;
-          }
-          return { ...b, assignedRoomIds: nextIds, accessKindByRoomId: access };
+          return {
+            ...b,
+            assignedRoomIds: ordered,
+            accessKindByRoomId: ordered.length
+              ? Object.fromEntries(ordered.map((id) => [id, kind]))
+              : undefined,
+          };
         }
-        if (on && !b.allResidents) {
-          return { ...b, assignedRoomIds: (b.assignedRoomIds ?? []).filter((id) => id !== roomId) };
+        if (b.allResidents) return b;
+        const kept = (b.assignedRoomIds ?? []).filter((id) => !claimed.has(id));
+        if (kept.length === (b.assignedRoomIds ?? []).length) return b;
+        const access = { ...(b.accessKindByRoomId ?? {}) };
+        for (const id of b.assignedRoomIds ?? []) {
+          if (claimed.has(id)) delete access[id];
         }
-        return b;
+        return {
+          ...b,
+          assignedRoomIds: kept,
+          accessKindByRoomId: Object.keys(access).length ? access : undefined,
+        };
       });
-      return { ...s, bathrooms: nextBathrooms };
+      return { ...s, bathrooms };
     });
   };
 
-  const setBathRoomAccessKind = (bathIndex: number, roomId: string, value: "" | ManagerBathroomRoomAccessKind) => {
+  /**
+   * The bathroom's access choice, written through to every room it serves so the listing
+   * copy that reads `accessKindByRoomId` says the same thing the manager picked.
+   */
+  const setBathAccessKind = (bathIndex: number, kind: "shared" | "ensuite") => {
     setSub((s) => {
       const bathrooms = [...s.bathrooms];
       const b = bathrooms[bathIndex];
-      if (!b || b.allResidents) return s;
-      if (!(b.assignedRoomIds ?? []).includes(roomId)) return s;
-      const nextAccess: Partial<Record<string, ManagerBathroomRoomAccessKind>> = { ...(b.accessKindByRoomId ?? {}) };
-      if (!value) delete nextAccess[roomId];
-      else nextAccess[roomId] = value;
+      if (!b) return s;
+      const rooms = b.assignedRoomIds ?? [];
       bathrooms[bathIndex] = {
         ...b,
-        accessKindByRoomId: Object.keys(nextAccess).length ? nextAccess : undefined,
+        accessKind: kind,
+        accessKindByRoomId: rooms.length ? Object.fromEntries(rooms.map((id) => [id, kind])) : undefined,
       };
       return { ...s, bathrooms };
     });
@@ -4531,221 +4695,10 @@ export function ManagerAddListingForm({
           <FormSection id="edit-lease" title="Pricing">
             <div className="space-y-5">
               {/*
-                Every price for a room lives HERE, on Pricing — the captain's
-                rule. The room card on the Rooms step carries what a room IS
-                (floor, beds, size, furnishing, amenities, photos); what it
-                COSTS is this step's business, and splitting them across two
-                steps is what made a manager hunt for a rate.
+                Leasing leads Pricing (PRP-463): the lease lengths a manager offers decide
+                which fee scopes and which signing-table columns exist below, so it is the
+                first decision on the step rather than the last.
               */}
-              {rentByRoom && sub.rooms.length > 0 ? (
-                <ListingSubsection title="Room pricing">
-                  <div className="space-y-3">
-                    {sortRoomIndicesByFloor(sub.rooms).map((i) => {
-                      const room = sub.rooms[i]!;
-                      const roomKey = listingItemKey("room-pricing", room.id);
-                      // The same keys the Rooms step used, so a rent error still
-                      // points at the field that raised it now that the field
-                      // lives on this step.
-                      const roomDailyRentKey = listingRoomDailyRentKey(room.id);
-                      const roomWeeklyRentKey = listingRoomWeeklyRentKey(room.id);
-                      const roomDailyRentErr = stepFieldErrors[roomDailyRentKey];
-                      const roomWeeklyRentErr = stepFieldErrors[roomWeeklyRentKey];
-                      return (
-                        <ListingWizardCollapsibleCard
-                          key={room.id}
-                          expanded={isListingItemExpanded(roomKey)}
-                          onToggle={() => toggleListingItem(roomKey)}
-                          title={room.name.trim() || `Room ${i + 1}`}
-                          subtitle={room.floor.trim() || "Set what this room costs"}
-                          meta={
-                            room.monthlyRent > 0 ? (
-                              <ListingWizardRowMeta value={`$${room.monthlyRent} / mo`} />
-                            ) : (
-                              <ListingWizardRowMeta value="Rent not set" muted />
-                            )
-                          }
-                          bodyClassName="grid gap-3"
-                          toggleDataAttr={`listing-room-pricing-toggle-${room.id}`}
-                        >
-                      <GridField>
-                        <FieldLabel hint="Flexible pricing agrees a price with each resident. Any range you give is guidance shown to prospects — it is never billed.">
-                          Pricing
-                        </FieldLabel>
-                        <Select
-                          aria-label={`Pricing mode for ${room.name || `room ${i + 1}`}`}
-                          className={selectInputCls}
-                          data-attr="listing-room-pricing-mode"
-                          value={room.pricingMode === "flexible" ? "flexible" : "fixed"}
-                          onChange={(e) =>
-                            setRoom(i, {
-                              pricingMode: e.target.value === "flexible" ? "flexible" : "fixed",
-                              // Switching back to a fixed price DROPS the advertised range
-                              // rather than leaving it stored and invisible, so it can never
-                              // reappear later as a quote the manager believes they removed.
-                              ...(e.target.value === "flexible"
-                                ? {}
-                                : { flexibleRentMin: undefined, flexibleRentMax: undefined }),
-                            })
-                          }
-                        >
-                          <option value="fixed">Fixed price</option>
-                          <option value="flexible">Flexible pricing</option>
-                        </Select>
-                        {room.pricingMode !== "flexible" ? (
-                          <div className="mt-3 space-y-3">
-                            <p className="text-xs text-muted">
-                              Quote the rates you actually offer. A weekly or daily rate is a
-                              real price, not the monthly one divided up — leave a row blank if
-                              you do not offer that length.
-                            </p>
-                            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-                              <GridField>
-                                <FieldLabel>Rent / week</FieldLabel>
-                                <MoneyInput
-                                  ariaLabel={`Weekly rent for ${room.name || `room ${i + 1}`}`}
-                                  data-attr="listing-room-weekly-rent"
-                                  invalid={Boolean(roomWeeklyRentErr)}
-                                  value={room.weeklyRentPrice === undefined ? "" : String(room.weeklyRentPrice)}
-                                  onChange={(e) => {
-                                    const n = parseFloat(sanitizeMoneyInput(e.target.value));
-                                    clearListingFieldError(roomWeeklyRentKey);
-                                    setRoom(i, { weeklyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
-                                  }}
-                                  placeholder="Weekly rate"
-                                />
-                                <StepFieldError msg={roomWeeklyRentErr} />
-                              </GridField>
-                              <GridField>
-                                <FieldLabel>Rent / day</FieldLabel>
-                                <MoneyInput
-                                  ariaLabel={`Daily rent for ${room.name || `room ${i + 1}`}`}
-                                  data-attr="listing-room-daily-rent-basis"
-                                  invalid={Boolean(roomDailyRentErr)}
-                                  value={room.dailyRentPrice === undefined ? "" : String(room.dailyRentPrice)}
-                                  onChange={(e) => {
-                                    const n = parseFloat(sanitizeMoneyInput(e.target.value));
-                                    clearListingFieldError(roomDailyRentKey);
-                                    setRoom(i, { dailyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
-                                  }}
-                                  placeholder="Daily rate"
-                                />
-                                <StepFieldError msg={roomDailyRentErr} />
-                              </GridField>
-                              <GridField>
-                                <FieldLabel hint="Which rate leads the listing and drives billing.">
-                                  Billed by
-                                </FieldLabel>
-                                <Select
-                                  aria-label={`Billing basis for ${room.name || `room ${i + 1}`}`}
-                                  className={selectInputCls}
-                                  data-attr="listing-room-rent-basis"
-                                  value={room.rentBasis ?? "monthly"}
-                                  onChange={(e) =>
-                                    setRoom(i, { rentBasis: e.target.value as "monthly" | "weekly" | "daily" })
-                                  }
-                                >
-                                  <option value="monthly">Month</option>
-                                  <option value="weekly">Week</option>
-                                  <option value="daily">Day</option>
-                                </Select>
-                              </GridField>
-                            </div>
-                            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-                              <GridField>
-                                <FieldLabel hint="Extra monthly rent on a short tenancy. Folded into the rent, not billed as a separate fee.">
-                                  Short-lease surcharge / mo
-                                </FieldLabel>
-                                <MoneyInput
-                                  ariaLabel={`Short-lease surcharge for ${room.name || `room ${i + 1}`}`}
-                                  data-attr="listing-room-short-lease-surcharge"
-                                  value={(room.shortLeaseSurchargeMonthly ?? "").replace(/^\$/, "").trim()}
-                                  onChange={(e) =>
-                                    setRoom(i, { shortLeaseSurchargeMonthly: sanitizeMoneyInput(e.target.value) })
-                                  }
-                                  placeholder="Extra per month"
-                                />
-                              </GridField>
-                              <GridField>
-                                <FieldLabel>Short lease is up to</FieldLabel>
-                                <Input
-                                  inputMode="numeric"
-                                  aria-label={`Short lease threshold in months for ${room.name || `room ${i + 1}`}`}
-                                  data-attr="listing-room-short-lease-months"
-                                  placeholder="Months"
-                                  value={room.shortLeaseMaxMonths === undefined ? "" : String(room.shortLeaseMaxMonths)}
-                                  onChange={(e) =>
-                                    setRoom(i, { shortLeaseMaxMonths: normalizeShortLeaseMaxMonths(e.target.value) })
-                                  }
-                                />
-                              </GridField>
-                            </div>
-                            {(room.shortLeaseSurchargeMonthly ?? "").trim() &&
-                            room.shortLeaseMaxMonths === undefined ? (
-                              <p className="text-xs text-danger" role="alert">
-                                Set how many months counts as a short lease, or this surcharge
-                                will not apply to anyone.
-                              </p>
-                            ) : null}
-                            {room.monthlyRent > 0 &&
-                            room.shortLeaseMaxMonths !== undefined &&
-                            (room.shortLeaseSurchargeMonthly ?? "").trim() ? (
-                              <p className="text-xs text-muted" data-attr="listing-room-short-lease-preview">
-                                A short lease is quoted as{" "}
-                                <strong>
-                                  ${(room.monthlyRent + roomShortLeaseSurcharge(room)).toLocaleString("en-US")}
-                                </strong>{" "}
-                                / month on a lease of {room.shortLeaseMaxMonths}{" "}
-                                {room.shortLeaseMaxMonths === 1 ? "month" : "months"} or less —{" "}
-                                ${room.monthlyRent.toLocaleString("en-US")} rent plus the surcharge.
-                              </p>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        {room.pricingMode === "flexible" ? (
-                          <div className="mt-3 space-y-2">
-                            <p className="text-xs text-muted">
-                              Agree a price with each resident. Leave both boxes empty to show no
-                              numbers at all.
-                            </p>
-                            <div className="flex items-center gap-2">
-                              <Input
-                                inputMode="decimal"
-                                aria-label={`Advertised minimum rent for ${room.name || `room ${i + 1}`}`}
-                                data-attr="listing-room-flexible-min"
-                                placeholder="Min (optional)"
-                                value={room.flexibleRentMin ?? ""}
-                                onChange={(e) =>
-                                  setRoom(i, { flexibleRentMin: normalizeFlexibleRentBound(e.target.value) })
-                                }
-                              />
-                              <span className="text-xs text-muted">to</span>
-                              <Input
-                                inputMode="decimal"
-                                aria-label={`Advertised maximum rent for ${room.name || `room ${i + 1}`}`}
-                                data-attr="listing-room-flexible-max"
-                                placeholder="Max (optional)"
-                                value={room.flexibleRentMax ?? ""}
-                                onChange={(e) =>
-                                  setRoom(i, { flexibleRentMax: normalizeFlexibleRentBound(e.target.value) })
-                                }
-                              />
-                            </div>
-                            {room.flexibleRentMin !== undefined &&
-                            room.flexibleRentMax !== undefined &&
-                            room.flexibleRentMax < room.flexibleRentMin ? (
-                              <p className="text-xs text-danger" role="alert">
-                                The maximum is below the minimum, so no range will be shown.
-                              </p>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </GridField>
-                        </ListingWizardCollapsibleCard>
-                      );
-                    })}
-                  </div>
-                </ListingSubsection>
-              ) : null}
               <ListingSubsection title="Leasing">
                 <div className="space-y-3">
                   <div data-wizard-field="allowedLeaseTerms" className={wizardSectionErrorClass(Boolean(stepFieldErrors.allowedLeaseTerms))}>
@@ -4883,6 +4836,156 @@ export function ManagerAddListingForm({
                 </div>
               </ListingSubsection>
 
+              {/*
+                Every price for a room lives HERE, on Pricing — the captain's
+                rule. The room card on the Rooms step carries what a room IS
+                (floor, beds, size, furnishing, amenities, photos); what it
+                COSTS is this step's business, and splitting them across two
+                steps is what made a manager hunt for a rate.
+              */}
+              {rentByRoom && sub.rooms.length > 0 ? (
+                <ListingSubsection title="Room pricing">
+                  <div className="space-y-3">
+                    {sortRoomIndicesByFloor(sub.rooms).map((i) => {
+                      const room = sub.rooms[i]!;
+                      const roomKey = listingItemKey("room-pricing", room.id);
+                      // The same keys the Rooms step used, so a rent error still
+                      // points at the field that raised it now that the field
+                      // lives on this step.
+                      const roomDailyRentKey = listingRoomDailyRentKey(room.id);
+                      const roomWeeklyRentKey = listingRoomWeeklyRentKey(room.id);
+                      const roomDailyRentErr = stepFieldErrors[roomDailyRentKey];
+                      const roomWeeklyRentErr = stepFieldErrors[roomWeeklyRentKey];
+                      return (
+                        <ListingWizardCollapsibleCard
+                          key={room.id}
+                          expanded={isListingItemExpanded(roomKey)}
+                          onToggle={() => toggleListingItem(roomKey)}
+                          title={room.name.trim() || `Room ${i + 1}`}
+                          subtitle={room.floor.trim() || "Set what this room costs"}
+                          meta={
+                            room.monthlyRent > 0 ? (
+                              <ListingWizardRowMeta value={`$${room.monthlyRent} / mo`} />
+                            ) : (
+                              <ListingWizardRowMeta value="Rent not set" muted />
+                            )
+                          }
+                          bodyClassName="grid gap-3"
+                          toggleDataAttr={`listing-room-pricing-toggle-${room.id}`}
+                        >
+                      <GridField>
+                        <FieldLabel hint="Flexible pricing agrees a price with each resident. Any range you give is guidance shown to prospects — it is never billed.">
+                          Pricing
+                        </FieldLabel>
+                        <Select
+                          aria-label={`Pricing mode for ${room.name || `room ${i + 1}`}`}
+                          className={selectInputCls}
+                          data-attr="listing-room-pricing-mode"
+                          value={room.pricingMode === "flexible" ? "flexible" : "fixed"}
+                          onChange={(e) =>
+                            setRoom(i, {
+                              pricingMode: e.target.value === "flexible" ? "flexible" : "fixed",
+                              // Switching back to a fixed price DROPS the advertised range
+                              // rather than leaving it stored and invisible, so it can never
+                              // reappear later as a quote the manager believes they removed.
+                              ...(e.target.value === "flexible"
+                                ? {}
+                                : { flexibleRentMin: undefined, flexibleRentMax: undefined }),
+                            })
+                          }
+                        >
+                          <option value="fixed">Fixed price</option>
+                          <option value="flexible">Flexible pricing</option>
+                        </Select>
+                        {room.pricingMode !== "flexible" ? (
+                          <div className="mt-3 space-y-3">
+                            <p className="text-xs text-muted">
+                              Quote the rates you actually offer. A weekly or daily rate is a
+                              real price, not the monthly one divided up — leave a row blank if
+                              you do not offer that length.
+                            </p>
+                            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                              <GridField>
+                                <FieldLabel>Rent / week</FieldLabel>
+                                <MoneyInput
+                                  ariaLabel={`Weekly rent for ${room.name || `room ${i + 1}`}`}
+                                  data-attr="listing-room-weekly-rent"
+                                  invalid={Boolean(roomWeeklyRentErr)}
+                                  value={room.weeklyRentPrice === undefined ? "" : String(room.weeklyRentPrice)}
+                                  onChange={(e) => {
+                                    const n = parseFloat(sanitizeMoneyInput(e.target.value));
+                                    clearListingFieldError(roomWeeklyRentKey);
+                                    setRoom(i, { weeklyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
+                                  }}
+                                  placeholder="Weekly rate"
+                                />
+                                <StepFieldError msg={roomWeeklyRentErr} />
+                              </GridField>
+                              <GridField>
+                                <FieldLabel>Rent / day</FieldLabel>
+                                <MoneyInput
+                                  ariaLabel={`Daily rent for ${room.name || `room ${i + 1}`}`}
+                                  data-attr="listing-room-daily-rent-basis"
+                                  invalid={Boolean(roomDailyRentErr)}
+                                  value={room.dailyRentPrice === undefined ? "" : String(room.dailyRentPrice)}
+                                  onChange={(e) => {
+                                    const n = parseFloat(sanitizeMoneyInput(e.target.value));
+                                    clearListingFieldError(roomDailyRentKey);
+                                    setRoom(i, { dailyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
+                                  }}
+                                  placeholder="Daily rate"
+                                />
+                                <StepFieldError msg={roomDailyRentErr} />
+                              </GridField>
+                            </div>
+                          </div>
+                        ) : null}
+                        {room.pricingMode === "flexible" ? (
+                          <div className="mt-3 space-y-2">
+                            <p className="text-xs text-muted">
+                              Agree a price with each resident. Leave both boxes empty to show no
+                              numbers at all.
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                inputMode="decimal"
+                                aria-label={`Advertised minimum rent for ${room.name || `room ${i + 1}`}`}
+                                data-attr="listing-room-flexible-min"
+                                placeholder="Min (optional)"
+                                value={room.flexibleRentMin ?? ""}
+                                onChange={(e) =>
+                                  setRoom(i, { flexibleRentMin: normalizeFlexibleRentBound(e.target.value) })
+                                }
+                              />
+                              <span className="text-xs text-muted">to</span>
+                              <Input
+                                inputMode="decimal"
+                                aria-label={`Advertised maximum rent for ${room.name || `room ${i + 1}`}`}
+                                data-attr="listing-room-flexible-max"
+                                placeholder="Max (optional)"
+                                value={room.flexibleRentMax ?? ""}
+                                onChange={(e) =>
+                                  setRoom(i, { flexibleRentMax: normalizeFlexibleRentBound(e.target.value) })
+                                }
+                              />
+                            </div>
+                            {room.flexibleRentMin !== undefined &&
+                            room.flexibleRentMax !== undefined &&
+                            room.flexibleRentMax < room.flexibleRentMin ? (
+                              <p className="text-xs text-danger" role="alert">
+                                The maximum is below the minimum, so no range will be shown.
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </GridField>
+                        </ListingWizardCollapsibleCard>
+                      );
+                    })}
+                  </div>
+                </ListingSubsection>
+              ) : null}
+
               <ListingSubsection title="Rent">
                 <label className="mb-3 flex cursor-pointer items-center gap-2 text-sm font-medium text-foreground">
                   <input
@@ -4897,14 +5000,10 @@ export function ManagerAddListingForm({
                 <div data-wizard-field="monthlyRent">
                 <ListingUnifiedFeesTable
                   expandableSections={feeExpandableSections}
-                  showShortTerm={Boolean(sub.shortTermRentalsAllowed)}
+                  scope={feeScopeControls}
                   foldsMonthlyFeesIntoRent={listingFoldsAllMonthlyFeesIntoRent(sub)}
                   sub={sub}
                   isEntireHome={isEntireHome}
-                  stFeeToggles={stFeeToggles}
-                  ltFeeToggles={ltFeeToggles}
-                  onStToggle={handleStFeeToggle}
-                  onLtToggle={handleLtFeeToggle}
                   onStAmount={handleStFeeAmount}
                   onLtAmount={handleLtFeeAmount}
                   onLtAmountForRow={handleLtFeeAmountForRow}
@@ -4972,26 +5071,73 @@ export function ManagerAddListingForm({
 
                 <div className="mt-4 space-y-3 border-t border-border pt-4">
                   <FieldLabel optional>Payment at signing</FieldLabel>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {PAYMENT_AT_SIGNING_OPTIONS.map((opt) => (
-                      <label key={opt.id} className="flex cursor-pointer items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 rounded border-border"
-                          checked={sub.paymentAtSigningIncludes.includes(opt.id)}
-                          onChange={(e) =>
-                            // Writes the checkbox list AND the matching fee row,
-                            // which are two stores of one fact — see
-                            // applyPaymentAtSigningSelection.
-                            setSub((s) => applyPaymentAtSigningSelection(s, opt.id, e.target.checked))
-                          }
-                        />
-                        {opt.label}
-                      </label>
-                    ))}
-                  </div>
+                  <p className="text-xs text-muted">
+                    Tick what the resident pays when the lease is signed. The columns are the lease
+                    lengths you offer, so a deposit can be due on a long-term lease and not on a
+                    month-to-month one. Fees you add in Other fees appear here as their own rows.
+                  </p>
+                  {leaseScopeOptions.length === 0 ? (
+                    <p className="text-xs text-muted">
+                      Pick at least one lease length in Leasing above and its column appears here.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-xl border border-border bg-card">
+                      <table className="w-full min-w-[30rem] border-collapse text-sm">
+                        <thead>
+                          <tr>
+                            <th className="border-b border-border bg-accent/30 px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                              Payment
+                            </th>
+                            {leaseScopeOptions.map((term) => (
+                              <th
+                                key={term}
+                                className="border-b border-border bg-accent/30 px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-muted"
+                              >
+                                {term}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {signingRows.map((row) => (
+                            <tr key={row.key}>
+                              <td className="border-b border-border/70 px-3 py-2.5 text-foreground">
+                                <span>{row.label}</span>
+                                {row.kind === "fee" ? (
+                                  <span className="ml-2 rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-muted">
+                                    from Other fees
+                                  </span>
+                                ) : null}
+                              </td>
+                              {leaseScopeOptions.map((term) => (
+                                <td key={term} className="border-b border-border/70 px-3 py-2.5 text-center">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-border"
+                                    data-attr="listing-payment-at-signing-cell"
+                                    aria-label={`${row.label} due at signing on ${term}`}
+                                    checked={(signingMatrix[term] ?? []).includes(row.key)}
+                                    onChange={(e) => toggleSigningCell(term, row.key, e.target.checked)}
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-full text-xs"
+                    onClick={addCustomFee}
+                    data-attr="listing-payment-at-signing-add-fee"
+                  >
+                    + Add fee
+                  </Button>
                   {/* The signing-total and other-fees recaps were removed: every
-                      figure in them is already stated by the checkboxes above and
+                      figure in them is already stated by the table above and
                       by each room row, so they only restated the form back to the
                       manager. */}
                 </div>
@@ -5021,17 +5167,15 @@ export function ManagerAddListingForm({
                         const next: ServiceFeePayer =
                           raw === "proplane" || raw === "manager" || raw === "resident" ? raw : "resident";
                         if (next === "manager" && !canSelectManagerAbsorbFee) return;
-                        if (next === "proplane" && !canSelectProplaneAbsorbFee) return;
                         setSub((s) => ({
                           ...s,
                           serviceFeePayer: next,
-                          // Listing wizard never collects FREE100 — grants live on the account
-                          // (Payment setup) or paid-plan entitlement (PRP-421).
+                          // Switching away from PropLane absorb drops any code that was
+                          // typed, so a stale code can never re-grant it later.
                           serviceFeeWaiverCode: undefined,
                         }));
                       }}
                       aria-invalid={Boolean(stepFieldErrors.serviceFeePayer)}
-                      aria-describedby="listing-processing-fee-payer-help"
                       data-attr="listing-service-fee-payer"
                     >
                       <option value="resident">{SERVICE_FEE_PAYER_OPTION_LABELS.resident}</option>
@@ -5039,14 +5183,48 @@ export function ManagerAddListingForm({
                         {SERVICE_FEE_PAYER_OPTION_LABELS.manager}
                         {canSelectManagerAbsorbFee ? "" : " — needs paid plan"}
                       </option>
-                      <option value="proplane" disabled={!canSelectProplaneAbsorbFee}>
-                        {SERVICE_FEE_PAYER_OPTION_LABELS.proplane}
-                        {canSelectProplaneAbsorbFee ? "" : " — needs paid plan or PropLane waiver"}
-                      </option>
+                      {/*
+                        PropLane absorb is always OFFERED now (PRP-463). An account that
+                        already carries the entitlement selects it outright; everyone else
+                        gets the code field below and must type the waiver code. The gate
+                        did not move — `persistListingServiceFeePayer` still refuses to
+                        store `proplane` without either — it just became reachable.
+                      */}
+                      <option value="proplane">{SERVICE_FEE_PAYER_OPTION_LABELS.proplane}</option>
                     </Select>
-                    <p id="listing-processing-fee-payer-help" className="mt-1 text-xs text-muted">
-                      {LISTING_PROCESSING_FEE_PAYER_HELP}
-                    </p>
+                    {listingProplaneAbsorbNeedsWaiverCode(
+                      managerSkuTier,
+                      serviceFeePayerUi,
+                      paymentWaiverGranted === true,
+                    ) ? (
+                      <div className="mt-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-2.5">
+                        <FieldLabel>PropLane waiver code</FieldLabel>
+                        <Input
+                          aria-label="PropLane waiver code"
+                          data-attr="listing-service-fee-waiver-code"
+                          className="w-full font-mono uppercase"
+                          placeholder="Enter code"
+                          autoComplete="off"
+                          value={sub.serviceFeeWaiverCode ?? ""}
+                          onChange={(e) =>
+                            setSub((s) => ({ ...s, serviceFeeWaiverCode: e.target.value.toUpperCase() }))
+                          }
+                        />
+                        <p
+                          className={cn(
+                            "mt-1 text-xs",
+                            listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
+                              ? "font-medium text-success"
+                              : "text-muted",
+                          )}
+                          data-attr="listing-service-fee-waiver-status"
+                        >
+                          {listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
+                            ? "Code accepted — PropLane absorbs the processing fee on this listing."
+                            : `Enter ${LISTING_PAYMENT_WAIVER_CODE} to have PropLane absorb it. Without a valid code this listing stays on Resident pays.`}
+                        </p>
+                      </div>
+                    ) : null}
                     {stepFieldErrors.serviceFeePayer ? (
                       <p className="text-xs text-destructive">{stepFieldErrors.serviceFeePayer}</p>
                     ) : null}
@@ -5636,24 +5814,8 @@ export function ManagerAddListingForm({
                     <p className="mt-0.5 text-xs text-muted">
                       Change only the ones that differ. Editing a bathroom stops it following this row.
                     </p>
+                    {/* Floor left with the per-bathroom field it fed (PRP-463). */}
                     <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <GridField>
-                        <FieldLabel>Floor</FieldLabel>
-                        <Select
-                          aria-label="Floor for most bathrooms"
-                          className={selectInputCls}
-                          data-attr="listing-bathroom-defaults-floor"
-                          value={bathDefaults.location}
-                          onChange={(e) => editBathDefault("location", e.target.value)}
-                        >
-                          <option value="">Select floor</option>
-                          {floorLevelSelectOptions(sub.listingStoriesId, bathDefaults.location).map((label) => (
-                            <option key={label} value={label}>
-                              {label}
-                            </option>
-                          ))}
-                        </Select>
-                      </GridField>
                       <GridField>
                         <FieldLabel hint="Choosing a type sets the fixtures below on every bathroom still following this row.">
                           Type
@@ -5679,19 +5841,18 @@ export function ManagerAddListingForm({
                 {sub.bathrooms.map((b, i) => {
                   const bathNameKey = listingBathroomNameKey(b.id);
                   const bathNameErr = stepFieldErrors[bathNameKey];
-                  const fixtures = [
-                    b.shower && "Shower",
-                    b.toilet && "Toilet",
-                    b.bathtub && "Tub",
-                    b.sink && "Sink",
-                    b.mirror && "Mirror",
-                  ]
+                  const fixtures = BATHROOM_FIXTURES.filter((f) => b[f.key]).map((f) => f.label);
+                  const bathAccess = b.accessKind ?? "shared";
+                  const bathRoomNames = (b.assignedRoomIds ?? [])
+                    .map((id) => sub.rooms.find((r) => r.id === id))
                     .filter(Boolean)
-                    .join(", ");
+                    .map((r, ri) => r!.name.trim() || `Room ${ri + 1}`);
+                  // Access and fixtures, never the floor (PRP-463): which rooms use a bath
+                  // and what is in it is what a manager scans the collapsed list for.
                   const bathSubtitle = [
-                    b.location?.trim() || null,
-                    fixtures || null,
-                    `${(b.assignedRoomIds ?? []).length} room(s)`,
+                    bathAccess === "ensuite" ? "Ensuite" : "Shared",
+                    bathRoomNames.length > 0 ? bathRoomNames.join(", ") : null,
+                    fixtures.length > 0 ? fixtures.join(", ") : null,
                   ]
                     .filter(Boolean)
                     .join(" · ");
@@ -5733,96 +5894,71 @@ export function ManagerAddListingForm({
                         />
                         <StepFieldError msg={bathNameErr} />
                       </div>
+                      {/*
+                        Access leads the row, the floor is gone (PRP-463). What a prospect
+                        and a manager both care about is whether a bath is shared or
+                        ensuite and what is in it; the floor was a field nobody read, and
+                        `location` stays on the record for listings that already set one.
+                      */}
                       <div className="sm:col-span-2">
-                        <FieldLabel>Floor</FieldLabel>
+                        <FieldLabel>Access</FieldLabel>
                         <Select
-                          aria-label={`Bathroom ${i + 1} floor`}
+                          aria-label={`Bathroom ${i + 1} access`}
                           className={selectInputCls}
-                          value={b.location ?? ""}
-                          onChange={(e) => setBath(i, { location: e.target.value })}
+                          data-attr="listing-bathroom-access"
+                          value={bathAccess}
+                          onChange={(e) => setBathAccessKind(i, e.target.value === "ensuite" ? "ensuite" : "shared")}
                         >
-                          <option value="">Select floor</option>
-                          {floorLevelSelectOptions(sub.listingStoriesId, b.location ?? "").map((label) => (
-                            <option key={label} value={label}>
-                              {label}
-                            </option>
-                          ))}
+                          <option value="shared">Shared</option>
+                          <option value="ensuite">Ensuite</option>
                         </Select>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <FieldLabel>Fixtures</FieldLabel>
-                        <div className="mt-1 flex flex-wrap gap-x-6 gap-y-2">
-                          <label className="flex cursor-pointer items-center gap-2 text-sm">
-                            <input type="checkbox" className="h-4 w-4 rounded border-border" checked={b.shower} onChange={(e) => setBath(i, { shower: e.target.checked })} />
-                            Shower
-                          </label>
-                          <label className="flex cursor-pointer items-center gap-2 text-sm">
-                            <input type="checkbox" className="h-4 w-4 rounded border-border" checked={b.toilet} onChange={(e) => setBath(i, { toilet: e.target.checked })} />
-                            Toilet
-                          </label>
-                          <label className="flex cursor-pointer items-center gap-2 text-sm">
-                            <input type="checkbox" className="h-4 w-4 rounded border-border" checked={b.bathtub} onChange={(e) => setBath(i, { bathtub: e.target.checked })} />
-                            Bathtub
-                          </label>
-                          <label className="flex cursor-pointer items-center gap-2 text-sm">
-                            <input type="checkbox" className="h-4 w-4 rounded border-border" checked={b.sink} onChange={(e) => setBath(i, { sink: e.target.checked })} />
-                            Sink
-                          </label>
-                          <label className="flex cursor-pointer items-center gap-2 text-sm">
-                            <input type="checkbox" className="h-4 w-4 rounded border-border" checked={b.mirror} onChange={(e) => setBath(i, { mirror: e.target.checked })} />
-                            Mirror
-                          </label>
-                        </div>
                       </div>
                       {sub.rooms.length > 0 ? (
                         <div className="sm:col-span-2">
-                          <FieldLabel>Used by rooms</FieldLabel>
-                          <div className="mt-1 grid gap-x-4 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-3">
-                            <SelectAllCheckbox
-                              allChecked={sub.rooms.every((room) => (b.assignedRoomIds ?? []).includes(room.id))}
-                              someChecked={
-                                (b.assignedRoomIds ?? []).length > 0 &&
-                                !sub.rooms.every((room) => (b.assignedRoomIds ?? []).includes(room.id))
-                              }
-                              onToggle={(checkAll) =>
-                                setBath(i, { assignedRoomIds: checkAll ? sub.rooms.map((room) => room.id) : [] })
-                              }
-                              label="All rooms"
-                            />
-                            {sub.rooms.map((room) => {
-                              const checked = (b.assignedRoomIds ?? []).includes(room.id);
-                              return (
-                                <div key={`${b.id}-${room.id}`} className="min-w-0">
-                                  <label className="flex cursor-pointer items-center gap-2 text-sm">
-                                    <input
-                                      type="checkbox"
-                                      className="h-4 w-4 shrink-0 rounded border-border"
-                                      checked={checked}
-                                      onChange={(e) => toggleBathroomRoom(i, room.id, e.target.checked)}
-                                    />
-                                    <span className="truncate font-medium text-foreground">{room.name.trim() || `Room (${room.id.slice(-6)})`}</span>
-                                  </label>
-                                  {checked ? (
-                                    <Select
-                                      aria-label={`Bathroom situation for ${room.name.trim() || "room"}`}
-                                      className={`${selectInputCls} mt-1 h-8 text-xs`}
-                                      value={b.accessKindByRoomId?.[room.id] ?? ""}
-                                      onChange={(e) =>
-                                        setBathRoomAccessKind(i, room.id, e.target.value as "" | ManagerBathroomRoomAccessKind)
-                                      }
-                                    >
-                                      <option value="">Auto</option>
-                                      <option value="ensuite">En suite</option>
-                                      <option value="shared">Shared</option>
-                                      <option value="hall">Hall</option>
-                                    </Select>
-                                  ) : null}
-                                </div>
-                              );
-                            })}
-                          </div>
+                          <FieldLabel>
+                            {bathAccess === "ensuite" ? "Room it belongs to" : "Assigned rooms"}
+                          </FieldLabel>
+                          <CheckboxMultiSelect
+                            label={`Rooms using bathroom ${i + 1}`}
+                            hideLabel
+                            dataAttr="listing-bathroom-rooms"
+                            options={sub.rooms.map((room, ri) => ({
+                              value: room.id,
+                              label: room.name.trim() || `Room ${ri + 1}`,
+                            }))}
+                            selected={b.assignedRoomIds ?? []}
+                            onChange={(next) => setBathroomRooms(i, next)}
+                            emptyLabel="No room assigned"
+                            selectionTriggerLabel={
+                              sub.rooms.length > 0 && (b.assignedRoomIds ?? []).length >= sub.rooms.length
+                                ? "All rooms"
+                                : undefined
+                            }
+                          />
                         </div>
                       ) : null}
+                      <div className="sm:col-span-2">
+                        <FieldLabel>Fixtures / details</FieldLabel>
+                        <CheckboxMultiSelect
+                          label={`Fixtures in bathroom ${i + 1}`}
+                          hideLabel
+                          dataAttr="listing-bathroom-fixtures"
+                          options={BATHROOM_FIXTURES.map((f) => ({ value: f.key, label: f.label }))}
+                          selected={BATHROOM_FIXTURES.filter((f) => b[f.key]).map((f) => f.key)}
+                          onChange={(next) =>
+                            setBath(
+                              i,
+                              Object.fromEntries(
+                                BATHROOM_FIXTURES.map((f) => [f.key, next.includes(f.key)]),
+                              ) as Partial<ManagerBathroomSubmission>,
+                            )
+                          }
+                          emptyLabel="No fixtures"
+                          selectionTriggerLabel={
+                            BATHROOM_FIXTURES.every((f) => b[f.key]) ? "All fixtures" : undefined
+                          }
+                        />
+                      </div>
                       <div className="sm:col-span-2">
                         <FieldLabel>Bathroom amenities</FieldLabel>
                         <PresetCheckboxGroup

@@ -5,9 +5,12 @@
  * behavioural test — a regression would simply mean a manager stops seeing a fee row, or
  * starts seeing a checkbox that was deliberately retired.
  *
- * 1. The standard fee rows are present by DEFAULT on a new listing. A manager should not have
- *    to discover an "add fee" affordance before they can price parking, HOA or other monthly
- *    fees; rent is the one exclusion, because it lives in its own Rent section.
+ * 1. The standard fee rows all EXIST for a listing that has not removed any (an edited
+ *    listing from before the removable-rows work, which is what `createDefaultListingSubmission`
+ *    models); rent is the one exclusion, because it lives in its own Rent section.
+ *    What a manager sees on a BRAND-NEW listing is a different question, answered by
+ *    `createNewListingWizardSubmission` and pinned at the bottom of this file: since
+ *    PRP-463 that is the Application fee alone.
  * 2. The "rolls over to month-to-month" checkbox is gone from the wizard. The field itself
  *    stays on the submission and still drives the lease clause and the surcharge gate for
  *    listings that already carry it — removing the control is not removing the concept.
@@ -20,7 +23,11 @@ import {
   type ListingFeeRowId,
 } from "@/lib/listing-fee-term-toggles";
 import { removedStandardListingFeeRowSet } from "@/lib/listing-fees";
-import { createDefaultListingSubmission, normalizeManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
+import {
+  createDefaultListingSubmission,
+  createNewListingWizardSubmission,
+  normalizeManagerListingSubmissionV1,
+} from "@/lib/manager-listing-submission";
 
 /** The same three inputs `listing-unified-fees-table.tsx` filters `visibleRows` on. */
 function defaultOtherFeeRowIds(): ListingFeeRowId[] {
@@ -57,6 +64,19 @@ describe("create wizard Other fees defaults", () => {
     const ids = defaultOtherFeeRowIds();
     expect(ids).not.toContain("monthToMonthSurcharge");
     expect(ids).not.toContain("customLeaseSurcharge");
+  });
+
+  // PRP-463: one row, not eight. A new listing asks for the application fee and nothing
+  // else; every other standard fee is one "+ Add fee" away.
+  it("starts a brand-new listing with the application fee alone", () => {
+    const sub = createNewListingWizardSubmission();
+    const hidden = leaseLengthGatedHiddenFeeRowIds(sub);
+    const removed = removedStandardListingFeeRowSet(sub);
+    const ids = LISTING_STANDARD_FEE_ROWS.filter(
+      (row) => row.id !== "rent" && !hidden.has(row.id) && !removed.has(row.id as never),
+    ).map((row) => row.id);
+
+    expect(ids).toEqual(["applicationFee"]);
   });
 
   it("no longer renders a rollover-to-month-to-month checkbox in the wizard", () => {

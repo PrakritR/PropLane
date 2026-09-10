@@ -180,16 +180,19 @@ export function listingPaymentWaiverCodeMatches(code: string | null | undefined)
 /**
  * Whether the listing Pricing step should show a waiver-code field.
  *
- * Always false: PropLane shares grants out-of-band (account promo / Payment setup),
- * never as a required FREE100 box on the listing wizard (PRP-421). Paid plans select
- * PropLane absorb without a code; Free needs an account grant or a paid plan.
+ * True only where PropLane absorb is chosen but not already entitled (PRP-463). An
+ * account that carries the grant, or a paid plan, selects it outright and is never asked
+ * for a code — the field appears exactly where one is genuinely required, and
+ * {@link persistListingServiceFeePayer} is still the gate that decides whether the choice
+ * can be stored at all.
  */
 export function listingProplaneAbsorbNeedsWaiverCode(
-  _tier: ManagerSkuTier,
-  _serviceFeePayer: ServiceFeePayer | null | undefined,
-  _accountWaiverGranted: boolean,
+  tier: ManagerSkuTier,
+  serviceFeePayer: ServiceFeePayer | null | undefined,
+  accountWaiverGranted: boolean,
 ): boolean {
-  return false;
+  if (serviceFeePayer !== "proplane") return false;
+  return !managerCanSelectProplaneServiceFee(tier, accountWaiverGranted);
 }
 
 /** Short labels for the Pricing / Payment setup selects (who pays Stripe's fee). */

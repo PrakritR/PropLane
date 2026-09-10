@@ -49,7 +49,12 @@ describe("PRP-138 bathrooms", () => {
   });
 
   it("shows fixtures on the row subtitle, not a derived full/half label", () => {
-    expect(form).toContain('b.shower && "Shower"');
+    // PRP-463 moved the fixture list behind one dropdown, so the subtitle now reads the
+    // same fixtures off BATHROOM_FIXTURES rather than five hand-written checkboxes. What
+    // is being pinned is unchanged: the row says what is IN the bathroom, never a
+    // full/half label the fixtures would then contradict.
+    expect(form).toContain("const fixtures = BATHROOM_FIXTURES.filter((f) => b[f.key]).map((f) => f.label);");
+    expect(form).toContain('{ key: "shower", label: "Shower" }');
     expect(form).not.toContain("meta={<ListingWizardRowMeta value={bathTypeLabel} />}");
   });
 

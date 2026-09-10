@@ -16,6 +16,7 @@ import {
   LONG_TERM_LEASE_TERM,
   isLegacyFixedLeaseTerm,
 } from "@/lib/rental-application/lease-terms";
+import { feeAppliesToLeaseType, listingFeeRowIdForPresetId, standardFeeScopeFor } from "@/lib/listing-fee-scope";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { listingFoldsAllMonthlyFeesIntoRent, type RentRuleAddress } from "@/lib/seattle-rent-rule";
 
@@ -225,7 +226,23 @@ export function normalizeListingFeeRow(raw: ListingFeeRow): ListingFeeRow {
         ? row.shortTermAmount.trim()
         : undefined,
     includeInRent: row.includeInRent === true,
+    // Scope (PRP-463). This normalizer rebuilds the row as a fresh literal, so a field
+    // it does not name is DROPPED — which is how `leaseTypes` was silently lost on every
+    // save. Absent stays absent, and absent means "every lease type / every room".
+    leaseTypes: normalizeFeeScopeIds(row.leaseTypes),
+    roomIds: normalizeFeeScopeIds(row.roomIds),
   };
+}
+
+/** Trim, de-duplicate, drop blanks; an empty scope is stored as absent ("all"). */
+function normalizeFeeScopeIds(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out = [
+    ...new Set(
+      raw.filter((v): v is string => typeof v === "string" && v.trim().length > 0).map((v) => v.trim()),
+    ),
+  ];
+  return out.length > 0 ? out : undefined;
 }
 
 export function emptyCustomListingFeeRow(): ListingFeeRow {
@@ -578,6 +595,11 @@ export const DEFAULT_HIDDEN_STANDARD_LISTING_FEE_ROW_IDS: readonly RemovedStanda
   "hoaMonthly",
   "otherMonthlyFees",
   "monthToMonthSurcharge",
+  // Application fee is the ONLY row a new listing starts with (PRP-463). Custom lease
+  // pricing used to start visible too, which meant a manager who wanted one fee was shown
+  // two. It comes straight back on edit the moment an amount is saved — see
+  // `reconcileRemovedStandardListingFeeRows`.
+  "customLeaseSurcharge",
 ] as const;
 
 const LT_FIELD_BY_REMOVED_ROW: Partial<
@@ -666,11 +688,71 @@ export function ensureSubmissionListingFees(sub: ManagerListingSubmissionV1): Ma
     const customs = (sub.customFees ?? []).map(normalizeListingFeeRow).filter((f) => !f.presetId || f.presetId === "custom");
     fees = [...fees.filter((f) => f.presetId !== "custom"), ...customs];
   }
+  fees = stampStandardFeeScopes(sub, fees);
+  fees = syncDueAtSigningFromMatrix(sub, fees);
   const next = applyListingFeesToSubmission(sub, fees);
   return {
     ...next,
     removedStandardListingFeeRows: reconciledRemoved.length > 0 ? reconciledRemoved : [],
   };
+}
+
+/**
+ * When a listing has a per-lease-type signing matrix, that matrix is the authority for
+ * whether a deposit or move-in fee is collected at signing — so the fee row's own
+ * `dueAtSigning` flag is written from it.
+ *
+ * Without this the two stores of that one fact disagree: `applyListingFeesToSubmission`
+ * re-derives the flat `paymentAtSigningIncludes` from the fee rows immediately after, and
+ * a stale `dueAtSigning: true` would put back a payment the manager just unticked in
+ * every column.
+ */
+function syncDueAtSigningFromMatrix(
+  sub: Pick<ManagerListingSubmissionV1, "paymentAtSigningByLeaseType">,
+  fees: ListingFeeRow[],
+): ListingFeeRow[] {
+  const matrix = sub.paymentAtSigningByLeaseType;
+  if (!matrix || Object.keys(matrix).length === 0) return fees;
+  const union = new Set<string>();
+  for (const keys of Object.values(matrix)) {
+    for (const key of keys) union.add(key);
+  }
+  const DUE_KEY_FOR_PRESET: Record<string, string> = {
+    security_deposit: "security_deposit",
+    move_in_fee: "move_in_fee",
+  };
+  return fees.map((fee) => {
+    const key = fee.presetId ? DUE_KEY_FOR_PRESET[fee.presetId] : undefined;
+    if (!key) return fee;
+    return { ...fee, dueAtSigning: union.has(key) };
+  });
+}
+
+/**
+ * Copy each standard row's stored scope onto the fee row that represents it.
+ *
+ * Custom fees carry `leaseTypes` / `roomIds` themselves; standard rows keep theirs in
+ * `sub.standardFeeScopes` because they are backed by fixed submission fields. Stamping
+ * here means every consumer downstream — lease documents, charges, the public listing —
+ * reads scope off the fee row and never has to know which kind of fee it started as.
+ */
+function stampStandardFeeScopes(
+  sub: Pick<ManagerListingSubmissionV1, "standardFeeScopes">,
+  fees: ListingFeeRow[],
+): ListingFeeRow[] {
+  const scopes = sub.standardFeeScopes;
+  if (!scopes || Object.keys(scopes).length === 0) return fees;
+  return fees.map((fee) => {
+    const rowId = listingFeeRowIdForPresetId(fee.presetId);
+    if (!rowId) return fee;
+    const scope = scopes[rowId];
+    if (!scope) return fee;
+    return {
+      ...fee,
+      leaseTypes: scope.leaseTypes?.length ? [...scope.leaseTypes] : undefined,
+      roomIds: scope.roomIds?.length ? [...scope.roomIds] : undefined,
+    };
+  });
 }
 
 export function validateListingFeeRows(
@@ -1034,7 +1116,16 @@ export function leaseDocumentFeeLines(
   const appRaw = String(sub.applicationFee ?? "")
     .replace(/^\$/, "")
     .trim();
-  if (section === "long-term" && isListingFeeAmountFilled(appRaw) && parseMoneyAmount(appRaw) > 0) {
+  const applicationFeeInScope = feeAppliesToLeaseType(
+    { leaseTypes: standardFeeScopeFor(sub, "applicationFee").leaseTypes },
+    billingContext?.leaseTerm,
+  );
+  if (
+    section === "long-term" &&
+    applicationFeeInScope &&
+    isListingFeeAmountFilled(appRaw) &&
+    parseMoneyAmount(appRaw) > 0
+  ) {
     push("one-time", { label: "Application fee", amount: appRaw });
   }
 
@@ -1052,6 +1143,10 @@ export function leaseDocumentFeeLines(
     // lease was signed, and that lease still owes the surcharge. The two `billingContext`
     // checks below are the gate in that case.
     if (!billingContext && leaseLengthGatesOutPreset(sub, presetId)) continue;
+    // Per-fee lease-type scope (PRP-463). Only a REAL lease can be out of scope: the
+    // context-free listing preview has no term to test against, so an unscoped preview
+    // keeps showing every fee exactly as it did before scope existed.
+    if (billingContext && !feeAppliesToLeaseType(fee, billingContext.leaseTerm)) continue;
     if (billingContext && presetId === "mtm_surcharge" && !shouldBillMonthToMonthSurcharge(billingContext)) {
       continue;
     }
