@@ -9,9 +9,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  * and, once the invite was accepted, pass every module gate on that property:
  * read leases, financials and documents, edit the listing, even delete it.
  *
- * An empty permissions object resolves to a *full* grant
- * (`manager-lease-scope.ts`), so a forged link with `{}` yields maximum access.
- * The list must therefore be validated against real ownership, not trusted.
+ * The permission map does not save you here: the inviter chooses it, so a
+ * forged link simply carries whatever grant its author wanted. The list must
+ * therefore be validated against real ownership, not trusted.
  *
  * Returns the ids in `propertyIds` that `managerUserId` does NOT own. An empty
  * array means every id checked out. Ids that do not exist at all are reported

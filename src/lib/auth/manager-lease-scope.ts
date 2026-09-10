@@ -241,7 +241,7 @@ export async function fetchLeasesForManagerUser(
  * co-manager writes require the edit level. It is also strictly narrower than
  * bare link membership, which would let a co-manager without the `leases` grant
  * write a row they are not allowed to read back. An assignment with NO checked
- * permissions is still a full grant, so the ordinary co-manager is unaffected.
+ * permissions confers nothing: being assigned a property is not itself a grant.
  *
  * Fails CLOSED on a read failure, like `findPropertyIdsNotOwnedByManager`. Every
  * refusal is logged, not just the ownership query's own error: the linked-grant
