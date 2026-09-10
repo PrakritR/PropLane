@@ -39,6 +39,30 @@ not show Stripe checkout or an external purchase link. Apple consumable products
 RevenueCat fulfillment need separate setup before native top-ups can be offered; see
 `apple-iap.md`. This does not restrict credit already bought on the web.
 
+## Billing & plan and saved cards
+
+Settings → Billing & plan owns the current plan, payment methods, communication
+balance, top-up checkout, usage history and budget alerts. Communication settings
+owns work-number setup and controls only.
+
+`/api/manager/payment-methods` lists masked cards, opens Stripe Checkout in `setup`
+mode, and sets an explicitly selected default. Setup collects no payment. Stripe
+attaches the card to the manager's customer; the app never handles card numbers or
+CVC. Default selection updates both the customer and any active linked subscription;
+it does not retry invoices or recharge credit. Canceled subscriptions are not updated.
+
+`loadManagerBillingIdentity` is the financial identity boundary. It reads only
+`manager_purchases.user_id = authenticated manager id` and the owner's billing
+account. **Never use the entitlement loader's email fallback for financial credentials.**
+Resolve the subscription's customer first and reject conflicting identities before
+any card exposure or mutation. A new Free customer is created only on explicit setup
+or checkout, then persisted in `manager_comms_billing_accounts.stripe_customer_id`.
+Subscription checkout, manual top-ups and the billing portal share this identity.
+
+Apply `20260910170000_manager_billing_customer.sql` before enabling card management.
+The existing service-role-only billing table retains its permissions. Native shows
+masked cards but hides Stripe setup/default controls; App Store billing stays with Apple.
+
 ## Retail rates (USD)
 
 | Meter | Rate |

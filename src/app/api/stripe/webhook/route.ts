@@ -200,6 +200,9 @@ export async function POST(req: Request) {
         } catch (e) {
           console.error("[stripe webhook] household_charge checkout", e);
         }
+      } else if (session.mode === "setup" && session.metadata?.purpose === "manager_card_setup") {
+        // Stripe setup attaches the card to its authenticated manager customer.
+        // No plan or credit is granted, and default selection is an explicit action.
       } else {
         try {
           await recordPaidManagerCheckoutSession(session);

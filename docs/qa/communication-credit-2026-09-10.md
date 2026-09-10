@@ -46,3 +46,36 @@ resend automatically. Won disputes remain paused for staff review.
 Local graph refresh completed with the repository's existing missing Swift-grammar
 warning; portable-check passed. The installed hook did not create a TypeScript runtime
 marker. No graph lifecycle files were added to git.
+
+## Billing & plan follow-up
+
+The credit panel, rates/history and budget alerts now live in Billing & plan.
+Communication settings contains work-number setup only. Payment methods uses Stripe
+Checkout setup mode; adding a card collects no payment. Default selection applies
+to the manager's customer and active subscription, without automatic credit recharge.
+Financial identity is linked by authenticated user ID, never the entitlement loader's
+legacy email fallback. Conflicting customer/subscription identities fail closed.
+
+Dev/test migration `20260910170000_manager_billing_customer.sql` was applied through
+the isolated migration workdir; no production writes. Stripe test-mode browser
+verification on port 3014 saved Visa 4242 (12/2030) through the embedded setup form,
+returned to Billing & plan and selected that card as default. Stripe confirmed the
+completed session had `mode=setup` and no PaymentIntent, and the selected default
+matched the API response. Existing purchased credit remained 300 cents. An uncompleted
+$5 credit checkout used that same customer and retained the separately confirmed
+payment flow. The saved card has `allow_redisplay=always`.
+
+Desktop and 390px mobile were exercised; no horizontal document overflow. The
+Communication tab had work-number controls and neither the credit panel nor saved
+cards. Card loading/error retry, explicit default mutation and native purchase-control
+exclusion are covered by component tests. Ownership tests include a foreign email-matched
+purchase, foreign payment method/customer, conflicting subscription customer and a
+canceled subscription. Security re-review found no remaining high/critical issues.
+
+Validation in the follow-up worktree: 4 focused files / 33 tests passed, then 11 card
+ownership tests passed after added canceled-subscription cases. Full unit run returned
+9464 passed / 2 failed: existing listing-wizard attachment tests lack a valid subscription
+coverage response and stop before upload assertions. This fixture gap is pending the
+original review pipeline and must be resolved before final handoff. Final card-focused rerun passed 16 tests across 2 files, including the shared default-change pending guard. New-card ESLint
+returned zero warnings/errors; TypeScript returned zero errors. Graph rebuild completed
+with the existing missing Swift grammar warning; portable-check passed.

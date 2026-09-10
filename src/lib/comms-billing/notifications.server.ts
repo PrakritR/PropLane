@@ -48,7 +48,7 @@ export async function notifyCommsBillingPaymentMethodUpdated(
       "Your payment method for PropLane communication usage was updated.",
       "",
       "Communication uses prepaid credit. A saved card never authorizes automatic usage charges.",
-      "View usage in Settings → Messaging.",
+      "View usage in Settings → Billing & plan.",
     ].join("\n"),
   });
 }
@@ -98,7 +98,7 @@ export async function maybeNotifyCommsBudgetThreshold(
   if (claimError || !alert) return;
   await sendManagerCommsBillingEmail({ to: email,
     subject: `PropLane — communication usage at ${alert.threshold}% of budget`,
-    text: `Your communication usage this month is ${formatUsdFromCents(alert.used)}. Your budget is ${formatUsdFromCents(alert.budget)}.\n\nView usage and buy credit in Settings → Communication. New outgoing activity stops when credit runs out.`,
+    text: `Your communication usage this month is ${formatUsdFromCents(alert.used)}. Your budget is ${formatUsdFromCents(alert.budget)}.\n\nView usage and buy credit in Settings → Billing & plan. New outgoing activity stops when credit runs out.`,
   });
 }
 

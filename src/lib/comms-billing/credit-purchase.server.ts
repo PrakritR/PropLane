@@ -1,4 +1,5 @@
 import "server-only";
+import { ensureManagerBillingCustomer } from "@/lib/manager-stripe-customer.server";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/stripe";
@@ -53,6 +54,7 @@ export async function createCommsCreditCheckout(
       throw new Error("This checkout is no longer open. Refresh your balance.");
     return { clientSecret: existing.client_secret, purchaseId };
   }
+  const customer = await ensureManagerBillingCustomer(db, owner);
   const metadata = {
     purpose: COMMS_CREDIT_PURPOSE,
     manager_user_id: owner,
@@ -62,6 +64,8 @@ export async function createCommsCreditCheckout(
   const session = await stripe.checkout.sessions.create(
     {
       mode: "payment",
+      customer,
+      saved_payment_method_options: { payment_method_save: "enabled" },
       ui_mode: "embedded_page",
       payment_method_types: ["card"],
       client_reference_id: owner,
@@ -81,7 +85,7 @@ export async function createCommsCreditCheckout(
           },
         },
       ],
-      return_url: `${resolveAppOrigin(req)}/portal/profile?tab=messaging&comms_purchase=${purchaseId}`,
+      return_url: `${resolveAppOrigin(req)}/portal/profile?tab=billing&comms_purchase=${purchaseId}`,
     },
     { idempotencyKey: `comms-credit:${owner}:${purchaseId}` },
   );

@@ -32,6 +32,8 @@ import {
   PortalSettingsSection,
   PortalSettingsSections,
 } from "@/components/portal/portal-settings-ui";
+import { ManagerPaymentMethodsPanel } from "@/components/portal/manager-payment-methods-panel";
+import { ManagerCommsBillingPanel } from "@/components/portal/manager-comms-billing-panel";
 import { ManagerPlan } from "@/components/portal/pro-plan";
 import { ManagerApiKeysPanel } from "@/components/portal/pro-api-keys-panel";
 import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging-settings-panel";
@@ -436,8 +438,10 @@ export function PortalProfileClient({
         // state and comparison cards, so Settings deliberately provides no
         // duplicate heading or card around it.
         return (
-          <div className="min-w-0">
+          <div className="min-w-0 space-y-8">
             <ManagerPlan embedded showCurrentPlan={false} />
+            <ManagerPaymentMethodsPanel />
+            <ManagerCommsBillingPanel />
           </div>
         );
       case "messaging":

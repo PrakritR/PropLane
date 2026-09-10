@@ -1,3 +1,5 @@
+import { ensureManagerBillingCustomer } from "@/lib/manager-stripe-customer.server";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { NextResponse } from "next/server";
 import { resolveAppOrigin } from "@/lib/app-url";
 import { resolveStripePriceIdForPaidTier } from "@/lib/stripe/resolve-manager-price";
@@ -40,14 +42,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    const body = (await req.json().catch(() => null)) as Body & { embedded?: boolean } | null;
-    const tierRaw = typeof body?.tier === "string" ? body.tier.toLowerCase().trim() : "";
-    const billingRaw = typeof body?.billing === "string" ? body.billing.toLowerCase().trim() : "";
-    const baseRaw = typeof body?.returnBasePath === "string" ? body.returnBasePath.trim() : "/portal";
+    const body = (await req.json().catch(() => null)) as
+      (Body & { embedded?: boolean }) | null;
+    const tierRaw =
+      typeof body?.tier === "string" ? body.tier.toLowerCase().trim() : "";
+    const billingRaw =
+      typeof body?.billing === "string"
+        ? body.billing.toLowerCase().trim()
+        : "";
+    const baseRaw =
+      typeof body?.returnBasePath === "string"
+        ? body.returnBasePath.trim()
+        : "/portal";
     const useEmbedded = body?.embedded !== false;
 
     if (!isPaidTier(tierRaw) || !isBilling(billingRaw)) {
-      return NextResponse.json({ error: "tier must be pro or business; billing must be monthly or annual." }, { status: 400 });
+      return NextResponse.json(
+        {
+          error:
+            "tier must be pro or business; billing must be monthly or annual.",
+        },
+        { status: 400 },
+      );
     }
 
     const tier = tierRaw;
@@ -81,10 +97,16 @@ export async function POST(req: Request) {
     const email = (profile?.email ?? user.email ?? "").trim().toLowerCase();
     const managerId = profile?.manager_id?.trim();
     if (!email?.includes("@")) {
-      return NextResponse.json({ error: "Your account needs an email before subscribing." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Your account needs an email before subscribing." },
+        { status: 400 },
+      );
     }
     if (!managerId) {
-      return NextResponse.json({ error: "Your profile is missing a PropLane ID. Contact support." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Your profile is missing a PropLane ID. Contact support." },
+        { status: 400 },
+      );
     }
 
     const stripe = getStripe();
@@ -99,13 +121,19 @@ export async function POST(req: Request) {
     const fn = profile?.full_name?.trim();
     if (fn) metadata.full_name = fn;
 
-    const sessionBase = buildManagerSubscriptionCheckoutBase({
-      priceId: price,
-      metadata,
-      customerEmail: email,
-      clientReferenceId: user.id,
-      allowPromotionCodes: tier === "pro" && billing === "monthly",
-    });
+    const customer = await ensureManagerBillingCustomer(
+      createSupabaseServiceRoleClient(),
+      user.id,
+    );
+    const sessionBase = {
+      ...buildManagerSubscriptionCheckoutBase({
+        priceId: price,
+        metadata,
+        clientReferenceId: user.id,
+        allowPromotionCodes: tier === "pro" && billing === "monthly",
+      }),
+      customer,
+    };
 
     if (useEmbedded) {
       const session = await stripe.checkout.sessions.create({
@@ -115,10 +143,17 @@ export async function POST(req: Request) {
       } as Parameters<typeof stripe.checkout.sessions.create>[0]);
 
       if (!session.client_secret) {
-        return NextResponse.json({ error: "Stripe did not return a checkout client secret." }, { status: 500 });
+        return NextResponse.json(
+          { error: "Stripe did not return a checkout client secret." },
+          { status: 500 },
+        );
       }
 
-      return NextResponse.json({ clientSecret: session.client_secret, sessionId: session.id, embedded: true });
+      return NextResponse.json({
+        clientSecret: session.client_secret,
+        sessionId: session.id,
+        embedded: true,
+      });
     }
 
     const session = await stripe.checkout.sessions.create({
@@ -129,10 +164,17 @@ export async function POST(req: Request) {
     } as Parameters<typeof stripe.checkout.sessions.create>[0]);
 
     if (!session.url) {
-      return NextResponse.json({ error: "Stripe did not return a checkout URL." }, { status: 500 });
+      return NextResponse.json(
+        { error: "Stripe did not return a checkout URL." },
+        { status: 500 },
+      );
     }
 
-    return NextResponse.json({ url: session.url, sessionId: session.id, embedded: false });
+    return NextResponse.json({
+      url: session.url,
+      sessionId: session.id,
+      embedded: false,
+    });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Checkout failed";
     return NextResponse.json({ error: message }, { status: 500 });

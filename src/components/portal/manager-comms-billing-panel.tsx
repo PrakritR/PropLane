@@ -200,11 +200,11 @@ export function ManagerCommsBillingPanel() {
                 )}
               </div>
             </PortalSettingsRow>
-            <div className="grid min-w-0 gap-6 sm:grid-cols-2">
+            <div className="grid min-w-0 gap-6 p-5 sm:grid-cols-2">
               <div>
                 <p className="text-sm font-semibold">Included this month</p>
                 <progress
-                  className="my-3 h-2 w-full accent-primary"
+                  className="my-3 h-2 w-full overflow-hidden rounded-full accent-primary"
                   max={summary.wallet.allowanceCents}
                   value={
                     summary.wallet.allowanceCents -
