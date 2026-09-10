@@ -113,3 +113,6 @@ describe("manager SMS prospect proposal lifecycle", () => {
     }));
   });
 });
+
+vi.mock("@/lib/comms-billing/wallet.server", () => ({reserveCommsCredit:vi.fn(async()=>({allowed:true,duplicate:false,state:"reserved"})),finishCommsCredit:vi.fn(async()=>{})}));
+vi.mock("@/lib/comms-billing/turn-result.server", () => ({completeCommsTurn:vi.fn(async(_db,_owner,_key,result)=>result),readCommsTurnResult:vi.fn()}));

@@ -44,23 +44,23 @@ describe("evaluateCommsAllowance", () => {
     expect(state.blocked).toBe(true);
   });
 
-  it("does NOT block past the allowance when a card is on file — it just bills", () => {
+  it("blocks at exhaustion even with a saved card", () => {
     const state = evaluateCommsAllowance({
       tier: "free",
       usedCents: COMMS_INCLUDED_ALLOWANCE_CENTS.free! * 10,
       hasPaymentMethod: true,
     });
     expect(state.exhausted).toBe(true);
-    expect(state.blocked).toBe(false);
+    expect(state.blocked).toBe(true);
   });
 
-  it("does not block a Business account that has a card, however much it uses", () => {
+  it("blocks Business at exhaustion even with a saved card", () => {
     const state = evaluateCommsAllowance({
       tier: "business",
       usedCents: 1_000_000,
       hasPaymentMethod: true,
     });
-    expect(state.blocked).toBe(false);
+    expect(state.blocked).toBe(true);
     expect(state.exhausted).toBe(true);
   });
 
@@ -110,6 +110,6 @@ describe("the blocked message", () => {
   it("names the amount and the fix, not just a refusal", () => {
     const msg = commsAllowanceBlockedMessage("free");
     expect(msg).toMatch(/\$\d/);
-    expect(msg).toMatch(/add a card/i);
+    expect(msg).toMatch(/buy more usage/i);
   });
 });

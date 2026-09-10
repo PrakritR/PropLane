@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 
@@ -10,19 +10,16 @@ import type { ReactNode } from "react";
  * out, and the save itself must not accept a new `proplane` without one.
  */
 
-import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   resolveSavedServiceFeeSelection,
-  saveManagerManualPaymentSettings,
 } from "@/lib/manager-manual-payment-settings";
-import { LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID } from "@/lib/payment-policy";
 
 describe("resolveSavedServiceFeeSelection", () => {
-  it("keeps PropLane absorb when the promo code is valid", () => {
+  it("does not accept a shared promo code as staff approval", () => {
     expect(
       resolveSavedServiceFeeSelection({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "free100" }, null),
-    ).toEqual({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" });
+    ).toEqual({ serviceFeePayer: "resident" });
   });
 
   it("falls back to resident pays when a NEW selection carries no valid code", () => {
@@ -36,11 +33,11 @@ describe("resolveSavedServiceFeeSelection", () => {
     ).toEqual({ serviceFeePayer: "resident" });
   });
 
-  it("does not move fees back onto residents on an unrelated re-save", () => {
+  it("does not treat legacy PropLane selection as staff approval", () => {
     // A legacy account already absorbing fees has no stored code. Toggling something
     // else in the dialog must not silently start charging that manager's residents.
     expect(resolveSavedServiceFeeSelection({ serviceFeePayer: "proplane" }, { serviceFeePayer: "proplane" })).toEqual({
-      serviceFeePayer: "proplane",
+      serviceFeePayer: "resident",
     });
   });
 
@@ -139,58 +136,14 @@ async function mountModal() {
   });
 }
 
-function click(dataAttr: string) {
-  const el = document.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`);
-  expect(el, dataAttr).toBeTruthy();
-  return act(async () => {
-    el!.click();
-  });
-}
-
-describe("payment setup: PropLane covers it", () => {
-  /*
-    The dialog only OFFERS "PropLane covers it" once the account's waiver grant is
-    server-verified, so the code entry is the door for a manager who was given a
-    code but has no grant yet. It never prints the code back — only asks for one.
-  */
-  async function openWaiverEntry() {
+describe("payment setup: staff-only processing coverage", () => {
+  it("offers no shared waiver code or PropLane choice to an unapproved manager", async () => {
     await mountModal();
+    expect(document.querySelector('[data-attr="manager-service-fee-waiver-open"]')).toBeNull();
+    expect(document.querySelector('[data-attr="manager-service-fee-waiver-code"]')).toBeNull();
     expect(document.querySelector('[data-attr="manager-service-fee-payer-proplane"]')).toBeNull();
-    await click("manager-service-fee-waiver-open");
-  }
-
-  function typeCode(value: string) {
-    const input = document.querySelector<HTMLInputElement>('[data-attr="manager-service-fee-waiver-code"]')!;
-    return act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
-      setter.call(input, value);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-  }
-
-  it("asks for a code rather than offering the choice outright", async () => {
-    await openWaiverEntry();
-
-    expect(document.querySelector('[data-attr="manager-service-fee-waiver-code"]')).toBeTruthy();
+    expect(document.body.textContent).not.toContain("FREE100");
     expect(patches).toHaveLength(0);
-  });
-
-  it("refuses a wrong code and saves nothing", async () => {
-    await openWaiverEntry();
-    await typeCode("NOPE");
-    await click("manager-service-fee-waiver-apply");
-
-    expect(patches).toHaveLength(0);
-    expect(screen.getByText(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID)).toBeTruthy();
-  });
-
-  it("saves the choice with the code once it checks out", async () => {
-    await openWaiverEntry();
-    await typeCode("free100");
-    await click("manager-service-fee-waiver-apply");
-
-    expect(patches).toHaveLength(1);
-    expect(patches[0]).toMatchObject({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" });
   });
 });
 

@@ -20,12 +20,9 @@ const payer = (over: Partial<Parameters<typeof resolveServiceFeePayerFor>[0]> = 
   resolveServiceFeePayerFor({ tier: "pro", ...over });
 
 describe("precedence", () => {
-  it("AXI-149: a paid plan defaults to PropLane absorbing the fee", () => {
-    // "PropLane takes all processing fees for paid accounts." A manager who is
-    // paying for the product does not additionally hand Stripe's cost to their
-    // residents by default.
-    expect(payer()).toBe("proplane");
-    expect(resolveServiceFeePayerFor({ tier: "business" })).toBe("proplane");
+  it("every paid plan defaults to resident without staff approval", () => {
+    expect(payer()).toBe("resident");
+    expect(resolveServiceFeePayerFor({ tier: "business" })).toBe("resident");
   });
 
   it("Free still defaults to the resident — absorbing fees is a paid capability", () => {
@@ -69,26 +66,9 @@ describe("the plan floor", () => {
 });
 
 describe("what a manager cannot do to themselves", () => {
-  it("honours proplane on Free when the account has a payment-waiver grant", () => {
-    expect(resolveServiceFeePayerFor({ tier: "free", propertyChoice: "proplane", waiverGranted: true })).toBe(
-      "proplane",
-    );
-    expect(resolveServiceFeePayerFor({ tier: "free", managerChoice: "proplane", waiverGranted: true })).toBe(
-      "proplane",
-    );
-  });
-
-  it("ignores a proplane value on Free without a waiver grant", () => {
-    // Honouring it there would let a free manager stop paying fees by writing one
-    // word into their own record, with PropLane picking up the bill.
-    expect(resolveServiceFeePayerFor({ tier: "free", propertyChoice: "proplane" })).toBe("resident");
-    expect(resolveServiceFeePayerFor({ tier: "free", managerChoice: "proplane" })).toBe("resident");
-  });
-
-  it("honours it on every PAID plan, where absorbing the fee is what the plan does", () => {
-    expect(resolveServiceFeePayerFor({ tier: "pro", managerChoice: "proplane" })).toBe("proplane");
-    expect(resolveServiceFeePayerFor({ tier: "business", managerChoice: "proplane" })).toBe("proplane");
-    expect(resolveServiceFeePayerFor({ tier: "business", propertyChoice: "proplane" })).toBe("proplane");
+  it.each(["free", "pro", "business"] as const)("ignores stored PropLane values and generic waiver grants on %s", (tier) => {
+    expect(resolveServiceFeePayerFor({ tier, propertyChoice: "proplane", waiverGranted: true })).toBe("resident");
+    expect(resolveServiceFeePayerFor({ tier, managerChoice: "proplane", waiverGranted: true })).toBe("resident");
   });
 
   it("still honours proplane from staff, who are the ones spending PropLane's money", () => {

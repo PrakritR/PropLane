@@ -230,7 +230,7 @@ describe("communication allowance", () => {
         commsUsedCents: 400,
       }),
     );
-    expect(row.comms).toMatchObject({ tier: "pro", usedCents: 400, allowanceCents: 1500, exhausted: false });
+    expect(row.comms).toMatchObject({ tier: "pro", usedCents: 400, allowanceCents: 1000, exhausted: false });
   });
 
   it("shows nothing rather than a wrong zero when usage could not be read", () => {
@@ -263,7 +263,7 @@ describe("tabs", () => {
     // Two: the staff-overridden row AND the Business account that has made no choice of its own —
     // `resolveServiceFeePayerFor`'s default for a paid plan IS `proplane`. The tab reports the net
     // answer, not "staff pushed a button", which is the point of reading it from that resolver.
-    expect(counts.absorbing).toBe(2);
+    expect(counts.absorbing).toBe(1);
     expect(ADMIN_BILLING_TABS.map((t) => t.id)).toEqual([
       "all",
       "trial",

@@ -1,3 +1,4 @@
+vi.mock("@/lib/sms/vendor-conversation-consent.server", () => ({ ensureVendorConversationConsent: vi.fn(async () => ({ allowed: true, conversationKey: "vendor-key" })) }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import {
@@ -7,7 +8,8 @@ import {
 } from "@/lib/agent/vendor-agent.server";
 import { buildRegistry, defineTool, defineWriteTool, runReadTool, toAnthropicTools } from "@/lib/tools/registry";
 import { buildVendorAgentContext } from "@/lib/tools/context";
-import { sendSms } from "@/lib/twilio";
+import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
+vi.mock("@/lib/sms/owner-sms-dispatcher.server", () => ({ enqueueOwnerSms: vi.fn(async () => ({ ok: true })) }));
 
 vi.mock("@/lib/twilio", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/twilio")>();
@@ -195,13 +197,14 @@ describe("vendor SMS gate follows the unified cross-store consent read", () => {
 
   const session = {
     id: "sess-1",
+    landlord_id: "manager-1",
     vendor_user_id: "vendor-1",
     vendor_phone_e164: "+15551234567",
     inbox_thread_id: null,
   } as never;
 
   beforeEach(() => {
-    vi.mocked(sendSms).mockClear();
+    vi.mocked(enqueueOwnerSms).mockClear();
     process.env.AXIS_AGENT_SMS_FROM = "+15550009999";
   });
 
@@ -210,8 +213,8 @@ describe("vendor SMS gate follows the unified cross-store consent read", () => {
       profile: { phone: "(555) 123-4567", sms_opt_out_at: EARLIER, sms_consent_at: null },
       consent: [{ phone: "5551234567", opted_in_at: LATER }],
     });
-    await deliverVendorAgentReply(db, session, "hello", "sms");
-    expect(vi.mocked(sendSms)).toHaveBeenCalledWith("+15551234567", "hello", "+15550009999");
+    await deliverVendorAgentReply(db, session, "hello", "sms", "reply-key", "SMverified");
+    expect(vi.mocked(enqueueOwnerSms)).toHaveBeenCalledWith(expect.objectContaining({ managerUserId: "manager-1", recipientPhone: "+15551234567", body: "hello", counterpartyRole: "vendor" }), db);
   });
 
   it("stays muted when the profiles STOP is newer than the ledger opt-in", async () => {
@@ -219,8 +222,8 @@ describe("vendor SMS gate follows the unified cross-store consent read", () => {
       profile: { phone: "(555) 123-4567", sms_opt_out_at: LATER, sms_consent_at: null },
       consent: [{ phone: "5551234567", opted_in_at: EARLIER }],
     });
-    await deliverVendorAgentReply(db, session, "hello", "sms");
-    expect(vi.mocked(sendSms)).not.toHaveBeenCalled();
+    await deliverVendorAgentReply(db, session, "hello", "sms", "reply-key", "SMverified");
+    expect(vi.mocked(enqueueOwnerSms)).not.toHaveBeenCalled();
   });
 
   it("stays muted for a legacy user-keyed STOP with an unmatchable profile phone", async () => {
@@ -229,7 +232,7 @@ describe("vendor SMS gate follows the unified cross-store consent read", () => {
       profile: { phone: "", sms_opt_out_at: EARLIER, sms_consent_at: null },
       consent: [],
     });
-    await deliverVendorAgentReply(db, session, "hello", "sms");
-    expect(vi.mocked(sendSms)).not.toHaveBeenCalled();
+    await deliverVendorAgentReply(db, session, "hello", "sms", "reply-key", "SMverified");
+    expect(vi.mocked(enqueueOwnerSms)).not.toHaveBeenCalled();
   });
 });

@@ -12,8 +12,8 @@ import {
 } from "@/lib/payment-policy";
 
 describe("listing service fee payer UI helpers", () => {
-  it("allows PropLane absorb on paid plans and on Free with an account waiver", () => {
-    expect(managerCanSelectProplaneServiceFee("pro", false)).toBe(true);
+  it("requires account approval on every plan", () => {
+    expect(managerCanSelectProplaneServiceFee("pro", false)).toBe(false);
     expect(managerCanSelectProplaneServiceFee("free", true)).toBe(true);
     expect(managerCanSelectProplaneServiceFee("free", false)).toBe(false);
   });
@@ -26,7 +26,7 @@ describe("listing service fee payer UI helpers", () => {
   it("defaults unset listing values to resident on every plan", () => {
     expect(listingServiceFeePayerUiValue(null, "pro", false)).toBe("resident");
     expect(listingServiceFeePayerUiValue(null, "free", false)).toBe("resident");
-    expect(listingServiceFeePayerUiValue(null, "free", true)).toBe("resident");
+    expect(listingServiceFeePayerUiValue(null, "free", true)).toBe("proplane");
   });
 
   it("never asks the listing wizard for a FREE100 box (PRP-421)", () => {
@@ -35,38 +35,14 @@ describe("listing service fee payer UI helpers", () => {
     expect(listingProplaneAbsorbNeedsWaiverCode("pro", "proplane", true)).toBe(false);
   });
 
-  it("persists PropLane absorb with FREE100, account grant, or preserved codeless proplane", () => {
-    expect(persistListingServiceFeePayer("proplane", "FREE100")).toEqual({
-      serviceFeePayer: "proplane",
-      serviceFeeWaiverCode: "FREE100",
-    });
-    expect(persistListingServiceFeePayer("proplane", "")).toEqual({
-      serviceFeePayer: "proplane",
-      serviceFeeWaiverCode: undefined,
-    });
-    expect(persistListingServiceFeePayer("proplane", "WRONG")).toEqual({
-      serviceFeePayer: "resident",
-      serviceFeeWaiverCode: undefined,
-    });
-    expect(persistListingServiceFeePayer("proplane", "", true)).toEqual({
-      serviceFeePayer: "proplane",
-      serviceFeeWaiverCode: undefined,
-    });
-    expect(persistListingServiceFeePayer("proplane", "", false)).toEqual({
-      serviceFeePayer: "resident",
-      serviceFeeWaiverCode: undefined,
-    });
-    expect(persistListingServiceFeePayer(null, "FREE100")).toEqual({
-      serviceFeePayer: null,
-      serviceFeeWaiverCode: undefined,
-    });
-  });
-
-  it("accepts only FREE100 as the listing waiver code (server/storage still)", () => {
-    expect(listingPaymentWaiverCodeMatches("free100")).toBe(true);
-    expect(listingPaymentWaiverCodeMatches("FREE 100")).toBe(true);
+  it("keeps legacy data readable but never treats shared codes as authorization", () => {
+    expect(persistListingServiceFeePayer("proplane", "FREE100", false)).toEqual({ serviceFeePayer: "resident" });
+    expect(persistListingServiceFeePayer("proplane", "", true)).toEqual({ serviceFeePayer: "proplane" });
+    expect(persistListingServiceFeePayer(null, "FREE100")).toEqual({ serviceFeePayer: null });
+    expect(listingPaymentWaiverCodeMatches("FREE100")).toBe(false);
     expect(listingPaymentWaiverCodeMatches("wrong")).toBe(false);
   });
+
 });
 
 describe("listing wizard pricing — service fee payer (PRP-421)", () => {
@@ -100,7 +76,7 @@ describe("listing wizard pricing — service fee payer (PRP-421)", () => {
     expect(errors.serviceFeeWaiverCode).toBeUndefined();
   });
 
-  it("allows PropLane absorb on Pro without any listing waiver code", () => {
+  it("blocks PropLane on Pro without account approval", () => {
     const sub = {
       ...createDefaultListingSubmission(),
       listingPlaceCategoryId: "individual_rooms",
@@ -111,7 +87,7 @@ describe("listing wizard pricing — service fee payer (PRP-421)", () => {
       managerSkuTier: "pro",
       accountPaymentWaiverGranted: false,
     });
-    expect(errors.serviceFeePayer).toBeUndefined();
+    expect(errors.serviceFeePayer).toBe(LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED);
     expect(errors.serviceFeeWaiverCode).toBeUndefined();
   });
 });

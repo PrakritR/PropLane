@@ -959,3 +959,11 @@ must explicitly set `NOMINATIM_PROVIDER_URL` and `OVERPASS_PROVIDER_URL` to
 managed or self-hosted HTTPS services; missing or unsafe configuration returns
 an honest unavailable result. Caches and request queues are per server process,
 so they are an egress reduction rather than a distributed quota guarantee.
+
+## Prepaid communication update (September 2026)
+
+Every plan can request a work number. All manager-funded outgoing SMS routes through
+`enqueueOwnerSms` and reserves credit before provider submission. The transport
+requires that owner’s reserved hold; phone verification is platform-funded. Legacy
+pooled relay routing is retired. Vendor replies route by sender plus destination
+owner before the leasing fallback. See [comms-billing.md](comms-billing.md).

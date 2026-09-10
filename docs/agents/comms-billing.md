@@ -1,90 +1,43 @@
-# Manager communication billing (pay-as-you-go)
+# Manager communication credit
 
-Pure PAYG for SMS, voice, and AI on manager work numbers.
+Free, Pro and Business all include a work number and Communication access. Provisioning,
+phone verification, carrier registration, consent and runtime rollout controls still apply.
+The phone itself has no setup or monthly usage deduction. Assistant email retains its
+separate paid-plan entitlement (`preferPaid: true`).
 
-## Temporary trial work-number onboarding
-
-When the plan-based messaging entitlement gate is in use (PAYG disabled), set
-`SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED=1` to let Pro and Business trials
-request a number during onboarding. This covers both signup trials and Stripe
-subscription trials. It does not enable Free plans or bypass provisioning,
-runtime, carrier registration, or provider configuration gates.
-
-Trial grants remain `status=trialing` in `sms_manager_entitlements`, with a
-finite `valid_until`: signup date plus the existing trial duration, or Stripe's
-`trial_end`. Missing or expired trial dates fail closed. In Settings → Messaging,
-an unverified plan gets one automatic eligibility check per mount. For a settled
-ineligible snapshot after an upgrade, use **Refresh eligibility**, even if no
-number exists yet. Refreshes are rate-limited per manager; they never purchase
-a number. Number setup still requires **Request work number**, and status GET
-remains read-only.
-
-To stop enrolling new trials, unset the flag (or set it to `0`) and redeploy
-through staging QA. Already enrolled trial grants remain usable only through
-the earlier of their original expiry and the current trial expiry;
-reconciliation cannot extend them while enrollment is closed, and a changed
-source or inactive trial revokes the trial grant. Signup trial reads also check
-the current signup expiry before reconciliation. No number is automatically
-released by this flag. Paid subscriptions
-and intentional admin/waiver grants retain their normal access.
-
-The exception covers work-number/SMS access only. Assistant-email provisioning
-and use still require a paid or intentional admin/waiver grant. Its entitlement
-lookup prefers a paid inviter grant over a pure co-manager's own trial without
-overwriting that trial snapshot to deny SMS access.
-
-The independent PAYG policy still applies when `COMMS_PAYG_BILLING_ENABLED=1`;
-this trial flag does not redefine its allowances or payment requirements.
-
-Coverage: `manager-sms-entitlement.test.ts`,
-`manager-messaging-number-route.test.ts`, `manager-assistant-email-route.test.ts`, and
-`manager-messaging-settings-panel.test.tsx` in `tests/unit/`.
-
-## Two switches, and they are not the same switch
-
-| Env | Default | Controls |
+| Plan | Subscription | Monthly retail communication credit |
 | --- | --- | --- |
-| `COMMS_LIMITS_ENFORCED` | **on** (set `0` to disable) | Metering and the per-plan allowance |
-| `COMMS_PAYG_BILLING_ENABLED` | off (set `1` to enable) | Actually charging a card |
+| Free | $0 | $2 |
+| Pro | $20/month or $192/year | $10 |
+| Business | $200/month or $1,920/year | $100 |
 
-Limits default ON because that flag **fails open**: with metering off nothing
-stops, so every plan — Free included — gets unlimited texting, calling and AI,
-and an unlimited account looks exactly like a working one. Billing defaults OFF
-because money leaving a card must never start moving because an env var went
-missing.
+Annual subscriptions receive the same monthly credit. Credit resets on the first of
+each month at 00:00 UTC. Existing managers keep their higher current allowance during
+the migration month; the new allowance starts next reset. An upgrade adds only the
+positive allowance difference once; downgrades take effect at the next reset.
 
-A manager past their allowance with billing off is asked to add a card and
-blocked; nothing is charged until PAYG is on too.
+The paid allowance is 50% of monthly subscription price in **retail usage credit**,
+not provider cost. Rates include operational overhead; provider and carrier costs can
+vary. Free's $2 buys at most 66 outbound single-segment texts, Pro 333 and Business
+3,333 if used only for that meter. Incoming messages, voice and AI share the same balance.
 
-Apply migration `20260905130000_manager_comms_billing.sql`.
+## Purchases and stops
 
-## Rules
+Manual one-time packs: **$5, $10, $25, $50**. Purchased credit carries forward without
+expiry and is spent after included credit. A saved card never authorizes automatic
+recharge or overage. Insufficient credit blocks new outgoing SMS, calls and work-number
+AI. Incoming SMS is stored first and uses available credit only; unavoidable excess
+is absorbed by PropLane. Message history and the assigned number remain available.
 
-- **The work number is FREE on every plan, including Free.** Setup and monthly
-  are zero-rated. A manager cannot evaluate PropLane without a number, so it is
-  never the paywall — what is limited is what the number *does*.
-- **Every plan includes a real allowance**, so a number can be set up and used
-  with no card at all. A card is required only once the allowance is spent.
-- **Past the allowance, a card bills rather than blocks** — that is how a
-  manager buys more without changing plan.
-- **Inbound:** always billed to the work-number owner.
-- **Notifications:** email on budget 80%/100%, payment method update, payment failed (pauses comms).
+`COMMS_PAYG_BILLING_ENABLED=1` now enables **manual credit checkout only**. It defaults
+off until the migrations and signed Stripe webhook are available. The former
+`COMMS_LIMITS_ENFORCED` flag cannot disable credit enforcement. The old invoicing cron
+and invoicing helper return a retired/no-op response; they never invoice usage.
 
-## Included allowance by plan
-
-Cents of USAGE VALUE, not a message count — the meters are not comparable, and
-one number per plan stays correct when a rate changes.
-
-| Plan | Price | Included | Roughly |
-| --- | --- | --- | --- |
-| Free | $0 | **$2.50** | ~83 texts, or ~16 AI turns, or ~62 voice minutes |
-| Pro | $20/mo | **$15.00** | ~500 texts, or ~100 AI turns |
-| Business | $200/mo | **$150.00** | ~5,000 texts, or ~1,000 AI turns |
-
-Business is capped rather than unmetered: "no limit" is not a price, it is an
-unbounded liability on a fixed fee, and the cap is the only signal that an
-account has started doing something nobody priced. It sits far above real use,
-and with a card on file passing it bills rather than blocks.
+Web checkout uses Stripe. The native app shares balances and communication, but does
+not show Stripe checkout or an external purchase link. Apple consumable products and
+RevenueCat fulfillment need separate setup before native top-ups can be offered; see
+`apple-iap.md`. This does not restrict credit already bought on the web.
 
 ## Retail rates (USD)
 
@@ -93,20 +46,55 @@ and with a card on file passing it bills rather than blocks.
 | Outbound SMS segment | $0.03 |
 | Inbound SMS segment | $0.02 |
 | Voice minute | $0.04 |
-| Speech gather | $0.05 |
+| Speech recognition gather | $0.05 |
 | AI agent turn | $0.15 |
 | Recording minute | $0.01 |
-| Work number setup | **free** |
-| Work number monthly | **free** |
+| Work number setup and monthly rental | Included separately |
 
-## API
+SMS may span several segments. Voice and recording round up to minutes. Voice reserves
+at most five minutes (fewer when funds require) and applies that bound to the active
+Twilio call before answering. Recognition and AI reserve separately before work starts.
+Terminal callbacks return unused duration; recording settlement waits for its own
+callback or an authoritative provider check that recording never started.
 
-- `GET /api/manager/comms-billing` — usage summary + gate status
-- `PATCH /api/manager/comms-billing` — `{ monthlyBudgetCents }`, `{ clearBillingPause: true }`
+## Data and authorization
 
-## Code
+Apply `20260910140000_manager_communication_credits.sql` and
+`20260910160000_comms_credit_alerts.sql` after the original billing migration. New
+wallet/purchase RPCs and tables are service-role-only. Canonical
+`getEffectiveManagerSkuTier` supplies every quota; unreadable plans fail closed.
 
-- `src/lib/comms-billing/*` — rates, eligibility, metering, notifications
-- Wired at SMS dispatcher, inbound webhook, voice, and `runSmsAgentTurn`
+- `GET /api/manager/comms-billing`: read-only balance, usage, rates and recent purchases.
+- `PATCH /api/manager/comms-billing`: `{ monthlyBudgetCents }`, alert only. Cannot clear a pause.
+- `POST /api/manager/comms-billing/checkout`: server-priced pack and UUID operation id;
+  owner derives from authenticated manager context. Co-manager access grants no spending authority.
+- Signed `/api/stripe/webhook`: exact paid amount, USD, purpose, checkout identity and
+  owner checks before atomic credit fulfillment. Duplicate events grant once. Refunds
+  reconcile cumulatively; disputes remove credit and pause for staff review. Won disputes
+  remain under staff review rather than silently restoring spendable credit.
+- Budget alerts claim 80%/100% once per UTC month atomically, without loading all usage
+  into the delivery process. A card update cannot clear a credit-reversal pause.
 
-Stripe metered invoicing (Phase 2) is not yet connected — usage is recorded in `manager_comms_usage_events` for dashboard + future billing.
+All outgoing manager-funded SMS uses the work-number dispatcher. The central transport
+checks an owner-scoped reservation; authenticated phone verification is the sole
+platform-funded exemption. Pooled legacy relay routing is retired. Vendor sessions are
+scoped by both sender phone and destination work-number owner before prospect routing.
+
+Model-turn completion is persisted against the reservation before delivery. Replays
+reuse it. A turn interrupted for more than ten minutes produces an explicit terminal
+notice instead of repeating tools; the manager must inspect existing portal actions.
+Unknown carrier submissions retain their debit and enter operator reconciliation,
+never automatic resend. Confirm provider outcome before releasing any such reservation.
+
+Processing fees are separate from communication credit and from every subscription.
+Only the staff-owned account override grants PropLane processing coverage. See
+`resident-payments.md`.
+
+## Verification
+
+`tests/integration/comms-credit-postgres.test.ts` exercises real local PostgreSQL
+concurrency, monthly resets, upgrades, grandfathering, fulfillment/reversals and staff
+ownership. Set `COMMS_CREDIT_TEST_DATABASE_URL` to a disposable **localhost** database;
+remote URLs are rejected. Unit tests cover purchase authorization and price integrity,
+fee precedence, plan copy and messaging boundaries. Use Stripe **test mode** and the
+dev/test database for browser checkout verification; never production data.

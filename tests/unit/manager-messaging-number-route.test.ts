@@ -159,7 +159,7 @@ describe("manager messaging-number route", () => {
   });
 
   it.each([
-    ["trialing", 403, "trial converts"],
+    ["trialing", 503, "could not verify"],
     ["plan_unreadable", 503, "could not verify"],
     ["legacy_unknown", 503, "could not verify"],
   ])("explains %s eligibility without a misleading upgrade prompt", async (reason, status, message) => {

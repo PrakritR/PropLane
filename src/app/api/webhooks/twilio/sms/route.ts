@@ -178,6 +178,7 @@ export async function POST(req: Request) {
 
   const task = () =>
     runVendorAgentSessionTurn(db, session, body, "sms", {
+      inboundMessageSid: String(params.MessageSid ?? "").trim() || undefined,
       precomputedReply: sessionResolution.kind === "reply" ? sessionResolution.reply : null,
       reference: sessionResolution.kind === "session" ? sessionResolution.reference : null,
     }).catch((e) =>

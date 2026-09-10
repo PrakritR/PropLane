@@ -233,3 +233,10 @@ Coverage: `tests/unit/admin-billing-rows.test.ts`,
 `manager-property-cap-override.test.ts`, plus
 `admin-list-surface-adoption.test.ts` and `platform-parity.test.ts` for the
 section wiring.
+
+## Communication and processing fees
+
+All plans include Communication and work-number access. Monthly prepaid credit is
+Free $2, Pro $10, Business $100; manual top-ups carry forward. Quotas use only the
+effective SKU. A paid subscription does not grant payment-processing coverage; only
+the staff account override does. Full contract: [comms-billing.md](comms-billing.md).

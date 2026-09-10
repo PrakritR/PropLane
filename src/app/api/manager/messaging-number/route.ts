@@ -30,11 +30,8 @@ import {
   smsRuntimeAllowsManager,
 } from "@/lib/sms/number-registration-policy";
 import {
-  commsBillingBlockMessage,
   evaluateManagerCommsBillingGate,
 } from "@/lib/comms-billing/eligibility.server";
-import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
-import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
 
 export const runtime = "nodejs";
 
@@ -157,12 +154,9 @@ async function buildStatus(
     managerIsAllowlisted,
   });
 
-  const paygBilling = isCommsPaygBillingEnabled()
-    ? await evaluateManagerCommsBillingGate(db, userId)
-    : null;
-  const commsBillingAllowed = paygBilling ? paygBilling.allowed : entitlement.eligible;
-  const canRequestBilling =
-    paygBilling != null ? paygBilling.allowed : entitlementCanBeReconciled;
+  const billing = await evaluateManagerCommsBillingGate(db, userId, 3);
+  const commsBillingAllowed = billing.allowed;
+  const canRequestBilling = entitlementCanBeReconciled;
 
   return {
     mode,
@@ -334,30 +328,8 @@ export async function POST(req: Request) {
     actor.db,
     actor.userId,
   );
-  // Under pay-as-you-go a number is BOUGHT, not bundled: a card on file is what
-  // qualifies a manager, on any plan including Free. The plan entitlement still
-  // stands in when PAYG is off, so turning the flag off restores the old rule
-  // rather than leaving the number ungated.
-  if (isCommsPaygBillingEnabled()) {
-    const gate = await evaluateManagerCommsBillingGate(actor.db, actor.userId);
-    if (!gate.allowed) {
-      return NextResponse.json(
-        { error: commsBillingBlockMessage(gate.reason) },
-        { status: 402 },
-      );
-    }
-  } else if (!entitlement.eligible) {
-    const unreadable = entitlement.reason === "plan_unreadable" || entitlement.reason === "legacy_unknown";
-    return NextResponse.json(
-      {
-        error: unreadable
-          ? "We could not verify your messaging eligibility. Refresh eligibility or contact support if this continues."
-          : entitlement.reason === "trialing"
-            ? "Work-number setup is available after your Pro or Business trial converts to a paid subscription."
-            : "An active paid Pro or Business plan is required for a dedicated messaging number.",
-      },
-      { status: unreadable ? 503 : 403 },
-    );
+  if (!entitlement.eligible) {
+    return NextResponse.json({ error: "We could not verify your communication plan. Try again." }, { status: 503 });
   }
 
   const { data: runtimeConfig, error: runtimeError } = await actor.db
@@ -397,17 +369,6 @@ export async function POST(req: Request) {
     actor.userId,
     areaCode ? { areaCode } : undefined,
   );
-  // Charge the one-time setup only once a number was actually bought. Billing
-  // before provisioning would charge for a failed purchase; the idempotency key
-  // carries the number, so a retry that returns the same one bills once.
-  if (result.ok && isCommsPaygBillingEnabled() && result.number) {
-    await recordManagerCommsUsage(actor.db, {
-      managerUserId: actor.userId,
-      meter: "work_number_setup",
-      idempotencyKey: `work_number_setup:${actor.userId}:${result.number}`,
-      metadata: { phoneNumber: result.number, areaCode: areaCode || null },
-    });
-  }
   const next = publicStatus(await buildStatus(actor.db, actor.userId));
   if (!result.ok) {
     return NextResponse.json(

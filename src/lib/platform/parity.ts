@@ -104,6 +104,7 @@ export const PLATFORM_CHANGE_CHECKLIST = [
   "File upload / camera: use useNativeCamera() (web falls back to file input)",
   "Native-only layout: use html[data-native] / portal-layout-classes.ts safe-area tokens",
   "In-app purchase (iOS): manager subscription buys via StoreKit/RevenueCat in the native plan surface (manager-plan-native.tsx); web keeps Stripe checkout. Never present a web purchase link on native (App Store 3.1.1). RevenueCat webhook (/api/revenuecat/webhook) writes billing='apple' grants — see docs/agents/apple-iap.md",
+  "Communication credit: shared balance and usage on web/native. Stripe top-ups are web-only; native consumable products are not configured, so the app shows balance without a checkout or external-purchase link.",
   "Deploy: Vercel deploy updates web + app UI; run npm run test:unit (platform-parity)",
   "Native shell change only (plugins, icons, permissions incl. @revenuecat/purchases-capacitor): npx cap sync + app store build",
 ] as const;

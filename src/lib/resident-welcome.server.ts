@@ -23,7 +23,7 @@ import {
   buildExistingResidentWelcomeEmailHtml,
   buildExistingResidentWelcomeMailtoHref,
 } from "@/lib/existing-resident-welcome-email";
-import { sendSms } from "@/lib/twilio";
+import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
 import { ensureResidentSetupTokenForApplication } from "@/lib/auth/resident-setup-token";
 import { resolveManagerReachabilityForResident } from "@/lib/manager-reachability-for-resident.server";
 
@@ -262,14 +262,13 @@ export async function deliverResidentWelcome(
   // SMS welcome if manager has sms_from_number configured
   try {
     const { data: managerProfile } = await db.from("profiles").select("sms_from_number, full_name").eq("id", actor.userId).maybeSingle();
-    const smsFromNumber = String(managerProfile?.sms_from_number ?? "").trim();
-    if (process.env.SMS_RUNTIME_ENABLED?.trim() !== "1" && smsFromNumber && !skipExternalEmail) {
+    if (!skipExternalEmail) {
       const { data: residentProfile } = await db.from("profiles").select("phone").eq("email", to).maybeSingle();
       const residentPhone = String(residentProfile?.phone ?? "").trim();
       if (residentPhone) {
         const senderName = String(managerProfile?.full_name ?? actor.email ?? "Your property manager").trim() || "Your property manager";
         const smsBody = `Welcome${residentName ? `, ${residentName}` : ""}! Your PropLane resident portal is ready. Your PropLane ID: ${formatProplaneIdForDisplay(axisId)}. — ${senderName}`;
-        await sendSms(residentPhone, smsBody, smsFromNumber);
+        await enqueueOwnerSms({ managerUserId: actor.userId, actorUserId: actor.userId, recipientPhone: residentPhone, recipientEmail: to, body: smsBody, sendClass: "transactional", purpose: "resident_welcome", counterpartyRole: "resident", dedupeKey: `welcome:${actor.userId}:${axisId}:${payloadId}` }, db);
       }
     }
   } catch { /* non-critical */ }
@@ -428,14 +427,13 @@ export async function deliverExistingResidentWelcome(
 
   try {
     const { data: managerProfile } = await db.from("profiles").select("sms_from_number, full_name").eq("id", actor.userId).maybeSingle();
-    const smsFromNumber = String(managerProfile?.sms_from_number ?? "").trim();
-    if (process.env.SMS_RUNTIME_ENABLED?.trim() !== "1" && smsFromNumber && !skipExternalEmail) {
+    if (!skipExternalEmail) {
       const { data: residentProfile } = await db.from("profiles").select("phone").eq("email", to).maybeSingle();
       const residentPhone = String(residentProfile?.phone ?? "").trim();
       if (residentPhone) {
         const senderName = String(managerProfile?.full_name ?? actor.email ?? "Your property manager").trim() || "Your property manager";
         const smsBody = `Your PropLane resident portal is ready${residentName ? `, ${residentName}` : ""}. Pay rent and manage your home online. PropLane ID: ${formatProplaneIdForDisplay(axisId)}. — ${senderName}`;
-        await sendSms(residentPhone, smsBody, smsFromNumber);
+        await enqueueOwnerSms({ managerUserId: actor.userId, actorUserId: actor.userId, recipientPhone: residentPhone, recipientEmail: to, body: smsBody, sendClass: "transactional", purpose: "resident_welcome", counterpartyRole: "resident", dedupeKey: `welcome:${actor.userId}:${axisId}:${payloadId}` }, db);
       }
     }
   } catch { /* non-critical */ }

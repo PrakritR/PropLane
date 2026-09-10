@@ -4,7 +4,7 @@ export type ManagerMessagingRuntimeMode =
 export type ManagerMessagingWorkspaceRole = "primary" | "co_manager";
 
 export type ManagerMessagingEntitlement =
-  | { eligible: true; tier: "pro" | "business"; source: "stripe" | "apple" }
+  | { eligible: true; tier: "free" | "pro" | "business"; source: "stripe" | "apple" | "none" }
   | {
       eligible: false;
       reason:

@@ -15,9 +15,7 @@ import {
   deliverManagerSmsReply,
   runManagerSmsAgentTurn,
 } from "@/lib/agent/manager-sms-agent.server";
-import { twilioMediaUrls } from "@/lib/sms-media.server";
 import { inboundLogIdentityFields } from "@/lib/manager-sms-messages.server";
-import { relayInboundSms } from "@/lib/sms-relay.server";
 import { resolveResidentSmsAgentContext } from "@/lib/tools/resident-sms-context";
 import {
   deliverResidentSmsReply,
@@ -34,9 +32,7 @@ import {
   type SmsInboundReplay,
 } from "@/lib/sms/inbound-replay.server";
 import { upsertManagerSmsContact } from "@/lib/sms/manager-sms-contacts.server";
-import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
 import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
-import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
 import { estimateSmsSegments } from "@/lib/sms/number-registration-policy";
 import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.server";
 
@@ -168,41 +164,7 @@ export async function POST(req: Request) {
     return twimlOk();
   }
 
-  // The legacy pooled proxy relay predates the durable inbound receipt state
-  // machine. It is deliberately excluded from the managed work-number launch:
-  // otherwise a crash between its relay legs could acknowledge a partially
-  // delivered message. Runtime-off installations retain the legacy behavior.
-  if (process.env.SMS_RUNTIME_ENABLED?.trim() !== "1") {
-    const limit = await rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000);
-    if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
-    if (!limit.ok) {
-      return twimlOk();
-    }
-    const mediaUrls = twilioMediaUrls(params);
-    const relay = await relayInboundSms(db, { fromPhone, toPhone, body, messageSid, mediaUrls });
-    if (relay.handled) {
-      await db
-        .from("inbound_sms_log")
-        .insert({
-          manager_user_id: relay.managerUserId ?? null,
-          from_phone: fromPhone,
-          to_phone: toPhone,
-          matched_sender_user_id: relay.senderUserId ?? null,
-          body,
-          message_sid: messageSid,
-          // Proxy-pair relay is always a bound resident ↔ manager thread.
-          ...inboundLogIdentityFields({
-            managerUserId: relay.managerUserId ?? null,
-            counterpartyRole: "resident",
-            counterpartyUserId: relay.senderUserId ?? null,
-            fromPhone,
-          }),
-        })
-        .then(() => undefined, () => undefined);
-      return twimlOk(relay.reply);
-    }
-  }
-
+  // Pooled proxy lines are retired. Only owned work numbers route replies.
   const managerId = ownedNumber?.managerId ?? "";
   if (!managerId) {
     const limit = await rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000);
@@ -223,14 +185,6 @@ export async function POST(req: Request) {
     return twimlOk();
   }
 
-  if (isCommsPaygBillingEnabled()) {
-    const billing = await evaluateManagerCommsBillingGate(db, managerId);
-    if (!billing.allowed) {
-      return twimlOk(
-        "This number cannot receive messages right now. Please contact your property manager directly.",
-      );
-    }
-  }
 
   if (!messageSid) {
     return NextResponse.json({ error: "MessageSid is required." }, { status: 400 });
@@ -279,7 +233,17 @@ export async function POST(req: Request) {
     return twimlOk();
   }
 
-  if (isCommsPaygBillingEnabled()) {
+  // Preserve the incoming body before any billing read. An unavailable wallet
+  // must not erase incoming communication while delivery retries are pending.
+  const { error: inboundBodyError } = await db.from("inbound_sms_log").insert({
+    manager_user_id: managerId, from_phone: fromPhone, to_phone: toPhone, body, message_sid: messageSid,
+    ...inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: "unknown", fromPhone }),
+  });
+  if (inboundBodyError && inboundBodyError.code !== "23505") {
+    await finishInboundClaim(db, messageSid, inboundWorkerId, "retryable");
+    return NextResponse.json({ error: "Incoming message could not be saved." }, { status: 503 });
+  }
+  {
     const inboundSegments = estimateSmsSegments(body).segmentCount;
     await recordManagerCommsUsage(db, {
       managerUserId: managerId,
@@ -475,7 +439,7 @@ export async function POST(req: Request) {
     }
     await db
       .from("inbound_sms_log")
-      .insert({
+      .update({
         manager_user_id: managerId,
         from_phone: fromPhone,
         to_phone: toPhone,
@@ -483,12 +447,25 @@ export async function POST(req: Request) {
         body,
         message_sid: messageSid,
         ...inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: "manager", fromPhone }),
-      })
+      }).eq("message_sid", messageSid).eq("manager_user_id", managerId)
       .then(() => undefined, () => undefined);
     if (turn) return twimlOk();
     if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
       return NextResponse.json({ error: "Inbound completion unavailable." }, { status: 503 });
     }
+    return twimlOk();
+  }
+
+  // The destination work number scopes vendor sessions before a prospect fallback.
+  const { resolveVendorAgentSessionForInbound, runVendorAgentSessionTurn } = await import("@/lib/agent/vendor-agent.server");
+  const vendor = await resolveVendorAgentSessionForInbound(db, normalizeE164(fromPhone) ?? fromPhone, body, managerId);
+  if (vendor.kind !== "unknown_phone") {
+    await db.from("inbound_sms_log").update({ matched_sender_user_id: vendor.session.vendor_user_id,
+      ...inboundLogIdentityFields({ managerUserId: managerId, counterpartyRole: "vendor", counterpartyUserId: vendor.session.vendor_user_id, fromPhone })
+    }).eq("message_sid", messageSid).eq("manager_user_id", managerId);
+    await runVendorAgentSessionTurn(db, vendor.session, body, "sms", { inboundMessageSid: messageSid,
+      precomputedReply: vendor.kind === "reply" ? vendor.reply : null, reference: vendor.kind === "session" ? vendor.reference : null });
+    if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) throw new Error("Vendor inbound completion unavailable.");
     return twimlOk();
   }
 
@@ -588,7 +565,7 @@ export async function POST(req: Request) {
     }
     await db
       .from("inbound_sms_log")
-      .insert({
+      .update({
         manager_user_id: managerId,
         from_phone: fromPhone,
         to_phone: toPhone,
@@ -601,7 +578,7 @@ export async function POST(req: Request) {
           counterpartyUserId: residentIdentity.ctx.userId,
           fromPhone,
         }),
-      })
+      }).eq("message_sid", messageSid).eq("manager_user_id", managerId)
       .then(() => undefined, () => undefined);
 
     // Leg 1 for the resident agent fork. Without this, only prospect/leasing
@@ -699,7 +676,7 @@ export async function POST(req: Request) {
   // identity fields anyway for the rare path where the handler logged nothing.
   await db
     .from("inbound_sms_log")
-    .insert({
+    .update({
       manager_user_id: managerId,
       from_phone: fromPhone,
       to_phone: toPhone,
@@ -707,7 +684,7 @@ export async function POST(req: Request) {
       body,
       message_sid: messageSid,
       ...inboundLogIdentityFields({ managerUserId: managerId, fromPhone }),
-    })
+    }).eq("message_sid", messageSid).eq("manager_user_id", managerId)
     .then(() => undefined, () => undefined);
 
   if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {

@@ -21,7 +21,7 @@ vi.mock("@/lib/sms/number-registration-policy", () => ({
   evaluateManagerSmsNumberSendability: vi.fn(() => ({ sendable: true })),
   quietHoursBlocks: vi.fn(() => false),
 }));
-vi.mock("@/lib/comms-billing/rates", () => ({ isCommsPaygBillingEnabled: vi.fn(() => false) }));
+vi.mock("@/lib/comms-billing/rates", () => ({ isCommsPaygBillingEnabled: vi.fn(() => false), unitPriceCentsForMeter: () => 3 }));
 
 import {
   dispatchOwnerSmsOutbox,
@@ -195,3 +195,6 @@ describe("dispatcher conversation-log repair handoff", () => {
     });
   });
 });
+
+vi.mock("@/lib/comms-billing/eligibility.server", () => ({evaluateManagerCommsBillingGate:vi.fn(async()=>({allowed:true}))}));
+vi.mock("@/lib/comms-billing/wallet.server", () => ({reserveCommsCredit:vi.fn(async()=>({allowed:true,duplicate:false,state:"reserved"})),finishCommsCredit:vi.fn(async()=>{})}));

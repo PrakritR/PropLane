@@ -1,3 +1,4 @@
+import { fundedVoiceGather } from "@/lib/comms-billing/voice-credit.server";
 import { NextResponse } from "next/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import {
@@ -7,7 +8,6 @@ import {
   resolveVoiceTurnWebhookUrl,
   truncateForVoiceSpeech,
   twimlDial,
-  twimlGatherSpeech,
   twimlHangup,
   twimlResponse,
   twimlSay,
@@ -42,8 +42,10 @@ function phaseFromRequest(req: Request): "consent" | "agent" {
 
 export async function POST(req: Request) {
   const phase = phaseFromRequest(req);
+  const turnId = new URL(req.url).searchParams.get("turn") ?? "legacy";
+  if (!/^(?:[a-f0-9]{32}|legacy)$/.test(turnId)) return NextResponse.json({ error: "Invalid turn." }, { status: 400 });
   const raw = await req.text();
-  const validated = validateTwilioVoiceWebhook(req, raw, resolveVoiceTurnWebhookUrl(phase));
+  const validated = validateTwilioVoiceWebhook(req, raw, resolveVoiceTurnWebhookUrl(phase, turnId === "legacy" ? undefined : turnId));
   if (!validated.ok) {
     return NextResponse.json({ error: validated.message }, { status: validated.status });
   }
@@ -63,13 +65,15 @@ export async function POST(req: Request) {
 
   const db = createSupabaseServiceRoleClient();
 
+  const resolved = await resolveVoiceCallRoute(db, { fromPhone, toPhone });
+  if (!resolved.ok) return twimlResponse(twimlSay(MANAGER_VOICE_UNCONFIGURED_PROMPT) + twimlHangup());
+  const gather = (prompt: string) => fundedVoiceGather(db, { owner: resolved.managerId, callSid, turnId, phase: "agent", prompt });
+
   if (phase === "consent") {
     if (!spokenConsentGranted(speech)) {
+      const { error } = await db.rpc("settle_comms_credit_quantity", { p_owner: resolved.managerId, p_key: `voice_recording_minute:${callSid}`, p_quantity: 0 });
+      if (error) return NextResponse.json({ error: "Recording credit settlement unavailable." }, { status: 503 });
       return twimlResponse(twimlSay("No problem. Goodbye.") + twimlHangup());
-    }
-    const resolved = await resolveVoiceCallRoute(db, { fromPhone, toPhone });
-    if (!resolved.ok) {
-      return twimlResponse(twimlSay(MANAGER_VOICE_UNCONFIGURED_PROMPT) + twimlHangup());
     }
     const logIdentity = voiceCallLogIdentity({
       managerId: resolved.managerId,
@@ -82,10 +86,7 @@ export async function POST(req: Request) {
       ? twimlStartRecording(resolveVoiceRecordingWebhookUrl())
       : "";
     return twimlResponse(
-      `${recordingXml}${twimlGatherSpeech({
-        actionUrl: resolveVoiceTurnWebhookUrl("agent"),
-        prompt: `Thanks. ${voiceGreetingForRoute(resolved.route)}`,
-      })}`,
+      `${recordingXml}${await gather(`Thanks. ${voiceGreetingForRoute(resolved.route)}`)}`,
     );
   }
 
@@ -95,16 +96,8 @@ export async function POST(req: Request) {
       ? voiceGreetingForRoute(resolved.route)
       : "I did not catch that. Please try again.";
     return twimlResponse(
-      twimlGatherSpeech({
-        actionUrl: resolveVoiceTurnWebhookUrl("agent"),
-        prompt: reprompt,
-      }),
+      await gather(reprompt),
     );
-  }
-
-  const resolved = await resolveVoiceCallRoute(db, { fromPhone, toPhone });
-  if (!resolved.ok) {
-    return twimlResponse(twimlSay(MANAGER_VOICE_UNCONFIGURED_PROMPT) + twimlHangup());
   }
 
   // "Let me talk to a person" — bridge to the manager's own verified mobile
@@ -137,10 +130,7 @@ export async function POST(req: Request) {
     }
     return twimlResponse(
       twimlSay(transferUnavailablePrompt(target.reason)) +
-        twimlGatherSpeech({
-          actionUrl: resolveVoiceTurnWebhookUrl("agent"),
-          prompt: "What can I help with?",
-        }),
+        await gather("What can I help with?"),
     );
   }
 
@@ -150,13 +140,11 @@ export async function POST(req: Request) {
     toPhone,
     speechResult: speech,
     callSid,
+    turnId,
   });
 
   const spoken = truncateForVoiceSpeech(reply);
   return twimlResponse(
-    `${twimlSay(spoken)}${twimlGatherSpeech({
-      actionUrl: resolveVoiceTurnWebhookUrl("agent"),
-      prompt: "Anything else?",
-    })}`,
+    `${twimlSay(spoken)}${await gather("Anything else?")}`,
   );
 }

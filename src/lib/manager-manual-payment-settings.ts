@@ -79,41 +79,13 @@ export function isValidZelleContact(value: string): boolean {
 
 type ServiceFeeSelection = { serviceFeePayer: ServiceFeePayer; serviceFeeWaiverCode?: string };
 
-/**
- * Which fee-payer a save is allowed to keep.
- *
- * Selecting `proplane` — PropLane, not the manager and not the resident, bearing Stripe's
- * cost — requires the promo code, because it spends PropLane's own money. Two cases are
- * deliberately different:
- *
- * - A NEW selection with no valid code falls back to `resident`, exactly like
- *   {@link persistListingServiceFeePayer} does per listing.
- * - A save that merely CARRIES FORWARD an account already on `proplane` keeps it, so an
- *   unrelated save (toggling Stripe off, say) can never quietly move Stripe's cost back
- *   onto that manager's residents.
- */
+/** Only staff-owned account approval permits selecting PropLane as payer. */
 export function resolveSavedServiceFeeSelection(
   incoming: ServiceFeeSelection,
-  stored: ServiceFeeSelection | null,
-  accountWaiverGranted = false,
+  _stored: ServiceFeeSelection | null,
+  accountApproved = false,
 ): ServiceFeeSelection {
-  if (incoming.serviceFeePayer !== "proplane") return { serviceFeePayer: incoming.serviceFeePayer };
-  if (listingPaymentWaiverCodeMatches(incoming.serviceFeeWaiverCode)) {
-    return {
-      serviceFeePayer: "proplane",
-      serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(incoming.serviceFeeWaiverCode ?? ""),
-    };
-  }
-  if (accountWaiverGranted) {
-    return { serviceFeePayer: "proplane" };
-  }
-  if (stored?.serviceFeePayer === "proplane") {
-    return {
-      serviceFeePayer: "proplane",
-      ...(stored.serviceFeeWaiverCode ? { serviceFeeWaiverCode: stored.serviceFeeWaiverCode } : {}),
-    };
-  }
-  return { serviceFeePayer: "resident" };
+  return { serviceFeePayer: incoming.serviceFeePayer === "proplane" && !accountApproved ? "resident" : incoming.serviceFeePayer };
 }
 
 export function normalizeManagerManualPaymentSettings(raw: unknown): ManagerManualPaymentSettings {
@@ -213,72 +185,13 @@ export async function saveManagerManualPaymentSettings(
   settings: ManagerManualPaymentSettings,
   opts?: { accountWaiverGranted?: boolean },
 ): Promise<ManagerManualPaymentSettings> {
-  // The staff override is deliberately NOT taken from the caller: this function is what the
-  // manager's own settings route writes through, so honouring an inbound value would let a
-  // manager hand their processing fees to PropLane by adding one field to their save.
-  let storedReadFailed = false;
-  const stored = await loadManagerManualPaymentSettings(db, managerUserId).catch(() => {
-    storedReadFailed = true;
-    return null;
-  });
-  const normalized: ManagerManualPaymentSettings = normalizeManagerManualPaymentSettings(settings);
-  // Drop whatever the caller supplied BEFORE restoring what is stored. Spreading the stored value
-  // over the caller's is not enough: when staff have set nothing there is nothing to spread, and
-  // the caller's own value would survive — which is precisely the hole this guards.
+  void opts;
+  const normalized = normalizeManagerManualPaymentSettings(settings);
   delete normalized.adminServiceFeeOverride;
-  if (stored?.adminServiceFeeOverride) normalized.adminServiceFeeOverride = stored.adminServiceFeeOverride;
-  const accountWaiverGranted = opts?.accountWaiverGranted === true;
-  // A failed read is not evidence of a new selection. Without the stored value a legacy
-  // account already absorbing fees is indistinguishable from a code-less new choice, and
-  // resolving to `resident` would silently move Stripe's cost onto that manager's residents
-  // while the route answered 200. The caller's 500 is the honest answer.
-  if (
-    storedReadFailed &&
-    normalized.serviceFeePayer === "proplane" &&
-    !listingPaymentWaiverCodeMatches(normalized.serviceFeeWaiverCode) &&
-    !accountWaiverGranted
-  ) {
-    throw new Error("Could not read stored payment settings; refusing to change who pays the service fee.");
-  }
-  const feeSelection = resolveSavedServiceFeeSelection(normalized, stored, accountWaiverGranted);
-  normalized.serviceFeePayer = feeSelection.serviceFeePayer;
-  if (feeSelection.serviceFeeWaiverCode) normalized.serviceFeeWaiverCode = feeSelection.serviceFeeWaiverCode;
-  else delete normalized.serviceFeeWaiverCode;
-  const mode = await resolveStorageMode(db);
-
-  if (mode === "column") {
-    const { error } = await db.from("manager_automation_settings").upsert(
-      {
-        manager_user_id: managerUserId,
-        manual_payments: normalized,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "manager_user_id" },
-    );
-    if (error) throw error;
-    return normalized;
-  }
-
-  const { data: existing } = await db
-    .from("manager_automation_settings")
-    .select("row_data")
-    .eq("manager_user_id", managerUserId)
-    .maybeSingle();
-  const rowData =
-    existing?.row_data && typeof existing.row_data === "object" && !Array.isArray(existing.row_data)
-      ? { ...(existing.row_data as Record<string, unknown>) }
-      : {};
-  rowData.manualPayments = normalized;
-  const { error } = await db.from("manager_automation_settings").upsert(
-    {
-      manager_user_id: managerUserId,
-      row_data: rowData,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "manager_user_id" },
-  );
-  if (error) throw error;
-  return normalized;
+  delete normalized.serviceFeeWaiverCode;
+  const { data, error } = await db.rpc("save_manager_payment_preferences", { p_owner: managerUserId, p_settings: normalized });
+  if (error || !data) throw new Error("Could not save payment settings. Try again.");
+  return normalizeManagerManualPaymentSettings(data);
 }
 
 /**
@@ -298,38 +211,7 @@ export async function saveAdminServiceFeeOverride(
   managerUserId: string,
   override: ServiceFeePayer | null,
 ): Promise<ManagerManualPaymentSettings> {
-  const current = await loadManagerManualPaymentSettings(db, managerUserId);
-  const next: ManagerManualPaymentSettings = { ...current };
-  if (override == null) delete next.adminServiceFeeOverride;
-  else next.adminServiceFeeOverride = normalizeServiceFeeChoice(override);
-  const mode = await resolveStorageMode(db);
-
-  if (mode === "column") {
-    const { error } = await db.from("manager_automation_settings").upsert(
-      { manager_user_id: managerUserId, manual_payments: next, updated_at: new Date().toISOString() },
-      { onConflict: "manager_user_id" },
-    );
-    if (error) throw error;
-    return next;
-  }
-
-  const { data: existing } = await db
-    .from("manager_automation_settings")
-    .select("row_data")
-    .eq("manager_user_id", managerUserId)
-    .maybeSingle();
-  const rowData = (existing?.row_data && typeof existing.row_data === "object" ? existing.row_data : {}) as Record<
-    string,
-    unknown
-  >;
-  const { error } = await db.from("manager_automation_settings").upsert(
-    {
-      manager_user_id: managerUserId,
-      row_data: { ...rowData, manualPayments: next },
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "manager_user_id" },
-  );
-  if (error) throw error;
-  return next;
+  const { data, error } = await db.rpc("set_staff_payment_fee_override", { p_owner: managerUserId, p_override: override });
+  if (error || !data) throw new Error("Could not save staff payment coverage. Try again.");
+  return normalizeManagerManualPaymentSettings(data);
 }

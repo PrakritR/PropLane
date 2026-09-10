@@ -28,7 +28,7 @@ describe("portal nav lock kinds", () => {
       });
 
       it(`${kind}: financials and documents are locked on Free`, () => {
-        for (const section of ["financials", "documents", "services", "communication"]) {
+        for (const section of ["financials", "documents", "services"]) {
           expect(portalNavLockKind({ kind, section, subscriptionTier: "free" })).toBe("upsell");
         }
       });

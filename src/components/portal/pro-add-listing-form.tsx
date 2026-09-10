@@ -1494,6 +1494,10 @@ export function ManagerAddListingForm({
     if (isDemoModeActive()) return;
     void loadManagerPaymentWaiverGrantedClient().then(setPaymentWaiverGranted);
   }, []);
+  useEffect(() => {
+    if (paymentWaiverGranted !== false) return;
+    setSub((current) => current.serviceFeePayer === "proplane" ? { ...current, serviceFeePayer: "resident", serviceFeeWaiverCode: undefined } : current);
+  }, [paymentWaiverGranted]);
   const [assistantTriggerTarget, setAssistantTriggerTarget] = useState<HTMLSpanElement | null>(null);
   const resumedStepIndex = clampWizardStep(initialStepIndex);
   const resumedMaxStepReached = Math.max(clampWizardStep(initialMaxStepReached), resumedStepIndex);
@@ -3391,6 +3395,10 @@ export function ManagerAddListingForm({
   }, [draftAutoSaveEligible, editAutoSaveEligible, persistEditListing, persistListingDraft]);
 
   const submitListing = async () => {
+    if (paymentWaiverGranted === null && !isDemoModeActive()) {
+      showToast("Processing-fee coverage could not be verified. Refresh and try again before submitting.");
+      return;
+    }
     // EXACTLY what the steps run. Submit used to omit `stFeeToggles` and
     // `ltFeeToggles`, so the short-term fee checks were skipped entirely and
     // the long-term ones fell back to a derived guess. Already-visited steps
@@ -5016,6 +5024,7 @@ export function ManagerAddListingForm({
                     <FieldLabel>Processing fee paid by</FieldLabel>
                     <Select
                       value={serviceFeePayerUi}
+                      disabled={paymentWaiverGranted === null}
                       onChange={(e) => {
                         const raw = e.target.value;
                         const next: ServiceFeePayer =
@@ -5041,11 +5050,11 @@ export function ManagerAddListingForm({
                       </option>
                       <option value="proplane" disabled={!canSelectProplaneAbsorbFee}>
                         {SERVICE_FEE_PAYER_OPTION_LABELS.proplane}
-                        {canSelectProplaneAbsorbFee ? "" : " — needs paid plan or PropLane waiver"}
+                        {canSelectProplaneAbsorbFee ? "" : " — requires account approval"}
                       </option>
                     </Select>
                     <p id="listing-processing-fee-payer-help" className="mt-1 text-xs text-muted">
-                      {LISTING_PROCESSING_FEE_PAYER_HELP}
+                      {paymentWaiverGranted === null ? "Processing-fee coverage is being verified. Try reopening if it remains unavailable." : LISTING_PROCESSING_FEE_PAYER_HELP}
                     </p>
                     {stepFieldErrors.serviceFeePayer ? (
                       <p className="text-xs text-destructive">{stepFieldErrors.serviceFeePayer}</p>

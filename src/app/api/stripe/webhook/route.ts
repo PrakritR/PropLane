@@ -1,3 +1,5 @@
+import { COMMS_CREDIT_PURPOSE } from "@/lib/comms-billing/credit-packs";
+import { fulfillCommsCreditPurchase, reverseCommsCreditForCharge } from "@/lib/comms-billing/credit-purchase.server";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
@@ -161,7 +163,9 @@ export async function POST(req: Request) {
     if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const session = event.data.object as Stripe.Checkout.Session;
       logCheckoutCompleted(session);
-      if (session.metadata?.purpose === "rental_application_fee") {
+      if (session.metadata?.purpose === COMMS_CREDIT_PURPOSE) {
+        await fulfillCommsCreditPurchase(db, session, event.id);
+      } else if (session.metadata?.purpose === "rental_application_fee") {
         try {
           await markApplicationFeePaidFromStripeSession(db, session);
           // No-op on any session that did not combine a holding deposit
@@ -320,6 +324,7 @@ export async function POST(req: Request) {
 
     if (event.type === "charge.refunded") {
       const charge = event.data.object as Stripe.Charge;
+      await reverseCommsCreditForCharge(db, charge, event.id);
       const refunds = charge.refunds?.data ?? [];
       for (const refund of refunds) {
         if (refund.status === "succeeded" || refund.status === "pending") {
@@ -335,6 +340,7 @@ export async function POST(req: Request) {
       if (refund.status === "succeeded") {
         const chargeId = typeof refund.charge === "string" ? refund.charge : refund.charge?.id;
         if (chargeId) {
+          await reverseCommsCreditForCharge(db, await stripe.charges.retrieve(chargeId), event.id);
           await handleStripeRefund(db, refund, chargeId).catch((e) => {
             console.error("[stripe webhook] refund event", e);
           });
@@ -343,6 +349,11 @@ export async function POST(req: Request) {
     }
 
     if (event.type === "charge.dispute.created" || event.type === "charge.dispute.closed" || event.type === "charge.dispute.updated") {
+      const dispute = event.data.object as Stripe.Dispute;
+      const disputedCharge = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id;
+      if (disputedCharge && dispute.status !== "won" && dispute.status !== "warning_closed") {
+        await reverseCommsCreditForCharge(db, await stripe.charges.retrieve(disputedCharge), event.id, true);
+      }
       await handleStripeDisputeEvent(db, event.data.object as Stripe.Dispute).catch((e) => {
         console.error("[stripe webhook] dispute event", e);
       });

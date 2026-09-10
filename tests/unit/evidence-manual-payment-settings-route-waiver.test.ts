@@ -122,8 +122,8 @@ describe("evidence · PATCH manager-manual-payment-settings", () => {
       serviceFeePayer: "proplane",
       serviceFeeWaiverCode: "free100",
     });
-    expect(ok.status).toBe(200);
-    expect(stored).toMatchObject({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" });
+    expect(ok.status).toBe(400);
+    expect(stored).toBeNull();
 
     // A legacy account already on `proplane` carries no code. An unrelated re-save
     // must keep it there rather than quietly moving Stripe's cost onto its residents.
@@ -133,7 +133,7 @@ describe("evidence · PATCH manager-manual-payment-settings", () => {
       axisPaymentsEnabled: false,
       serviceFeePayer: "proplane",
     });
-    expect(carried.status).toBe(200);
+    expect(carried.status).toBe(400);
     expect(stored).toMatchObject({ serviceFeePayer: "proplane" });
 
     if (OUT) {

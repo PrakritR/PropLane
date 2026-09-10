@@ -59,7 +59,7 @@ resident's per-work-order `entryPermission`/`entryNotes` from intake).
 (`20260716120000_vendor_agent_sessions.sql`; kind `vendor_work_order`, one session per
 (work order, vendor), non-partial unique index because PostgREST upsert can't infer partial
 indexes). Both channels share one session + one vendor inbox thread (`thread_type:
-"vendor_agent"`): inbound SMS (`/api/webhooks/twilio/sms` — Twilio signature over
+"vendor_agent"`): inbound SMS (`/api/twilio/inbound` for manager work numbers (legacy `/api/webhooks/twilio/sms` remains available) — Twilio signature over
 `TWILIO_WEBHOOK_URL`/derived origin, fail-closed on Vercel, per-phone rate limit, STOP
 unbinds the number + sets `profiles.sms_opt_out_at` without killing the in-app thread,
 unknown numbers silently dropped, empty TwiML + `after()` turn) and in-app replies
@@ -68,7 +68,7 @@ unknown numbers silently dropped, empty TwiML + `after()` turn) and in-app repli
 20-inbound/hour session cap, runs the pinned-Sonnet turn with
 `VENDOR_AGENT_SYSTEM_PROMPT` (language-mirroring: replies in whatever language the vendor
 writes), persists both sides, mirrors SMS into the inbox thread, and delivers replies
-(inbox append always + `sendSms` from `AXIS_AGENT_SMS_FROM`) — delivery is code, never a
+(inbox append always + the prepaid work-number dispatcher) — delivery is code, never a
 model tool. The SMS leg is consent-gated: it fires only when the vendor is replying to their
 own SMS (inherently responsive) or has granted `sms_consent_at`, and the unsolicited opening
 text goes out only to a consented signed-up vendor (a pre-signup invitee was disclosed the
@@ -88,3 +88,7 @@ display copy + pre-signup `preferredLanguage`/phone from the invite modal.
 console: number + A2P 10DLC campaign + inbound webhook + Advanced Opt-Out. `vercel.json`
 unchanged. Not yet built from the plan: vendor portal UX overhaul (M7) and Spanish-first
 vendor i18n (M8) — see `/Users/akhilvemuri/.claude/plans/i-want-to-work-sorted-bengio.md`.
+
+Work-number inbound resolution additionally scopes sessions by `landlord_id` from
+the destination number. SMS turns reserve AI credit before running; completion
+metadata and a stable outbox dedupe key make delivery retries safe.

@@ -1,3 +1,5 @@
+import { readCommsTurnResult, completeCommsTurn, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
+import { reserveCommsCredit } from "@/lib/comms-billing/wallet.server";
 /**
  * Leasing SMS agent runtime. A session (agent_sessions, kind `leasing_sms`)
  * binds one manager (work-number owner) + one prospect phone. Inbound Twilio
@@ -203,6 +205,14 @@ export async function runLeasingSmsAgentTurn(
     channel,
   });
 
+  if (!inboundMessageId) return null;
+  const creditKey = `ai_turn:${channel}:${session.id}:${inboundMessageId}`;
+  const credit = await reserveCommsCredit(db, { managerUserId: session.landlord_id, meter: "ai_agent_turn",
+    idempotencyKey: creditKey, metadata: { sessionId: session.id, channel } });
+  if (!credit.allowed) return null;
+  type Turn = { reply: string; sessionId: string; inboundMessageId: string | null; assistantMessageId: string | null; traceId: string | null };
+  if (credit.duplicate) return readCommsTurnResult<Turn>(db, session.landlord_id, creditKey, { reply: INTERRUPTED_COMMS_REPLY, sessionId: session.id, inboundMessageId, assistantMessageId: null, traceId: null });
+  const execute = async (): Promise<Turn | null> => {
   const { data: historyRows } = await db
     .from("agent_messages")
     .select("role, content")
@@ -297,6 +307,8 @@ export async function runLeasingSmsAgentTurn(
     assistantMessageId: assistantMessage?.id ? String(assistantMessage.id) : null,
     traceId,
   };
+  };
+  return completeCommsTurn(db, session.landlord_id, creditKey, await execute());
 }
 
 /** Leasing / prospect voice — shares session history with leasing SMS on the same phone. */

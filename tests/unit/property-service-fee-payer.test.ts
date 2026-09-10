@@ -41,7 +41,7 @@ describe("the stored value", () => {
 
   it("preserves grant-backed PropLane absorb without a per-listing code on read paths", () => {
     expect(withFeePayer("proplane")).toBe("proplane");
-    expect(withFeePayer("proplane", "WRONG")).toBe("resident");
+    expect(withFeePayer("proplane", "WRONG")).toBe("proplane");
     expect(
       withFeePayer("proplane", undefined, { accountPaymentWaiverGranted: false }),
     ).toBe("resident");
