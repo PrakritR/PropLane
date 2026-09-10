@@ -32,10 +32,21 @@ describe("create-listing wizard select-all", () => {
     ).toEqual([]);
   });
 
-  it("still drives the accessible mixed state for screen readers", () => {
-    // Removing the dash is a VISUAL decision. A partial selection must still be
-    // announced, or the change trades a cosmetic complaint for a real a11y loss.
+  it("still announces a partial selection, through the multi-select", () => {
+    // Removing the dash was a VISUAL decision, and PRP-463 then replaced every one of
+    // these select-all grids with `CheckboxMultiSelect`. A partial selection must still be
+    // announced or the change trades a cosmetic complaint for a real a11y loss — that now
+    // comes from the listbox's per-option `aria-selected`, which is asserted where the
+    // component lives.
     const source = readFileSync(WIZARD, "utf8");
-    expect(source).toContain('aria-checked={allChecked ? "true" : someChecked ? "mixed" : "false"}');
+    expect(source).toContain("CheckboxMultiSelect");
+    expect(source).not.toContain("SelectAllCheckbox");
+
+    const component = readFileSync(
+      path.join(process.cwd(), "src/components/ui/checkbox-multi-select.tsx"),
+      "utf8",
+    );
+    expect(component).toContain('aria-multiselectable="true"');
+    expect(component).toContain("aria-selected={checked}");
   });
 });

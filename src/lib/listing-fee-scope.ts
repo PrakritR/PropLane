@@ -129,10 +129,24 @@ export function isStandardPaymentAtSigningKey(key: string): key is PaymentAtSign
  * stranded row behind.
  */
 export function paymentAtSigningRows(
-  sub: Pick<ManagerListingSubmissionV1, "customFees" | "rooms">,
+  sub: Pick<ManagerListingSubmissionV1, "customFees" | "rooms" | "removedStandardListingFeeRows">,
   options?: { includeRoomRent?: boolean },
 ): PaymentAtSigningRow[] {
-  const rows: PaymentAtSigningRow[] = PAYMENT_AT_SIGNING_OPTIONS.map((o) => ({
+  // Only fees the property ACTUALLY has can be due at signing (PRP-463). A manager who
+  // deleted Move-in fee from Other fees should not still be offered it here — the list is
+  // the property's fees, not a fixed four. First month rent and utilities are rent, not
+  // fees, so they are always on offer.
+  const removed = new Set(
+    Array.isArray(sub.removedStandardListingFeeRows) ? sub.removedStandardListingFeeRows : [],
+  );
+  const ROW_FOR_STANDARD: Record<string, string> = {
+    security_deposit: "securityDeposit",
+    move_in_fee: "moveInFee",
+  };
+  const rows: PaymentAtSigningRow[] = PAYMENT_AT_SIGNING_OPTIONS.filter((o) => {
+    const rowId = ROW_FOR_STANDARD[o.id];
+    return !rowId || !removed.has(rowId as never);
+  }).map((o) => ({
     key: o.id,
     label: o.label,
     kind: "standard" as const,

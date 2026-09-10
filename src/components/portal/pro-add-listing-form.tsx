@@ -717,27 +717,25 @@ function LongTermRentSection({
 function ShortTermRentSection({
   labelFor,
   rent,
-  moveInFee,
   deposit,
   onRent,
-  onMoveIn,
   onDeposit,
   rentInvalid,
-  showMoveInFee = true,
+  pricingMode,
+  onPricingMode,
   extraFields,
   footer,
 }: {
   labelFor?: string;
   rent: string;
-  moveInFee: string;
   deposit: string;
   onRent: (sanitized: string) => void;
-  onMoveIn: (sanitized: string) => void;
   onDeposit: (sanitized: string) => void;
   rentInvalid?: boolean;
-  /** Rooms price a move-in fee as a FEE now, not as part of the room (PRP-463). */
-  showMoveInFee?: boolean;
-  /** Extra rates that belong to this term — the room's week and day prices. */
+  /** Whether the short-term rate is open to an offer, like every other lease type. */
+  pricingMode?: "fixed" | "flexible";
+  onPricingMode?: (next: "fixed" | "flexible") => void;
+  /** The week rate that belongs to this term. */
   extraFields?: ReactNode;
   /** Fees charged only on this term. */
   footer?: ReactNode;
@@ -745,29 +743,23 @@ function ShortTermRentSection({
   const suffix = labelFor ? ` for ${labelFor}` : "";
   return (
     <div className="w-full rounded-lg border border-dashed border-border bg-accent/10 p-3">
-      <FieldLabel hint="All-in nightly rate — no separate utilities.">Short-term</FieldLabel>
+      <FieldLabel hint="All-in rate — no separate utilities.">Short-term</FieldLabel>
+      {/*
+        Three fields, the captain's call (PRP-463): the day rate, the week rate and the
+        deposit. A short stay's move-in fee is a FEE, and fees are added below where every
+        other fee on this term lives.
+      */}
       <div className={cn("mt-1", ROOM_PRICE_GRID)}>
         <GridField>
-          <FieldLabel>Rent / night</FieldLabel>
+          <FieldLabel>Rent / day</FieldLabel>
           <MoneyInput
-            ariaLabel={`Short-term nightly rent${suffix}`}
+            ariaLabel={`Short-term daily rent${suffix}`}
             invalid={rentInvalid}
             value={rent}
             onChange={(e) => onRent(sanitizeMoneyInput(e.target.value))}
             placeholder="85"
           />
         </GridField>
-        {showMoveInFee ? (
-          <GridField>
-            <FieldLabel>Move-in fee</FieldLabel>
-            <MoneyInput
-              ariaLabel={`Short-term move-in fee${suffix}`}
-              value={moveInFee}
-              onChange={(e) => onMoveIn(sanitizeMoneyInput(e.target.value))}
-              placeholder="150"
-            />
-          </GridField>
-        ) : null}
         {extraFields}
         <GridField>
           <FieldLabel>Security deposit</FieldLabel>
@@ -778,6 +770,21 @@ function ShortTermRentSection({
             placeholder="300"
           />
         </GridField>
+        {onPricingMode ? (
+          <GridField>
+            <FieldLabel>Pricing mode</FieldLabel>
+            <Select
+              aria-label={`Short-term pricing mode${suffix}`}
+              className={selectInputCls}
+              data-attr="listing-short-term-pricing-mode"
+              value={pricingMode === "flexible" ? "flexible" : "fixed"}
+              onChange={(e) => onPricingMode(e.target.value === "flexible" ? "flexible" : "fixed")}
+            >
+              <option value="fixed">Fixed — price locked</option>
+              <option value="flexible">Flexible — open to an offer</option>
+            </Select>
+          </GridField>
+        ) : null}
       </div>
       {footer}
     </div>
@@ -1057,6 +1064,30 @@ function LeaseTypePricingSection({
               placeholder={longTermUtilities.replace(/^\$/, "").trim() || "150"}
             />
           </GridField>
+          <GridField>
+            <FieldLabel>Pricing mode</FieldLabel>
+            <Select
+              aria-label={`${term} pricing mode`}
+              className={selectInputCls}
+              data-attr="listing-term-pricing-mode"
+              value={price?.pricingMode === "flexible" ? "flexible" : "fixed"}
+              onChange={(e) =>
+                onChange({ ...price, pricingMode: e.target.value === "flexible" ? "flexible" : "fixed" })
+              }
+            >
+              <option value="fixed">Fixed — price locked</option>
+              <option value="flexible">Flexible — open to an offer</option>
+            </Select>
+          </GridField>
+          <ProrationMethodFields
+            prorateMethod={price?.prorateMethod ?? "auto"}
+            monthlyRent={price?.monthlyRent ?? longTermRent}
+            dailyRentRate={price?.dailyRentRate}
+            dailyUtilitiesRate={price?.dailyUtilitiesRate}
+            onMethod={(m) => onChange({ ...price, prorateMethod: m })}
+            onDailyRent={(n) => onChange({ ...price, dailyRentRate: n })}
+            onDailyUtilities={(n) => onChange({ ...price, dailyUtilitiesRate: n })}
+          />
           {surchargeAmount ? (
             <p className="w-full text-xs text-muted">
               The {term.toLowerCase()} surcharge of ${surchargeAmount}/mo still applies on top.
@@ -1668,44 +1699,6 @@ function PresetCheckboxGroup({
   );
 }
 
-/**
- * The select-all row for a room/item SELECTION group (bundle rooms, shared-space room
- * access). It is the FIRST checkbox in the grid and replaces the old "All rooms" /
- * "Clear rooms" header buttons (round 18): one control that checks everything and clears
- * everything. It shows no dashed indeterminate state, matching PresetCheckboxGroup above —
- * the partial state is already legible from the item boxes themselves, and the dash read
- * as a defect to the managers who reported it.
- *
- * `someChecked` is still accepted and still drives the accessible state for screen
- * readers; it simply no longer paints the dash.
- */
-function SelectAllCheckbox({
-  allChecked,
-  someChecked,
-  onToggle,
-  label = "Select all",
-  disabled,
-}: {
-  allChecked: boolean;
-  someChecked: boolean;
-  onToggle: (checkAll: boolean) => void;
-  label?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <label className={cn("flex items-center gap-2 text-sm", disabled ? "cursor-default" : "cursor-pointer")}>
-      <input
-        type="checkbox"
-        className="h-4 w-4 shrink-0 rounded border-border disabled:opacity-60"
-        checked={allChecked}
-        disabled={disabled}
-        aria-checked={allChecked ? "true" : someChecked ? "mixed" : "false"}
-        onChange={(e) => onToggle(e.target.checked)}
-      />
-      <span className="font-medium text-muted">{label}</span>
-    </label>
-  );
-}
 
 /** In CSS grid rows, bottom-aligns the control with siblings when label/hint blocks differ in height. */
 function GridField({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -2626,6 +2619,7 @@ export function ManagerAddListingForm({
   const [roomDefaults, setRoomDefaults] = useState<{
     floor: string;
     occupancyCapacity: number;
+    bedCount: number;
     sizeSqft: number;
     furnishing: string;
     amenitiesText: string;
@@ -2634,6 +2628,7 @@ export function ManagerAddListingForm({
   }>({
     floor: "",
     occupancyCapacity: 0,
+    bedCount: 0,
     sizeSqft: 0,
     furnishing: "",
     amenitiesText: "",
@@ -2660,6 +2655,7 @@ export function ManagerAddListingForm({
       K extends
         | "floor"
         | "occupancyCapacity"
+        | "bedCount"
         | "sizeSqft"
         | "furnishing"
         | "amenitiesText"
@@ -2670,6 +2666,7 @@ export function ManagerAddListingForm({
       value: {
         floor: string;
         occupancyCapacity: number;
+        bedCount: number;
         sizeSqft: number;
         furnishing: string;
         amenitiesText: string;
@@ -2969,24 +2966,23 @@ export function ManagerAddListingForm({
       return { ...s, sharedSpaces };
     });
   };
-  const toggleBundleRoom = (bundleIndex: number, roomId: string, on: boolean) => {
+  /** Set a bundle's whole room list at once — what the multi-select hands back. */
+  const setBundleRoomIds = (bundleIndex: number, nextIds: string[]) => {
     setSub((s) => {
       const bundles = [...(s.bundles ?? [])];
       const cur = bundles[bundleIndex];
       if (!cur) return s;
-      const nextSet = new Set(cur.includedRoomIds ?? []);
-      if (on) nextSet.add(roomId);
-      else nextSet.delete(roomId);
-      const includedRoomIds = s.rooms.map((r) => r.id).filter((id) => nextSet.has(id));
+      const picked = new Set(nextIds);
+      const includedRoomIds = s.rooms.map((r) => r.id).filter((id) => picked.has(id));
       bundles[bundleIndex] = {
         ...cur,
         includedRoomIds,
         roomsLine: cur.roomsLine.trim() ? cur.roomsLine : bundleRoomsLine(includedRoomIds, s.rooms),
-        price: cur.price.trim() ? cur.price : bundleRentLabel(includedRoomIds, s.rooms, entireHomeMonthlyRentAmount(s)),
       };
       return { ...s, bundles };
     });
   };
+
 
   const setBundle = (i: number, patch: Partial<ManagerBundleRow>) => {
     setSub((s) => {
@@ -3011,21 +3007,6 @@ export function ManagerAddListingForm({
     });
   };
 
-  const applyBundleRoomScope = (bundleIndex: number, mode: "all_named" | "none") => {
-    setSub((s) => {
-      const bundles = [...(s.bundles ?? [])];
-      const cur = bundles[bundleIndex];
-      if (!cur) return s;
-      const includedRoomIds = mode === "all_named" ? s.rooms.map((r) => r.id) : [];
-      bundles[bundleIndex] = {
-        ...cur,
-        includedRoomIds,
-        roomsLine: bundleRoomsLine(includedRoomIds, s.rooms),
-        price: bundleRentLabel(includedRoomIds, s.rooms, entireHomeMonthlyRentAmount(s)),
-      };
-      return { ...s, bundles };
-    });
-  };
 
   const setQuickFact = (i: number, patch: Partial<ManagerQuickFactRow>) => {
     setSub((s) => {
@@ -4455,12 +4436,16 @@ export function ManagerAddListingForm({
                     <ShortTermRentSection
                       labelFor={roomLabel}
                       rent={(room.shortTermRent ?? "").replace(/^\$/, "").trim()}
-                      moveInFee={(room.shortTermMoveInFee ?? "").replace(/^\$/, "").trim()}
                       deposit={(room.shortTermDeposit ?? "").replace(/^\$/, "").trim()}
                       onRent={(v) => setRoom(i, { shortTermRent: v })}
-                      onMoveIn={(v) => setRoom(i, { shortTermMoveInFee: v })}
                       onDeposit={(v) => setRoom(i, { shortTermDeposit: v })}
-                      showMoveInFee={false}
+                      pricingMode={room.termPricing?.[SHORT_TERM_LEASE_TERM]?.pricingMode}
+                      onPricingMode={(next) =>
+                        setRoomTermPrice(i, SHORT_TERM_LEASE_TERM, {
+                          ...room.termPricing?.[SHORT_TERM_LEASE_TERM],
+                          pricingMode: next,
+                        })
+                      }
                       footer={
                         <LeaseTermFeeRows
                           roomId={room.id}
@@ -4473,7 +4458,7 @@ export function ManagerAddListingForm({
                       }
                       extraFields={(
                         <>
-                  <GridField>
+                      <GridField>
                         <FieldLabel>Rent / week</FieldLabel>
                         <MoneyInput
                           ariaLabel={`Weekly rent for ${roomLabel}`}
@@ -4488,22 +4473,6 @@ export function ManagerAddListingForm({
                           placeholder="Weekly rate"
                         />
                         <StepFieldError msg={stepFieldErrors[listingRoomWeeklyRentKey(room.id)]} />
-                      </GridField>
-                      <GridField>
-                        <FieldLabel>Rent / day</FieldLabel>
-                        <MoneyInput
-                          ariaLabel={`Daily rent for ${roomLabel}`}
-                          data-attr="listing-room-daily-rent-basis"
-                          invalid={Boolean(roomDailyRentErr)}
-                          value={room.dailyRentPrice === undefined ? "" : String(room.dailyRentPrice)}
-                          onChange={(e) => {
-                            const n = parseFloat(sanitizeMoneyInput(e.target.value));
-                            clearListingFieldError(listingRoomDailyRentKey(room.id));
-                            setRoom(i, { dailyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
-                          }}
-                          placeholder="Daily rate"
-                        />
-                        <StepFieldError msg={roomDailyRentErr} />
                       </GridField>
                         </>
                       )}
@@ -4591,7 +4560,7 @@ export function ManagerAddListingForm({
                   }
                 >
                 <GridField>
-                  <FieldLabel hint="Defaults to sum of room rents; edit for discounts.">Bundle rent / mo</FieldLabel>
+                  <FieldLabel>Bundle rent / mo</FieldLabel>
                   <div className="relative">
                     <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-medium text-muted">$</span>
                     <Input
@@ -4604,7 +4573,7 @@ export function ManagerAddListingForm({
                   </div>
                 </GridField>
                 <GridField>
-                  <FieldLabel hint="Optional — shows crossed out on the listing.">Original price</FieldLabel>
+                  <FieldLabel optional>Original price</FieldLabel>
                   <div className="relative">
                     <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm font-medium text-muted">$</span>
                     <Input
@@ -4655,6 +4624,30 @@ export function ManagerAddListingForm({
                     ) : null}
                   </div>
                 </GridField>
+                <GridField>
+                  <FieldLabel>Pricing mode</FieldLabel>
+                  <Select
+                    aria-label={`Pricing mode for ${bundle.label.trim() || "bundle"}`}
+                    className={selectInputCls}
+                    data-attr="listing-bundle-pricing-mode"
+                    value={bundle.pricingMode === "flexible" ? "flexible" : "fixed"}
+                    onChange={(e) =>
+                      setBundle(i, { pricingMode: e.target.value === "flexible" ? "flexible" : "fixed" })
+                    }
+                  >
+                    <option value="fixed">Fixed — price locked</option>
+                    <option value="flexible">Flexible — open to an offer</option>
+                  </Select>
+                </GridField>
+                <ProrationMethodFields
+                  prorateMethod={bundle.prorateMethod ?? "auto"}
+                  monthlyRent={parseSanitizedMoneyNumber(bundle.price ?? "")}
+                  dailyRentRate={bundle.dailyRentRate}
+                  dailyUtilitiesRate={bundle.dailyUtilitiesRate}
+                  onMethod={(m) => setBundle(i, { prorateMethod: m })}
+                  onDailyRent={(n) => setBundle(i, { dailyRentRate: n })}
+                  onDailyUtilities={(n) => setBundle(i, { dailyUtilitiesRate: n })}
+                />
                 </LongTermRentSection>
                 {leaseScopeOptions.includes("Month-to-Month") ? (
                   <LeaseTypePricingSection
@@ -4701,15 +4694,39 @@ export function ManagerAddListingForm({
                 {sub.shortTermRentalsAllowed ? (
                   <ShortTermRentSection
                     labelFor={bundle.label.trim() || "bundle"}
+                    extraFields={
+                      <GridField>
+                        <FieldLabel>Rent / week</FieldLabel>
+                        <MoneyInput
+                          ariaLabel={`Short-term weekly rent for ${bundle.label.trim() || "bundle"}`}
+                          value={
+                            bundle.shortTermWeeklyRent === undefined
+                              ? ""
+                              : String(bundle.shortTermWeeklyRent)
+                          }
+                          onChange={(e) =>
+                            setBundle(i, {
+                              shortTermWeeklyRent: parseOptionalSanitizedMoneyNumber(e.target.value),
+                            })
+                          }
+                          placeholder="Weekly rate"
+                        />
+                      </GridField>
+                    }
                     rentInvalid={Boolean(stNightlyErr)}
+                    pricingMode={bundle.termPricing?.[SHORT_TERM_LEASE_TERM]?.pricingMode}
+                    onPricingMode={(next) =>
+                      setBundleTermPrice(i, SHORT_TERM_LEASE_TERM, {
+                        ...bundle.termPricing?.[SHORT_TERM_LEASE_TERM],
+                        pricingMode: next,
+                      })
+                    }
                     rent={(bundle.shortTermNightlyRent ?? "").replace(/^\$/, "").trim()}
-                    moveInFee={(bundle.shortTermMoveInFee ?? "").replace(/^\$/, "").trim()}
                     deposit={(bundle.shortTermDeposit ?? "").replace(/^\$/, "").trim()}
                     onRent={(v) => {
                       clearListingFieldError(stNightlyKey);
                       setBundle(i, { shortTermNightlyRent: v, shortTermEnabled: v.trim() !== "" });
                     }}
-                    onMoveIn={(v) => setBundle(i, { shortTermMoveInFee: v })}
                     onDeposit={(v) => setBundle(i, { shortTermDeposit: v })}
 
                     footer={
@@ -4724,36 +4741,26 @@ export function ManagerAddListingForm({
                     }
                   />
                 ) : null}
-                <div className="w-full">
+                <div>
                   <FieldLabel>Rooms in this bundle</FieldLabel>
-                </div>
-                <div className="w-full">
-                  <div className="grid gap-x-4 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-3">
-                    {sub.rooms.length > 0 ? (
-                      <SelectAllCheckbox
-                        allChecked={sub.rooms.every((r) => selectedIds.has(r.id))}
-                        someChecked={selectedIds.size > 0 && !sub.rooms.every((r) => selectedIds.has(r.id))}
-                        onToggle={(checkAll) => applyBundleRoomScope(i, checkAll ? "all_named" : "none")}
-                        label="All rooms"
-                      />
-                    ) : null}
-                    {sub.rooms.map((room) => (
-                      <label key={`${bundle.id}-${room.id}`} className="flex cursor-pointer items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 rounded border-border"
-                          checked={selectedIds.has(room.id)}
-                          onChange={(e) => toggleBundleRoom(i, room.id, e.target.checked)}
-                        />
-                        <span className="min-w-0 font-medium text-foreground">
-                          <span className="truncate">{roomLabelForBundle(room)}</span>
-                          {room.monthlyRent > 0 ? (
-                            <span className="ml-1 tabular-nums text-xs font-normal text-muted">· ${room.monthlyRent}</span>
-                          ) : null}
-                        </span>
-                      </label>
-                    ))}
-                  </div>
+                  <CheckboxMultiSelect
+                    label={`Rooms in ${bundle.label.trim() || "this bundle"}`}
+                    hideLabel
+                    dataAttr="listing-bundle-rooms"
+                    className="w-full max-w-[13rem]"
+                    options={sub.rooms.map((room) => ({
+                      value: room.id,
+                      label: roomLabelForBundle(room),
+                    }))}
+                    selected={sub.rooms.map((r) => r.id).filter((id) => selectedIds.has(id))}
+                    onChange={(next) => setBundleRoomIds(i, next)}
+                    emptyLabel="No room"
+                    selectionTriggerLabel={
+                      sub.rooms.length > 0 && sub.rooms.every((r) => selectedIds.has(r.id))
+                        ? "All rooms"
+                        : undefined
+                    }
+                  />
                 </div>
               </div>
             ),
@@ -4878,8 +4885,9 @@ export function ManagerAddListingForm({
                     ) : null}
                     {sub.shortTermRentalsAllowed ? (
                       <ShortTermRentSection
+                        pricingMode={sub.shortTermPricingMode}
+                        onPricingMode={(next) => setSub((s) => ({ ...s, shortTermPricingMode: next }))}
                         rent={(sub.shortTermDailyCost ?? "").replace(/^\$/, "").trim()}
-                        moveInFee={(sub.shortTermMoveInFee ?? "").replace(/^\$/, "").trim()}
                         deposit={(sub.shortTermDeposit ?? "").replace(/^\$/, "").trim()}
                         rentInvalid={Boolean(stepFieldErrors.shortTermDailyCost)}
                         onRent={(v) => {
@@ -4887,11 +4895,6 @@ export function ManagerAddListingForm({
                           expandListingItem(wholePlaceKey);
                           setSub((s) => ({ ...s, shortTermDailyCost: v }));
                           if (v.trim()) setStFeeToggles((prev) => ({ ...prev, rent: true }));
-                        }}
-                        onMoveIn={(v) => {
-                          clearListingFieldError("shortTermMoveInFee");
-                          setSub((s) => ({ ...s, shortTermMoveInFee: v }));
-                          if (v.trim()) setStFeeToggles((prev) => ({ ...prev, moveInFee: true }));
                         }}
                         onDeposit={(v) => {
                           clearListingFieldError("shortTermDeposit");
@@ -5865,7 +5868,27 @@ export function ManagerAddListingForm({
                   */}
                   <div className={cn("mt-3", ROOM_PRICE_GRID)}>
                     <GridField>
-                      <FieldLabel>Beds (residents)</FieldLabel>
+                      <FieldLabel>Beds</FieldLabel>
+                      <Select
+                        aria-label="Number of beds in most rooms"
+                        className={selectInputCls}
+                        data-attr="listing-room-defaults-bed-count"
+                        value={roomDefaults.bedCount ? String(roomDefaults.bedCount) : ""}
+                        onChange={(e) => {
+                          const n = Number(e.target.value);
+                          editRoomDefault("bedCount", Number.isFinite(n) && n > 0 ? n : 0);
+                        }}
+                      >
+                        <option value="">Select…</option>
+                        {LISTING_BEDROOM_SLOT_OPTIONS.map((n) => (
+                          <option key={n} value={n}>
+                            {n === 1 ? "1 bed" : `${n} beds`}
+                          </option>
+                        ))}
+                      </Select>
+                    </GridField>
+                    <GridField>
+                      <FieldLabel>Residents</FieldLabel>
                       <Select
                         aria-label="Number of residents for most rooms"
                         className={selectInputCls}
@@ -6364,7 +6387,7 @@ export function ManagerAddListingForm({
                     title={b.name.trim() || `Bathroom ${i + 1}`}
                     subtitle={bathSubtitle || "Tap to set name, location, and fixtures"}
                     hasError={Boolean(bathNameErr)}
-                    bodyClassName="grid gap-3 sm:grid-cols-2"
+                    bodyClassName={ROOM_PRICE_GRID}
                     toggleDataAttr={`listing-bathroom-toggle-${b.id}`}
                     headerActions={
                       sub.bathrooms.length > 1 ? (
@@ -6399,7 +6422,7 @@ export function ManagerAddListingForm({
                         ensuite and what is in it; the floor was a field nobody read, and
                         `location` stays on the record for listings that already set one.
                       */}
-                      <div className="sm:col-span-2">
+                      <div>
                         <FieldLabel>Access</FieldLabel>
                         <Select
                           aria-label={`Bathroom ${i + 1} access`}
@@ -6413,7 +6436,7 @@ export function ManagerAddListingForm({
                         </Select>
                       </div>
                       {sub.rooms.length > 0 ? (
-                        <div className="sm:col-span-2">
+                        <div>
                           <FieldLabel>
                             {bathAccess === "ensuite" ? "Room it belongs to" : "Assigned rooms"}
                           </FieldLabel>
@@ -6436,7 +6459,7 @@ export function ManagerAddListingForm({
                           />
                         </div>
                       ) : null}
-                      <div className="sm:col-span-2">
+                      <div>
                         <FieldLabel>Fixtures / details</FieldLabel>
                         <CheckboxMultiSelect
                           label={`Fixtures in bathroom ${i + 1}`}
@@ -6458,7 +6481,7 @@ export function ManagerAddListingForm({
                           }
                         />
                       </div>
-                      <div className="sm:col-span-2">
+                      <div>
                         <FieldLabel>Bathroom amenities</FieldLabel>
                         <PresetMultiSelectField
                           label={`Amenities in bathroom ${i + 1}`}
@@ -6630,7 +6653,7 @@ export function ManagerAddListingForm({
                       }
                     >
                         <div data-wizard-field={spaceNameKey}>
-                          <FieldLabel hint="Required only if you add this space.">Name</FieldLabel>
+                          <FieldLabel>Name</FieldLabel>
                           <Input
                             value={sp.name}
                             className={wizardFieldErrorClass(Boolean(spaceNameErr))}

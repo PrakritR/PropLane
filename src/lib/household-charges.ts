@@ -3590,7 +3590,7 @@ function syncPendingApprovedChargesFromListing(
           // mount, so reading listing-level fields here quietly rewrote a room-priced stay
           // back down to the listing's nightly rate minutes after it was billed correctly.
           const stayRoom = resolveRowSubmissionRoom(row).room;
-          const nightlyRate =
+          const stayPricing =
             resolveStayPricing({
               room: stayRoom,
               submission: sub,
@@ -3603,13 +3603,15 @@ function syncPendingApprovedChargesFromListing(
                 managerSecurityDepositOverride: row.application?.managerSecurityDepositOverride,
                 signedMonthlyRent: row.signedMonthlyRent,
               },
-            }).dailyRate ?? 0;
+            });
+          const nightlyRate = stayPricing.dailyRate ?? 0;
+          const weeklyRate = stayPricing.weeklyRate;
           const nights = shortTermStayNightCount(leaseStart, leaseEnd);
-          if (nightlyRate > 0 && nights) {
+          if ((nightlyRate > 0 || (weeklyRate ?? 0) > 0) && nights) {
             out.push({
               kind: "stay_total",
-              amount: shortTermStayTotalAmount(nightlyRate, nights),
-              title: shortTermStayChargeTitle(nights, nightlyRate),
+              amount: shortTermStayTotalAmount(nightlyRate, nights, weeklyRate),
+              title: shortTermStayChargeTitle(nights, nightlyRate, weeklyRate),
               dueDateLabel: "Before check-in",
             });
           }
@@ -3978,7 +3980,7 @@ export function recordApprovedApplicationCharges(
     // listing's shortTermDailyCost. That precedence lives in resolveStayPricing, the same
     // resolver the lease document reads, so the stay total charged here always matches the
     // figure the agreement states. A stay is still ALL-IN: this branch bills no utilities line.
-    const nightlyRate =
+    const stayPricing =
       resolveStayPricing({
         room,
         submission: sub,
@@ -3991,13 +3993,15 @@ export function recordApprovedApplicationCharges(
           managerSecurityDepositOverride: row.application?.managerSecurityDepositOverride,
           signedMonthlyRent: row.signedMonthlyRent,
         },
-      }).dailyRate ?? 0;
+      });
+    const nightlyRate = stayPricing.dailyRate ?? 0;
+    const weeklyRate = stayPricing.weeklyRate;
     const nights = shortTermStayNightCount(leaseStart, leaseEnd);
-    if (nightlyRate > 0 && nights) {
+    if ((nightlyRate > 0 || (weeklyRate ?? 0) > 0) && nights) {
       pushCharge(
         "stay_total",
-        shortTermStayTotalAmount(nightlyRate, nights),
-        shortTermStayChargeTitle(nights, nightlyRate),
+        shortTermStayTotalAmount(nightlyRate, nights, weeklyRate),
+        shortTermStayChargeTitle(nights, nightlyRate, weeklyRate),
         true,
         "Before check-in",
       );

@@ -60,6 +60,12 @@ export type ManagerRoomTermPrice = {
   securityDeposit?: string;
   /** Monthly utilities estimate for this term, when it differs from long-term. */
   utilitiesEstimate?: string;
+  /** Whether this term is open to an offer, when it differs from long-term. */
+  pricingMode?: "fixed" | "flexible";
+  /** How a part month is prorated on this term, and the rates when it is set per day. */
+  prorateMethod?: "auto" | "daily_rate";
+  dailyRentRate?: number;
+  dailyUtilitiesRate?: number;
 };
 
 export type ManagerRoomUnavailableRange = {
@@ -308,6 +314,17 @@ export type ManagerBundleRow = {
   /** Nightly rate for short-term stays on this bundle (stay total = rate × nights). */
   shortTermNightlyRent?: string;
   /**
+   * Weekly rate for a grouped short stay. A stay of a week or more bills whole weeks at
+   * this rate plus the leftover nights at the nightly one (PRP-463).
+   */
+  shortTermWeeklyRent?: number;
+  /** Whether the bundle price is open to an offer. */
+  pricingMode?: "fixed" | "flexible";
+  /** How a part month is prorated on the bundle, and the rates when it is set per day. */
+  prorateMethod?: "auto" | "daily_rate";
+  dailyRentRate?: number;
+  dailyUtilitiesRate?: number;
+  /**
    * Per-lease-type price overrides for the bundle, keyed by stored lease-term label
    * (PRP-463) — the same shape a room carries. A term with no entry is priced like the
    * bundle's long-term rent and deposit, which is what every bundle has always meant.
@@ -431,6 +448,12 @@ export type ManagerListingSubmissionV1 = {
   /** How utilities are paid for an entire-home lease. */
   entireHomeUtilitiesPaymentModel?: UtilitiesPaymentModel;
   entireHomeProrateMethod?: "auto" | "daily_rate";
+  /**
+   * Whether the whole-home SHORT-TERM rate is open to an offer (PRP-463). Rooms and
+   * bundles keep theirs in `termPricing`; a whole home has no such record, so it lives
+   * here beside the other whole-home short-term figures.
+   */
+  shortTermPricingMode?: "fixed" | "flexible";
   entireHomeDailyRentRate?: number;
   entireHomeDailyUtilitiesRate?: number;
   listingStoriesId?: string;
@@ -1601,6 +1624,11 @@ export function normalizeManagerListingSubmissionV1(
           ? b.utilitiesEstimate.trim()
           : undefined,
       termPricing: normalizeRoomTermPricing((b as ManagerBundleRow & { termPricing?: unknown }).termPricing),
+      shortTermWeeklyRent: positiveRate((b as ManagerBundleRow).shortTermWeeklyRent),
+      pricingMode: (b as ManagerBundleRow).pricingMode === "flexible" ? "flexible" : undefined,
+      prorateMethod: (b as ManagerBundleRow).prorateMethod === "daily_rate" ? "daily_rate" : undefined,
+      dailyRentRate: positiveRate((b as ManagerBundleRow).dailyRentRate),
+      dailyUtilitiesRate: positiveRate((b as ManagerBundleRow).dailyUtilitiesRate),
     };
   });
 
@@ -1942,6 +1970,8 @@ export function normalizeManagerListingSubmissionV1(
     shortTermRequirements: typeof sub.shortTermRequirements === "string" ? sub.shortTermRequirements : "",
     shortTermDailyCost: typeof sub.shortTermDailyCost === "string" ? sub.shortTermDailyCost : "",
     shortTermDeposit: typeof sub.shortTermDeposit === "string" ? sub.shortTermDeposit : "",
+    shortTermPricingMode:
+      (sub as ManagerListingSubmissionV1).shortTermPricingMode === "flexible" ? "flexible" : undefined,
     shortTermMoveInFee: typeof sub.shortTermMoveInFee === "string" ? sub.shortTermMoveInFee : "",
     shortTermHoldingDeposit: typeof sub.shortTermHoldingDeposit === "string" ? sub.shortTermHoldingDeposit : "",
     shortTermParkingMonthly: typeof sub.shortTermParkingMonthly === "string" ? sub.shortTermParkingMonthly : "",
@@ -2300,6 +2330,12 @@ export function normalizeBathroomAccessKind(
  * actually say something. An entry equal to nothing is dropped, so "same as long-term"
  * is stored as absence rather than as a copy that could drift.
  */
+/** A rate stored only when it is a real, positive figure. */
+function positiveRate(raw: unknown): number | undefined {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : undefined;
+}
+
 export function normalizeRoomTermPricing(raw: unknown): Record<string, ManagerRoomTermPrice> | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const out: Record<string, ManagerRoomTermPrice> = {};
@@ -2317,6 +2353,15 @@ export function normalizeRoomTermPricing(raw: unknown): Record<string, ManagerRo
         ? ((v as { utilitiesEstimate: string }).utilitiesEstimate).replace(/^\$/, "").trim()
         : "";
     if (utils) entry.utilitiesEstimate = utils;
+    const mode = (v as { pricingMode?: unknown }).pricingMode;
+    if (mode === "fixed" || mode === "flexible") entry.pricingMode = mode;
+    const prorate = (v as { prorateMethod?: unknown }).prorateMethod;
+    if (prorate === "auto" || prorate === "daily_rate") entry.prorateMethod = prorate;
+    for (const key of ["dailyRentRate", "dailyUtilitiesRate"] as const) {
+      const raw = (v as Record<string, unknown>)[key];
+      const n = typeof raw === "number" ? raw : Number(raw);
+      if (Number.isFinite(n) && n > 0) entry[key] = Math.round(n * 100) / 100;
+    }
     if (Object.keys(entry).length > 0) out[term] = entry;
   }
   return Object.keys(out).length > 0 ? out : undefined;

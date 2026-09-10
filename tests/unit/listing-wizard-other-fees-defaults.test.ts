@@ -101,14 +101,21 @@ describe("create wizard Other fees defaults", () => {
     const src = readFileSync("src/components/portal/pro-add-listing-form.tsx", "utf8");
     expect(src).not.toContain('<ListingSubsection title="Room pricing">');
     expect(src).toContain('<ListingSubsection title="Rent & fees">');
-    // Everything the removed list carried now opens from the room's own row.
+    // Everything the removed list carried now opens from the room's own row, each field
+    // exactly once. The room's daily rate is the one the short-term block owns, so the
+    // second "Rent / day" that used to sit beside the week rate is gone (PRP-463).
     for (const marker of [
       'data-attr="listing-room-pricing-mode"',
       'data-attr="listing-room-weekly-rent"',
-      'data-attr="listing-room-daily-rent-basis"',
     ]) {
       expect(src.split(marker).length - 1).toBe(1);
     }
+    expect(src).not.toContain('data-attr="listing-room-daily-rent-basis"');
+    // The short-term block owns the one daily rate. The other "Rent / day" in this file is
+    // the PRORATED daily rent, which only appears under Set per day in a monthly block —
+    // a different figure, never beside this one.
+    expect(src.split("ariaLabel={`Short-term daily rent${suffix}`}").length - 1).toBe(1);
+    expect(src).not.toContain("ariaLabel={`Daily rent for ${roomLabel}`}");
   });
 
   it("no longer renders a rollover-to-month-to-month checkbox in the wizard", () => {
