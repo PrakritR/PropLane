@@ -3,7 +3,7 @@
 ## Reviewed scope
 
 Security review and Bugbot reviewed `293137a29d1a54636552b64128707a0d607c159c`
-plus the uncommitted campaign-budget correction: dispatcher, additive migration
+plus the campaign-budget correction (committed as `0c8cfe678`): dispatcher, additive migration
 `20260910190000_sms_outbox_campaign_budget.sql`, dispatcher retry test, PostgreSQL
 integration test, and SMS architecture documentation. This head preserves the
 previous no-mistakes fixes through `5f868306b` and merges the captain's listing
@@ -21,7 +21,11 @@ changes through `2d1353af` without conflicts.
   allocates once per message/UTC day and preserves wallet reservation semantics.
   No new P1/P2 findings were reported.
 - Both reviews confirmed that the listing merge preserves staff-only processing
-  coverage; a subscription tier or shared code cannot grant coverage.
+  coverage; a subscription tier or shared code cannot grant coverage. A follow-up
+  gate review (`e5cd42411`) forwarded the staff grant into bulk listing fee-payer
+  persistence so the account-level PropLane selection propagates exactly as
+  `persistListingServiceFeePayer` does per listing; covered by
+  `tests/unit/manual-payment-settings-property-fee-payer-propagation.test.ts`.
 
 ## Validation evidence
 
