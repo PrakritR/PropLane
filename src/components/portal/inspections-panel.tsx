@@ -134,6 +134,13 @@ export function buildInspectionRows(kind: InspectionKind, residencies: Inspectio
     || (a.report?.inspection_date ?? "").localeCompare(b.report?.inspection_date ?? "") || a.key.localeCompare(b.key));
 }
 
+/** Prefer the editable draft, then submitted, then the newest completed report. */
+export function pickPrimaryInspectionReport(reports: InspectionSummary[]): InspectionSummary | undefined {
+  if (!reports.length) return undefined;
+  const rank = (status: InspectionStatus) => (status === "draft" ? 0 : status === "submitted" ? 1 : 2);
+  return [...reports].sort((a, b) => rank(a.status) - rank(b.status) || b.inspection_date.localeCompare(a.inspection_date))[0];
+}
+
 export function ManagerInspectionsPage({ kind = "move-in", reportId, basePath = "/portal" }: { kind?: InspectionKind; reportId?: string; basePath?: string }) {
   if (reportId) return <InspectionsPanel role="manager" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} />;
   return <ManagerPortalPageShell title="Inspections" hideTitleOnMobileNav compactFilterRow><InspectionsPanel role="manager" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} /></ManagerPortalPageShell>;
@@ -193,7 +200,6 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     }).catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : "Could not open this report."); });
     return () => { cancelled = true; };
   }, [reportId, role]);
-
   const run = async (operation: () => Promise<void>) => {
     if (working.current) return;
     working.current = true; setBusy(true); setError("");
@@ -220,12 +226,17 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     await refresh(true);
   });
   const changeKind = (next: InspectionKind) => {
-    setSelected(new Set()); setKind(next); setBaseline("");
+    setSelected(new Set()); setDetail(null); setKind(next); setBaseline("");
     if (routeBase) router.push(`${routeBase}/${next}`);
   };
   const residencies = data.residencies.filter(r => (!applicationId || r.id === applicationId) && r.canCreate);
   const candidates = data.reports.filter(r => r.application_id === application && r.kind === "move-in" && r.status === "completed" && r.inspection_date <= date);
   const visible = data.residencies.filter(r => !applicationId || r.id === applicationId);
+  const embeddedScope = embeddedInResident && applicationId;
+  const embeddedResidency = embeddedScope ? visible.find(r => r.id === applicationId) : undefined;
+  const embeddedPrimaryReport = pickPrimaryInspectionReport(
+    embeddedScope ? data.reports.filter(r => r.application_id === applicationId && r.kind === kind) : [],
+  );
   const rowsFor = (which: InspectionKind) => buildInspectionRows(which, visible, data.reports);
   const rows = rowsFor(kind);
   const selectedRows = rows.filter(row => selected.has(row.key));
@@ -249,7 +260,13 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     else setDetail(value);
   });
 
-  if (detail) return <InspectionEditor initial={detail} role={role} userId={userId} onChanged={() => { /* API mutations invalidate the shared list. */ }} onBack={() => { setDetail(null); setSelected(new Set()); if (routeBase) router.push(`${routeBase}/${kind}`); }} />;
+  const openEmbeddedInspection = () => {
+    if (embeddedPrimaryReport) void open(embeddedPrimaryReport.id);
+    else if (embeddedResidency?.canCreate) startInspection(embeddedResidency);
+  };
+  const embeddedEditDisabled = !embeddedPrimaryReport && !embeddedResidency?.canCreate;
+
+  if (detail) return <InspectionEditor initial={detail} role={role} userId={userId} onChanged={() => { void refresh(true); }} onBack={() => { setDetail(null); setSelected(new Set()); if (routeBase) router.push(`${routeBase}/${kind}`); }} />;
   if (reportId) return <div className="space-y-3 p-4">{error ? <p role="alert">{error}</p> : <p role="status">Loading inspection…</p>}<Button variant="outline" onClick={() => router.push(`${routeBase}/${kind}`)} data-attr="inspection-list-back">Back to inspections</Button></div>;
   return <div className="min-w-0 space-y-3" data-attr="inspections-panel">
     {embeddedInResident ? (
@@ -258,7 +275,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
         bucketItems={(["move-in", "move-out"] as const).map((id) => ({
           id,
           label: kindLabel(id),
-          count: rowsFor(id).length,
+          count: data.reports.filter(r => r.application_id === applicationId && r.kind === id).length,
           dataAttr: `inspection-type-${id}`,
         }))}
         activeBucketId={kind}
@@ -269,10 +286,9 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
             ? () => setSettingsOpen(true)
             : undefined
         }
-        onEdit={() => {
-          if (selectedReports.length === 1) void open(selectedReports[0]!.id);
-        }}
-        editDisabled={selectedReports.length !== 1}
+        onEdit={openEmbeddedInspection}
+        editDisabled={embeddedEditDisabled}
+        editLabel={embeddedPrimaryReport ? "Edit" : "Create inspection"}
       />
     ) : (
     <PortalListControlStack variant="command" stickyDestinations destinationAriaLabel="Inspection type" activeDestinationId={kind}
@@ -287,7 +303,34 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     {!error && data.notice && showInspectionLoadNotice(role, data.notice) && (
       <p role="status" className="rounded-xl border border-border p-3 text-sm text-muted">{data.notice}</p>
     )}
-    {loading ? <div role="status" aria-label="Loading inspections" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div> : <PortalRecordListSurface
+    {embeddedScope && !loading && !embeddedPrimaryReport ? (
+      <div className="mx-1 flex flex-col items-center gap-4 rounded-2xl border border-dashed border-border bg-card/40 px-6 py-10 text-center" data-attr="inspection-embedded-empty">
+        <ClipboardCheck className="h-10 w-10 text-primary" aria-hidden />
+        <div className="space-y-2">
+          <p className="text-base font-semibold">No {kindLabel(kind).toLowerCase()} inspection yet</p>
+          <p className="text-sm text-muted">Create one to walk through each room section, upload photos, and add optional notes. The assigned room only — not the whole house.</p>
+        </div>
+        <Button onClick={openEmbeddedInspection} disabled={busy || embeddedEditDisabled} data-attr="inspection-embedded-create">
+          Create {kindLabel(kind).toLowerCase()} inspection
+        </Button>
+      </div>
+    ) : null}
+    {embeddedScope && !loading && embeddedPrimaryReport ? (
+      <div className="mx-1 space-y-4 rounded-2xl border border-border bg-card/50 p-5" data-attr="inspection-embedded-resume">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-base font-semibold">{kindLabel(kind)} inspection</p>
+            <p className="text-sm text-muted">{tenancyDate(embeddedPrimaryReport.inspection_date) || embeddedPrimaryReport.inspection_date} · {statusLabel(embeddedPrimaryReport.status)}</p>
+          </div>
+          <Badge tone={embeddedPrimaryReport.status === "completed" ? "success" : embeddedPrimaryReport.status === "submitted" ? "warning" : "neutral"}>{statusLabel(embeddedPrimaryReport.status)}</Badge>
+        </div>
+        <p className="text-sm text-muted">Open the room checklist to add photos per section — Room overview, walls, windows, door, lights, and more for the assigned room.</p>
+        <Button onClick={openEmbeddedInspection} disabled={busy} data-attr="inspection-embedded-continue">
+          {embeddedPrimaryReport.status === "draft" ? "Continue inspection" : "View inspection"}
+        </Button>
+      </div>
+    ) : null}
+    {loading ? <div role="status" aria-label="Loading inspections" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div> : embeddedScope ? null : <PortalRecordListSurface
       isEmpty={rows.length === 0}
       empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to create and review residency inspections." : kind === "move-in" ? "No one is moving in or living here yet. Approve an application and give it a property placement to start." : "No one is living here or has moved out yet."}</p>}
       add={residencies.length ? { ariaLabel: `Add ${kindLabel(kind).toLowerCase()} inspection`, icon: ClipboardCheck, onClick: () => { setApplication(applicationId ?? residencies[0]?.id ?? ""); setBaseline(""); setCreateOpen(true); }, dataAttr: "inspection-add" } : undefined}

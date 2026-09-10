@@ -112,8 +112,7 @@ function HousematesTabContent({ resolved }: { resolved: ResidentMoveInResolved }
           {roommates.length > 0 ? (
             <h3 className="text-sm font-semibold text-foreground">Housemates</h3>
           ) : null}
-          <p className="mb-3 mt-0.5 text-sm text-muted">Residents in your household. Personal details appear only when a resident chooses to share them.</p>
-          <ul className="divide-y divide-border/50">
+          <ul className={`divide-y divide-border/50 ${roommates.length > 0 ? "mt-3" : ""}`}>
             {others.map((mate, index) => (
               <HousemateRow key={mate.id ?? `housemate-${index}`} mate={mate} />
             ))}

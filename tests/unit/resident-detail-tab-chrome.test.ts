@@ -107,6 +107,7 @@ describe("resident detail tab chrome", () => {
       "utf8",
     );
     expect(inspections).toContain("ResidentDetailSubsectionChrome");
-    expect(inspections).toContain("editDisabled={selectedReports.length !== 1}");
+    expect(inspections).toContain("editDisabled={embeddedEditDisabled}");
+    expect(inspections).toContain("data-attr=\"inspection-embedded-empty\"");
   });
 });

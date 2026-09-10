@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildInspectionRows } from "@/components/portal/inspections-panel";
+import { buildInspectionRows, pickPrimaryInspectionReport } from "@/components/portal/inspections-panel";
 import { residencyOccupancy, type InspectionResidency, type InspectionSummary } from "@/lib/inspections/model";
 
 /**
@@ -139,5 +139,16 @@ describe("buildInspectionRows", () => {
 
     expect(rows[0]!.badge.label).toBe("Moving in");
     expect(rows[0]!.preview).toContain("No move-in inspection yet");
+  });
+});
+
+describe("pickPrimaryInspectionReport", () => {
+  it("prefers draft over submitted and completed", () => {
+    const picked = pickPrimaryInspectionReport([
+      report({ id: "done", application_id: "app-1", status: "completed", inspection_date: "2026-09-01" }),
+      report({ id: "live", application_id: "app-1", status: "draft", inspection_date: "2026-08-01" }),
+      report({ id: "wait", application_id: "app-1", status: "submitted", inspection_date: "2026-09-02" }),
+    ]);
+    expect(picked?.id).toBe("live");
   });
 });
