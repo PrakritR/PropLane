@@ -3028,16 +3028,32 @@ export function ManagerAddListingForm({
         }
 
         let ok = false;
+        // The server's own words when it REFUSES the write, so the failure can
+        // explain itself instead of blaming the network.
+        let refusal = "";
         if (editPendingId) {
           ok = await updatePendingManagerPropertyOnServer(editPendingId, uploadedSubmission, userId);
         } else if (editRequestChangeId) {
           ok = updateRequestChangeProperty(editRequestChangeId, userId, uploadedSubmission);
         } else if (editListingId) {
           const saveUserId = editListingOwnerUserId?.trim() || userId;
-          ok = await updateExtraListingFromSubmissionOnServer(editListingId, saveUserId, uploadedSubmission);
+          ok = await updateExtraListingFromSubmissionOnServer(editListingId, saveUserId, uploadedSubmission, {
+            onError: (message) => {
+              refusal = message;
+            },
+          });
         }
         if (!ok) {
-          const msg = "Could not save changes. Check your connection and try again.";
+          /*
+            "Check your connection" is only honest when nothing came back. A
+            refusal the server explained in words must show THOSE words: a
+            manager whose save was rejected over a promo code spent a night
+            being told their internet was down while the rest of the product
+            worked fine.
+          */
+          const msg = refusal
+            ? `Could not save changes. ${refusal}`
+            : "Could not save changes. Check your connection and try again.";
           setDraftSaveError(msg);
           if (backgroundSave) setAutosaveStatus("error");
           if (!opts?.silent && !opts?.closeAnyway) showToast(msg);
