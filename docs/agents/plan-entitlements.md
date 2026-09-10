@@ -149,14 +149,16 @@ import. A plan change made from Billing and one made from Accounts must be the
 same control, or the two grow different rules for the same write.
 
 **Every number on that screen comes from the resolver enforcement uses.** The
-list route (`GET /api/admin/manager-billing`) reads in bulk — six queries
-regardless of how many accounts exist — and `deriveAdminBillingRow`
+list route (`GET /api/admin/manager-billing`) reads in chunked bulk queries
+regardless of how many accounts exist, and `deriveAdminBillingRow`
 (`src/lib/admin-billing-rows.ts`) turns each account into a row through
 `resolveEffectiveManagerSkuTier`, `maxPropertiesForManagerTier`, the same
 `LISTING_SLOT_PROPERTY_STATUSES` the quota counts, `resolveServiceFeePayerFor`,
-and the comms allowance table. A staff screen that computed any of them a second
-way would eventually disagree with what the manager is actually charged or
-refused, which is the whole failure this list exists to make visible.
+and the prepaid wallet snapshot the dispatcher spends from
+(`loadCommsWalletTotals` — [comms-billing.md](comms-billing.md)). A staff screen
+that computed any of them a second way would eventually disagree with what the
+manager is actually charged or refused, which is the whole failure this list
+exists to make visible.
 
 **`planUnknown` is the state that file is most careful about.** A purchase chunk
 that fails to read marks only the managers in THAT chunk as `planReadFailed`;
