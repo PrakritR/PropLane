@@ -239,4 +239,10 @@ describe("assistant reliability — no generic dead-end errors", () => {
       expect(source).toContain("formatAgentChatUserError");
     }
   });
+
+  it("SMS agent turns send a user-facing fallback instead of staying silent", () => {
+    const source = read("src/lib/agent/sms-agent-turn.server.ts");
+    expect(source).toContain("formatSmsAgentTurnError");
+    expect(source).not.toMatch(/catch \(e\) \{\s*console\.error\([^)]*\)\s*;\s*return null;/);
+  });
 });
