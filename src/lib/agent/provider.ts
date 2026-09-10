@@ -5,6 +5,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type { AnthropicToolSchema } from "@/lib/tools/registry";
+import { isAssistantBillingFailure } from "@/lib/agent/assistant-turn-error";
 import type { AgentModelSelection } from "./model";
 
 export type ProviderCompletion = {
@@ -151,10 +152,49 @@ async function completeOpenRouter(args: {
   };
 }
 
+function openRouterBillingRescueModel(): string {
+  return process.env.AXIS_AGENT_FAST_MODEL?.trim() || "google/gemini-3.5-flash-lite";
+}
+
+/**
+ * When Anthropic refuses the account (spent credits / billing), one OpenRouter
+ * attempt keeps SMS and chat alive. If OpenRouter is missing or also fails,
+ * rethrow the original Anthropic error so the surface can tell the user.
+ */
+async function completeAnthropicWithBillingFallback(args: {
+  selection: AgentModelSelection;
+  system: string;
+  tools: AnthropicToolSchema[];
+  messages: Anthropic.MessageParam[];
+  model: string;
+}): Promise<ProviderCompletion> {
+  try {
+    return await completeAnthropic({ ...args, model: args.model });
+  } catch (error) {
+    if (!isAssistantBillingFailure(error) || !process.env.OPENROUTER_API_KEY?.trim()) {
+      throw error;
+    }
+    try {
+      const fallback = await completeOpenRouter({
+        ...args,
+        model: openRouterBillingRescueModel(),
+      });
+      return {
+        ...fallback,
+        fallbackReason:
+          error instanceof Error ? error.message.slice(0, 240) : "Anthropic billing failed",
+      };
+    } catch {
+      throw error;
+    }
+  }
+}
+
 /**
  * OpenRouter failures never surface to the user for an eligible turn: retry the
  * same read-only/no-tool history through Anthropic once. Nothing has mutated at
- * this point, so the retry cannot duplicate a side effect.
+ * this point, so the retry cannot duplicate a side effect. If that Anthropic
+ * retry is a billing refusal, try a different OpenRouter model before giving up.
  */
 export async function completeAgentModel(args: {
   selection: AgentModelSelection;
@@ -163,12 +203,15 @@ export async function completeAgentModel(args: {
   messages: Anthropic.MessageParam[];
 }): Promise<ProviderCompletion> {
   if (args.selection.provider !== "openrouter") {
-    return completeAnthropic({ ...args, model: args.selection.model });
+    return completeAnthropicWithBillingFallback({ ...args, model: args.selection.model });
   }
   try {
     return await completeOpenRouter({ ...args, model: args.selection.model });
   } catch (error) {
-    const fallback = await completeAnthropic({ ...args, model: args.selection.fallbackModel || "claude-sonnet-4-6" });
+    const fallback = await completeAnthropicWithBillingFallback({
+      ...args,
+      model: args.selection.fallbackModel || "claude-sonnet-4-6",
+    });
     return {
       ...fallback,
       fallbackReason: error instanceof Error ? error.message.slice(0, 240) : "OpenRouter failed",

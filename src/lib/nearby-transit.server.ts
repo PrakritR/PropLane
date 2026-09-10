@@ -37,7 +37,7 @@ let overpassQueued = 0;
 // buildMockPropertyFromDraft used this Seattle pair for every wizard-created
 // listing, regardless of its address. Keep treating all other stored points as
 // authoritative, but make old placeholder rows geocode their actual address.
-const LEGACY_WIZARD_PLACEHOLDER_COORDS: GeocodeCoords = { lat: 47.61405, lng: -122.31542 };
+export const LEGACY_WIZARD_PLACEHOLDER_COORDS: GeocodeCoords = { lat: 47.61405, lng: -122.31542 };
 
 async function withOverpassSlot<T>(work: () => Promise<T>): Promise<T> {
   if (overpassQueued >= 3) throw new Error("overpass_queue_full");
