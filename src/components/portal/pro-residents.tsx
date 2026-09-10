@@ -611,20 +611,27 @@ export function ManagerResidents({
       syncPropertyPipelineFromServer(),
       syncManagerApplicationsFromServer({ managerUserId: userId }),
       syncLeasePipelineFromServer(userId),
-      syncManagerWorkOrdersFromServer(),
-      syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY),
-      syncHouseholdChargesFromServer(),
     ]).then(() => {
       if (!cancelled) {
         setPropertyTick((n) => n + 1);
-        setInboxTick((n) => n + 1);
-        setWorkOrderTick((n) => n + 1);
-        setHcTick((n) => n + 1);
         // Lease stage membership must refresh with applications — relying only
         // on LEASE_PIPELINE_EVENT left Current empty when that emit raced or
         // the GET failed (PRP-458).
         setLeaseTick((n) => n + 1);
         setDirectorySourcesReady(true);
+      }
+    });
+    // These panels enrich a resident row; an unavailable inbox or service feed
+    // must not prevent the application/lease directory from rendering.
+    void Promise.allSettled([
+      syncManagerWorkOrdersFromServer(),
+      syncPersistedInboxFromServer(MANAGER_INBOX_STORAGE_KEY),
+      syncHouseholdChargesFromServer(),
+    ]).then(() => {
+      if (!cancelled) {
+        setInboxTick((n) => n + 1);
+        setWorkOrderTick((n) => n + 1);
+        setHcTick((n) => n + 1);
       }
     });
     return () => {
