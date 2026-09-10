@@ -40,7 +40,6 @@ describe("buildManagerSmsRegistry — destructive tools stay portal-only", () =>
       "allocate_utility_bill",
       "approve_and_pay_work_order",
       "cancel_calendar_event",
-      "change_inspection_status",
       "delete_charge",
       "delete_promotion",
       "dispose_inspection_deposit",

@@ -17,13 +17,6 @@ import { downloadBlobFile } from "@/lib/portal-document-download";
 import { inspectionRoomLabel, INSPECTION_CONDITIONS, type InspectionDetail, type InspectionItem, type InspectionObservation, type InspectionRole, type InspectionArea } from "@/lib/inspections/model";
 
 const observations = (detail: InspectionDetail, role: InspectionRole) => detail.report.document.areas.flatMap(a => a.items).map(i => ({ itemId: i.id, condition: i[role].condition, notes: i[role].notes }));
-type Action = "submit" | "acknowledge" | "complete" | "reopen";
-const actions: Record<Action, { label: string; explanation: string }> = {
-  submit: { label: "Request confirmation", explanation: "This saves your observations and freezes both parties' photos and notes for the resident to review. You can request changes if anything needs updating." },
-  acknowledge: { label: "Acknowledge review", explanation: "I have reviewed the manager and resident observations and photos in this report. This confirms review, not agreement with charges or responsibility for damage." },
-  complete: { label: "Complete inspection", explanation: "This permanently locks the acknowledged report and its photos. A completed move-in report can be used as the baseline for move-out." },
-  reopen: { label: "Reopen for changes", explanation: "Both parties can edit their observations again. The resident will need to review and acknowledge the revised report." },
-};
 
 function ReadObservation({ label, value }: { label: string; value: InspectionObservation }) {
   return <div className="min-w-0 space-y-2">
@@ -52,7 +45,7 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   // A report that is no longer an editable draft is frozen: the server copy is the
   // authoritative record, so a recovered local draft is never merged into it. It is
   // kept beside the report as clearly unsent material the person can read or discard.
-  const [resumable] = useState(() => Boolean(restored?.active) && initial.canEdit && initial.report.status === "draft");
+  const [resumable] = useState(() => Boolean(restored?.active) && initial.canEdit);
   const [unsent, setUnsent] = useState<InspectionEditorSnapshot[]>(() => {
     const buckets = restored?.unsent ?? [];
     return restored?.active && !resumable ? appendUnsentRecovery(buckets, restored.active) : buckets;
@@ -72,7 +65,8 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [activeAreaId, setActiveAreaId] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  /** Which section the source sheet is shooting into. Null only for a legacy multi-item form. */
+  const [uploadArea, setUploadArea] = useState<string | null>(null);
   const [documentOpen, setDocumentOpen] = useState(false);
   const [uploadSourceOpen, setUploadSourceOpen] = useState(false);
   const [choosePhoto, setChoosePhoto] = useState(false);
@@ -84,11 +78,14 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const working = useRef(false);
   const discardConfirmed = useRef(false);
   const leaveHref = useRef<string | null>(null);
-  const [confirm, setConfirm] = useState<Action | "leave" | "reload" | null>(null);
+  const [confirm, setConfirm] = useState<"leave" | "reload" | null>(null);
   const { capture } = useNativeCamera();
   const { report, baseline, canEdit } = detail;
   const dirty = JSON.stringify(observations(detail, role)) !== saved;
-  const editable = canEdit && report.status === "draft";
+  // There is no locked state: a report stays open to both parties for as long as the
+  // residency is theirs. Read-only means the VIEWER cannot edit (a co-manager with read
+  // access), never that the report itself was closed by a review step.
+  const editable = canEdit;
   const roomAreas = report.document.roomScope ? report.document.areas : report.document.areas.filter(area => area.id === "area-0");
   const activeArea = roomAreas.find(a => a.id === activeAreaId);
   const photoCount = report.document.areas.flatMap(a => a.items).reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
@@ -211,10 +208,15 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     setPendingPhoto({ itemId, photo }); setChoosePhoto(false); setPhotoSource(null);
     await sendPhoto(itemId, photo);
   });
-  const startUpload = () => setUploadSourceOpen(true);
+  /**
+   * The camera opens for the section it was tapped on. Choosing a source and then choosing a
+   * section was two dialogs in front of every photo; the section is already the thing the
+   * person pointed at, so only the source is still a question.
+   */
+  const startUpload = (areaId?: string) => { setUploadArea(areaId ?? activeArea?.id ?? null); setUploadSourceOpen(true); };
   const pickUploadSource = (source: PhotoCaptureSource) => {
     setUploadSourceOpen(false);
-    const area = activeArea ?? (selected.size === 1 ? roomAreas.find(a => selected.has(a.id)) : undefined);
+    const area = roomAreas.find(a => a.id === uploadArea) ?? activeArea;
     if (area?.items.length === 1) void upload(area.items[0]!.id, source);
     else { setPhotoSource(source); setChoosePhoto(true); }
   };
@@ -233,20 +235,13 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const confirmAction = () => run(async () => {
     if (confirm === "leave") { discardConfirmed.current = true; if (leaveHref.current) window.location.assign(leaveHref.current); else onBack(); return; }
     if (confirm === "reload") { accept(await inspectionRequest<InspectionDetail>(role, `/${report.id}`)); setConfirm(null); return; }
-    if (!confirm) return;
-    if (pendingPhoto) throw new Error("Finish uploading or remove the pending photo before submitting.");
-    const current = await save();
-    const next = await inspectionRequest<InspectionDetail>(role, `/${report.id}/status`, { method: "POST", body: JSON.stringify({ revision: current.report.revision, action: confirm }) });
-    accept(next);
-    setNotice("Report updated."); setConfirm(null);
   });
   const hasObservation = (value: InspectionObservation) => value.photos.length > 0 || Boolean(value.notes.trim()) || value.condition !== "unchecked";
   const renderItem = (item: InspectionItem) => <div key={item.id} className="space-y-5 py-4">
     {activeArea && activeArea.items.length > 1 && <h3 className="text-base font-semibold">{item.label}</h3>}
     {editable ? <div className="space-y-4">
-      {item[role].photos.length ? <PhotoList photos={item[role].photos} label={item.label} disabled={busy} onRemove={item[role].photos.every(p => p.uploadedBy === userId) ? remove : undefined} /> : <div className="grid min-h-40 place-items-center rounded-2xl border border-dashed border-border bg-card/30 p-6 text-center text-sm text-muted"><span><Camera className="mx-auto mb-3 h-7 w-7 text-primary" />No photos added yet. Use Upload photos below.</span></div>}
+      {item[role].photos.length ? <PhotoList photos={item[role].photos} label={item.label} disabled={busy} onRemove={item[role].photos.every(p => p.uploadedBy === userId) ? remove : undefined} /> : <div className="grid min-h-40 place-items-center rounded-2xl border border-dashed border-border bg-card/30 p-6 text-center text-sm text-muted"><span><Camera className="mx-auto mb-3 h-7 w-7 text-primary" />No photos in this section yet. Use Add photos below.</span></div>}
       <label className="block text-sm font-medium">Note <span className="font-normal text-muted">(optional)</span><Textarea aria-label={`${item.label} notes`} placeholder="For example: a small mark beside the door." value={item[role].notes} maxLength={3000} disabled={busy} className="ph-no-capture ph-no-record mt-2" data-attr="inspection-notes" onChange={e => update(item.id, { notes: e.target.value })} /></label>
-      <details className="text-sm"><summary className="cursor-pointer text-muted">Condition (optional)</summary><NativeSelect aria-label={`${item.label} condition`} value={item[role].condition} disabled={busy} className="mt-2" data-attr="inspection-condition" onChange={e => update(item.id, { condition: e.target.value as InspectionObservation["condition"] })}>{Object.entries(INSPECTION_CONDITIONS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</NativeSelect></details>
     </div> : <ReadObservation label={`Your observations (${role})`} value={item[role]} />}
     {hasObservation(item[role === "manager" ? "resident" : "manager"]) && <div className="border-t border-border pt-4"><ReadObservation label={role === "manager" ? "Resident observations" : "Manager observations"} value={item[role === "manager" ? "resident" : "manager"]} /></div>}
     {baselineItems.has(item.id) && <details className="rounded-xl border border-border bg-card/30 p-4"><summary className="cursor-pointer text-sm font-medium">Move-in photos and notes · {baseline?.inspection_date}</summary><div className="mt-4 space-y-5"><ReadObservation label="Move-in / resident" value={baselineItems.get(item.id)!.resident} /><ReadObservation label="Move-in / manager" value={baselineItems.get(item.id)!.manager} /></div></details>}
@@ -254,7 +249,7 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const renderDocument = () => <article className="mx-auto max-w-4xl space-y-7 rounded-2xl border border-border bg-card p-5 sm:p-10" data-attr="inspection-document-preview">
     <div className="text-center"><h2 className="font-serif text-2xl font-bold">ROOM CONDITION REPORT</h2><p className="mt-3 text-sm text-muted">{report.kind === "move-in" ? "Move-in" : "Move-out"} · {inspectionRoomLabel(report.room_label)} · {report.inspection_date}</p><p className="mt-2 text-sm text-muted">{report.resident_name} · {report.property_label}</p></div>
     {report.document.areas.map(area => <section key={area.id} className="space-y-4 border-t border-border pt-5"><h3 className="font-serif text-lg font-bold">{area.label}</h3>{area.items.map(item => <div key={item.id} className="space-y-4">{area.items.length > 1 && <h4 className="text-sm font-semibold">{item.label}</h4>}{(["resident", "manager"] as const).map(side => hasObservation(item[side]) ? <ReadObservation key={side} label={side === "resident" ? "Resident" : "Manager"} value={item[side]} /> : null)}{!hasObservation(item.resident) && !hasObservation(item.manager) && <p className="text-sm text-muted">No photos or condition statement recorded.</p>}</div>)}</section>)}
-    <p className="border-t border-border pt-5 text-sm text-muted">{report.document.residentAcknowledgment ? `Resident acknowledged on ${new Date(report.document.residentAcknowledgment.at).toLocaleDateString()}.` : "Resident acknowledgment pending."} {report.status === "completed" ? "Manager approved. This completed report is preserved." : "Manager approval pending."}</p>
+    <p className="border-t border-border pt-5 text-sm text-muted">Every photo records who added it and when. This document is a record of condition; it is not a statement about charges or liability.</p>
   </article>;
   const itemLabels = new Map(report.document.areas.flatMap(a => a.items).map(i => [i.id, i.label]));
   // Only what the server never acknowledged. Each bucket carries the snapshot the
@@ -297,11 +292,6 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     setNotice(result === "failed" ? "" : "Photo saved to your device.");
     if (result === "failed") setError("Could not save the photo to your device.");
   };
-  const frozenReason = report.status === "completed"
-    ? "completed"
-    : report.status === "submitted"
-      ? "submitted for review"
-      : "no longer editable";
   // The handoff removes the pending-photo thumbnail, so without a standing line the
   // freeze reads as the capture being thrown away. This stays put rather than using
   // the transient `notice`, which the next operation clears. It describes what
@@ -310,36 +300,35 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const hasUnsentMaterial = unsentNotes.length > 0 || unsentPhotos.length > 0;
   const unsentLead = editable
     ? "Earlier work on this device never reached the server, so it is not part of the report."
-    : `This report is ${frozenReason}, so work on this device never reached the server.`;
+    : "You have read-only access to this report, so work on this device never reached the server.";
   const unsentRecoveryMessage = !hasUnsentMaterial
     ? ""
     : unsentPhotos.length > 0
       ? `${unsentLead} It is kept below under "Unsent notes and photos from this device" — save any photo to your device before discarding it.`
       : `${unsentLead} It is kept below under "Unsent notes and photos from this device".`;
-  // `frozenReason` describes the REPORT's state, which already implies the freeze for
-  // a submitted or completed report. A draft nobody may edit is read-only for the
-  // viewer rather than frozen, so it needs its own sentence instead of "no longer
-  // editable and can no longer be edited".
-  const readOnlyNotice = report.status === "draft"
-    ? "You have read-only access to this report."
-    : `This report is ${frozenReason} and can no longer be edited.`;
+  // A report is never closed by a review step, so the only reason it does not take an
+  // edit is the VIEWER's access — a co-manager granted read without edit.
+  const readOnlyNotice = "You have read-only access to this report.";
   const areaCount = (area: InspectionArea) => area.items.reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
   const backLabel = documentOpen || activeArea ? "Back to room sections" : "Back to inspections";
-  const status = report.status === "completed" ? "Completed" : report.status === "submitted" ? "Awaiting review" : "Draft";
   return <div className="min-w-0 space-y-5" data-attr="inspection-editor">
     <PortalDetailHeader bare hideBackText title={documentOpen ? "Inspection document" : activeArea?.label ?? report.resident_name} subtitle={`${inspectionRoomLabel(report.room_label) || "Assigned room"} · ${report.property_label}`} avatarName={!activeArea && !documentOpen ? report.resident_name : undefined} onBack={back} backLabel={backLabel} dataAttrBack="inspection-back" />
-    <div className="flex flex-wrap items-center gap-3 px-2 text-sm text-muted"><span>{report.kind === "move-in" ? "Move-in" : "Move-out"} · {report.inspection_date}</span><Badge tone={report.status === "completed" ? "success" : report.status === "submitted" ? "warning" : "neutral"}>{status}</Badge><span role="status" className="ml-auto">{busy ? "Saving…" : dirty ? "Changes waiting to save" : `${photoCount} photo${photoCount === 1 ? "" : "s"} in report`}</span></div>
+    <div className="flex flex-wrap items-center gap-3 px-2 text-sm text-muted"><span>{report.kind === "move-in" ? "Move-in" : "Move-out"} · {report.inspection_date}</span><Badge tone={photoCount ? "success" : "warning"}>{photoCount ? `${photoCount} photo${photoCount === 1 ? "" : "s"}` : "Needs photos"}</Badge><span role="status" className="ml-auto">{busy ? "Saving…" : dirty ? "Changes waiting to save" : editable ? "Photos and notes save automatically" : "Read-only"}</span></div>
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error} {dirty ? "Your unsaved notes remain here." : ""}</p>}
     {notice && <p role="status" className="px-2 text-sm text-muted">{notice}</p>}
     {unsentRecoveryMessage && <p role="status" className="rounded-xl border border-border p-3 text-sm" data-attr="inspection-unsent-notice">{unsentRecoveryMessage}</p>}
     {pendingPhoto && <div className="flex items-center gap-4 rounded-xl border border-border p-3"><Image src={pendingPhoto.photo.previewUrl} unoptimized width={96} height={72} alt="Photo waiting to upload" className="ph-no-capture ph-no-record h-18 w-24 rounded-lg object-cover" /><p className="text-sm text-muted">{busy ? "Uploading photo…" : editable ? "This photo has not uploaded. Use Retry upload below." : "This photo has not uploaded and this report can no longer be edited."}</p></div>}
     {documentOpen ? renderDocument() : activeArea ? <div className="space-y-4 px-2">{activeArea.items.map(renderItem)}</div> : <div>
       <p className="px-2 pb-4 text-sm text-muted">{editable
-        ? "Open a section to add photos of the assigned room. Photos and notes update the document automatically."
+        ? "Photograph the assigned room section by section. Tap the camera on a section, or open it to add a note. Everything saves automatically."
         : `Open a section to read its photos and notes. ${readOnlyNotice}`}</p>
-      {roomAreas.map(area => <div key={area.id} className={`flex min-h-24 items-center gap-4 border-b border-l-2 border-b-border px-3 py-5 ${selected.has(area.id) ? "border-l-primary bg-primary/5" : "border-l-transparent"}`} data-attr="inspection-section-row"><input type="checkbox" className="h-4 w-4 shrink-0 accent-primary" aria-label={`Select ${area.label}`} checked={selected.has(area.id)} onChange={e => setSelected(current => { const next = new Set(current); if (e.target.checked) next.add(area.id); else next.delete(area.id); return next; })} /><button className="min-w-0 flex-1 text-left" onClick={() => setActiveAreaId(area.id)} data-attr="inspection-area-open"><span className="flex items-center gap-2 text-base font-semibold">{area.label}<ChevronRight className="h-4 w-4 text-muted" /></span><span className="mt-1 block text-sm text-muted">{areaCount(area) ? `${areaCount(area)} photo${areaCount(area) === 1 ? "" : "s"} added` : "Photos and optional notes"}</span></button></div>)}
+      {roomAreas.map(area => <div key={area.id} className="flex min-h-24 items-center gap-3 border-b border-b-border px-3 py-5" data-attr="inspection-section-row">
+        <button className="min-w-0 flex-1 text-left" onClick={() => setActiveAreaId(area.id)} data-attr="inspection-area-open"><span className="flex items-center gap-2 text-base font-semibold">{area.label}<ChevronRight className="h-4 w-4 text-muted" /></span><span className="mt-1 block text-sm text-muted">{areaCount(area) ? `${areaCount(area)} photo${areaCount(area) === 1 ? "" : "s"}` : "No photos yet"}</span></button>
+        {/* The camera belongs on the section, not behind a section picker: this row IS the
+            answer to "which section", so tapping it only leaves the source to choose. */}
+        {editable && <Button variant="outline" className="shrink-0" disabled={busy} aria-label={`Add photos to ${area.label}`} onClick={() => startUpload(area.id)} data-attr="inspection-section-photo-add"><Camera className="h-4 w-4" /></Button>}
+      </div>)}
     </div>}
-    {report.status === "submitted" && !report.document.residentAcknowledgment && <p className="px-2 text-sm text-muted">The resident needs to confirm review before the manager can approve.</p>}
     {hasUnsentMaterial && <PortalCollapsibleSection title="Unsent notes and photos from this device" defaultExpanded={unsentPhotos.length > 0}>
       <p className="pb-3 text-sm text-muted">These never reached the server, so they are <strong>not part of the report</strong> above.{editable ? " Reopening the report did not add them — retype anything you still want recorded." : ""} Keep anything you still need, then discard them.</p>
       {unsentNotes.map(entry => <div key={entry.itemId} className="space-y-1 border-t border-border py-3">
@@ -362,14 +351,11 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     </PortalCollapsibleSection>}
     <PortalCollapsibleSection title="Record history" defaultExpanded={false}>{report.document.history.map((event, i) => <p key={i} className="py-1 text-xs text-muted">{new Date(event.at).toLocaleString()} · {event.role} · {event.action}</p>)}</PortalCollapsibleSection>
     <PortalPageFooterActions pinned rowVariant="header">
-      <Button variant="outline" aria-label={documentOpen ? "Download document" : "View"} disabled={busy} onClick={() => documentOpen ? run(async () => { await save(); await downloadInspection(role, report.id); }) : setDocumentOpen(true)} data-attr="inspection-download"><FileText className="h-4 w-4" /><span className="hidden sm:inline">{documentOpen ? "Download document" : "View"}</span></Button>
-      {editable && !pendingPhoto && <Button variant="outline" disabled={busy} aria-label="Upload photos" onClick={startUpload} data-attr="inspection-photo-add"><Camera className="h-4 w-4" /><span className="sm:hidden">Photos</span><span className="hidden sm:inline">Upload photos</span></Button>}
+      <Button variant="outline" aria-label={documentOpen ? "Download PDF" : "View document"} disabled={busy} onClick={() => documentOpen ? run(async () => { await save(); await downloadInspection(role, report.id); }) : setDocumentOpen(true)} data-attr="inspection-download"><FileText className="h-4 w-4" /><span className="hidden sm:inline">{documentOpen ? "Download PDF" : "View document"}</span></Button>
+      {editable && !pendingPhoto && <Button disabled={busy} aria-label="Add photos" onClick={() => startUpload()} data-attr="inspection-photo-add"><Camera className="h-4 w-4" /><span>Add photos</span></Button>}
       {pendingPhoto && <>{editable && <Button variant="outline" disabled={busy} onClick={() => run(() => sendPhoto(pendingPhoto.itemId, pendingPhoto.photo))} data-attr="inspection-photo-retry">Retry upload</Button>}<Button variant="ghost" disabled={busy} onClick={() => { URL.revokeObjectURL(pendingPhoto.photo.previewUrl); setPendingPhoto(null); }} data-attr="inspection-photo-discard">Remove</Button></>}
       {error && dirty && editable && !pendingPhoto && <Button variant="outline" disabled={busy} onClick={() => run(async () => { await save(); })} data-attr="inspection-save-retry">Retry save</Button>}
       {error && <Button variant="ghost" disabled={busy} onClick={() => setConfirm("reload")} data-attr="inspection-conflict-review">Review latest</Button>}
-      {canEdit && editable && role === "manager" && !pendingPhoto && <Button disabled={busy} aria-label="Request confirmation" onClick={() => setConfirm("submit")} data-attr="inspection-submit"><span className="sm:hidden">Request</span><span className="hidden sm:inline">Request confirmation</span></Button>}
-      {canEdit && report.status === "submitted" && role === "resident" && !report.document.residentAcknowledgment && <Button disabled={busy} aria-label="Confirm review" onClick={() => setConfirm("acknowledge")} data-attr="inspection-acknowledge"><span className="sm:hidden">Confirm</span><span className="hidden sm:inline">Confirm review</span></Button>}
-      {canEdit && report.status === "submitted" && role === "manager" && <><Button variant="outline" disabled={busy} aria-label="Request changes" onClick={() => setConfirm("reopen")} data-attr="inspection-reopen"><span className="sm:hidden">Changes</span><span className="hidden sm:inline">Request changes</span></Button><Button disabled={busy || !report.document.residentAcknowledgment} onClick={() => setConfirm("complete")} aria-label="Approve inspection" data-attr="inspection-complete"><span className="sm:hidden">Approve</span><span className="hidden sm:inline">Approve inspection</span></Button></>}
     </PortalPageFooterActions>
     <Modal open={uploadSourceOpen} onClose={() => { if (!busy) setUploadSourceOpen(false); }} dismissBlocked={busy} title="Add photos" assistantStrip={false}>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -377,9 +363,9 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
         <Button variant="outline" className="h-auto min-h-12 justify-start px-4 py-3 text-left" disabled={busy} onClick={() => pickUploadSource("camera")} data-attr="inspection-upload-camera">Use camera</Button>
       </div>
     </Modal>
-    <Modal open={choosePhoto} onClose={() => { if (!busy) { setChoosePhoto(false); setPhotoSource(null); } }} dismissBlocked={busy} title="Add photos to a section" assistantStrip={false}><div className="space-y-2">{(activeArea ? [activeArea] : selected.size ? roomAreas.filter(area => selected.has(area.id)) : roomAreas).map(area => <div key={area.id}><h3 className="py-2 text-sm font-semibold">{area.label}</h3>{area.items.map(item => <Button key={item.id} variant="outline" className="mb-2 w-full justify-between" disabled={busy || !photoSource} onClick={() => photoSource && upload(item.id, photoSource)} data-attr="inspection-upload-section">{item.label}<Camera className="h-4 w-4" /></Button>)}</div>)}</div></Modal>
-    <Modal open={confirm !== null} onClose={() => { if (!busy) setConfirm(null); }} dismissBlocked={busy} title={confirm === "leave" ? "Leave without saving?" : confirm === "reload" ? "Review the latest saved report?" : confirm === "complete" ? "Approve inspection" : confirm ? actions[confirm].label : "Review report"} assistantStrip={false} footer={<Button disabled={busy} onClick={confirmAction} data-attr="inspection-confirm">{confirm === "leave" ? "Discard and leave" : confirm === "reload" ? "Review latest" : confirm === "complete" ? "Approve inspection" : confirm ? actions[confirm].label : "Confirm"}</Button>}>
-      <p className="text-sm text-muted">{confirm === "leave" ? "Unsaved notes and pending uploads will be discarded. Saved photos and observations remain." : confirm === "reload" ? "Unsaved notes will be discarded. Your pending photo is kept: retry its upload if the latest report is still a draft, or save it to your device if it has since been submitted or completed." : confirm ? actions[confirm].explanation : ""}</p>
+    <Modal open={choosePhoto} onClose={() => { if (!busy) { setChoosePhoto(false); setPhotoSource(null); } }} dismissBlocked={busy} title="Add photos to a section" assistantStrip={false}><div className="space-y-2">{(roomAreas.filter(area => area.id === uploadArea).length ? roomAreas.filter(area => area.id === uploadArea) : activeArea ? [activeArea] : roomAreas).map(area => <div key={area.id}><h3 className="py-2 text-sm font-semibold">{area.label}</h3>{area.items.map(item => <Button key={item.id} variant="outline" className="mb-2 w-full justify-between" disabled={busy || !photoSource} onClick={() => photoSource && upload(item.id, photoSource)} data-attr="inspection-upload-section">{item.label}<Camera className="h-4 w-4" /></Button>)}</div>)}</div></Modal>
+    <Modal open={confirm !== null} onClose={() => { if (!busy) setConfirm(null); }} dismissBlocked={busy} title={confirm === "leave" ? "Leave without saving?" : "Review the latest saved report?"} assistantStrip={false} footer={<Button disabled={busy} onClick={confirmAction} data-attr="inspection-confirm">{confirm === "leave" ? "Discard and leave" : "Review latest"}</Button>}>
+      <p className="text-sm text-muted">{confirm === "leave" ? "Unsaved notes and pending uploads will be discarded. Saved photos and notes remain." : "Unsaved notes will be discarded. Your pending photo is kept — retry its upload once the latest report has loaded."}</p>
       {error && <p role="alert" className="mt-3 text-sm">{error}</p>}
     </Modal>
   </div>;

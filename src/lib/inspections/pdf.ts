@@ -30,16 +30,24 @@ export async function inspectionPdf(actor: InspectionActor, id: string): Promise
   };
   line(`PropLane | ${report.kind === "move-in" ? "Move-in" : "Move-out"} inspection`, true);
   line(`${report.resident_name} | ${report.property_label} | ${inspectionRoomLabel(report.room_label) || "Property"}`);
-  line(`Inspection date: ${report.inspection_date} | Status: ${report.status} | Revision: ${report.revision}`);
+  line(`Inspection date: ${report.inspection_date} | Revision: ${report.revision}`);
   line(`Report: ${report.id} | Residency: ${report.application_id}`);
   if (baseline) line(`Move-in baseline: ${baseline.inspection_date} (${baseline.id})`);
   else if (report.kind === "move-out") line("No move-in baseline attached. This report alone does not establish when damage occurred.");
-  line("Observations document condition. Acknowledgment confirms review, not agreement with charges or liability.");
-  line("Deposit decisions and charges are handled separately. Unchecked items have not been assessed.");
+  line("Photos and notes document condition. Each photo below records the party who added it and when.");
+  line("Deposit decisions and charges are handled separately. Sections with no photos were not recorded.");
   y -= 12;
   const baselineItems = new Map(baseline?.document.areas.flatMap(a => a.items).map(i => [i.id, i]) ?? []);
   const observation = async (label: string, value: InspectionObservation) => {
-    line(`${label}: ${INSPECTION_CONDITIONS[value.condition]}${value.notes ? ` - ${value.notes}` : ""}`);
+    // A condition rating only prints when a legacy report actually carries one: with the
+    // rating control gone, printing "Not checked" against every section of every report said
+    // nothing while reading like a finding.
+    const detail = [
+      value.photos.length ? `${value.photos.length} photo${value.photos.length === 1 ? "" : "s"}` : "no photos",
+      value.condition !== "unchecked" ? INSPECTION_CONDITIONS[value.condition] : "",
+      value.notes,
+    ].filter(Boolean).join(" - ");
+    line(`${label}: ${detail}`);
     for (let index = 0; index < value.photos.length; index += 3) {
       space(150);
       const photos = value.photos.slice(index, index + 3);
@@ -97,8 +105,6 @@ export async function inspectionPdf(actor: InspectionActor, id: string): Promise
   }
   line("Record history", true);
   for (const event of report.document.history) line(`${event.at} | ${event.role} | ${event.action} | ${event.userId}`);
-  const acknowledgment = report.document.residentAcknowledgment;
-  line(acknowledgment ? `Resident acknowledged review at ${acknowledgment.at}. User: ${acknowledgment.userId}` : "Resident acknowledgment: pending.");
   for (const [index, sheet] of pdf.getPages().entries()) {
     sheet.drawText(`PropLane inspection | ${index + 1} / ${pdf.getPageCount()}`, { x: 46, y: 25, size: 8, font, color: rgb(.4, .4, .4) });
   }

@@ -424,9 +424,9 @@ export const REMINDER_SUBJECT_SETTINGS_META: Partial<
   outgoing_payment: OUTGOING_PAYMENT_META,
   booking: BOOKING_META,
   inspection: { ...BOOKING_META, directions: ["before", "after"], timingLabel: "Remind around the move date", notifyCounterpartyLabel: "Resident", recipientPreview: "Resident",
-    defaultTemplate: { subject: "Required room inspection", body: "Hi {recipientName},\n\nYour room requires a condition report. Open PropLane to add photos and notes for your assigned room.\n\n{url}" } },
-  inspection_manager: { ...BOOKING_META, directions: ["after"], timingLabel: "Remind after the report changes", notifyCounterpartyLabel: "Resident",
-    defaultTemplate: { subject: "Room inspection ready for review", body: "Hi {recipientName},\n\nA room inspection has saved evidence waiting for your review. Open the report to request resident confirmation or approve the confirmed report.\n\n{url}" } },
+    defaultTemplate: { subject: "Add your room photos", body: "Hi {recipientName},\n\nTake a few photos of your room so the condition on the day is on the record. It takes about two minutes, and it is what protects your deposit later.\n\n{url}" } },
+  inspection_manager: { ...BOOKING_META, directions: ["before", "after"], timingLabel: "Remind around the move date", notifyCounterpartyLabel: "Resident",
+    defaultTemplate: { subject: "No room photos yet", body: "Hi {recipientName},\n\nThis room has no move-in or move-out photos from either side yet. Open PropLane to add them, or nudge the resident.\n\n{url}" } },
 };
 
 export function reminderSubjectSettingsMeta(kind: ReminderSubjectKind): ReminderSubjectSettingsMeta | null {

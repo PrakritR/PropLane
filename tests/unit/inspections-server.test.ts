@@ -62,10 +62,9 @@ describe("inspection ownership and write isolation", () => {
     const actor = resident(); if (actor.role === "resident") actor.context.phase = "application";
     await expect(getInspection(actor, reports[0]!.id)).rejects.toMatchObject({ status: 403 });
   });
-  it("denies a baseline from a different residency, uncompleted report or future date", async () => {
+  it("denies a baseline from a different residency or a future date", async () => {
     const input = { applicationId: "AXIS-TEST", kind: "move-out", inspectionDate: "2026-09-06", baselineId: reports[0]!.id };
-    await expect(prepareInspection(manager(), input)).rejects.toThrow(/completed move-in/);
-    reports[0]!.status = "completed"; reports[0]!.application_id = "OTHER";
+    reports[0]!.application_id = "OTHER";
     await expect(prepareInspection(manager(), input)).rejects.toThrow(/this residency/);
     reports[0]!.application_id = "AXIS-TEST"; reports[0]!.inspection_date = "2026-09-07";
     await expect(prepareInspection(manager(), input)).rejects.toThrow(/before the move-out/);

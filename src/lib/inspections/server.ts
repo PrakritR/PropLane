@@ -8,13 +8,13 @@ import { track } from "@/lib/analytics/posthog";
 import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import {
-  applyInspectionObservations, createInspectionSchema,
-  InspectionError, residencyOccupancy, transitionInspection,
-  type InspectionDetail, type InspectionDocument, type InspectionRecord,
+  applyInspectionObservations, createInspectionSchema, ensureInspectionSchema,
+  inspectionPhotoCounts, inspectionToday, InspectionError, residencyOccupancy,
+  type InspectionDetail, type InspectionDocument, type InspectionKind, type InspectionRecord,
   type InspectionResidency, type InspectionSummary,
 } from "./model";
 
-import { createRoomInspectionDocument, inspectionRoomListing, resolveInspectionRoom } from "./room-template";
+import { createRoomInspectionDocument, inspectionRoomListing, resolveInspectionRoom, type InspectionRoom } from "./room-template";
 import { roomInspectionRequirements } from "./requirements";
 
 export type InspectionActor = { role: "manager"; context: AgentContext } | { role: "resident"; context: ResidentAgentContext };
@@ -210,17 +210,60 @@ export async function listInspectionResidencies(actor: InspectionActor): Promise
   });
 }
 
+/**
+ * The list is about photos, so it counts them. The document is read here and reduced to four
+ * numbers on the server: notes belong to whoever wrote them and never ride along to the other
+ * party's list, and a portfolio of reports would otherwise ship its photo arrays to a page that
+ * only wants a count.
+ */
 export async function listInspections(actor: InspectionActor, applicationId?: string): Promise<InspectionSummary[]> {
   const scope = await scopeFor(actor);
-  const rows = await scopedRows(actor, TABLE, scope, `${summaryColumns},resident_email,resident_user_id`);
+  const rows = await scopedRows(actor, TABLE, scope, `${summaryColumns},document,resident_email,resident_user_id`);
   return rows.filter(raw => {
     const row = raw as unknown as InspectionRecord;
     return authorized(actor, scope, row) && (!applicationId || row.application_id === applicationId);
   }).map(raw => {
-    const summary = { ...raw };
-    delete summary.resident_email; delete summary.resident_user_id;
-    return summary as InspectionSummary;
+    const summary: Record<string, unknown> = { ...raw, photos: inspectionPhotoCounts((raw as unknown as InspectionRecord).document) };
+    delete summary.document; delete summary.resident_email; delete summary.resident_user_id;
+    return summary as unknown as InspectionSummary;
   }).sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+/**
+ * The report a residency's row opens: its existing one for this kind, or a new one created on
+ * the spot. Creating on open is what removes the "New inspection" dialog — the roster row
+ * already knows the resident, the room and the move date, so asking for them again was pure
+ * ceremony. It is idempotent: the newest report wins and a second caller never inserts a
+ * duplicate, which is also what the partial unique index enforces underneath.
+ */
+export async function ensureInspection(actor: InspectionActor, raw: unknown): Promise<InspectionRecord> {
+  const input = ensureInspectionSchema.parse(raw);
+  const existing = await inspectionForResidency(actor, input.applicationId, input.kind);
+  if (existing) return existing;
+  const { identity, residency, room } = await prepareInspection(actor,
+    { applicationId: input.applicationId, kind: input.kind, inspectionDate: inspectionToday() });
+  // The date the inspection is ABOUT, not the day someone opened the page. A residency with no
+  // date on that end (a lease with no end date) falls back to today so the record still reads.
+  const inspectionDate = (input.kind === "move-in" ? residency.moveInDate : residency.moveOutDate) || inspectionToday();
+  const baseline = input.kind === "move-out"
+    ? (await inspectionForResidency(actor, input.applicationId, "move-in")) ?? null
+    : null;
+  return insertInspection(actor, {
+    identity, residency, room, kind: input.kind, inspectionDate,
+    // A move-out report carries its move-in report as the comparison automatically. The old
+    // baseline picker asked the manager to choose the only possible answer.
+    baselineId: baseline && baseline.inspection_date <= inspectionDate ? baseline.id : null,
+  });
+}
+
+/** The residency's report for one kind: the newest, since evidence is never deleted. */
+async function inspectionForResidency(actor: InspectionActor, applicationId: string, kind: InspectionKind): Promise<InspectionRecord | null> {
+  const scope = await scopeFor(actor);
+  const rows = await scopedRows(actor, TABLE, scope, "*");
+  const matches = (rows as unknown as InspectionRecord[])
+    .filter(row => authorized(actor, scope, row) && row.application_id === applicationId && row.kind === kind)
+    .sort((a, b) => b.inspection_date.localeCompare(a.inspection_date) || b.created_at.localeCompare(a.created_at));
+  return matches[0] ?? null;
 }
 
 export async function prepareInspection(actor: InspectionActor, raw: unknown) {
@@ -242,31 +285,43 @@ export async function prepareInspection(actor: InspectionActor, raw: unknown) {
   let baseline: InspectionRecord | null = null;
   if (input.baselineId) {
     baseline = await getInspection(actor, input.baselineId);
-    if (input.kind !== "move-out" || baseline.kind !== "move-in" || baseline.status !== "completed" ||
+    if (input.kind !== "move-out" || baseline.kind !== "move-in" ||
       baseline.application_id !== input.applicationId || baseline.property_id !== identity.property_id ||
       (baseline.document.roomScope ? baseline.document.roomScope.assignment !== room.assignment : baseline.room_label !== residency.roomLabel && baseline.room_label !== room.label) ||
       baseline.manager_user_id !== identity.manager_user_id || baseline.inspection_date > input.inspectionDate) {
-      throw new InspectionError("Choose a completed move-in report from this residency dated before the move-out.");
+      throw new InspectionError("Choose a move-in report from this residency dated before the move-out.");
     }
   }
   return { input, identity, residency, room, baseline };
 }
 
-export async function createInspection(actor: InspectionActor, raw: unknown): Promise<InspectionRecord> {
-  const { input, identity, residency, room, baseline } = await prepareInspection(actor, raw);
-  const auditKey = await auditInspectionWrite(actor, "create", { application_id: input.applicationId, kind: input.kind });
+
+type InspectionInsert = {
+  identity: ResidencyView["identity"]; residency: ResidencyView;
+  room: InspectionRoom; kind: InspectionKind; inspectionDate: string; baselineId: string | null;
+};
+
+async function insertInspection(actor: InspectionActor, insert: InspectionInsert): Promise<InspectionRecord> {
+  const { identity, residency, room, kind, inspectionDate, baselineId } = insert;
+  const auditKey = await auditInspectionWrite(actor, "create", { application_id: residency.id, kind });
   const now = new Date().toISOString();
   const document = createRoomInspectionDocument(room);
   document.history.push({ action: "create", role: actor.role, userId: actor.context.userId, at: now });
   const { data: created, error: insertError } = await actor.context.db.from(TABLE).insert({
-    ...identity, application_id: input.applicationId, resident_name: residency.name,
+    ...identity, application_id: residency.id, resident_name: residency.name,
     property_label: residency.propertyLabel, room_label: room.label,
-    kind: input.kind, inspection_date: input.inspectionDate, baseline_id: baseline?.id ?? null, document,
+    kind, inspection_date: inspectionDate, baseline_id: baselineId, document,
   }).select("*").single();
   await updateAuditResult(actor.context, auditKey, { status: insertError ? "failed" : "success", inspection_id: created?.id ?? null });
-  if (insertError?.code === "23505") throw new InspectionError("An unfinished report already exists for this residency and inspection type. Open that report to continue.", 409);
+  // Two people opening the same residency at once: the loser of the race reads the row the
+  // winner just wrote rather than showing a collision nobody caused.
+  if (insertError?.code === "23505") {
+    const existing = await inspectionForResidency(actor, residency.id, kind);
+    if (existing) return existing;
+    throw new InspectionError("A report already exists for this residency and inspection type. Open that report to continue.", 409);
+  }
   if (insertError || !created) throw new InspectionError("Could not create the inspection.", 500);
-  track("inspection_created", actor.context.userId, { inspection_id: created.id, kind: input.kind, portal: actor.role });
+  track("inspection_created", actor.context.userId, { inspection_id: created.id, kind, portal: actor.role });
   return created as InspectionRecord;
 }
 
@@ -295,16 +350,6 @@ export async function saveInspection(actor: InspectionActor, id: string, raw: un
   return updateInspection(actor, report, document);
 }
 
-export async function changeInspectionStatus(actor: InspectionActor, id: string, raw: unknown) {
-  const report = await getInspection(actor, id, "edit");
-  const next = transitionInspection(report, actor.role, actor.context.userId, raw);
-  const saved = await updateInspection(actor, report, next.document, next.status);
-  if (saved.status !== report.status && saved.status !== "draft") {
-    track(saved.status === "completed" ? "inspection_completed" : "inspection_submitted", actor.context.userId,
-      { inspection_id: id, kind: report.kind, portal: actor.role });
-  }
-  return saved;
-}
 
 async function signPhotos(actor: InspectionActor, report: InspectionRecord) {
   const copy = structuredClone(report);
@@ -328,7 +373,7 @@ export async function inspectionDetail(actor: InspectionActor, id: string): Prom
 
 export async function addInspectionPhoto(actor: InspectionActor, id: string, itemId: string, revision: number, file: File, sourceRef?: string) {
   const report = await getInspection(actor, id, "edit");
-  if (report.status !== "draft" || report.revision !== revision) throw new InspectionError("Reload the current draft before adding photos.", 409);
+  if (report.revision !== revision) throw new InspectionError("Reload the latest report before adding photos.", 409);
   const document = structuredClone(report.document);
   const items = document.areas.flatMap(a => a.items);
   const item = items.find(i => i.id === itemId);
@@ -357,7 +402,7 @@ export async function addInspectionPhoto(actor: InspectionActor, id: string, ite
 
 export async function removeInspectionPhoto(actor: InspectionActor, id: string, photoId: string, revision: number) {
   const report = await getInspection(actor, id, "edit");
-  if (report.status !== "draft" || report.revision !== revision) throw new InspectionError("Reload the current draft before removing photos.", 409);
+  if (report.revision !== revision) throw new InspectionError("Reload the latest report before removing photos.", 409);
   const document = structuredClone(report.document);
   let found = false;
   for (const item of document.areas.flatMap(a => a.items)) {
