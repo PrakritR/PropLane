@@ -26,7 +26,7 @@ import {
   type FeeExpandableSection,
   type FeeScopeControls,
 } from "@/components/portal/listing-unified-fees-table";
-import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { LISTING_FEE_PRESETS } from "@/lib/listing-fees";
 import {
   derivePaymentAtSigningIncludesFromMatrix,
@@ -36,6 +36,7 @@ import {
   paymentAtSigningMatrix,
   paymentAtSigningRows,
   setPaymentAtSigningCell,
+  LISTING_FEE_CHOICES,
   standardFeeScopeFor,
   withStandardFeeScope,
 } from "@/lib/listing-fee-scope";
@@ -816,7 +817,7 @@ function LeaseTermFeeRows({
   fees: { fee: ManagerCustomFeeRow; index: number }[];
   onChange: (index: number, patch: Partial<ManagerCustomFeeRow>) => void;
   onRemove: (index: number) => void;
-  onAdd: () => void;
+  onAdd: (choice?: { label: string; frequency: "one-time" | "monthly" }) => void;
 }) {
   return (
     <div className="w-full border-t border-border/60 pt-2">
@@ -847,20 +848,35 @@ function LeaseTermFeeRows({
           </Button>
         </div>
       ))}
-      <Button
-        type="button"
-        variant="outline"
-        className="rounded-full text-xs"
-        onClick={onAdd}
-        data-attr="listing-term-add-fee"
-      >
-        + Add fee
-      </Button>
+      <FieldSingleSelect
+        label="Add a fee"
+        hideLabel
+        variant="pill"
+        dataAttr="listing-term-add-fee"
+        placeholder="+ Add fee"
+        value=""
+        options={[
+          ...LISTING_FEE_CHOICES.map((c) => ({ value: c.label, label: c.label })),
+          { value: "__custom__", label: "Something else…" },
+        ]}
+        onChange={(picked) =>
+          onAdd(
+            picked === "__custom__"
+              ? undefined
+              : LISTING_FEE_CHOICES.find((c) => c.label === picked),
+          )
+        }
+      />
     </div>
   );
 }
 
-const ROOM_PRICE_GRID = "grid w-full grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] items-end gap-x-4 gap-y-3";
+const ROOM_PRICE_GRID =
+  // `[&>*]:!h-auto` and `[&>*>*:last-child]:!mt-0` undo GridField's bottom-align. It sizes
+  // itself `h-full` and pushes its control with `mt-auto` so labels line up in a row of
+  // equal-height cells — but here one cell holds the whole prorated-rent group, and every
+  // other field sank to the bottom of ITS height, leaving the gap the captain flagged.
+  "grid w-full grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] items-start gap-x-4 gap-y-3 [&>*]:!h-auto [&>*>*:last-child]:!mt-0";
 
 function LeaseTypePricingSection({
   term,
@@ -1448,6 +1464,9 @@ function PresetCheckboxGroup({
   onOtherForcedOpenChange,
   columns = "sm:grid-cols-2 lg:grid-cols-3",
   otherPlaceholder = "Other, comma-separated",
+  variant = "checkboxes",
+  dropdownLabel = "Options",
+  dataAttr,
 }: {
   presets: readonly { id: string; label: string }[];
   value: string;
@@ -1456,6 +1475,14 @@ function PresetCheckboxGroup({
   onOtherForcedOpenChange: (open: boolean) => void;
   columns?: string;
   otherPlaceholder?: string;
+  /**
+   * "dropdown" collapses the same list behind one multi-select (PRP-463). Thirty
+   * checkboxes down the page is what a manager has to scroll past to reach the next
+   * field; the value written is identical either way.
+   */
+  variant?: "checkboxes" | "dropdown";
+  dropdownLabel?: string;
+  dataAttr?: string;
 }) {
   const presetLabels = presets.map((p) => p.label);
   const lines = listingAmenityLinesFromValue(value);
@@ -1475,6 +1502,30 @@ function PresetCheckboxGroup({
   }, [presetSelectionKey, otherOpen]);
   return (
     <>
+      {variant === "dropdown" ? (
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <CheckboxMultiSelect
+            label={dropdownLabel}
+            hideLabel
+            dataAttr={dataAttr}
+            className="w-full max-w-[16rem]"
+            options={presets.map((p) => ({ value: p.label, label: p.label }))}
+            selected={presetLabels.filter((l) => checked.has(l))}
+            onChange={(next) => write(new Set(next), custom)}
+            emptyLabel="None"
+            selectionTriggerLabel={allChecked ? "All" : undefined}
+          />
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="h-4 w-4 shrink-0 rounded border-border"
+              checked={otherOpen}
+              onChange={(e) => onOtherForcedOpenChange(e.target.checked)}
+            />
+            <span className="font-medium text-foreground">Other</span>
+          </label>
+        </div>
+      ) : (
       <div className={`mt-1 grid gap-x-4 gap-y-1.5 sm:grid-cols-2 ${columns}`}>
         <label className="flex cursor-pointer items-center gap-2 text-sm">
           <input
@@ -1511,6 +1562,7 @@ function PresetCheckboxGroup({
           <span className="font-medium text-foreground">Other</span>
         </label>
       </div>
+      )}
       {otherOpen ? (
         <Input
           className="mt-2 h-9 text-sm"
@@ -2506,8 +2558,9 @@ export function ManagerAddListingForm({
   const [bathDefaults, setBathDefaults] = useState<{
     location: string;
     type: "full" | "shower" | "half" | "";
+    accessKind: "shared" | "ensuite" | "";
     amenitiesText: string;
-  }>({ location: "", type: "", amenitiesText: "" });
+  }>({ location: "", type: "", accessKind: "", amenitiesText: "" });
   const [touchedRoomIds, setTouchedRoomIds] = useState<Set<string>>(() => new Set());
   const [touchedBathIds, setTouchedBathIds] = useState<Set<string>>(() => new Set());
   const markRoomTouched = useCallback((id: string) => {
@@ -2556,26 +2609,32 @@ export function ManagerAddListingForm({
    * mirrors that for every room still following it rather than writing a
    * furnishing string the room editor would then disagree with.
    */
-  const [roomDefaultsFurnished, setRoomDefaultsFurnished] = useState(false);
-  const setRoomDefaultsFurnishedForFollowing = useCallback(
-    (on: boolean) => {
-      setRoomDefaultsFurnished(on);
-      // Both writes are driven off the rooms this render is showing, so the
-      // checkbox and the furnished-open set can never disagree about which
-      // rooms moved. Never nest one setState inside another's updater.
+  /**
+   * Furnishing is the LIST of what a room includes, not a yes/no (PRP-463). The band
+   * writes that list onto every room still following it, exactly as the checkbox wrote
+   * "furnished"; an empty list is unfurnished, which is what an empty furnishing string
+   * has always meant.
+   */
+  const [roomDefaultsFurniture, setRoomDefaultsFurniture] = useState<string[]>([]);
+  const setRoomDefaultsFurnitureForFollowing = useCallback(
+    (next: string[]) => {
+      setRoomDefaultsFurniture(next);
+      const ordered = ROOM_FURNITURE_PRESETS.filter((f) => next.includes(f.label)).map((f) => f.label);
       const following = sub.rooms.filter((room) => !touchedRoomIds.has(room.id)).map((room) => room.id);
       setFurnishedOpenRooms((prev) => {
-        const next = new Set(prev);
+        const nextSet = new Set(prev);
         for (const id of following) {
-          if (on) next.add(id);
-          else next.delete(id);
+          if (ordered.length > 0) nextSet.add(id);
+          else nextSet.delete(id);
         }
-        return next;
+        return nextSet;
       });
       setSub((s) => ({
         ...s,
         rooms: s.rooms.map((room) =>
-          touchedRoomIds.has(room.id) ? room : { ...room, furnishing: on ? "" : "Unfurnished" },
+          touchedRoomIds.has(room.id)
+            ? room
+            : { ...room, furnishing: ordered.length > 0 ? ordered.join(", ") : "Unfurnished" },
         ),
       }));
     },
@@ -2583,9 +2642,14 @@ export function ManagerAddListingForm({
   );
 
   const editBathDefault = useCallback(
-    <K extends "location" | "type" | "amenitiesText">(
+    <K extends "location" | "type" | "accessKind" | "amenitiesText">(
       field: K,
-      value: { location: string; type: "full" | "shower" | "half" | ""; amenitiesText: string }[K],
+      value: {
+        location: string;
+        type: "full" | "shower" | "half" | "";
+        accessKind: "shared" | "ensuite" | "";
+        amenitiesText: string;
+      }[K],
     ) => {
       setBathDefaults((prev) => ({ ...prev, [field]: value }));
       setSub((s) => ({
@@ -2594,6 +2658,19 @@ export function ManagerAddListingForm({
           if (touchedBathIds.has(b.id)) return b;
           if (field === "location") return { ...b, location: value as string };
           if (field === "amenitiesText") return { ...b, amenitiesText: value as string };
+          if (field === "accessKind" && value) {
+            // Access is written through to every assigned room, exactly as the per-bathroom
+            // control does, so the listing copy cannot disagree with the band.
+            const kind = value as "shared" | "ensuite";
+            const rooms = b.assignedRoomIds ?? [];
+            return {
+              ...b,
+              accessKind: kind,
+              accessKindByRoomId: rooms.length
+                ? Object.fromEntries(rooms.map((id) => [id, kind]))
+                : undefined,
+            };
+          }
           if (field === "type" && value) {
             const type = value as "full" | "shower" | "half";
             // A bathroom's TYPE is read back from its fixtures, so writing one
@@ -2947,13 +3024,25 @@ export function ManagerAddListingForm({
    * fees table shows — pre-scoped to this room and this term, so a manager pricing a room
    * for short stays adds the cleaning fee only short stays pay without leaving the row.
    */
-  const addRoomTermFee = (roomId: string, term: string) => {
-    const next = { ...emptyCustomFeeRow(), roomIds: [roomId], leaseTypes: [term] };
+  const addRoomTermFee = (
+    roomId: string,
+    term: string,
+    choice?: { label: string; frequency: "one-time" | "monthly" },
+  ) => {
+    const next = {
+      ...emptyCustomFeeRow(),
+      roomIds: [roomId],
+      leaseTypes: [term],
+      ...(choice ? { label: choice.label, frequency: choice.frequency } : {}),
+    };
     setSub((s) => ({ ...s, customFees: [...(s.customFees ?? []), next] }));
   };
 
-  const addCustomFee = () => {
-    const next = emptyCustomFeeRow();
+  const addCustomFee = (choice?: { label: string; frequency: "one-time" | "monthly" }) => {
+    const next = {
+      ...emptyCustomFeeRow(),
+      ...(choice ? { label: choice.label, frequency: choice.frequency } : {}),
+    };
     expandListingItem(listingItemKey("fee", next.id));
     setSub((s) => ({ ...s, customFees: [...(s.customFees ?? []), next] }));
   };
@@ -4112,7 +4201,7 @@ export function ManagerAddListingForm({
                         fees={roomTermFees(room.id, LONG_TERM_LEASE_TERM)}
                         onChange={(idx, patch) => setCustomFee(idx, patch)}
                         onRemove={removeCustomFee}
-                        onAdd={() => addRoomTermFee(room.id, LONG_TERM_LEASE_TERM)}
+                        onAdd={(choice) => addRoomTermFee(room.id, LONG_TERM_LEASE_TERM, choice)}
                       />
                     }
                   >
@@ -4232,7 +4321,7 @@ export function ManagerAddListingForm({
                           fees={roomTermFees(room.id, "Month-to-Month")}
                           onChange={(idx, patch) => setCustomFee(idx, patch)}
                           onRemove={removeCustomFee}
-                          onAdd={() => addRoomTermFee(room.id, "Month-to-Month")}
+                          onAdd={(choice) => addRoomTermFee(room.id, "Month-to-Month", choice)}
                         />
                       }
                     />
@@ -4253,7 +4342,7 @@ export function ManagerAddListingForm({
                           fees={roomTermFees(room.id, CUSTOM_LEASE_TERM)}
                           onChange={(idx, patch) => setCustomFee(idx, patch)}
                           onRemove={removeCustomFee}
-                          onAdd={() => addRoomTermFee(room.id, CUSTOM_LEASE_TERM)}
+                          onAdd={(choice) => addRoomTermFee(room.id, CUSTOM_LEASE_TERM, choice)}
                         />
                       }
                     />
@@ -4275,7 +4364,7 @@ export function ManagerAddListingForm({
                           fees={roomTermFees(room.id, SHORT_TERM_LEASE_TERM)}
                           onChange={(idx, patch) => setCustomFee(idx, patch)}
                           onRemove={removeCustomFee}
-                          onAdd={() => addRoomTermFee(room.id, SHORT_TERM_LEASE_TERM)}
+                          onAdd={(choice) => addRoomTermFee(room.id, SHORT_TERM_LEASE_TERM, choice)}
                         />
                       }
                       extraFields={(
@@ -4393,7 +4482,7 @@ export function ManagerAddListingForm({
                       fees={roomTermFees(bundle.id, LONG_TERM_LEASE_TERM)}
                       onChange={(idx, patch) => setCustomFee(idx, patch)}
                       onRemove={removeCustomFee}
-                      onAdd={() => addRoomTermFee(bundle.id, LONG_TERM_LEASE_TERM)}
+                      onAdd={(choice) => addRoomTermFee(bundle.id, LONG_TERM_LEASE_TERM, choice)}
                     />
                   }
                 >
@@ -4484,7 +4573,7 @@ export function ManagerAddListingForm({
                         fees={roomTermFees(bundle.id, SHORT_TERM_LEASE_TERM)}
                         onChange={(idx, patch) => setCustomFee(idx, patch)}
                         onRemove={removeCustomFee}
-                        onAdd={() => addRoomTermFee(bundle.id, SHORT_TERM_LEASE_TERM)}
+                        onAdd={(choice) => addRoomTermFee(bundle.id, SHORT_TERM_LEASE_TERM, choice)}
                       />
                     }
                   />
@@ -5433,15 +5522,25 @@ export function ManagerAddListingForm({
                       </table>
                     </div>
                   )}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="rounded-full text-xs"
-                    onClick={addCustomFee}
-                    data-attr="listing-payment-at-signing-add-fee"
-                  >
-                    + Add fee
-                  </Button>
+                  <FieldSingleSelect
+                    label="Add a fee"
+                    hideLabel
+                    variant="pill"
+                    dataAttr="listing-payment-at-signing-add-fee"
+                    placeholder="+ Add fee"
+                    value=""
+                    options={[
+                      ...LISTING_FEE_CHOICES.map((c) => ({ value: c.label, label: c.label })),
+                      { value: "__custom__", label: "Something else…" },
+                    ]}
+                    onChange={(picked) =>
+                      addCustomFee(
+                        picked === "__custom__"
+                          ? undefined
+                          : LISTING_FEE_CHOICES.find((c) => c.label === picked),
+                      )
+                    }
+                  />
                   {/* The signing-total and other-fees recaps were removed: every
                       figure in them is already stated by the table above and
                       by each room row, so they only restated the form back to the
@@ -5701,24 +5800,14 @@ export function ManagerAddListingForm({
                   <p className="mt-0.5 text-xs text-muted">
                     Change only the rooms that differ. Editing a room stops it following this row.
                   </p>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                    <GridField>
-                      <FieldLabel>Floor</FieldLabel>
-                      <Select
-                        aria-label="Floor for most rooms"
-                        className={selectInputCls}
-                        data-attr="listing-room-defaults-floor"
-                        value={roomDefaults.floor}
-                        onChange={(e) => editRoomDefault("floor", e.target.value)}
-                      >
-                        <option value="">Select floor</option>
-                        {floorLevelSelectOptions(sub.listingStoriesId, roomDefaults.floor).map((label) => (
-                          <option key={label} value={label}>
-                            {label}
-                          </option>
-                        ))}
-                      </Select>
-                    </GridField>
+                  {/*
+                    Floor and the room inspections left this band (PRP-463). Floor is a
+                    per-room fact a manager sets on the room itself, and the inspection
+                    requirements now live per lease type in Pricing — a default here just
+                    duplicated them. Furnishing became the list of what is actually
+                    included, because "Furnished" alone told a prospect nothing.
+                  */}
+                  <div className={cn("mt-3", ROOM_PRICE_GRID)}>
                     <GridField>
                       <FieldLabel hint="Each resident signs their own lease and pays this room's full rent.">
                         Beds (residents)
@@ -5756,41 +5845,21 @@ export function ManagerAddListingForm({
                       />
                     </GridField>
                     <GridField>
-                      <FieldLabel hint="Check Furnished to list included items on each room.">
-                        Furnishing
-                      </FieldLabel>
-                      <label className="flex cursor-pointer items-center gap-3 py-2 text-sm">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 accent-primary"
-                          data-attr="listing-room-defaults-furnished"
-                          checked={roomDefaultsFurnished}
-                          onChange={(e) => setRoomDefaultsFurnishedForFollowing(e.target.checked)}
-                        />
-                        Furnished
-                        <span className="text-muted">— default is unfurnished</span>
-                      </label>
-                    </GridField>
-                    <GridField className="sm:col-span-2">
-                      <FieldLabel>Room inspections</FieldLabel>
-                      <div className="flex flex-wrap gap-x-6 gap-y-2 py-1">
-                        {(["moveIn", "moveOut"] as const).map((kind) => {
-                          const field =
-                            kind === "moveIn" ? "moveInInspectionRequired" : "moveOutInspectionRequired";
-                          return (
-                            <label key={kind} className="flex cursor-pointer items-center gap-2 text-sm">
-                              <input
-                                type="checkbox"
-                                className="h-4 w-4 accent-primary"
-                                data-attr={`listing-room-defaults-${kind === "moveIn" ? "move-in" : "move-out"}-inspection`}
-                                checked={roomDefaults[field]}
-                                onChange={(e) => editRoomDefault(field, e.target.checked)}
-                              />
-                              Require {kind === "moveIn" ? "move-in" : "move-out"} inspection
-                            </label>
-                          );
-                        })}
-                      </div>
+                      <FieldLabel>Furnishing</FieldLabel>
+                      <CheckboxMultiSelect
+                        label="Furniture included in most rooms"
+                        hideLabel
+                        dataAttr="listing-room-defaults-furnished"
+                        options={ROOM_FURNITURE_PRESETS.map((f) => ({ value: f.label, label: f.label }))}
+                        selected={roomDefaultsFurniture}
+                        onChange={setRoomDefaultsFurnitureForFollowing}
+                        emptyLabel="Unfurnished"
+                        selectionTriggerLabel={
+                          roomDefaultsFurniture.length >= ROOM_FURNITURE_PRESETS.length
+                            ? "Fully furnished"
+                            : undefined
+                        }
+                      />
                     </GridField>
                   </div>
                 </div>
@@ -6207,10 +6276,15 @@ export function ManagerAddListingForm({
                     <p className="mt-0.5 text-xs text-muted">
                       Change only the ones that differ. Editing a bathroom stops it following this row.
                     </p>
-                    {/* Floor left with the per-bathroom field it fed (PRP-463). */}
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    {/*
+                      Floor left with the per-bathroom field it fed. The band now carries
+                      the three things a bathroom actually IS — its type, how it is
+                      reached, and what is in it — side by side at one narrow width, so a
+                      manager sets the common case once instead of on every row (PRP-463).
+                    */}
+                    <div className={cn("mt-3", ROOM_PRICE_GRID)}>
                       <GridField>
-                        <FieldLabel hint="Choosing a type sets the fixtures below on every bathroom still following this row.">
+                        <FieldLabel hint="Sets the fixtures on every bathroom still following this row.">
                           Type
                         </FieldLabel>
                         <Select
@@ -6227,6 +6301,40 @@ export function ManagerAddListingForm({
                           <option value="shower">Shower only</option>
                           <option value="half">Half bath</option>
                         </Select>
+                      </GridField>
+                      <GridField>
+                        <FieldLabel>Access</FieldLabel>
+                        <Select
+                          aria-label="Access for most bathrooms"
+                          className={selectInputCls}
+                          data-attr="listing-bathroom-defaults-access"
+                          value={bathDefaults.accessKind}
+                          onChange={(e) =>
+                            editBathDefault("accessKind", e.target.value as "shared" | "ensuite" | "")
+                          }
+                        >
+                          <option value="">Select access</option>
+                          <option value="shared">Shared</option>
+                          <option value="ensuite">Ensuite</option>
+                        </Select>
+                      </GridField>
+                      <GridField>
+                        <FieldLabel>Amenities</FieldLabel>
+                        <CheckboxMultiSelect
+                          label="Amenities in most bathrooms"
+                          hideLabel
+                          dataAttr="listing-bathroom-defaults-amenities"
+                          options={dedupedPresets.bathroom.map((a) => ({ value: a.label, label: a.label }))}
+                          selected={listingAmenityLinesFromValue(bathDefaults.amenitiesText)}
+                          onChange={(next) => editBathDefault("amenitiesText", next.join("\n"))}
+                          emptyLabel="None"
+                          selectionTriggerLabel={
+                            listingAmenityLinesFromValue(bathDefaults.amenitiesText).length >=
+                            dedupedPresets.bathroom.length
+                              ? "All amenities"
+                              : undefined
+                          }
+                        />
                       </GridField>
                     </div>
                   </div>
@@ -6361,8 +6469,10 @@ export function ManagerAddListingForm({
                           onChange={(v) => setBath(i, { amenitiesText: v })}
                           otherForcedOpen={otherAmenitiesOpenRooms.has(`bath-${b.id}`)}
                           onOtherForcedOpenChange={(open) => toggleOtherAmenitiesOpen(`bath-${b.id}`, open)}
-                          columns="sm:grid-cols-2"
                           otherPlaceholder="Other amenities, comma-separated"
+                          variant="dropdown"
+                          dropdownLabel={`Amenities in bathroom ${i + 1}`}
+                          dataAttr="listing-bathroom-amenities"
                         />
                       </div>
                       <div className="sm:col-span-2 grid gap-3 sm:grid-cols-2">

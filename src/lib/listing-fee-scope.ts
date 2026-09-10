@@ -339,3 +339,32 @@ function cleanIdList(raw: unknown): string[] | undefined {
   ];
   return out.length > 0 ? out : undefined;
 }
+
+/**
+ * The fees a manager actually charges, offered wherever a fee is added (PRP-463).
+ *
+ * A blank "Fee name" box asks the manager to remember what PropLane calls things; this
+ * offers the list and still allows anything else. Cadence rides along because a daily
+ * utilities charge and a one-time key fee are not billed the same way, and getting that
+ * wrong is a wrong ledger rather than a wrong label.
+ */
+export const LISTING_FEE_CHOICES: readonly { label: string; frequency: "one-time" | "monthly" }[] = [
+  { label: "Utilities", frequency: "monthly" },
+  { label: "Utilities / week", frequency: "monthly" },
+  { label: "Utilities / day", frequency: "monthly" },
+  { label: "Parking", frequency: "monthly" },
+  { label: "Cleaning", frequency: "one-time" },
+  { label: "Cleaning / week", frequency: "monthly" },
+  { label: "Internet", frequency: "monthly" },
+  { label: "Laundry", frequency: "monthly" },
+  { label: "Pet rent", frequency: "monthly" },
+  { label: "Pet deposit", frequency: "one-time" },
+  { label: "Storage", frequency: "monthly" },
+  { label: "Key / lock fee", frequency: "one-time" },
+  { label: "Move-in fee", frequency: "one-time" },
+  { label: "Move-out fee", frequency: "one-time" },
+  { label: "Admin fee", frequency: "one-time" },
+  { label: "HOA / community", frequency: "monthly" },
+  { label: "Amenity fee", frequency: "monthly" },
+  { label: "Trash / recycling", frequency: "monthly" },
+];
