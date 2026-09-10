@@ -1,5 +1,11 @@
 import { COMMS_CREDIT_PURPOSE } from "@/lib/comms-billing/credit-packs";
-import { fulfillCommsCreditPurchase, reverseCommsCreditForCharge } from "@/lib/comms-billing/credit-purchase.server";
+import {
+  CommsCreditValidationError,
+  fulfillCommsCreditPurchase,
+  recordCommsCreditPaymentReview,
+  reverseCommsCreditForCharge,
+  reverseCommsCreditForPaymentIntent,
+} from "@/lib/comms-billing/credit-purchase.server";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
@@ -152,6 +158,23 @@ export async function POST(req: Request) {
 
   const db = createSupabaseServiceRoleClient();
 
+  /**
+   * Communication credit is money, so a transient failure must still make
+   * Stripe redeliver the event — but it must not take the unrelated handlers on
+   * the same event down with it. Each credit step runs isolated and records
+   * whether a retry is owed; the answer is given after everything else has run.
+   */
+  const commsRetry: { message: string | null } = { message: null };
+  const runCommsCreditStep = async (label: string, step: () => Promise<unknown>) => {
+    try {
+      await step();
+    } catch (e) {
+      console.error(`[stripe webhook] ${label}`, e);
+      commsRetry.message =
+        e instanceof Error ? e.message : "Communication credit unavailable.";
+    }
+  };
+
   try {
     if (event.type === "account.updated") {
       const account = event.data.object as Stripe.Account;
@@ -164,7 +187,17 @@ export async function POST(req: Request) {
       const session = event.data.object as Stripe.Checkout.Session;
       logCheckoutCompleted(session);
       if (session.metadata?.purpose === COMMS_CREDIT_PURPOSE) {
-        await fulfillCommsCreditPurchase(db, session, event.id);
+        await runCommsCreditStep("comms credit fulfillment", async () => {
+          try {
+            await fulfillCommsCreditPurchase(db, session, event.id);
+          } catch (e) {
+            // A payment that does not match the purchase can never validate, so
+            // redelivering it forever only hides it. Record it for a human and
+            // acknowledge — without granting a cent of credit.
+            if (!(e instanceof CommsCreditValidationError)) throw e;
+            await recordCommsCreditPaymentReview(db, session, event.id, e.message);
+          }
+        });
       } else if (session.metadata?.purpose === "rental_application_fee") {
         try {
           await markApplicationFeePaidFromStripeSession(db, session);
@@ -324,7 +357,9 @@ export async function POST(req: Request) {
 
     if (event.type === "charge.refunded") {
       const charge = event.data.object as Stripe.Charge;
-      await reverseCommsCreditForCharge(db, charge, event.id);
+      await runCommsCreditStep("charge.refunded comms credit", () =>
+        reverseCommsCreditForCharge(db, charge, event.id),
+      );
       const refunds = charge.refunds?.data ?? [];
       for (const refund of refunds) {
         if (refund.status === "succeeded" || refund.status === "pending") {
@@ -339,8 +374,16 @@ export async function POST(req: Request) {
       const refund = event.data.object as Stripe.Refund;
       if (refund.status === "succeeded") {
         const chargeId = typeof refund.charge === "string" ? refund.charge : refund.charge?.id;
+        const paymentIntentId =
+          typeof refund.payment_intent === "string" ? refund.payment_intent : refund.payment_intent?.id;
         if (chargeId) {
-          await reverseCommsCreditForCharge(db, await stripe.charges.retrieve(chargeId), event.id);
+          if (paymentIntentId) {
+            await runCommsCreditStep("refund event comms credit", () =>
+              reverseCommsCreditForPaymentIntent(db, paymentIntentId, event.id, {
+                loadCharge: () => stripe.charges.retrieve(chargeId),
+              }),
+            );
+          }
           await handleStripeRefund(db, refund, chargeId).catch((e) => {
             console.error("[stripe webhook] refund event", e);
           });
@@ -351,8 +394,15 @@ export async function POST(req: Request) {
     if (event.type === "charge.dispute.created" || event.type === "charge.dispute.closed" || event.type === "charge.dispute.updated") {
       const dispute = event.data.object as Stripe.Dispute;
       const disputedCharge = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id;
+      const disputedPaymentIntent =
+        typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
       if (disputedCharge && dispute.status !== "won" && dispute.status !== "warning_closed") {
-        await reverseCommsCreditForCharge(db, await stripe.charges.retrieve(disputedCharge), event.id, true);
+        await runCommsCreditStep("dispute event comms credit", () =>
+          reverseCommsCreditForPaymentIntent(db, disputedPaymentIntent, event.id, {
+            dispute: true,
+            loadCharge: () => stripe.charges.retrieve(disputedCharge),
+          }),
+        );
       }
       await handleStripeDisputeEvent(db, event.data.object as Stripe.Dispute).catch((e) => {
         console.error("[stripe webhook] dispute event", e);
@@ -367,6 +417,13 @@ export async function POST(req: Request) {
   } catch (e) {
     const message = e instanceof Error ? e.message : "Webhook handler error";
     return NextResponse.json({ error: message }, { status: 500 });
+  }
+
+  // Every other handler for this event has now run. A paid purchase that could
+  // not be credited (or a reversal that could not be applied) is never
+  // acknowledged: answer 500 so Stripe redelivers.
+  if (commsRetry.message) {
+    return NextResponse.json({ error: commsRetry.message }, { status: 500 });
   }
 
   return NextResponse.json({ received: true }, { status: 200 });

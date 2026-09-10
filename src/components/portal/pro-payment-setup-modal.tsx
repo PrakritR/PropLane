@@ -21,7 +21,10 @@ import {
   resolveServiceFeePayerFor,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
-import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
+import {
+  loadManagerPaymentWaiverGrantedClient,
+  loadManagerSubscriptionTierClient,
+} from "@/lib/manager-subscription-client";
 import { stripeSetupStateFromStatus, type StripeSetupState } from "@/lib/stripe-setup-state";
 
 const DEMO_INBOX = "payments+demo-token@prop-lane.space";
@@ -168,15 +171,14 @@ export function ManagerPaymentSetupModal({
       return;
     }
     try {
-      const [res, waiver] = await Promise.all([
-        fetch("/api/manager/subscription", { credentials: "include" }),
+      // Both values come from GET /api/manager/subscription; the shared client
+      // coalesces them into ONE request instead of the modal issuing a second.
+      const [tier, waiver] = await Promise.all([
+        loadManagerSubscriptionTierClient(),
         loadManagerPaymentWaiverGrantedClient(),
       ]);
       setPaymentWaiverGranted(waiver);
-      if (!res.ok) return;
-      const data = (await res.json()) as { tier?: string | null; paymentWaiverGranted?: boolean };
-      setSkuTier(normalizeManagerSkuTier(data.tier ?? null));
-      if (data.paymentWaiverGranted === true) setPaymentWaiverGranted(true);
+      setSkuTier(normalizeManagerSkuTier(tier));
     } catch {
       /* fee controls stay hidden until tier loads */
     }

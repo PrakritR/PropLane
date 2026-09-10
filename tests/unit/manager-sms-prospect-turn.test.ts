@@ -21,9 +21,6 @@ vi.mock("@/lib/agent/user-preferences", () => ({
   loadAgentCustomInstructions: vi.fn(async () => null),
   withAgentCustomInstructions: (prompt: string) => prompt,
 }));
-vi.mock("@/lib/comms-billing/agent-usage.server", () => ({
-  recordCommsAgentTurnUsage: vi.fn(async () => ({ ok: true })),
-}));
 vi.mock("@/lib/analytics/posthog", () => ({ track: mocks.track }));
 
 import { runManagerSmsAgentTurn } from "@/lib/agent/manager-sms-agent.server";

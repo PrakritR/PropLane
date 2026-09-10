@@ -25,7 +25,16 @@
 let cachedTier: string | null | undefined;
 let cachedEffectiveTier: string | null | undefined;
 let cachedPaymentWaiverGranted: boolean | null | undefined;
+let paymentWaiverLoadedAt = 0;
 let inflight: Promise<void> | null = null;
+
+/**
+ * Processing-fee coverage is granted and revoked independently of the plan, so
+ * it cannot ride the sticky tier cache — but re-fetching it on every read makes
+ * one modal issue two calls to a route that reads Supabase. A short window
+ * keeps the intended freshness without the duplicate round-trips.
+ */
+const PAYMENT_WAIVER_TTL_MS = 30_000;
 
 function loadSubscription(): Promise<void> {
   if (inflight) return inflight;
@@ -42,6 +51,7 @@ function loadSubscription(): Promise<void> {
         cachedTier = null;
         cachedEffectiveTier = null;
         cachedPaymentWaiverGranted = null;
+        paymentWaiverLoadedAt = Date.now();
         return;
       }
       // The route could not read this account's plan. Caching that would freeze
@@ -56,11 +66,13 @@ function loadSubscription(): Promise<void> {
       // than inventing a Free plan the server is not enforcing.
       cachedEffectiveTier = body.effectiveTier ?? body.tier ?? null;
       cachedPaymentWaiverGranted = body.paymentCoverageUnknown || body.paymentWaiverGranted === null ? null : body.paymentWaiverGranted === true;
+      paymentWaiverLoadedAt = Date.now();
     })
     .catch(() => {
       cachedTier = null;
       cachedEffectiveTier = null;
       cachedPaymentWaiverGranted = null;
+      paymentWaiverLoadedAt = Date.now();
     })
     .finally(() => {
       inflight = null;
@@ -87,7 +99,12 @@ export function loadManagerEffectivePlanTierClient(): Promise<string | null> {
 }
 
 export function loadManagerPaymentWaiverGrantedClient(): Promise<boolean | null> {
-  // Coverage can be granted or revoked independently of subscription changes.
+  if (
+    cachedPaymentWaiverGranted !== undefined &&
+    Date.now() - paymentWaiverLoadedAt < PAYMENT_WAIVER_TTL_MS
+  ) {
+    return Promise.resolve(cachedPaymentWaiverGranted);
+  }
   return loadSubscription().then(() => cachedPaymentWaiverGranted ?? null);
 }
 
@@ -96,5 +113,6 @@ export function resetManagerSubscriptionTierClientCache() {
   cachedTier = undefined;
   cachedEffectiveTier = undefined;
   cachedPaymentWaiverGranted = undefined;
+  paymentWaiverLoadedAt = 0;
   inflight = null;
 }

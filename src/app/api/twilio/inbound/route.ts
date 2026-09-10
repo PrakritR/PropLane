@@ -671,9 +671,11 @@ export async function POST(req: Request) {
     }).catch(() => undefined);
   }
 
-  // Belt-and-suspenders: the leasing handler already logs inbound with its
-  // resolved role (this insert dedups on the unique message_sid). Populate the
-  // identity fields anyway for the rare path where the handler logged nothing.
+  // Belt-and-suspenders for the rare path where the leasing handler resolved no
+  // identity at all: the body-preservation insert left `counterparty_role` as
+  // `unknown`, so claim ONLY a row still carrying that placeholder. The handler
+  // resolves residents on this same line, and overwriting its resolved identity
+  // would rethread a resident's message into a prospect conversation.
   await db
     .from("inbound_sms_log")
     .update({
@@ -684,7 +686,10 @@ export async function POST(req: Request) {
       body,
       message_sid: messageSid,
       ...inboundLogIdentityFields({ managerUserId: managerId, fromPhone }),
-    }).eq("message_sid", messageSid).eq("manager_user_id", managerId)
+    })
+    .eq("message_sid", messageSid)
+    .eq("manager_user_id", managerId)
+    .eq("counterparty_role", "unknown")
     .then(() => undefined, () => undefined);
 
   if (!(await finishInboundClaim(db, messageSid, inboundWorkerId, "completed"))) {
