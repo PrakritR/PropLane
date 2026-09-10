@@ -1,15 +1,23 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * Send-time gate for the tours-contact SMS opt-in (A2P 10DLC / CTIA).
  *
- * A prospect who did NOT check the consent box on the tours-contact form must
- * never receive an outbound tour text — even though the phone is on the inquiry
- * and the opt-out ledger fails open. The load-bearing gate is the positive
- * `smsConsent` flag persisted with the inquiry, read by textTourGuest.
+ * A tour text requires either explicit form opt-in or exact, trusted inbound
+ * conversation evidence. A phone on the inquiry alone is never authorization.
  */
 
 const sendResidentOutboundSms = vi.fn(async () => ({ sent: true }));
+const recordScopedSmsConsent = vi.fn(async () => ({ ok: true }));
+const eligibleResult = {
+  eligible: true as const,
+  phoneE164: "+12065550100",
+  conversationKey: "00000000-0000-4000-8000-000000000001:prospect:+12065550100",
+  provenance: "tour_inquiry_opt_in" as const,
+};
+const resolveTourSmsEligibility = vi.fn(async (_db: unknown, input: { explicitOptIn?: boolean }) =>
+  input.explicitOptIn === true ? eligibleResult : { eligible: false as const, reason: "tour_sms_consent_missing" },
+);
 const recordTourRescheduleSmsProposal = vi.fn(async () => true);
 vi.mock("@/lib/resident-outbound-sms.server", () => ({
   sendResidentOutboundSms: (...args: unknown[]) => sendResidentOutboundSms(...(args as [])),
@@ -20,7 +28,10 @@ vi.mock("@/lib/proplane-sms-transport.server", () => ({
   sendPropLaneSms: (...args: unknown[]) => sendPropLaneSms(...(args as [])),
 }));
 vi.mock("@/lib/sms-consent", () => ({
-  recordScopedSmsConsent: vi.fn(async () => ({ ok: true })),
+  recordScopedSmsConsent: (...args: unknown[]) => recordScopedSmsConsent(...(args as [])),
+}));
+vi.mock("@/lib/sms/tour-sms-eligibility.server", () => ({
+  resolveTourSmsEligibility: (...args: unknown[]) => resolveTourSmsEligibility(...(args as [])),
 }));
 vi.mock("@/lib/tour-reschedule-sms-reply.server", () => ({
   recordTourRescheduleSmsProposal: (...args: unknown[]) => recordTourRescheduleSmsProposal(...(args as [])),
@@ -31,6 +42,11 @@ import {
   notifyTenantTourRequestReceived,
   notifyTenantTourRescheduled,
 } from "@/lib/tour-notification-delivery.server";
+import { resolveEmailLinkBaseUrl } from "@/lib/app-url";
+import {
+  buildTourNotificationContext,
+  buildTourRescheduledTenantBody,
+} from "@/lib/tour-notifications";
 
 function makeDb() {
   return { from: (table: string) => {
@@ -76,9 +92,18 @@ const confirmWindow = {
 };
 
 describe("tour guest SMS consent gate", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   beforeEach(() => {
     sendResidentOutboundSms.mockClear();
     sendResidentOutboundSms.mockResolvedValue({ sent: true });
+    recordScopedSmsConsent.mockClear();
+    recordScopedSmsConsent.mockResolvedValue({ ok: true });
+    resolveTourSmsEligibility.mockClear();
+    resolveTourSmsEligibility.mockImplementation(async (_db, input) =>
+      input.explicitOptIn === true ? eligibleResult : { eligible: false, reason: "tour_sms_consent_missing" });
     recordTourRescheduleSmsProposal.mockClear();
     recordTourRescheduleSmsProposal.mockResolvedValue(true);
   });
@@ -94,6 +119,17 @@ describe("tour guest SMS consent gate", () => {
       const { to, text } = sendResidentOutboundSms.mock.calls[0]![0] as { to: string; text: string };
       expect(to).toBe("+12065550100");
       expect(text).toContain("STOP to opt out");
+      expect((sendResidentOutboundSms.mock.calls[0]![0] as { openThread: { conversationKey?: string } }).openThread.conversationKey)
+        .toBe("00000000-0000-4000-8000-000000000001:prospect:+12065550100");
+      expect(resolveTourSmsEligibility).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          managerUserId: baseInquiry.managerUserId,
+          purpose: "tour_request_received",
+          guestPhone: baseInquiry.phone,
+          explicitOptIn: true,
+        }),
+      );
     });
 
     it("never emits the legacy Axis host in a tour link", async () => {
@@ -129,6 +165,31 @@ describe("tour guest SMS consent gate", () => {
 
     it("does NOT text the prospect when smsConsent is absent (legacy / unchecked)", async () => {
       const res = await notifyTenantTourRequestReceived(makeDb(), req, baseInquiry);
+      expect(res.ok).toBe(true);
+      expect(sendResidentOutboundSms).not.toHaveBeenCalled();
+    });
+
+    it("texts a legacy false row when the exact scoped recipient-initiated grant is valid", async () => {
+      resolveTourSmsEligibility.mockResolvedValueOnce({
+        eligible: true,
+        phoneE164: "+12065550100",
+        conversationKey: "00000000-0000-4000-8000-000000000001:prospect:+12065550100",
+        provenance: "recipient_initiated_inbound",
+      });
+      const res = await notifyTenantTourRequestReceived(makeDb(), req, {
+        ...baseInquiry,
+        smsConsent: false,
+      });
+      expect(res.ok).toBe(true);
+      expect(sendResidentOutboundSms).toHaveBeenCalledTimes(1);
+    });
+
+    it("fails closed when the scoped consent ledger cannot be read", async () => {
+      resolveTourSmsEligibility.mockResolvedValueOnce({ eligible: false, reason: "conversation_consent_unreadable" });
+      const res = await notifyTenantTourRequestReceived(makeDb(), req, {
+        ...baseInquiry,
+        smsConsent: false,
+      });
       expect(res.ok).toBe(true);
       expect(sendResidentOutboundSms).not.toHaveBeenCalled();
     });
@@ -219,6 +280,19 @@ describe("tour guest SMS consent gate", () => {
       );
       expect(res).toMatchObject({ ok: true, sms: { requested: true, sent: false, accepted: true } });
     });
+
+    it("reports an all-skipped selection as skipped, not sent", async () => {
+      const res = await notifyTenantTourConfirmed(
+        makeDb(), req, { ...baseInquiry, smsConsent: false }, confirmWindow,
+        undefined, undefined, { viaEmail: false, viaSms: true },
+      );
+      expect(res).toMatchObject({
+        ok: false,
+        error: expect.any(String),
+        sms: { requested: true, sent: false, skipped: true },
+      });
+      expect(sendResidentOutboundSms).not.toHaveBeenCalled();
+    });
   });
 
   it("asks a rescheduled prospect to confirm by replying YES or propose another time", async () => {
@@ -241,6 +315,179 @@ describe("tour guest SMS consent gate", () => {
     expect(text).toContain("reply with another time that works");
     expect(dedupeKey).toContain(confirmWindow.start);
     expect(recordTourRescheduleSmsProposal).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the conservative client preview aligned while attaching a configured signed Reply-To", async () => {
+    const prior = {
+      apiKey: process.env.RESEND_API_KEY,
+      domain: process.env.RESEND_REPLY_DOMAIN,
+      secret: process.env.RESEND_INBOUND_WEBHOOK_SECRET,
+    };
+    process.env.RESEND_API_KEY = "re_test_key";
+    process.env.RESEND_REPLY_DOMAIN = "reply.example.com";
+    process.env.RESEND_INBOUND_WEBHOOK_SECRET = `whsec_${Buffer.from("test-secret-that-is-long-enough").toString("base64")}`;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "email-1" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const previousWindow = { start: "2026-07-21T18:00:00.000Z", end: "2026-07-21T18:30:00.000Z" };
+      const clientDefault = buildTourRescheduledTenantBody(buildTourNotificationContext({
+        origin: resolveEmailLinkBaseUrl(),
+        guestName: baseInquiry.name,
+        guestEmail: baseInquiry.email,
+        guestPhone: baseInquiry.phone,
+        propertyId: baseInquiry.propertyId,
+        propertyTitle: baseInquiry.propertyTitle,
+        tourStartIso: confirmWindow.start,
+        tourEndIso: confirmWindow.end,
+        tourInquiryId: baseInquiry.id,
+        replyOptions: {
+          smsSelected: false,
+          smsAvailable: true,
+          emailSelected: true,
+          emailReplyAvailable: false,
+        },
+      }), { startIso: previousWindow.start, endIso: previousWindow.end });
+      const result = await notifyTenantTourRescheduled(makeDb(), req, {
+        ...baseInquiry,
+        smsConsent: false,
+        smsOrigin: "non_sms",
+      }, {
+        window: confirmWindow,
+        previousWindow,
+        body: clientDefault,
+        channels: { viaEmail: true, viaSms: false },
+      });
+      expect(result.email.sent).toBe(true);
+      const payload = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body)) as {
+        text: string;
+        reply_to?: string;
+      };
+      expect(payload.reply_to).toMatch(/^reply\+/);
+      expect(payload.reply_to).toContain("@reply.example.com");
+      expect(payload.text).toBe(clientDefault);
+      expect(payload.text).toContain("Create or sign in to a PropLane account");
+      expect(payload.text).not.toMatch(/reply\s+YES\s+by\s+SMS/i);
+    } finally {
+      if (prior.apiKey === undefined) delete process.env.RESEND_API_KEY;
+      else process.env.RESEND_API_KEY = prior.apiKey;
+      if (prior.domain === undefined) delete process.env.RESEND_REPLY_DOMAIN;
+      else process.env.RESEND_REPLY_DOMAIN = prior.domain;
+      if (prior.secret === undefined) delete process.env.RESEND_INBOUND_WEBHOOK_SECRET;
+      else process.env.RESEND_INBOUND_WEBHOOK_SECRET = prior.secret;
+    }
+  });
+
+  it("uses configured signed email reply instructions when no client preview body is supplied", async () => {
+    const prior = {
+      apiKey: process.env.RESEND_API_KEY,
+      domain: process.env.RESEND_REPLY_DOMAIN,
+      secret: process.env.RESEND_INBOUND_WEBHOOK_SECRET,
+    };
+    process.env.RESEND_API_KEY = "re_test_key";
+    process.env.RESEND_REPLY_DOMAIN = "reply.example.com";
+    process.env.RESEND_INBOUND_WEBHOOK_SECRET = `whsec_${Buffer.from("test-secret-that-is-long-enough").toString("base64")}`;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "email-server-default" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await notifyTenantTourRescheduled(makeDb(), req, {
+        ...baseInquiry,
+        smsConsent: false,
+        smsOrigin: "non_sms",
+      }, {
+        window: confirmWindow,
+        previousWindow: { start: "2026-07-21T18:00:00.000Z", end: "2026-07-21T18:30:00.000Z" },
+        channels: { viaEmail: true, viaSms: false },
+      });
+      const payload = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body)) as {
+        text: string;
+        reply_to?: string;
+      };
+      expect(payload.reply_to).toContain("@reply.example.com");
+      expect(payload.text).toContain("Reply to this email to confirm");
+      expect(payload.text).not.toMatch(/reply\s+YES\s+by\s+SMS/i);
+    } finally {
+      if (prior.apiKey === undefined) delete process.env.RESEND_API_KEY;
+      else process.env.RESEND_API_KEY = prior.apiKey;
+      if (prior.domain === undefined) delete process.env.RESEND_REPLY_DOMAIN;
+      else process.env.RESEND_REPLY_DOMAIN = prior.domain;
+      if (prior.secret === undefined) delete process.env.RESEND_INBOUND_WEBHOOK_SECRET;
+      else process.env.RESEND_INBOUND_WEBHOOK_SECRET = prior.secret;
+    }
+  });
+
+  it("preserves manager-customized prose while attaching the valid Reply-To", async () => {
+    const prior = {
+      apiKey: process.env.RESEND_API_KEY,
+      domain: process.env.RESEND_REPLY_DOMAIN,
+      secret: process.env.RESEND_INBOUND_WEBHOOK_SECRET,
+    };
+    process.env.RESEND_API_KEY = "re_test_key";
+    process.env.RESEND_REPLY_DOMAIN = "reply.example.com";
+    process.env.RESEND_INBOUND_WEBHOOK_SECRET = `whsec_${Buffer.from("test-secret-that-is-long-enough").toString("base64")}`;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "email-custom" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await notifyTenantTourRescheduled(makeDb(), req, baseInquiry, {
+        window: confirmWindow,
+        previousWindow: { start: "2026-07-21T18:00:00.000Z", end: "2026-07-21T18:30:00.000Z" },
+        body: "I will meet you by the blue gate. Call the front desk if you are delayed.",
+        channels: { viaEmail: true, viaSms: false },
+      });
+      const payload = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body)) as {
+        text: string;
+        reply_to?: string;
+      };
+      expect(payload.text).toBe("I will meet you by the blue gate. Call the front desk if you are delayed.");
+      expect(payload.reply_to).toContain("@reply.example.com");
+    } finally {
+      if (prior.apiKey === undefined) delete process.env.RESEND_API_KEY;
+      else process.env.RESEND_API_KEY = prior.apiKey;
+      if (prior.domain === undefined) delete process.env.RESEND_REPLY_DOMAIN;
+      else process.env.RESEND_REPLY_DOMAIN = prior.domain;
+      if (prior.secret === undefined) delete process.env.RESEND_INBOUND_WEBHOOK_SECRET;
+      else process.env.RESEND_INBOUND_WEBHOOK_SECRET = prior.secret;
+    }
+  });
+
+  it("gives an account-creation path when email cannot carry a signed reply", async () => {
+    const prior = {
+      apiKey: process.env.RESEND_API_KEY,
+      domain: process.env.RESEND_REPLY_DOMAIN,
+      secret: process.env.RESEND_INBOUND_WEBHOOK_SECRET,
+    };
+    process.env.RESEND_API_KEY = "re_test_key";
+    delete process.env.RESEND_REPLY_DOMAIN;
+    delete process.env.RESEND_INBOUND_WEBHOOK_SECRET;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: "email-2" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await notifyTenantTourRescheduled(makeDb(), req, {
+        ...baseInquiry,
+        smsConsent: false,
+        smsOrigin: "non_sms",
+      }, {
+        window: confirmWindow,
+        previousWindow: { start: "2026-07-21T18:00:00.000Z", end: "2026-07-21T18:30:00.000Z" },
+        proposalRecordId: "axis_admin_partner_inquiries_v1",
+        channels: { viaEmail: true, viaSms: false },
+      });
+      const payload = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body)) as {
+        text: string;
+        reply_to?: string;
+      };
+      expect(payload).not.toHaveProperty("reply_to");
+      expect(payload.text).toContain("Create or sign in to a PropLane account");
+      expect(payload.text).toContain("tour_inquiry=");
+      expect(payload.text).not.toMatch(/reply\s+YES\s+by\s+SMS/i);
+      expect(payload.text).not.toContain("Reply to this email");
+    } finally {
+      if (prior.apiKey === undefined) delete process.env.RESEND_API_KEY;
+      else process.env.RESEND_API_KEY = prior.apiKey;
+      if (prior.domain === undefined) delete process.env.RESEND_REPLY_DOMAIN;
+      else process.env.RESEND_REPLY_DOMAIN = prior.domain;
+      if (prior.secret === undefined) delete process.env.RESEND_INBOUND_WEBHOOK_SECRET;
+      else process.env.RESEND_INBOUND_WEBHOOK_SECRET = prior.secret;
+    }
   });
 
   it("attempts SMS independently when selected email has no recipient", async () => {

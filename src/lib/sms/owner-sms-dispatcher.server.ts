@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeE164 } from "@/lib/phone-e164";
 import { readSmsSuppressionState } from "@/lib/sms-consent";
 import { ensureApplicationScopedSmsConsent } from "@/lib/sms/application-consent.server";
+import { validateTourSmsPurposeAtDispatch } from "@/lib/sms/tour-sms-eligibility.server";
 import { getEffectiveManagerSmsEntitlement } from "@/lib/sms/manager-sms-entitlement.server";
 import {
   estimateSmsSegments,
@@ -19,6 +20,14 @@ import {
 } from "@/lib/comms-billing/eligibility.server";
 import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
 import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
+
+const CONVERSATION_DERIVED_TOUR_PURPOSES = new Set([
+  "tour_request_received",
+  "tour_request_removed",
+  "tour_confirmed",
+  "tour_rescheduled",
+  "tour_canceled",
+]);
 
 type RuntimeRow = {
   mode: string;
@@ -158,6 +167,18 @@ async function loadSendPolicy(
     });
     if (!consent.ok) return { allowed: false, reason: consent.error };
     if (!consent.granted) return { allowed: false, reason: "scoped_consent_missing" };
+    // A lifecycle grant may have been queued while its source conversation was
+    // valid. Recheck that explicit derivation at the provider boundary.
+    if (CONVERSATION_DERIVED_TOUR_PURPOSES.has(input.purpose)) {
+      const tourConsent = await validateTourSmsPurposeAtDispatch(db, {
+        managerUserId: ownerId,
+        guestPhone: recipient,
+        purpose: input.purpose,
+        conversationKey: input.conversationKey,
+        messagingServiceSid: expectedServiceSid,
+      });
+      if (!tourConsent.ok) return { allowed: false, reason: tourConsent.reason };
+    }
   }
 
   if (quietHoursBlocks(input.sendClass, now, { tz: input.recipientTimezone ?? "America/Los_Angeles", startHour: 21, endHour: 8 })) {
