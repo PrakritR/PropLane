@@ -150,6 +150,8 @@ export function PortalComposeScheduledMessagesSection({
           customSubject: next.subject,
           customBody: next.body,
           ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+          ...(next.deliverViaEmail !== undefined ? { customDeliverViaEmail: next.deliverViaEmail } : {}),
+          ...(next.deliverViaSms !== undefined ? { customDeliverViaSms: next.deliverViaSms } : {}),
         });
       }
       notifyChanged();
@@ -207,7 +209,7 @@ export function PortalComposeScheduledMessagesSection({
             deliverViaSms={editing.deliverViaSms}
             emailAvailable
             smsAvailable={smsAvailable}
-            channelEditable={editing.source === "manual" && editing.editable}
+            channelEditable={editing.editable}
             source={editing.source}
             editable={editing.editable}
             busy={busyId === editing.id}

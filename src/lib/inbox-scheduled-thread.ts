@@ -80,9 +80,15 @@ export function threadScheduledItemFromAutomationMessage(
         ? `${message.bundledChargeIds.length} payments${message.propertyLabel ? ` · ${message.propertyLabel}` : ""}`
         : [message.chargeTitle, message.propertyLabel].filter(Boolean).join(" · ") || undefined,
     editable: true,
-    channel: "email",
-    deliverViaEmail: true,
-    deliverViaSms: false,
+    /*
+      A reminder the manager has not re-pointed carries no channel of its own,
+      and the automation's delivery settings decide at send time. The card has
+      to show SOMETHING, so absence falls back to the email-only shape it has
+      always displayed — the fallback is presentation, never a stored decision.
+    */
+    channel: message.deliverViaSms && !message.deliverViaEmail ? "sms" : "email",
+    deliverViaEmail: message.deliverViaEmail ?? true,
+    deliverViaSms: message.deliverViaSms ?? false,
   };
 }
 

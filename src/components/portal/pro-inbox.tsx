@@ -1423,6 +1423,8 @@ export const ManagerInbox = forwardRef<
             customSubject: next.subject,
             customBody: next.body,
             ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+            ...(next.deliverViaEmail !== undefined ? { customDeliverViaEmail: next.deliverViaEmail } : {}),
+            ...(next.deliverViaSms !== undefined ? { customDeliverViaSms: next.deliverViaSms } : {}),
           });
         }
       } catch (e) {
@@ -2146,7 +2148,7 @@ export const ManagerInbox = forwardRef<
             deliverViaSms={item.deliverViaSms}
             emailAvailable={activeEmailAvailable}
             smsAvailable={activeSmsAvailable}
-            channelEditable={item.source === "manual" && item.editable}
+            channelEditable={item.editable}
             source={item.source}
             editable={item.editable}
             busy={scheduledBusyId === item.id}

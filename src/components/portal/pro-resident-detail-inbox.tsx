@@ -321,6 +321,8 @@ export function ResidentDirectChatPane({
           customSubject: next.subject,
           customBody: next.body,
           ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+          ...(next.deliverViaEmail !== undefined ? { customDeliverViaEmail: next.deliverViaEmail } : {}),
+          ...(next.deliverViaSms !== undefined ? { customDeliverViaSms: next.deliverViaSms } : {}),
         });
       }
       reloadScheduled();
@@ -346,7 +348,7 @@ export function ResidentDirectChatPane({
             deliverViaSms={item.deliverViaSms}
             emailAvailable
             smsAvailable={smsAvailable}
-            channelEditable={item.source === "manual" && item.editable}
+            channelEditable={item.editable}
             source={item.source}
             editable={item.editable}
             busy={scheduledBusyId === item.id}

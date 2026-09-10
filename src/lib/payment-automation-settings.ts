@@ -240,6 +240,13 @@ export type ScheduledMessageOverride = {
   customDaysBeforeDue?: number;
   /** ISO timestamp — overrides the computed send time for this reminder slot. */
   customSendAt?: string;
+  /**
+   * Per-reminder channel choice, overriding the manager's automation defaults
+   * for THIS slot only. Both are optional and independent: absent means "use
+   * the automation setting", which is why they are not defaulted to false.
+   */
+  customDeliverViaEmail?: boolean;
+  customDeliverViaSms?: boolean;
 };
 
 function normalizePostDueDays(raw: unknown): number[] {

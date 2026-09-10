@@ -41,9 +41,37 @@ export type ScheduledPaymentMessage = {
   status: ScheduledPaymentMessageStatus;
   managerUserId: string;
   typeLabel: string;
+  /**
+   * Per-message channel choice, when the manager set one on THIS slot. Absent
+   * means the automation's own delivery settings decide, so a reader must not
+   * read `undefined` as "off".
+   */
+  deliverViaEmail?: boolean;
+  deliverViaSms?: boolean;
   /** Present when this row bundles several charges into one send slot. */
   bundledChargeIds?: string[];
 };
+
+/**
+ * The channel fields a projected row carries, or nothing at all.
+ *
+ * Deliberately omits the keys rather than writing `undefined`: the send path
+ * falls back to the manager's automation settings on absence, and an explicit
+ * `undefined` in a spread would still be absent but reads as if a decision was
+ * made here.
+ */
+function channelOverrideFields(
+  override?: ScheduledMessageOverride,
+): { deliverViaEmail?: boolean; deliverViaSms?: boolean } {
+  const fields: { deliverViaEmail?: boolean; deliverViaSms?: boolean } = {};
+  if (typeof override?.customDeliverViaEmail === "boolean") {
+    fields.deliverViaEmail = override.customDeliverViaEmail;
+  }
+  if (typeof override?.customDeliverViaSms === "boolean") {
+    fields.deliverViaSms = override.customDeliverViaSms;
+  }
+  return fields;
+}
 
 /** Every charge id covered by a scheduled row (single or bundled). */
 export function scheduledPaymentMessageChargeIds(message: ScheduledPaymentMessage): string[] {
@@ -307,6 +335,7 @@ export function projectScheduledPaymentMessages(input: {
         body: content.body,
         status: sent ? "sent" : cancelled ? "cancelled" : "scheduled",
         managerUserId: input.managerUserId,
+        ...channelOverrideFields(override),
         typeLabel: typeLabel("pre_due", effectiveDays),
       });
     }
@@ -347,6 +376,7 @@ export function projectScheduledPaymentMessages(input: {
           body: content.body,
           status: sent ? "sent" : cancelled ? "cancelled" : "scheduled",
           managerUserId: input.managerUserId,
+        ...channelOverrideFields(override),
           typeLabel: typeLabel("same_day", null),
         });
       }
@@ -388,6 +418,7 @@ export function projectScheduledPaymentMessages(input: {
         body: content.body,
         status: sent ? "sent" : cancelled ? "cancelled" : "scheduled",
         managerUserId: input.managerUserId,
+        ...channelOverrideFields(override),
         typeLabel: typeLabel("post_due", daysAfterDue),
       });
     }
@@ -430,6 +461,7 @@ export function projectScheduledPaymentMessages(input: {
             body: content.body,
             status: sent ? "sent" : cancelled ? "cancelled" : "scheduled",
             managerUserId: input.managerUserId,
+        ...channelOverrideFields(override),
             typeLabel: typeLabel("overdue_daily", null),
           });
         }
@@ -484,6 +516,7 @@ export function projectScheduledPaymentMessages(input: {
             body: content.body,
             status: sent ? "sent" : cancelled ? "cancelled" : "scheduled",
             managerUserId: input.managerUserId,
+        ...channelOverrideFields(override),
             typeLabel: typeLabel("late_fee", null),
           });
         }
@@ -528,6 +561,7 @@ export function projectScheduledPaymentMessages(input: {
           body: content.body,
           status: sent ? "sent" : cancelled ? "cancelled" : "scheduled",
           managerUserId: input.managerUserId,
+        ...channelOverrideFields(override),
           typeLabel: typeLabel("overdue_daily", null),
         });
       }
@@ -583,6 +617,7 @@ export function projectScheduledPaymentMessages(input: {
         body: content.body,
         status: sent ? "sent" : cancelled ? "cancelled" : "scheduled",
         managerUserId: input.managerUserId,
+        ...channelOverrideFields(override),
         typeLabel: typeLabel("set_date", dateNumKey),
       });
     }
