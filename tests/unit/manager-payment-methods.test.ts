@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   auth: vi.fn(),
   customer: vi.fn(),
   createCustomer: vi.fn(),
+  saveCustomer: vi.fn(),
   updateCustomer: vi.fn(),
   methods: vi.fn(),
   method: vi.fn(),
@@ -44,10 +45,16 @@ const database = () => ({
       order: () => query,
       limit: async () => mocks.purchase(),
       maybeSingle: async () => ({ data: null, error: null }),
+      single: async () => ({
+        data: { email: "manager@example.test", full_name: "Test Manager" },
+        error: null,
+      }),
+      upsert: mocks.saveCustomer,
     };
     if (
       table !== "manager_purchases" &&
-      table !== "manager_comms_billing_accounts"
+      table !== "manager_comms_billing_accounts" &&
+      table !== "profiles"
     )
       throw new Error("unexpected table");
     return query;
@@ -60,6 +67,8 @@ const req = (body: unknown) =>
   });
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.createCustomer.mockResolvedValue({ id: "cus_created" });
+  mocks.saveCustomer.mockResolvedValue({ error: null });
   mocks.auth.mockResolvedValue({ userId: "owner", db: database() });
   mocks.purchase.mockResolvedValue({
     data: [
@@ -106,6 +115,40 @@ describe("manager saved card ownership", () => {
       { cards: [], defaultPaymentMethodId: null },
     );
     expect(mocks.createCustomer).not.toHaveBeenCalled();
+  });
+  it("creates an owner-linked billing customer on explicit first-time card setup", async () => {
+    mocks.purchase.mockResolvedValue({ data: [], error: null });
+    const response = await POST(
+      req({ operationId: "12345678-1234-4123-8123-123456789abc" }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.createCustomer).toHaveBeenCalledWith(
+      {
+        email: "manager@example.test",
+        name: "Test Manager",
+        metadata: { manager_user_id: "owner", purpose: "manager_billing" },
+      },
+      { idempotencyKey: "manager-billing-customer:owner" },
+    );
+    expect(mocks.saveCustomer).toHaveBeenCalledWith(
+      { manager_user_id: "owner", stripe_customer_id: "cus_created" },
+      { onConflict: "manager_user_id" },
+    );
+    expect(mocks.setup).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "setup", customer: "cus_created" }),
+      expect.anything(),
+    );
+  });
+  it("does not open setup if the new customer identity could not be persisted", async () => {
+    mocks.purchase.mockResolvedValue({ data: [], error: null });
+    mocks.saveCustomer.mockResolvedValue({
+      error: { message: "database unavailable" },
+    });
+    expect(
+      (await POST(req({ operationId: "12345678-1234-4123-8123-123456789abc" })))
+        .status,
+    ).toBe(503);
+    expect(mocks.setup).not.toHaveBeenCalled();
   });
   it("stops on an unknown billing identity", async () => {
     mocks.purchase.mockResolvedValue({

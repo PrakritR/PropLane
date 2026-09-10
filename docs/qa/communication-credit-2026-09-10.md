@@ -87,3 +87,9 @@ worktree's dependency symlink with a local dependency copy restored the normal
 Turbopack build. Final graph hook exited 0 and portable-check passed. The standalone
 redundant TypeScript check was stopped during resource contention; the successful
 standard build includes the final TypeScript check.
+
+First-time customer setup is now covered as well: all 18 card tests pass, including
+creating an owner-linked Stripe customer for a manager without a prior purchase and
+refusing to open setup if that identity cannot be saved. The original review branch
+also repaired the listing coverage fixture; its complete 27-test file passed (exit 0).
+Those review fixes are preserved in the pipeline and will be integrated before handoff.
