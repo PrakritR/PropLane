@@ -8,14 +8,15 @@ import { track } from "@/lib/analytics/posthog";
 import type { AgentContext } from "@/lib/tools/context";
 import type { ResidentAgentContext } from "@/lib/tools/resident-context";
 import {
-  applyInspectionObservations, createInspectionSchema, ensureInspectionSchema,
+  applyInspectionObservations, assertInspectionWritable, createInspectionSchema, ensureInspectionSchema,
+  transitionResidentSubmission,
   inspectionPhotoCounts, inspectionToday, InspectionError, residencyOccupancy,
   type InspectionDetail, type InspectionDocument, type InspectionKind, type InspectionRecord,
   type InspectionResidency, type InspectionSummary,
 } from "./model";
 
 import { createRoomInspectionDocument, inspectionRoomListing, resolveInspectionRoom, type InspectionRoom } from "./room-template";
-import { roomInspectionRequirements } from "./requirements";
+import { leaseTypeInspectionRequirements, residencyInspectionRequirements, roomInspectionRequirements } from "./requirements";
 
 export type InspectionActor = { role: "manager"; context: AgentContext } | { role: "resident"; context: ResidentAgentContext };
 const TABLE = "resident_inspections";
@@ -134,6 +135,7 @@ const residencyColumns = "id,manager_user_id,property_id,assigned_property_id,re
   // manager's own correction and outranks the date the applicant typed.
   + "app_manual_move_in:row_data->manualResidentDetails->>moveInDate,"
   + "app_manual_move_out:row_data->manualResidentDetails->>moveOutDate,"
+  + "app_lease_term:row_data->application->>leaseTerm,"
   + "app_lease_start:row_data->application->>leaseStart,"
   + "app_lease_end:row_data->application->>leaseEnd";
 
@@ -146,6 +148,8 @@ type ResidencyView = {
   manualRoom: string;
   moveInDate: string;
   moveOutDate: string;
+  /** The lease length this residency signed on; the listing requires inspections per type. */
+  leaseTerm: string;
   identity: { manager_user_id: string; property_id: string; resident_email: string; resident_user_id: string | null };
 };
 
@@ -170,6 +174,7 @@ function residencyFromRecord(record: Record<string, unknown>): ResidencyView {
     propertyLabel: text("app_property") || "Property",
     roomLabel: text("app_room_choice") || text("app_manual_room") || "",
     manualRoom: text("app_manual_room"),
+    leaseTerm: text("app_lease_term"),
     moveInDate: isoDate(text("app_manual_move_in")) || isoDate(text("app_lease_start")),
     moveOutDate: isoDate(text("app_manual_move_out")) || isoDate(text("app_lease_end")),
     identity: {
@@ -191,19 +196,30 @@ export async function listInspectionResidencies(actor: InspectionActor): Promise
   // Keyed on property AND owner: a residency's denormalized `property_id` can point
   // at a row that has since changed owner, and requirements must never be read from
   // another manager's listing. `sweepInspectionReminders` matches the same pair.
-  const properties = new Map<string, unknown>();
+  const properties = new Map<string, { rooms: unknown; inspectionsByLeaseType: Record<string, string[]> | null }>();
   for (let offset = 0; offset < propertyIds.length; offset += 100) {
     const { data, error } = await actor.context.db.from("manager_property_records")
-      .select("id,manager_user_id,rooms:property_data->listingSubmission->rooms,legacy_rooms:row_data->submission->rooms")
+      .select("id,manager_user_id,rooms:property_data->listingSubmission->rooms,legacy_rooms:row_data->submission->rooms,lease_inspections:property_data->listingSubmission->inspectionsByLeaseType")
       .in("id", propertyIds.slice(offset, offset + 100));
     if (error) throw new InspectionError("Could not load room inspection requirements.", 500);
-    for (const property of data ?? []) properties.set(`${property.id}::${String(property.manager_user_id ?? "")}`, property.rooms ?? property.legacy_rooms);
+    for (const property of data ?? []) {
+      properties.set(`${property.id}::${String(property.manager_user_id ?? "")}`, {
+        rooms: property.rooms ?? property.legacy_rooms,
+        inspectionsByLeaseType: (property.lease_inspections ?? null) as Record<string, string[]> | null,
+      });
+    }
   }
   return visible.map(residency => {
     const identity = residency.identity;
-    const rooms = properties.get(`${identity.property_id}::${identity.manager_user_id}`);
+    const listing = properties.get(`${identity.property_id}::${identity.manager_user_id}`);
+    // Two independent obligations: the room's own configuration, and what the listing
+    // requires of this lease length. Either one makes the report required.
+    const requiredKinds = residencyInspectionRequirements(
+      roomInspectionRequirements(identity.property_id, residency.roomLabel, listing?.rooms),
+      leaseTypeInspectionRequirements(listing, residency.leaseTerm),
+    );
     return { id: residency.id, name: residency.name, property: residency.propertyLabel,
-      room: residency.roomLabel, requiredKinds: roomInspectionRequirements(identity.property_id, residency.roomLabel, rooms),
+      room: residency.roomLabel, requiredKinds,
       moveInDate: residency.moveInDate, moveOutDate: residency.moveOutDate,
       occupancy: residencyOccupancy(residency.moveInDate, residency.moveOutDate),
       canCreate: Boolean(residency.roomLabel && residency.roomLabel !== identity.property_id) && authorized(actor, editScope, identity) };
@@ -351,6 +367,16 @@ export async function saveInspection(actor: InspectionActor, id: string, raw: un
 }
 
 
+/** Resident submits their side; manager reopens it. Neither ever locks the manager. */
+export async function changeResidentSubmission(actor: InspectionActor, id: string, raw: unknown) {
+  const report = await getInspection(actor, id, "edit");
+  const next = transitionResidentSubmission(report, actor.role, actor.context.userId, raw);
+  const saved = await updateInspection(actor, report, next.document);
+  track(saved.document.residentSubmission ? "inspection_submitted" : "inspection_reopened", actor.context.userId,
+    { inspection_id: id, kind: report.kind, portal: actor.role });
+  return saved;
+}
+
 async function signPhotos(actor: InspectionActor, report: InspectionRecord) {
   const copy = structuredClone(report);
   const photos = copy.document.areas.flatMap(area => area.items.flatMap(item => [...item.manager.photos, ...item.resident.photos]));
@@ -373,6 +399,7 @@ export async function inspectionDetail(actor: InspectionActor, id: string): Prom
 
 export async function addInspectionPhoto(actor: InspectionActor, id: string, itemId: string, revision: number, file: File, sourceRef?: string) {
   const report = await getInspection(actor, id, "edit");
+  assertInspectionWritable(report, actor.role);
   if (report.revision !== revision) throw new InspectionError("Reload the latest report before adding photos.", 409);
   const document = structuredClone(report.document);
   const items = document.areas.flatMap(a => a.items);
@@ -402,6 +429,7 @@ export async function addInspectionPhoto(actor: InspectionActor, id: string, ite
 
 export async function removeInspectionPhoto(actor: InspectionActor, id: string, photoId: string, revision: number) {
   const report = await getInspection(actor, id, "edit");
+  assertInspectionWritable(report, actor.role);
   if (report.revision !== revision) throw new InspectionError("Reload the latest report before removing photos.", 409);
   const document = structuredClone(report.document);
   let found = false;

@@ -544,6 +544,16 @@ export type ManagerListingSubmissionV1 = {
    */
   paymentAtSigningByLeaseType?: Record<string, string[]>;
   /**
+   * Which inspections this listing requires, per lease type.
+   *
+   * Keyed by stored lease-term label; values are inspection kinds (`move-in`,
+   * `move-out`). A three-night Airbnb stay and a twelve-month lease do not need the same
+   * evidence, which is why this is a matrix and not a switch. Absent, or a term with no
+   * entry, means nothing is required on that lease type — the same default a listing has
+   * always had. Per-room requirements are independent and add to whatever this says.
+   */
+  inspectionsByLeaseType?: Record<string, string[]>;
+  /**
    * Lease-type and room scope for the STANDARD fee rows, keyed by fee row id
    * (`applicationFee`, `securityDeposit`, …). Custom fees carry their own
    * `leaseTypes` / `roomIds`; standard rows are backed by fixed submission fields with
@@ -1269,6 +1279,26 @@ function normalizeStandardFeeScopeMap(
  * `undefined` when there is nothing to store, which reads as "no matrix" — the flat
  * `paymentAtSigningIncludes` then applies to every lease type.
  */
+/**
+ * Keep only real lease terms and real inspection kinds, and drop a term that requires
+ * nothing so an untouched listing stores nothing at all.
+ */
+function normalizeInspectionMatrix(
+  raw: unknown,
+  terms: readonly string[],
+): Record<string, string[]> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const kinds = ["move-in", "move-out"];
+  const out: Record<string, string[]> = {};
+  for (const term of terms) {
+    const value = (raw as Record<string, unknown>)[term];
+    if (!Array.isArray(value)) continue;
+    const picked = kinds.filter((kind) => value.includes(kind));
+    if (picked.length > 0) out[term] = picked;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function normalizeSigningMatrix(
   raw: unknown,
   present: { terms: readonly string[]; feeIds: readonly string[]; roomIds: readonly string[] },
@@ -1588,6 +1618,10 @@ export function normalizeManagerListingSubmissionV1(
       roomIds: rooms.map((r) => r.id),
     },
   );
+  const inspectionsByLeaseType = normalizeInspectionMatrix(
+    (sub as { inspectionsByLeaseType?: unknown }).inspectionsByLeaseType,
+    resolveAllowedLeaseTerms(sub),
+  );
   const standardFeeScopes = normalizeStandardFeeScopeMap(
     (sub as { standardFeeScopes?: unknown }).standardFeeScopes,
     { terms: resolveAllowedLeaseTerms(sub), roomIds: rooms.map((r) => r.id) },
@@ -1906,6 +1940,7 @@ export function normalizeManagerListingSubmissionV1(
     leaseTermsBody,
     paymentAtSigningIncludes,
     paymentAtSigningByLeaseType,
+    inspectionsByLeaseType,
     standardFeeScopes,
     rooms: normalizedRooms,
     bathrooms,

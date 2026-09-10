@@ -71,7 +71,7 @@ import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
 import { RESIDENT_PAYMENTS_LEGACY_TABS } from "@/lib/portals/resident-sections";
 import { getProPortalRenderContext } from "@/lib/portals/pro-nav";
 import { buildPortalWorkspaceModel } from "@/lib/portal-workspace-model";
-import { legacyManagerPortalSectionPath, parseApplicationDetailTab } from "@/lib/portal-detail-routes";
+import { legacyManagerPortalSectionPath, parseApplicationDetailTab, parseResidentMoveInTab } from "@/lib/portal-detail-routes";
 import type { PortalKind } from "@/lib/portal-types";
 import { notFound, redirect } from "next/navigation";
 import { DEFERRED_SECTIONS } from "@/lib/portals/nav-locks";
@@ -1343,7 +1343,13 @@ export async function renderPortalSection(
     }
     if (tabParts.length > 1) notFound();
     const moveInTab = tabParts[0]!;
-    if (!allowedTabs.includes(moveInTab)) notFound();
+    // A retired sub-tab keeps its URL: the "Move-in" tab's arrival details now render under
+    // Info & rules, and a bookmark or an emailed link must land there rather than 404.
+    if (!allowedTabs.includes(moveInTab)) {
+      const alias = parseResidentMoveInTab(moveInTab);
+      if (alias !== "placement" && allowedTabs.includes(alias)) redirect(`${def.basePath}/move-in/${alias}`);
+      notFound();
+    }
     return (
       <ResidentMoveInPanel
         residentEmail={moveInEmail}

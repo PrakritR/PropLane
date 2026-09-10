@@ -694,7 +694,6 @@ export const RESIDENT_MOVE_IN_TABS = [
   "housemates",
   "info",
   "amenities",
-  "instructions",
   "inspections",
 ] as const;
 export type ResidentMoveInTabId = (typeof RESIDENT_MOVE_IN_TABS)[number];
@@ -704,7 +703,6 @@ export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = 
   housemates: "Housemates",
   info: "Info & rules",
   amenities: "Amenities",
-  instructions: "Move-in",
   inspections: "Inspections",
 };
 
@@ -714,15 +712,21 @@ export const RESIDENT_MOVE_IN_TAB_SHORT_LABELS: Record<ResidentMoveInTabId, stri
   housemates: "Mates",
   info: "Rules",
   amenities: "Amenity",
-  instructions: "Move-in",
   inspections: "Inspections",
 };
+
+/**
+ * "Move-in" sat next to "Inspections" and read as the same thing, so the arrival details it
+ * held — keys, parking, access codes — now live under Info & rules and the tab is gone.
+ * The URL it owned still resolves rather than silently dropping a resident on Placement.
+ */
+const RESIDENT_MOVE_IN_TAB_ALIASES: Record<string, ResidentMoveInTabId> = { instructions: "info" };
 
 export function parseResidentMoveInTab(raw: string | undefined | null): ResidentMoveInTabId {
   if (raw && (RESIDENT_MOVE_IN_TABS as readonly string[]).includes(raw)) {
     return raw as ResidentMoveInTabId;
   }
-  return "placement";
+  return (raw && RESIDENT_MOVE_IN_TAB_ALIASES[raw]) || "placement";
 }
 
 export function residentMoveInHref(

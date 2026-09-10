@@ -1,6 +1,6 @@
 import { reportFixture } from "../helpers/inspection-fixture";
 import { describe, expect, it } from "vitest";
-import { applyInspectionObservations, createInspectionSchema, ensureInspectionSchema, inspectionPhotoCounts } from "@/lib/inspections/model";
+import { applyInspectionObservations, createInspectionSchema, ensureInspectionSchema, inspectionPhotoCounts, transitionResidentSubmission } from "@/lib/inspections/model";
 
 const patch = { revision: 1, observations: [{ itemId: "area-0-item-0", condition: "damaged", notes: "Door has a scratch" }] };
 describe("inspection evidence and workflow", () => {
@@ -55,5 +55,41 @@ describe("inspection evidence and workflow", () => {
     item.manager.photos.push({ id: "b", path: "p/b", uploadedBy: "owner", uploadedAt: "2026-09-07T10:00:00Z" });
     expect(inspectionPhotoCounts(report.document)).toEqual({ manager: 1, resident: 1, total: 2, lastAt: "2026-09-07T10:00:00Z" });
     expect(inspectionPhotoCounts(reportFixture().document)).toEqual({ manager: 0, resident: 0, total: 0, lastAt: null });
+  });
+});
+
+/**
+ * The one gate in the product: a resident hands their photos over once, and only a manager
+ * can hand them back. Nothing here touches the manager's own side.
+ */
+describe("resident submission", () => {
+  const photographed = () => {
+    const report = reportFixture();
+    report.document.areas[0]!.items[0]!.resident.photos.push({ id: "p", path: "p/p", uploadedBy: "resident", uploadedAt: "2026-09-05T10:00:00Z" });
+    return report;
+  };
+
+  it("requires a photo, the resident's own hand, and refuses a second submit", () => {
+    expect(() => transitionResidentSubmission(reportFixture(), "resident", "resident", { revision: 1, action: "submit" })).toThrow(/at least one photo/);
+    expect(() => transitionResidentSubmission(photographed(), "manager", "owner", { revision: 1, action: "submit" })).toThrow(/Only the resident/);
+    const submitted = transitionResidentSubmission(photographed(), "resident", "resident", { revision: 1, action: "submit" });
+    expect(submitted.document.residentSubmission?.userId).toBe("resident");
+    const again = { ...photographed(), document: submitted.document };
+    expect(() => transitionResidentSubmission(again, "resident", "resident", { revision: 1, action: "submit" })).toThrow(/already submitted/);
+  });
+
+  it("locks the resident's writes and nobody else's until a manager reopens", () => {
+    const submitted = { ...photographed(), document: transitionResidentSubmission(photographed(), "resident", "resident", { revision: 1, action: "submit" }).document };
+    expect(() => applyInspectionObservations(submitted, "resident", patch)).toThrow(/Ask your manager to reopen/);
+    expect(applyInspectionObservations(submitted, "manager", patch).areas[0]!.items[0]!.manager.notes).toBe("Door has a scratch");
+    expect(() => transitionResidentSubmission(submitted, "resident", "resident", { revision: 1, action: "reopen" })).toThrow(/Only the manager/);
+    const reopened = transitionResidentSubmission(submitted, "manager", "owner", { revision: 1, action: "reopen" });
+    expect(reopened.document.residentSubmission).toBeNull();
+    expect(applyInspectionObservations({ ...submitted, document: reopened.document }, "resident", patch)
+      .areas[0]!.items[0]!.resident.notes).toBe("Door has a scratch");
+  });
+
+  it("refuses a stale revision", () => {
+    expect(() => transitionResidentSubmission(photographed(), "resident", "resident", { revision: 2, action: "submit" })).toThrow(/changed/);
   });
 });

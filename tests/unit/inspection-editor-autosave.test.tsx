@@ -50,9 +50,9 @@ it("saves after typing pauses and flushes the latest notes into the preview", as
   expect(request).toHaveBeenCalledTimes(1);
   const body = JSON.parse(request.mock.calls[0]![2].body);
   expect(body.revision).toBe(1); expect(body.observations[0].notes).toBe("Mark beside the door");
-  fireEvent.click(screen.getByRole("button", { name: "View document" }));
-  expect(screen.getByText("Mark beside the door")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: /Reload|Refresh|Save changes/ })).toBeNull();
+  // The saved note is simply in the section; there is no document screen to open.
+  expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("Mark beside the door");
+  expect(screen.queryByRole("button", { name: /Reload|Refresh|Save changes|View document/ })).toBeNull();
 });
 
 it("keeps unsaved notes after a failed save and retries with the original revision", async () => {
@@ -144,13 +144,12 @@ it("keeps a read-only server report authoritative and holds recovered notes asid
   detail = frozen;
   render(<InspectionEditor initial={detail} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
 
-  // The authoritative document shows nothing that was never sent.
-  fireEvent.click(screen.getByRole("button", { name: "View document" }));
+  // The authoritative report shows nothing that was never sent.
   expect(screen.queryByText("Never sent")).toBeNull();
   await pause();
   expect(request).not.toHaveBeenCalled();
 
-  // Downloading the filed report must not attempt a write against a locked row.
+  // Downloading the filed report must not attempt a write against a row this viewer cannot edit.
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Download PDF" })); });
   expect(request).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "Retry save" })).toBeNull();
@@ -328,7 +327,9 @@ it("does not take the recovery bucket with a discard-and-leave", async () => {
  */
 it("states the real read-only reason instead of inviting photos on a frozen report", () => {
   render(<InspectionEditor initial={detail} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
-  expect(screen.getByText(/Photograph the assigned room section by section/)).toBeTruthy();
+  // An editable report says nothing at all: the rows and their cameras are the instruction.
+  expect(screen.queryByText(/read-only access/)).toBeNull();
+  expect(screen.getByRole("button", { name: "Add photos" })).toBeTruthy();
   cleanup();
 
   const readOnlyDraft = structuredClone(detail);
