@@ -78,7 +78,7 @@ describe("deriveManagerNavRole", () => {
     expect(role.mergedPermissions).toEqual({ applications: true, inbox: true });
   });
 
-  it("flags an incoming accepted link with empty permissions for full module nav", () => {
+  it("flags an incoming accepted link whose merged permissions are empty", () => {
     const role = deriveManagerNavRole([
       {
         direction: "incoming",
@@ -91,7 +91,7 @@ describe("deriveManagerNavRole", () => {
     expect(role.hasEmptyPermissionCoManagerLink).toBe(true);
   });
 
-  it("does not flag full module nav when a co-manager link has explicit permissions", () => {
+  it("does not flag it when a co-manager link has explicit permissions", () => {
     const role = deriveManagerNavRole([
       {
         direction: "incoming",
@@ -102,7 +102,7 @@ describe("deriveManagerNavRole", () => {
     expect(role.hasEmptyPermissionCoManagerLink).toBe(false);
   });
 
-  it("does not flag full module nav for a primary manager with no links", () => {
+  it("does not flag it for a primary manager with no links", () => {
     const role = deriveManagerNavRole([]);
     expect(role.hasEmptyPermissionCoManagerLink).toBe(false);
   });

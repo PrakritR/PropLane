@@ -84,8 +84,10 @@ export function collectLinkedPropertyIds(userId: string): Set<string> {
 
 /**
  * Client mirror of the server's module rule (src/lib/auth/co-manager-module-scope.ts):
- * an assigned property with NO module permissions checked grants every module;
- * a non-empty permission set restricts access to the checked modules.
+ * the module must be POSITIVELY granted on that property. Being assigned the
+ * property is not itself the grant, so a map with no module checked confers
+ * nothing (PRP-199 — see docs/agents/co-manager-access.md). Both sides delegate
+ * to `coManagerModuleAllowed`, so they cannot drift.
  */
 function modulePermsAllow(
   perms: PropertyCoManagerPermissions | undefined,

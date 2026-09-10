@@ -8,9 +8,10 @@ export type ManagerNavRole = {
   isPrimaryManager: boolean;
   mergedPermissions: CoManagerPermissions;
   /**
-   * True when the user is a co-manager with ≥1 accepted incoming link but no
-   * explicit module restrictions (merged permissions empty). Retained for
-   * callers that branch on the data-layer empty-permissions = full-access rule.
+   * True when the user is a co-manager with ≥1 accepted incoming link whose
+   * merged permissions are empty. That state now confers NO module access
+   * (PRP-199), and nav no longer locks sections on it — the flag is retained
+   * only for callers and tests that still read it.
    */
   hasEmptyPermissionCoManagerLink: boolean;
 };
@@ -45,8 +46,8 @@ export function deriveManagerNavRole(
       );
 
   // A co-manager reaches this branch only with ≥1 accepted incoming link
-  // (isPrimaryManager is true when there are none). If the merged set is empty,
-  // nothing was explicitly restricted, so default to full module nav.
+  // (isPrimaryManager is true when there are none). An empty merged set means
+  // nothing was granted, not that nothing was restricted.
   const hasEmptyPermissionCoManagerLink =
     !isPrimaryManager && Object.keys(mergedPermissions).length === 0;
 

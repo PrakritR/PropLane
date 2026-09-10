@@ -21,7 +21,7 @@ describe("manager-lease-scope", () => {
  * `leases` grant at EDIT level: wider than direct ownership (a real co-manager
  * flow), narrower than bare link membership (which would let a co-manager write
  * a row they are not allowed to read back). An assignment with no checked
- * permissions is still a full grant, so the ordinary co-manager is unaffected.
+ * permissions confers nothing: being assigned a property is not itself a grant.
  */
 describe("managerMayFileLeaseUnderProperty", () => {
   const MANAGER = "manager-1";
