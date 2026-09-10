@@ -79,3 +79,11 @@ coverage response and stop before upload assertions. This fixture gap is pending
 original review pipeline and must be resolved before final handoff. Final card-focused rerun passed 16 tests across 2 files, including the shared default-change pending guard. New-card ESLint
 returned zero warnings/errors; TypeScript returned zero errors. Graph rebuild completed
 with the existing missing Swift grammar warning; portable-check passed.
+
+The follow-up's standard `npm run build` subsequently passed (exit 0): bundle
+compiled in 19.5s and TypeScript finished in 26.7s. The initial Webpack-only attempt
+failed on the repository's existing Node crypto import; replacing the isolated
+worktree's dependency symlink with a local dependency copy restored the normal
+Turbopack build. Final graph hook exited 0 and portable-check passed. The standalone
+redundant TypeScript check was stopped during resource contention; the successful
+standard build includes the final TypeScript check.
