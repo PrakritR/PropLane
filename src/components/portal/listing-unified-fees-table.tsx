@@ -395,7 +395,6 @@ function ExpandableRows({ row, showRooms }: { row: FeeExpandableRow; showRooms: 
 export function ListingUnifiedFeesTable({
   sub,
   isEntireHome,
-  onStAmount,
   onLtAmount,
   onLtAmountForRow,
   stepFieldErrors,
@@ -414,7 +413,6 @@ export function ListingUnifiedFeesTable({
 }: {
   sub: ManagerListingSubmissionV1;
   isEntireHome: boolean;
-  onStAmount: (feeId: ListingFeeRowId, amount: string) => void;
   onLtAmount: (field: keyof ManagerListingSubmissionV1, amount: string) => void;
   onLtAmountForRow: (feeId: ListingFeeRowId, amount: string) => void;
   stepFieldErrors: Record<string, string>;
@@ -486,7 +484,6 @@ export function ListingUnifiedFeesTable({
           // a term the manager did not pick.
           const stOn = shortTermOffered && leaseScope.includes(SHORT_TERM_LEASE_TERM);
           const ltOn = leaseScope.some((t) => t !== SHORT_TERM_LEASE_TERM);
-          const stAmount = row.stField ? readListingFeeCellAmount(sub, row.stField) : "";
           const ltAmount = row.ltField ? readListingFeeCellAmount(sub, row.ltField) : "";
           const rentLtPerRoom = row.id === "rent" && !isEntireHome;
           const ltErr =
@@ -511,9 +508,16 @@ export function ListingUnifiedFeesTable({
                 </div>
               </div>
 
+              {/*
+                ONE amount per fee (PRP-463 round 2). The separate short-term box is gone:
+                a fee costs what it costs, and the lease-type dropdown says which leases it
+                is charged on. The form mirrors this figure into the short-term field for
+                any fee scoped to short-term stays, so the stored short-term amount and the
+                amount on screen can never drift apart.
+              */}
               <div className="flex min-w-0 flex-col justify-center gap-2 border-b border-border/70 px-3 py-3">
                 {!ltOn && !stOn ? <span className="text-xs text-muted">—</span> : null}
-                {ltOn && (row.ltField || row.id === "rent") ? (
+                {(ltOn || stOn) && (row.ltField || row.id === "rent") ? (
                   <>
                     <div className={FEE_CONTROL_ROW}>
                       {rentLtPerRoom ? (
@@ -559,24 +563,7 @@ export function ListingUnifiedFeesTable({
                     {ltErr ? <p className="text-xs font-medium text-red-600">{ltErr}</p> : null}
                   </>
                 ) : null}
-                {stOn && row.stField ? (
-                  <>
-                    <div className={FEE_CONTROL_ROW}>
-                      <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                        Short-term
-                      </span>
-                      <FeeMoneyInput
-                        value={stAmount}
-                        onChange={(v) => onStAmount(rowId, v)}
-                        placeholder={row.id === "rent" ? "85" : "0"}
-                        invalid={Boolean(stErr)}
-                        ariaLabel={`Short-term ${row.label}`}
-                        dataField={String(row.stField)}
-                      />
-                    </div>
-                    {stErr ? <p className="text-xs font-medium text-red-600">{stErr}</p> : null}
-                  </>
-                ) : null}
+                {stOn && stErr ? <p className="text-xs font-medium text-red-600">{stErr}</p> : null}
               </div>
 
               <FeeScopeCells
@@ -635,7 +622,7 @@ export function ListingUnifiedFeesTable({
 
                 <div className="flex min-w-0 flex-col justify-center gap-2 border-b border-border/70 px-3 py-3">
                   {!ltOn && !stOn ? <span className="text-xs text-muted">—</span> : null}
-                  {ltOn ? (
+                  {ltOn || stOn ? (
                     <div className={FEE_CONTROL_ROW}>
                       <FeeMoneyInput
                         value={fee.amount.replace(/^\$/, "").trim()}
@@ -646,18 +633,6 @@ export function ListingUnifiedFeesTable({
                         value={fee.frequency === "one-time" ? "one-time" : "monthly"}
                         onChange={(next) => onCustomFeeChange(i, { frequency: next })}
                         ariaLabel={`Custom fee ${i + 1} payment frequency`}
-                      />
-                    </div>
-                  ) : null}
-                  {stOn ? (
-                    <div className={FEE_CONTROL_ROW}>
-                      <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted">
-                        Short-term
-                      </span>
-                      <FeeMoneyInput
-                        value={(fee.shortTermAmount ?? "").replace(/^\$/, "").trim()}
-                        onChange={(v) => onCustomFeeChange(i, { shortTermAmount: v })}
-                        ariaLabel={`Short-term custom fee ${i + 1} amount`}
                       />
                     </div>
                   ) : null}

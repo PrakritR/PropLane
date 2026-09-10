@@ -87,7 +87,6 @@ import {
   listingProplaneAbsorbNeedsWaiverCode,
   listingServiceFeePayerUiValue,
   managerCanSelectManagerAbsorbServiceFee,
-  managerCanSelectProplaneServiceFee,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
 import {
@@ -185,6 +184,7 @@ import {
   deriveListingStFeeToggles,
   leaseLengthGatedHiddenFeeRowIds,
   LISTING_STANDARD_FEE_ROWS,
+  readListingFeeCellAmount,
   type ListingFeeRowId,
   type ListingLtFeeToggles,
   type ListingStFeeToggles,
@@ -1503,10 +1503,6 @@ export function ManagerAddListingForm({
   );
   const managerSkuTier = normalizeManagerSkuTier(skuTier) ?? "free";
   const canSelectManagerAbsorbFee = managerCanSelectManagerAbsorbServiceFee(managerSkuTier);
-  const canSelectProplaneAbsorbFee = managerCanSelectProplaneServiceFee(
-    managerSkuTier,
-    paymentWaiverGranted === true,
-  );
   const serviceFeePayerUi = listingServiceFeePayerUiValue(
     sub.serviceFeePayer,
     managerSkuTier,
@@ -1906,16 +1902,6 @@ export function ManagerAddListingForm({
     if (row?.stField) clearListingFieldError(String(row.stField));
   };
 
-  const handleStFeeAmount = (feeId: ListingFeeRowId, amount: string) => {
-    const sanitized = sanitizeMoneyInput(amount);
-    setSub((s) => applyListingStFeeAmount(s, feeId, sanitized));
-    const row = LISTING_STANDARD_FEE_ROWS.find((r) => r.id === feeId);
-    if (row?.stField) clearListingFieldError(String(row.stField));
-    if (sanitized.trim()) {
-      setStFeeToggles((prev) => ({ ...prev, [feeId]: true }));
-    }
-  };
-
   const handleLtFeeToggle = (feeId: ListingFeeRowId, enabled: boolean) => {
     setLtFeeToggles((prev) => ({ ...prev, [feeId]: enabled }));
     setSub((s) => applyListingLtFeeToggle(s, feeId, enabled, stFeeToggles));
@@ -2000,15 +1986,24 @@ export function ManagerAddListingForm({
         const fee = (sub.customFees ?? [])[target.index];
         setCustomFee(target.index, {
           leaseTypes: narrowFeeScope(next, leaseScopeOptions),
-          // Dropping short-term from the scope must un-bill the short-term amount too,
-          // or the fee keeps charging on exactly the stay just excluded.
-          shortTermAmount: wantsShortTerm ? (fee?.shortTermAmount ?? "") : undefined,
+          // One amount (PRP-463 round 2): a fee brought into short-term scope is charged
+          // the figure already on its row, and dropping short-term un-bills it — or the
+          // fee keeps charging on exactly the stay just excluded.
+          shortTermAmount: wantsShortTerm ? (fee?.amount ?? "") : undefined,
         });
         return;
       }
       const rowId = target.rowId;
       const longTermPicks = next.filter((t) => t !== SHORT_TERM_LEASE_TERM);
-      if (wantsShortTerm !== Boolean(stFeeToggles[rowId])) handleStFeeToggle(rowId, wantsShortTerm);
+      if (wantsShortTerm !== Boolean(stFeeToggles[rowId])) {
+        handleStFeeToggle(rowId, wantsShortTerm);
+        if (wantsShortTerm) {
+          // One amount: the figure already on the row is what a short-term stay is charged.
+          const row = LISTING_STANDARD_FEE_ROWS.find((r) => r.id === rowId);
+          const current = row?.ltField ? readListingFeeCellAmount(sub, row.ltField) : "";
+          if (current.trim()) setSub((s) => applyListingStFeeAmount(s, rowId, current));
+        }
+      }
       if (longTermPicks.length > 0 !== Boolean(ltFeeToggles[rowId])) {
         handleLtFeeToggle(rowId, longTermPicks.length > 0);
       }
@@ -2075,9 +2070,24 @@ export function ManagerAddListingForm({
     );
   };
 
+  /**
+   * A fee has ONE amount (PRP-463 round 2). The separate short-term box is gone, so the
+   * figure the manager types is written to the short-term field too whenever the fee is
+   * scoped to short-term stays — otherwise the scope would promise a charge the stored
+   * short-term amount never makes.
+   *
+   * A fee NOT scoped to short-term is left alone: an existing listing that carries a
+   * distinct short-term price keeps it until the manager brings that fee into scope.
+   */
+  const mirrorAmountToShortTerm = (feeId: ListingFeeRowId | undefined, sanitized: string) => {
+    if (!feeId || !stFeeToggles[feeId]) return;
+    setSub((s) => applyListingStFeeAmount(s, feeId, sanitized));
+  };
+
   const handleLtFeeAmount = (field: keyof ManagerListingSubmissionV1, amount: string) => {
     const sanitized = sanitizeMoneyInput(amount);
     setSub((s) => applyListingLtFeeAmount(s, field, sanitized));
+    mirrorAmountToShortTerm(LISTING_STANDARD_FEE_ROWS.find((r) => r.ltField === field)?.id, sanitized);
     clearListingFieldError(String(field));
     if (field === "entireHomeMonthlyRent") {
       clearListingFieldError("monthlyRent");
@@ -2095,6 +2105,7 @@ export function ManagerAddListingForm({
   const handleLtFeeAmountForRow = (feeId: ListingFeeRowId, amount: string) => {
     const sanitized = sanitizeMoneyInput(amount);
     setSub((s) => applyListingLtFeeAmountForRow(s, feeId, sanitized));
+    mirrorAmountToShortTerm(feeId, sanitized);
     const row = LISTING_STANDARD_FEE_ROWS.find((r) => r.id === feeId);
     if (row?.ltField) clearListingFieldError(String(row.ltField));
     if (sanitized.trim()) {
@@ -5004,7 +5015,6 @@ export function ManagerAddListingForm({
                   foldsMonthlyFeesIntoRent={listingFoldsAllMonthlyFeesIntoRent(sub)}
                   sub={sub}
                   isEntireHome={isEntireHome}
-                  onStAmount={handleStFeeAmount}
                   onLtAmount={handleLtFeeAmount}
                   onLtAmountForRow={handleLtFeeAmountForRow}
                   hiddenRowIds={hiddenStandardFeeRows}
@@ -5018,6 +5028,16 @@ export function ManagerAddListingForm({
                   onCustomFeeChange={(i, patch) => {
                     if (patch.label !== undefined) {
                       setCustomFee(i, { label: sanitizePlaceNameInput(patch.label) });
+                      return;
+                    }
+                    // One amount: a fee scoped to short-term stays is charged the same
+                    // figure, so the two stored amounts can never drift apart.
+                    if (patch.amount !== undefined) {
+                      const fee = (sub.customFees ?? [])[i];
+                      const inShortTermScope =
+                        fee?.shortTermAmount !== undefined ||
+                        (fee?.leaseTypes ?? []).includes(SHORT_TERM_LEASE_TERM);
+                      setCustomFee(i, inShortTermScope ? { ...patch, shortTermAmount: patch.amount } : patch);
                       return;
                     }
                     setCustomFee(i, patch);
@@ -5192,13 +5212,26 @@ export function ManagerAddListingForm({
                       */}
                       <option value="proplane">{SERVICE_FEE_PAYER_OPTION_LABELS.proplane}</option>
                     </Select>
-                    {listingProplaneAbsorbNeedsWaiverCode(
-                      managerSkuTier,
-                      serviceFeePayerUi,
-                      paymentWaiverGranted === true,
-                    ) ? (
+                    {/*
+                      The code box appears whenever PropLane is the payer, entitled or not
+                      (the captain's call). An account that already carries the grant sees
+                      it as optional rather than as a demand; an account that does not is
+                      told plainly that without a valid code the listing stays on Resident
+                      pays — which is what `persistListingServiceFeePayer` will do.
+                    */}
+                    {serviceFeePayerUi === "proplane" ? (
                       <div className="mt-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-2.5">
-                        <FieldLabel>PropLane waiver code</FieldLabel>
+                        <FieldLabel
+                          optional={
+                            !listingProplaneAbsorbNeedsWaiverCode(
+                              managerSkuTier,
+                              serviceFeePayerUi,
+                              paymentWaiverGranted === true,
+                            )
+                          }
+                        >
+                          PropLane processing waive code
+                        </FieldLabel>
                         <Input
                           aria-label="PropLane waiver code"
                           data-attr="listing-service-fee-waiver-code"
@@ -5221,7 +5254,13 @@ export function ManagerAddListingForm({
                         >
                           {listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
                             ? "Code accepted — PropLane absorbs the processing fee on this listing."
-                            : `Enter ${LISTING_PAYMENT_WAIVER_CODE} to have PropLane absorb it. Without a valid code this listing stays on Resident pays.`}
+                            : listingProplaneAbsorbNeedsWaiverCode(
+                                  managerSkuTier,
+                                  serviceFeePayerUi,
+                                  paymentWaiverGranted === true,
+                                )
+                              ? `Enter ${LISTING_PAYMENT_WAIVER_CODE} to have PropLane absorb it. Without a valid code this listing stays on Resident pays.`
+                              : "Your plan already covers this, so no code is needed. Enter one only if PropLane gave you a listing code."}
                         </p>
                       </div>
                     ) : null}
