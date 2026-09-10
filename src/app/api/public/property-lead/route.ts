@@ -3,6 +3,7 @@ import type { MockProperty } from "@/data/types";
 import { isPropertyActiveForLeads } from "@/lib/demo-property-pipeline";
 import { resolveListingCtaSmsPhone } from "@/lib/listing-cta-phone.server";
 import { publicListingProjection } from "@/lib/public-listings.server";
+import { resolveListingCtaEmail } from "@/lib/listing-cta-email.server";
 import { isSandboxPublicListing } from "@/lib/public-sandbox-listings";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -78,6 +79,8 @@ export async function GET(req: Request) {
       // manager, and the stored blob number is never trusted. See
       // `resolveListingCtaSmsPhone`.
       contactSmsPhone: resolveListingCtaSmsPhone(managerProfile) ?? undefined,
+      contactWorkEmail:
+        (await resolveListingCtaEmail(db, data.manager_user_id ?? null)) ?? undefined,
     };
 
     if (isProductionRuntime()) {

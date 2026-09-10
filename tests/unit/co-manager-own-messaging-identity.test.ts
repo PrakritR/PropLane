@@ -134,10 +134,16 @@ describe("the status endpoint actually offers it", () => {
     // This was the gate that actually mattered. The POST refusal was visible;
     // this one quietly made the request button never appear for a co-manager,
     // so removing only the refusal would have left the feature unreachable.
-    const canRequest = ROUTE.slice(ROUTE.indexOf("canRequest:"), ROUTE.indexOf("canUse:"));
+    const start = ROUTE.indexOf("canRequest:");
+    const canRequest = ROUTE.slice(start, ROUTE.indexOf("\n", ROUTE.indexOf(",", start)));
     expect(canRequest).not.toContain('workspaceRole === "primary"');
+    expect(canRequest).not.toContain("pureCoManager");
     expect(canRequest).toContain("storageReady");
-    expect(canRequest).toContain("entitlementCanBeReconciled");
+    // The plan/billing half now comes from the gate shared with the work
+    // number (`managerCommsRequestIsOfferable`), so this asserts the ROUTE uses
+    // it rather than pinning a local variable name that a refactor renames.
+    expect(canRequest).toContain("canRequestBilling");
+    expect(ROUTE).toContain("managerCommsRequestIsOfferable");
   });
 
   it("provisioningAvailable does not either", () => {

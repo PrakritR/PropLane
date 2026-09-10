@@ -183,6 +183,34 @@ export async function loadManagerAssistantEmail(
   return row;
 }
 
+/** Whether THIS DEPLOYMENT can send mail at all, independent of any manager. */
+export function isAssistantEmailSendingEnabled(): boolean {
+  return Boolean(process.env.RESEND_API_KEY?.trim());
+}
+
+/**
+ * The work email a manager can actually be REACHED at, or null.
+ *
+ * The email twin of `resolveActiveManagerSendNumber`, and required for the same
+ * reason: an address that cannot answer is worse than none, because the
+ * resident writes to it and hears nothing, which reads as being ignored by
+ * their manager. Every surface that shows the address to somebody else — the
+ * resident contact card, the welcome email, a public listing — goes through
+ * this rather than reading the row directly.
+ *
+ * Deliberately does NOT read billing. Like the number's resolver, this answers
+ * "is this channel operational", which is a cheap check the hot paths can make;
+ * plan and card questions belong at the request boundary.
+ */
+export async function resolveActiveManagerWorkEmail(
+  db: SupabaseClient,
+  managerUserId: string,
+): Promise<string | null> {
+  if (!isAssistantEmailSendingEnabled()) return null;
+  const row = await loadManagerAssistantEmail(db, managerUserId);
+  return row?.address?.trim() || null;
+}
+
 export async function ensureManagerAssistantEmail(
   db: SupabaseClient,
   managerUserId: string,

@@ -40,6 +40,24 @@ describe("manager Google services page", () => {
             { status: 200 },
           );
         }
+        if (url.includes("/api/manager/assistant-email")) {
+          return new Response(
+            JSON.stringify({
+              provisioningAvailable: true,
+              sendingAvailable: true,
+              storageReady: true,
+              planTier: "paid",
+              entitlement: { eligible: true, tier: "pro", source: "stripe" },
+              workspaceRole: "primary",
+              address: null,
+              state: "requestable",
+              canRequest: true,
+              canUse: false,
+              requestedAtSignup: false,
+            }),
+            { status: 200 },
+          );
+        }
         if (url.includes("/api/manager/phone")) {
           return new Response(JSON.stringify({ phone: null, phoneVerifiedAt: null }), { status: 200 });
         }
@@ -79,6 +97,24 @@ describe("manager Google services page", () => {
             { status: 200 },
           );
         }
+        if (url.includes("/api/manager/assistant-email")) {
+          return new Response(
+            JSON.stringify({
+              provisioningAvailable: true,
+              sendingAvailable: true,
+              storageReady: true,
+              planTier: "paid",
+              entitlement: { eligible: true, tier: "pro", source: "stripe" },
+              workspaceRole: "primary",
+              address: null,
+              state: "requestable",
+              canRequest: true,
+              canUse: false,
+              requestedAtSignup: false,
+            }),
+            { status: 200 },
+          );
+        }
         if (url.includes("/api/manager/phone")) {
           return new Response(JSON.stringify({ phone: null, phoneVerifiedAt: null }), { status: 200 });
         }
@@ -102,9 +138,13 @@ describe("manager Google services page", () => {
 
     await waitFor(() => expect(screen.getByText("Connect Calendar")).toBeTruthy());
     const phoneSteps = container.querySelectorAll('[data-attr="manager-google-onboarding-phone-step"]');
-    expect(phoneSteps.length).toBe(2);
+    // Three setup cards, not two: this screen used to offer the work number and
+    // silently skip the work email, so which onboarding route a manager
+    // happened to take decided whether they ever learned it exists.
+    expect(phoneSteps.length).toBe(3);
     expect(screen.getByText("Personal phone")).toBeTruthy();
     expect(screen.getByText("PropLane work number")).toBeTruthy();
+    expect(screen.getByText("PropLane work email")).toBeTruthy();
 
     // Phone cards come before the Google card in document order.
     const calendarCard = screen.getByText("Google Calendar").closest("section");
