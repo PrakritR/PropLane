@@ -33,6 +33,7 @@ import {
   PROPERTY_PIPELINE_EVENT,
 } from "@/lib/demo-property-pipeline";
 import { collectLinkedPropertyIds, syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
+import { accountLinksKnown, fetchAccountLinksCached } from "@/lib/portal-data-store";
 import { isServerSyncOriginatedEvent } from "@/lib/property-pipeline-events";
 import { buildManagerShareablePropertyOptions } from "@/lib/manager-property-links";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
@@ -219,9 +220,21 @@ export function ManagerProperties({
           !shouldSkipFirstListingOnboarding({ email })
         ) {
           firstListingSeedAttemptedRef.current = true;
+          // Wait for a real answer about co-manager links before judging the
+          // portfolio empty. The link cache reads `[]` both before it loads and
+          // when there genuinely are none, and seeding on the first of those
+          // handed a co-manager a draft on every visit (their three properties
+          // live on somebody else's row, so nothing they own says otherwise).
+          try {
+            await fetchAccountLinksCached();
+          } catch {
+            /* the known-flag stays false, which is itself the refusal below */
+          }
+          const linksKnown = accountLinksKnown();
           const seeded = await ensureManagerFirstListingDraft(userId, {
             email,
             portfolioSynced,
+            coManagerLinksKnown: linksKnown,
           });
           if (seeded) {
             setPropCount(countManagerManagedPropertiesForUser(scopeUserId));
@@ -231,7 +244,7 @@ export function ManagerProperties({
           // that already had a draft still needs to land on Drafts, and one
           // where seeding was declined must not be stranded on an empty Listed.
           const snap = readFirstListingPortfolioSnapshot(userId);
-          if (!managerHasAnyListing(snap) && activeStage !== "drafts") {
+          if (linksKnown && !managerHasAnyListing(snap) && activeStage !== "drafts") {
             setActiveStage("drafts");
           }
           if (
@@ -239,6 +252,7 @@ export function ManagerProperties({
             shouldAutoOpenFirstListingWizard({
               snap,
               dismissed: readFirstListingWizardDismissed(userId),
+              coManagerLinksKnown: linksKnown,
             })
           ) {
             setResumeDraftId(seeded.draftId);

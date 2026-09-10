@@ -15,6 +15,7 @@ import {
 } from "@/lib/manager-first-listing-onboarding";
 
 const snap = (over: Partial<FirstListingPortfolioSnapshot> = {}): FirstListingPortfolioSnapshot => ({
+  listed: 0,
   listingSlots: 0,
   drafts: 0,
   unlisted: 0,
