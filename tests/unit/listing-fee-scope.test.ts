@@ -24,6 +24,7 @@ import {
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import { leaseDocumentFeeLines } from "@/lib/listing-fees";
+import { resolveStayPricing } from "@/lib/room-pricing";
 
 const ROOMS = ["room-a", "room-b", "room-c"];
 const TERMS = ["Long-term", "Month-to-Month", "Custom"];
@@ -255,5 +256,51 @@ describe("the signing table grows with the fee list", () => {
     const sub = subWithRooms();
     sub.customFees = [{ id: "fee-new", label: "  ", amount: "", frequency: "monthly" }];
     expect(paymentAtSigningRows(sub).find((r) => r.key === "fee:fee-new")?.label).toBe("Untitled fee");
+  });
+});
+
+describe("a room priced per lease type", () => {
+  const room = {
+    id: "room-a",
+    monthlyRent: 1000,
+    securityDeposit: "1000",
+    termPricing: { "Month-to-Month": { monthlyRent: 1200, securityDeposit: "1500" } },
+  };
+
+  // The checkbox is only honest if unticking it changes what the ledger bills — this is
+  // the same resolver the lease document and the charges read.
+  it("bills the term's own rent and deposit on a lease of that term", () => {
+    const pricing = resolveStayPricing({
+      room,
+      submission: {},
+      application: { leaseTerm: "Month-to-Month" },
+    });
+    expect(pricing.monthlyRate).toBe(1200);
+    expect(pricing.deposit).toBe(1500);
+  });
+
+  it("falls back to the long-term price for a term with no entry", () => {
+    const pricing = resolveStayPricing({
+      room,
+      submission: {},
+      application: { leaseTerm: "Long-term" },
+    });
+    expect(pricing.monthlyRate).toBe(1000);
+    expect(pricing.deposit).toBe(1000);
+  });
+
+  it("is untouched when the lease names no term at all — every existing caller", () => {
+    const pricing = resolveStayPricing({ room, submission: {}, application: {} });
+    expect(pricing.monthlyRate).toBe(1000);
+    expect(pricing.deposit).toBe(1000);
+  });
+
+  it("still lets a manager's negotiated override win", () => {
+    const pricing = resolveStayPricing({
+      room,
+      submission: {},
+      application: { leaseTerm: "Month-to-Month", managerRentOverride: "950" },
+    });
+    expect(pricing.monthlyRate).toBe(950);
   });
 });

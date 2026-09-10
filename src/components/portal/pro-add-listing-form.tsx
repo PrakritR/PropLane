@@ -126,6 +126,7 @@ import {
   type ManagerListingServiceOption,
   type ManagerQuickFactRow,
   type ManagerRoomSubmission,
+  type ManagerRoomTermPrice,
   type ManagerSharedSpaceSubmission,
   type PaymentAtSigningOptionId,
 } from "@/lib/manager-listing-submission";
@@ -756,40 +757,98 @@ function ShortTermRentSection({
 }
 
 /**
- * A lease type a room is offered on but does not price separately (PRP-463).
+ * A lease type the room is offered on, priced either with Long-term or on its own (PRP-463).
  *
- * Month-to-month and custom-length leases bill the LONG-TERM figures — that is how
- * charge generation has always resolved them — so this states that plainly rather than
- * showing empty inputs a manager would fill in and expect to take effect. Any surcharge
- * the listing carries for that term is named here too, because that IS the difference.
+ * "Same as Long-term" is the default and stores NOTHING — a term with no entry bills the
+ * room's long-term rent and deposit, which is what every room saved before this existed
+ * meant. Unticking it writes that term's own figures, and `resolveStayPricing` reads them,
+ * so the number here is the number the ledger bills. Any surcharge the listing carries for
+ * the term is named either way, because that IS the difference when the prices match.
  */
-function AutoPricedLeaseSection({
+function LeaseTypePricingSection({
   term,
-  monthlyRent,
-  deposit,
+  longTermRent,
+  longTermDeposit,
   surcharge,
+  price,
+  onChange,
 }: {
   term: string;
-  monthlyRent: number;
-  deposit: string;
+  longTermRent: number;
+  longTermDeposit: string;
   surcharge?: string;
+  price: ManagerRoomTermPrice | undefined;
+  onChange: (next: ManagerRoomTermPrice | undefined) => void;
 }) {
+  const sameAsLongTerm = price === undefined;
   const money = (n: number) => `$${n.toLocaleString("en-US")}`;
   const surchargeAmount = (surcharge ?? "").replace(/^\$/, "").trim();
   return (
     <div className="w-full rounded-lg border border-dashed border-border bg-accent/10 p-3">
-      <FieldLabel hint="Set automatically from Long-term.">{term}</FieldLabel>
-      <p className="mt-1 text-xs text-muted">
-        {monthlyRent > 0 ? (
-          <>
-            <span className="font-medium text-foreground">{money(monthlyRent)}/mo</span>
-            {deposit.trim() ? <> · {`$${deposit.replace(/^\$/, "").trim()}`} deposit</> : null}
-          </>
-        ) : (
-          "Follows the Long-term rent and deposit above."
-        )}
-        {surchargeAmount ? <> · plus the {term.toLowerCase()} surcharge of ${surchargeAmount}/mo</> : null}
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <FieldLabel>{term}</FieldLabel>
+        <label className="flex cursor-pointer items-center gap-2 text-xs font-medium text-foreground">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-border"
+            data-attr="listing-room-term-same-as-long-term"
+            aria-label={`Price ${term} the same as Long-term`}
+            checked={sameAsLongTerm}
+            onChange={(e) =>
+              onChange(
+                e.target.checked
+                  ? undefined
+                  : {
+                      monthlyRent: longTermRent > 0 ? longTermRent : undefined,
+                      securityDeposit: longTermDeposit.replace(/^\$/, "").trim() || undefined,
+                    },
+              )
+            }
+          />
+          Same as Long-term
+        </label>
+      </div>
+      {sameAsLongTerm ? (
+        <p className="mt-1 text-xs text-muted">
+          {longTermRent > 0 ? (
+            <>
+              <span className="font-medium text-foreground">{money(longTermRent)}/mo</span>
+              {longTermDeposit.trim() ? <> · ${longTermDeposit.replace(/^\$/, "").trim()} deposit</> : null}
+            </>
+          ) : (
+            "Follows the Long-term rent and deposit above."
+          )}
+          {surchargeAmount ? <> · plus the {term.toLowerCase()} surcharge of ${surchargeAmount}/mo</> : null}
+        </p>
+      ) : (
+        <div className="mt-1 flex flex-wrap items-end gap-x-4 gap-y-2">
+          <GridField>
+            <FieldLabel>Monthly rent</FieldLabel>
+            <MoneyInput
+              ariaLabel={`${term} monthly rent`}
+              value={price?.monthlyRent === undefined ? "" : String(price.monthlyRent)}
+              onChange={(e) =>
+                onChange({ ...price, monthlyRent: parseSanitizedMoneyNumber(e.target.value) || undefined })
+              }
+              placeholder={longTermRent > 0 ? String(longTermRent) : "800"}
+            />
+          </GridField>
+          <GridField>
+            <FieldLabel>Security deposit</FieldLabel>
+            <MoneyInput
+              ariaLabel={`${term} security deposit`}
+              value={(price?.securityDeposit ?? "").replace(/^\$/, "").trim()}
+              onChange={(e) => onChange({ ...price, securityDeposit: sanitizeMoneyInput(e.target.value) })}
+              placeholder={longTermDeposit.replace(/^\$/, "").trim() || "1000"}
+            />
+          </GridField>
+          {surchargeAmount ? (
+            <p className="w-full text-xs text-muted">
+              The {term.toLowerCase()} surcharge of ${surchargeAmount}/mo still applies on top.
+            </p>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
@@ -2730,6 +2789,48 @@ export function ManagerAddListingForm({
     });
   };
 
+  /**
+   * Add a fee that applies to one room only (PRP-463).
+   *
+   * The same custom fee every other fee is — it simply arrives pre-scoped to this room,
+   * so a manager pricing a room does not have to add the fee in the table above and then
+   * come back to narrow it. `roomIds` is a real narrowing here, never the whole list, so
+   * it keeps meaning THIS room when another is added later.
+   */
+  /**
+   * Set (or clear) one room's price for one lease type. Clearing removes the entry
+   * entirely rather than writing zeros, because absence is what "same as Long-term"
+   * means to `resolveStayPricing`.
+   */
+  const setRoomTermPrice = (
+    roomIndex: number,
+    term: string,
+    next: ManagerRoomTermPrice | undefined,
+  ) => {
+    setSub((s) => {
+      const rooms = [...s.rooms];
+      const room = rooms[roomIndex];
+      if (!room) return s;
+      const table = { ...(room.termPricing ?? {}) };
+      const meaningful =
+        next && ((next.monthlyRent ?? 0) > 0 || (next.securityDeposit ?? "").trim().length > 0);
+      if (next === undefined) delete table[term];
+      else if (!meaningful) table[term] = {};
+      else table[term] = next;
+      rooms[roomIndex] = {
+        ...room,
+        termPricing: Object.keys(table).length > 0 ? table : undefined,
+      };
+      return { ...s, rooms };
+    });
+  };
+
+  const addRoomScopedFee = (roomId: string) => {
+    const next = { ...emptyCustomFeeRow(), roomIds: [roomId] };
+    expandListingItem(listingItemKey("fee", next.id));
+    setSub((s) => ({ ...s, customFees: [...(s.customFees ?? []), next] }));
+  };
+
   const addCustomFee = () => {
     const next = emptyCustomFeeRow();
     expandListingItem(listingItemKey("fee", next.id));
@@ -3907,7 +4008,9 @@ export function ManagerAddListingForm({
                     room's whole price now opens from its one row here.
                   */}
                   <GridField>
-                    <FieldLabel>Pricing mode</FieldLabel>
+                    <FieldLabel hint="Flexible lists the same rent and lets a prospect propose another amount in Communication; you are asked before anything changes.">
+                      Pricing mode
+                    </FieldLabel>
                     <Select
                       aria-label={`Pricing mode for ${roomLabel}`}
                       className={selectInputCls}
@@ -3927,12 +4030,7 @@ export function ManagerAddListingForm({
                       <option value="fixed">Fixed — price locked</option>
                       <option value="flexible">Flexible — open to an offer</option>
                     </Select>
-                    {room.pricingMode === "flexible" ? (
-                      <p className="mt-1 text-xs text-muted">
-                        Same rent fields as Fixed. Prospects can propose a different amount in
-                        Communication; PropLane asks you before anything changes.
-                      </p>
-                    ) : null}
+
                   </GridField>
                   <GridField>
                     <FieldLabel>Security deposit</FieldLabel>
@@ -3978,6 +4076,20 @@ export function ManagerAddListingForm({
                     />
                   </div>
                   </LongTermRentSection>
+                  <div className="w-full">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-full text-xs"
+                      onClick={() => addRoomScopedFee(room.id)}
+                      data-attr="listing-room-add-fee"
+                    >
+                      + Add a fee for {roomLabel}
+                    </Button>
+                    <p className="mt-1 text-xs text-muted">
+                      Adds a row to Other fees already scoped to this room. Name it and price it there.
+                    </p>
+                  </div>
                   {/*
                     One block per lease type the listing offers (PRP-463). Long-term is
                     priced above; month-to-month and custom leases bill those same figures,
@@ -3985,19 +4097,23 @@ export function ManagerAddListingForm({
                     short-term carries its own rates and its own deposit.
                   */}
                   {leaseScopeOptions.includes("Month-to-Month") ? (
-                    <AutoPricedLeaseSection
+                    <LeaseTypePricingSection
                       term="Month-to-Month"
-                      monthlyRent={room.monthlyRent}
-                      deposit={room.securityDeposit ?? ""}
+                      longTermRent={room.monthlyRent}
+                      longTermDeposit={room.securityDeposit ?? ""}
                       surcharge={sub.monthToMonthSurcharge}
+                      price={room.termPricing?.["Month-to-Month"]}
+                      onChange={(next) => setRoomTermPrice(i, "Month-to-Month", next)}
                     />
                   ) : null}
                   {leaseScopeOptions.includes(CUSTOM_LEASE_TERM) ? (
-                    <AutoPricedLeaseSection
-                      term="Custom"
-                      monthlyRent={room.monthlyRent}
-                      deposit={room.securityDeposit ?? ""}
+                    <LeaseTypePricingSection
+                      term={CUSTOM_LEASE_TERM}
+                      longTermRent={room.monthlyRent}
+                      longTermDeposit={room.securityDeposit ?? ""}
                       surcharge={sub.customLeaseSurcharge}
+                      price={room.termPricing?.[CUSTOM_LEASE_TERM]}
+                      onChange={(next) => setRoomTermPrice(i, CUSTOM_LEASE_TERM, next)}
                     />
                   ) : null}
                   {sub.shortTermRentalsAllowed ? (
