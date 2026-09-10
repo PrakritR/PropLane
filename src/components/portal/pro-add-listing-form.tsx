@@ -2068,7 +2068,10 @@ export function ManagerAddListingForm({
   const setRoom = (i: number, patch: Partial<ManagerRoomSubmission>) => {
     setSub((s) => {
       const rooms = [...s.rooms];
-      rooms[i] = { ...rooms[i]!, ...patch };
+      const before = rooms[i]!;
+      rooms[i] = { ...before, ...patch };
+      // Editing a room by hand is what takes it off the "most rooms are…" row.
+      markRoomTouched(before.id);
       return { ...s, rooms };
     });
   };
@@ -2076,10 +2079,86 @@ export function ManagerAddListingForm({
   const setBath = (i: number, patch: Partial<ManagerBathroomSubmission>) => {
     setSub((s) => {
       const bathrooms = [...s.bathrooms];
-      bathrooms[i] = { ...bathrooms[i]!, ...patch };
+      const before = bathrooms[i]!;
+      bathrooms[i] = { ...before, ...patch };
+      markBathTouched(before.id);
       return { ...s, bathrooms };
     });
   };
+
+  /**
+   * "Most rooms are…" / "Most bathrooms are…" — the one thing kept from the
+   * redesigned wizard.
+   *
+   * Set a value once and every room that has not been touched by hand follows
+   * it. The rule is per ROOM, not per field: the moment a manager edits any
+   * field on a room, that room stops following for everything, so a floor they
+   * set by hand is never moved later by a change to what most rooms are. That
+   * is the same contract `roomsFollowingDefaults` states for the other wizard,
+   * and it is why a "touched" set is tracked rather than comparing values.
+   */
+  const [roomDefaults, setRoomDefaults] = useState<{
+    floor: string;
+    occupancyCapacity: number;
+    sizeSqft: number;
+    furnishing: string;
+    amenitiesText: string;
+  }>({ floor: "", occupancyCapacity: 0, sizeSqft: 0, furnishing: "", amenitiesText: "" });
+  const [bathDefaults, setBathDefaults] = useState<{
+    location: string;
+    type: "full" | "shower" | "half" | "";
+    amenitiesText: string;
+  }>({ location: "", type: "", amenitiesText: "" });
+  const [touchedRoomIds, setTouchedRoomIds] = useState<Set<string>>(() => new Set());
+  const [touchedBathIds, setTouchedBathIds] = useState<Set<string>>(() => new Set());
+  const markRoomTouched = useCallback((id: string) => {
+    setTouchedRoomIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+  }, []);
+  const markBathTouched = useCallback((id: string) => {
+    setTouchedBathIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+  }, []);
+
+  const editRoomDefault = useCallback(
+    <K extends "floor" | "occupancyCapacity" | "sizeSqft" | "furnishing" | "amenitiesText">(
+      field: K,
+      value: { floor: string; occupancyCapacity: number; sizeSqft: number; furnishing: string; amenitiesText: string }[K],
+    ) => {
+      setRoomDefaults((prev) => ({ ...prev, [field]: value }));
+      setSub((s) => ({
+        ...s,
+        rooms: s.rooms.map((room) =>
+          touchedRoomIds.has(room.id) ? room : ({ ...room, [field]: value } as ManagerRoomSubmission),
+        ),
+      }));
+    },
+    [touchedRoomIds],
+  );
+
+  const editBathDefault = useCallback(
+    <K extends "location" | "type" | "amenitiesText">(
+      field: K,
+      value: { location: string; type: "full" | "shower" | "half" | ""; amenitiesText: string }[K],
+    ) => {
+      setBathDefaults((prev) => ({ ...prev, [field]: value }));
+      setSub((s) => ({
+        ...s,
+        bathrooms: s.bathrooms.map((b) => {
+          if (touchedBathIds.has(b.id)) return b;
+          if (field === "location") return { ...b, location: value as string };
+          if (field === "amenitiesText") return { ...b, amenitiesText: value as string };
+          if (field === "type" && value) {
+            const type = value as "full" | "shower" | "half";
+            // A bathroom's TYPE is read back from its fixtures, so writing one
+            // means writing them — not storing a label the checkboxes would
+            // then contradict.
+            return { ...b, toilet: true, sink: true, shower: type !== "half", bathtub: type === "full" };
+          }
+          return b;
+        }),
+      }));
+    },
+    [touchedBathIds],
+  );
 
   const setSharedSpace = (i: number, patch: Partial<ManagerSharedSpaceSubmission>) => {
     setSub((s) => {
@@ -4752,6 +4831,64 @@ export function ManagerAddListingForm({
               {stepFieldErrors.rooms ? (
                 <p className="text-xs font-medium text-red-600">{stepFieldErrors.rooms}</p>
               ) : null}
+              {/*
+                The one thing carried over from the redesigned wizard: set what
+                is true for MOST rooms once, and every room that has not been
+                edited by hand follows. Rent is deliberately not here — this
+                flow keeps pricing on its own step, which is the shape the
+                captain asked to have back.
+              */}
+              {sub.rooms.length > 0 ? (
+                <div
+                  className="rounded-2xl border border-primary/30 bg-primary/[0.05] p-3 sm:p-4"
+                  data-attr="listing-room-defaults-band"
+                >
+                  <p className="text-[13px] font-bold tracking-[-0.01em] text-foreground">Most rooms are…</p>
+                  <p className="mt-0.5 text-xs text-muted">
+                    Change only the rooms that differ. Editing a room stops it following this row.
+                  </p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <GridField>
+                      <FieldLabel>Floor</FieldLabel>
+                      <Select
+                        aria-label="Floor for most rooms"
+                        className={selectInputCls}
+                        data-attr="listing-room-defaults-floor"
+                        value={roomDefaults.floor}
+                        onChange={(e) => editRoomDefault("floor", e.target.value)}
+                      >
+                        <option value="">Select floor</option>
+                        {floorLevelSelectOptions(sub.listingStoriesId, roomDefaults.floor).map((label) => (
+                          <option key={label} value={label}>
+                            {label}
+                          </option>
+                        ))}
+                      </Select>
+                    </GridField>
+                    <GridField>
+                      <FieldLabel hint="Each resident signs their own lease and pays this room's full rent.">
+                        Beds (residents)
+                      </FieldLabel>
+                      <Select
+                        aria-label="Number of residents for most rooms"
+                        className={selectInputCls}
+                        data-attr="listing-room-defaults-occupancy"
+                        value={roomDefaults.occupancyCapacity ? String(roomDefaults.occupancyCapacity) : ""}
+                        onChange={(e) =>
+                          editRoomDefault("occupancyCapacity", normalizeRoomOccupancyCapacity(e.target.value))
+                        }
+                      >
+                        <option value="">Select…</option>
+                        {LISTING_BEDROOM_SLOT_OPTIONS.map((n) => (
+                          <option key={n} value={n}>
+                            {n === 1 ? "1 resident" : `${n} residents`}
+                          </option>
+                        ))}
+                      </Select>
+                    </GridField>
+                  </div>
+                </div>
+              ) : null}
               {sortRoomIndicesByFloor(sub.rooms).map((i) => {
                 const room = sub.rooms[i]!;
                 const furnished = roomIsFurnished(room);
@@ -5324,6 +5461,58 @@ export function ManagerAddListingForm({
               >
                 {stepFieldErrors.bathrooms ? (
                   <p className="text-xs font-medium text-red-600">{stepFieldErrors.bathrooms}</p>
+                ) : null}
+                {/* Same contract as the rooms row above it. */}
+                {sub.bathrooms.length > 0 ? (
+                  <div
+                    className="rounded-2xl border border-primary/30 bg-primary/[0.05] p-3 sm:p-4"
+                    data-attr="listing-bathroom-defaults-band"
+                  >
+                    <p className="text-[13px] font-bold tracking-[-0.01em] text-foreground">
+                      Most bathrooms are…
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted">
+                      Change only the ones that differ. Editing a bathroom stops it following this row.
+                    </p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <GridField>
+                        <FieldLabel>Floor</FieldLabel>
+                        <Select
+                          aria-label="Floor for most bathrooms"
+                          className={selectInputCls}
+                          data-attr="listing-bathroom-defaults-floor"
+                          value={bathDefaults.location}
+                          onChange={(e) => editBathDefault("location", e.target.value)}
+                        >
+                          <option value="">Select floor</option>
+                          {floorLevelSelectOptions(sub.listingStoriesId, bathDefaults.location).map((label) => (
+                            <option key={label} value={label}>
+                              {label}
+                            </option>
+                          ))}
+                        </Select>
+                      </GridField>
+                      <GridField>
+                        <FieldLabel hint="Choosing a type sets the fixtures below on every bathroom still following this row.">
+                          Type
+                        </FieldLabel>
+                        <Select
+                          aria-label="Type of most bathrooms"
+                          className={selectInputCls}
+                          data-attr="listing-bathroom-defaults-type"
+                          value={bathDefaults.type}
+                          onChange={(e) =>
+                            editBathDefault("type", e.target.value as "full" | "shower" | "half" | "")
+                          }
+                        >
+                          <option value="">Select type</option>
+                          <option value="full">Full bath</option>
+                          <option value="shower">Shower only</option>
+                          <option value="half">Half bath</option>
+                        </Select>
+                      </GridField>
+                    </div>
+                  </div>
                 ) : null}
                 {sub.bathrooms.map((b, i) => {
                   const bathNameKey = listingBathroomNameKey(b.id);
