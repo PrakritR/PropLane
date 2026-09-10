@@ -3,7 +3,7 @@ const plan = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/manager-access-server", () => ({getEffectiveManagerSkuTier:plan}));
 vi.mock("@/lib/comms-billing/notifications.server", () => ({maybeNotifyCommsBudgetThreshold:vi.fn(async()=>undefined)}));
 import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
-import { reserveCommsCredit, loadCommsWallet } from "@/lib/comms-billing/wallet.server";
+import { reserveCommsCredit, loadCommsWallet, loadCommsWalletTotals } from "@/lib/comms-billing/wallet.server";
 import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
 const snapshot = {allowance_cents:200,included_remaining_cents:200,purchased_remaining_cents:0,next_allowance_cents:200,period_start:"2026-09-01T00:00:00Z",period_end:"2026-10-01T00:00:00Z",paused:false};
 beforeEach(()=>{vi.unstubAllEnvs();plan.mockResolvedValue({ok:true,tier:"free"});});
@@ -29,6 +29,20 @@ describe("prepaid communication boundary",()=>{
  it("GET explicitly requests a read-only snapshot",async()=>{
   const db=database();await loadCommsWallet(db as never,"owner");
   expect(db.rpc).toHaveBeenCalledWith("comms_wallet_snapshot",{p_owner:"owner",p_allowance:200,p_legacy_allowance:250,p_apply:false});
+ });
+ it("staff bulk totals read every owner in one read-only round trip and omit unreadable wallets",async()=>{
+  const db={rpc:vi.fn().mockResolvedValue({data:[
+   {manager_user_id:"biz",snapshot:{...snapshot,allowance_cents:15000,included_remaining_cents:13000,purchased_remaining_cents:2500}},
+   {manager_user_id:"broken",snapshot:null},
+  ],error:null})};
+  const totals=await loadCommsWalletTotals(db as never,[{managerUserId:"biz",tier:"business"},{managerUserId:"broken",tier:"free"}]);
+  expect(db.rpc).toHaveBeenCalledTimes(1);
+  expect(db.rpc).toHaveBeenCalledWith("comms_wallet_snapshots",{p_requests:[
+   {owner:"biz",allowance:10000,legacy_allowance:15000},
+   {owner:"broken",allowance:200,legacy_allowance:250},
+  ]});
+  expect(totals.get("biz")).toEqual({allowanceCents:15000,includedRemainingCents:13000,purchasedRemainingCents:2500,paused:false});
+  expect(totals.has("broken")).toBe(false);
  });
  it("reserves server-priced SMS segments atomically",async()=>{
   const db=database({allowed:true,duplicate:false,state:"reserved"});

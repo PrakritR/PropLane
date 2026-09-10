@@ -26,6 +26,7 @@ vi.mock("@/lib/twilio-client.server", () => ({
 import { reserveBoundedVoiceCall } from "@/lib/comms-billing/voice-credit.server";
 import {
   INTERRUPTED_COMMS_REPLY,
+  completeCommsTurn,
   readCommsTurnResult,
 } from "@/lib/comms-billing/turn-result.server";
 
@@ -116,6 +117,22 @@ describe("replayed model turns never repeat tools", () => {
   it("does not settle credit when another worker won the stale-turn claim", async () => {
     const { db } = turnDb({ metadata: {}, created_at: new Date(Date.now() - 11 * 60_000).toISOString() }, false);
     await expect(readCommsTurnResult(db, "owner", "turn:4", { text: INTERRUPTED_COMMS_REPLY })).rejects.toThrow(/recovery is in progress/);
+    expect(wallet.finishCommsCredit).not.toHaveBeenCalled();
+  });
+
+  it("keeps the reservation's provenance when a turn completes normally", async () => {
+    const { db, chain } = turnDb({ metadata: { sessionId: "sess-1", channel: "sms" }, created_at: new Date().toISOString() });
+    await expect(completeCommsTurn(db, "owner", "turn:5", { text: "Tour booked." })).resolves.toEqual({ text: "Tour booked." });
+    expect(chain.update).toHaveBeenCalledWith({
+      metadata: { sessionId: "sess-1", channel: "sms", turnCompleted: true, turnResult: { text: "Tour booked." } },
+    });
+    expect(wallet.finishCommsCredit).toHaveBeenCalledWith(db, "owner", "turn:5");
+  });
+
+  it("does not settle credit when the reservation is no longer held", async () => {
+    const { db, chain } = turnDb(null);
+    await expect(completeCommsTurn(db, "owner", "turn:6", { text: "x" })).rejects.toThrow(/could not be saved/);
+    expect(chain.update).not.toHaveBeenCalled();
     expect(wallet.finishCommsCredit).not.toHaveBeenCalled();
   });
 });

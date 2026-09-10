@@ -63,9 +63,22 @@ export async function completeCommsTurn<T>(
   key: string,
   result: T | null,
 ): Promise<T | null> {
+  const { data: reservation, error: readError } = await db
+    .from("manager_comms_usage_events")
+    .select("metadata")
+    .eq("manager_user_id", owner)
+    .eq("idempotency_key", key)
+    .eq("credit_state", "reserved")
+    .maybeSingle();
+  if (readError || !reservation)
+    throw new Error("Communication reply could not be saved. Retry delivery.");
+  const reserved =
+    reservation.metadata && typeof reservation.metadata === "object"
+      ? (reservation.metadata as Record<string, unknown>)
+      : {};
   const { data, error } = await db
     .from("manager_comms_usage_events")
-    .update({ metadata: { turnCompleted: true, turnResult: result } })
+    .update({ metadata: { ...reserved, turnCompleted: true, turnResult: result } })
     .eq("manager_user_id", owner)
     .eq("idempotency_key", key)
     .eq("credit_state", "reserved")

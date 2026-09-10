@@ -3,12 +3,21 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
 
+export type ManagerBillingIdentity = {
+  customerId: string | null;
+  subscriptionId: string | null;
+  /** Verified owner customer, already fetched; `null` until explicit setup. */
+  customer: Stripe.Customer | null;
+  /** The linked subscription as read during verification, if any. */
+  subscription: Stripe.Subscription | null;
+};
+
 /** Use the existing subscription customer, or the manager's dedicated billing
  * account on Free. Never borrow a resident/customer id from client input. */
 export async function loadManagerBillingIdentity(
   db: SupabaseClient,
   owner: string,
-) {
+): Promise<ManagerBillingIdentity> {
   // Financial credentials must be linked to the authenticated user id. Plan
   // recovery's email fallback is deliberately not an authorization source.
   const { data: purchases, error: purchaseError } = await db
@@ -30,9 +39,9 @@ export async function loadManagerBillingIdentity(
   let customerId: string | null = purchase?.stripe_customer_id ?? null;
   const subscriptionId: string | null =
     purchase?.stripe_subscription_id ?? null;
+  let subscription: Stripe.Subscription | null = null;
   if (subscriptionId) {
-    const subscription =
-      await getStripe().subscriptions.retrieve(subscriptionId);
+    subscription = await getStripe().subscriptions.retrieve(subscriptionId);
     const subscriptionCustomerId = objectId(subscription.customer);
     if (
       !subscriptionCustomerId ||
@@ -52,8 +61,10 @@ export async function loadManagerBillingIdentity(
       "Your billing accounts need to be reconciled. Contact support.",
     );
   customerId ??= account?.stripe_customer_id ?? null;
-  if (customerId) await billingCustomer(getStripe(), customerId, owner);
-  return { customerId, subscriptionId };
+  const customer = customerId
+    ? await billingCustomer(getStripe(), customerId, owner)
+    : null;
+  return { customerId, subscriptionId, customer, subscription };
 }
 
 export async function ensureManagerBillingCustomer(
@@ -108,22 +119,20 @@ async function billingCustomer(
   return customer;
 }
 
-export async function listManagerBillingCards(
-  db: SupabaseClient,
-  owner: string,
+function subscriptionIsLive(subscription: Stripe.Subscription) {
+  return !["canceled", "incomplete_expired"].includes(subscription.status);
+}
+
+async function cardsForIdentity(
+  stripe: Stripe,
+  customer: Stripe.Customer,
+  subscription: Stripe.Subscription | null,
 ) {
-  const identity = await loadManagerBillingIdentity(db, owner);
-  if (!identity.customerId) return { cards: [], defaultPaymentMethodId: null };
-  const stripe = getStripe();
-  const customer = await billingCustomer(stripe, identity.customerId, owner);
   let defaultId = objectId(customer.invoice_settings.default_payment_method);
-  if (identity.subscriptionId) {
-    const subscription = await stripe.subscriptions.retrieve(
-      identity.subscriptionId,
-    );
+  if (subscription) {
     if (objectId(subscription.customer) !== customer.id)
       throw new Error("Subscription billing identity could not be verified.");
-    if (!["canceled", "incomplete_expired"].includes(subscription.status))
+    if (subscriptionIsLive(subscription))
       defaultId = objectId(subscription.default_payment_method) ?? defaultId;
   }
   const methods = await stripe.paymentMethods.list({
@@ -144,6 +153,15 @@ export async function listManagerBillingCards(
   };
 }
 
+export async function listManagerBillingCards(
+  db: SupabaseClient,
+  owner: string,
+) {
+  const identity = await loadManagerBillingIdentity(db, owner);
+  if (!identity.customer) return { cards: [], defaultPaymentMethodId: null };
+  return cardsForIdentity(getStripe(), identity.customer, identity.subscription);
+}
+
 /** No charge/retry is performed. Setting the same card twice is idempotent. */
 export async function setManagerDefaultBillingCard(
   db: SupabaseClient,
@@ -151,30 +169,28 @@ export async function setManagerDefaultBillingCard(
   paymentMethodId: string,
 ) {
   const identity = await loadManagerBillingIdentity(db, owner);
-  if (!identity.customerId)
+  if (!identity.customer)
     throw new Error("Add a card before choosing a default.");
   const stripe = getStripe();
-  const customer = await billingCustomer(stripe, identity.customerId, owner);
   const method = await stripe.paymentMethods.retrieve(paymentMethodId);
-  if (method.type !== "card" || objectId(method.customer) !== customer.id)
+  if (
+    method.type !== "card" ||
+    objectId(method.customer) !== identity.customer.id
+  )
     throw new Error("Choose a card saved to your billing account.");
-  let updateSubscription = false;
-  if (identity.subscriptionId) {
-    const subscription = await stripe.subscriptions.retrieve(
-      identity.subscriptionId,
-    );
-    if (objectId(subscription.customer) !== customer.id)
-      throw new Error("Subscription billing identity could not be verified.");
-    updateSubscription = !["canceled", "incomplete_expired"].includes(
-      subscription.status,
-    );
-  }
-  await stripe.customers.update(customer.id, {
+  const updateSubscription =
+    identity.subscription !== null && subscriptionIsLive(identity.subscription);
+  await stripe.customers.update(identity.customer.id, {
     invoice_settings: { default_payment_method: method.id },
   });
   if (identity.subscriptionId && updateSubscription)
     await stripe.subscriptions.update(identity.subscriptionId, {
       default_payment_method: method.id,
     });
-  return listManagerBillingCards(db, owner);
+  const customer = await billingCustomer(stripe, identity.customer.id, owner);
+  const subscription =
+    identity.subscriptionId && updateSubscription
+      ? await stripe.subscriptions.retrieve(identity.subscriptionId)
+      : identity.subscription;
+  return cardsForIdentity(stripe, customer, subscription);
 }

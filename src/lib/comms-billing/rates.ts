@@ -65,3 +65,8 @@ export function unitPriceCentsForMeter(meter: CommsBillingMeter): number {
 export function formatUsdFromCents(cents: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 }
+
+/** Whole-cent retail rate as marketing copy: "3¢", or "$1.50" once it passes a dollar. */
+export function formatCentsRate(cents: number): string {
+  return cents < 100 ? `${cents}¢` : formatUsdFromCents(cents);
+}

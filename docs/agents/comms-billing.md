@@ -83,10 +83,17 @@ callback or an authoritative provider check that recording never started.
 
 ## Data and authorization
 
-Apply `20260910140000_manager_communication_credits.sql` and
-`20260910160000_comms_credit_alerts.sql` after the original billing migration. New
-wallet/purchase RPCs and tables are service-role-only. Canonical
-`getEffectiveManagerSkuTier` supplies every quota; unreadable plans fail closed.
+Apply `20260910140000_manager_communication_credits.sql`,
+`20260910160000_comms_credit_alerts.sql` and `20260910180000_comms_wallet_snapshots.sql`
+after the original billing migration. New wallet/purchase RPCs and tables are
+service-role-only. Canonical `getEffectiveManagerSkuTier` supplies every quota;
+unreadable plans fail closed.
+
+The admin Billing list reads communication credit from `comms_wallet_snapshots`
+(`loadCommsWalletTotals`): one read-only round trip that runs the canonical snapshot
+per owner with `p_apply=false`, so staff see the preserved migration-month grant and
+unspent purchased packs exactly as the dispatcher does. Never derive a staff balance from
+the plan table plus usage. An owner whose wallet cannot be computed shows "comms —".
 
 - `GET /api/manager/comms-billing`: read-only balance, usage, rates and recent purchases.
 - `PATCH /api/manager/comms-billing`: `{ monthlyBudgetCents }`, alert only. Cannot clear a pause.
@@ -104,11 +111,21 @@ checks an owner-scoped reservation; authenticated phone verification is the sole
 platform-funded exemption. Pooled legacy relay routing is retired. Vendor sessions are
 scoped by both sender phone and destination work-number owner before prospect routing.
 
-Model-turn completion is persisted against the reservation before delivery. Replays
+The legacy `/api/webhooks/twilio/sms` route resolves the owner of the texted number
+(`resolveOwnedWorkNumber`) before any session lookup, meters the inbound segment to that
+owner, and drops texts to shared or unmanaged destinations so no unrelated wallet is
+charged. Relay legs (`sms-relay.server.ts`) carry no reservation and are refused by the
+transport; each refusal is logged by thread and leg only.
+
+Model-turn completion is persisted against the reservation before delivery, merged into
+the reservation's own metadata so session provenance survives. Replays
 reuse it. A turn interrupted for more than ten minutes produces an explicit terminal
 notice instead of repeating tools; the manager must inspect existing portal actions.
 Unknown carrier submissions retain their debit and enter operator reconciliation,
 never automatic resend. Confirm provider outcome before releasing any such reservation.
+When the wallet itself cannot be read at dispatch (`credit_unavailable`), the outbox row
+is deferred five minutes rather than blocked; only a definitive wallet answer
+(`allowance_exhausted`, `billing_paused`, duplicate key) blocks terminally.
 
 Processing fees are separate from communication credit and from every subscription.
 Only the staff-owned account override grants PropLane processing coverage. See

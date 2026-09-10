@@ -30,6 +30,22 @@ function twilioClient() {
   return createTwilioRestClient();
 }
 
+/** Refused relay sends are logged by thread and leg only — never a phone number or body. */
+async function sendRelaySms(
+  leg: "intro_counterparty" | "intro_manager" | "forward",
+  threadId: string,
+  ...args: Parameters<typeof sendSms>
+): Promise<void> {
+  const result = await sendSms(...args).catch((e) => ({
+    sent: false as const,
+    providerAttempted: false as const,
+    error: e instanceof Error ? e.message : String(e),
+  }));
+  if (!result.sent) {
+    console.warn("sms relay send refused", { leg, threadId, providerAttempted: result.providerAttempted, error: result.error ?? "unknown" });
+  }
+}
+
 export type RelayNumberRow = {
   id: string;
   phone_e164: string;
@@ -244,17 +260,21 @@ export async function provisionRelayThread(
   }
 
   const where = input.label ? ` for ${input.label}` : "";
-  await sendSms(
+  await sendRelaySms(
+    "intro_counterparty",
+    String(thread.id),
     counterpartyPhone,
     `PropLane: this is your direct line${where}. Text here to reach ${input.managerName}, your property manager. Reply STOP to opt out, HELP for help.`,
     proxyPhone,
-  ).catch(() => undefined);
-  await sendSms(
+  );
+  await sendRelaySms(
+    "intro_manager",
+    String(thread.id),
     managerPhone,
     `PropLane: ${input.counterpartyName || "your resident"}${where ? ` (${input.label})` : ""} is now connected. Save this number as "${input.counterpartyName || "Resident"} — PropLane". Anything you text to it goes straight to them.`,
     proxyPhone,
     { skipOptOutCheck: true },
-  ).catch(() => undefined);
+  );
 
   return { ok: true, threadId: String(thread.id), proxyPhone };
 }
@@ -448,9 +468,9 @@ export async function relayInboundSms(
   const prefix = sender.role === "manager" ? "Manager: " : "Resident: ";
   const outBody = `${prefix}${args.body}`.slice(0, 1500);
   for (const recipient of recipients ?? []) {
-    await sendSms(String(recipient.participant_phone), outBody, to, {
+    await sendRelaySms("forward", String(sender.thread_id), String(recipient.participant_phone), outBody, to, {
       mediaUrls: storedMedia.map((m) => m.signedUrl),
-    }).catch(() => undefined);
+    });
   }
 
   // Mirror into the manager's Axis inbox so the conversation exists in-app.

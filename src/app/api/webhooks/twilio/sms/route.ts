@@ -10,8 +10,11 @@ import { after } from "next/server";
 import twilio from "twilio";
 import { resolveVendorAgentSessionForInbound, runVendorAgentSessionTurn } from "@/lib/agent/vendor-agent.server";
 import { resolveAppOrigin } from "@/lib/app-url";
+import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
 import { rateLimit } from "@/lib/rate-limit";
 import { normalizeConsentPhone, profilePhoneVariants } from "@/lib/sms-consent";
+import { estimateSmsSegments } from "@/lib/sms/number-registration-policy";
+import { resolveOwnedWorkNumber } from "@/lib/sms/resolve-owned-work-number.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { normalizeE164 } from "@/lib/twilio";
 import { fetchTwilioMessageCreatedAt, twilioWebhookAuthToken } from "@/lib/twilio-client.server";
@@ -84,6 +87,7 @@ export async function POST(req: Request) {
   }
 
   const from = normalizeE164(String(params.From ?? "")) ?? "";
+  const to = String(params.To ?? "").trim();
   const body = String(params.Body ?? "").trim();
   if (!from || !body) return twiml();
 
@@ -166,7 +170,24 @@ export async function POST(req: Request) {
     return twiml();
   }
 
-  const sessionResolution = await resolveVendorAgentSessionForInbound(db, from, body);
+  const ownedNumber = to ? await resolveOwnedWorkNumber(db, to) : null;
+  if (!ownedNumber) {
+    console.warn("twilio sms to an unmanaged destination, dropped", maskedPhone(from));
+    return twiml();
+  }
+  const managerId = ownedNumber.managerId;
+  const inboundMessageSid = String(params.MessageSid ?? "").trim();
+  if (inboundMessageSid) {
+    await recordManagerCommsUsage(db, {
+      managerUserId: managerId,
+      meter: "sms_inbound_segment",
+      quantity: estimateSmsSegments(body).segmentCount,
+      idempotencyKey: `sms_inbound:${inboundMessageSid}`,
+      metadata: { messageSid: inboundMessageSid },
+    }).catch((e) => console.warn("twilio sms inbound usage not recorded", inboundMessageSid, e instanceof Error ? e.message : String(e)));
+  }
+
+  const sessionResolution = await resolveVendorAgentSessionForInbound(db, from, body, managerId);
   if (sessionResolution.kind === "unknown_phone") {
     // Silent drop: replying to unknown numbers turns us into an SMS echo
     // service and a cost amplifier. Nothing actionable to audit either.
@@ -178,7 +199,7 @@ export async function POST(req: Request) {
 
   const task = () =>
     runVendorAgentSessionTurn(db, session, body, "sms", {
-      inboundMessageSid: String(params.MessageSid ?? "").trim() || undefined,
+      inboundMessageSid: inboundMessageSid || undefined,
       precomputedReply: sessionResolution.kind === "reply" ? sessionResolution.reply : null,
       reference: sessionResolution.kind === "session" ? sessionResolution.reference : null,
     }).catch((e) =>

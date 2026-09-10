@@ -181,6 +181,36 @@ suite("atomic prepaid communication ledger", () => {
     ).rows[0].manual_payments;
     expect(stored.adminServiceFeeOverride).toBeUndefined();
   });
+  it("staff bulk snapshots read many owners without creating accounts or applying resets", async () => {
+    const fresh = await owner(),
+      spent = await owner();
+    await reserve(spent, randomUUID(), 30);
+    const rows = (
+      await db.query("select manager_user_id, snapshot from comms_wallet_snapshots($1)", [
+        JSON.stringify([
+          { owner: fresh, allowance: 200, legacy_allowance: 250 },
+          { owner: spent, allowance: 200, legacy_allowance: 250 },
+          { owner: randomUUID(), allowance: 200, legacy_allowance: 250 },
+        ]),
+      ])
+    ).rows;
+    expect(rows).toHaveLength(3);
+    expect(rows[0].snapshot).toMatchObject({ included_remaining_cents: 200, purchased_remaining_cents: 0 });
+    expect(rows[1].snapshot).toMatchObject({ included_remaining_cents: 110, purchased_remaining_cents: 0 });
+    expect(rows[2].snapshot).toBeNull();
+    expect(
+      (
+        await db.query("select 1 from manager_comms_billing_accounts where manager_user_id=$1", [fresh])
+      ).rowCount,
+    ).toBe(0);
+    for (const role of ["anon", "authenticated"]) {
+      const privileges = await db.query(
+        "select has_function_privilege($1,'public.comms_wallet_snapshots(jsonb)','execute') as bulk",
+        [role],
+      );
+      expect(privileges.rows[0]).toEqual({ bulk: false });
+    }
+  });
   it("client roles cannot execute spending or staff-grant functions", async () => {
     for (const role of ["anon", "authenticated"]) {
       const privileges = await db.query(

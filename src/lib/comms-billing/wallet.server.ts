@@ -20,16 +20,86 @@ export type CommsWallet = {
   paused: boolean;
 };
 
+const LEGACY_ALLOWANCE_CENTS: Record<CommsPlanTier, number> = {
+  free: 250,
+  pro: 1500,
+  business: 15000,
+};
+
+export function commsPlanBudgetForTier(tier: CommsPlanTier) {
+  return {
+    tier,
+    allowance: includedAllowanceCents(tier) ?? 0,
+    legacy: LEGACY_ALLOWANCE_CENTS[tier],
+  };
+}
+
 export async function commsPlanBudget(owner: string) {
   const plan = await getEffectiveManagerSkuTier(owner);
   if (!plan.ok)
     throw new Error("We could not verify your communication plan. Try again.");
-  const tier = normalizeCommsPlanTier(plan.tier);
-  return {
-    tier,
-    allowance: includedAllowanceCents(tier) ?? 0,
-    legacy: { free: 250, pro: 1500, business: 15000 }[tier],
+  return commsPlanBudgetForTier(normalizeCommsPlanTier(plan.tier));
+}
+
+export type CommsWalletTotals = {
+  allowanceCents: number;
+  includedRemainingCents: number;
+  purchasedRemainingCents: number;
+  paused: boolean;
+};
+
+function walletTotalsFromSnapshot(data: unknown): CommsWalletTotals | null {
+  if (!data || typeof data !== "object") return null;
+  const row = data as Record<string, unknown>;
+  const cents = (key: string) => {
+    const n = row[key];
+    return Number.isSafeInteger(n) && (n as number) >= 0 ? (n as number) : null;
   };
+  const allowance = cents("allowance_cents");
+  const included = cents("included_remaining_cents");
+  const purchased = cents("purchased_remaining_cents");
+  if (allowance === null || included === null || purchased === null) return null;
+  return {
+    allowanceCents: allowance,
+    includedRemainingCents: included,
+    purchasedRemainingCents: purchased,
+    paused: row.paused === true,
+  };
+}
+
+/**
+ * Staff-only bulk read of many owners' wallets in one round trip. Read-only:
+ * no account is created and no period is applied. An owner whose snapshot
+ * could not be computed is absent from the result rather than shown as zero.
+ */
+export async function loadCommsWalletTotals(
+  db: SupabaseClient,
+  owners: { managerUserId: string; tier: CommsPlanTier }[],
+): Promise<Map<string, CommsWalletTotals>> {
+  const totals = new Map<string, CommsWalletTotals>();
+  const CHUNK = 200;
+  for (let i = 0; i < owners.length; i += CHUNK) {
+    const chunk = owners.slice(i, i + CHUNK);
+    const { data, error } = await db.rpc("comms_wallet_snapshots", {
+      p_requests: chunk.map((owner) => {
+        const budget = commsPlanBudgetForTier(owner.tier);
+        return {
+          owner: owner.managerUserId,
+          allowance: budget.allowance,
+          legacy_allowance: budget.legacy,
+        };
+      }),
+    });
+    if (error) continue;
+    for (const row of (data ?? []) as {
+      manager_user_id: string;
+      snapshot: unknown;
+    }[]) {
+      const parsed = walletTotalsFromSnapshot(row.snapshot);
+      if (parsed) totals.set(String(row.manager_user_id), parsed);
+    }
+  }
+  return totals;
 }
 
 export async function loadCommsWallet(

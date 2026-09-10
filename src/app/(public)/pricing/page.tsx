@@ -1,6 +1,11 @@
 import type { Metadata } from "next";
 import { COMMS_INCLUDED_ALLOWANCE_CENTS } from "@/lib/comms-billing/allowances";
-import { formatUsdFromCents } from "@/lib/comms-billing/rates";
+import { COMMS_CREDIT_PACKS_CENTS } from "@/lib/comms-billing/credit-packs";
+import {
+  COMMS_BILLING_RATES_CENTS,
+  formatCentsRate,
+  formatUsdFromCents,
+} from "@/lib/comms-billing/rates";
 import Link from "next/link";
 import {
   MANAGER_PLAN_TIERS,
@@ -30,6 +35,11 @@ const TIER_CTA: Record<
   business: { href: `${CTA_BASE}&tier=business`, label: "Start 14-day trial", solid: false },
 };
 
+const CREDIT_PACKS_TEXT = (() => {
+  const packs = COMMS_CREDIT_PACKS_CENTS.map((cents) => `$${cents / 100}`);
+  return `${packs.slice(0, -1).join(", ")} or ${packs[packs.length - 1]}`;
+})();
+
 const FAQ: { q: string; a: string }[] = [
   {
     q: "Is the free tier actually free?",
@@ -45,7 +55,7 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "How much texting, calling and AI assistant use is included?",
-    a: `Free includes ${formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.free!)} per month, Pro ${formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.pro!)} and Business ${formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.business!)} in communication credit, including on annual plans. Number setup and rental are included separately. Outgoing SMS costs 3¢ per segment, incoming SMS 2¢, voice 4¢ per minute and work-number AI 15¢ per turn; recognition and recording have additional rates shown in Settings. Buy $5, $10, $25 or $50 of extra credit anytime. Purchased credit carries forward; included credit resets monthly. At zero, new outgoing activity pauses. A saved card never authorizes automatic recharge.`,
+    a: `Free includes ${formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.free!)} per month, Pro ${formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.pro!)} and Business ${formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.business!)} in communication credit, including on annual plans. Number setup and rental are included separately. Outgoing SMS costs ${formatCentsRate(COMMS_BILLING_RATES_CENTS.sms_outbound_segment)} per segment, incoming SMS ${formatCentsRate(COMMS_BILLING_RATES_CENTS.sms_inbound_segment)}, voice ${formatCentsRate(COMMS_BILLING_RATES_CENTS.voice_minute)} per minute and work-number AI ${formatCentsRate(COMMS_BILLING_RATES_CENTS.ai_agent_turn)} per turn; recognition and recording have additional rates shown in Settings. Buy ${CREDIT_PACKS_TEXT} of extra credit anytime. Purchased credit carries forward; included credit resets monthly. At zero, new outgoing activity pauses. A saved card never authorizes automatic recharge.`,
   },
   {
     q: "Can I change plans later?",

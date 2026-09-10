@@ -363,6 +363,8 @@ async function blockOrDeferClaim(
   return !error && Boolean(data);
 }
 
+const CREDIT_UNAVAILABLE_REASON = "credit_unavailable";
+
 function retryableDispatchPolicy(
   policy: Exclude<SendPolicy, { allowed: true }>,
 ): Exclude<SendPolicy, { allowed: true }> {
@@ -568,7 +570,29 @@ export async function dispatchOwnerSmsOutbox(
     const credit = await reserveCommsCredit(db, {
       managerUserId: row.manager_user_id, meter: "sms_outbound_segment",
       quantity: policy.segmentCount, idempotencyKey: creditKey, metadata: { outboxId: row.id },
-    }).catch(() => ({ allowed: false as const, reason: "credit_unavailable" }));
+    }).catch(() => ({ allowed: false as const, reason: CREDIT_UNAVAILABLE_REASON }));
+    if (!credit.allowed && credit.reason === CREDIT_UNAVAILABLE_REASON) {
+      const { data: deferred } = await db
+        .from("sms_outbox")
+        .update({
+          status: "deferred",
+          available_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+          blocked_reason: CREDIT_UNAVAILABLE_REASON,
+          dispatch_started_at: null,
+          lease_owner: null,
+          lease_expires_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", row.id)
+        .eq("lease_owner", workerId)
+        .eq("status", "submitting")
+        .select("id")
+        .maybeSingle();
+      await db.from("sms_delivery_attempts").update({ state: "pre_dispatch_failed", finished_at: new Date().toISOString() }).eq("id", attempt.id);
+      if (!deferred) result.unknown += 1;
+      if (!deferred) recordInfrastructureError("credit_transition_unavailable");
+      continue;
+    }
     if (!credit.allowed || credit.duplicate) {
       await db.from("sms_outbox").update({ status: "blocked", blocked_reason: credit.allowed ? "credit_already_reserved" : credit.reason,
         lease_owner: null, lease_expires_at: null, updated_at: new Date().toISOString() }).eq("id", row.id).eq("status", "submitting");

@@ -204,6 +204,36 @@ describe("manager saved card ownership", () => {
     });
     expect(mocks.setup).not.toHaveBeenCalled();
   });
+  it("reads the subscription once per operation and re-reads it after the default changes", async () => {
+    await listManagerBillingCards(database() as never, "owner");
+    expect(mocks.subscription).toHaveBeenCalledTimes(1);
+    expect(mocks.customer).toHaveBeenCalledTimes(1);
+
+    vi.clearAllMocks();
+    mocks.subscription
+      .mockResolvedValueOnce({
+        id: "sub_owner",
+        customer: "cus_owner",
+        status: "active",
+        default_payment_method: "pm_old",
+      })
+      .mockResolvedValueOnce({
+        id: "sub_owner",
+        customer: "cus_owner",
+        status: "active",
+        default_payment_method: "pm_new",
+      });
+    const result = await setManagerDefaultBillingCard(
+      database() as never,
+      "owner",
+      "pm_new",
+    );
+    expect(mocks.subscription).toHaveBeenCalledTimes(2);
+    expect(mocks.customer).toHaveBeenCalledTimes(2);
+    expect(mocks.updateSubscription).toHaveBeenCalledTimes(1);
+    expect(result.defaultPaymentMethodId).toBe("pm_new");
+    expect(result.cards[0]).toMatchObject({ id: "pm_new", isDefault: true });
+  });
   it("updates only the customer after a subscription is canceled", async () => {
     mocks.subscription.mockResolvedValue({
       id: "sub_owner",

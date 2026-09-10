@@ -78,8 +78,11 @@ export function adminBillingRowSummary(row: AdminBillingRow): string {
   } else if (row.comms.allowanceCents === null) {
     parts.push(`comms ${formatUsdFromCents(row.comms.usedCents)} used`);
   } else {
+    const purchased = row.comms.purchasedRemainingCents ?? 0;
     parts.push(
-      `comms ${formatUsdFromCents(row.comms.usedCents)} of ${formatUsdFromCents(row.comms.allowanceCents)}`,
+      `comms ${formatUsdFromCents(row.comms.usedCents)} of ${formatUsdFromCents(row.comms.allowanceCents)}${
+        purchased > 0 ? ` + ${formatUsdFromCents(purchased)} purchased` : ""
+      }`,
     );
   }
 

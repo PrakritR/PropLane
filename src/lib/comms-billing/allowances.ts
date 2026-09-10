@@ -30,6 +30,8 @@ export type CommsAllowanceState = {
   usedCents: number;
   /** null when uncapped. Never negative. */
   remainingCents: number | null;
+  /** Purchased pack credit still unspent, when the wallet was read. */
+  purchasedRemainingCents?: number;
   /** Past the included allowance — from here on, usage costs money. */
   exhausted: boolean;
   /**

@@ -198,3 +198,47 @@ describe("dispatcher conversation-log repair handoff", () => {
 
 vi.mock("@/lib/comms-billing/eligibility.server", () => ({evaluateManagerCommsBillingGate:vi.fn(async()=>({allowed:true}))}));
 vi.mock("@/lib/comms-billing/wallet.server", () => ({reserveCommsCredit:vi.fn(async()=>({allowed:true,duplicate:false,state:"reserved"})),finishCommsCredit:vi.fn(async()=>{})}));
+
+import { reserveCommsCredit } from "@/lib/comms-billing/wallet.server";
+
+describe("dispatcher credit reservation outcomes", () => {
+  beforeEach(() => {
+    process.env.SMS_RUNTIME_ENABLED = "1";
+    process.env.SMS_OUTBOX_SCHEDULER_READY = "1";
+    process.env.TWILIO_MESSAGING_SERVICE_SID = "MG1";
+    process.env.TWILIO_CAMPAIGN_SID = "CP1";
+    mocks.sendSms.mockReset().mockResolvedValue({ sent: true, sid: "SM-original" });
+    mocks.log.mockReset().mockResolvedValue(true);
+    vi.mocked(reserveCommsCredit).mockReset();
+  });
+
+  it("defers, rather than blocks, when the wallet itself could not be read", async () => {
+    vi.mocked(reserveCommsCredit).mockRejectedValueOnce(new Error("plan unreadable"));
+    const { db, outbox } = dispatchDb();
+    const before = Date.now();
+    await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db)).resolves.toMatchObject({
+      ok: true, claimed: 1, submitted: 0, blocked: 0, unknown: 0,
+    });
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+    expect(outbox).toMatchObject({
+      status: "deferred", blocked_reason: "credit_unavailable", lease_owner: null, dispatch_started_at: null,
+    });
+    expect(Date.parse(String(outbox.available_at))).toBeGreaterThanOrEqual(before + 5 * 60_000 - 1_000);
+  });
+
+  it("still blocks terminally when the wallet answered that credit is exhausted", async () => {
+    vi.mocked(reserveCommsCredit).mockResolvedValueOnce({ allowed: false, reason: "allowance_exhausted" });
+    const { db, outbox } = dispatchDb();
+    await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db)).resolves.toMatchObject({ claimed: 1, blocked: 1 });
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+    expect(outbox).toMatchObject({ status: "blocked", blocked_reason: "allowance_exhausted" });
+  });
+
+  it("blocks a duplicate reservation so a resend never spends twice", async () => {
+    vi.mocked(reserveCommsCredit).mockResolvedValueOnce({ allowed: true, duplicate: true, state: "reserved" });
+    const { db, outbox } = dispatchDb();
+    await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db)).resolves.toMatchObject({ claimed: 1, blocked: 1 });
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+    expect(outbox).toMatchObject({ status: "blocked", blocked_reason: "credit_already_reserved" });
+  });
+});
