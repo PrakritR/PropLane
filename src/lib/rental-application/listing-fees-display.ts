@@ -9,7 +9,7 @@ import {
   utilitiesAmountIsFixedCharge,
   utilitiesListingSummaryLabel,
 } from "@/lib/listing-utilities-payment";
-import { roomDailyRentPrice, roomHeadlinePriceLabel, roomIsDailyPriced, roomMonthlyEquivalent } from "@/lib/room-pricing";
+import { roomDailyRentPrice, roomAdvertisedPriceLabel, roomIsDailyPriced, roomMonthlyEquivalent } from "@/lib/room-pricing";
 
 export type ListingSigningComputationInput = ManagerListingSubmissionV1 | undefined;
 
@@ -275,7 +275,7 @@ export function listingRoomPricingSummaryLabel(room: ManagerRoomSubmission, sub:
   const n = normalizeManagerListingSubmissionV1(sub);
   const parts: string[] = [];
 
-  const rentLabel = roomHeadlinePriceLabel(room);
+  const rentLabel = roomAdvertisedPriceLabel(room);
   if (rentLabel && rentLabel !== "—") parts.push(rentLabel);
 
   const utilModel = resolveRoomUtilitiesPaymentModel(room);
