@@ -14,8 +14,8 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-vi.mock("@/lib/manager-access-server", () => ({
-  getManagerPurchaseSku: vi.fn(),
+vi.mock("@/lib/manager-route-guard.server", () => ({
+  requireManagerRouteUser: vi.fn(),
 }));
 
 vi.mock("@/lib/manager-purchase-from-session", () => ({
@@ -42,7 +42,7 @@ vi.mock("@/lib/supabase/service", () => ({
 
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getManagerPurchaseSku } from "@/lib/manager-access-server";
+import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { reconcileManagerPurchaseByStripeSubscriptionId } from "@/lib/manager-stripe-subscription-sync";
 import { POST as checkout } from "@/app/api/stripe/checkout/route";
@@ -67,9 +67,29 @@ function serviceRoleDbMock(opts: { user_id?: string | null; update?: ReturnType<
   };
 }
 
+function billingIdentityDbMock() {
+  return {
+    from: vi.fn((table: string) => {
+      const query = {
+        select: vi.fn(() => query), eq: vi.fn(() => query),
+        or: vi.fn(() => query), order: vi.fn(() => query),
+        limit: vi.fn().mockResolvedValue({ data: [{ user_id: "user_1", stripe_customer_id: "cus_test_123", stripe_subscription_id: "sub_test_123" }], error: null }),
+        maybeSingle: vi.fn().mockResolvedValue({ data: table === "manager_comms_billing_accounts" ? null : {}, error: null }),
+      };
+      return query;
+    }),
+  };
+}
+const stripeIdentityMock = () => ({
+  customers: { retrieve: vi.fn().mockResolvedValue({ id: "cus_test_123", metadata: { manager_user_id: "user_1" } }) },
+  subscriptions: { retrieve: vi.fn().mockResolvedValue({ id: "sub_test_123", customer: "cus_test_123" }) },
+});
+
 describe("Stripe subscription billing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(requireManagerRouteUser).mockResolvedValue(null);
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(billingIdentityDbMock() as never);
     vi.mocked(createSupabaseServerClient).mockResolvedValue({
       auth: { getUser: vi.fn().mockResolvedValue({ data: { user: null } }) },
     } as never);
@@ -87,6 +107,7 @@ describe("Stripe subscription billing", () => {
       client_secret: "cs_test_secret",
     });
     vi.mocked(getStripe).mockReturnValue({
+      ...stripeIdentityMock(),
       checkout: { sessions: { create } },
     } as never);
 
@@ -159,6 +180,7 @@ describe("Stripe subscription billing", () => {
 
     const create = vi.fn().mockResolvedValue({ id: "cs_portal", url: "https://checkout.stripe.test/session" });
     vi.mocked(getStripe).mockReturnValue({
+      ...stripeIdentityMock(),
       checkout: { sessions: { create } },
     } as never);
 
@@ -185,13 +207,11 @@ describe("Stripe subscription billing", () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue({
       auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user_1" } } }) },
     } as never);
-    vi.mocked(getManagerPurchaseSku).mockResolvedValue({
-      stripeCustomerId: "cus_test_123",
-      stripeSubscriptionId: "sub_test_123",
-    });
+    vi.mocked(requireManagerRouteUser).mockResolvedValue({ userId: "user_1", db: billingIdentityDbMock() } as never);
 
     const create = vi.fn().mockResolvedValue({ url: "https://billing.stripe.test/portal" });
     vi.mocked(getStripe).mockReturnValue({
+      ...stripeIdentityMock(),
       billingPortal: { sessions: { create } },
     } as never);
 
