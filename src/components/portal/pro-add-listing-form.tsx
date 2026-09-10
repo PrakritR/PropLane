@@ -721,6 +721,8 @@ function ShortTermRentSection({
   onRent,
   onDeposit,
   rentInvalid,
+  pricingMode,
+  onPricingMode,
   extraFields,
   footer,
 }: {
@@ -730,6 +732,9 @@ function ShortTermRentSection({
   onRent: (sanitized: string) => void;
   onDeposit: (sanitized: string) => void;
   rentInvalid?: boolean;
+  /** Whether the short-term rate is open to an offer, like every other lease type. */
+  pricingMode?: "fixed" | "flexible";
+  onPricingMode?: (next: "fixed" | "flexible") => void;
   /** The week rate that belongs to this term. */
   extraFields?: ReactNode;
   /** Fees charged only on this term. */
@@ -765,6 +770,21 @@ function ShortTermRentSection({
             placeholder="300"
           />
         </GridField>
+        {onPricingMode ? (
+          <GridField>
+            <FieldLabel>Pricing mode</FieldLabel>
+            <Select
+              aria-label={`Short-term pricing mode${suffix}`}
+              className={selectInputCls}
+              data-attr="listing-short-term-pricing-mode"
+              value={pricingMode === "flexible" ? "flexible" : "fixed"}
+              onChange={(e) => onPricingMode(e.target.value === "flexible" ? "flexible" : "fixed")}
+            >
+              <option value="fixed">Fixed — price locked</option>
+              <option value="flexible">Flexible — open to an offer</option>
+            </Select>
+          </GridField>
+        ) : null}
       </div>
       {footer}
     </div>
@@ -4411,6 +4431,13 @@ export function ManagerAddListingForm({
                       deposit={(room.shortTermDeposit ?? "").replace(/^\$/, "").trim()}
                       onRent={(v) => setRoom(i, { shortTermRent: v })}
                       onDeposit={(v) => setRoom(i, { shortTermDeposit: v })}
+                      pricingMode={room.termPricing?.[SHORT_TERM_LEASE_TERM]?.pricingMode}
+                      onPricingMode={(next) =>
+                        setRoomTermPrice(i, SHORT_TERM_LEASE_TERM, {
+                          ...room.termPricing?.[SHORT_TERM_LEASE_TERM],
+                          pricingMode: next,
+                        })
+                      }
                       footer={
                         <LeaseTermFeeRows
                           roomId={room.id}
@@ -4679,6 +4706,13 @@ export function ManagerAddListingForm({
                       </GridField>
                     }
                     rentInvalid={Boolean(stNightlyErr)}
+                    pricingMode={bundle.termPricing?.[SHORT_TERM_LEASE_TERM]?.pricingMode}
+                    onPricingMode={(next) =>
+                      setBundleTermPrice(i, SHORT_TERM_LEASE_TERM, {
+                        ...bundle.termPricing?.[SHORT_TERM_LEASE_TERM],
+                        pricingMode: next,
+                      })
+                    }
                     rent={(bundle.shortTermNightlyRent ?? "").replace(/^\$/, "").trim()}
                     deposit={(bundle.shortTermDeposit ?? "").replace(/^\$/, "").trim()}
                     onRent={(v) => {
@@ -4843,6 +4877,8 @@ export function ManagerAddListingForm({
                     ) : null}
                     {sub.shortTermRentalsAllowed ? (
                       <ShortTermRentSection
+                        pricingMode={sub.shortTermPricingMode}
+                        onPricingMode={(next) => setSub((s) => ({ ...s, shortTermPricingMode: next }))}
                         rent={(sub.shortTermDailyCost ?? "").replace(/^\$/, "").trim()}
                         deposit={(sub.shortTermDeposit ?? "").replace(/^\$/, "").trim()}
                         rentInvalid={Boolean(stepFieldErrors.shortTermDailyCost)}

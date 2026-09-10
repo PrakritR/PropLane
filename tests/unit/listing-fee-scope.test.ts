@@ -24,6 +24,7 @@ import {
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import { leaseDocumentFeeLines } from "@/lib/listing-fees";
+import { computeLeasePaymentAtSigning } from "@/lib/rental-application/listing-fees-display";
 import { resolveStayPricing } from "@/lib/room-pricing";
 import {
   parseShortTermStayChargeTitle,
@@ -362,5 +363,41 @@ describe("a short stay bills whole weeks, then the leftover nights", () => {
     });
     expect(pricing.dailyRate).toBe(85);
     expect(pricing.weeklyRate).toBe(500);
+  });
+});
+
+describe("what is due at signing is the property's own fees", () => {
+  // The captain's report: Move-in fee was deleted from Other fees and the signing picker
+  // still offered it. The list is the property's fees, not a fixed four.
+  it("stops offering a standard payment whose fee row was deleted", () => {
+    const sub = subWithRooms();
+    sub.removedStandardListingFeeRows = ["moveInFee"];
+    const keys = paymentAtSigningRows(sub).map((r) => r.key);
+    expect(keys).toContain("security_deposit");
+    expect(keys).not.toContain("move_in_fee");
+    // Rent and utilities are rent, not fees, so they are always on offer.
+    expect(keys).toContain("first_month_rent");
+    expect(keys).toContain("first_month_utilities");
+  });
+
+  it("offers both when neither row was deleted", () => {
+    const keys = paymentAtSigningRows(subWithRooms()).map((r) => r.key);
+    expect(keys).toContain("security_deposit");
+    expect(keys).toContain("move_in_fee");
+  });
+
+  it("totals what THIS lease's term collects, not the union", () => {
+    const sub = subWithRooms();
+    sub.paymentAtSigningByLeaseType = {
+      "Long-term": ["security_deposit", "move_in_fee"],
+      "Month-to-Month": ["security_deposit"],
+    };
+    const n = normalizeManagerListingSubmissionV1(sub);
+    const amounts = { securityDeposit: 1000, moveInFee: 250, monthlyRent: 0, monthlyUtilities: 0 };
+
+    expect(computeLeasePaymentAtSigning(n, amounts, "Long-term")).toBe(1250);
+    expect(computeLeasePaymentAtSigning(n, amounts, "Month-to-Month")).toBe(1000);
+    // No term named — every existing caller — still reads the flat union.
+    expect(computeLeasePaymentAtSigning(n, amounts)).toBe(1250);
   });
 });

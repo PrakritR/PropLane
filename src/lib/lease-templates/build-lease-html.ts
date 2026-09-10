@@ -995,7 +995,9 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
     otherSigningCost: showOtherSigningCost ? (otherCostNum ?? 0) : 0,
   };
   const computedSigning = sub
-    ? computeLeasePaymentAtSigning(sub, signingAmounts)
+    ? // The document states what THIS lease collects at signing, so it reads the listing's
+      // per-lease-type signing list with this lease's own term (PRP-463).
+      computeLeasePaymentAtSigning(sub, signingAmounts, a.leaseTerm)
     : signingAmounts.securityDeposit + signingAmounts.moveInFee;
   const paySigningNum =
     leaseBilling?.dueAtSigning != null ? leaseBilling.dueAtSigning : computedSigning;
@@ -1200,14 +1202,21 @@ export function buildLeaseHtml(ctx: LeaseGenerationContext, config: LeaseJurisdi
         ),
       ),
     ].filter(Boolean);
-    const staySigningTotal = ctx.leaseBilling?.dueAtSigning ?? computeLeasePaymentAtSigning(subNorm, {
-      securityDeposit: depositAmount ?? 0,
-      moveInFee: stayMoveInNum,
-      monthlyRent: dailyCost != null && stayNights != null ? shortTermStayTotalAmount(dailyCost, stayNights) : 0,
-      monthlyUtilities: stayUtilitiesNum,
-      customOneTimeFees: stCustomFeesTotal,
-      otherSigningCost: stayOtherNum,
-    });
+    const staySigningTotal =
+      ctx.leaseBilling?.dueAtSigning ??
+      computeLeasePaymentAtSigning(
+        subNorm,
+        {
+          securityDeposit: depositAmount ?? 0,
+          moveInFee: stayMoveInNum,
+          monthlyRent:
+            dailyCost != null && stayNights != null ? shortTermStayTotalAmount(dailyCost, stayNights) : 0,
+          monthlyUtilities: stayUtilitiesNum,
+          customOneTimeFees: stCustomFeesTotal,
+          otherSigningCost: stayOtherNum,
+        },
+        a.leaseTerm,
+      );
     const staySigningLine = !propertyTemplatePreview
       ? `<p><strong>Payment Due at Signing:</strong> ${fmtUsd(staySigningTotal)}${paySigningIncludesNote ? ` (${paySigningIncludesNote}; first-period rent means rent for this stay)` : ""}. Any remaining balance above is due before check-in.</p>` : "";
     const staySummaryHtml = `<div style="border:1px solid #999;padding:12px 14px;margin:0 0 1.25rem;background:#fafafa">

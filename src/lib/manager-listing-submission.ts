@@ -448,6 +448,12 @@ export type ManagerListingSubmissionV1 = {
   /** How utilities are paid for an entire-home lease. */
   entireHomeUtilitiesPaymentModel?: UtilitiesPaymentModel;
   entireHomeProrateMethod?: "auto" | "daily_rate";
+  /**
+   * Whether the whole-home SHORT-TERM rate is open to an offer (PRP-463). Rooms and
+   * bundles keep theirs in `termPricing`; a whole home has no such record, so it lives
+   * here beside the other whole-home short-term figures.
+   */
+  shortTermPricingMode?: "fixed" | "flexible";
   entireHomeDailyRentRate?: number;
   entireHomeDailyUtilitiesRate?: number;
   listingStoriesId?: string;
@@ -1964,6 +1970,8 @@ export function normalizeManagerListingSubmissionV1(
     shortTermRequirements: typeof sub.shortTermRequirements === "string" ? sub.shortTermRequirements : "",
     shortTermDailyCost: typeof sub.shortTermDailyCost === "string" ? sub.shortTermDailyCost : "",
     shortTermDeposit: typeof sub.shortTermDeposit === "string" ? sub.shortTermDeposit : "",
+    shortTermPricingMode:
+      (sub as ManagerListingSubmissionV1).shortTermPricingMode === "flexible" ? "flexible" : undefined,
     shortTermMoveInFee: typeof sub.shortTermMoveInFee === "string" ? sub.shortTermMoveInFee : "",
     shortTermHoldingDeposit: typeof sub.shortTermHoldingDeposit === "string" ? sub.shortTermHoldingDeposit : "",
     shortTermParkingMonthly: typeof sub.shortTermParkingMonthly === "string" ? sub.shortTermParkingMonthly : "",
