@@ -66,15 +66,16 @@ export function longTermUtilitiesPickerValue(model: UtilitiesPaymentModel | unde
 /**
  * Whether the amount input is shown beside the picker.
  *
- * "Fixed amount" needs one because it IS the monthly charge. "Variable" shows
- * one too, but it is an ESTIMATE — a prospect still has to see roughly what
- * utilities run, and the lease quotes it for disclosure. Neither "Paid by
- * resident" nor "Included in rent" has a separate charge, so the input is
- * hidden for both.
+ * "Fixed amount" needs one because it IS the monthly charge. Variable is by usage and has
+ * no figure to state up front (PRP-463), and neither "Paid by resident" nor "Included in
+ * rent" has a separate charge, so the input is hidden for all three.
  */
 export function longTermUtilitiesEstimateRequired(model: UtilitiesPaymentModel | undefined): boolean {
   const picked = longTermUtilitiesPickerValue(model);
-  return picked === "manager_billed" || picked === "variable";
+  // Variable is BY USAGE — there is no figure to state up front, so asking for one only
+  // invited a number the manager would then bill differently (PRP-463). Fixed amount is
+  // the one model that names a figure the resident is actually charged.
+  return picked === "manager_billed";
 }
 
 /**

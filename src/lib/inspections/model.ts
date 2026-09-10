@@ -16,11 +16,18 @@ export type InspectionObservation = { condition: keyof typeof INSPECTION_CONDITI
 export type InspectionItem = { id: string; label: string; manager: InspectionObservation; resident: InspectionObservation };
 export type InspectionArea = { id: string; label: string; items: InspectionItem[] };
 export type InspectionHistory = { action: string; role: InspectionRole; userId: string; at: string };
+/** The resident's one-way handoff: their side closes until a manager reopens it. */
+export type InspectionResidentSubmission = { userId: string; at: string };
 export type InspectionDocument = {
   /** New reports pin the actual room assignment; legacy reports retain their saved shape. */
   roomScope?: { assignment: string; label: string };
   areas: InspectionArea[];
   history: InspectionHistory[];
+  /**
+   * Set when the RESIDENT submits their photos. It closes the resident's own side only —
+   * the manager keeps adding photos throughout — and only a manager can clear it.
+   */
+  residentSubmission?: InspectionResidentSubmission | null;
   residentAcknowledgment: { userId: string; at: string } | null;
 };
 export type InspectionRecord = {
@@ -65,7 +72,27 @@ export function residencyOccupancy(moveInDate: string, moveOutDate: string, toda
   return "current";
 }
 export type InspectionDetail = { report: InspectionRecord; baseline: InspectionRecord | null; canEdit: boolean };
-export type InspectionSummary = Omit<InspectionRecord, "document" | "resident_email" | "resident_user_id">;
+/**
+ * Photo counts travel with every summary because the LIST is about photos now: a row says
+ * how many each side has added, not which review step a report is parked on.
+ */
+export type InspectionPhotoCounts = { manager: number; resident: number; total: number; lastAt: string | null };
+export type InspectionSummary = Omit<InspectionRecord, "document" | "resident_email" | "resident_user_id">
+  & { photos: InspectionPhotoCounts };
+
+export function inspectionPhotoCounts(document: InspectionDocument): InspectionPhotoCounts {
+  const counts: InspectionPhotoCounts = { manager: 0, resident: 0, total: 0, lastAt: null };
+  for (const item of document.areas.flatMap(area => area.items)) {
+    for (const role of ["manager", "resident"] as const) {
+      counts[role] += item[role].photos.length;
+      for (const photo of item[role].photos) {
+        if (!counts.lastAt || photo.uploadedAt > counts.lastAt) counts.lastAt = photo.uploadedAt;
+      }
+    }
+  }
+  counts.total = counts.manager + counts.resident;
+  return counts;
+}
 
 const roomItems = ["Doors, knobs & locks", "Flooring & baseboards", "Walls & ceiling", "Window coverings", "Windows, locks & screens", "Light fixtures & fans", "Switches & outlets", "Closets, doors & tracks", "Other"];
 const template: [string, string[]][] = [
@@ -104,18 +131,62 @@ export const saveInspectionSchema = z.object({
     notes: z.string().max(3000),
   }).strict()).max(250),
 }).strict();
-export const transitionInspectionSchema = z.object({
-  revision: z.number().int().positive(), action: z.enum(["submit", "acknowledge", "complete", "reopen"]),
+export const inspectionSubmissionSchema = z.object({
+  revision: z.number().int().positive(), action: z.enum(["submit", "reopen"]),
+}).strict();
+
+export const ensureInspectionSchema = z.object({
+  applicationId: z.string().trim().min(1).max(100), kind: z.enum(["move-in", "move-out"]),
 }).strict();
 
 export class InspectionError extends Error {
   constructor(message: string, public status = 400) { super(message); }
 }
 
-/** Copy only the caller's observations; identity, peer observations and photos are server-owned. */
+/**
+ * A resident who has submitted cannot write again until a manager reopens their side. The
+ * check lives here rather than in the UI: hiding the button is a courtesy, refusing the
+ * write is the rule.
+ */
+export function assertInspectionWritable(report: InspectionRecord, role: InspectionRole) {
+  if (role === "resident" && report.document.residentSubmission) {
+    throw new InspectionError("You have submitted these photos. Ask your manager to reopen the report before adding more.", 409);
+  }
+}
+
+/**
+ * The resident submits once; only the manager reopens. Nothing here freezes the MANAGER's
+ * side, and nothing is permanent — this is a handoff, not an approval.
+ */
+export function transitionResidentSubmission(report: InspectionRecord, role: InspectionRole, userId: string, raw: unknown, now = new Date().toISOString()) {
+  const input = inspectionSubmissionSchema.parse(raw);
+  if (report.revision !== input.revision) throw new InspectionError("This report changed in another session. Reload before continuing.", 409);
+  const document = structuredClone(report.document);
+  if (input.action === "submit") {
+    if (role !== "resident") throw new InspectionError("Only the resident submits their own photos.", 403);
+    if (document.residentSubmission) throw new InspectionError("These photos were already submitted.", 409);
+    const photographed = document.areas.some(area => area.items.some(item => item.resident.photos.length > 0));
+    if (!photographed) throw new InspectionError("Add at least one photo before submitting.");
+    document.residentSubmission = { userId, at: now };
+  } else {
+    if (role !== "manager") throw new InspectionError("Only the manager can reopen the resident's side.", 403);
+    if (!document.residentSubmission) throw new InspectionError("This report is already open to the resident.", 409);
+    document.residentSubmission = null;
+  }
+  document.history.push({ action: input.action === "submit" ? "resident-submit" : "resident-reopen", role, userId, at: now });
+  return { document };
+}
+
+/**
+ * Copy only the caller's observations; identity, peer observations and photos are server-owned.
+ *
+ * A report has no locked state: move-in and move-out photos stay open to both parties for as
+ * long as the residency is theirs. The revision compare-and-swap is the only gate, so two
+ * people editing at once still cannot overwrite each other.
+ */
 export function applyInspectionObservations(report: InspectionRecord, role: InspectionRole, raw: unknown): InspectionDocument {
   const input = saveInspectionSchema.parse(raw);
-  if (report.status !== "draft") throw new InspectionError("This report is locked. Ask the manager to reopen it before changing observations.", 409);
+  assertInspectionWritable(report, role);
   if (report.revision !== input.revision) throw new InspectionError("This report changed in another session. Reload before saving.", 409);
   const document = structuredClone(report.document);
   const items = new Map(document.areas.flatMap(area => area.items).map(item => [item.id, item]));
@@ -130,28 +201,3 @@ export function applyInspectionObservations(report: InspectionRecord, role: Insp
   return document;
 }
 
-export function transitionInspection(report: InspectionRecord, role: InspectionRole, userId: string, raw: unknown, now = new Date().toISOString()) {
-  const input = transitionInspectionSchema.parse(raw);
-  if (report.revision !== input.revision) throw new InspectionError("This report changed in another session. Reload before continuing.", 409);
-  const document = structuredClone(report.document);
-  let status = report.status;
-  if (input.action === "submit") {
-    if (role !== "manager") throw new InspectionError("Only the manager can request confirmation. Your photos and notes are already saved.", 403);
-    if (status !== "draft") throw new InspectionError("Only a draft can be submitted.", 409);
-    const meaningful = document.areas.flatMap(a => a.items).some(i => [i.resident, i.manager].some(o => o.condition !== "unchecked" || o.notes.trim() || o.photos.length));
-    if (!meaningful) throw new InspectionError("Record at least one observation before submitting.");
-    status = "submitted";
-  } else if (input.action === "acknowledge") {
-    if (role !== "resident" || status !== "submitted" || document.residentAcknowledgment) throw new InspectionError("Resident acknowledgment is only available once on a submitted report.", 409);
-    document.residentAcknowledgment = { userId, at: now };
-  } else if (input.action === "complete") {
-    if (role !== "manager" || status !== "submitted" || !document.residentAcknowledgment) throw new InspectionError("The resident must acknowledge the submitted report before the manager completes it.", 409);
-    status = "completed";
-  } else {
-    if (role !== "manager" || status !== "submitted") throw new InspectionError("Only a manager can reopen a submitted report. Completed reports are permanent.", 409);
-    status = "draft";
-    document.residentAcknowledgment = null;
-  }
-  document.history.push({ action: input.action, role, userId, at: now });
-  return { status, document };
-}

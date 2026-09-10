@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { resolveInspectionRoom, inspectionRoomListing } from "@/lib/inspections/room-template";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { roomInspectionRequirements } from "@/lib/inspections/requirements";
+import { leaseTypeInspectionRequirements, residencyInspectionRequirements, roomInspectionRequirements } from "@/lib/inspections/requirements";
 import type { InspectionKind, InspectionRecord } from "@/lib/inspections/model";
 import { materializeReminders, type ReminderQueueRow } from "../queue.server";
 import { loadReminderSettingsForManagers } from "../settings.server";
@@ -21,6 +21,7 @@ export function inspectionDueDate(row: Placement, kind: InspectionKind): string 
 }
 function assignment(row: Placement) { return String(row.row_data.assignedRoomChoice || object(row.row_data.manualResidentDetails).roomNumber || ""); }
 function propertyId(row: Placement) { return row.assigned_property_id || row.property_id || ""; }
+function leaseTerm(row: Placement) { return String(object(row.row_data.application).leaseTerm || ""); }
 async function reportsForApplications(db: SupabaseClient, ids: string[]): Promise<InspectionRecord[]> {
   const reports: InspectionRecord[] = [];
   for (let offset = 0; ; offset += 500) {
@@ -39,24 +40,30 @@ function sameRoom(report: InspectionRecord, row: Placement, rooms: unknown) {
   return report.property_id === propertyId(row) && report.manager_user_id === row.manager_user_id &&
     (report.document.roomScope?.assignment ?? report.room_label) === canonicalAssignment(row, rooms);
 }
-const hasEvidence = (report: InspectionRecord) => report.document.areas.some(a => a.items.some(i =>
-  [i.manager, i.resident].some(o => o.notes.trim() || o.photos.length || o.condition !== "unchecked")));
+/**
+ * Photos are the whole point of a room report, so photos are what the reminders watch. The
+ * resident is reminded until THEY have added one; the manager is told when a move is due and
+ * the room has no photos at all from either side.
+ */
+const photosBy = (report: InspectionRecord, role?: "manager" | "resident") => report.document.areas
+  .flatMap(a => a.items)
+  .reduce((n, i) => n + (role ? i[role].photos.length : i.manager.photos.length + i.resident.photos.length), 0);
 
 /** Paginate narrow projections: no applicant identity documents or image bodies in a sweep. */
 export async function sweepInspectionReminders(db: SupabaseClient, now = new Date()): Promise<number> {
   let queued = 0;
   for (let offset = 0; ; offset += 100) {
     const { data, error } = await db.from("manager_application_records")
-      .select("id,manager_user_id,resident_email,property_id,assigned_property_id,placement:row_data->>assignedRoomChoice,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manual_room:row_data->manualResidentDetails->>roomNumber,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,bucket:row_data->>bucket,withdrawn:row_data->>withdrawnAt")
+      .select("id,manager_user_id,resident_email,property_id,assigned_property_id,placement:row_data->>assignedRoomChoice,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manual_room:row_data->manualResidentDetails->>roomNumber,lease_term:row_data->application->>leaseTerm,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,bucket:row_data->>bucket,withdrawn:row_data->>withdrawnAt")
       .eq("row_data->>bucket", "approved").order("id").range(offset, offset + 99);
     if (error) throw error;
     const rows = (data ?? []).map(raw => ({ ...raw, row_data: { assignedRoomChoice: raw.placement, manualResidentDetails: { moveInDate: raw.manual_start, moveOutDate: raw.manual_end, roomNumber: raw.manual_room },
-      application: { leaseStart: raw.lease_start, leaseEnd: raw.lease_end }, bucket: raw.bucket, withdrawnAt: raw.withdrawn } })) as unknown as Placement[];
+      application: { leaseTerm: raw.lease_term, leaseStart: raw.lease_start, leaseEnd: raw.lease_end }, bucket: raw.bucket, withdrawnAt: raw.withdrawn } })) as unknown as Placement[];
     if (!rows.length) break;
     const ids = [...new Set(rows.map(propertyId).filter(Boolean))];
     const owners = [...new Set(rows.map(r => r.manager_user_id).filter(Boolean))];
     const [properties, reportsResult, settings, managers] = await Promise.all([
-      db.from("manager_property_records").select("id,manager_user_id,rooms:property_data->listingSubmission->rooms,legacy_rooms:row_data->submission->rooms").in("id", ids),
+      db.from("manager_property_records").select("id,manager_user_id,rooms:property_data->listingSubmission->rooms,legacy_rooms:row_data->submission->rooms,lease_inspections:property_data->listingSubmission->inspectionsByLeaseType").in("id", ids),
       reportsForApplications(db, rows.map(r => r.id)),
       loadReminderSettingsForManagers(db, owners), loadManagerReminderRecipients(db, owners),
     ]);
@@ -68,23 +75,40 @@ export async function sweepInspectionReminders(db: SupabaseClient, now = new Dat
       if (!property || !config) continue;
       const manager = managers.get(row.manager_user_id);
       const reports = reportsResult.filter(r => r.application_id === row.id && sameRoom(r as InspectionRecord, row, property.rooms ?? property.legacy_rooms)) as InspectionRecord[];
-      for (const kind of roomInspectionRequirements(property.id, assignment(row), property.rooms ?? property.legacy_rooms)) {
+      const rooms = property.rooms ?? property.legacy_rooms;
+      // Every residency with an assigned room, not only rooms whose own "inspection required"
+      // toggle is on. That toggle is off by default, so gating the reminder on it meant almost
+      // nobody was ever asked for the photos the feature exists to collect. The toggle now
+      // marks an inspection MANDATORY; it no longer decides whether anyone is reminded.
+      const required = residencyInspectionRequirements(
+        roomInspectionRequirements(property.id, assignment(row), rooms),
+        leaseTypeInspectionRequirements({ inspectionsByLeaseType: (property.lease_inspections ?? null) as Record<string, string[]> | null }, leaseTerm(row)),
+      );
+      if (!canonicalAssignment(row, rooms)) continue;
+      for (const kind of ["move-in", "move-out"] as const) {
         const anchorIso = inspectionDueDate(row, kind);
-        if (!anchorIso || reports.some(r => r.kind === kind && r.status === "completed")) continue;
-        queued += await materializeReminders(db, { managerUserId: row.manager_user_id, kind: "inspection", subjectId: `${row.id}:${kind}:${createHash("sha256").update(`${anchorIso}:${canonicalAssignment(row, property.rooms ?? property.legacy_rooms)}`).digest("hex").slice(0, 20)}`, anchorIso,
-          // Both sides. The rule's audience decides who actually receives it, but the
-          // manager has to be OFFERED here or "remind me too" is unreachable from Settings.
-          recipients: [{ email: row.resident_email, role: "counterparty" },
-            ...(manager ? [{ email: manager.email, userId: row.manager_user_id, role: "manager" as const }] : [])],
-          payload: { applicationId: row.id, inspectionKind: kind, roomAssignment: assignment(row), title: `Required ${kind} inspection`, url: `${origin}/resident/move-in/inspections` },
-        }, config, now);
-      }
-      for (const report of reports) {
-        if (!manager || report.status === "completed" || !hasEvidence(report) || (report.status === "submitted" && !report.document.residentAcknowledgment)) continue;
-        queued += await materializeReminders(db, { managerUserId: row.manager_user_id, kind: "inspection_manager", subjectId: `${report.id}:${report.revision}`, anchorIso: report.updated_at,
-          recipients: [{ email: manager.email, userId: row.manager_user_id, role: "manager" }],
-          payload: { inspectionId: report.id, revision: report.revision, title: "Review room inspection", url: `${origin}/portal/inspections/${report.kind}/${report.id}` },
-        }, config, now);
+        if (!anchorIso) continue;
+        const forKind = reports.filter(r => r.kind === kind);
+        const subjectId = `${row.id}:${kind}:${createHash("sha256").update(`${anchorIso}:${canonicalAssignment(row, rooms)}`).digest("hex").slice(0, 20)}`;
+        // The resident is asked until their own first photo lands.
+        if (!forKind.some(report => photosBy(report, "resident") > 0)) {
+          queued += await materializeReminders(db, { managerUserId: row.manager_user_id, kind: "inspection", subjectId, anchorIso,
+            // Both sides. The rule's audience decides who actually receives it, but the
+            // manager has to be OFFERED here or "remind me too" is unreachable from Settings.
+            recipients: [{ email: row.resident_email, role: "counterparty" },
+              ...(manager ? [{ email: manager.email, userId: row.manager_user_id, role: "manager" as const }] : [])],
+            payload: { applicationId: row.id, inspectionKind: kind, roomAssignment: assignment(row), required: required.includes(kind),
+              title: `${kind === "move-in" ? "Move-in" : "Move-out"} room photos`, url: `${origin}/resident/move-in/inspections` },
+          }, config, now);
+        }
+        // The manager hears about it only when NOBODY has photographed the room.
+        if (manager && !forKind.some(report => photosBy(report) > 0)) {
+          queued += await materializeReminders(db, { managerUserId: row.manager_user_id, kind: "inspection_manager", subjectId, anchorIso,
+            recipients: [{ email: manager.email, userId: row.manager_user_id, role: "manager" }],
+            payload: { applicationId: row.id, inspectionKind: kind, roomAssignment: assignment(row),
+              title: `No ${kind} photos yet`, url: `${origin}/portal/inspections/${kind}` },
+          }, config, now);
+        }
       }
     }
     if (rows.length < 100) break;
@@ -94,33 +118,30 @@ export async function sweepInspectionReminders(db: SupabaseClient, now = new Dat
 
 /** Cancellation and room reassignment are checked again immediately before delivery. */
 export async function inspectionReminderIsCurrent(db: SupabaseClient, queued: ReminderQueueRow): Promise<boolean> {
-  if (queued.kind === "inspection_manager") {
-    const { data, error } = await db.from("resident_inspections").select("*").eq("id", queued.payload.inspectionId).eq("manager_user_id", queued.managerUserId).maybeSingle();
-    if (error) throw error;
-    const report = data as InspectionRecord | null;
-    if (!report) return false;
-    const residency = await db.from("manager_application_records").select("id,manager_user_id,resident_email,property_id,assigned_property_id,row_data").eq("id", report.application_id).eq("manager_user_id", queued.managerUserId).maybeSingle();
-    if (residency.error) throw residency.error;
-    if (!residency.data || !active(residency.data as Placement)) return false;
-    const property = await db.from("manager_property_records").select("rooms:property_data->listingSubmission->rooms,legacy_rooms:row_data->submission->rooms").eq("id", propertyId(residency.data as Placement)).eq("manager_user_id", queued.managerUserId).maybeSingle();
-    if (property.error) throw property.error;
-    if (!property.data || !sameRoom(report, residency.data as Placement, property.data.rooms ?? property.data.legacy_rooms)) return false;
-    return Boolean(report.status !== "completed" && report.revision === queued.payload.revision && hasEvidence(report) &&
-      (report.status === "draft" || report.document.residentAcknowledgment));
-  }
   const { data, error } = await db.from("manager_application_records").select("id,manager_user_id,resident_email,property_id,assigned_property_id,row_data")
     .eq("id", queued.payload.applicationId).eq("manager_user_id", queued.managerUserId).maybeSingle();
   if (error) throw error;
   const row = data as Placement | null;
   const kind = queued.payload.inspectionKind;
   if (!row || !active(row) || (kind !== "move-in" && kind !== "move-out") || assignment(row) !== queued.payload.roomAssignment ||
-      row.resident_email.toLowerCase() !== queued.recipientEmail.toLowerCase() || inspectionDueDate(row, kind) !== queued.payload.anchorIso) return false;
+      inspectionDueDate(row, kind) !== queued.payload.anchorIso) return false;
+  // A notice addressed to the resident must still be addressed to THIS residency's resident:
+  // a reassigned or corrected email cancels the queued copy rather than mailing the old
+  // address. The manager's own copy is checked by ownership above, not by address — binding it
+  // to the resident's address cancelled every "remind me too" copy before it could send.
+  if (queued.recipientRole === "counterparty" && row.resident_email.toLowerCase() !== queued.recipientEmail.toLowerCase()) return false;
   const [property, reports] = await Promise.all([
     db.from("manager_property_records").select("rooms:property_data->listingSubmission->rooms,legacy_rooms:row_data->submission->rooms").eq("id", propertyId(row)).eq("manager_user_id", row.manager_user_id).maybeSingle(),
-    db.from("resident_inspections").select("*").eq("application_id", row.id).eq("kind", kind).eq("status", "completed"),
+    db.from("resident_inspections").select("*").eq("application_id", row.id).eq("kind", kind),
   ]);
   if (property.error) throw property.error;
   if (reports.error) throw reports.error;
-  return roomInspectionRequirements(propertyId(row), assignment(row), property.data?.rooms ?? property.data?.legacy_rooms).includes(kind) &&
-    !(reports.data ?? []).some(r => sameRoom(r as InspectionRecord, row, property.data?.rooms ?? property.data?.legacy_rooms));
+  const rooms = property.data?.rooms ?? property.data?.legacy_rooms;
+  if (!canonicalAssignment(row, rooms)) return false;
+  const forRoom = ((reports.data ?? []) as InspectionRecord[]).filter(report => sameRoom(report, row, rooms));
+  // The photo that satisfies the notice cancels it: the resident's own for the resident
+  // notice, anyone's for the manager's "nobody has photographed this room" notice.
+  return queued.kind === "inspection_manager"
+    ? !forRoom.some(report => photosBy(report) > 0)
+    : !forRoom.some(report => photosBy(report, "resident") > 0);
 }

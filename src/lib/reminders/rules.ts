@@ -195,8 +195,8 @@ export type ReminderSubjectMeta = {
 };
 
 export const REMINDER_SUBJECT_META: Record<ReminderSubjectKind, ReminderSubjectMeta> = {
-  inspection: { kind: "inspection", label: "Required inspections", anchorLabel: "the move-in or move-out date", counterpartyLabel: "resident" },
-  inspection_manager: { kind: "inspection_manager", label: "Inspection review", anchorLabel: "the report was updated", counterpartyLabel: "resident" },
+  inspection: { kind: "inspection", label: "Room photos", anchorLabel: "the move-in or move-out date", counterpartyLabel: "resident" },
+  inspection_manager: { kind: "inspection_manager", label: "Missing room photos", anchorLabel: "the move-in or move-out date", counterpartyLabel: "resident" },
   tour: {
     kind: "tour",
     label: "Tours",
@@ -283,7 +283,9 @@ export const DEFAULT_REMINDER_RULES: ReminderRules = {
   // BOTH sides by default: a move-in or move-out condition report is somebody's job on the
   // day, and if only the resident is reminded nobody in the office knows it was missed.
   inspection: { enabled: true, leadMinutes: [DAY], timings: ["before:1440", "after:1440", "after:10080"], audience: { manager: true, counterparty: true, team: false }, teamUserIds: [], inbox: true, email: true, sms: false },
-  inspection_manager: { enabled: true, leadMinutes: [15], timings: ["after:15", "after:1440"], audience: { manager: true, counterparty: false, team: false }, teamUserIds: [], inbox: true, email: true, sms: false },
+  // Anchored on the move date now, not on a report edit: the manager is told when the day is
+  // here and nobody has photographed the room.
+  inspection_manager: { enabled: true, leadMinutes: [DAY], timings: ["after:1440", "after:10080"], audience: { manager: true, counterparty: false, team: false }, teamUserIds: [], inbox: true, email: true, sms: false },
   tour: {
     enabled: true,
     leadMinutes: [1 * DAY, 30 * MINUTE],

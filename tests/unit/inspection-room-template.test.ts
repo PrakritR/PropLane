@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultListingSubmission, emptyRoom, emptyBathroom } from "@/lib/manager-listing-submission";
 import { createRoomInspectionDocument, resolveInspectionRoom } from "@/lib/inspections/room-template";
+import {
+  inspectionRequirementMatrix,
+  leaseTypeInspectionRequirements,
+  residencyInspectionRequirements,
+  setInspectionRequirementCell,
+} from "@/lib/inspections/requirements";
 
 const listing = () => ({ ...createDefaultListingSubmission(), rooms: [
   { ...emptyRoom(0), id: "a", name: "Room 15A", furnishing: "Unfurnished" },
@@ -40,5 +46,36 @@ describe("room inspection scope", () => {
     doc.areas[0].items[0].resident.notes = "A small mark";
     expect(doc.areas[0].items[0].manager.notes).toBe("");
     expect(doc.areas[1].items[0].resident.notes).toBe("");
+  });
+});
+
+/**
+ * Inspection requirements have two independent sources: the room's own configuration and
+ * what the listing requires of that lease length. A short stay and a twelve-month lease
+ * rarely need the same evidence, which is why the listing side is a matrix.
+ */
+describe("lease-type inspection requirements", () => {
+  const leaseListing = { inspectionsByLeaseType: { "12-Month": ["move-in", "move-out"], "Short-Term Stay": ["move-in"] } };
+
+  it("reads only the term named, and never infers one from a blank field", () => {
+    expect(leaseTypeInspectionRequirements(leaseListing, "12-Month")).toEqual(["move-in", "move-out"]);
+    expect(leaseTypeInspectionRequirements(leaseListing, "Short-Term Stay")).toEqual(["move-in"]);
+    expect(leaseTypeInspectionRequirements(leaseListing, "Month-to-Month")).toEqual([]);
+    expect(leaseTypeInspectionRequirements(leaseListing, "")).toEqual([]);
+    expect(leaseTypeInspectionRequirements(null, "12-Month")).toEqual([]);
+  });
+
+  it("expands and edits the matrix in row order", () => {
+    const matrix = inspectionRequirementMatrix(leaseListing, ["12-Month", "Month-to-Month"]);
+    expect(matrix).toEqual({ "12-Month": ["move-in", "move-out"], "Month-to-Month": [] });
+    const next = setInspectionRequirementCell(matrix, "Month-to-Month", "move-out", true);
+    expect(next["Month-to-Month"]).toEqual(["move-out"]);
+    expect(setInspectionRequirementCell(next, "12-Month", "move-in", false)["12-Month"]).toEqual(["move-out"]);
+  });
+
+  it("obliges on either source, never twice", () => {
+    expect(residencyInspectionRequirements(["move-in"], ["move-out"])).toEqual(["move-in", "move-out"]);
+    expect(residencyInspectionRequirements(["move-in"], ["move-in"])).toEqual(["move-in"]);
+    expect(residencyInspectionRequirements([], [])).toEqual([]);
   });
 });

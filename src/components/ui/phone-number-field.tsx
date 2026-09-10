@@ -24,6 +24,7 @@ export function PhoneNumberField({
   value,
   onChange,
   disabled = false,
+  required = false,
   placeholder,
   autoComplete = "tel",
   name,
@@ -35,6 +36,8 @@ export function PhoneNumberField({
   value: unknown;
   onChange: (e164: string) => void;
   disabled?: boolean;
+  /** Marks the number box required for assistive tech, matching the form's own validation. */
+  required?: boolean;
   placeholder?: string;
   autoComplete?: string;
   name?: string;
@@ -89,6 +92,8 @@ export function PhoneNumberField({
         name={name}
         type="tel"
         inputMode="numeric"
+        required={required}
+        aria-required={required || undefined}
         autoComplete={autoComplete}
         autoCorrect="off"
         spellCheck={false}

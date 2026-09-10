@@ -37,12 +37,19 @@ import {
   managerMessagingSenderPoolDiagnostic,
   type ManagerMessagingNumberStatus,
 } from "@/lib/sms/manager-messaging-number";
+import { isManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
+import {
+  buildWorkContactAnnounceCopy,
+  hasAnyWorkContactChannel,
+  WORK_CONTACT_ANNOUNCE_EVENT,
+  workContactAnnounceChannelTag,
+  workContactAnnounceStorageKey,
+  type WorkContactChannels,
+} from "@/lib/work-contact-announce";
 
 const ENDPOINT = "/api/manager/messaging-number";
 
-function announceStorageKey(phone: string): string {
-  return `axis_work_number_announce_v1:${phone}`;
-}
+
 
 /** Approved residents only — matches server broadcast resolution for `toBroadcast: ["resident"]`. */
 export function approvedResidentsForWorkNumberAnnounce(
@@ -65,24 +72,16 @@ export function formatWorkNumberAnnounceRecipientDisplay(
     .join(", ");
 }
 
+/**
+ * Kept as the work number's own announcement for callers that only ever have a
+ * number. The panel itself now composes one message covering every live
+ * channel — see `buildWorkContactAnnounceCopy`.
+ */
 export function buildWorkNumberResidentAnnounceCopy(phone: string): {
   subject: string;
   text: string;
 } {
-  const formatted = formatManagerMessagingPhone(phone);
-  return {
-    subject: "New number to reach me",
-    text: [
-      "Hi,",
-      "",
-      `Please text me at this new number: ${formatted}`,
-      "",
-      "Save it in your contacts so maintenance updates, rent reminders, and day-to-day questions go to the right place.",
-      "",
-      "Thanks,",
-      "Your property manager",
-    ].join("\n"),
-  };
+  return buildWorkContactAnnounceCopy({ phone, email: null });
 }
 
 /**
@@ -206,6 +205,12 @@ export function ManagerMessagingSettingsPanel({
   const [announceSubject, setAnnounceSubject] = useState("");
   const [announceBody, setAnnounceBody] = useState("");
   const [announceSendVia, setAnnounceSendVia] = useState<string[]>(["email"]);
+  /**
+   * The work email, read only so the announcement can name it. The Work email
+   * card owns its own setup; this panel just needs to know whether that channel
+   * is live, because a resident should hear "here is how to reach me" once.
+   */
+  const [workEmail, setWorkEmail] = useState<string | null>(null);
   const { channelsFor } = useManagerCommunicationDeliverVia();
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -251,6 +256,28 @@ export function ManagerMessagingSettingsPanel({
     return () => controller.abort();
   }, [load, personalPhoneRefreshKey]);
 
+  // Best-effort: a failed read simply leaves the announcement about the number,
+  // exactly as it was before there was an email to name.
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const res = await fetch("/api/manager/assistant-email", {
+          credentials: "include",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!res.ok) return;
+        const body: unknown = await res.json().catch(() => null);
+        if (!isManagerAssistantEmailStatus(body)) return;
+        setWorkEmail(body.canUse ? body.address?.trim() || null : null);
+      } catch {
+        /* the announcement degrades to number-only */
+      }
+    })();
+    return () => controller.abort();
+  }, [personalPhoneRefreshKey]);
+
   const numberInProgress =
     status?.number?.state === "pending_registration" ||
     status?.number?.state === "provisioning";
@@ -262,10 +289,10 @@ export function ManagerMessagingSettingsPanel({
     return () => window.clearInterval(interval);
   }, [load, numberInProgress]);
 
-  const dismissAnnounce = useCallback((phone: string | null) => {
-    if (phone) {
+  const dismissAnnounce = useCallback((channels: WorkContactChannels) => {
+    if (hasAnyWorkContactChannel(channels)) {
       try {
-        window.localStorage.setItem(announceStorageKey(phone), "1");
+        window.localStorage.setItem(workContactAnnounceStorageKey(channels), "1");
       } catch {
         /* ignore quota */
       }
@@ -274,8 +301,9 @@ export function ManagerMessagingSettingsPanel({
   }, []);
 
   const openAnnounceModal = useCallback(
-    (phone: string, canSend: boolean) => {
-      const copy = buildWorkNumberResidentAnnounceCopy(phone);
+    (channels: WorkContactChannels, canSend: boolean) => {
+      if (!hasAnyWorkContactChannel(channels)) return;
+      const copy = buildWorkContactAnnounceCopy(channels);
       const messageDefaults = channelsFor("messages");
       setAnnounceSubject(copy.subject);
       setAnnounceBody(copy.text);
@@ -326,15 +354,14 @@ export function ManagerMessagingSettingsPanel({
             ? body.number.phoneNumber.trim() || null
             : null;
         if (action === "request_number" && assignedPhone) {
-          const seenKey = announceStorageKey(assignedPhone);
+          const channels = { phone: assignedPhone, email: workEmail };
           const alreadyAnnounced =
             typeof window !== "undefined" &&
-            window.localStorage.getItem(seenKey) === "1";
+            window.localStorage.getItem(workContactAnnounceStorageKey(channels)) === "1";
           // Only invite the broadcast once the number can actually carry a
           // reply. See `announceReady` below for why an unusable number must
           // never be advertised to residents.
-          if (!alreadyAnnounced && body.canSend)
-            openAnnounceModal(assignedPhone, body.canSend);
+          if (!alreadyAnnounced && body.canSend) openAnnounceModal(channels, body.canSend);
           showToast(
             body.canSend
               ? "Messaging number ready."
@@ -351,7 +378,7 @@ export function ManagerMessagingSettingsPanel({
         setPendingAction(null);
       }
     },
-    [areaCode, openAnnounceModal, showToast],
+    [areaCode, openAnnounceModal, showToast, workEmail],
   );
 
   const announceChannels = portalMessageChannelsFromSelection(announceSendVia);
@@ -366,8 +393,8 @@ export function ManagerMessagingSettingsPanel({
   const announceRecipientDisplay = formatWorkNumberAnnounceRecipientDisplay(announceResidents);
 
   const sendResidentAnnounce = useCallback(async () => {
-    const phone = statusPhoneNumber;
-    if (!phone) return;
+    const channels: WorkContactChannels = { phone: statusPhoneNumber || null, email: workEmail };
+    if (!hasAnyWorkContactChannel(channels)) return;
     const subject = announceSubject.trim();
     const body = announceBody.trim();
     if (!subject || !body) {
@@ -407,12 +434,13 @@ export function ManagerMessagingSettingsPanel({
             : announceChannels.viaSms
               ? "sms"
               : "email",
+        announced: workContactAnnounceChannelTag(channels),
       });
-      dismissAnnounce(phone);
+      dismissAnnounce(channels);
       showToast(
         result.skipped
           ? "No residents to notify yet."
-          : "Residents notified about your new number.",
+          : "Residents notified about how to reach you.",
       );
     } catch {
       setError("Could not notify residents.");
@@ -429,6 +457,7 @@ export function ManagerMessagingSettingsPanel({
     dismissAnnounce,
     showToast,
     statusPhoneNumber,
+    workEmail,
   ]);
 
   const copyNumber = useCallback(async () => {
@@ -437,6 +466,20 @@ export function ManagerMessagingSettingsPanel({
     const copied = await copyTextToClipboard(phone);
     showToast(copied ? "Work number copied." : "Could not copy work number.");
   }, [showToast, statusPhoneNumber]);
+
+  /**
+   * The Work email card's "Tell residents about this address" opens THIS
+   * composer rather than growing a second one, so a resident is told once and
+   * the message names every live channel. Both cards are always rendered
+   * together by the profile client, so the event always has a listener.
+   */
+  const canSend = status?.canSend === true;
+  useEffect(() => {
+    const open = () =>
+      openAnnounceModal({ phone: canSend ? statusPhoneNumber || null : null, email: workEmail }, canSend);
+    window.addEventListener(WORK_CONTACT_ANNOUNCE_EVENT, open);
+    return () => window.removeEventListener(WORK_CONTACT_ANNOUNCE_EVENT, open);
+  }, [canSend, openAnnounceModal, statusPhoneNumber, workEmail]);
 
   /**
    * Settle an unverified plan by itself, instead of behind a button.
@@ -547,7 +590,11 @@ export function ManagerMessagingSettingsPanel({
    * Require it before offering the broadcast, so an unusable number — or one
    * belonging to another account — is never advertised to residents.
    */
-  const announceReady = Boolean(phoneNumber) && status.canSend;
+  const announceChannelsLive: WorkContactChannels = {
+    phone: phoneNumber && status.canSend ? phoneNumber : null,
+    email: workEmail,
+  };
+  const announceReady = hasAnyWorkContactChannel(announceChannelsLive);
   const failureDiagnostic = managerMessagingSenderPoolDiagnostic(
     status.number?.lastError,
   );
@@ -749,10 +796,12 @@ export function ManagerMessagingSettingsPanel({
               variant="outline"
               className="min-h-10 rounded-full px-4 text-xs"
               disabled={announceBusy}
-              onClick={() => phoneNumber && openAnnounceModal(phoneNumber, status.canSend)}
+              onClick={() => openAnnounceModal(announceChannelsLive, status.canSend)}
               data-attr="messaging-announce-residents-open"
             >
-              Tell residents about this number
+              {announceChannelsLive.phone && announceChannelsLive.email
+                ? "Tell residents how to reach you"
+                : "Tell residents about this number"}
             </Button>
           ) : null}
 
@@ -774,9 +823,15 @@ export function ManagerMessagingSettingsPanel({
 
     <Modal
       open={announceOpen}
-      onClose={() => dismissAnnounce(phoneNumber)}
+      onClose={() => dismissAnnounce(announceChannelsLive)}
       title="Tell your residents?"
-      description="Move day-to-day texts onto your new PropLane number."
+      description={
+        announceChannelsLive.phone && announceChannelsLive.email
+          ? "Move day-to-day messages onto your PropLane number and work email."
+          : announceChannelsLive.email
+            ? "Move day-to-day messages onto your new PropLane work email."
+            : "Move day-to-day texts onto your new PropLane number."
+      }
       panelClassName="max-w-lg"
       dataAttr="messaging-announce-residents-modal"
       footer={
@@ -785,7 +840,7 @@ export function ManagerMessagingSettingsPanel({
             type="button"
             variant="ghost"
             disabled={announceBusy}
-            onClick={() => dismissAnnounce(phoneNumber)}
+            onClick={() => dismissAnnounce(announceChannelsLive)}
             data-attr="messaging-announce-residents-skip"
           >
             Not now
@@ -793,7 +848,7 @@ export function ManagerMessagingSettingsPanel({
           <Button
             type="button"
             variant="primary"
-            disabled={announceBusy || !phoneNumber || announceSmsBlocked}
+            disabled={announceBusy || !announceReady || announceSmsBlocked}
             aria-busy={announceBusy}
             onClick={() => sendResidentAnnounce()}
             data-attr="messaging-announce-residents-send"
@@ -805,7 +860,7 @@ export function ManagerMessagingSettingsPanel({
     >
       <PortalMessageComposeModalBody>
         <p className="text-sm leading-relaxed text-muted">
-          Want to send a message to all your residents to text this new number now?
+          Want to send a message to all your residents about how to reach you now?
         </p>
         <PortalMessageRecipientReadonly
           recipient={announceRecipientDisplay}

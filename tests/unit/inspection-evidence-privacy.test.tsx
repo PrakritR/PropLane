@@ -10,9 +10,11 @@ import { InspectionEditor } from "@/components/portal/inspection-editor";
 
 afterEach(cleanup);
 
-it.each(["draft", "completed"] as const)("excludes %s evidence and notes from autocapture and session replay", status => {
-  const report = reportFixture({ status });
-  const baseline = reportFixture({ status: "completed" });
+// Editable and read-only render different controls over the SAME private material, so both
+// have to keep it out of autocapture and replay.
+it.each([true, false])("excludes evidence and notes from autocapture and session replay (canEdit %s)", canEdit => {
+  const report = reportFixture();
+  const baseline = reportFixture();
   // Keep one area/item while exercising both parties and the historical baseline.
   for (const record of [report, baseline]) {
     record.document.areas = [record.document.areas[0]!];
@@ -24,8 +26,8 @@ it.each(["draft", "completed"] as const)("excludes %s evidence and notes from au
         uploadedAt: "2026-09-05", url: `https://storage.example.test/evidence.jpg?token=${role}-secret` }];
     }
   }
-  const { container } = render(<InspectionEditor initial={{ report, baseline, canEdit: true }} role="manager" userId="manager" onBack={vi.fn()} onChanged={vi.fn()} />);
-  fireEvent.click(screen.getByRole("button", { name: /Bedroom \/ private room/ }));
+  const { container } = render(<InspectionEditor initial={{ report, baseline, canEdit }} role="manager" userId="manager" onBack={vi.fn()} onChanged={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /^Bedroom \/ private room/ }));
   for (const link of container.querySelectorAll("a[href*='token=']")) {
     expect(link.closest(".ph-no-capture.ph-no-record")).not.toBeNull();
     expect(link.querySelector("img")?.closest(".ph-no-capture.ph-no-record")).not.toBeNull();
@@ -34,7 +36,7 @@ it.each(["draft", "completed"] as const)("excludes %s evidence and notes from au
   for (const notes of ["Current resident private notes", "Baseline manager private notes", "Baseline resident private notes"]) {
     expect(screen.getByText(notes).closest(".ph-no-capture.ph-no-record")).not.toBeNull();
   }
-  const ownNotes = status === "draft" ? screen.getByRole("textbox") : screen.getByText("Current manager private notes");
+  const ownNotes = canEdit ? screen.getByRole("textbox") : screen.getByText("Current manager private notes");
   expect(ownNotes.closest(".ph-no-capture.ph-no-record")).not.toBeNull();
   // Non-sensitive workflow actions remain observable.
   expect(screen.getByRole("button", { name: "Back to room sections" }).closest(".ph-no-capture, .ph-no-record")).toBeNull();

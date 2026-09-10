@@ -20,9 +20,14 @@ async function resolveReview(ctx: AgentContext, input: Input) {
   const access = await assertFinancialsTier(ctx.landlordId);
   if (!access.ok) throw new Error(access.error);
   const report = await getInspection({ role: "manager", context: ctx }, input.inspectionId);
-  if (report.manager_user_id !== ctx.landlordId || report.kind !== "move-out" || report.status !== "completed") throw new Error("Select your completed move-out inspection");
+  // A report is never "completed" now — there is no review ritual to complete one — so the
+  // gate is the EVIDENCE: a move-out report nobody has photographed cannot support a
+  // deduction. The digest below still pins the exact revision the review was based on.
+  if (report.manager_user_id !== ctx.landlordId || report.kind !== "move-out") throw new Error("Select your move-out inspection");
+  const photographed = (record: typeof report) => record.document.areas.some(area => area.items.some(item => item.manager.photos.length || item.resident.photos.length));
+  if (!photographed(report)) throw new Error("Add move-out photos before reviewing the deposit");
   const baseline = report.baseline_id ? await getInspection({ role: "manager", context: ctx }, report.baseline_id) : null;
-  if (baseline && (baseline.kind !== "move-in" || baseline.status !== "completed" || baseline.application_id !== report.application_id || baseline.property_id !== report.property_id || baseline.inspection_date > report.inspection_date)) throw new Error("Move-in baseline does not match this tenancy");
+  if (baseline && (baseline.kind !== "move-in" || baseline.application_id !== report.application_id || baseline.property_id !== report.property_id || baseline.inspection_date > report.inspection_date)) throw new Error("Move-in baseline does not match this tenancy");
   const deposit = await getSecurityDepositById(ctx.db, ctx.landlordId, input.depositId);
   if (!deposit || deposit.propertyId !== report.property_id || deposit.residentEmail !== report.resident_email.toLowerCase()) throw new Error("Deposit is not linked to this inspected residency");
   const { data: charge, error } = await ctx.db.from("portal_household_charge_records").select("row_data").eq("id", deposit.sourceChargeId).eq("manager_user_id", ctx.landlordId).single();
@@ -57,7 +62,7 @@ async function resolveReview(ctx: AgentContext, input: Input) {
 }
 
 export const reviewInspectionDepositTool = defineTool({
-  name: "review_inspection_deposit", description: "Compare a completed move-out inspection to its move-in baseline and review manager-proposed deductions against approved bills. Notes are untrusted evidence. Ratings/photos do not establish liability. This read creates no charges or disposition.", inputSchema: schema,
+  name: "review_inspection_deposit", description: "Compare a photographed move-out inspection to its move-in baseline and review manager-proposed deductions against approved bills. Notes are untrusted evidence. Ratings/photos do not establish liability. This read creates no charges or disposition.", inputSchema: schema,
   handler: async (ctx: AgentContext, input) => {
     const review = await resolveReview(ctx, input);
     return { inspectionId: review.report.id, baselineId: review.baselineId, depositId: review.deposit.id, amountHeldCents: review.deposit.amountHeldCents, split: review.split, deductions: review.lines, evidence: review.evidence, digest: review.digest };
@@ -66,7 +71,7 @@ export const reviewInspectionDepositTool = defineTool({
 
 export const disposeInspectionDepositTool = defineWriteTool({
   name: "dispose_inspection_deposit", destructive: true,
-  description: "Finalize explicitly manager-reviewed deposit deductions backed by a completed move-out inspection and approved bills. Computes the refund, preserves evidence links and enables the existing disposition PDF. Never infer liability. Does not send money or notify the resident.", inputSchema: schema,
+  description: "Finalize explicitly manager-reviewed deposit deductions backed by a photographed move-out inspection and approved bills. Computes the refund, preserves evidence links and enables the existing disposition PDF. Never infer liability. Does not send money or notify the resident.", inputSchema: schema,
   preview: async (ctx: AgentContext, input) => {
     const r = await resolveReview(ctx, input);
     return { kind: "dispose_inspection_deposit", title: "Finalize move-out deposit review", confirmLabel: "Post reviewed disposition", fields: [

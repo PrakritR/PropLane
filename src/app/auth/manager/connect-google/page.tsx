@@ -8,6 +8,7 @@ import { AuthCard } from "@/components/auth/auth-card";
 import { AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
 import {
   ManagerOnboardingPhoneSetup,
+  ManagerOnboardingWorkEmailSetup,
   ManagerOnboardingWorkNumberSetup,
 } from "@/components/auth/manager-onboarding-inline-setup";
 import { useAuthWelcomeChrome } from "@/components/auth/use-auth-welcome-chrome";
@@ -20,6 +21,11 @@ import {
   workNumberOnboardingPhone,
   type WorkNumberOnboardingStatus,
 } from "@/lib/sms/work-number-onboarding";
+import { assistantEmailUpsellMessage } from "@/lib/manager-assistant-email/assistant-email-eligibility-copy";
+import {
+  isManagerAssistantEmailStatus,
+  type ManagerAssistantEmailStatus,
+} from "@/lib/manager-assistant-email/manager-assistant-email-status";
 
 type ServiceStatus = {
   connected: boolean;
@@ -63,7 +69,8 @@ function PhoneStepCard({
   title: string;
   description: string;
   icon: React.ReactNode;
-  statusLabel: string;
+  /** `null` while the status is still unknown — better blank than a wrong claim. */
+  statusLabel: string | null;
   statusTone: "confirmed" | "muted";
   children?: React.ReactNode;
 }) {
@@ -82,13 +89,15 @@ function PhoneStepCard({
         <div className="min-w-0 flex-1">
           <h2 className="text-[15px] font-semibold text-foreground sm:text-base">{title}</h2>
           <p className="mt-1 text-xs leading-relaxed text-muted sm:text-[13px]">{description}</p>
-          <p
-            className={`mt-2 text-xs font-medium ${
-              statusTone === "confirmed" ? "text-[var(--status-confirmed-fg)]" : "text-muted"
-            }`}
-          >
-            {statusLabel}
-          </p>
+          {statusLabel ? (
+            <p
+              className={`mt-2 text-xs font-medium ${
+                statusTone === "confirmed" ? "text-[var(--status-confirmed-fg)]" : "text-muted"
+              }`}
+            >
+              {statusLabel}
+            </p>
+          ) : null}
         </div>
       </div>
       {children}
@@ -187,6 +196,7 @@ function GoogleServicesContent() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [workNumber, setWorkNumber] = useState<WorkNumberOnboardingStatus | null>(null);
+  const [workEmail, setWorkEmail] = useState<ManagerAssistantEmailStatus | null>(null);
   const [phoneSettings, setPhoneSettings] = useState<PhoneSettings | null>(null);
   useAuthWelcomeChrome(true);
 
@@ -194,12 +204,17 @@ function GoogleServicesContent() {
     let cancelled = false;
     void (async () => {
       try {
-        const [workRes, phoneRes] = await Promise.all([
+        const [workRes, emailRes, phoneRes] = await Promise.all([
           fetch("/api/manager/messaging-number", { credentials: "include", cache: "no-store" }),
+          fetch("/api/manager/assistant-email", { credentials: "include", cache: "no-store" }),
           fetch("/api/manager/phone", { credentials: "include", cache: "no-store" }),
         ]);
         if (cancelled) return;
         if (workRes.ok) setWorkNumber((await workRes.json()) as WorkNumberOnboardingStatus);
+        if (emailRes.ok) {
+          const emailBody: unknown = await emailRes.json();
+          if (isManagerAssistantEmailStatus(emailBody)) setWorkEmail(emailBody);
+        }
         if (phoneRes.ok) setPhoneSettings((await phoneRes.json()) as PhoneSettings);
       } catch {
         /* optional setup step — a failed read leaves the phone cards on their "not set up" state */
@@ -275,6 +290,12 @@ function GoogleServicesContent() {
   const phoneVerified = Boolean(phoneSettings?.phoneVerifiedAt);
   const phoneDisplay = formatUsPhone(phoneSettings?.phone);
   const offerWorkNumber = shouldOfferWorkNumberSetup(workNumber);
+  const workEmailAddress = workEmail?.address?.trim() || "";
+  const workEmailReady = Boolean(workEmailAddress);
+  const workEmailUpsell =
+    workEmail && !workEmail.canRequest
+      ? assistantEmailUpsellMessage(workEmail.planTier, workEmail.entitlement)
+      : null;
 
   return (
     <AuthCard wide variant="blend">
@@ -325,6 +346,24 @@ function GoogleServicesContent() {
           >
             {!provisionedNumber && offerWorkNumber && workNumber ? (
               <ManagerOnboardingWorkNumberSetup status={workNumber} onUpdated={setWorkNumber} />
+            ) : null}
+          </PhoneStepCard>
+          {/* The sibling setup screen has offered this since it shipped; this
+              one silently did not, so which onboarding route a manager happened
+              to take decided whether they were ever told the feature exists. */}
+          <PhoneStepCard
+            title="PropLane work email"
+            description="An address residents and prospects can email; PropLane Assistant answers and it lands in your inbox."
+            icon={<Mail className="h-5 w-5" />}
+            statusLabel={
+              workEmailReady
+                ? `Ready · ${workEmailAddress}`
+                : workEmailUpsell ?? (workEmail?.canRequest ? "Not set up yet" : null)
+            }
+            statusTone={workEmailReady ? "confirmed" : "muted"}
+          >
+            {!workEmailReady && workEmail ? (
+              <ManagerOnboardingWorkEmailSetup status={workEmail} onUpdated={setWorkEmail} />
             ) : null}
           </PhoneStepCard>
         </div>
