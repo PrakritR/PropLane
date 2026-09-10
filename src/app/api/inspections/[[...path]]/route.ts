@@ -4,7 +4,7 @@ import { resolveAgentContext } from "@/lib/tools/context";
 import { resolveResidentAgentContext } from "@/lib/tools/resident-context";
 import { InspectionError } from "@/lib/inspections/model";
 import {
-  addInspectionPhoto, ensureInspection, inspectionDetail,
+  addInspectionPhoto, changeResidentSubmission, ensureInspection, inspectionDetail,
   listInspectionResidencies, listInspections, removeInspectionPhoto, saveInspection,
   type InspectionActor,
 } from "@/lib/inspections/server";
@@ -84,6 +84,10 @@ async function handle(req: NextRequest, context: RouteContext) {
         // report rather than a duplicate or a "one already exists" refusal.
         const report = await ensureInspection(actor, await body(req));
         return json(await inspectionDetail(actor, report.id), 201);
+      }
+      if (path[1] === "submission") {
+        await changeResidentSubmission(actor, id, await body(req));
+        return json(await inspectionDetail(actor, id));
       }
       if (path[1] === "photos") {
         const form = await req.formData();

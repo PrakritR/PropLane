@@ -40,6 +40,11 @@ import {
   withStandardFeeScope,
 } from "@/lib/listing-fee-scope";
 import {
+  INSPECTION_REQUIREMENT_ROWS,
+  inspectionRequirementMatrix,
+  setInspectionRequirementCell,
+} from "@/lib/inspections/requirements";
+import {
   submitManagerPendingPropertyToServer,
   syncPropertyPipelineFromServer,
   updateExtraListingFromSubmissionOnServer,
@@ -2097,6 +2102,24 @@ export function ManagerAddListingForm({
       const stillOn = derivePaymentAtSigningIncludesFromMatrix(next).includes(standardId);
       return applyPaymentAtSigningSelection(nextSub, standardId, stillOn);
     });
+  };
+
+  /* Inspections required, per lease type. Same shape as Payment at signing: a three-night
+     stay and a twelve-month lease do not need the same evidence. */
+  const inspectionMatrix = useMemo(
+    () => inspectionRequirementMatrix(sub, leaseScopeOptions),
+    [sub, leaseScopeOptions],
+  );
+  const toggleInspectionCell = (leaseTerm: string, kind: (typeof INSPECTION_REQUIREMENT_ROWS)[number]["kind"], on: boolean) => {
+    setSub((s) => ({
+      ...s,
+      inspectionsByLeaseType: setInspectionRequirementCell(
+        inspectionRequirementMatrix(s, listingLeaseTypeScopeOptions(s)),
+        leaseTerm,
+        kind,
+        on,
+      ),
+    }));
   };
 
   const handleAddStandardRow = (feeId: ListingFeeRowId) => {
@@ -5149,6 +5172,59 @@ export function ManagerAddListingForm({
                       figure in them is already stated by the table above and
                       by each room row, so they only restated the form back to the
                       manager. */}
+                </div>
+
+                <div className="mt-4 space-y-3 border-t border-border pt-4">
+                  <FieldLabel optional>Inspections required</FieldLabel>
+                  <p className="text-xs text-muted">
+                    Tick which room photos you require, per lease length. A three-night stay and a
+                    twelve-month lease rarely need the same evidence. Residents are asked for photos
+                    around their move date either way; ticking a box is what makes it required of them.
+                  </p>
+                  {leaseScopeOptions.length === 0 ? (
+                    <p className="text-xs text-muted">
+                      Pick at least one lease length in Leasing above and its column appears here.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto rounded-xl border border-border bg-card">
+                      <table className="w-full min-w-[30rem] border-collapse text-sm">
+                        <thead>
+                          <tr>
+                            <th className="border-b border-border bg-accent/30 px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                              Inspection
+                            </th>
+                            {leaseScopeOptions.map((term) => (
+                              <th
+                                key={term}
+                                className="border-b border-border bg-accent/30 px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-muted"
+                              >
+                                {term}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {INSPECTION_REQUIREMENT_ROWS.map((row) => (
+                            <tr key={row.kind}>
+                              <td className="border-b border-border/70 px-3 py-2.5 text-foreground">{row.label}</td>
+                              {leaseScopeOptions.map((term) => (
+                                <td key={term} className="border-b border-border/70 px-3 py-2.5 text-center">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-border"
+                                    data-attr="listing-inspection-required-cell"
+                                    aria-label={`${row.label} required on ${term}`}
+                                    checked={(inspectionMatrix[term] ?? []).includes(row.kind)}
+                                    onChange={(e) => toggleInspectionCell(term, row.kind, e.target.checked)}
+                                  />
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
 
                 {/*

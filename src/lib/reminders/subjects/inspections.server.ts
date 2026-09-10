@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { resolveInspectionRoom, inspectionRoomListing } from "@/lib/inspections/room-template";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { roomInspectionRequirements } from "@/lib/inspections/requirements";
+import { leaseTypeInspectionRequirements, residencyInspectionRequirements, roomInspectionRequirements } from "@/lib/inspections/requirements";
 import type { InspectionKind, InspectionRecord } from "@/lib/inspections/model";
 import { materializeReminders, type ReminderQueueRow } from "../queue.server";
 import { loadReminderSettingsForManagers } from "../settings.server";
@@ -21,6 +21,7 @@ export function inspectionDueDate(row: Placement, kind: InspectionKind): string 
 }
 function assignment(row: Placement) { return String(row.row_data.assignedRoomChoice || object(row.row_data.manualResidentDetails).roomNumber || ""); }
 function propertyId(row: Placement) { return row.assigned_property_id || row.property_id || ""; }
+function leaseTerm(row: Placement) { return String(object(row.row_data.application).leaseTerm || ""); }
 async function reportsForApplications(db: SupabaseClient, ids: string[]): Promise<InspectionRecord[]> {
   const reports: InspectionRecord[] = [];
   for (let offset = 0; ; offset += 500) {
@@ -53,16 +54,16 @@ export async function sweepInspectionReminders(db: SupabaseClient, now = new Dat
   let queued = 0;
   for (let offset = 0; ; offset += 100) {
     const { data, error } = await db.from("manager_application_records")
-      .select("id,manager_user_id,resident_email,property_id,assigned_property_id,placement:row_data->>assignedRoomChoice,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manual_room:row_data->manualResidentDetails->>roomNumber,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,bucket:row_data->>bucket,withdrawn:row_data->>withdrawnAt")
+      .select("id,manager_user_id,resident_email,property_id,assigned_property_id,placement:row_data->>assignedRoomChoice,manual_start:row_data->manualResidentDetails->>moveInDate,manual_end:row_data->manualResidentDetails->>moveOutDate,manual_room:row_data->manualResidentDetails->>roomNumber,lease_term:row_data->application->>leaseTerm,lease_start:row_data->application->>leaseStart,lease_end:row_data->application->>leaseEnd,bucket:row_data->>bucket,withdrawn:row_data->>withdrawnAt")
       .eq("row_data->>bucket", "approved").order("id").range(offset, offset + 99);
     if (error) throw error;
     const rows = (data ?? []).map(raw => ({ ...raw, row_data: { assignedRoomChoice: raw.placement, manualResidentDetails: { moveInDate: raw.manual_start, moveOutDate: raw.manual_end, roomNumber: raw.manual_room },
-      application: { leaseStart: raw.lease_start, leaseEnd: raw.lease_end }, bucket: raw.bucket, withdrawnAt: raw.withdrawn } })) as unknown as Placement[];
+      application: { leaseTerm: raw.lease_term, leaseStart: raw.lease_start, leaseEnd: raw.lease_end }, bucket: raw.bucket, withdrawnAt: raw.withdrawn } })) as unknown as Placement[];
     if (!rows.length) break;
     const ids = [...new Set(rows.map(propertyId).filter(Boolean))];
     const owners = [...new Set(rows.map(r => r.manager_user_id).filter(Boolean))];
     const [properties, reportsResult, settings, managers] = await Promise.all([
-      db.from("manager_property_records").select("id,manager_user_id,rooms:property_data->listingSubmission->rooms,legacy_rooms:row_data->submission->rooms").in("id", ids),
+      db.from("manager_property_records").select("id,manager_user_id,rooms:property_data->listingSubmission->rooms,legacy_rooms:row_data->submission->rooms,lease_inspections:property_data->listingSubmission->inspectionsByLeaseType").in("id", ids),
       reportsForApplications(db, rows.map(r => r.id)),
       loadReminderSettingsForManagers(db, owners), loadManagerReminderRecipients(db, owners),
     ]);
@@ -79,7 +80,10 @@ export async function sweepInspectionReminders(db: SupabaseClient, now = new Dat
       // toggle is on. That toggle is off by default, so gating the reminder on it meant almost
       // nobody was ever asked for the photos the feature exists to collect. The toggle now
       // marks an inspection MANDATORY; it no longer decides whether anyone is reminded.
-      const required = roomInspectionRequirements(property.id, assignment(row), rooms);
+      const required = residencyInspectionRequirements(
+        roomInspectionRequirements(property.id, assignment(row), rooms),
+        leaseTypeInspectionRequirements({ inspectionsByLeaseType: (property.lease_inspections ?? null) as Record<string, string[]> | null }, leaseTerm(row)),
+      );
       if (!canonicalAssignment(row, rooms)) continue;
       for (const kind of ["move-in", "move-out"] as const) {
         const anchorIso = inspectionDueDate(row, kind);

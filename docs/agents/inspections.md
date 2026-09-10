@@ -4,9 +4,11 @@ The same inspection record appears in three places:
 
 - Manager sidebar: `/portal/inspections/move-in` and `/portal/inspections/move-out`; append a report UUID to open a saved report directly.
 - Manager resident detail: `/portal/residents/current/{applicationId}/inspections` (also under `past`).
-- Resident My home: the dedicated `/resident/move-in/inspections` tab is the only workspace; `/resident/move-in/instructions` links to it rather than rendering a second copy of the panel.
+- Resident My home: the dedicated `/resident/move-in/inspections` tab is the only workspace. My home no longer has a separate "Move-in" tab — it read as a second inspection beside this one — so the arrival details it held (keys, parking, access codes) render under Info & rules, and `/resident/move-in/instructions` resolves there rather than dropping a resident on Placement.
 
 An inspection is a room and photos of it, from either party, at move-in and at move-out. There is no review lifecycle: nothing is submitted, confirmed, approved or reopened, and nothing locks. Reports are never created by hand — opening a residency's row creates its report if one does not exist (`ensureInspection`, dated from that residency's own move-in/move-out date, with the move-in report attached automatically as a move-out baseline). `InspectionsPanel` and `InspectionEditor` compose the existing portal list, row, command bar, modal, collapsible section, and button primitives. New reports cover only the assigned room: overview, surfaces, windows, access and electrical fixtures. Furniture and an ensuite appear only when the assigned room's listing specifies them. No room is inferred from array order or rent; missing or mismatched assignments block creation. `document.roomScope` pins the stable assignment and display label. The original 15-area reports remain preserved; their working view exposes only the private-room section, while the original document and completed baseline remain readable. Photos in the reference PDF are not imported into anyone's residency.
+
+The report screen is the same for both parties. Its section rows carry a checkbox and their own camera, a bulk row appears once sections are ticked, and the header subtitle carries the type, the room and the property — the old meta line and its paragraph of instructions are gone, and the only status line left appears while something is actually saving or after the resident submits. There is no in-app document preview: Download PDF is a single action.
 
 The list has only Move-in / Move-out tabs and rows; there is no ADD, because every residency with an assigned room already has a report waiting on its row. A row says how many photos each side has added (`inspectionPhotoCounts`, computed server-side so the list never ships photo arrays or the other party's notes) and opens straight into them. Selecting rows offers Download PDF and nothing else. Inside a report the pinned actions are **Add photos** and **View document / Download PDF**; each section row carries its own camera, so choosing a source is the only question left between a tap and the picker. Notes stay optional per section; the condition rating control is gone, and a legacy rating still reads back on old reports.
 
@@ -20,12 +22,13 @@ Manager and resident observations are separate. Saves accept only condition/note
 
 ## Lifecycle
 
-Either party creates photos; that is the whole lifecycle.
+Either party adds photos; the resident hands theirs over once. That is the whole lifecycle.
 
 1. A residency with an assigned room gets its move-in and move-out reports the first time anyone opens the row, from either portal.
 2. Manager and resident each add photos and optional notes to their own side, saved automatically.
-3. A move-out report carries its residency's move-in report as the comparison baseline.
-4. Nothing freezes, locks or completes. Every photo records who uploaded it and when, and the PDF prints that attribution — which is what a deposit dispute actually rests on.
+3. The resident may **Submit photos** once they have added at least one. That closes THEIR side (`document.residentSubmission`) — `assertInspectionWritable` refuses their saves, uploads and removals on the server, not merely in the UI. Only a manager clears it, with **Allow changes**. The manager's own side never closes, and neither action is permanent.
+4. A move-out report carries its residency's move-in report as the comparison baseline.
+5. Nothing else freezes, locks or completes. Every photo records who uploaded it and when, and the PDF prints that attribution — which is what a deposit dispute actually rests on.
 
 Reports filed under the earlier submit → confirm → approve flow keep their photos, notes, acknowledgment record and history, and are editable again.
 
@@ -37,9 +40,9 @@ Uploads use `useNativeCamera`; PDF downloads use `downloadBlobFile`, giving Capa
 
 ## Assistant and observability
 
-Both role registries expose `list_inspections`, `get_inspection`, `open_inspection`, `save_inspection_observations`, and `file_inspection_photo`. `open_inspection` is idempotent: it returns the residency's existing report or creates it. Writes use `defineWriteTool`, full previews, server revalidation, and the existing confirmation/audit pipeline. Notes are explicitly untrusted data. No new inline writes or assistant surface exist; existing Langfuse tracing covers the new tools. Portal chat photos are retained in the private inbox bucket, and verified resident MMS accepts bounded Twilio media with credential-free CDN redirects. Inbox assistant threads expose only the sender’s structured attachment references. The photo-filing tool rechecks ownership, report revision and section, requires a preview/confirmation, and deduplicates the same source on the same contributor/section. Chat retains source context across clarification turns, including temporary conversations. An image never sets a condition rating.
+Both role registries expose `list_inspections`, `get_inspection`, `open_inspection`, `save_inspection_observations`, and `file_inspection_photo`. Submitting is deliberately not a tool: it is the one thing a resident hands over, so it is taken from a button they pressed, never from a chat turn. `open_inspection` is idempotent: it returns the residency's existing report or creates it. Writes use `defineWriteTool`, full previews, server revalidation, and the existing confirmation/audit pipeline. Notes are explicitly untrusted data. No new inline writes or assistant surface exist; existing Langfuse tracing covers the new tools. Portal chat photos are retained in the private inbox bucket, and verified resident MMS accepts bounded Twilio media with credential-free CDN redirects. Inbox assistant threads expose only the sender’s structured attachment references. The photo-filing tool rechecks ownership, report revision and section, requires a preview/confirmation, and deduplicates the same source on the same contributor/section. Chat retains source context across clarification turns, including temporary conversations. An image never sets a condition rating.
 
-The PostHog outcome is `inspection_created` (ids/enums only); `inspection_submitted` and `inspection_completed` retired with the review lifecycle. Controls use `data-attr`; notes are excluded from autocapture.
+PostHog outcomes are `inspection_created`, `inspection_submitted` and `inspection_reopened` (ids/enums only); `inspection_completed` retired with the review lifecycle. Controls use `data-attr`; notes are excluded from autocapture.
 
 ## Validation
 
@@ -49,6 +52,8 @@ Apply `supabase/migrations/20260905193000_resident_inspections.sql` before deplo
 
 ## Requirements and reminders
 
-Reminders watch PHOTOS, not a workflow. Around each move date, every residency with an assigned room gets a resident notice until that resident has added their first photo, and the manager gets one while nobody at all has photographed the room. The per-room "inspection required" toggle marks an inspection mandatory (it rides along in the payload as `required`) but no longer decides who is reminded — it is off by default, so gating on it meant almost nobody was ever asked. Queue keys include date/room versions; delivery rechecks ownership, current placement, dates and photos. Moving rooms, changing the date or adding the photo cancels stale notices. Both new reminder kinds use the shared automation settings and inbox/email channels.
+Each listing declares which inspections it requires **per lease type** (`inspectionsByLeaseType`, edited as a matrix beside Payment at signing in the listing form): a three-night stay and a twelve-month lease rarely need the same evidence. Per-room requirements are independent, and `residencyInspectionRequirements` unions the two — either source obliges. An unnamed lease term requires nothing rather than everything, because an obligation is never inferred from a blank field.
+
+Reminders watch PHOTOS, not a workflow. Around each move date, every residency with an assigned room gets a resident notice until that resident has added their first photo, and the manager gets one while nobody at all has photographed the room. A requirement — from the room or from the lease type — marks an inspection mandatory (it rides along in the payload as `required`) but no longer decides who is reminded — it is off by default, so gating on it meant almost nobody was ever asked. Queue keys include date/room versions; delivery rechecks ownership, current placement, dates and photos. Moving rooms, changing the date or adding the photo cancels stale notices. Both new reminder kinds use the shared automation settings and inbox/email channels.
 
 Apply `20260906060000_inspection_reminder_kinds.sql` before enabling those reminders. The migration is applied to dev/test; staging and production require the normal release ladder. Additional coverage: `inspection-reminders`, `inspection-attachment-intake`, `assistant-inspection-photo-clarification`, and `resident-inbox-agent` unit suites.

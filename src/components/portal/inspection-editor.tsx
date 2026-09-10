@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { NativeSelect, Textarea } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
-import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
+import { PortalPageFooterActions, PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { useNativeCamera, type CapturedPhoto, type PhotoCaptureSource } from "@/lib/native/use-native-camera";
 import { inspectionDraftKey, appendUnsentRecovery, discardInspectionDraft, retainInspectionDraft, peekInspectionDraft, takeInspectionDraft, type InspectionEditorDraft, type InspectionEditorSnapshot } from "@/lib/inspections/editor-drafts";
@@ -67,7 +67,7 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const [activeAreaId, setActiveAreaId] = useState<string | null>(null);
   /** Which section the source sheet is shooting into. Null only for a legacy multi-item form. */
   const [uploadArea, setUploadArea] = useState<string | null>(null);
-  const [documentOpen, setDocumentOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [uploadSourceOpen, setUploadSourceOpen] = useState(false);
   const [choosePhoto, setChoosePhoto] = useState(false);
   const [photoSource, setPhotoSource] = useState<PhotoCaptureSource | null>(null);
@@ -82,13 +82,17 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   const { capture } = useNativeCamera();
   const { report, baseline, canEdit } = detail;
   const dirty = JSON.stringify(observations(detail, role)) !== saved;
-  // There is no locked state: a report stays open to both parties for as long as the
-  // residency is theirs. Read-only means the VIEWER cannot edit (a co-manager with read
-  // access), never that the report itself was closed by a review step.
-  const editable = canEdit;
+  // The manager's side is always open. The resident's closes when they submit, and only a
+  // manager reopens it — read-only otherwise means the VIEWER cannot edit at all (a
+  // co-manager holding a read grant).
+  const submission = report.document.residentSubmission ?? null;
+  const submittedByResident = Boolean(submission);
+  const editable = canEdit && !(role === "resident" && submittedByResident);
   const roomAreas = report.document.roomScope ? report.document.areas : report.document.areas.filter(area => area.id === "area-0");
   const activeArea = roomAreas.find(a => a.id === activeAreaId);
   const photoCount = report.document.areas.flatMap(a => a.items).reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
+  /** Submitting hands over YOUR photos, so the manager's do not enable the button. */
+  const ownPhotoCount = report.document.areas.flatMap(a => a.items).reduce((n, item) => n + item[role].photos.length, 0);
   const baselineItems = new Map(baseline?.document.areas.flatMap(a => a.items).map(i => [i.id, i]) ?? []);
   // Baseline evidence with no counterpart in this report — a legacy 15-area move-in,
   // or a room section (furniture, ensuite) the listing has since dropped. It stays
@@ -227,11 +231,19 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
   });
   const back = () => {
     if (busy) return;
-    if (documentOpen) { setDocumentOpen(false); return; }
     if (activeArea) { setActiveAreaId(null); return; }
     if (pendingPhoto) { leaveHref.current = null; setConfirm("leave"); return; }
     void run(async () => { await save(); onBack(); });
   };
+  const changeSubmission = (action: "submit" | "reopen") => run(async () => {
+    const current = await save();
+    accept(await inspectionRequest<InspectionDetail>(role, `/${report.id}/submission`, {
+      method: "POST", body: JSON.stringify({ revision: current.report.revision, action }),
+    }));
+    setSelected(new Set());
+    // Submitting already has a standing line of its own; only the reopen needs announcing.
+    setNotice(action === "submit" ? "" : "Reopened. The resident can add photos again.");
+  });
   const confirmAction = () => run(async () => {
     if (confirm === "leave") { discardConfirmed.current = true; if (leaveHref.current) window.location.assign(leaveHref.current); else onBack(); return; }
     if (confirm === "reload") { accept(await inspectionRequest<InspectionDetail>(role, `/${report.id}`)); setConfirm(null); return; }
@@ -246,11 +258,6 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     {hasObservation(item[role === "manager" ? "resident" : "manager"]) && <div className="border-t border-border pt-4"><ReadObservation label={role === "manager" ? "Resident observations" : "Manager observations"} value={item[role === "manager" ? "resident" : "manager"]} /></div>}
     {baselineItems.has(item.id) && <details className="rounded-xl border border-border bg-card/30 p-4"><summary className="cursor-pointer text-sm font-medium">Move-in photos and notes · {baseline?.inspection_date}</summary><div className="mt-4 space-y-5"><ReadObservation label="Move-in / resident" value={baselineItems.get(item.id)!.resident} /><ReadObservation label="Move-in / manager" value={baselineItems.get(item.id)!.manager} /></div></details>}
   </div>;
-  const renderDocument = () => <article className="mx-auto max-w-4xl space-y-7 rounded-2xl border border-border bg-card p-5 sm:p-10" data-attr="inspection-document-preview">
-    <div className="text-center"><h2 className="font-serif text-2xl font-bold">ROOM CONDITION REPORT</h2><p className="mt-3 text-sm text-muted">{report.kind === "move-in" ? "Move-in" : "Move-out"} · {inspectionRoomLabel(report.room_label)} · {report.inspection_date}</p><p className="mt-2 text-sm text-muted">{report.resident_name} · {report.property_label}</p></div>
-    {report.document.areas.map(area => <section key={area.id} className="space-y-4 border-t border-border pt-5"><h3 className="font-serif text-lg font-bold">{area.label}</h3>{area.items.map(item => <div key={item.id} className="space-y-4">{area.items.length > 1 && <h4 className="text-sm font-semibold">{item.label}</h4>}{(["resident", "manager"] as const).map(side => hasObservation(item[side]) ? <ReadObservation key={side} label={side === "resident" ? "Resident" : "Manager"} value={item[side]} /> : null)}{!hasObservation(item.resident) && !hasObservation(item.manager) && <p className="text-sm text-muted">No photos or condition statement recorded.</p>}</div>)}</section>)}
-    <p className="border-t border-border pt-5 text-sm text-muted">Every photo records who added it and when. This document is a record of condition; it is not a statement about charges or liability.</p>
-  </article>;
   const itemLabels = new Map(report.document.areas.flatMap(a => a.items).map(i => [i.id, i.label]));
   // Only what the server never acknowledged. Each bucket carries the snapshot the
   // server had accepted at the time, so an observation matching it IS in the report
@@ -306,28 +313,37 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     : unsentPhotos.length > 0
       ? `${unsentLead} It is kept below under "Unsent notes and photos from this device" — save any photo to your device before discarding it.`
       : `${unsentLead} It is kept below under "Unsent notes and photos from this device".`;
-  // A report is never closed by a review step, so the only reason it does not take an
-  // edit is the VIEWER's access — a co-manager granted read without edit.
-  const readOnlyNotice = "You have read-only access to this report.";
+  // Two different read-only reasons, and telling them apart matters: a resident who
+  // submitted can get their side back by asking, while a co-manager on a read grant cannot.
+  const readOnlyNotice = role === "resident" && submittedByResident
+    ? "You submitted these photos. Ask your manager to reopen the report to add more."
+    : "You have read-only access to this report.";
   const areaCount = (area: InspectionArea) => area.items.reduce((n, item) => n + item.manager.photos.length + item.resident.photos.length, 0);
-  const backLabel = documentOpen || activeArea ? "Back to room sections" : "Back to inspections";
+  const backLabel = activeArea ? "Back to room sections" : "Back to inspections";
+  const selectedAreas = roomAreas.filter(area => selected.has(area.id));
   return <div className="min-w-0 space-y-5" data-attr="inspection-editor">
-    <PortalDetailHeader bare hideBackText title={documentOpen ? "Inspection document" : activeArea?.label ?? report.resident_name} subtitle={`${inspectionRoomLabel(report.room_label) || "Assigned room"} · ${report.property_label}`} avatarName={!activeArea && !documentOpen ? report.resident_name : undefined} onBack={back} backLabel={backLabel} dataAttrBack="inspection-back" />
-    <div className="flex flex-wrap items-center gap-3 px-2 text-sm text-muted"><span>{report.kind === "move-in" ? "Move-in" : "Move-out"} · {report.inspection_date}</span><Badge tone={photoCount ? "success" : "warning"}>{photoCount ? `${photoCount} photo${photoCount === 1 ? "" : "s"}` : "Needs photos"}</Badge><span role="status" className="ml-auto">{busy ? "Saving…" : dirty ? "Changes waiting to save" : editable ? "Photos and notes save automatically" : "Read-only"}</span></div>
+    {/* The type, the date and the room say everything the old meta row and its paragraph of
+        instructions said, in the place a person already reads. */}
+    <PortalDetailHeader bare hideBackText title={activeArea?.label ?? report.resident_name} subtitle={`${report.kind === "move-in" ? "Move-in" : "Move-out"} · ${inspectionRoomLabel(report.room_label) || "Assigned room"} · ${report.property_label}`} avatarName={!activeArea ? report.resident_name : undefined} onBack={back} backLabel={backLabel} dataAttrBack="inspection-back" />
+    {(busy || dirty || submittedByResident) && <p role="status" className="px-2 text-sm text-muted">{busy ? "Saving…" : dirty ? "Changes waiting to save" : role === "resident" ? "Submitted. Ask your manager to reopen this to add more." : `Resident submitted ${new Date(submission!.at).toLocaleDateString()}.`}</p>}
     {error && <p role="alert" className="rounded-xl border border-border p-3 text-sm">{error} {dirty ? "Your unsaved notes remain here." : ""}</p>}
     {notice && <p role="status" className="px-2 text-sm text-muted">{notice}</p>}
     {unsentRecoveryMessage && <p role="status" className="rounded-xl border border-border p-3 text-sm" data-attr="inspection-unsent-notice">{unsentRecoveryMessage}</p>}
     {pendingPhoto && <div className="flex items-center gap-4 rounded-xl border border-border p-3"><Image src={pendingPhoto.photo.previewUrl} unoptimized width={96} height={72} alt="Photo waiting to upload" className="ph-no-capture ph-no-record h-18 w-24 rounded-lg object-cover" /><p className="text-sm text-muted">{busy ? "Uploading photo…" : editable ? "This photo has not uploaded. Use Retry upload below." : "This photo has not uploaded and this report can no longer be edited."}</p></div>}
-    {documentOpen ? renderDocument() : activeArea ? <div className="space-y-4 px-2">{activeArea.items.map(renderItem)}</div> : <div>
-      <p className="px-2 pb-4 text-sm text-muted">{editable
-        ? "Photograph the assigned room section by section. Tap the camera on a section, or open it to add a note. Everything saves automatically."
-        : `Open a section to read its photos and notes. ${readOnlyNotice}`}</p>
-      {roomAreas.map(area => <div key={area.id} className="flex min-h-24 items-center gap-3 border-b border-b-border px-3 py-5" data-attr="inspection-section-row">
+    {activeArea ? <div className="space-y-4 px-2">{activeArea.items.map(renderItem)}</div> : <div>
+      {!editable && <p className="px-2 pb-4 text-sm text-muted">Open a section to read its photos and notes. {readOnlyNotice}</p>}
+      {roomAreas.map(area => <div key={area.id} className={`flex min-h-24 items-center gap-3 border-b border-l-2 border-b-border px-3 py-5 ${selected.has(area.id) ? "border-l-primary bg-primary/5" : "border-l-transparent"}`} data-attr="inspection-section-row">
+        {editable && <input type="checkbox" className="h-4 w-4 shrink-0 accent-primary" aria-label={`Select ${area.label}`} checked={selected.has(area.id)} onChange={e => setSelected(current => { const next = new Set(current); if (e.target.checked) next.add(area.id); else next.delete(area.id); return next; })} />}
         <button className="min-w-0 flex-1 text-left" onClick={() => setActiveAreaId(area.id)} data-attr="inspection-area-open"><span className="flex items-center gap-2 text-base font-semibold">{area.label}<ChevronRight className="h-4 w-4 text-muted" /></span><span className="mt-1 block text-sm text-muted">{areaCount(area) ? `${areaCount(area)} photo${areaCount(area) === 1 ? "" : "s"}` : "No photos yet"}</span></button>
         {/* The camera belongs on the section, not behind a section picker: this row IS the
             answer to "which section", so tapping it only leaves the source to choose. */}
         {editable && <Button variant="outline" className="shrink-0" disabled={busy} aria-label={`Add photos to ${area.label}`} onClick={() => startUpload(area.id)} data-attr="inspection-section-photo-add"><Camera className="h-4 w-4" /></Button>}
       </div>)}
+      {selectedAreas.length > 0 && <PortalSectionActionRow variant="header">
+        <Button disabled={busy} onClick={() => startUpload(selectedAreas.length === 1 ? selectedAreas[0]!.id : undefined)} data-attr="inspection-bulk-photo-add"><Camera className="h-4 w-4" />Add photos to {selectedAreas.length} section{selectedAreas.length === 1 ? "" : "s"}</Button>
+        <Button variant="outline" disabled={busy || selectedAreas.length !== 1} onClick={() => setActiveAreaId(selectedAreas[0]!.id)} data-attr="inspection-bulk-open">Open</Button>
+        <Button variant="ghost" disabled={busy} onClick={() => setSelected(new Set())} data-attr="inspection-bulk-clear">Clear</Button>
+      </PortalSectionActionRow>}
     </div>}
     {hasUnsentMaterial && <PortalCollapsibleSection title="Unsent notes and photos from this device" defaultExpanded={unsentPhotos.length > 0}>
       <p className="pb-3 text-sm text-muted">These never reached the server, so they are <strong>not part of the report</strong> above.{editable ? " Reopening the report did not add them — retype anything you still want recorded." : ""} Keep anything you still need, then discard them.</p>
@@ -351,11 +367,13 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
     </PortalCollapsibleSection>}
     <PortalCollapsibleSection title="Record history" defaultExpanded={false}>{report.document.history.map((event, i) => <p key={i} className="py-1 text-xs text-muted">{new Date(event.at).toLocaleString()} · {event.role} · {event.action}</p>)}</PortalCollapsibleSection>
     <PortalPageFooterActions pinned rowVariant="header">
-      <Button variant="outline" aria-label={documentOpen ? "Download PDF" : "View document"} disabled={busy} onClick={() => documentOpen ? run(async () => { await save(); await downloadInspection(role, report.id); }) : setDocumentOpen(true)} data-attr="inspection-download"><FileText className="h-4 w-4" /><span className="hidden sm:inline">{documentOpen ? "Download PDF" : "View document"}</span></Button>
+      <Button variant="outline" aria-label="Download PDF" disabled={busy} onClick={() => run(async () => { await save(); await downloadInspection(role, report.id); })} data-attr="inspection-download"><FileText className="h-4 w-4" /><span className="hidden sm:inline">Download PDF</span></Button>
       {editable && !pendingPhoto && <Button disabled={busy} aria-label="Add photos" onClick={() => startUpload()} data-attr="inspection-photo-add"><Camera className="h-4 w-4" /><span>Add photos</span></Button>}
       {pendingPhoto && <>{editable && <Button variant="outline" disabled={busy} onClick={() => run(() => sendPhoto(pendingPhoto.itemId, pendingPhoto.photo))} data-attr="inspection-photo-retry">Retry upload</Button>}<Button variant="ghost" disabled={busy} onClick={() => { URL.revokeObjectURL(pendingPhoto.photo.previewUrl); setPendingPhoto(null); }} data-attr="inspection-photo-discard">Remove</Button></>}
       {error && dirty && editable && !pendingPhoto && <Button variant="outline" disabled={busy} onClick={() => run(async () => { await save(); })} data-attr="inspection-save-retry">Retry save</Button>}
       {error && <Button variant="ghost" disabled={busy} onClick={() => setConfirm("reload")} data-attr="inspection-conflict-review">Review latest</Button>}
+      {role === "resident" && canEdit && !submittedByResident && !pendingPhoto && <Button disabled={busy || ownPhotoCount === 0} onClick={() => changeSubmission("submit")} data-attr="inspection-resident-submit">Submit photos</Button>}
+      {role === "manager" && canEdit && submittedByResident && <Button disabled={busy} onClick={() => changeSubmission("reopen")} data-attr="inspection-resident-reopen">Allow changes</Button>}
     </PortalPageFooterActions>
     <Modal open={uploadSourceOpen} onClose={() => { if (!busy) setUploadSourceOpen(false); }} dismissBlocked={busy} title="Add photos" assistantStrip={false}>
       <div className="grid gap-2 sm:grid-cols-2">
@@ -363,7 +381,7 @@ export function InspectionEditor({ initial, role, userId, onBack, onChanged }: {
         <Button variant="outline" className="h-auto min-h-12 justify-start px-4 py-3 text-left" disabled={busy} onClick={() => pickUploadSource("camera")} data-attr="inspection-upload-camera">Use camera</Button>
       </div>
     </Modal>
-    <Modal open={choosePhoto} onClose={() => { if (!busy) { setChoosePhoto(false); setPhotoSource(null); } }} dismissBlocked={busy} title="Add photos to a section" assistantStrip={false}><div className="space-y-2">{(roomAreas.filter(area => area.id === uploadArea).length ? roomAreas.filter(area => area.id === uploadArea) : activeArea ? [activeArea] : roomAreas).map(area => <div key={area.id}><h3 className="py-2 text-sm font-semibold">{area.label}</h3>{area.items.map(item => <Button key={item.id} variant="outline" className="mb-2 w-full justify-between" disabled={busy || !photoSource} onClick={() => photoSource && upload(item.id, photoSource)} data-attr="inspection-upload-section">{item.label}<Camera className="h-4 w-4" /></Button>)}</div>)}</div></Modal>
+    <Modal open={choosePhoto} onClose={() => { if (!busy) { setChoosePhoto(false); setPhotoSource(null); } }} dismissBlocked={busy} title="Add photos to a section" assistantStrip={false}><div className="space-y-2">{(roomAreas.filter(area => area.id === uploadArea).length ? roomAreas.filter(area => area.id === uploadArea) : activeArea ? [activeArea] : selectedAreas.length ? selectedAreas : roomAreas).map(area => <div key={area.id}><h3 className="py-2 text-sm font-semibold">{area.label}</h3>{area.items.map(item => <Button key={item.id} variant="outline" className="mb-2 w-full justify-between" disabled={busy || !photoSource} onClick={() => photoSource && upload(item.id, photoSource)} data-attr="inspection-upload-section">{item.label}<Camera className="h-4 w-4" /></Button>)}</div>)}</div></Modal>
     <Modal open={confirm !== null} onClose={() => { if (!busy) setConfirm(null); }} dismissBlocked={busy} title={confirm === "leave" ? "Leave without saving?" : "Review the latest saved report?"} assistantStrip={false} footer={<Button disabled={busy} onClick={confirmAction} data-attr="inspection-confirm">{confirm === "leave" ? "Discard and leave" : "Review latest"}</Button>}>
       <p className="text-sm text-muted">{confirm === "leave" ? "Unsaved notes and pending uploads will be discarded. Saved photos and notes remain." : "Unsaved notes will be discarded. Your pending photo is kept — retry its upload once the latest report has loaded."}</p>
       {error && <p role="alert" className="mt-3 text-sm">{error}</p>}
