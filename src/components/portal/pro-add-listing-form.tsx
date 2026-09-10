@@ -223,7 +223,12 @@ import {
   wizardSectionErrorClass,
 } from "@/lib/wizard-field-errors";
 import { LEASE_TERM_CHOICES } from "@/lib/rental-application/lease-terms";
-import { AIRBNB_LEASE_TERM, CUSTOM_LEASE_TERM, SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import {
+  AIRBNB_LEASE_TERM,
+  CUSTOM_LEASE_TERM,
+  LONG_TERM_LEASE_TERM,
+  SHORT_TERM_LEASE_TERM,
+} from "@/lib/rental-application/lease-terms";
 import { usePortalContainer } from "@/components/ui/portal-container-context";
 import { useConfirm } from "@/components/providers/app-ui-provider";
 
@@ -673,12 +678,27 @@ function ProrationMethodFields({
  * listing there is nothing to distinguish it FROM, and a lone "Long-term" heading
  * over the only pricing on the page is noise.
  */
-function LongTermRentSection({ heading, children }: { heading: boolean; children: ReactNode }) {
-  if (!heading) return <>{children}</>;
+function LongTermRentSection({
+  heading,
+  children,
+  footer,
+}: {
+  heading: boolean;
+  children: ReactNode;
+  footer?: ReactNode;
+}) {
+  if (!heading)
+    return (
+      <>
+        {children}
+        {footer}
+      </>
+    );
   return (
     <div className="w-full rounded-lg border border-dashed border-border bg-accent/10 p-3">
       <FieldLabel hint="Monthly rate, billed with utilities and fees.">Long-term</FieldLabel>
-      <div className="mt-1 flex w-full flex-wrap items-end gap-x-4 gap-y-2">{children}</div>
+      <div className={cn("mt-1", ROOM_PRICE_GRID)}>{children}</div>
+      {footer}
     </div>
   );
 }
@@ -701,6 +721,7 @@ function ShortTermRentSection({
   rentInvalid,
   showMoveInFee = true,
   extraFields,
+  footer,
 }: {
   labelFor?: string;
   rent: string;
@@ -714,12 +735,14 @@ function ShortTermRentSection({
   showMoveInFee?: boolean;
   /** Extra rates that belong to this term — the room's week and day prices. */
   extraFields?: ReactNode;
+  /** Fees charged only on this term. */
+  footer?: ReactNode;
 }) {
   const suffix = labelFor ? ` for ${labelFor}` : "";
   return (
     <div className="w-full rounded-lg border border-dashed border-border bg-accent/10 p-3">
       <FieldLabel hint="All-in nightly rate — no separate utilities.">Short-term</FieldLabel>
-      <div className="mt-1 flex flex-wrap items-end gap-x-4 gap-y-2">
+      <div className={cn("mt-1", ROOM_PRICE_GRID)}>
         <GridField>
           <FieldLabel>Rent / night</FieldLabel>
           <MoneyInput
@@ -752,6 +775,7 @@ function ShortTermRentSection({
           />
         </GridField>
       </div>
+      {footer}
     </div>
   );
 }
@@ -765,20 +789,98 @@ function ShortTermRentSection({
  * so the number here is the number the ledger bills. Any surcharge the listing carries for
  * the term is named either way, because that IS the difference when the prices match.
  */
+/**
+ * One column width for every price field on a room (PRP-463). Fields sit side by side at
+ * a consistent narrow width and wrap when they run out of room, instead of a Select
+ * stretching across the row and pushing everything below it down a line.
+ */
+/**
+ * Fees that belong to ONE room on ONE lease type, edited where they apply (PRP-463).
+ *
+ * These are ordinary custom fees — the same rows the Other fees table shows — simply
+ * filtered to this room and this term and opened here, so a manager pricing a room for
+ * short stays can add the cleaning fee that only short stays pay without leaving the row.
+ * Scope is written as a real narrowing on both axes, never the full list, so the fee keeps
+ * meaning THIS room and THIS term when another of either is added.
+ */
+function LeaseTermFeeRows({
+  roomId,
+  term,
+  fees,
+  onChange,
+  onRemove,
+  onAdd,
+}: {
+  roomId: string;
+  term: string;
+  fees: { fee: ManagerCustomFeeRow; index: number }[];
+  onChange: (index: number, patch: Partial<ManagerCustomFeeRow>) => void;
+  onRemove: (index: number) => void;
+  onAdd: () => void;
+}) {
+  return (
+    <div className="w-full border-t border-border/60 pt-2">
+      {fees.map(({ fee, index }) => (
+        <div key={fee.id} className="mb-2 flex flex-wrap items-end gap-2">
+          <Input
+            className="h-9 w-full max-w-[13rem] text-sm"
+            value={fee.label}
+            onChange={(e) => onChange(index, { label: e.target.value })}
+            placeholder="Fee name"
+            aria-label={`${term} fee name for room ${roomId}`}
+          />
+          <MoneyInput
+            ariaLabel={`${term} fee amount for room ${roomId}`}
+            value={fee.amount.replace(/^\$/, "").trim()}
+            onChange={(e) => onChange(index, { amount: sanitizeMoneyInput(e.target.value) })}
+            placeholder="0"
+            className="max-w-[7.5rem]"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 rounded-lg px-2.5 text-xs"
+            onClick={() => onRemove(index)}
+            aria-label={`Remove ${fee.label.trim() || "fee"}`}
+          >
+            Remove
+          </Button>
+        </div>
+      ))}
+      <Button
+        type="button"
+        variant="outline"
+        className="rounded-full text-xs"
+        onClick={onAdd}
+        data-attr="listing-term-add-fee"
+      >
+        + Add fee
+      </Button>
+    </div>
+  );
+}
+
+const ROOM_PRICE_GRID = "grid w-full grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] items-end gap-x-4 gap-y-3";
+
 function LeaseTypePricingSection({
   term,
   longTermRent,
   longTermDeposit,
+  longTermUtilities,
   surcharge,
   price,
   onChange,
+  footer,
 }: {
   term: string;
   longTermRent: number;
   longTermDeposit: string;
+  longTermUtilities: string;
   surcharge?: string;
   price: ManagerRoomTermPrice | undefined;
   onChange: (next: ManagerRoomTermPrice | undefined) => void;
+  /** Fees charged only on this term. */
+  footer?: ReactNode;
 }) {
   const sameAsLongTerm = price === undefined;
   const money = (n: number) => `$${n.toLocaleString("en-US")}`;
@@ -821,7 +923,7 @@ function LeaseTypePricingSection({
           {surchargeAmount ? <> · plus the {term.toLowerCase()} surcharge of ${surchargeAmount}/mo</> : null}
         </p>
       ) : (
-        <div className="mt-1 flex flex-wrap items-end gap-x-4 gap-y-2">
+        <div className={cn("mt-1", ROOM_PRICE_GRID)}>
           <GridField>
             <FieldLabel>Monthly rent</FieldLabel>
             <MoneyInput
@@ -842,6 +944,15 @@ function LeaseTypePricingSection({
               placeholder={longTermDeposit.replace(/^\$/, "").trim() || "1000"}
             />
           </GridField>
+          <GridField>
+            <FieldLabel>Utilities / mo</FieldLabel>
+            <MoneyInput
+              ariaLabel={`${term} monthly utilities`}
+              value={(price?.utilitiesEstimate ?? "").replace(/^\$/, "").trim()}
+              onChange={(e) => onChange({ ...price, utilitiesEstimate: sanitizeMoneyInput(e.target.value) })}
+              placeholder={longTermUtilities.replace(/^\$/, "").trim() || "150"}
+            />
+          </GridField>
           {surchargeAmount ? (
             <p className="w-full text-xs text-muted">
               The {term.toLowerCase()} surcharge of ${surchargeAmount}/mo still applies on top.
@@ -849,6 +960,7 @@ function LeaseTypePricingSection({
           ) : null}
         </div>
       )}
+      {footer}
     </div>
   );
 }
@@ -2790,14 +2902,6 @@ export function ManagerAddListingForm({
   };
 
   /**
-   * Add a fee that applies to one room only (PRP-463).
-   *
-   * The same custom fee every other fee is — it simply arrives pre-scoped to this room,
-   * so a manager pricing a room does not have to add the fee in the table above and then
-   * come back to narrow it. `roomIds` is a real narrowing here, never the whole list, so
-   * it keeps meaning THIS room when another is added later.
-   */
-  /**
    * Set (or clear) one room's price for one lease type. Clearing removes the entry
    * entirely rather than writing zeros, because absence is what "same as Long-term"
    * means to `resolveStayPricing`.
@@ -2813,7 +2917,10 @@ export function ManagerAddListingForm({
       if (!room) return s;
       const table = { ...(room.termPricing ?? {}) };
       const meaningful =
-        next && ((next.monthlyRent ?? 0) > 0 || (next.securityDeposit ?? "").trim().length > 0);
+        next &&
+        ((next.monthlyRent ?? 0) > 0 ||
+          (next.securityDeposit ?? "").trim().length > 0 ||
+          (next.utilitiesEstimate ?? "").trim().length > 0);
       if (next === undefined) delete table[term];
       else if (!meaningful) table[term] = {};
       else table[term] = next;
@@ -2825,9 +2932,23 @@ export function ManagerAddListingForm({
     });
   };
 
-  const addRoomScopedFee = (roomId: string) => {
-    const next = { ...emptyCustomFeeRow(), roomIds: [roomId] };
-    expandListingItem(listingItemKey("fee", next.id));
+  /** Fees narrowed to exactly this room AND this lease type. */
+  const roomTermFees = (roomId: string, term: string) =>
+    (sub.customFees ?? [])
+      .map((fee, index) => ({ fee, index }))
+      .filter(({ fee }) => {
+        const presetId = (fee as { presetId?: string }).presetId;
+        if (presetId && presetId !== "custom") return false;
+        return (fee.roomIds ?? []).includes(roomId) && (fee.leaseTypes ?? []).includes(term);
+      });
+
+  /**
+   * Open a fee where it applies. It is an ordinary custom fee — the same row the Other
+   * fees table shows — pre-scoped to this room and this term, so a manager pricing a room
+   * for short stays adds the cleaning fee only short stays pay without leaving the row.
+   */
+  const addRoomTermFee = (roomId: string, term: string) => {
+    const next = { ...emptyCustomFeeRow(), roomIds: [roomId], leaseTypes: [term] };
     setSub((s) => ({ ...s, customFees: [...(s.customFees ?? []), next] }));
   };
 
@@ -3976,10 +4097,25 @@ export function ManagerAddListingForm({
               hasError: Boolean(roomRentErr || roomDailyRentErr || roomWeeklyRentErr || stepFieldErrors.monthlyRent),
               toggleDataAttr: `listing-room-price-toggle-${room.id}`,
               detail: (
-                <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                // The lease-type blocks stack full width; the compact side-by-side grid is
+                // INSIDE each one. Putting the blocks themselves in that grid turned each
+                // lease type into an 11rem column and staggered them down the page.
+                <div className="flex w-full flex-col gap-3">
                   {/* Two labelled halves when the listing offers both, so a
                       manager can see which rate they are typing (PRP-146). */}
-                  <LongTermRentSection heading={roomPricingSectionCount > 1}>
+                  <LongTermRentSection
+                    heading={roomPricingSectionCount > 1}
+                    footer={
+                      <LeaseTermFeeRows
+                        roomId={room.id}
+                        term={LONG_TERM_LEASE_TERM}
+                        fees={roomTermFees(room.id, LONG_TERM_LEASE_TERM)}
+                        onChange={(idx, patch) => setCustomFee(idx, patch)}
+                        onRemove={removeCustomFee}
+                        onAdd={() => addRoomTermFee(room.id, LONG_TERM_LEASE_TERM)}
+                      />
+                    }
+                  >
                   <GridField>
                     <FieldLabel>Monthly rent *</FieldLabel>
                     <div data-wizard-field={roomRentKey}>
@@ -4008,9 +4144,7 @@ export function ManagerAddListingForm({
                     room's whole price now opens from its one row here.
                   */}
                   <GridField>
-                    <FieldLabel hint="Flexible lists the same rent and lets a prospect propose another amount in Communication; you are asked before anything changes.">
-                      Pricing mode
-                    </FieldLabel>
+                    <FieldLabel>Pricing mode</FieldLabel>
                     <Select
                       aria-label={`Pricing mode for ${roomLabel}`}
                       className={selectInputCls}
@@ -4076,20 +4210,6 @@ export function ManagerAddListingForm({
                     />
                   </div>
                   </LongTermRentSection>
-                  <div className="w-full">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="rounded-full text-xs"
-                      onClick={() => addRoomScopedFee(room.id)}
-                      data-attr="listing-room-add-fee"
-                    >
-                      + Add a fee for {roomLabel}
-                    </Button>
-                    <p className="mt-1 text-xs text-muted">
-                      Adds a row to Other fees already scoped to this room. Name it and price it there.
-                    </p>
-                  </div>
                   {/*
                     One block per lease type the listing offers (PRP-463). Long-term is
                     priced above; month-to-month and custom leases bill those same figures,
@@ -4102,8 +4222,19 @@ export function ManagerAddListingForm({
                       longTermRent={room.monthlyRent}
                       longTermDeposit={room.securityDeposit ?? ""}
                       surcharge={sub.monthToMonthSurcharge}
+                      longTermUtilities={room.utilitiesEstimate ?? ""}
                       price={room.termPricing?.["Month-to-Month"]}
                       onChange={(next) => setRoomTermPrice(i, "Month-to-Month", next)}
+                      footer={
+                        <LeaseTermFeeRows
+                          roomId={room.id}
+                          term={"Month-to-Month"}
+                          fees={roomTermFees(room.id, "Month-to-Month")}
+                          onChange={(idx, patch) => setCustomFee(idx, patch)}
+                          onRemove={removeCustomFee}
+                          onAdd={() => addRoomTermFee(room.id, "Month-to-Month")}
+                        />
+                      }
                     />
                   ) : null}
                   {leaseScopeOptions.includes(CUSTOM_LEASE_TERM) ? (
@@ -4112,8 +4243,19 @@ export function ManagerAddListingForm({
                       longTermRent={room.monthlyRent}
                       longTermDeposit={room.securityDeposit ?? ""}
                       surcharge={sub.customLeaseSurcharge}
+                      longTermUtilities={room.utilitiesEstimate ?? ""}
                       price={room.termPricing?.[CUSTOM_LEASE_TERM]}
                       onChange={(next) => setRoomTermPrice(i, CUSTOM_LEASE_TERM, next)}
+                      footer={
+                        <LeaseTermFeeRows
+                          roomId={room.id}
+                          term={CUSTOM_LEASE_TERM}
+                          fees={roomTermFees(room.id, CUSTOM_LEASE_TERM)}
+                          onChange={(idx, patch) => setCustomFee(idx, patch)}
+                          onRemove={removeCustomFee}
+                          onAdd={() => addRoomTermFee(room.id, CUSTOM_LEASE_TERM)}
+                        />
+                      }
                     />
                   ) : null}
                   {sub.shortTermRentalsAllowed ? (
@@ -4126,6 +4268,16 @@ export function ManagerAddListingForm({
                       onMoveIn={(v) => setRoom(i, { shortTermMoveInFee: v })}
                       onDeposit={(v) => setRoom(i, { shortTermDeposit: v })}
                       showMoveInFee={false}
+                      footer={
+                        <LeaseTermFeeRows
+                          roomId={room.id}
+                          term={SHORT_TERM_LEASE_TERM}
+                          fees={roomTermFees(room.id, SHORT_TERM_LEASE_TERM)}
+                          onChange={(idx, patch) => setCustomFee(idx, patch)}
+                          onRemove={removeCustomFee}
+                          onAdd={() => addRoomTermFee(room.id, SHORT_TERM_LEASE_TERM)}
+                        />
+                      }
                       extraFields={(
                         <>
                   <GridField>
@@ -4223,7 +4375,7 @@ export function ManagerAddListingForm({
             onRemove: () => removeBundle(i),
             toggleDataAttr: `listing-bundle-toggle-${bundle.id}`,
             detail: (
-              <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+              <div className="flex w-full flex-col gap-3">
                 <GridField>
                   <FieldLabel>Bundle name</FieldLabel>
                   <Input
@@ -4232,6 +4384,19 @@ export function ManagerAddListingForm({
                     placeholder="Whole house lease, Rooms A+B"
                   />
                 </GridField>
+                <LongTermRentSection
+                  heading={Boolean(sub.shortTermRentalsAllowed)}
+                  footer={
+                    <LeaseTermFeeRows
+                      roomId={bundle.id}
+                      term={LONG_TERM_LEASE_TERM}
+                      fees={roomTermFees(bundle.id, LONG_TERM_LEASE_TERM)}
+                      onChange={(idx, patch) => setCustomFee(idx, patch)}
+                      onRemove={removeCustomFee}
+                      onAdd={() => addRoomTermFee(bundle.id, LONG_TERM_LEASE_TERM)}
+                    />
+                  }
+                >
                 <GridField>
                   <FieldLabel hint="Defaults to sum of room rents; edit for discounts.">Bundle rent / mo</FieldLabel>
                   <div className="relative">
@@ -4297,6 +4462,7 @@ export function ManagerAddListingForm({
                     ) : null}
                   </div>
                 </GridField>
+                </LongTermRentSection>
                 {sub.shortTermRentalsAllowed ? (
                   <ShortTermRentSection
                     labelFor={bundle.label.trim() || "bundle"}
@@ -4310,6 +4476,17 @@ export function ManagerAddListingForm({
                     }}
                     onMoveIn={(v) => setBundle(i, { shortTermMoveInFee: v })}
                     onDeposit={(v) => setBundle(i, { shortTermDeposit: v })}
+                  
+                    footer={
+                      <LeaseTermFeeRows
+                        roomId={bundle.id}
+                        term={SHORT_TERM_LEASE_TERM}
+                        fees={roomTermFees(bundle.id, SHORT_TERM_LEASE_TERM)}
+                        onChange={(idx, patch) => setCustomFee(idx, patch)}
+                        onRemove={removeCustomFee}
+                        onAdd={() => addRoomTermFee(bundle.id, SHORT_TERM_LEASE_TERM)}
+                      />
+                    }
                   />
                 ) : null}
                 <div className="w-full">
@@ -5197,25 +5374,6 @@ export function ManagerAddListingForm({
                 />
                 </div>
 
-                <div className="mt-4 space-y-2 border-t border-border pt-4">
-                  <FieldLabel optional>Application fee waive code</FieldLabel>
-                  <Input
-                    aria-label="Application fee waive code"
-                    value={sub.applicationFeeWaiverCode ?? ""}
-                    onChange={(e) =>
-                      setSub((s) => ({
-                        ...s,
-                        applicationFeeWaiverCode: e.target.value.toUpperCase(),
-                      }))
-                    }
-                    placeholder="E.G. WELCOME50"
-                    data-attr="listing-application-fee-waiver-code"
-                    className="w-full font-mono uppercase"
-                  />
-                  <p className="text-xs text-muted">
-                    Applicants entering this code apply for free on this listing. Leave empty to turn it off.
-                  </p>
-                </div>
 
                 <div className="mt-4 space-y-3 border-t border-border pt-4">
                   <FieldLabel optional>Payment at signing</FieldLabel>
@@ -5401,11 +5559,6 @@ export function ManagerAddListingForm({
                         />
                         Auto-charge & notify
                       </label>
-                      <p className="mt-2 text-xs text-muted">
-                        Also turn on <span className="font-medium text-foreground">Late fee notices</span> in
-                        Payments → Settings — that account switch gates automatic late fees across listings
-                        (PRP-319).
-                      </p>
                     </GridField>
                   </div>
 
@@ -5488,6 +5641,27 @@ export function ManagerAddListingForm({
                       {stepFieldErrors.serviceFeePayer ? (
                         <p className="text-xs text-destructive">{stepFieldErrors.serviceFeePayer}</p>
                       ) : null}
+                    </GridField>
+                    {/* The two codes a listing carries now sit together, under the fee
+                        each one waives (PRP-463). */}
+                    <GridField>
+                      <FieldLabel optional>Application fee waive code</FieldLabel>
+                      <Input
+                        aria-label="Application fee waive code"
+                        value={sub.applicationFeeWaiverCode ?? ""}
+                        onChange={(e) =>
+                          setSub((s) => ({
+                            ...s,
+                            applicationFeeWaiverCode: e.target.value.toUpperCase(),
+                          }))
+                        }
+                        placeholder="E.G. WELCOME50"
+                        data-attr="listing-application-fee-waiver-code"
+                        className="w-full font-mono uppercase"
+                      />
+                      <p className="mt-1 text-xs text-muted">
+                        Applicants entering this code apply for free on this listing. Leave empty to turn it off.
+                      </p>
                     </GridField>
                   </div>
                 </div>

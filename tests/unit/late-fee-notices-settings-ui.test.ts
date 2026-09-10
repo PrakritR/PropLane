@@ -16,12 +16,16 @@ describe("late fee notices in Payments settings (PRP-319)", () => {
     expect(attrIdx).toBeGreaterThan(compactIdx);
   });
 
-  it("points listing Pricing late fees at Payments → Settings", () => {
+  // The listing keeps its own per-listing switch; the pointer text to Payments → Settings
+  // was struck by the captain (PRP-463) because it repeated on every listing. The account
+  // switch still gates automatic late fees — that is what the first test above pins — so
+  // what is left to protect here is the per-listing control, not the sentence beside it.
+  it("keeps the per-listing automatic late fee switch", () => {
     const src = readFileSync(
       `${process.cwd()}/src/components/portal/pro-add-listing-form.tsx`,
       "utf8",
     );
     expect(src).toContain('data-attr="listing-late-fee-enabled"');
-    expect(src).toMatch(/Payments → Settings/);
+    expect(src).toContain("sub.lateFeeEnabled !== false");
   });
 });

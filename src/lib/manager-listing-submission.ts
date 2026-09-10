@@ -58,6 +58,8 @@ export const PAYMENT_AT_SIGNING_OPTIONS: readonly { id: PaymentAtSigningOptionId
 export type ManagerRoomTermPrice = {
   monthlyRent?: number;
   securityDeposit?: string;
+  /** Monthly utilities estimate for this term, when it differs from long-term. */
+  utilitiesEstimate?: string;
 };
 
 export type ManagerRoomUnavailableRange = {
@@ -2303,6 +2305,11 @@ export function normalizeRoomTermPricing(raw: unknown): Record<string, ManagerRo
     if (Number.isFinite(rent) && rent > 0) entry.monthlyRent = Math.round(rent * 100) / 100;
     const deposit = typeof v.securityDeposit === "string" ? v.securityDeposit.replace(/^\$/, "").trim() : "";
     if (deposit) entry.securityDeposit = deposit;
+    const utils =
+      typeof (v as { utilitiesEstimate?: unknown }).utilitiesEstimate === "string"
+        ? ((v as { utilitiesEstimate: string }).utilitiesEstimate).replace(/^\$/, "").trim()
+        : "";
+    if (utils) entry.utilitiesEstimate = utils;
     if (Object.keys(entry).length > 0) out[term] = entry;
   }
   return Object.keys(out).length > 0 ? out : undefined;

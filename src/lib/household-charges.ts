@@ -1647,6 +1647,14 @@ function selectedRoomUtilities(row: Pick<DemoApplicantRow, "assignedRoomChoice" 
       return { raw: String(totals.monthlyUtilities), amount: totals.monthlyUtilities };
     }
   }
+  // A room may estimate utilities differently for this lease's term (PRP-463). Absent —
+  // every room until a manager unticks "Same as Long-term" — falls through untouched.
+  const term = row.application?.leaseTerm?.trim();
+  const termUtilities = term
+    ? (room as { termPricing?: Record<string, { utilitiesEstimate?: string }> } | undefined)
+        ?.termPricing?.[term]?.utilitiesEstimate?.trim()
+    : undefined;
+  if (termUtilities) return { raw: termUtilities, amount: parseMoneyAmount(termUtilities) };
   const amount = utilitiesBillableMonthlyAmount(sub, room);
   const raw = amount > 0 ? String(amount) : room?.utilitiesEstimate?.trim() || "";
   return { raw, amount };
