@@ -40,6 +40,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
  useAppUi: () => ({ showToast }) }));
 vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false }));
 vi.mock("@/lib/manager-subscription-client", () => ({
+  loadManagerSubscriptionTierClient: vi.fn(async () => "pro"),
   loadManagerPaymentWaiverGrantedClient: vi.fn(async () => false),
 }));
 vi.mock("@/lib/stripe-connect-onboarding-client", () => ({
