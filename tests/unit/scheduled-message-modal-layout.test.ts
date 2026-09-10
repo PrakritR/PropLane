@@ -44,7 +44,10 @@ describe("scheduled message modal layout", () => {
     const scoped = portalSource("inbox-scoped-compose-modal.tsx");
     const residentInbox = portalSource("resident-inbox-panel.tsx");
 
-    expect(scoped).toContain('disabled={portal === "resident"}');
+    // `hidden`, not `disabled`: every other compose popup now KEEPS the
+    // Schedule row on screen and only makes it inert, so the resident gate
+    // needs the prop that drops the control entirely.
+    expect(scoped).toContain('hidden={portal === "resident"}');
     expect(residentInbox).not.toContain("resident-inbox-schedule-another");
   });
 });

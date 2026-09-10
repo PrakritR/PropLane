@@ -559,7 +559,7 @@ export function ScopedInboxComposeModal({
           onScheduleLaterChange={setScheduleLater}
           sendAt={sendAt}
           onSendAtChange={setSendAt}
-          disabled={portal === "resident"}
+          hidden={portal === "resident"}
         />
       </PortalMessageComposeModalBody>
     </Modal>

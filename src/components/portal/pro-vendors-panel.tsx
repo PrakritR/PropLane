@@ -504,9 +504,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         recipientPhone={invitePreview?.phone ?? ""}
         subject={invitePreview?.subject ?? ""}
         body={invitePreview?.body ?? ""}
-        intro="Review the vendor portal setup message. It explains how to sign up for PropLane, view services, and message you."
         showChannelPicker
-        showSchedule
         emailAvailable={Boolean(invitePreview?.email?.includes("@"))}
         smsAvailable={Boolean(invitePreview?.phone?.trim())}
         defaultViaSms={false}
@@ -526,9 +524,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
           recipientPhone={removePreview[0]!.phone}
           subject={removePreview[0]!.subject}
           body={removePreview[0]!.body}
-          intro="Review the message before removing this vendor from your roster."
           showChannelPicker
-          showSchedule={false}
           emailAvailable={Boolean(removePreview[0]!.email?.includes("@"))}
           smsAvailable={Boolean(removePreview[0]!.email?.includes("@") && removePreview[0]!.phone?.trim())}
           defaultViaSms={false}
@@ -550,7 +546,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         <PortalBulkMessageCarouselModal
           open
           title={`Remove vendors — notification preview (${removePreview.length})`}
-          intro="Review the message for each vendor before removing them from your roster."
           items={removePreview.map(
             (preview): BulkMessageCarouselItem => ({
               id: preview.vendorId,

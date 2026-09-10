@@ -37,6 +37,7 @@ import {
   PORTAL_MESSAGE_DEFAULT_FOOTER_NOTE,
   PortalMessageBodyField,
   PortalMessageRecipientReadonly,
+  PortalMessageCheckboxRow,
   PortalMessageScheduleFields,
   PortalMessageSendViaDropdown,
   PortalMessageSubjectField,
@@ -2350,18 +2351,12 @@ export function InboxScheduledCard({
           sendAtDataAttr="inbox-scheduled-schedule-at"
         />
       ) : (
-        <div className="flex flex-nowrap items-center gap-3">
-          <label className="flex shrink-0 items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="h-4 w-4 shrink-0 rounded border-border accent-primary"
-              checked
-              disabled
-              readOnly
-              data-attr="inbox-scheduled-schedule-later"
-            />
-            <span className="font-medium text-foreground">Schedule for later</span>
-          </label>
+        <PortalMessageCheckboxRow
+          label="Schedule for later"
+          checked
+          onChange={() => {}}
+          dataAttr="inbox-scheduled-schedule-later"
+        >
           {sendAt ? (
             <Input
               type="datetime-local"
@@ -2375,7 +2370,7 @@ export function InboxScheduledCard({
           ) : (
             <p className="min-w-0 flex-1 text-sm text-muted">sends {sendLabel}</p>
           )}
-        </div>
+        </PortalMessageCheckboxRow>
       )}
 
       {saveError ? (

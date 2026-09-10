@@ -756,7 +756,6 @@ export function ManagerLeasesPipelinePanel({
         }
         warningLead={null}
         hideSendViaFooterNote
-        showWorkNumberHint={false}
         confirmLabel="Send lease & notification"
         confirmLabelWithoutMessage="Send lease only"
         confirmBusy={Boolean(leaseSentPreview && sendingToResidentRowId === leaseSentPreview.row.id)}
@@ -773,7 +772,6 @@ export function ManagerLeasesPipelinePanel({
               ? `Send leases to residents (${bulkLeaseSendRows.length})`
               : "Send lease to resident · preview"
           }
-          intro="The lease will be released to each resident portal after you confirm. Messages go to PropLane inbox and email."
           items={bulkLeaseSendRows.map((row) => {
             const unit = row.unit.trim() || "your unit";
             return {

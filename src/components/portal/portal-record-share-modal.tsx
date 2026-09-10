@@ -349,10 +349,8 @@ export function PortalRecordShareModal({
         recipientPhone={recipientPhone.trim() || undefined}
         subject={recordShareSubject(kind, titleLabel)}
         body={previewBody}
-        intro="Review the message before sending."
         showSkipMessage={false}
         showChannelPicker
-        showSchedule={false}
         emailAvailable
         smsAvailable={smsAvailable}
         defaultViaEmail={viaEmail}

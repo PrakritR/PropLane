@@ -154,7 +154,6 @@ const TOUR_NOTIFY_PREVIEW_COPY: Record<
   TourNotifyAction,
   {
     title: string;
-    intro: string;
     skipMessageLabel: string;
     confirmLabel: string;
     confirmLabelWithoutMessage: string;
@@ -163,7 +162,6 @@ const TOUR_NOTIFY_PREVIEW_COPY: Record<
 > = {
   confirm: {
     title: "Confirm tour",
-    intro: "Confirming schedules the tour and sends this message to the guest.",
     skipMessageLabel: "Don't message guest",
     confirmLabel: "Confirm tour & send notification",
     confirmLabelWithoutMessage: "Confirm tour only",
@@ -171,7 +169,6 @@ const TOUR_NOTIFY_PREVIEW_COPY: Record<
   },
   decline: {
     title: "Decline tour",
-    intro: "Declining removes this tour request and sends this message to the guest.",
     skipMessageLabel: "Don't message guest",
     confirmLabel: "Decline & send notification",
     confirmLabelWithoutMessage: "Decline only",
@@ -179,7 +176,6 @@ const TOUR_NOTIFY_PREVIEW_COPY: Record<
   },
   cancel: {
     title: "Cancel tour",
-    intro: "Cancelling removes this tour and sends this message to the guest.",
     skipMessageLabel: "Don't message guest",
     confirmLabel: "Cancel tour & send notification",
     confirmLabelWithoutMessage: "Cancel tour only",
@@ -187,7 +183,6 @@ const TOUR_NOTIFY_PREVIEW_COPY: Record<
   },
   reschedule: {
     title: "Reschedule tour",
-    intro: "Review the notification below. The guest will be asked to confirm the new time.",
     skipMessageLabel: "Don't message guest",
     confirmLabel: "Send & ask guest to confirm",
     confirmLabelWithoutMessage: "Update time without messaging",
@@ -1243,7 +1238,6 @@ export function ManagerTours({
                 ? `${TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].title} (${notifyPreview.rows.length})`
                 : TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].title
             }
-            intro={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].intro}
             items={buildTourNotifyCarouselItems(notifyPreview, buildRescheduleNotifyContext)}
             confirmLabel={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].confirmLabel}
             confirmLabelSingle={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].confirmLabel}
@@ -1281,7 +1275,6 @@ export function ManagerTours({
           recipientPhone={notifyPreviewRow.guestPhone?.trim() || undefined}
           subject={notifyPreview.subject}
           body={notifyPreview.body}
-          intro={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].intro}
           skipMessageLabel={TOUR_NOTIFY_PREVIEW_COPY[notifyPreview.action].skipMessageLabel}
           showChannelPicker
           emailAvailable={Boolean(notifyPreviewRow.guestEmail?.includes("@"))}
@@ -1317,7 +1310,6 @@ export function ManagerTours({
           emailAvailable
           smsAvailable={Boolean(guestMessagePreview.phone)}
           defaultViaSms={false}
-          showSchedule={false}
           confirmLabel="Send message"
           confirmBusy={guestMessageBusy}
           confirmBusyLabel="Sending…"

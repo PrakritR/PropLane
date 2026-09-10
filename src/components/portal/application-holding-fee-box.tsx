@@ -459,7 +459,6 @@ export function ApplicationHoldingFeeModal({
       <PortalNotificationPreviewModal
         open={noticePreview !== null}
         title="Holding fee — notification preview"
-        intro="Review the message before updating the fee."
         onClose={() => setNoticePreview(null)}
         recipient={residentEmail}
         subject={noticePreview ? `Holding fee due: ${noticePreview.amountLabel}` : ""}
@@ -468,7 +467,6 @@ export function ApplicationHoldingFeeModal({
         emailAvailable={residentEmail.includes("@")}
         smsAvailable
         deliverViaKind="payments"
-        showWorkNumberHint={false}
         hideSendViaFooterNote
         confirmLabel={hasExistingUnpaid ? "Update fee & send notice" : "Add fee & send notice"}
         confirmLabelWithoutMessage={hasExistingUnpaid ? "Update fee only" : "Add fee only"}
