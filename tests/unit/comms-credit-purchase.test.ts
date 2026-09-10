@@ -18,6 +18,7 @@ vi.mock("@/lib/stripe", () => ({
 }));
 import { POST } from "@/app/api/manager/comms-billing/checkout/route";
 import {
+  CommsCreditValidationError,
   fulfillCommsCreditPurchase,
   reverseCommsCreditForCharge,
   createCommsCreditCheckout,
@@ -145,6 +146,31 @@ describe("verified credit fulfillment", () => {
       p_event: "evt",
       p_receipt: null,
     });
+  });
+  it.each([
+    { code: "23503", message: "violates foreign key constraint", why: "owner purged" },
+    { code: "P0002", message: "query returned no rows", why: "purchase row gone" },
+    { code: "22P02", message: "invalid input syntax for type uuid", why: "metadata not a uuid" },
+    { code: "P0001", message: "Credit purchase mismatch", why: "stored purchase disagrees" },
+  ])("treats the function's own refusal as terminal ($why: $code)", async (change) => {
+    const db = {
+      rpc: vi.fn(async () => ({ data: null, error: { code: change.code, message: change.message } })),
+    };
+    await expect(
+      fulfillCommsCreditPurchase(db as never, session(), "evt"),
+    ).rejects.toBeInstanceOf(CommsCreditValidationError);
+  });
+  it.each([
+    { code: "08006", message: "connection failure" },
+    { code: "40001", message: "could not serialize access" },
+    { code: "P0001", message: "Communication account not found" },
+  ])("keeps a transient failure retryable: %j", async (change) => {
+    const db = {
+      rpc: vi.fn(async () => ({ data: null, error: change })),
+    };
+    const failure = await fulfillCommsCreditPurchase(db as never, session(), "evt").catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(CommsCreditValidationError);
   });
   it("retries refunds arriving before purchase fulfillment", async () => {
     const chain = {

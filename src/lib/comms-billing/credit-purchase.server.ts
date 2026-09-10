@@ -109,8 +109,10 @@ export class CommsCreditValidationError extends Error {
 }
 
 /**
- * Only the fulfillment function's OWN refusals are terminal: the purchase row
- * is gone (`no_data_found`), the metadata is not a uuid, or the stored amount /
+ * Only the fulfillment function's OWN refusals are terminal: the owner's
+ * profile has been purged (the billing-account insert trips its foreign key
+ * before the purchase is even read), the purchase row is gone
+ * (`no_data_found`), the metadata is not a uuid, or the stored amount /
  * session / payment intent disagrees. Any other database error is transient
  * and keeps the event retryable.
  */
@@ -118,7 +120,12 @@ function isTerminalFulfillmentError(error: {
   code?: string;
   message?: string;
 }): boolean {
-  if (error.code === "P0002" || error.code === "22P02") return true;
+  if (
+    error.code === "23503" ||
+    error.code === "P0002" ||
+    error.code === "22P02"
+  )
+    return true;
   return (
     error.code === "P0001" &&
     (error.message ?? "").includes("Credit purchase mismatch")
