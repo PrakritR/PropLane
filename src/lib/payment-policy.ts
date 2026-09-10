@@ -178,21 +178,20 @@ export function listingPaymentWaiverCodeMatches(code: string | null | undefined)
 }
 
 /**
- * Whether the listing Pricing step should show a waiver-code field.
+ * Whether the listing Pricing step must collect a waiver code.
  *
- * True only where PropLane absorb is chosen but not already entitled (PRP-463). An
- * account that carries the grant, or a paid plan, selects it outright and is never asked
- * for a code — the field appears exactly where one is genuinely required, and
- * {@link persistListingServiceFeePayer} is still the gate that decides whether the choice
- * can be stored at all.
+ * True whenever PropLane absorb is the choice — on EVERY plan, entitled or not (the
+ * captain's call, PRP-463). A plan that already allows PropLane absorb account-wide is
+ * not the same as choosing it for one listing, so the code is what authorises it here and
+ * the tier is not consulted. Validation refuses the step without a matching code, and
+ * {@link persistListingServiceFeePayer} refuses to store it.
  */
 export function listingProplaneAbsorbNeedsWaiverCode(
-  tier: ManagerSkuTier,
+  _tier: ManagerSkuTier,
   serviceFeePayer: ServiceFeePayer | null | undefined,
-  accountWaiverGranted: boolean,
+  _accountWaiverGranted: boolean,
 ): boolean {
-  if (serviceFeePayer !== "proplane") return false;
-  return !managerCanSelectProplaneServiceFee(tier, accountWaiverGranted);
+  return serviceFeePayer === "proplane";
 }
 
 /** Short labels for the Pricing / Payment setup selects (who pays Stripe's fee). */
@@ -216,6 +215,10 @@ export const LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID =
 
 export const LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED =
   "PropLane absorb needs a paid plan (Pro/Business) or a PropLane waiver on this account.";
+
+/** PropLane absorb is picked on a listing with no valid waive code typed (PRP-463). */
+export const LISTING_PROCESSING_FEE_WAIVER_CODE_REQUIRED =
+  "Enter the PropLane processing waive code to have PropLane absorb this listing's fee.";
 
 /**
  * Who pays the processing fee on one payment.

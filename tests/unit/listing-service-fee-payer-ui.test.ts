@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { validateListingWizardStep } from "@/lib/listing-wizard-validation";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import {
-  LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED,
+  LISTING_PROCESSING_FEE_WAIVER_CODE_REQUIRED,
   listingPaymentWaiverCodeMatches,
   listingProplaneAbsorbNeedsWaiverCode,
   listingServiceFeePayerUiValue,
@@ -29,16 +29,18 @@ describe("listing service fee payer UI helpers", () => {
     expect(listingServiceFeePayerUiValue(null, "free", true)).toBe("resident");
   });
 
-  // PRP-463 reopened the FREE100 box that PRP-421 closed, but only where it is genuinely
-  // required: a manager who is already entitled is never asked for a code.
-  it("asks for the waiver code only when PropLane absorb is picked without an entitlement", () => {
-    expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", false)).toBe(true);
-    expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", true)).toBe(false);
-    expect(listingProplaneAbsorbNeedsWaiverCode("pro", "proplane", false)).toBe(false);
-    expect(listingProplaneAbsorbNeedsWaiverCode("pro", "proplane", true)).toBe(false);
+  // PRP-463: the code authorises PropLane absorb for a LISTING, on every plan. An
+  // account-wide entitlement is not the same as choosing it for this listing, so the tier
+  // is not consulted — asking only the unentitled was the earlier, narrower rule.
+  it("asks for the waive code whenever PropLane absorb is picked, on any plan", () => {
+    for (const tier of ["free", "pro", "business"] as const) {
+      for (const granted of [true, false]) {
+        expect(listingProplaneAbsorbNeedsWaiverCode(tier, "proplane", granted)).toBe(true);
+      }
+    }
     // Never for the other two payers, on any plan.
     expect(listingProplaneAbsorbNeedsWaiverCode("free", "resident", false)).toBe(false);
-    expect(listingProplaneAbsorbNeedsWaiverCode("free", "manager", false)).toBe(false);
+    expect(listingProplaneAbsorbNeedsWaiverCode("pro", "manager", true)).toBe(false);
     expect(listingProplaneAbsorbNeedsWaiverCode("free", null, false)).toBe(false);
   });
 
@@ -76,49 +78,56 @@ describe("listing service fee payer UI helpers", () => {
   });
 });
 
-describe("listing wizard pricing — service fee payer (PRP-421)", () => {
-  it("blocks PropLane absorb on Free without an account waiver", () => {
-    const sub = {
-      ...createDefaultListingSubmission(),
-      listingPlaceCategoryId: "individual_rooms",
-      allowedLeaseTerms: ["12_month"],
-      serviceFeePayer: "proplane" as const,
-    };
-    const errors = validateListingWizardStep(4, sub, {
-      managerSkuTier: "free",
-      accountPaymentWaiverGranted: false,
-    });
-    expect(errors.serviceFeePayer).toBe(LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED);
-    expect(errors.serviceFeeWaiverCode).toBeUndefined();
+describe("listing wizard pricing — service fee payer", () => {
+  const proplaneSub = (waiverCode?: string) => ({
+    ...createDefaultListingSubmission(),
+    listingPlaceCategoryId: "individual_rooms",
+    allowedLeaseTerms: ["12_month"],
+    serviceFeePayer: "proplane" as const,
+    serviceFeeWaiverCode: waiverCode,
   });
 
-  it("allows PropLane absorb on Free when the account already has a waiver grant", () => {
-    const sub = {
-      ...createDefaultListingSubmission(),
-      listingPlaceCategoryId: "individual_rooms",
-      allowedLeaseTerms: ["12_month"],
-      serviceFeePayer: "proplane" as const,
-    };
-    const errors = validateListingWizardStep(4, sub, {
-      managerSkuTier: "free",
+  // PRP-463 replaced the plan gate with a code gate. What a plan buys you is
+  // account-wide absorb; choosing it for ONE listing is authorised by the code, and by
+  // nothing else — so a Pro account with no code is refused exactly like a Free one.
+  it("refuses PropLane absorb without a valid waive code, on every plan", () => {
+    for (const tier of ["free", "pro"] as const) {
+      for (const granted of [true, false]) {
+        const errors = validateListingWizardStep(4, proplaneSub(), {
+          managerSkuTier: tier,
+          accountPaymentWaiverGranted: granted,
+        });
+        expect(errors.serviceFeeWaiverCode).toBe(LISTING_PROCESSING_FEE_WAIVER_CODE_REQUIRED);
+      }
+    }
+  });
+
+  it("refuses a code that is not the waive code", () => {
+    const errors = validateListingWizardStep(4, proplaneSub("NOPE"), {
+      managerSkuTier: "pro",
       accountPaymentWaiverGranted: true,
     });
-    expect(errors.serviceFeePayer).toBeUndefined();
-    expect(errors.serviceFeeWaiverCode).toBeUndefined();
+    expect(errors.serviceFeeWaiverCode).toBe(LISTING_PROCESSING_FEE_WAIVER_CODE_REQUIRED);
   });
 
-  it("allows PropLane absorb on Pro without any listing waiver code", () => {
-    const sub = {
-      ...createDefaultListingSubmission(),
-      listingPlaceCategoryId: "individual_rooms",
-      allowedLeaseTerms: ["12_month"],
-      serviceFeePayer: "proplane" as const,
-    };
-    const errors = validateListingWizardStep(4, sub, {
-      managerSkuTier: "pro",
+  it("allows PropLane absorb with the waive code, even on Free with no grant", () => {
+    const errors = validateListingWizardStep(4, proplaneSub("FREE100"), {
+      managerSkuTier: "free",
       accountPaymentWaiverGranted: false,
     });
-    expect(errors.serviceFeePayer).toBeUndefined();
     expect(errors.serviceFeeWaiverCode).toBeUndefined();
+    expect(errors.serviceFeePayer).toBeUndefined();
+  });
+
+  it("asks for nothing when the resident or the manager pays", () => {
+    for (const payer of ["resident", "manager"] as const) {
+      const errors = validateListingWizardStep(
+        4,
+        { ...createDefaultListingSubmission(), listingPlaceCategoryId: "individual_rooms", allowedLeaseTerms: ["12_month"], serviceFeePayer: payer },
+        { managerSkuTier: "free", accountPaymentWaiverGranted: false },
+      );
+      expect(errors.serviceFeeWaiverCode).toBeUndefined();
+      expect(errors.serviceFeePayer).toBeUndefined();
+    }
   });
 });

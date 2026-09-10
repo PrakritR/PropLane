@@ -47,6 +47,21 @@ export const PAYMENT_AT_SIGNING_OPTIONS: readonly { id: PaymentAtSigningOptionId
   { id: "first_month_utilities", label: "First month utilities" },
 ];
 
+/**
+ * A room's price for ONE lease type, when it differs from its long-term price (PRP-463).
+ *
+ * Absent means "same as long-term", which is what every room saved before this field
+ * existed meant and what the wizard's "Same as Long-term" checkbox stores. Only a real
+ * difference is written, so a room cannot end up carrying three copies of one rent that
+ * then drift apart.
+ */
+export type ManagerRoomTermPrice = {
+  monthlyRent?: number;
+  securityDeposit?: string;
+  /** Monthly utilities estimate for this term, when it differs from long-term. */
+  utilitiesEstimate?: string;
+};
+
 export type ManagerRoomUnavailableRange = {
   id: string;
   /** Inclusive YYYY-MM-DD — room cannot be leased overlapping this span. */
@@ -71,6 +86,14 @@ export type ManagerRoomSubmission = {
   moveInVideoDataUrl: string | null;
   /** Manager-defined blocks when the room must not be booked (overlaps disallowed with applicant lease). */
   manualUnavailableRanges: ManagerRoomUnavailableRange[];
+  /**
+   * Per-lease-type price overrides, keyed by stored lease-term label (PRP-463).
+   *
+   * A term with no entry bills the room's long-term rent and deposit — the behaviour
+   * every room has always had. `resolveStayPricing` reads this when the lease names its
+   * term, so what the wizard shows and what the ledger bills are the same number.
+   */
+  termPricing?: Record<string, ManagerRoomTermPrice>;
   detail: string;
   /** Furnishing level or what is included (shown on listing). */
   furnishing: string;
@@ -1521,6 +1544,9 @@ export function normalizeManagerListingSubmissionV1(
         }
         return out;
       })(),
+      termPricing: normalizeRoomTermPricing(
+        (legacyRoom as ManagerRoomSubmission & { termPricing?: unknown }).termPricing,
+      ),
     };
   });
 
@@ -2260,6 +2286,33 @@ export function normalizeBathroomAccessKind(
   const kinds = Object.values(accessKindByRoomId ?? {}).filter(Boolean);
   if (kinds.length === 0) return undefined;
   return kinds.every((k) => k === "ensuite") ? "ensuite" : "shared";
+}
+
+/**
+ * Per-lease-type room prices, pruned to terms the system knows and to entries that
+ * actually say something. An entry equal to nothing is dropped, so "same as long-term"
+ * is stored as absence rather than as a copy that could drift.
+ */
+export function normalizeRoomTermPricing(raw: unknown): Record<string, ManagerRoomTermPrice> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: Record<string, ManagerRoomTermPrice> = {};
+  for (const [term, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!LISTING_LEASE_TERM_OPTION_SET.has(term)) continue;
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const v = value as { monthlyRent?: unknown; securityDeposit?: unknown };
+    const entry: ManagerRoomTermPrice = {};
+    const rent = typeof v.monthlyRent === "number" ? v.monthlyRent : Number(v.monthlyRent);
+    if (Number.isFinite(rent) && rent > 0) entry.monthlyRent = Math.round(rent * 100) / 100;
+    const deposit = typeof v.securityDeposit === "string" ? v.securityDeposit.replace(/^\$/, "").trim() : "";
+    if (deposit) entry.securityDeposit = deposit;
+    const utils =
+      typeof (v as { utilitiesEstimate?: unknown }).utilitiesEstimate === "string"
+        ? ((v as { utilitiesEstimate: string }).utilitiesEstimate).replace(/^\$/, "").trim()
+        : "";
+    if (utils) entry.utilitiesEstimate = utils;
+    if (Object.keys(entry).length > 0) out[term] = entry;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 export function emptyBathroom(index: number): ManagerBathroomSubmission {

@@ -389,6 +389,12 @@ export type StayPricingInput = {
         rentalType?: string | null;
         leaseStart?: string | null;
         leaseEnd?: string | null;
+        /**
+         * The lease's own term. A room may price a term differently (PRP-463); absent
+         * means the room's long-term price applies, which is what every caller that does
+         * not name a term has always got.
+         */
+        leaseTerm?: string | null;
         managerRentOverride?: string | null;
         managerSecurityDepositOverride?: string | null;
         signedMonthlyRent?: number | null;
@@ -396,6 +402,18 @@ export type StayPricingInput = {
     | null
     | undefined;
 };
+
+/** The room's price for this lease's term, when it set one. */
+function roomTermPrice(
+  room: RoomPricingLike | null | undefined,
+  leaseTerm: string | null | undefined,
+): { monthlyRent?: number; securityDeposit?: string } | undefined {
+  const term = String(leaseTerm ?? "").trim();
+  if (!term) return undefined;
+  const table = (room as { termPricing?: Record<string, { monthlyRent?: number; securityDeposit?: string }> } | null | undefined)
+    ?.termPricing;
+  return table?.[term];
+}
 
 function positiveMoney(raw: string | null | undefined): number | undefined {
   const amount = parseMoneyAmount(String(raw ?? "").trim());
@@ -474,6 +492,7 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
       overrideMoney(room?.shortTermDeposit) ??
       positiveMoney(sub?.shortTermDeposit))
     : (overrideMoney(app?.managerSecurityDepositOverride) ??
+      overrideMoney(roomTermPrice(room, app?.leaseTerm)?.securityDeposit) ??
       overrideMoney(room?.securityDeposit) ??
       positiveMoney(sub?.securityDeposit));
 
@@ -575,7 +594,11 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
   // separate fee line, while `shortLeaseSurcharge` keeps the breakdown for the
   // agreement. Folding rather than adding a charge is what keeps the ledger, the lease
   // document and the listing quoting the same figure.
-  const baseMonthly = positiveNumber(room?.monthlyRent);
+  // A room that prices this lease's term separately bills THAT rent (PRP-463). Absent —
+  // which is every room until a manager unticks "Same as Long-term" — falls straight
+  // through to the long-term figure, so nothing already saved changes.
+  const termRent = positiveNumber(roomTermPrice(room, app?.leaseTerm)?.monthlyRent);
+  const baseMonthly = termRent ?? positiveNumber(room?.monthlyRent);
   const surcharge = tenancyPaysShortLeaseSurcharge(room, app) ? roomShortLeaseSurcharge(room) : 0;
   return {
     stayKind: "long",

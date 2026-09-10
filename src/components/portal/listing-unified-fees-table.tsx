@@ -11,7 +11,8 @@ import {
 import { LISTING_FEE_PRESETS, type ListingFeeRow } from "@/lib/listing-fees";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
-import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
+import { CheckboxMultiSelect, FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
+import { LISTING_FEE_CHOICES } from "@/lib/listing-fee-scope";
 import { SEATTLE_RENT_RULE_NOTE } from "@/lib/seattle-rent-rule";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -417,7 +418,7 @@ export function ListingUnifiedFeesTable({
   onLtAmountForRow: (feeId: ListingFeeRowId, amount: string) => void;
   stepFieldErrors: Record<string, string>;
   customFees: ManagerCustomFeeRow[];
-  onAddCustomFee: () => void;
+  onAddCustomFee: (choice?: { label: string; frequency: "one-time" | "monthly" }) => void;
   onRemoveCustomFee: (index: number) => void;
   onCustomFeeChange: (index: number, patch: Partial<ManagerCustomFeeRow>) => void;
   /** Set cadence for a preset fee that has no materialized row yet (new listing). */
@@ -680,9 +681,23 @@ export function ListingUnifiedFeesTable({
             ))}
           </select>
         ) : null}
-        <Button type="button" variant="outline" className="rounded-full text-xs" onClick={onAddCustomFee}>
-          + Add custom fee
-        </Button>
+        <FieldSingleSelect
+          label="Add a fee"
+          hideLabel
+          variant="pill"
+          dataAttr="listing-add-custom-fee"
+          placeholder="+ Add fee"
+          value=""
+          options={[
+            ...LISTING_FEE_CHOICES.map((c) => ({ value: c.label, label: c.label })),
+            { value: "__custom__", label: "Something else…" },
+          ]}
+          onChange={(picked) =>
+            onAddCustomFee(
+              picked === "__custom__" ? undefined : LISTING_FEE_CHOICES.find((c) => c.label === picked),
+            )
+          }
+        />
       </div>
     </div>
   );

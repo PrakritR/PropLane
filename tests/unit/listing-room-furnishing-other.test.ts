@@ -22,10 +22,13 @@ describe("room furnishing has an Other write-in", () => {
     expect(source).toContain("listing-room-furnishing-other-");
   });
 
+  // PRP-463 collapsed the furniture tiles into one multi-select, so the condition is
+  // written inline at the checkbox rather than hoisted into an `otherOn` local. What it
+  // has to keep saying is unchanged: a note already saved counts as ticked.
   it("treats an existing note as open, so a saved value is never hidden", () => {
-    const block = source.split("const otherOn =")[1]?.slice(0, 200) ?? "";
-    expect(block).toContain("otherFurnishingOpenRooms.has(room.id)");
-    expect(block).toContain('room.detail.trim() !== ""');
+    expect(source).toContain(
+      'otherFurnishingOpenRooms.has(room.id) || room.detail.trim() !== ""',
+    );
   });
 
   it("clears the note when Other is unticked", () => {
@@ -37,7 +40,9 @@ describe("room furnishing has an Other write-in", () => {
 
   it("only shows the input while Other is ticked", () => {
     const block = source.split("listing-room-furnishing-other-")[1]?.slice(0, 1400) ?? "";
-    expect(block).toContain("otherOn ? (");
+    expect(block).toContain(
+      'otherFurnishingOpenRooms.has(room.id) || room.detail.trim() !== "" ? (',
+    );
     expect(block).toContain("Other furnishing, comma-separated");
   });
 
