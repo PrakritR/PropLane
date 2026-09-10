@@ -2802,9 +2802,11 @@ html[data-portal-sticky-chrome] .portal-calendar-compact-body {
    #portal-main-content — so the page's bottom-nav padding never clears the last
    slot rows. Reuse the shared mobile scroll inset (nav + gap [+ FAB]), never a
    per-panel `bottom`. flowScroll pages already extend the outer scroller, so
-   skip them to avoid stacking a second pad. */
+   skip them to avoid stacking a second pad. A modal calendar scrolls inside its
+   own panel, above the nav and the FAB, so it skips the inset too — there it was
+   only dead space the grid kept scrolling into past the last hour. */
 html[data-portal-sticky-chrome]
-  .portal-calendar-compact:not(.portal-calendar-flow-scroll)
+  .portal-calendar-compact:not(.portal-calendar-flow-scroll):not(.portal-calendar-in-modal)
   .portal-calendar-compact-body {
   padding-bottom: var(--portal-mobile-scroll-bottom-inset);
   scroll-padding-bottom: var(--portal-mobile-scroll-bottom-inset);

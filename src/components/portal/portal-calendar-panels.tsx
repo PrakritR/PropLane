@@ -575,7 +575,16 @@ type CalendarBlockSelection =
 
 const slotRowIndices = Array.from({ length: SLOT_ROW_END - SLOT_ROW_START + 1 }, (_, i) => SLOT_ROW_START + i);
 
+/**
+ * End labels are EXCLUSIVE: slot 48 is midnight, the end of the day. Borrowing
+ * the start formatter printed it as "12 pm" — the SAME label noon already
+ * carries — so the end picker offered "12 pm" twice and picking the lower one
+ * set the window to midnight. The grid then ran to 11:30 pm and the modal
+ * scrolled far past any hour a tour is booked in. ("12 am", not "midnight":
+ * the picker trigger is sized for "10:30 pm" and truncates a longer word.)
+ */
 function formatSlotEndLabel(slotIndexExclusive: number): string {
+  if (slotIndexExclusive >= SLOTS_PER_DAY) return "12 am";
   return formatAvailabilitySlotLabel(slotIndexExclusive);
 }
 
@@ -2568,7 +2577,10 @@ export function PortalCalendarPanels({
       // simply clipped by the overflow-hidden parent — hours below the fold were
       // unreachable rather than scrollable.
       pageFlowScroll ? "portal-calendar-flow-scroll" : "min-h-0 flex-1",
-      embeddedInModal && "overflow-hidden",
+      // The nested-calendar bottom inset (phone nav + assistant FAB) is page
+      // chrome. Inside a modal the grid scrolls within the panel, above both,
+      // so that padding was ~116px of dead scroll under the last row.
+      embeddedInModal && "portal-calendar-in-modal overflow-hidden",
       !bareSurface && "overflow-hidden rounded-2xl border border-border bg-card shadow-sm",
     );
     const compactToolbarClass = cn(
