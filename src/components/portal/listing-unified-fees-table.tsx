@@ -270,7 +270,7 @@ function ExpandableRows({
   return (
     <>
       <div className={cn("contents", row.hasError && "[&>*]:bg-red-500/5")}>
-        <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
+        <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-2">
           <button
             type="button"
             className="flex max-w-full items-center gap-2 text-left"
@@ -289,14 +289,14 @@ function ExpandableRows({
           </button>
         </div>
         {showShortTerm ? (
-          <div className="flex min-w-0 items-center truncate border-b border-border/70 px-3 py-3 text-xs text-muted">
+          <div className="flex min-w-0 items-center truncate border-b border-border/70 px-3 py-2 text-xs text-muted">
             {row.shortTermSummary ?? "—"}
           </div>
         ) : null}
-        <div className="flex min-w-0 items-center truncate border-b border-border/70 px-3 py-3 text-sm text-muted">
+        <div className="flex min-w-0 items-center truncate border-b border-border/70 px-3 py-2 text-sm text-muted">
           {row.summary}
         </div>
-        <div className="flex items-center justify-end border-b border-border/70 px-3 py-3">
+        <div className="flex items-center justify-end border-b border-border/70 px-3 py-2">
           {row.onRemove ? (
             <Button
               type="button"
@@ -313,7 +313,7 @@ function ExpandableRows({
         </div>
       </div>
       {row.expanded ? (
-        <div className={cn(feeColSpan(showShortTerm), "border-b border-border/70 bg-accent/10 px-3 py-3")}>
+        <div className={cn(feeColSpan(showShortTerm), "border-b border-border/70 bg-accent/10 px-3 py-2")}>
           {row.detail}
         </div>
       ) : null}
@@ -422,7 +422,7 @@ export function ListingUnifiedFeesTable({
 
             return (
               <div key={row.id} className="contents">
-                <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
+                <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-2">
                   <div>
                     <div className="font-medium text-foreground">{row.label}</div>
                     {row.stHint || row.ltHint ? (
@@ -434,7 +434,7 @@ export function ListingUnifiedFeesTable({
                 </div>
 
                 {showShortTerm ? (
-                  <div className="flex min-w-0 flex-col justify-center border-b border-border/70 px-3 py-3">
+                  <div className="flex min-w-0 flex-col justify-center border-b border-border/70 px-3 py-2">
                     {row.stField ? (
                       <>
                         <div className={FEE_CONTROL_ROW}>
@@ -464,7 +464,7 @@ export function ListingUnifiedFeesTable({
                   </div>
                 ) : null}
 
-                <div className="flex min-w-0 flex-col justify-center border-b border-border/70 px-3 py-3">
+                <div className="flex min-w-0 flex-col justify-center border-b border-border/70 px-3 py-2">
                   {row.ltField || row.id === "rent" ? (
                     <>
                       <div className={FEE_CONTROL_ROW}>
@@ -537,7 +537,7 @@ export function ListingUnifiedFeesTable({
                   )}
                 </div>
 
-                <div className="flex items-center justify-end border-b border-border/70 px-3 py-3">
+                <div className="flex items-center justify-end border-b border-border/70 px-3 py-2">
                   {rowIsRemovable(rowId) ? (
                     <Button
                       type="button"
@@ -569,7 +569,7 @@ export function ListingUnifiedFeesTable({
             })
             .map(({ fee, i }) => (
               <div key={fee.id} className="contents">
-                <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
+                <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-2">
                   <Input
                     className="!min-h-9 h-9 w-full rounded-lg py-1 text-sm shadow-none"
                     value={fee.label}
@@ -580,7 +580,7 @@ export function ListingUnifiedFeesTable({
                 </div>
 
                 {showShortTerm ? (
-                  <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
+                  <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-2">
                     <div className={FEE_CONTROL_ROW}>
                       <TermCheckbox
                         checked={fee.shortTermAmount !== undefined}
@@ -600,7 +600,7 @@ export function ListingUnifiedFeesTable({
                   </div>
                 ) : null}
 
-                <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
+                <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-2">
                   <div className={FEE_CONTROL_ROW}>
                     <FeeMoneyInput
                       value={fee.amount.replace(/^\$/, "").trim()}
@@ -615,7 +615,7 @@ export function ListingUnifiedFeesTable({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-end border-b border-border/70 px-3 py-3">
+                <div className="flex items-center justify-end border-b border-border/70 px-3 py-2">
                   <Button
                     type="button"
                     variant="outline"
