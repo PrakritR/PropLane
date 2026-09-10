@@ -3,7 +3,6 @@ import "server-only";
 import { asStringArray, readPropertyPermissionsFromRow } from "@/lib/account-link-invite-row";
 import {
   hasCoManagerPermissionLevelForProperty,
-  permissionsForProperty,
   type CoManagerPermissionId,
   type CoManagerPermissionLevel,
   type PropertyCoManagerPermissions,
@@ -121,12 +120,13 @@ export async function managerHasCoManagerPermissionForProperty(
 
   const linked = await collectLinkedPropertyPermissionsForUser(db, userId);
   if (!linked.has(propertyId)) return false;
-  const perms = linked.get(propertyId);
-  // Same default as co-manager-module-scope: an assignment with NO checked
-  // permissions grants every module at every level; a non-empty set restricts.
-  const flat = permissionsForProperty(perms, propertyId);
-  if (Object.keys(flat).length === 0) return true;
-  return hasCoManagerPermissionLevelForProperty(perms, propertyId, permission, level);
+  // Assigning a property is NOT itself the grant: the module must be positively
+  // granted on it. An assignment carrying no checked permissions used to mean
+  // every module at every level, which is the empty-means-full sentinel PRP-199
+  // retired (`docs/agents/co-manager-access.md`) — and the sentinel outlived the
+  // gate that used to wrap it, so household charges, vendors, applications and
+  // team invites kept reading it. One rule, everywhere.
+  return hasCoManagerPermissionLevelForProperty(linked.get(propertyId), propertyId, permission, level);
 }
 
 /** Primary owner or co-manager with calendar (or legacy properties) access on a property. */
@@ -154,8 +154,7 @@ export function leaseRecordVisibleToManager(
 }
 
 /**
- * Linked property ids on which this user holds the `leases` grant (empty perms =
- * full access). Implemented locally — reuses collectLinkedPropertyIdsForUser (for
+ * Linked property ids on which this user holds the `leases` grant. Implemented locally — reuses collectLinkedPropertyIdsForUser (for
  * the cross-sandbox-filtered membership) and collectLinkedPropertyPermissionsForUser
  * (for the per-property grant) — to avoid importing co-manager-module-scope, which
  * imports this file (cycle). This is the SERVER gate that keeps lease PDF bytes out
@@ -168,9 +167,7 @@ async function linkedLeasePropertyIds(db: ServiceClient, userId: string): Promis
   ]);
   const out = new Set<string>();
   for (const pid of membership) {
-    const perms = permsByProperty.get(pid);
-    const flat = permissionsForProperty(perms, pid);
-    if (Object.keys(flat).length === 0 || hasCoManagerPermissionLevelForProperty(perms, pid, "leases", "read")) {
+    if (hasCoManagerPermissionLevelForProperty(permsByProperty.get(pid), pid, "leases", "read")) {
       out.add(pid);
     }
   }

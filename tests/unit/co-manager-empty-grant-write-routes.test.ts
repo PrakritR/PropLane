@@ -30,6 +30,9 @@ function makeDb() {
     from(table: string) {
       const settle = () => {
         if (table === "account_link_invites") return { data: linkRows, error: null };
+        if (table === "manager_property_records") {
+          return { data: { manager_user_id: OWNER }, error: null };
+        }
         if (table === "manager_documents") {
           return {
             data: {
@@ -211,5 +214,35 @@ describe("an explicit grant still works", () => {
 
     expect(res.status).toBe(200);
     expect(documentUpdates).toHaveLength(1);
+  });
+
+  it("lets the property OWNER create a bill attached to their own house", async () => {
+    // Bills POST passes no `ownerManagerUserId` on purpose — handing the gate
+    // the caller would make it a no-op — so the owner is recognised only by the
+    // property record's own `manager_user_id`. An owner is the INVITER on a
+    // link, never the invitee, so the linked-scope lookup can never see their
+    // own houses and this is the whole of their authorization here.
+    linkRows = [];
+    userId = OWNER;
+
+    const res = await bills.POST(billRequest());
+
+    expect(res.status).toBe(200);
+    expect(createManagerBill).toHaveBeenCalled();
+  });
+
+  it("still lets the owner create a bill with no property at all", async () => {
+    linkRows = [];
+    userId = OWNER;
+
+    const res = await bills.POST(
+      new Request("http://localhost/api/manager-bills", {
+        method: "POST",
+        body: JSON.stringify({ description: "Software", amountCents: 900 }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(createManagerBill).toHaveBeenCalled();
   });
 });

@@ -31,14 +31,18 @@ type LinkRow = {
 };
 
 let linkRows: LinkRow[] = [];
+let propertyOwner: string | null = OWNER;
 
 function makeDb() {
   return {
     from(table: string) {
-      const settle = () =>
-        table === "account_link_invites"
-          ? { data: linkRows, error: null }
-          : { data: { id: DELEGATE, email: "delegate@example.com" }, error: null };
+      const settle = () => {
+        if (table === "account_link_invites") return { data: linkRows, error: null };
+        if (table === "manager_property_records") {
+          return { data: { manager_user_id: propertyOwner }, error: null };
+        }
+        return { data: { id: DELEGATE, email: "delegate@example.com" }, error: null };
+      };
       const builder: Record<string, unknown> = {
         select: () => builder,
         eq: () => builder,
@@ -70,6 +74,7 @@ function grant(permissions: unknown, assigned: string[] = [PROPERTY], inviter = 
 
 beforeEach(() => {
   linkRows = [];
+  propertyOwner = OWNER;
 });
 
 describe("an assignment with NO checked permissions confers nothing", () => {
@@ -156,6 +161,38 @@ describe("the grant is bound to a property and an owner", () => {
     const result = await assertManagerDocumentsCoManagerAccess(makeDb(), DELEGATE, PROPERTY, "", "edit");
 
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("the property owner is recognised without being told who they are", () => {
+  it("passes on a property they own when the caller supplies no owner", async () => {
+    // The bills route deliberately passes `undefined` here: handing the gate the
+    // caller would short-circuit it into a no-op. The property record's own
+    // `manager_user_id` is what admits the owner, and it has to, because
+    // `linkedOwnerScopeForModule` reads links by `invitee_user_id` and an owner
+    // is the inviter.
+    linkRows = [];
+
+    const result = await assertManagerFinancialsCoManagerAccess(makeDb(), OWNER, PROPERTY, undefined, "edit");
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("does not admit a non-owner through that lookup", async () => {
+    linkRows = [];
+
+    const result = await assertManagerFinancialsCoManagerAccess(makeDb(), DELEGATE, PROPERTY, undefined, "edit");
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("admits nobody when the property row has no owner", async () => {
+    propertyOwner = null;
+    linkRows = [];
+
+    const result = await assertManagerFinancialsCoManagerAccess(makeDb(), OWNER, PROPERTY, undefined, "edit");
+
+    expect(result.ok).toBe(false);
   });
 });
 

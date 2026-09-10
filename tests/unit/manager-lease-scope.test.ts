@@ -110,10 +110,12 @@ describe("managerMayFileLeaseUnderProperty", () => {
     expect(await check("prop-linked")).toEqual({ ok: true, allowed: true, propertyExists: true });
   });
 
-  it("allows a co-manager whose assignment has no checked permissions (full grant)", async () => {
+  it("refuses a co-manager whose assignment has no checked permissions", async () => {
+    // Empty used to mean FULL — the PRP-199 sentinel. Assigning a property is
+    // not itself the grant, so filing a lease under it needs `leases` at edit.
     foreignIds = ["prop-linked"];
     linkRows = linkedWith(undefined);
-    expect(await check("prop-linked")).toEqual({ ok: true, allowed: true, propertyExists: true });
+    expect(await check("prop-linked")).toEqual({ ok: true, allowed: false, propertyExists: true });
   });
 
   it("refuses a co-manager with read-only leases access — filing a lease is a write", async () => {

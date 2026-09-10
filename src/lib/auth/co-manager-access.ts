@@ -24,6 +24,15 @@ const NO_MODULE_ACCESS_ERROR = "You do not have access to this section for this 
  * There is one gate rather than a lenient and a strict one, because the next
  * route author picks the obvious name.
  *
+ * "Primary owner" is resolved two ways, and both are needed. A caller that
+ * already read the row's owner passes it in and short-circuits; a caller that
+ * did not — bills POST passes `undefined` on purpose, so that the property's
+ * real owner is resolved server-side rather than taken on trust — is matched
+ * against the property record itself. Without that second lookup an owner
+ * creating a bill on their OWN house is refused, because
+ * `linkedOwnerScopeForModule` reads `account_link_invites` by
+ * `invitee_user_id` and an owner is the inviter, never the invitee.
+ *
  * The owner is paired with the grant too: a grant on `propertyId` authorizes
  * acting on rows belonging to the owner who issued it, not to some third
  * manager. A row with NO owner (columns are `on delete set null`, so a deleted
@@ -48,6 +57,16 @@ export async function assertCoManagerModuleAccess(
     if (ownerId) return { ok: false, status: 403, error: "Forbidden." };
     return { ok: true };
   }
+
+  const { data: propertyRow } = await db
+    .from("manager_property_records")
+    .select("manager_user_id")
+    .eq("id", pid)
+    .maybeSingle();
+  const propertyOwnerId = String(
+    (propertyRow as { manager_user_id?: string | null } | null)?.manager_user_id ?? "",
+  ).trim();
+  if (propertyOwnerId && propertyOwnerId === userId) return { ok: true };
 
   const { ownerIds, propertyIds } = await linkedOwnerScopeForModule(
     db,

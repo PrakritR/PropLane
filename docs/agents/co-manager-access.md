@@ -175,8 +175,21 @@ manager documents; leases/applications/property-records already had their own
 ONE gate: it resolves through `linkedOwnerScopeForModule` → `coManagerModuleAllowed`
 (so `{}` denies), and it pairs the grant with the row's owner. Never add a second
 same-shaped gate beside it — the next route author picks the obvious name.
-Coverage: `tests/unit/co-manager-module-gate.test.ts`,
-`tests/unit/co-manager-empty-grant-write-routes.test.ts`. Filing a
+
+It admits a manager as "primary owner" two ways: the row owner a caller passes
+in, AND a lookup of the property's own `manager_user_id`. Both are load-bearing.
+`linkedOwnerScopeForModule` reads `account_link_invites` by `invitee_user_id`,
+and an owner is the inviter — so without the property lookup an owner is refused
+on their own house. Bills POST passes no owner on purpose (passing the caller
+would make the gate a no-op) and depends on exactly that.
+
+Routes that scope a single property without the module wrappers call
+`managerHasCoManagerPermissionForProperty` (household charges, vendors,
+applications, team invites). It shares the same rule — `{}` grants nothing —
+so there is one semantics, not two. Coverage:
+`tests/unit/co-manager-module-gate.test.ts`,
+`tests/unit/co-manager-empty-grant-write-routes.test.ts`,
+`tests/unit/co-manager-property-permission-primitive.test.ts`. Filing a
 lease under a property is the per-property equivalent
 (`managerMayFileLeaseUnderProperty`, `leases` at EDIT); see
 [`lease-generation.md`](lease-generation.md).
