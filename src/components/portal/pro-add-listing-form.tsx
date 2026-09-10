@@ -92,7 +92,6 @@ import {
   listingProplaneAbsorbNeedsWaiverCode,
   listingServiceFeePayerUiValue,
   managerCanSelectManagerAbsorbServiceFee,
-  managerCanSelectProplaneServiceFee,
   type ServiceFeePayer,
 } from "@/lib/payment-policy";
 import {
@@ -130,7 +129,6 @@ import {
   type ManagerRoomSubmission,
   type ManagerSharedSpaceSubmission,
   type PaymentAtSigningOptionId,
-  normalizeFlexibleRentBound,
 } from "@/lib/manager-listing-submission";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { applyListingFeeContextDefaults } from "@/lib/listing-fee-defaults";
@@ -190,6 +188,7 @@ import {
   deriveListingStFeeToggles,
   leaseLengthGatedHiddenFeeRowIds,
   LISTING_STANDARD_FEE_ROWS,
+  readListingFeeCellAmount,
   type ListingFeeRowId,
   type ListingLtFeeToggles,
   type ListingStFeeToggles,
@@ -1508,10 +1507,6 @@ export function ManagerAddListingForm({
   );
   const managerSkuTier = normalizeManagerSkuTier(skuTier) ?? "free";
   const canSelectManagerAbsorbFee = managerCanSelectManagerAbsorbServiceFee(managerSkuTier);
-  const canSelectProplaneAbsorbFee = managerCanSelectProplaneServiceFee(
-    managerSkuTier,
-    paymentWaiverGranted === true,
-  );
   const serviceFeePayerUi = listingServiceFeePayerUiValue(
     sub.serviceFeePayer,
     managerSkuTier,
@@ -1911,16 +1906,6 @@ export function ManagerAddListingForm({
     if (row?.stField) clearListingFieldError(String(row.stField));
   };
 
-  const handleStFeeAmount = (feeId: ListingFeeRowId, amount: string) => {
-    const sanitized = sanitizeMoneyInput(amount);
-    setSub((s) => applyListingStFeeAmount(s, feeId, sanitized));
-    const row = LISTING_STANDARD_FEE_ROWS.find((r) => r.id === feeId);
-    if (row?.stField) clearListingFieldError(String(row.stField));
-    if (sanitized.trim()) {
-      setStFeeToggles((prev) => ({ ...prev, [feeId]: true }));
-    }
-  };
-
   const handleLtFeeToggle = (feeId: ListingFeeRowId, enabled: boolean) => {
     setLtFeeToggles((prev) => ({ ...prev, [feeId]: enabled }));
     setSub((s) => applyListingLtFeeToggle(s, feeId, enabled, stFeeToggles));
@@ -2005,15 +1990,24 @@ export function ManagerAddListingForm({
         const fee = (sub.customFees ?? [])[target.index];
         setCustomFee(target.index, {
           leaseTypes: narrowFeeScope(next, leaseScopeOptions),
-          // Dropping short-term from the scope must un-bill the short-term amount too,
-          // or the fee keeps charging on exactly the stay just excluded.
-          shortTermAmount: wantsShortTerm ? (fee?.shortTermAmount ?? "") : undefined,
+          // One amount (PRP-463 round 2): a fee brought into short-term scope is charged
+          // the figure already on its row, and dropping short-term un-bills it — or the
+          // fee keeps charging on exactly the stay just excluded.
+          shortTermAmount: wantsShortTerm ? (fee?.amount ?? "") : undefined,
         });
         return;
       }
       const rowId = target.rowId;
       const longTermPicks = next.filter((t) => t !== SHORT_TERM_LEASE_TERM);
-      if (wantsShortTerm !== Boolean(stFeeToggles[rowId])) handleStFeeToggle(rowId, wantsShortTerm);
+      if (wantsShortTerm !== Boolean(stFeeToggles[rowId])) {
+        handleStFeeToggle(rowId, wantsShortTerm);
+        if (wantsShortTerm) {
+          // One amount: the figure already on the row is what a short-term stay is charged.
+          const row = LISTING_STANDARD_FEE_ROWS.find((r) => r.id === rowId);
+          const current = row?.ltField ? readListingFeeCellAmount(sub, row.ltField) : "";
+          if (current.trim()) setSub((s) => applyListingStFeeAmount(s, rowId, current));
+        }
+      }
       if (longTermPicks.length > 0 !== Boolean(ltFeeToggles[rowId])) {
         handleLtFeeToggle(rowId, longTermPicks.length > 0);
       }
@@ -2098,9 +2092,24 @@ export function ManagerAddListingForm({
     );
   };
 
+  /**
+   * A fee has ONE amount (PRP-463 round 2). The separate short-term box is gone, so the
+   * figure the manager types is written to the short-term field too whenever the fee is
+   * scoped to short-term stays — otherwise the scope would promise a charge the stored
+   * short-term amount never makes.
+   *
+   * A fee NOT scoped to short-term is left alone: an existing listing that carries a
+   * distinct short-term price keeps it until the manager brings that fee into scope.
+   */
+  const mirrorAmountToShortTerm = (feeId: ListingFeeRowId | undefined, sanitized: string) => {
+    if (!feeId || !stFeeToggles[feeId]) return;
+    setSub((s) => applyListingStFeeAmount(s, feeId, sanitized));
+  };
+
   const handleLtFeeAmount = (field: keyof ManagerListingSubmissionV1, amount: string) => {
     const sanitized = sanitizeMoneyInput(amount);
     setSub((s) => applyListingLtFeeAmount(s, field, sanitized));
+    mirrorAmountToShortTerm(LISTING_STANDARD_FEE_ROWS.find((r) => r.ltField === field)?.id, sanitized);
     clearListingFieldError(String(field));
     if (field === "entireHomeMonthlyRent") {
       clearListingFieldError("monthlyRent");
@@ -2118,6 +2127,7 @@ export function ManagerAddListingForm({
   const handleLtFeeAmountForRow = (feeId: ListingFeeRowId, amount: string) => {
     const sanitized = sanitizeMoneyInput(amount);
     setSub((s) => applyListingLtFeeAmountForRow(s, feeId, sanitized));
+    mirrorAmountToShortTerm(feeId, sanitized);
     const row = LISTING_STANDARD_FEE_ROWS.find((r) => r.id === feeId);
     if (row?.ltField) clearListingFieldError(String(row.ltField));
     if (sanitized.trim()) {
@@ -4897,9 +4907,7 @@ export function ManagerAddListingForm({
                           toggleDataAttr={`listing-room-pricing-toggle-${room.id}`}
                         >
                       <GridField>
-                        <FieldLabel hint="Flexible pricing agrees a price with each resident. Any range you give is guidance shown to prospects — it is never billed.">
-                          Pricing
-                        </FieldLabel>
+                        <FieldLabel>Pricing mode</FieldLabel>
                         <Select
                           aria-label={`Pricing mode for ${room.name || `room ${i + 1}`}`}
                           className={selectInputCls}
@@ -4908,99 +4916,61 @@ export function ManagerAddListingForm({
                           onChange={(e) =>
                             setRoom(i, {
                               pricingMode: e.target.value === "flexible" ? "flexible" : "fixed",
-                              // Switching back to a fixed price DROPS the advertised range
-                              // rather than leaving it stored and invisible, so it can never
-                              // reappear later as a quote the manager believes they removed.
                               ...(e.target.value === "flexible"
                                 ? {}
                                 : { flexibleRentMin: undefined, flexibleRentMax: undefined }),
                             })
                           }
                         >
-                          <option value="fixed">Fixed price</option>
-                          <option value="flexible">Flexible pricing</option>
+                          <option value="fixed">Fixed — price locked</option>
+                          <option value="flexible">Flexible — open to an offer</option>
                         </Select>
-                        {room.pricingMode !== "flexible" ? (
-                          <div className="mt-3 space-y-3">
-                            <p className="text-xs text-muted">
-                              Quote the rates you actually offer. A weekly or daily rate is a
-                              real price, not the monthly one divided up — leave a row blank if
-                              you do not offer that length.
-                            </p>
-                            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-                              <GridField>
-                                <FieldLabel>Rent / week</FieldLabel>
-                                <MoneyInput
-                                  ariaLabel={`Weekly rent for ${room.name || `room ${i + 1}`}`}
-                                  data-attr="listing-room-weekly-rent"
-                                  invalid={Boolean(roomWeeklyRentErr)}
-                                  value={room.weeklyRentPrice === undefined ? "" : String(room.weeklyRentPrice)}
-                                  onChange={(e) => {
-                                    const n = parseFloat(sanitizeMoneyInput(e.target.value));
-                                    clearListingFieldError(roomWeeklyRentKey);
-                                    setRoom(i, { weeklyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
-                                  }}
-                                  placeholder="Weekly rate"
-                                />
-                                <StepFieldError msg={roomWeeklyRentErr} />
-                              </GridField>
-                              <GridField>
-                                <FieldLabel>Rent / day</FieldLabel>
-                                <MoneyInput
-                                  ariaLabel={`Daily rent for ${room.name || `room ${i + 1}`}`}
-                                  data-attr="listing-room-daily-rent-basis"
-                                  invalid={Boolean(roomDailyRentErr)}
-                                  value={room.dailyRentPrice === undefined ? "" : String(room.dailyRentPrice)}
-                                  onChange={(e) => {
-                                    const n = parseFloat(sanitizeMoneyInput(e.target.value));
-                                    clearListingFieldError(roomDailyRentKey);
-                                    setRoom(i, { dailyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
-                                  }}
-                                  placeholder="Daily rate"
-                                />
-                                <StepFieldError msg={roomDailyRentErr} />
-                              </GridField>
-                            </div>
-                          </div>
-                        ) : null}
-                        {room.pricingMode === "flexible" ? (
-                          <div className="mt-3 space-y-2">
-                            <p className="text-xs text-muted">
-                              Agree a price with each resident. Leave both boxes empty to show no
-                              numbers at all.
-                            </p>
-                            <div className="flex items-center gap-2">
-                              <Input
-                                inputMode="decimal"
-                                aria-label={`Advertised minimum rent for ${room.name || `room ${i + 1}`}`}
-                                data-attr="listing-room-flexible-min"
-                                placeholder="Min (optional)"
-                                value={room.flexibleRentMin ?? ""}
-                                onChange={(e) =>
-                                  setRoom(i, { flexibleRentMin: normalizeFlexibleRentBound(e.target.value) })
-                                }
+                        <p className="mt-1 text-xs text-muted">
+                          {room.pricingMode === "flexible"
+                            ? "Same rent fields as Fixed. Prospects can propose a different amount in Communication; PropLane asks you before anything changes."
+                            : "Communication will only confirm the listed price — no counter-offers."}
+                        </p>
+                        <div className="mt-3 space-y-3">
+                          <p className="text-xs text-muted">
+                            Quote the rates you actually offer. A weekly or daily rate is a
+                            real price, not the monthly one divided up — leave a row blank if
+                            you do not offer that length.
+                          </p>
+                          <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+                            <GridField>
+                              <FieldLabel>Rent / week</FieldLabel>
+                              <MoneyInput
+                                ariaLabel={`Weekly rent for ${room.name || `room ${i + 1}`}`}
+                                data-attr="listing-room-weekly-rent"
+                                invalid={Boolean(roomWeeklyRentErr)}
+                                value={room.weeklyRentPrice === undefined ? "" : String(room.weeklyRentPrice)}
+                                onChange={(e) => {
+                                  const n = parseFloat(sanitizeMoneyInput(e.target.value));
+                                  clearListingFieldError(roomWeeklyRentKey);
+                                  setRoom(i, { weeklyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
+                                }}
+                                placeholder="Weekly rate"
                               />
-                              <span className="text-xs text-muted">to</span>
-                              <Input
-                                inputMode="decimal"
-                                aria-label={`Advertised maximum rent for ${room.name || `room ${i + 1}`}`}
-                                data-attr="listing-room-flexible-max"
-                                placeholder="Max (optional)"
-                                value={room.flexibleRentMax ?? ""}
-                                onChange={(e) =>
-                                  setRoom(i, { flexibleRentMax: normalizeFlexibleRentBound(e.target.value) })
-                                }
+                              <StepFieldError msg={roomWeeklyRentErr} />
+                            </GridField>
+                            <GridField>
+                              <FieldLabel>Rent / day</FieldLabel>
+                              <MoneyInput
+                                ariaLabel={`Daily rent for ${room.name || `room ${i + 1}`}`}
+                                data-attr="listing-room-daily-rent-basis"
+                                invalid={Boolean(roomDailyRentErr)}
+                                value={room.dailyRentPrice === undefined ? "" : String(room.dailyRentPrice)}
+                                onChange={(e) => {
+                                  const n = parseFloat(sanitizeMoneyInput(e.target.value));
+                                  clearListingFieldError(roomDailyRentKey);
+                                  setRoom(i, { dailyRentPrice: Number.isFinite(n) && n > 0 ? n : undefined });
+                                }}
+                                placeholder="Daily rate"
                               />
-                            </div>
-                            {room.flexibleRentMin !== undefined &&
-                            room.flexibleRentMax !== undefined &&
-                            room.flexibleRentMax < room.flexibleRentMin ? (
-                              <p className="text-xs text-danger" role="alert">
-                                The maximum is below the minimum, so no range will be shown.
-                              </p>
-                            ) : null}
+                              <StepFieldError msg={roomDailyRentErr} />
+                            </GridField>
                           </div>
-                        ) : null}
+                        </div>
                       </GridField>
                         </ListingWizardCollapsibleCard>
                       );
@@ -5027,7 +4997,6 @@ export function ManagerAddListingForm({
                   foldsMonthlyFeesIntoRent={listingFoldsAllMonthlyFeesIntoRent(sub)}
                   sub={sub}
                   isEntireHome={isEntireHome}
-                  onStAmount={handleStFeeAmount}
                   onLtAmount={handleLtFeeAmount}
                   onLtAmountForRow={handleLtFeeAmountForRow}
                   hiddenRowIds={hiddenStandardFeeRows}
@@ -5041,6 +5010,16 @@ export function ManagerAddListingForm({
                   onCustomFeeChange={(i, patch) => {
                     if (patch.label !== undefined) {
                       setCustomFee(i, { label: sanitizePlaceNameInput(patch.label) });
+                      return;
+                    }
+                    // One amount: a fee scoped to short-term stays is charged the same
+                    // figure, so the two stored amounts can never drift apart.
+                    if (patch.amount !== undefined) {
+                      const fee = (sub.customFees ?? [])[i];
+                      const inShortTermScope =
+                        fee?.shortTermAmount !== undefined ||
+                        (fee?.leaseTypes ?? []).includes(SHORT_TERM_LEASE_TERM);
+                      setCustomFee(i, inShortTermScope ? { ...patch, shortTermAmount: patch.amount } : patch);
                       return;
                     }
                     setCustomFee(i, patch);
@@ -5268,13 +5247,26 @@ export function ManagerAddListingForm({
                       */}
                       <option value="proplane">{SERVICE_FEE_PAYER_OPTION_LABELS.proplane}</option>
                     </Select>
-                    {listingProplaneAbsorbNeedsWaiverCode(
-                      managerSkuTier,
-                      serviceFeePayerUi,
-                      paymentWaiverGranted === true,
-                    ) ? (
+                    {/*
+                      The code box appears whenever PropLane is the payer, entitled or not
+                      (the captain's call). An account that already carries the grant sees
+                      it as optional rather than as a demand; an account that does not is
+                      told plainly that without a valid code the listing stays on Resident
+                      pays — which is what `persistListingServiceFeePayer` will do.
+                    */}
+                    {serviceFeePayerUi === "proplane" ? (
                       <div className="mt-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-2.5">
-                        <FieldLabel>PropLane waiver code</FieldLabel>
+                        <FieldLabel
+                          optional={
+                            !listingProplaneAbsorbNeedsWaiverCode(
+                              managerSkuTier,
+                              serviceFeePayerUi,
+                              paymentWaiverGranted === true,
+                            )
+                          }
+                        >
+                          PropLane processing waive code
+                        </FieldLabel>
                         <Input
                           aria-label="PropLane waiver code"
                           data-attr="listing-service-fee-waiver-code"
@@ -5297,7 +5289,13 @@ export function ManagerAddListingForm({
                         >
                           {listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
                             ? "Code accepted — PropLane absorbs the processing fee on this listing."
-                            : `Enter ${LISTING_PAYMENT_WAIVER_CODE} to have PropLane absorb it. Without a valid code this listing stays on Resident pays.`}
+                            : listingProplaneAbsorbNeedsWaiverCode(
+                                  managerSkuTier,
+                                  serviceFeePayerUi,
+                                  paymentWaiverGranted === true,
+                                )
+                              ? `Enter ${LISTING_PAYMENT_WAIVER_CODE} to have PropLane absorb it. Without a valid code this listing stays on Resident pays.`
+                              : "Your plan already covers this, so no code is needed. Enter one only if PropLane gave you a listing code."}
                         </p>
                       </div>
                     ) : null}

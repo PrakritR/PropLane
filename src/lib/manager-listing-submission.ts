@@ -171,20 +171,6 @@ export type ManagerRoomSubmission = {
    */
   bedCount?: number;
   /**
-   * Whether this room advertises ONE price or is negotiated per resident (PRP-329,
-   * Marc's sober-living model, where residents pay according to what they can afford).
-   *
-   * Absent or "fixed" → the room behaves exactly as it always has: {@link monthlyRent}
-   * (or {@link dailyRentPrice}) is both the advertised figure and the billed one.
-   *
-   * "flexible" → there is NO advertised billable price. The optional
-   * {@link flexibleRentMin}/{@link flexibleRentMax} are GUIDANCE shown to prospects,
-   * never a charge: `resolveStayPricing` refuses to bill a flexible room until the
-   * manager sets that resident's agreed rent, rather than falling back to a stale
-   * `monthlyRent` the public listing is no longer showing. This is a different axis
-   * from {@link rentBasis} (monthly vs daily billing) — a flexible room can be either.
-   */
-  /**
    * Headline WEEKLY rate (USD dollars), used when {@link rentBasis} is "weekly".
    *
    * The third rung of the rate card a manager actually quotes — "$55/day, $350/week,
@@ -211,10 +197,18 @@ export type ManagerRoomSubmission = {
    * short-term/nightly stay, which is priced by its own nightly rate instead.
    */
   shortLeaseMaxMonths?: number;
+  /**
+   * Whether this room's listed rent is Fixed or Flexible (PRP-462).
+   *
+   * Absent or "fixed" → listed rent is locked in Communication replies.
+   * "flexible" → same rent fields are listed and billed; a prospect counter-offer
+   * asks the manager before changing anything. Legacy {@link flexibleRentMin}/
+   * {@link flexibleRentMax} may remain on old rows but are not the primary price.
+   */
   pricingMode?: "fixed" | "flexible";
-  /** Optional advertised floor for a flexible room (USD dollars). Guidance only, never billed. */
+  /** @deprecated Legacy guidance bounds (PRP-329); not billed under PRP-462. */
   flexibleRentMin?: number;
-  /** Optional advertised ceiling for a flexible room (USD dollars). Guidance only, never billed. */
+  /** @deprecated Legacy guidance bounds (PRP-329); not billed under PRP-462. */
   flexibleRentMax?: number;
   /** Required evidence for this room; independent for arrival and departure. */
   moveInInspectionRequired?: boolean;

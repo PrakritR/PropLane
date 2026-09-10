@@ -79,6 +79,26 @@ describe("create wizard Other fees defaults", () => {
     expect(ids).toEqual(["applicationFee"]);
   });
 
+  // PRP-463 round 2, both the captain's calls. Neither is visible to a build or to a
+  // behavioural test: a regression would just mean a manager silently loses the code box,
+  // or gets back a second amount field for the same fee.
+  it("offers the PropLane waive code whenever PropLane is the payer, entitled or not", () => {
+    const src = readFileSync("src/components/portal/pro-add-listing-form.tsx", "utf8");
+    expect(src).toContain('{serviceFeePayerUi === "proplane" ? (');
+    expect(src).toContain("PropLane processing waive code");
+    // The entitlement check survives, but only to decide whether the code is REQUIRED.
+    expect(src).toContain("listingProplaneAbsorbNeedsWaiverCode(");
+  });
+
+  it("gives a fee one amount — no separate short-term box", () => {
+    const table = readFileSync("src/components/portal/listing-unified-fees-table.tsx", "utf8");
+    expect(table).not.toContain("Short-term custom fee");
+    expect(table).not.toContain("ariaLabel={`Short-term ${row.label}`}");
+    // The amount cell is drawn for a fee scoped to EITHER term, so a short-term-only fee
+    // still has somewhere to put its price.
+    expect(table).toContain("{(ltOn || stOn) && (row.ltField || row.id === \"rent\") ? (");
+  });
+
   it("no longer renders a rollover-to-month-to-month checkbox in the wizard", () => {
     const src = readFileSync("src/components/portal/pro-add-listing-form.tsx", "utf8");
     // The memoization dependency is a read, not a control; a rendered checkbox would write.
