@@ -1,81 +1,92 @@
 ---
-description: Lavish plan gate — no code until ticket exists and captain approves plan
+description: Lavish plan gate — every captain prompt becomes an interactive plan; no code until approved
 alwaysApply: true
 ---
 
-# Lavish plan gate (Phase ②)
+# Lavish plan gate (Phase ①)
 
 Prakrit only. When the user is **Akhil**, skip this gate unless he asks.
 See [`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md) /
 [`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md).
 
-Part of **`captain-dev-workflow.mdc`**. A Linear ticket **must exist** before a Lavish plan.
-**No product code** until the captain approves the plan.
+Full standard: [`docs/agents/lavish-plan-standard.md`](docs/agents/lavish-plan-standard.md).
 
-## When captain describes work
+**Every prompt from the captain becomes a Lavish plan first.** A bug, an idea,
+a screenshot, one line in chat — plan it, open it, iterate on it. **No product
+code** until he says **`approved — build`**.
 
-Run **one command** (creates ticket + plan + opens Lavish):
+**Do not file a Linear ticket for it.** The plan is the artifact. File a ticket
+only when he explicitly asks ("file a ticket", "log this in Linear").
 
-```bash
-npm run workflow:plan -- --chat "<captain's words>"
-```
-
-Or if ticket already exists:
+## When the captain describes work
 
 ```bash
-npm run workflow:plan -- --ticket PRP-### --title "..." --summary "..."
+npm run workflow:plan -- --chat "<his exact message>"
 ```
 
-Reply with:
+That scaffolds `.lavish/plans/<ID>-<slug>/plan.html`, opens Lavish, and starts
+the listener. Then **fill the scaffold** — it ships as a shell full of `slot`
+placeholders and is not reviewable until you replace them.
 
-1. **PRP-###** + Linear URL
-2. Path to `plan.html` + `npm run lavish:poll`
-3. **"Waiting for approved — build"** — do not implement yet
+Reply with: the plan path, one line on what it proposes, and **"waiting on your
+edits / approved — build"**. Do not implement yet.
 
-## Lavish poll (mandatory — non-negotiable)
+## The plan quality bar
 
-Captain feedback lives in **Lavish**, not in chat alone. If you open a plan and
-do not poll, Lavish shows *"Your agent is not listening"* and annotations are lost.
+| Tab | Must contain |
+| --- | --- |
+| Overview | today (verified in the running app) → after, in/out of scope |
+| **UI** | the screen **mocked** in PropLane tokens — before/after, desktop/mobile, empty + loading + error |
+| Build | file-by-file table, data/contract changes, order of work |
+| Decide | open questions as pickable options, each with cost/benefit |
+| Risks & tests | failure modes; real seeded data + edges, never `/demo` as proof |
 
-**After every `npx -y lavish-axi <plan.html>` (or `workflow:plan` with open):**
+The plan is the spec: **what it shows is exactly what gets built**. If build
+forces a departure, update `plan.html`, re-open it, and say what moved.
 
-1. Run **`npm run lavish:listen`** — background long-poll so Lavish UI shows “listening”.
-2. Run **`npm run lavish:poll`** before ending your turn — drains queued feedback.
-3. If poll returns feedback, **apply it** and reply with `--agent-reply` or in chat.
+It must stay **semi-interactive and editable** — tabs, before/after and
+desktop/mobile toggles, `contenteditable` sections with *Queue my edits*, and
+decision forms that submit once. All of it routes through
+`window.lavish.queuePrompt`, which `npm run lavish:poll` drains.
 
-**On every subsequent turn while `.lavish/active-session.json` exists:**
+## Lavish chat (mandatory — non-negotiable)
 
-1. **First shell command:** `npm run lavish:poll` (drains queued annotations).
-2. If captain says Lavish is not listening / poll for updates → run poll immediately.
-3. When captain says **`approved — build`** → `npm run lavish:poll -- --clear` then implement.
+Captain feedback lives in **Lavish**, not chat alone. Open a plan without
+polling and Lavish shows *"your agent is not listening"* — his annotations are lost.
 
-Modes:
+**After opening a plan:**
+
+1. Start the long poll — in Claude Code as a **tracked background** Bash task
+   (`npm run lavish:poll -- --wait`); elsewhere `npm run lavish:listen`. One
+   poller only; two race for the same delivery.
+2. `npm run lavish:poll` before ending the turn — drains queued feedback.
+3. Apply what came back, then `npm run lavish:poll -- --reply "…"` so he sees
+   the answer where he wrote the note.
+
+**Every later turn while `.lavish/active-session.json` exists:**
+
+1. **First shell command:** `npm run lavish:poll`.
+2. Apply his edits verbatim, re-open the same `plan.html` (never a second plan).
+3. On **`approved — build`** → `npm run lavish:poll -- --clear`, then build.
 
 | Command | When |
 | --- | --- |
-| `npm run lavish:listen` | **Start after opening plan** — keeps Lavish “listening” |
-| `npm run lavish:poll` | Normal agent turns (drain feedback) |
-| `npm run lavish:poll -- --wait` | Dedicated wait for captain (blocks) |
-| `npm run lavish:poll -- --clear` | After approval — drop session marker |
+| `npm run lavish:listen` | right after opening a plan |
+| `npm run lavish:poll` | first command of every turn |
+| `npm run lavish:poll -- --reply "…"` | answer him inside the plan |
+| `npm run lavish:poll -- --wait` | dedicated blocking wait |
+| `npm run lavish:poll -- --clear` | after approval only |
 
-**Never** tell the captain to "annotate in Lavish" without having polled at least once.
-**Never** end a plan-review turn without running `npm run lavish:poll`.
-
-## While waiting
-
-- `npm run lavish:poll` — apply Lavish annotations (required every turn)
-- Enrich plan HTML (scope, approach, risks, test plan, UI mock sections)
-- For UI work: read `docs/agents/ui-change-checklist.md` and link it in the plan
-
-## Build gate
-
-Implement **only** after captain says **`approved — build`** (or `LGTM build`, `ship it`).
-
-Skip plan only when captain says **`skip plan`** (hotfix).
+**Never** tell the captain to annotate without having polled at least once.
+**Never** end a plan-review turn without polling.
 
 ## Do not
 
-- Write feature code before plan approval
-- Scaffold Lavish without a **PRP-###** ticket id
-- Skip ticket phase (unless `no ticket`)
+- Write feature code before approval
+- File a Linear ticket for the work (unless he asks)
+- Ship a plan whose UI tab describes the screen instead of drawing it
+- Leave `slot` placeholders in a plan you showed him
 - Open Lavish and end the turn without polling
+- Start a second plan for the same request
+
+Skip the gate only on an explicit **`skip plan`** (hotfix).

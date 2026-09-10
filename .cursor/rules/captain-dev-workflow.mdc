@@ -1,5 +1,5 @@
 ---
-description: Captain workflow — ticket → Lavish plan + ticket.md → execute → review → promote
+description: Captain workflow — Lavish plan → iterate → execute → review → promote
 alwaysApply: true
 ---
 
@@ -9,44 +9,42 @@ This is **Prakrit's** (captain) process. Full copy:
 [`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md).
 
 When the user is **Akhil**, follow [`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md)
-instead: do not file Linear tickets or open Lavish unless he asks.
+instead: do not open Lavish or file Linear tickets unless he asks.
 
 Read **`docs/agents/captain-dev-workflow.md`**, **`docs/agents/agent-tooling-index.md`**, and
 **`docs/share/proplane-collaborator-workflow.md`** (for sharing with friends).
 
-**① Ticket → ② Plan + share → ③ Execute → ④ Review → ⑤ Promote**
+**① Plan (Lavish) → ② Iterate until `approved — build` → ③ Execute → ④ Review → ⑤ Promote**
 
 Visual board: `npm run lavish:workflow`
 
-## ① Ticket + ② Plan (default)
+## ① Plan, ② iterate (default)
 
-If the captain describes work, a bug, an idea, or pastes feedback — run **workflow
-plan** before anything else, even if they did not ask.
-
-```bash
-npm run workflow:plan -- --chat "<their message>"
-```
-
-Ticket only (no plan yet): `npm run linear:ticket -- --chat "…"`
-
-**Priority:** flow-breaking → High; cosmetic UI → Low (unless unusable). See
-`docs/linear-ticket-system.md`. After a batch: `npm run linear:triage`.
-
-Skip only when they explicitly say **"no ticket"** or **"skip plan"** (hotfix).
-
-Reply with **PRP-###** + full Linear URL + plan path. **Stop until approved — build.**
-
-See **`lavish-plan-gate.mdc`**.
-
-### Share with a friend (phase ②)
+If the captain describes work, a bug, an idea, or pastes feedback — open a
+**Lavish plan** before anything else, even if he did not ask.
 
 ```bash
-npm run linear:export -- --ticket PRP-### --out .lavish/plans/PRP-###-slug/ticket.md
+npm run workflow:plan -- --chat "<his exact message>"
 ```
+
+**Do not file a Linear ticket for it.** The plan is the artifact; file a ticket
+only when he explicitly asks.
+
+The scaffold is a shell — fill it. The UI tab must **mock the screen** in
+PropLane tokens (before/after, desktop/mobile, empty + loading + error), and the
+plan stays editable and semi-interactive so he can rewrite it in place. Standard:
+**`docs/agents/lavish-plan-standard.md`**. Gate: **`lavish-plan-gate.mdc`**.
+
+Reply with the plan path + what it proposes. **Stop until `approved — build`.**
+
+Skip only when he says **`skip plan`** (hotfix).
+
+### Share with a friend
 
 Optional public Lavish URL: `npx -y lavish-axi share <plan.html>`
 
-Poll: `npm run lavish:poll` (mandatory every turn while `.lavish/active-session.json` exists)
+Poll: `npm run lavish:poll` (mandatory **first command** every turn while
+`.lavish/active-session.json` exists; answer him with `-- --reply "…"`)
 
 UI work: follow `docs/agents/ui-change-checklist.md`
 
@@ -55,12 +53,14 @@ UI work: follow `docs/agents/ui-change-checklist.md`
 - Keeper branch + sandbox port: see **`local-agent-branch.mdc`** (this pane).
 - Read `docs/portal-ui-system.md` before portal UI; `docs/agents/<area>.md` before features.
 - MCP: `.cursor/mcp.json` — see agent-tooling-index.
-- Reference **PRP-###** in commits.
+- Build **what the plan shows**. A departure means updating `plan.html` and saying so.
 
 ## ④ Review
 
-Test on **this pane's sandbox URL**. After UI/route fixes run `npm run sandbox:open -- </route>` so the captain lands on the feature instantly (`sandbox-open-feature-review.mdc`). When the fix covers the **whole** ticket and `tsc` + unit are green on this tip, comment the commit SHA (`npm run linear:comment`) and mark the Linear issue **Done**. Do not merge to `prakrit`,
-`main`, `staging`, or `production` yourself. Do not move peer-verified Done issues back to Backlog.
+Test on **this pane's sandbox URL**. After UI/route fixes run `npm run sandbox:open -- </route>` so the captain lands on the feature instantly (`sandbox-open-feature-review.mdc`). Do not merge to `prakrit`, `main`, `staging`, or `production` yourself.
+
+Only touch Linear when he asked for a ticket: comment the SHA with
+`npm run linear:comment`, and never move a peer-verified Done issue back to Backlog.
 
 ## ⑤ Promote (captain only)
 

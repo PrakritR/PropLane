@@ -11,15 +11,35 @@ Developer-specific process:
 Claude-specific extras live here. Skills, plugins, and MCP servers are additive
 only - they never override `AGENTS.md` (see **Multi-agent collaboration** there).
 
-## Always open plans visually (Lavish)
+## Every prompt becomes a Lavish plan (mandatory for Prakrit)
 
-Whenever you write a plan (plan mode or any multi-step proposal), do **not** leave
-it as a bare markdown file the user can't see. Render it as a viewable **Lavish**
-artifact (`lavish-axi <html>`) so the user can read it in a good UI - and when the
-plan involves UI/design work, show the actual mockups/options in that Lavish board
-so the user can review and choose. Open the Lavish view before asking for approval.
-(Plan mode blocks non-read-only tools, so if you must stay in plan mode, say so and
-open the Lavish view immediately after exiting.)
+**Captain's standing order: plan first, in Lavish, every time.** When Prakrit
+describes work — a bug, an idea, a screenshot, one line in chat — scaffold a
+Lavish plan and open it **before** writing product code. No Linear ticket is
+filed for it; the plan is the artifact. He iterates on the plan, then says
+**`approved — build`**.
+
+```bash
+npm run workflow:plan -- --chat "<his exact message>"   # scaffold + open + listen
+npm run lavish:poll                                      # FIRST command of every later turn
+npm run lavish:poll -- --reply "Applied — reload the plan"
+npm run lavish:poll -- --clear                           # only after approval
+```
+
+The bar, in full: [`docs/agents/lavish-plan-standard.md`](docs/agents/lavish-plan-standard.md).
+Short version:
+
+- **Show the UI, do not describe it** — mock the screen in PropLane's own tokens,
+  before/after, desktop/mobile, plus empty / loading / error states.
+- **Semi-interactive** — tabs, toggles, editable sections, and decision forms
+  that queue his answer back through `window.lavish.queuePrompt`.
+- **Exact** — the Build tab's file list is what the implementation touches.
+  Departing from the plan means updating the plan, not quietly building
+  something else.
+- **Never end a turn with a plan open and no poll**, or Lavish tells him his
+  agent is not listening and his annotations are lost.
+
+Skip only on an explicit **`skip plan`** (hotfix). For Akhil, skip unless he asks.
 
 ## Ship gate (mandatory)
 

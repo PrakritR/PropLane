@@ -1,19 +1,20 @@
 ---
-description: File PropLane Linear tickets from natural language in Cursor chat
+description: File a PropLane Linear ticket ONLY when the captain explicitly asks
 alwaysApply: true
 ---
 
-# Linear tickets from chat (Phase ①)
+# Linear tickets — only when explicitly asked
 
 Prakrit only. When the user is **Akhil**, do not file a ticket unless he asks.
 See [`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md) /
 [`docs/agents/AGENTS-akhil.md`](docs/agents/AGENTS-akhil.md).
 
-Part of **`captain-dev-workflow.mdc`**. Ticket comes **before** Lavish plan and build.
+**Do not file a ticket for an issue, bug, idea, or QA finding on your own.**
+The captain's default artifact is the **Lavish plan** (`lavish-plan-gate.mdc`),
+not a Linear issue. Describing work is a request for a plan, not a ticket.
 
-When the captain asks to **create**, **file**, **log**, or **open** a Linear ticket
-—or describes any work/bug/idea without saying **"no ticket"**— **create the issue**
-first. Do not jump to planning or coding.
+File one **only** on an explicit instruction — "file a ticket", "log this in
+Linear", "ticket:", "create an issue". Then follow the protocol below.
 
 ## Protocol
 
@@ -21,16 +22,19 @@ first. Do not jump to planning or coding.
 2. Parse: title, bug vs feature, portal, area, urgency.
 3. **Create** via `npm run linear:ticket -- --chat "<captain's words>"` (GraphQL API only).
 4. Reply with **PRP-###** and the **full Linear URL**.
-5. **Next:** Phase ② — `npm run workflow:plan -- --ticket PRP-### …` (see `lavish-plan-gate.mdc`).
+5. **Next:** the plan — `npm run workflow:plan -- --chat "…" --ticket PRP-###` (see `lavish-plan-gate.mdc`); the id is a label, no second Linear call.
 
 **Do not use Linear MCP** — `LINEAR_API_KEY` in `.env.local` is required.
 
-## Chat triggers (examples)
+## Chat triggers (the ONLY ones)
 
 - "Create a ticket: calendar UI needs work"
 - "File this bug in Linear — residents tab crashes"
 - "Log a feature request for SMS applications"
 - "Ticket:" / "Linear:" prefix
+
+Anything else — a described bug, a screenshot, a QA sweep finding, "this is
+broken" — gets a **Lavish plan**, not a ticket.
 
 ## Routing (auto)
 
@@ -72,6 +76,7 @@ After filing a batch, run `npm run linear:triage` to normalize assignee + priori
 
 ## Do not
 
+- File a ticket he did not ask for (a described issue is a plan, not a ticket).
 - Use Linear MCP or `cursor agent` for tickets.
 - Create tickets without project + milestone.
 - Put secrets in descriptions.

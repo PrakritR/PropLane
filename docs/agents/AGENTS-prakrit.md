@@ -10,56 +10,79 @@ Full pipeline: [`captain-dev-workflow.md`](captain-dev-workflow.md),
 ## Default pipeline
 
 ```
-① TICKET  →  ② PLAN + SHARE  →  ③ EXECUTE  →  ④ REVIEW  →  ⑤ PROMOTE
+① LAVISH PLAN  →  ② ITERATE ON THE PLAN  →  ③ EXECUTE  →  ④ REVIEW  →  ⑤ PROMOTE
 ```
 
 Visual board: `npm run lavish:workflow`.
 
-Skip ① or ② only when Prakrit says **"no ticket"** or **"skip plan"** (hotfix).
+**Every message from Prakrit becomes a Lavish plan before any product code.**
+A bug, an idea, a screenshot, one line in chat — plan it and open it, even when
+he did not ask for a plan.
 
 ```bash
-npm run workflow:plan -- --chat "<their message>"
+npm run workflow:plan -- --chat "<his exact message>"
 ```
 
-Reply with **PRP-###**, the Linear URL, the `plan.html` path, then **stop** until
-he says **`approved - build`** (or `LGTM build` / `ship it`). Do not write
-product code before that.
+Reply with the `plan.html` path and one line on what it proposes, then **stop**
+until he says **`approved — build`** (or `LGTM build` / `ship it`). No product
+code before that.
 
-Ticket only: `npm run linear:ticket -- --chat "…"`. Do not use Linear MCP to
-file. `LINEAR_API_KEY` lives in `.env.local`.
+Skip only on an explicit **`skip plan`** (hotfix).
 
-Priority: flow-breaking → High; cosmetic UI → Low unless unusable.
-After a batch: `npm run linear:triage`. Title format:
-`[Area] Short imperative - user-visible outcome`. Always add `portal:*`,
-`area:*`, and Bug | Feature | Improvement. Full routing:
-`docs/linear-ticket-system.md`.
+### No tickets unless he asks
 
-## Lavish poll (mandatory while a plan is open)
+**Do not file Linear tickets for issues.** The plan is the artifact. File one
+only on an explicit "file a ticket" / "log this in Linear", via
+`npm run linear:ticket -- --chat "…"` (never Linear MCP; `LINEAR_API_KEY` lives
+in `.env.local`). Everything else — described bugs, QA findings, screenshots —
+becomes a plan.
 
-After opening a plan:
+### The plan quality bar
 
-1. `npm run lavish:listen` (background - UI shows "listening")
+Full standard: [`lavish-plan-standard.md`](lavish-plan-standard.md). The
+scaffold is a shell of `slot` placeholders; fill every one before he sees it.
+
+| Tab | Must contain |
+| --- | --- |
+| Overview | today (verified in the running app) → after, in/out of scope |
+| **UI** | the screen **mocked** in PropLane tokens — before/after, desktop/mobile, empty + loading + error |
+| Build | file-by-file table, data/contract changes, order of work |
+| Decide | open questions as pickable options, each with cost/benefit |
+| Risks & tests | failure modes; real seeded data + edges, never `/demo` as proof |
+
+The plan is the spec — **what it shows is exactly what gets built**. A departure
+during build means updating `plan.html` and saying what moved.
+
+It stays **editable and semi-interactive**: he rewrites any section in place and
+presses *Queue my edits*; decision forms submit one answer; before/after and
+desktop/mobile toggles let him check the screen without asking.
+
+## Lavish chat (mandatory while a plan is open)
+
+1. `npm run lavish:listen` right after opening (UI shows "listening")
 2. `npm run lavish:poll` before ending the turn
 
 Every later turn while `.lavish/active-session.json` exists: **first command**
-is `npm run lavish:poll`. After approval: `npm run lavish:poll -- --clear`.
-
-Never tell Prakrit to annotate in Lavish unless you have polled at least once.
-
-Share with a friend:
+is `npm run lavish:poll`. Apply his edits verbatim, re-open the same plan, and
+answer him inside it:
 
 ```bash
-npm run linear:export -- --ticket PRP-### \
-  --out .lavish/plans/PRP-###-slug/ticket.md
+npm run lavish:poll -- --reply "Applied — reload the plan"
 ```
 
-UI work: `docs/agents/ui-change-checklist.md` in the plan.
+After approval: `npm run lavish:poll -- --clear`.
+
+Never tell Prakrit to annotate in Lavish unless you have polled at least once.
+Never start a second plan for the same request.
+
+UI work: put `docs/agents/ui-change-checklist.md` in the plan.
 
 ## Execute / review / status
 
 - Keeper branch + sandbox port: local pane instructions, never hard-coded here.
-- While coding the issue: Linear **In Progress**.
-- Whole ticket + green `tsc` / unit on this tip: **Done**, plus
+- Build **what the plan shows**; a departure means updating `plan.html` first.
+- Linear only when he asked for a ticket. Then: **In Progress** while coding,
+  **Done** only on a whole-ticket fix with green `tsc` / unit on this tip, plus
 
 ```bash
 npm run linear:comment -- --ticket PRP-### --sha <commit> --lane <keeper>
@@ -103,6 +126,10 @@ unless he waives that named step.
 
 ## Do not
 
+- Write product code before **`approved — build`**
+- File a Linear ticket he did not ask for
+- Show him a plan whose UI tab describes the screen instead of drawing it
+- End a turn with a plan open and no `npm run lavish:poll`
 - Use Linear MCP or `cursor agent` for tickets
 - Create tickets without project + milestone
 - Put secrets in descriptions
