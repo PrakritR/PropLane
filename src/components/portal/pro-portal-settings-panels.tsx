@@ -184,6 +184,7 @@ export function ApplicationsSettingsPanel({
   onAutomationChange,
   waiverCode = "",
   portfolioWaiverCode = null,
+  waiverCodeEditable,
   onWaiverCodeChange,
   onWaiverCodeCommit,
   hidePropertyField = false,
@@ -208,6 +209,12 @@ export function ApplicationsSettingsPanel({
    * this per-property field cannot turn it off, so it is stated, not edited.
    */
   portfolioWaiverCode?: string | null;
+  /**
+   * Whether the current selection names exactly one property. A code is unique
+   * per manager and lives on ONE listing, so a multi-property selection has no
+   * single code to show or write.
+   */
+  waiverCodeEditable?: boolean;
   onWaiverCodeChange?: (code: string) => void;
   /** Persist the promo code to every selected property (blur / Apply). */
   onWaiverCodeCommit?: () => void;
@@ -219,6 +226,7 @@ export function ApplicationsSettingsPanel({
   const multiSelect = Boolean(onPropertyIdsChange);
   const selectedIds = propertyIds ?? (propertyId ? [propertyId] : []);
   const hasSelection = selectedIds.length > 0;
+  const canEditWaiverCode = waiverCodeEditable ?? selectedIds.length === 1;
   const selectableIds = propertyOptions.map((o) => o.id);
 
   return (
@@ -273,19 +281,22 @@ export function ApplicationsSettingsPanel({
             id="manager-application-promo-code"
             type="text"
             className="w-full rounded-xl border border-border bg-background px-3 py-2 font-mono text-sm uppercase text-foreground"
-            value={waiverCode}
-            disabled={loading || saving || !hasSelection}
+            value={canEditWaiverCode ? waiverCode : ""}
+            disabled={loading || saving || !hasSelection || !canEditWaiverCode}
             placeholder="E.G. WELCOME50"
             data-attr="manager-application-settings-promo-code"
             onChange={(e) => onWaiverCodeChange(e.target.value.toUpperCase())}
-            onBlur={() => onWaiverCodeCommit?.()}
+            onBlur={() => {
+              if (!canEditWaiverCode) return;
+              onWaiverCodeCommit?.();
+            }}
           />
           <p className="text-xs text-muted">
-            {selectedIds.length > 1
-              ? `Applicants who enter this code on any of the ${selectedIds.length} selected properties waive the application fee. Leave empty to turn it off for those listings.`
-              : "Applicants who enter this code on this property's application waive the application fee. Leave empty to turn it off."}
+            {canEditWaiverCode
+              ? "Applicants who enter this code on this property's application waive the application fee. Leave empty to turn it off."
+              : "A promo code belongs to one property. Select a single property to set or change its code."}
           </p>
-          {portfolioWaiverCode ? (
+          {canEditWaiverCode && portfolioWaiverCode ? (
             <p className="text-xs text-muted" data-attr="manager-application-settings-portfolio-promo-code">
               <span className="font-mono font-semibold uppercase text-foreground">{portfolioWaiverCode}</span>{" "}
               also waives the application fee here — it applies to every property on this account. Clearing

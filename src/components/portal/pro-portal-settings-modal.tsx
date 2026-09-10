@@ -187,7 +187,7 @@ export function ProPortalSettingsModal({
    * touched, and racing the load that triggered it.
    */
   const saveApplicationAutomationSettings = useCallback(
-    async (next: ApplicationAutomationPreferences, nextWaiverCode: string, targetPropertyIds: string[]) => {
+    async (next: ApplicationAutomationPreferences, targetPropertyIds: string[]) => {
       const ids = targetPropertyIds.map((id) => id.trim()).filter(Boolean);
       if (ids.length === 0 || demo) return;
       setSaving(true);
@@ -198,7 +198,7 @@ export function ProPortalSettingsModal({
             method: "PATCH",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ propertyId: id, automation: next, waiverCode: nextWaiverCode }),
+            body: JSON.stringify({ propertyId: id, automation: next }),
           });
           if (!res.ok) {
             failed = true;
@@ -220,10 +220,44 @@ export function ProPortalSettingsModal({
     [demo, showToast],
   );
 
+  /**
+   * The one property whose promo code this dialog may edit, or "" when the
+   * selection cannot name one. A code is unique per manager and pinned to a
+   * single listing, so a multi-property selection has no single code to show or
+   * write — the field is disabled and nothing is sent.
+   */
+  const waiverCodePropertyId =
+    propertyIds.length === 1 ? propertyIds[0]!.trim() : propertyIds.length === 0 ? propertyId.trim() : "";
+
+  const saveWaiverCodeForProperty = useCallback(
+    async (nextWaiverCode: string, targetPropertyId: string) => {
+      const id = targetPropertyId.trim();
+      if (!id || demo) return;
+      setSaving(true);
+      try {
+        const res = await fetch("/api/portal/manager-application-settings", {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ propertyId: id, waiverCode: nextWaiverCode }),
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          showToast(data.error ?? "Could not save the promo code.");
+        }
+      } catch {
+        showToast("Could not save the promo code.");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [demo, showToast],
+  );
+
   const commitWaiverCode = useCallback(() => {
-    const ids = propertyIds.length > 0 ? propertyIds : propertyId ? [propertyId] : [];
-    void saveApplicationAutomationSettings(automation, waiverCode, ids);
-  }, [automation, propertyId, propertyIds, saveApplicationAutomationSettings, waiverCode]);
+    if (!waiverCodePropertyId) return;
+    void saveWaiverCodeForProperty(waiverCode, waiverCodePropertyId);
+  }, [saveWaiverCodeForProperty, waiverCode, waiverCodePropertyId]);
 
   /**
    * Payments and Tours settings autosave on close — closing the dialog commits changes.
@@ -280,9 +314,9 @@ export function ProPortalSettingsModal({
     (next: ApplicationAutomationPreferences) => {
       setAutomation(next);
       const ids = propertyIds.length > 0 ? propertyIds : propertyId ? [propertyId] : [];
-      void saveApplicationAutomationSettings(next, waiverCode, ids);
+      void saveApplicationAutomationSettings(next, ids);
     },
-    [propertyId, propertyIds, saveApplicationAutomationSettings, waiverCode],
+    [propertyId, propertyIds, saveApplicationAutomationSettings],
   );
 
   // Applications and Lease publish no footer at all; the other tabs still own
@@ -346,6 +380,7 @@ export function ProPortalSettingsModal({
           onAutomationChange={changeAutomation}
           waiverCode={waiverCode}
           portfolioWaiverCode={portfolioWaiverCode}
+          waiverCodeEditable={Boolean(waiverCodePropertyId)}
           onWaiverCodeChange={setWaiverCode}
           onWaiverCodeCommit={commitWaiverCode}
           hidePropertyField={lockPropertyField}
