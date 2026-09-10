@@ -135,7 +135,14 @@ describe("ResidentApplicationsPanel — each row opens its OWN application", () 
     await act(async () => {
       render(<ResidentApplicationsPanel applyMode />);
     });
-    expect(portalNavigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-AAAA0001");
+    // REPLACE, not push. The resident opened an apply link, not this row —
+    // resolving it into the draft they already started is the panel's own doing,
+    // so it must not leave a history entry they never chose. Pushing it meant
+    // Back landed on /apply, which resolved the same row and sent them straight
+    // forward again.
+    expect(portalNavigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-AAAA0001", {
+      replace: true,
+    });
   });
 
   it("clicking a row navigates to that row's detail page", async () => {
@@ -163,12 +170,16 @@ describe("ResidentApplicationsPanel — each row opens its OWN application", () 
       render(<ResidentApplicationsPanel applyMode />);
     });
 
-    expect(portalNavigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-AAAA0001");
+    expect(portalNavigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-AAAA0001", {
+      replace: true,
+    });
 
     portalNavigate.mockClear();
     await act(async () => {
       clickDesktopRow("PROPLANE-BBBB0002");
     });
+    // A row the resident actually CLICKED stays a push — that is a trip they
+    // chose, and Back out of it belongs in their history.
     expect(portalNavigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-BBBB0002");
   });
 });

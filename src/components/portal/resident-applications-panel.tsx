@@ -720,7 +720,14 @@ export function ResidentApplicationsPanel({
     queueMicrotask(() => {
       setBucket("pending");
       setWizardRowId(targetRow.id);
-      portalNavigate(residentApplicationDetailHref(basePath, "pending", targetRow.id));
+      // REPLACE, never push. The resident asked for the apply link, not for this
+      // specific row — resolving it into the draft they already started is the
+      // panel's own doing. Pushing it left an entry they never chose between
+      // them and wherever they came from, so Back landed on the apply page,
+      // which resolved the same row and sent them forward again. That trap, and
+      // the extra hop before it, is why a returning applicant sees the link
+      // bounce a second time before it settles.
+      portalNavigate(residentApplicationDetailHref(basePath, "pending", targetRow.id), { replace: true });
     });
   }, [applyMode, applyTarget, basePath, portalNavigate, rows]);
 

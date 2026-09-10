@@ -577,7 +577,18 @@ function RentalApplicationWizardInner({
     if (mode !== "portal" || postSubmit || isDemoModeActive() || !isOnScreen()) return;
     const params = new URLSearchParams(searchParams.toString());
     const prev = params.get("wizardStep");
-    if (step <= 3) {
+    if (step === 1) {
+      // Step 1 is where the wizard already starts, so `?wizardStep=1` tells the
+      // URL nothing the bare path did not. Writing it anyway fired on FIRST
+      // MOUNT — a `router.replace` on a dynamic route with a loading boundary,
+      // which costs a server round-trip and a skeleton frame about a second
+      // after the application opens. That is the "it resets again" half of the
+      // flicker a resident sees on a manager's application link. Absence now
+      // MEANS step 1 (`resolvePortalMobileBackTarget` reads it that way too);
+      // only a stale param left over from a deeper step still needs clearing.
+      if (!prev) return;
+      params.delete("wizardStep");
+    } else if (step <= 3) {
       const next = String(step);
       if (prev === next) return;
       params.set("wizardStep", next);
