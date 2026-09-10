@@ -18,6 +18,15 @@ import { collectLinkedPropertyIds } from "@/lib/manager-portfolio-access";
 import { isPortalSandboxEmail } from "@/lib/portal-sandbox-accounts";
 
 export type FirstListingPortfolioSnapshot = {
+  /**
+   * What the Properties page's own "Listed" tab shows.
+   *
+   * Read from the same counter the tab renders, so the seed can never disagree
+   * with what the manager is looking at. `listingSlots` is a plan-slot count
+   * over rows this account owns; a co-manager working somebody else's
+   * portfolio has a Listed tab full of properties and an owned count of zero.
+   */
+  listed: number;
   listingSlots: number;
   drafts: number;
   unlisted: number;
@@ -36,9 +45,11 @@ export function readFirstListingPortfolioSnapshot(
   managerUserId: string | null | undefined,
 ): FirstListingPortfolioSnapshot {
   const id = managerUserId?.trim() || null;
-  if (!id) return { listingSlots: 0, drafts: 0, unlisted: 0, coManaged: 0 };
+  if (!id) return { listed: 0, listingSlots: 0, drafts: 0, unlisted: 0, coManaged: 0 };
   const kpi = adminKpiCounts(id);
   return {
+    // Index 2 is the Listed bucket, the same one the tab counts.
+    listed: kpi[2],
     listingSlots: countManagerManagedPropertiesForUser(id),
     drafts: kpi[5],
     unlisted: kpi[3],
@@ -52,7 +63,7 @@ export function readFirstListingPortfolioSnapshot(
  * listing, not a listing.
  */
 export function managerHasAnyListing(snap: FirstListingPortfolioSnapshot): boolean {
-  return snap.listingSlots > 0 || snap.unlisted > 0 || snap.coManaged > 0;
+  return snap.listed > 0 || snap.listingSlots > 0 || snap.unlisted > 0 || snap.coManaged > 0;
 }
 
 const DISMISSED_KEY_PREFIX = "proplane:first-listing-wizard-dismissed:";
@@ -100,8 +111,10 @@ export function markFirstListingWizardDismissed(userId: string | null | undefine
 export function shouldAutoOpenFirstListingWizard(opts: {
   snap: FirstListingPortfolioSnapshot;
   dismissed: boolean;
+  coManagerLinksKnown?: boolean;
 }): boolean {
   if (opts.dismissed) return false;
+  if (opts.coManagerLinksKnown === false) return false;
   return !managerHasAnyListing(opts.snap);
 }
 
@@ -109,7 +122,13 @@ export function shouldAutoOpenFirstListingWizard(opts: {
 export function managerPortfolioNeedsFirstListingSeed(
   snap: FirstListingPortfolioSnapshot,
 ): boolean {
-  return snap.listingSlots === 0 && snap.drafts === 0 && snap.unlisted === 0 && snap.coManaged === 0;
+  return (
+    snap.listed === 0 &&
+    snap.listingSlots === 0 &&
+    snap.drafts === 0 &&
+    snap.unlisted === 0 &&
+    snap.coManaged === 0
+  );
 }
 
 /**
@@ -119,7 +138,13 @@ export function managerPortfolioNeedsFirstListingSeed(
 export function managerNeedsFirstListingOnboarding(
   snap: FirstListingPortfolioSnapshot,
 ): boolean {
-  return snap.listingSlots === 0 && snap.unlisted === 0 && snap.coManaged === 0 && snap.drafts > 0;
+  return (
+    snap.listed === 0 &&
+    snap.listingSlots === 0 &&
+    snap.unlisted === 0 &&
+    snap.coManaged === 0 &&
+    snap.drafts > 0
+  );
 }
 
 export function shouldSkipFirstListingOnboarding(opts: {
@@ -155,7 +180,7 @@ export function firstListingDashboardRedirectStorageKey(userId: string): string 
  */
 export async function ensureManagerFirstListingDraft(
   managerUserId: string,
-  opts?: { email?: string | null; portfolioSynced?: boolean },
+  opts?: { email?: string | null; portfolioSynced?: boolean; coManagerLinksKnown?: boolean },
 ): Promise<{ draftId: string; created: boolean } | null> {
   const userId = managerUserId.trim();
   if (!userId) return null;
@@ -168,6 +193,13 @@ export async function ensureManagerFirstListingDraft(
   }
 
   if (opts?.portfolioSynced !== true) return null;
+  /*
+    A confirmed PROPERTY sync says nothing about co-manager links, and the link
+    cache reads empty both before it loads and when there are none. Seeding on
+    that gave a co-manager with three properties on somebody else's portfolio a
+    draft they never asked for, every visit. Not knowing is a refusal.
+  */
+  if (opts?.coManagerLinksKnown === false) return null;
 
   const snap = readFirstListingPortfolioSnapshot(userId);
   if (!managerPortfolioNeedsFirstListingSeed(snap)) return null;

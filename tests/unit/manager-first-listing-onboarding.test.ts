@@ -26,6 +26,7 @@ import {
   ensureManagerFirstListingDraft,
   managerNeedsFirstListingOnboarding,
   managerPortfolioNeedsFirstListingSeed,
+  shouldAutoOpenFirstListingWizard,
   shouldSkipFirstListingOnboarding,
 } from "@/lib/manager-first-listing-onboarding";
 
@@ -37,28 +38,28 @@ describe("manager-first-listing-onboarding (PRP-396)", () => {
   });
 
   it("needs seed only when slots, drafts, and unlisted are all zero", () => {
-    expect(managerPortfolioNeedsFirstListingSeed({ listingSlots: 0, drafts: 0, unlisted: 0, coManaged: 0 })).toBe(
+    expect(managerPortfolioNeedsFirstListingSeed({ listed: 0, listingSlots: 0, drafts: 0, unlisted: 0, coManaged: 0 })).toBe(
       true,
     );
-    expect(managerPortfolioNeedsFirstListingSeed({ listingSlots: 0, drafts: 1, unlisted: 0, coManaged: 0 })).toBe(
+    expect(managerPortfolioNeedsFirstListingSeed({ listed: 0, listingSlots: 0, drafts: 1, unlisted: 0, coManaged: 0 })).toBe(
       false,
     );
-    expect(managerPortfolioNeedsFirstListingSeed({ listingSlots: 1, drafts: 0, unlisted: 0, coManaged: 0 })).toBe(
+    expect(managerPortfolioNeedsFirstListingSeed({ listed: 0, listingSlots: 1, drafts: 0, unlisted: 0, coManaged: 0 })).toBe(
       false,
     );
-    expect(managerPortfolioNeedsFirstListingSeed({ listingSlots: 0, drafts: 0, unlisted: 1, coManaged: 0 })).toBe(
+    expect(managerPortfolioNeedsFirstListingSeed({ listed: 0, listingSlots: 0, drafts: 0, unlisted: 1, coManaged: 0 })).toBe(
       false,
     );
   });
 
   it("needs soft onboarding when a draft exists but no listing slot yet", () => {
-    expect(managerNeedsFirstListingOnboarding({ listingSlots: 0, drafts: 1, unlisted: 0, coManaged: 0 })).toBe(
+    expect(managerNeedsFirstListingOnboarding({ listed: 0, listingSlots: 0, drafts: 1, unlisted: 0, coManaged: 0 })).toBe(
       true,
     );
-    expect(managerNeedsFirstListingOnboarding({ listingSlots: 1, drafts: 1, unlisted: 0, coManaged: 0 })).toBe(
+    expect(managerNeedsFirstListingOnboarding({ listed: 0, listingSlots: 1, drafts: 1, unlisted: 0, coManaged: 0 })).toBe(
       false,
     );
-    expect(managerNeedsFirstListingOnboarding({ listingSlots: 0, drafts: 1, unlisted: 1, coManaged: 0 })).toBe(
+    expect(managerNeedsFirstListingOnboarding({ listed: 0, listingSlots: 0, drafts: 1, unlisted: 1, coManaged: 0 })).toBe(
       false,
     );
   });
@@ -106,5 +107,55 @@ describe("manager-first-listing-onboarding (PRP-396)", () => {
     });
     expect(result).toBeNull();
     expect(saveManagerPropertyDraftToServer).not.toHaveBeenCalled();
+  });
+});
+
+describe("co-manager links must be KNOWN before a draft is seeded", () => {
+  /*
+    The reported bug: an account co-managing three properties on somebody
+    else's portfolio got a fresh draft minted on every visit to Properties.
+    Nothing it owns says otherwise, and the link cache reads `[]` both before
+    it loads and when there genuinely are none — so "empty portfolio" was being
+    decided on a question that had not been answered yet.
+  */
+  const EMPTY = { listed: 0, listingSlots: 0, drafts: 0, unlisted: 0, coManaged: 0 };
+
+  it("does not auto-open the wizard while the link answer is outstanding", () => {
+    expect(
+      shouldAutoOpenFirstListingWizard({ snap: EMPTY, dismissed: false, coManagerLinksKnown: false }),
+    ).toBe(false);
+  });
+
+  it("still opens for a genuinely empty account once the links are known", () => {
+    expect(
+      shouldAutoOpenFirstListingWizard({ snap: EMPTY, dismissed: false, coManagerLinksKnown: true }),
+    ).toBe(true);
+  });
+
+  it("never opens when the Listed tab has anything in it", () => {
+    // The captain's rule, in his words: only when there are NO properties
+    // listed. This is read from the very counter the tab renders.
+    expect(
+      shouldAutoOpenFirstListingWizard({
+        snap: { ...EMPTY, listed: 3 },
+        dismissed: false,
+        coManagerLinksKnown: true,
+      }),
+    ).toBe(false);
+    expect(managerPortfolioNeedsFirstListingSeed({ ...EMPTY, listed: 3 })).toBe(false);
+  });
+
+  it("never opens once the account co-manages anything", () => {
+    expect(
+      shouldAutoOpenFirstListingWizard({
+        snap: { ...EMPTY, coManaged: 3 },
+        dismissed: false,
+        coManagerLinksKnown: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("treats an omitted flag as known, so existing callers are unchanged", () => {
+    expect(shouldAutoOpenFirstListingWizard({ snap: EMPTY, dismissed: false })).toBe(true);
   });
 });
