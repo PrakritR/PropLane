@@ -307,6 +307,12 @@ export type ManagerBundleRow = {
   shortTermEnabled?: boolean;
   /** Nightly rate for short-term stays on this bundle (stay total = rate × nights). */
   shortTermNightlyRent?: string;
+  /**
+   * Per-lease-type price overrides for the bundle, keyed by stored lease-term label
+   * (PRP-463) — the same shape a room carries. A term with no entry is priced like the
+   * bundle's long-term rent and deposit, which is what every bundle has always meant.
+   */
+  termPricing?: Record<string, ManagerRoomTermPrice>;
   /** Per-bundle short-term move-in fee and deposit (round 20 dedicated short-term section).
    *  Advertised default for a grouped short-term stay; no separate utilities (all-in rate). */
   shortTermMoveInFee?: string;
@@ -1594,6 +1600,7 @@ export function normalizeManagerListingSubmissionV1(
         typeof b.utilitiesEstimate === "string" && b.utilitiesEstimate.trim()
           ? b.utilitiesEstimate.trim()
           : undefined,
+      termPricing: normalizeRoomTermPricing((b as ManagerBundleRow & { termPricing?: unknown }).termPricing),
     };
   });
 

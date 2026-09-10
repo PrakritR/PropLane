@@ -31,6 +31,7 @@ import { LISTING_FEE_PRESETS } from "@/lib/listing-fees";
 import {
   derivePaymentAtSigningIncludesFromMatrix,
   expandFeeScope,
+  feeAppliesToLeaseType,
   listingLeaseTypeScopeOptions,
   narrowFeeScope,
   paymentAtSigningMatrix,
@@ -159,8 +160,6 @@ import {
   sharedSpaceAmenityPresetsForKind,
   pruneSharedSpaceAmenitiesForKind,
   type SharedSpaceKind,
-  parseFurnitureSet,
-  roomFurnishingIsFurnished,
   sanitizeRoomAmenityText,
   splitCommaSeparatedList,
   listingAmenityLinesFromValue,
@@ -624,11 +623,11 @@ function ProrationMethodFields({
 }) {
   // Prorated rent: Auto = (rent + utilities) ÷ days in month; "Set per day" bills an
   // explicit per-day rent AND per-day utilities separately.
-  // A fragment, not a wrapper: these are three fields, so they become three cells of the
-  // surrounding price grid rather than one tall cell that stacks them and leaves every
-  // field beside it hanging under a column of white space (PRP-463).
+  // One cell holding all three: "Set per day" belongs directly above the two rates it
+  // reveals (PRP-463). Safe now the price grid is top-aligned — a tall cell no longer
+  // pushes every field beside it to the bottom, which is why these were split apart.
   return (
-    <>
+    <div className="flex flex-col gap-2">
       <div>
         <FieldLabel hint={prorateMethod === "auto" ? "Auto = (rent + utilities) ÷ days in the month." : undefined}>
           Prorated rent
@@ -663,7 +662,7 @@ function ProrationMethodFields({
           </div>
         </>
       ) : null}
-    </>
+    </div>
   );
 }
 
@@ -871,6 +870,91 @@ function LeaseTermFeeRows({
           )
         }
       />
+    </div>
+  );
+}
+
+/**
+ * A preset list behind one multi-select, with "Other" as an OPTION in the menu rather than
+ * a checkbox beside it, and the write-in beside the field (PRP-463).
+ *
+ * The value contract is the listing's usual newline-joined amenity text: preset labels
+ * first, then whatever the manager typed. "Other" is not stored — it is simply how the
+ * menu offers the write-in, so ticking it opens the box and unticking it clears the box
+ * rather than leaving a value the reopened menu would contradict.
+ */
+const PRESET_OTHER_VALUE = "__other__";
+
+function PresetMultiSelectField({
+  label,
+  presets,
+  value,
+  onChange,
+  otherOpen,
+  onOtherOpenChange,
+  dataAttr,
+  otherPlaceholder = "Other, comma-separated",
+  emptyLabel = "None",
+  allLabel = "All",
+  className = "w-full max-w-[13rem]",
+}: {
+  label: string;
+  presets: readonly { id: string; label: string }[];
+  value: string;
+  onChange: (nextValue: string) => void;
+  otherOpen: boolean;
+  onOtherOpenChange: (open: boolean) => void;
+  dataAttr?: string;
+  otherPlaceholder?: string;
+  emptyLabel?: string;
+  allLabel?: string;
+  className?: string;
+}) {
+  const presetLabels = presets.map((p) => p.label);
+  const lines = listingAmenityLinesFromValue(value);
+  const checked = presetLabels.filter((l) => lines.includes(l));
+  const custom = lines.filter((l) => !presetLabels.includes(l));
+  const open = otherOpen || custom.length > 0;
+  const [draft, setDraft] = useState(() => custom.join(", "));
+  const write = (nextChecked: string[], nextCustom: string[]) =>
+    onChange([...presetLabels.filter((l) => nextChecked.includes(l)), ...nextCustom.filter(Boolean)].join("\n"));
+
+  return (
+    <div className="flex w-full flex-wrap items-center gap-2">
+      <CheckboxMultiSelect
+        label={label}
+        hideLabel
+        dataAttr={dataAttr}
+        className={className}
+        options={[
+          ...presets.map((p) => ({ value: p.label, label: p.label })),
+          { value: PRESET_OTHER_VALUE, label: "Other" },
+        ]}
+        selected={open ? [...checked, PRESET_OTHER_VALUE] : checked}
+        onChange={(next) => {
+          const wantsOther = next.includes(PRESET_OTHER_VALUE);
+          onOtherOpenChange(wantsOther);
+          const picks = next.filter((v) => v !== PRESET_OTHER_VALUE);
+          // Unticking Other clears the write-in, or the box would re-open itself from a
+          // value the menu now says is not selected.
+          if (!wantsOther) setDraft("");
+          write(picks, wantsOther ? custom : []);
+        }}
+        emptyLabel={emptyLabel}
+        selectionTriggerLabel={checked.length >= presetLabels.length && presetLabels.length > 0 ? allLabel : undefined}
+      />
+      {open ? (
+        <Input
+          className="h-9 w-full max-w-[13rem] text-sm"
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            write(checked, splitCommaSeparatedList(e.target.value));
+          }}
+          onKeyDown={(e) => e.stopPropagation()}
+          placeholder={otherPlaceholder}
+        />
+      ) : null}
     </div>
   );
 }
@@ -2290,6 +2374,21 @@ export function ManagerAddListingForm({
     [sub, rentByRoom],
   );
   const signingMatrix = useMemo(() => paymentAtSigningMatrix(sub), [sub]);
+  /** Set everything one lease type collects at signing, from its dropdown. */
+  const setSigningForTerm = (leaseTerm: string, nextKeys: string[]) => {
+    const current = paymentAtSigningMatrix(sub)[leaseTerm] ?? [];
+    const offered = paymentAtSigningRows(sub, { includeRoomRent: rentByRoom }).map((r) => r.key);
+    // Only rows this term was actually offered are rewritten; a key it never saw (a fee
+    // scoped away from it) stays exactly as stored.
+    const untouched = current.filter((key) => !offered.includes(key));
+    for (const key of offered) {
+      const want = nextKeys.includes(key);
+      const has = current.includes(key);
+      if (want !== has) toggleSigningCell(leaseTerm, key, want);
+    }
+    void untouched;
+  };
+
   const toggleSigningCell = (leaseTerm: string, rowKey: string, on: boolean) => {
     setSub((s) => {
       const next = setPaymentAtSigningCell(paymentAtSigningMatrix(s), leaseTerm, rowKey, on);
@@ -2851,28 +2950,21 @@ export function ManagerAddListingForm({
     setSub((s) => ({ ...s, sharedSpaces: s.sharedSpaces.filter((_, j) => j !== i) }));
   };
 
-  const setSharedSpaceRoomAccess = (spaceIndex: number, mode: "all" | "none") => {
+  /**
+   * The whole room-access list at once — what the multi-select hands back. Ids are stored
+   * in room order so two equal selections always serialize identically.
+   */
+  const setSharedSpaceRoomAccessIds = (spaceIndex: number, nextIds: string[]) => {
     setSub((s) => {
+      const picked = new Set(nextIds);
       const sharedSpaces = s.sharedSpaces.map((ss, si) =>
-        si === spaceIndex ? { ...ss, roomAccessIds: mode === "all" ? s.rooms.map((room) => room.id) : [] } : ss,
+        si === spaceIndex
+          ? { ...ss, roomAccessIds: s.rooms.map((room) => room.id).filter((id) => picked.has(id)) }
+          : ss,
       );
       return { ...s, sharedSpaces };
     });
   };
-
-  const toggleSharedSpaceRoom = (spaceIndex: number, roomId: string, on: boolean) => {
-    setSub((s) => {
-      const sharedSpaces = s.sharedSpaces.map((ss, si) => {
-        if (si !== spaceIndex) return ss;
-        const set = new Set(ss.roomAccessIds ?? []);
-        if (on) set.add(roomId);
-        else set.delete(roomId);
-        return { ...ss, roomAccessIds: s.rooms.map((r) => r.id).filter((id) => set.has(id)) };
-      });
-      return { ...s, sharedSpaces };
-    });
-  };
-
   const toggleBundleRoom = (bundleIndex: number, roomId: string, on: boolean) => {
     setSub((s) => {
       const bundles = [...(s.bundles ?? [])];
@@ -2965,6 +3057,30 @@ export function ManagerAddListingForm({
    * entirely rather than writing zeros, because absence is what "same as Long-term"
    * means to `resolveStayPricing`.
    */
+  /** The bundle twin of `setRoomTermPrice`; same absence-means-same-as-long-term rule. */
+  const setBundleTermPrice = (
+    bundleIndex: number,
+    term: string,
+    next: ManagerRoomTermPrice | undefined,
+  ) => {
+    setSub((s) => {
+      const bundles = [...s.bundles];
+      const bundle = bundles[bundleIndex];
+      if (!bundle) return s;
+      const table = { ...(bundle.termPricing ?? {}) };
+      const meaningful =
+        next &&
+        ((next.monthlyRent ?? 0) > 0 ||
+          (next.securityDeposit ?? "").trim().length > 0 ||
+          (next.utilitiesEstimate ?? "").trim().length > 0);
+      if (next === undefined) delete table[term];
+      else if (!meaningful) table[term] = {};
+      else table[term] = next;
+      bundles[bundleIndex] = { ...bundle, termPricing: Object.keys(table).length > 0 ? table : undefined };
+      return { ...s, bundles };
+    });
+  };
+
   const setRoomTermPrice = (
     roomIndex: number,
     term: string,
@@ -4532,6 +4648,48 @@ export function ManagerAddListingForm({
                   </div>
                 </GridField>
                 </LongTermRentSection>
+                {leaseScopeOptions.includes("Month-to-Month") ? (
+                  <LeaseTypePricingSection
+                    term="Month-to-Month"
+                    longTermRent={parseSanitizedMoneyNumber(bundle.price ?? "")}
+                    longTermDeposit={bundle.securityDeposit ?? ""}
+                    longTermUtilities={bundle.utilitiesEstimate ?? ""}
+                    surcharge={sub.monthToMonthSurcharge}
+                    price={bundle.termPricing?.["Month-to-Month"]}
+                    onChange={(next) => setBundleTermPrice(i, "Month-to-Month", next)}
+                    footer={
+                      <LeaseTermFeeRows
+                        roomId={bundle.id}
+                        term="Month-to-Month"
+                        fees={roomTermFees(bundle.id, "Month-to-Month")}
+                        onChange={(idx, patch) => setCustomFee(idx, patch)}
+                        onRemove={removeCustomFee}
+                        onAdd={(choice) => addRoomTermFee(bundle.id, "Month-to-Month", choice)}
+                      />
+                    }
+                  />
+                ) : null}
+                {leaseScopeOptions.includes(CUSTOM_LEASE_TERM) ? (
+                  <LeaseTypePricingSection
+                    term={CUSTOM_LEASE_TERM}
+                    longTermRent={parseSanitizedMoneyNumber(bundle.price ?? "")}
+                    longTermDeposit={bundle.securityDeposit ?? ""}
+                    longTermUtilities={bundle.utilitiesEstimate ?? ""}
+                    surcharge={sub.customLeaseSurcharge}
+                    price={bundle.termPricing?.[CUSTOM_LEASE_TERM]}
+                    onChange={(next) => setBundleTermPrice(i, CUSTOM_LEASE_TERM, next)}
+                    footer={
+                      <LeaseTermFeeRows
+                        roomId={bundle.id}
+                        term={CUSTOM_LEASE_TERM}
+                        fees={roomTermFees(bundle.id, CUSTOM_LEASE_TERM)}
+                        onChange={(idx, patch) => setCustomFee(idx, patch)}
+                        onRemove={removeCustomFee}
+                        onAdd={(choice) => addRoomTermFee(bundle.id, CUSTOM_LEASE_TERM, choice)}
+                      />
+                    }
+                  />
+                ) : null}
                 {sub.shortTermRentalsAllowed ? (
                   <ShortTermRentSection
                     labelFor={bundle.label.trim() || "bundle"}
@@ -5444,81 +5602,46 @@ export function ManagerAddListingForm({
 
                 <div className="mt-4 space-y-3 border-t border-border pt-4">
                   <FieldLabel optional>Payment at signing</FieldLabel>
-                  <p className="text-xs text-muted">
-                    Tick what the resident pays when the lease is signed. The columns are the lease
-                    lengths you offer, so a deposit can be due on a long-term lease and not on a
-                    month-to-month one. Fees you add in Other fees appear here as their own rows.
-                  </p>
                   {leaseScopeOptions.length === 0 ? (
                     <p className="text-xs text-muted">
-                      Pick at least one lease length in Leasing above and its column appears here.
+                      Pick at least one lease length in Leasing above and it appears here.
                     </p>
                   ) : (
-                    <div className="overflow-x-auto rounded-xl border border-border bg-card">
-                      <table className="w-full min-w-[30rem] border-collapse text-sm">
-                        <thead>
-                          <tr>
-                            <th className="border-b border-border bg-accent/30 px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                              Payment
-                            </th>
-                            {leaseScopeOptions.map((term) => (
-                              <th
-                                key={term}
-                                className="border-b border-border bg-accent/30 px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-muted"
-                              >
-                                {term}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {signingRows.map((row) => (
-                            <tr key={row.key}>
-                              <td className="border-b border-border/70 px-3 py-2.5 text-foreground">
-                                <span>{row.label}</span>
-                                {row.kind === "fee" ? (
-                                  <span className="ml-2 rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-muted">
-                                    from Other fees
-                                  </span>
-                                ) : null}
-                              </td>
-                              {leaseScopeOptions.map((term) => (
-                                <td key={term} className="border-b border-border/70 px-3 py-2.5 text-center">
-                                  <input
-                                    type="checkbox"
-                                    className="h-4 w-4 rounded border-border"
-                                    data-attr="listing-payment-at-signing-cell"
-                                    aria-label={`${row.label} due at signing on ${term}`}
-                                    checked={(signingMatrix[term] ?? []).includes(row.key)}
-                                    onChange={(e) => toggleSigningCell(term, row.key, e.target.checked)}
-                                  />
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    /*
+                      One dropdown per lease type (PRP-463), not a grid of ticks. Four
+                      columns of checkboxes is a lot of screen to say "a deposit on a
+                      long-term lease"; each type now names its own payments, and only
+                      the payments that lease type can actually charge are offered.
+                    */
+                    <div className={ROOM_PRICE_GRID}>
+                      {leaseScopeOptions.map((term) => {
+                        const offered = signingRows.filter(
+                          (row) => !row.scope || feeAppliesToLeaseType(row.scope, term),
+                        );
+                        const picked = (signingMatrix[term] ?? []).filter((key) =>
+                          offered.some((row) => row.key === key),
+                        );
+                        return (
+                          <div key={term}>
+                            <FieldLabel>{term}</FieldLabel>
+                            <CheckboxMultiSelect
+                              label={`Payments due at signing on ${term}`}
+                              hideLabel
+                              dataAttr="listing-payment-at-signing-picker"
+                              className="w-full max-w-[13rem]"
+                              options={offered.map((row) => ({ value: row.key, label: row.label }))}
+                              selected={picked}
+                              onChange={(next) => setSigningForTerm(term, next)}
+                              emptyLabel="Nothing due"
+                              selectionTriggerLabel={
+                                offered.length > 0 && picked.length >= offered.length ? "Everything" : undefined
+                              }
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
-                  <FieldSingleSelect
-                    label="Add a fee"
-                    hideLabel
-                    variant="pill"
-                    dataAttr="listing-payment-at-signing-add-fee"
-                    placeholder="+ Add fee"
-                    value=""
-                    options={[
-                      ...LISTING_FEE_CHOICES.map((c) => ({ value: c.label, label: c.label })),
-                      { value: "__custom__", label: "Something else…" },
-                    ]}
-                    onChange={(picked) =>
-                      addCustomFee(
-                        picked === "__custom__"
-                          ? undefined
-                          : LISTING_FEE_CHOICES.find((c) => c.label === picked),
-                      )
-                    }
-                  />
                   {/* The signing-total and other-fees recaps were removed: every
                       figure in them is already stated by the table above and
                       by each room row, so they only restated the form back to the
@@ -5527,53 +5650,43 @@ export function ManagerAddListingForm({
 
                 <div className="mt-4 space-y-3 border-t border-border pt-4">
                   <FieldLabel optional>Inspections required</FieldLabel>
-                  <p className="text-xs text-muted">
-                    Tick which room photos you require, per lease length. A three-night stay and a
-                    twelve-month lease rarely need the same evidence. Residents are asked for photos
-                    around their move date either way; ticking a box is what makes it required of them.
-                  </p>
                   {leaseScopeOptions.length === 0 ? (
                     <p className="text-xs text-muted">
-                      Pick at least one lease length in Leasing above and its column appears here.
+                      Pick at least one lease length in Leasing above and it appears here.
                     </p>
                   ) : (
-                    <div className="overflow-x-auto rounded-xl border border-border bg-card">
-                      <table className="w-full min-w-[30rem] border-collapse text-sm">
-                        <thead>
-                          <tr>
-                            <th className="border-b border-border bg-accent/30 px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-muted">
-                              Inspection
-                            </th>
-                            {leaseScopeOptions.map((term) => (
-                              <th
-                                key={term}
-                                className="border-b border-border bg-accent/30 px-3 py-2.5 text-center text-xs font-semibold uppercase tracking-wide text-muted"
-                              >
-                                {term}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {INSPECTION_REQUIREMENT_ROWS.map((row) => (
-                            <tr key={row.kind}>
-                              <td className="border-b border-border/70 px-3 py-2.5 text-foreground">{row.label}</td>
-                              {leaseScopeOptions.map((term) => (
-                                <td key={term} className="border-b border-border/70 px-3 py-2.5 text-center">
-                                  <input
-                                    type="checkbox"
-                                    className="h-4 w-4 rounded border-border"
-                                    data-attr="listing-inspection-required-cell"
-                                    aria-label={`${row.label} required on ${term}`}
-                                    checked={(inspectionMatrix[term] ?? []).includes(row.kind)}
-                                    onChange={(e) => toggleInspectionCell(term, row.kind, e.target.checked)}
-                                  />
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    /* One dropdown per inspection naming the lease types that require it. */
+                    <div className={ROOM_PRICE_GRID}>
+                      {INSPECTION_REQUIREMENT_ROWS.map((row) => {
+                        const picked = leaseScopeOptions.filter((term) =>
+                          (inspectionMatrix[term] ?? []).includes(row.kind),
+                        );
+                        return (
+                          <div key={row.kind}>
+                            <FieldLabel>{row.label}</FieldLabel>
+                            <CheckboxMultiSelect
+                              label={`Lease types requiring a ${row.label.toLowerCase()}`}
+                              hideLabel
+                              dataAttr="listing-inspection-required-picker"
+                              className="w-full max-w-[13rem]"
+                              options={leaseScopeOptions.map((term) => ({ value: term, label: term }))}
+                              selected={picked}
+                              onChange={(next) => {
+                                for (const term of leaseScopeOptions) {
+                                  const want = next.includes(term);
+                                  if (want !== picked.includes(term)) {
+                                    toggleInspectionCell(term, row.kind, want);
+                                  }
+                                }
+                              }}
+                              emptyLabel="Not required"
+                              selectionTriggerLabel={
+                                picked.length >= leaseScopeOptions.length ? "Every lease type" : undefined
+                              }
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -5840,7 +5953,6 @@ export function ManagerAddListingForm({
               ) : null}
               {sortRoomIndicesByFloor(sub.rooms).map((i) => {
                 const room = sub.rooms[i]!;
-                const checkedFurniture = parseFurnitureSet(room.furnishing);
                 const roomNameKey = listingRoomNameKey(room.id);
                 const roomRentKey = listingRoomRentKey(room.id);
                 const roomDailyRentKey = listingRoomDailyRentKey(room.id);
@@ -5940,7 +6052,27 @@ export function ManagerAddListingForm({
                         </Select>
                       </GridField>
                       <GridField>
-                        <FieldLabel>Beds (residents)</FieldLabel>
+                        <FieldLabel>Beds</FieldLabel>
+                        <Select
+                          aria-label={`Number of beds in ${room.name || `room ${i + 1}`}`}
+                          className={selectInputCls}
+                          data-attr="listing-room-bed-count"
+                          value={room.bedCount ? String(room.bedCount) : ""}
+                          onChange={(e) => {
+                            const n = Number(e.target.value);
+                            setRoom(i, { bedCount: Number.isFinite(n) && n > 0 ? n : undefined });
+                          }}
+                        >
+                          <option value="">Select…</option>
+                          {LISTING_BEDROOM_SLOT_OPTIONS.map((n) => (
+                            <option key={n} value={n}>
+                              {n === 1 ? "1 bed" : `${n} beds`}
+                            </option>
+                          ))}
+                        </Select>
+                      </GridField>
+                      <GridField>
+                        <FieldLabel>Residents</FieldLabel>
                         <Select
                           aria-label={`Number of residents for ${room.name || `room ${i + 1}`}`}
                           className={selectInputCls}
@@ -5976,79 +6108,30 @@ export function ManagerAddListingForm({
                       </GridField>
                       <div className="sm:col-span-2">
                         <FieldLabel>Furnishing</FieldLabel>
-                        {/*
-                          One dropdown of what the room includes (PRP-463). The Furnished
-                          checkbox plus eight tiles said the same thing in nine controls:
-                          an empty list IS unfurnished, which is what an empty furnishing
-                          string has always meant to every reader.
-                        */}
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
-                          <CheckboxMultiSelect
-                            label={`Furniture included in ${room.name.trim() || `room ${i + 1}`}`}
-                            hideLabel
-                            dataAttr="listing-room-furnishing"
-                            className="w-full max-w-[16rem]"
-                            options={dedupedPresets.furniture.map((f) => ({ value: f.label, label: f.label }))}
-                            selected={dedupedPresets.furniture
-                              .map((f) => f.label)
-                              .filter((label) => checkedFurniture.has(label))}
-                            onChange={(next) =>
-                              setRoom(i, {
-                                furnishing:
-                                  next.length > 0
-                                    ? dedupedPresets.furniture
-                                        .map((f) => f.label)
-                                        .filter((label) => next.includes(label))
-                                        .join(", ")
-                                    : "Unfurnished",
-                              })
-                            }
-                            emptyLabel="Unfurnished"
-                            selectionTriggerLabel={
-                              checkedFurniture.size >= dedupedPresets.furniture.length
-                                ? "Fully furnished"
-                                : undefined
-                            }
-                          />
-                          <label className="flex cursor-pointer items-center gap-2 text-sm">
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 shrink-0 rounded border-border"
-                              checked={otherFurnishingOpenRooms.has(room.id) || room.detail.trim() !== ""}
-                              data-attr={`listing-room-furnishing-other-${room.id}`}
-                              onChange={(e) => {
-                                toggleOtherFurnishingOpen(room.id, e.target.checked);
-                                // Unticking clears the note, or the box would re-open
-                                // itself on the next render.
-                                if (!e.target.checked && room.detail.trim()) setRoom(i, { detail: "" });
-                              }}
-                            />
-                            <span className="font-medium text-foreground">Other</span>
-                          </label>
-                        </div>
-                        {otherFurnishingOpenRooms.has(room.id) || room.detail.trim() !== "" ? (
-                          <Input
-                            className="mt-2 h-9 text-sm"
-                            value={room.detail}
-                            onChange={(e) => setRoom(i, { detail: e.target.value })}
-                            onKeyDown={(e) => e.stopPropagation()}
-                            placeholder="Other furnishing, comma-separated"
-                          />
-                        ) : null}
+                        <PresetMultiSelectField
+                          label={`Furniture included in ${room.name.trim() || `room ${i + 1}`}`}
+                          dataAttr="listing-room-furnishing"
+                          presets={dedupedPresets.furniture}
+                          value={room.furnishing === "Unfurnished" ? "" : room.furnishing}
+                          onChange={(next) => setRoom(i, { furnishing: next.trim() ? next : "Unfurnished" })}
+                          otherOpen={otherFurnishingOpenRooms.has(room.id)}
+                          onOtherOpenChange={(open) => toggleOtherFurnishingOpen(room.id, open)}
+                          otherPlaceholder="Other furnishing, comma-separated"
+                          emptyLabel="Unfurnished"
+                          allLabel="Fully furnished"
+                        />
                       </div>
                       <div className="sm:col-span-2">
                         <FieldLabel>Room amenities</FieldLabel>
-                        <PresetCheckboxGroup
-                          key={`room-amenities-${room.id}`}
+                        <PresetMultiSelectField
+                          label={`Amenities in ${room.name.trim() || `room ${i + 1}`}`}
+                          dataAttr="listing-room-amenities"
                           presets={dedupedPresets.room}
                           value={room.roomAmenitiesText}
                           onChange={(v) => setRoom(i, { roomAmenitiesText: v })}
-                          otherForcedOpen={otherAmenitiesOpenRooms.has(room.id)}
-                          onOtherForcedOpenChange={(open) => toggleOtherAmenitiesOpen(room.id, open)}
+                          otherOpen={otherAmenitiesOpenRooms.has(room.id)}
+                          onOtherOpenChange={(open) => toggleOtherAmenitiesOpen(room.id, open)}
                           otherPlaceholder="Other amenities, comma-separated"
-                          variant="dropdown"
-                          dropdownLabel={`Amenities in ${room.name.trim() || `room ${i + 1}`}`}
-                          dataAttr="listing-room-amenities"
                         />
                       </div>
 
@@ -6236,9 +6319,7 @@ export function ManagerAddListingForm({
                     */}
                     <div className={cn("mt-3", ROOM_PRICE_GRID)}>
                       <GridField>
-                        <FieldLabel hint="Sets the fixtures on every bathroom still following this row.">
-                          Type
-                        </FieldLabel>
+                        <FieldLabel>Type</FieldLabel>
                         <Select
                           aria-label="Type of most bathrooms"
                           className={selectInputCls}
@@ -6414,17 +6495,15 @@ export function ManagerAddListingForm({
                       </div>
                       <div className="sm:col-span-2">
                         <FieldLabel>Bathroom amenities</FieldLabel>
-                        <PresetCheckboxGroup
-                          key={`bath-amenities-${b.id}`}
+                        <PresetMultiSelectField
+                          label={`Amenities in bathroom ${i + 1}`}
+                          dataAttr="listing-bathroom-amenities"
                           presets={dedupedPresets.bathroom}
                           value={b.amenitiesText ?? ""}
                           onChange={(v) => setBath(i, { amenitiesText: v })}
-                          otherForcedOpen={otherAmenitiesOpenRooms.has(`bath-${b.id}`)}
-                          onOtherForcedOpenChange={(open) => toggleOtherAmenitiesOpen(`bath-${b.id}`, open)}
+                          otherOpen={otherAmenitiesOpenRooms.has(`bath-${b.id}`)}
+                          onOtherOpenChange={(open) => toggleOtherAmenitiesOpen(`bath-${b.id}`, open)}
                           otherPlaceholder="Other amenities, comma-separated"
-                          variant="dropdown"
-                          dropdownLabel={`Amenities in bathroom ${i + 1}`}
-                          dataAttr="listing-bathroom-amenities"
                         />
                       </div>
                       <div className="sm:col-span-2 grid gap-3 sm:grid-cols-2">
@@ -6575,7 +6654,7 @@ export function ManagerAddListingForm({
                       title={sp.name.trim() || `Shared space ${i + 1}`}
                       subtitle={`${spaceKindLabel} · ${roomAccessSummary(sp, sub.rooms)}`}
                       hasError={Boolean(spaceNameErr)}
-                      bodyClassName="grid gap-4 sm:grid-cols-2"
+                      bodyClassName={ROOM_PRICE_GRID}
                       toggleDataAttr={`listing-shared-toggle-${sp.id}`}
                       headerActions={
                         <>
@@ -6622,7 +6701,7 @@ export function ManagerAddListingForm({
                             </Select>
                           </div>
                         </div>
-                        <div className="sm:col-span-2">
+                        <div>
                           <FieldLabel>Floor</FieldLabel>
                           <Select
                             aria-label={`Shared space ${i + 1} floor`}
@@ -6638,18 +6717,42 @@ export function ManagerAddListingForm({
                             ))}
                           </Select>
                         </div>
-                        <div className="sm:col-span-2">
+                        <div>
                           <FieldLabel>Amenities</FieldLabel>
-                          <PresetCheckboxGroup
-                            key={`space-amenities-${sp.id}`}
+                          <PresetMultiSelectField
+                            label={`Amenities in ${sp.name.trim() || `shared space ${i + 1}`}`}
+                            dataAttr="listing-shared-space-amenities"
                             presets={kindPresets}
                             value={sp.amenitiesText ?? ""}
                             onChange={(v) => setSharedSpace(i, { amenitiesText: v })}
-                            otherForcedOpen={otherAmenitiesOpenRooms.has(`space-${sp.id}`)}
-                            onOtherForcedOpenChange={(open) => toggleOtherAmenitiesOpen(`space-${sp.id}`, open)}
+                            otherOpen={otherAmenitiesOpenRooms.has(`space-${sp.id}`)}
+                            onOtherOpenChange={(open) => toggleOtherAmenitiesOpen(`space-${sp.id}`, open)}
                             otherPlaceholder="Other amenities, comma-separated"
                           />
                         </div>
+                        {sub.rooms.length > 0 ? (
+                          <div>
+                            <FieldLabel>Room access</FieldLabel>
+                            <CheckboxMultiSelect
+                              label={`Rooms with access to ${sp.name.trim() || `shared space ${i + 1}`}`}
+                              hideLabel
+                              dataAttr="listing-shared-space-room-access"
+                              className="w-full max-w-[13rem]"
+                              options={sub.rooms.map((room, ri) => ({
+                                value: room.id,
+                                label: room.name.trim() || `Room ${ri + 1}`,
+                              }))}
+                              selected={sp.roomAccessIds ?? []}
+                              onChange={(next) => setSharedSpaceRoomAccessIds(i, next)}
+                              emptyLabel="No room"
+                              selectionTriggerLabel={
+                                sub.rooms.length > 0 && (sp.roomAccessIds ?? []).length >= sub.rooms.length
+                                  ? "All rooms"
+                                  : undefined
+                              }
+                            />
+                          </div>
+                        ) : null}
                         <div className="sm:col-span-2 grid gap-3 sm:grid-cols-2">
                         <div>
                           <FieldLabel hint="Up to 8 images.">Photos</FieldLabel>
@@ -6727,33 +6830,6 @@ export function ManagerAddListingForm({
                             ) : null}
                           </div>
                         </div>
-                        </div>
-                        <div className="sm:col-span-2">
-                          <FieldLabel>Room access</FieldLabel>
-                          <div className="mt-1 grid gap-x-4 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-3">
-                            {sub.rooms.length > 0 ? (
-                              <SelectAllCheckbox
-                                allChecked={sub.rooms.every((room) => (sp.roomAccessIds ?? []).includes(room.id))}
-                                someChecked={
-                                  (sp.roomAccessIds ?? []).length > 0 &&
-                                  !sub.rooms.every((room) => (sp.roomAccessIds ?? []).includes(room.id))
-                                }
-                                onToggle={(checkAll) => setSharedSpaceRoomAccess(i, checkAll ? "all" : "none")}
-                                label="All rooms"
-                              />
-                            ) : null}
-                            {sub.rooms.map((room) => (
-                              <label key={`${sp.id}-acc-${room.id}`} className="flex cursor-pointer items-center gap-2 text-sm">
-                                <input
-                                  type="checkbox"
-                                  className="h-4 w-4 rounded border-border"
-                                  checked={(sp.roomAccessIds ?? []).includes(room.id)}
-                                  onChange={(e) => toggleSharedSpaceRoom(i, room.id, e.target.checked)}
-                                />
-                                <span className="font-medium text-foreground">{room.name.trim() || `Room (${room.id.slice(-6)})`}</span>
-                              </label>
-                            ))}
-                          </div>
                         </div>
                     </ListingWizardCollapsibleCard>
                   );

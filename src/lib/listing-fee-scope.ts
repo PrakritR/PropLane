@@ -103,6 +103,8 @@ export type PaymentAtSigningRow = {
   key: string;
   label: string;
   kind: "standard" | "fee" | "roomRent";
+  /** The fee this row came from, so a lease type is only offered the fees it charges. */
+  scope?: Pick<ManagerCustomFeeRow, "leaseTypes">;
 };
 
 /**
@@ -145,6 +147,7 @@ export function paymentAtSigningRows(
       key: `${PAYMENT_AT_SIGNING_FEE_KEY_PREFIX}${fee.id}`,
       label: fee.label?.trim() || "Untitled fee",
       kind: "fee",
+      scope: { leaseTypes: fee.leaseTypes },
     });
   }
 

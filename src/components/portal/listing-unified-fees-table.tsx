@@ -663,24 +663,6 @@ export function ListingUnifiedFeesTable({
       </div>
 
       <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
-        {readdableRows.length > 0 ? (
-          <select
-            className="h-8 rounded-full border border-border bg-card px-3 text-xs text-foreground"
-            value=""
-            onChange={(e) => {
-              const id = e.target.value as ListingFeeRowId;
-              if (id) onAddStandardRow(id);
-            }}
-            aria-label="Add a fee back to the table"
-          >
-            <option value="">+ Add fee…</option>
-            {readdableRows.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.label}
-              </option>
-            ))}
-          </select>
-        ) : null}
         <FieldSingleSelect
           label="Add a fee"
           hideLabel
@@ -689,14 +671,21 @@ export function ListingUnifiedFeesTable({
           placeholder="+ Add fee"
           value=""
           options={[
+            // A row the manager removed comes back from the same control, so there is one
+            // "+ Add fee" on this table rather than two side by side (PRP-463).
+            ...readdableRows.map((row) => ({ value: `__row__${row.id}`, label: row.label })),
             ...LISTING_FEE_CHOICES.map((c) => ({ value: c.label, label: c.label })),
             { value: "__custom__", label: "Something else…" },
           ]}
-          onChange={(picked) =>
+          onChange={(picked) => {
+            if (picked.startsWith("__row__")) {
+              onAddStandardRow(picked.slice("__row__".length) as ListingFeeRowId);
+              return;
+            }
             onAddCustomFee(
               picked === "__custom__" ? undefined : LISTING_FEE_CHOICES.find((c) => c.label === picked),
-            )
-          }
+            );
+          }}
         />
       </div>
     </div>
