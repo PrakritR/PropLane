@@ -1571,7 +1571,12 @@ export const ResidentInboxPanel = forwardRef<
             }
             channelControl={showReplyChannelPicker ? replyChannelPicker : undefined}
             autoSend={autoSend}
-            onAutoSendChange={setAutoSend}
+            /*
+              Communication offers no auto-send control, matching the manager's
+              thread, which passes undefined for the same reason. The standalone
+              panel keeps it.
+            */
+            onAutoSendChange={embeddedInCommunication ? undefined : setAutoSend}
             maxLength={
               !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
             }

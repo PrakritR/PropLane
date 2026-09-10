@@ -242,8 +242,11 @@ export async function GET(req: Request) {
         text: message.body,
         html: reminderHtmlFromText(message.body),
         slotLabel: message.typeLabel,
-        managerDeliverViaEmail: settings.paymentReminderDeliverViaEmail,
-        managerDeliverViaSms: settings.paymentReminderDeliverViaSms,
+        // A channel the manager set on THIS reminder wins over the automation
+        // default. `??` and not `||`, because turning a channel OFF for one
+        // reminder is a real choice and `false || default` would undo it.
+        managerDeliverViaEmail: message.deliverViaEmail ?? settings.paymentReminderDeliverViaEmail,
+        managerDeliverViaSms: message.deliverViaSms ?? settings.paymentReminderDeliverViaSms,
         managerDeliverViaInbox: settings.paymentReminderDeliverViaInbox,
         skipManualPaymentInstructions: chargeIds.length > 1,
       });

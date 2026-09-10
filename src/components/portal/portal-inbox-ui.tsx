@@ -2187,9 +2187,10 @@ export function InboxScheduledCard({
   pinActionsInModalFooter = false,
   onModalFooterChange,
 }: InboxScheduledCardProps) {
+  // No longer restricted to manual messages: an automated reminder now stores
+  // its own channel choice as an override, so the field edits for both.
   const canEditChannels =
-    channelEditable ??
-    (editable && _source === "manual" && Boolean(onSaveEdit) && (emailAvailable || smsAvailable));
+    channelEditable ?? (editable && Boolean(onSaveEdit) && (emailAvailable || smsAvailable));
 
   const [modalOpen, setModalOpen] = useState(false);
   const [draftSubject, setDraftSubject] = useState(subject);

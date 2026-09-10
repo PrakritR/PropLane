@@ -257,7 +257,12 @@ function canCombineGroup(messages: ScheduledPaymentMessage[]): boolean {
       m.sendAt === first.sendAt &&
       normalizeEmail(m.residentEmail) === normalizeEmail(first.residentEmail) &&
       m.status === first.status &&
-      m.managerUserId === first.managerUserId,
+      m.managerUserId === first.managerUserId &&
+      // Two reminders the manager pointed at DIFFERENT channels are two sends,
+      // not one. Bundling them would keep only the first row's choice and
+      // silently drop the other, which is the failure this guard exists for.
+      m.deliverViaEmail === first.deliverViaEmail &&
+      m.deliverViaSms === first.deliverViaSms,
   );
 }
 
