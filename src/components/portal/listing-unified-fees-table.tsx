@@ -6,12 +6,12 @@ import type { ManagerCustomFeeRow, ManagerListingSubmissionV1 } from "@/lib/mana
 import {
   LISTING_STANDARD_FEE_ROWS,
   type ListingFeeRowId,
-  type ListingLtFeeToggles,
-  type ListingStFeeToggles,
   readListingFeeCellAmount,
 } from "@/lib/listing-fee-term-toggles";
 import { LISTING_FEE_PRESETS, type ListingFeeRow } from "@/lib/listing-fees";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
+import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
+import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { SEATTLE_RENT_RULE_NOTE } from "@/lib/seattle-rent-rule";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -68,37 +68,36 @@ const FEE_MONEY_INPUT_WIDTH = "w-full min-w-[5.5rem] max-w-[9.5rem]";
 const FEE_CADENCE_SELECT_WIDTH = "w-full min-w-[6rem] max-w-[7.5rem]";
 
 /**
- * Grid columns: label | short-term | long-term | remove.
+ * Grid columns: fee | amount(s) | lease type(s) | rooms? | remove.
  *
- * The long-term floor is the sum of what its cell actually holds at the narrowest
- * useful size: `px-3` (24px) + checkbox (14px) + gap (8px) + money-input floor (88px)
- * + gap (8px) + cadence-select floor (96px) = 238px ≈ 15rem. Short-term carries no
- * cadence select, so it floors 8.5rem.
+ * The short-term column pair is gone (PRP-463): a fee's TERM is now the lease-type
+ * multi-select, and the short-term amount appears inside the amount cell only when the
+ * fee is actually scoped to short-term stays. So the table has one amount column whether
+ * or not the listing offers short-term, and one more column only when renting by room.
  *
- * The remove column floors on what the Remove button MEASURES at, not on
- * `FEE_REMOVE_BTN`: `Button` composes its base with a template literal rather than
- * `cn`, so `px-2.5`/`text-xs` lose to the base `px-5`/`text-sm` and the button renders
- * ~96px wide. Plus the cell's `px-3` (24px) that is 120px, so the track is 7.75rem
- * (124px) — below that the button overflows leftward over the long-term column.
+ * Floors are what each cell measures at, not round numbers: the amount cell holds the
+ * money input (88px) plus the cadence select (96px) plus `px-3` (24px) and its gap, so
+ * 13rem; a scope trigger needs ~9rem before its summary starts truncating; and the remove
+ * column stays 7.75rem because `Button` composes its base with a template literal rather
+ * than `cn`, so `px-2.5`/`text-xs` lose to the base and the button renders ~96px wide.
  */
-function feeGridCols(showShortTerm: boolean) {
-  return showShortTerm
-    ? "grid-cols-[minmax(7rem,1.1fr)_minmax(8.5rem,1fr)_minmax(15rem,1.35fr)_7.75rem]"
-    : "grid-cols-[minmax(7rem,1.15fr)_minmax(15rem,1.65fr)_7.75rem]";
+function feeGridCols(showRooms: boolean) {
+  return showRooms
+    ? "grid-cols-[minmax(7rem,1.05fr)_minmax(13rem,1.2fr)_minmax(9rem,0.9fr)_minmax(9rem,0.9fr)_7.75rem]"
+    : "grid-cols-[minmax(7rem,1.1fr)_minmax(13rem,1.3fr)_minmax(9rem,1fr)_7.75rem]";
 }
 
 /**
  * The table can never be narrower than the sum of its own column floors, and that sum
- * depends on whether the short-term column is drawn: 7 + 8.5 + 15 + 7.75 = 38.25rem with
- * it, 7 + 15 + 7.75 = 29.75rem without. Deriving it here rather than hard-coding the
- * wider figure keeps a single-term listing from scrolling 8.5rem it does not use.
+ * depends on whether the rooms column is drawn: 7 + 13 + 9 + 9 + 7.75 = 45.75rem with it,
+ * 7 + 13 + 9 + 7.75 = 36.75rem without.
  */
-function feeGridMinWidth(showShortTerm: boolean) {
-  return showShortTerm ? "min-w-[38.25rem]" : "min-w-[29.75rem]";
+function feeGridMinWidth(showRooms: boolean) {
+  return showRooms ? "min-w-[45.75rem]" : "min-w-[36.75rem]";
 }
 
-function feeColSpan(showShortTerm: boolean) {
-  return showShortTerm ? "col-span-4" : "col-span-3";
+function feeColSpan(showRooms: boolean) {
+  return showRooms ? "col-span-5" : "col-span-4";
 }
 
 /** Checkbox immediately left of amount — single horizontal control group. */
@@ -146,26 +145,6 @@ function FeeMoneyInput({
   );
 }
 
-function TermCheckbox({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (on: boolean) => void;
-  label: string;
-}) {
-  return (
-    <input
-      type="checkbox"
-      aria-label={label}
-      className="h-3.5 w-3.5 shrink-0 rounded border-border"
-      checked={checked}
-      onChange={(e) => onChange(e.target.checked)}
-    />
-  );
-}
-
 /**
  * Standard rows are backed by fixed submission fields, but the unified migration
  * also materializes each one as a preset-tagged row in `customFees` — which is
@@ -208,21 +187,122 @@ function FeeCadenceSelect({
   );
 }
 
-function FeeTableHeader({ showShortTerm }: { showShortTerm: boolean }) {
+/** Which fee a scope control is editing. */
+export type FeeScopeTarget =
+  | { kind: "standard"; rowId: ListingFeeRowId }
+  | { kind: "custom"; index: number };
+
+/**
+ * Lease-type and room scope for every fee in the table (PRP-463).
+ *
+ * The form owns the mapping between a scope selection and what it actually writes —
+ * short-term/long-term toggles for a standard row, `leaseTypes`/`roomIds` on a fee row —
+ * so this table stays a rendering surface with no knowledge of the submission model.
+ */
+export type FeeScopeControls = {
+  /** Lease types this listing offers, in display order. */
+  leaseOptions: string[];
+  /** Rooms this listing rents by; empty means the room column is not drawn. */
+  roomOptions: { id: string; name: string }[];
+  leaseScope: (target: FeeScopeTarget) => string[];
+  setLeaseScope: (target: FeeScopeTarget, next: string[]) => void;
+  roomScope: (target: FeeScopeTarget) => string[];
+  setRoomScope: (target: FeeScopeTarget, next: string[]) => void;
+};
+
+/**
+ * One scope dropdown. Its face says "All lease types" / "All rooms" when everything is
+ * picked rather than listing them, because "all" is the stored meaning — not a list that
+ * happens to be complete today (see `listing-fee-scope.ts`).
+ */
+function FeeScopeSelect({
+  label,
+  options,
+  selected,
+  onChange,
+  allLabel,
+  emptyLabel,
+  dataAttr,
+}: {
+  label: string;
+  options: { value: string; label: string }[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  allLabel: string;
+  emptyLabel: string;
+  dataAttr?: string;
+}) {
+  const everything = options.length > 0 && selected.length >= options.length;
   return (
-    <div className="contents">
-      <div className="border-b border-border bg-accent/30 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted">
-        <span className="font-semibold normal-case tracking-normal text-foreground">Rent</span>
+    <CheckboxMultiSelect
+      label={label}
+      hideLabel
+      dataAttr={dataAttr}
+      className="w-full"
+      options={options}
+      selected={selected}
+      onChange={onChange}
+      emptyLabel={emptyLabel}
+      emptyMenuText="Pick lease lengths in Leasing first"
+      selectionTriggerLabel={everything ? allLabel : undefined}
+    />
+  );
+}
+
+function FeeScopeCells({
+  target,
+  scope,
+  labelForAria,
+  dataAttrBase,
+}: {
+  target: FeeScopeTarget;
+  scope: FeeScopeControls;
+  labelForAria: string;
+  dataAttrBase: string;
+}) {
+  const showRooms = scope.roomOptions.length > 0;
+  return (
+    <>
+      <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
+        <FeeScopeSelect
+          label={`Lease types for ${labelForAria}`}
+          dataAttr={`${dataAttrBase}-lease-scope`}
+          options={scope.leaseOptions.map((t) => ({ value: t, label: t }))}
+          selected={scope.leaseScope(target)}
+          onChange={(next) => scope.setLeaseScope(target, next)}
+          allLabel="All lease types"
+          emptyLabel="No lease type"
+        />
       </div>
-      {showShortTerm ? (
-        <div className="border-b border-border bg-accent/30 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted">
-          Short-term
+      {showRooms ? (
+        <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
+          <FeeScopeSelect
+            label={`Rooms for ${labelForAria}`}
+            dataAttr={`${dataAttrBase}-room-scope`}
+            options={scope.roomOptions.map((r) => ({ value: r.id, label: r.name }))}
+            selected={scope.roomScope(target)}
+            onChange={(next) => scope.setRoomScope(target, next)}
+            allLabel="All rooms"
+            emptyLabel="No room"
+          />
         </div>
       ) : null}
-      <div className="border-b border-border bg-accent/30 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted">
-        Long-term
+    </>
+  );
+}
+
+function FeeTableHeader({ showRooms }: { showRooms: boolean }) {
+  const cell =
+    "border-b border-border bg-accent/30 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted";
+  return (
+    <div className="contents">
+      <div className={cell}>
+        <span className="font-semibold normal-case tracking-normal text-foreground">Fee</span>
       </div>
-      <div className="border-b border-border bg-accent/30 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted">
+      <div className={cell}>Amount</div>
+      <div className={cell}>Lease type(s)</div>
+      {showRooms ? <div className={cell}>Room(s)</div> : null}
+      <div className={cell}>
         <span className="sr-only">Actions</span>
       </div>
     </div>
@@ -234,20 +314,15 @@ function SectionHeaderRow({
   title,
   hint,
   toolbar,
-  showShortTerm,
+  showRooms,
 }: {
   title: string;
   hint?: string;
   toolbar?: ReactNode;
-  showShortTerm: boolean;
+  showRooms: boolean;
 }) {
   return (
-    <div
-      className={cn(
-        feeColSpan(showShortTerm),
-        "border-b border-border bg-accent/40 px-3 py-2",
-      )}
-    >
+    <div className={cn(feeColSpan(showRooms), "border-b border-border bg-accent/40 px-3 py-2")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <span className="text-xs font-semibold uppercase tracking-wide text-muted">{title}</span>
@@ -260,13 +335,7 @@ function SectionHeaderRow({
 }
 
 /** One expandable room/bundle row + its inline detail row. */
-function ExpandableRows({
-  row,
-  showShortTerm,
-}: {
-  row: FeeExpandableRow;
-  showShortTerm: boolean;
-}) {
+function ExpandableRows({ row, showRooms }: { row: FeeExpandableRow; showRooms: boolean }) {
   return (
     <>
       <div className={cn("contents", row.hasError && "[&>*]:bg-red-500/5")}>
@@ -288,14 +357,16 @@ function ExpandableRows({
             </span>
           </button>
         </div>
-        {showShortTerm ? (
-          <div className="flex min-w-0 items-center truncate border-b border-border/70 px-3 py-3 text-xs text-muted">
-            {row.shortTermSummary ?? "—"}
-          </div>
-        ) : null}
-        <div className="flex min-w-0 items-center truncate border-b border-border/70 px-3 py-3 text-sm text-muted">
-          {row.summary}
+        <div className="flex min-w-0 flex-col justify-center border-b border-border/70 px-3 py-3 text-sm text-muted">
+          <span className="truncate">{row.summary}</span>
+          {row.shortTermSummary ? (
+            <span className="truncate text-xs text-muted">Short-term: {row.shortTermSummary}</span>
+          ) : null}
         </div>
+        <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3 text-xs text-muted">—</div>
+        {showRooms ? (
+          <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3 text-xs text-muted">—</div>
+        ) : null}
         <div className="flex items-center justify-end border-b border-border/70 px-3 py-3">
           {row.onRemove ? (
             <Button
@@ -313,7 +384,7 @@ function ExpandableRows({
         </div>
       </div>
       {row.expanded ? (
-        <div className={cn(feeColSpan(showShortTerm), "border-b border-border/70 bg-accent/10 px-3 py-3")}>
+        <div className={cn(feeColSpan(showRooms), "border-b border-border/70 bg-accent/10 px-3 py-3")}>
           {row.detail}
         </div>
       ) : null}
@@ -324,10 +395,6 @@ function ExpandableRows({
 export function ListingUnifiedFeesTable({
   sub,
   isEntireHome,
-  stFeeToggles,
-  ltFeeToggles,
-  onStToggle,
-  onLtToggle,
   onStAmount,
   onLtAmount,
   onLtAmountForRow,
@@ -342,15 +409,11 @@ export function ListingUnifiedFeesTable({
   onRemoveStandardRow,
   onAddStandardRow,
   expandableSections,
-  showShortTerm,
+  scope,
   foldsMonthlyFeesIntoRent = false,
 }: {
   sub: ManagerListingSubmissionV1;
   isEntireHome: boolean;
-  stFeeToggles: ListingStFeeToggles;
-  ltFeeToggles: ListingLtFeeToggles;
-  onStToggle: (feeId: ListingFeeRowId, enabled: boolean) => void;
-  onLtToggle: (feeId: ListingFeeRowId, enabled: boolean) => void;
   onStAmount: (feeId: ListingFeeRowId, amount: string) => void;
   onLtAmount: (field: keyof ManagerListingSubmissionV1, amount: string) => void;
   onLtAmountForRow: (feeId: ListingFeeRowId, amount: string) => void;
@@ -371,8 +434,8 @@ export function ListingUnifiedFeesTable({
   onAddStandardRow: (feeId: ListingFeeRowId) => void;
   /** Rooms / Bundles sections rendered AS ROWS at the top of this one table. */
   expandableSections?: FeeExpandableSection[];
-  /** Show the Short-term column. When false the whole column (header + cells) is gone. */
-  showShortTerm: boolean;
+  /** Lease-type and room scope per fee — the two dropdowns that replaced the term columns. */
+  scope: FeeScopeControls;
   /**
    * Seattle rent rule: every monthly fee here is added to the rent and disclosed on the
    * lease as part of rent, never billed as its own charge. Shown as a note on the section
@@ -389,14 +452,16 @@ export function ListingUnifiedFeesTable({
     (row) => row.id !== "rent" && rowIsRemovable(row.id) && removedRowIds.has(row.id) && !hiddenRowIds?.has(row.id),
   );
   const sections = expandableSections ?? [];
+  const showRooms = scope.roomOptions.length > 0;
+  const shortTermOffered = scope.leaseOptions.includes(SHORT_TERM_LEASE_TERM);
 
   return (
     <div className="overflow-x-auto rounded-xl border border-border bg-card">
-      <div className={cn("grid text-sm", feeGridMinWidth(showShortTerm), feeGridCols(showShortTerm))}>
-        <FeeTableHeader showShortTerm={showShortTerm} />
+      <div className={cn("grid text-sm", feeGridMinWidth(showRooms), feeGridCols(showRooms))}>
+        <FeeTableHeader showRooms={showRooms} />
 
         {sections.map((section) => (
-          <FeeSectionRows key={section.key} section={section} showShortTerm={showShortTerm} />
+          <FeeSectionRows key={section.key} section={section} showRooms={showRooms} />
         ))}
 
         {sections.length > 0 ? (
@@ -408,166 +473,155 @@ export function ListingUnifiedFeesTable({
             ]
               .filter(Boolean)
               .join(" ")}
-            showShortTerm={showShortTerm}
+            showRooms={showRooms}
           />
         ) : null}
 
         {visibleRows.map((row) => {
-            const rowId = row.id;
-            const stOn = stFeeToggles[rowId];
-            const ltOn = ltFeeToggles[rowId];
-            const stAmount = row.stField ? readListingFeeCellAmount(sub, row.stField) : "";
-            const ltAmount = row.ltField ? readListingFeeCellAmount(sub, row.ltField) : "";
-            const rentLtPerRoom = row.id === "rent" && !isEntireHome;
+          const rowId = row.id;
+          const target: FeeScopeTarget = { kind: "standard", rowId };
+          const leaseScope = scope.leaseScope(target);
+          // The lease-type dropdown IS the term toggle now: an amount cell exists only for
+          // a term the fee is actually scoped to, so there is no way to type a price into
+          // a term the manager did not pick.
+          const stOn = shortTermOffered && leaseScope.includes(SHORT_TERM_LEASE_TERM);
+          const ltOn = leaseScope.some((t) => t !== SHORT_TERM_LEASE_TERM);
+          const stAmount = row.stField ? readListingFeeCellAmount(sub, row.stField) : "";
+          const ltAmount = row.ltField ? readListingFeeCellAmount(sub, row.ltField) : "";
+          const rentLtPerRoom = row.id === "rent" && !isEntireHome;
+          const ltErr =
+            row.ltField && (stepFieldErrors[String(row.ltField)] ||
+              (row.id === "rent" && isEntireHome && stepFieldErrors.monthlyRent))
+              ? row.id === "rent" && isEntireHome && stepFieldErrors.monthlyRent
+                ? stepFieldErrors.monthlyRent
+                : stepFieldErrors[String(row.ltField)]
+              : "";
+          const stErr = row.stField ? stepFieldErrors[String(row.stField)] : "";
 
-            return (
-              <div key={row.id} className="contents">
-                <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
-                  <div>
-                    <div className="font-medium text-foreground">{row.label}</div>
-                    {row.stHint || row.ltHint ? (
-                      <div className="mt-0.5 text-[11px] leading-tight text-muted">
-                        {[row.stHint, row.ltHint].filter(Boolean).join(" · ")}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-
-                {showShortTerm ? (
-                  <div className="flex min-w-0 flex-col justify-center border-b border-border/70 px-3 py-3">
-                    {row.stField ? (
-                      <>
-                        <div className={FEE_CONTROL_ROW}>
-                          <TermCheckbox
-                            checked={stOn}
-                            onChange={(on) => onStToggle(rowId, on)}
-                            label={`Apply ${row.label} to short-term`}
-                          />
-                          {stOn ? (
-                            <FeeMoneyInput
-                              value={stAmount}
-                              onChange={(v) => onStAmount(rowId, v)}
-                              placeholder={row.id === "rent" ? "85" : "0"}
-                              invalid={Boolean(stepFieldErrors[String(row.stField)])}
-                              ariaLabel={`Short-term ${row.label}`}
-                              dataField={String(row.stField)}
-                            />
-                          ) : null}
-                        </div>
-                        {stepFieldErrors[String(row.stField)] ? (
-                          <p className="mt-1 text-xs font-medium text-red-600">{stepFieldErrors[String(row.stField)]}</p>
-                        ) : null}
-                      </>
-                    ) : (
-                      <span className="text-xs text-muted">—</span>
-                    )}
-                  </div>
-                ) : null}
-
-                <div className="flex min-w-0 flex-col justify-center border-b border-border/70 px-3 py-3">
-                  {row.ltField || row.id === "rent" ? (
-                    <>
-                      <div className={FEE_CONTROL_ROW}>
-                        <TermCheckbox
-                          checked={ltOn}
-                          onChange={(on) => onLtToggle(rowId, on)}
-                          label={`Apply ${row.label} to long-term`}
-                        />
-                        {ltOn && !rentLtPerRoom ? (
-                          <FeeMoneyInput
-                            value={ltAmount}
-                            onChange={(v) =>
-                              row.ltField ? onLtAmount(row.ltField, v) : onLtAmountForRow(rowId, v)
-                            }
-                            placeholder={row.id === "holdingDeposit" ? "100" : "0"}
-                            invalid={Boolean(
-                              row.ltField &&
-                                (stepFieldErrors[String(row.ltField)] ||
-                                  (row.id === "rent" && isEntireHome && stepFieldErrors.monthlyRent)),
-                            )}
-                            ariaLabel={`Long-term ${row.label}`}
-                            dataField={row.id === "rent" && isEntireHome ? "monthlyRent" : String(row.ltField)}
-                          />
-                        ) : null}
-                        {ltOn && rentLtPerRoom ? (
-                          <span className="shrink-0 text-xs text-muted">Set per room above</span>
-                        ) : null}
-                        {ltOn && !rentLtPerRoom
-                          ? (() => {
-                              const presetId = PRESET_ID_FOR_ROW[rowId];
-                              if (!presetId) return null;
-                              const idx = customFees.findIndex(
-                                (f) => (f as ListingFeeRow).presetId === presetId,
-                              );
-                              const presetCadence = LISTING_FEE_PRESETS.find(
-                                (p) => p.presetId === presetId,
-                              )?.cadence;
-                              const fallback: "one-time" | "monthly" =
-                                presetCadence === "monthly" ? "monthly" : "one-time";
-                              const current =
-                                idx >= 0
-                                  ? customFees[idx]!.frequency === "one-time"
-                                    ? "one-time"
-                                    : "monthly"
-                                  : fallback;
-                              return (
-                                <FeeCadenceSelect
-                                  value={current}
-                                  onChange={(next) =>
-                                    idx >= 0
-                                      ? onCustomFeeChange(idx, { frequency: next })
-                                      : onPresetCadenceChange?.(presetId, next)
-                                  }
-                                  ariaLabel={`${row.label} payment frequency`}
-                                />
-                              );
-                            })()
-                          : null}
-                      </div>
-                      {row.ltField && (stepFieldErrors[String(row.ltField)] || (row.id === "rent" && isEntireHome && stepFieldErrors.monthlyRent)) ? (
-                        <p className="mt-1 text-xs font-medium text-red-600">
-                          {row.id === "rent" && isEntireHome && stepFieldErrors.monthlyRent
-                            ? stepFieldErrors.monthlyRent
-                            : stepFieldErrors[String(row.ltField)]}
-                        </p>
-                      ) : null}
-                    </>
-                  ) : (
-                    <span className="text-xs text-muted">—</span>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-end border-b border-border/70 px-3 py-3">
-                  {rowIsRemovable(rowId) ? (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={FEE_REMOVE_BTN}
-                      onClick={() => onRemoveStandardRow(rowId)}
-                      aria-label={`Remove ${row.label}`}
-                    >
-                      Remove
-                    </Button>
-                  ) : (
-                    <span className="text-xs text-muted">—</span>
-                  )}
+          return (
+            <div key={row.id} className="contents">
+              <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
+                <div>
+                  <div className="font-medium text-foreground">{row.label}</div>
+                  {row.stHint || row.ltHint ? (
+                    <div className="mt-0.5 text-[11px] leading-tight text-muted">
+                      {[row.stHint, row.ltHint].filter(Boolean).join(" · ")}
+                    </div>
+                  ) : null}
                 </div>
               </div>
-            );
-          })}
 
-          {/* Only genuinely custom rows belong here. Preset-backed rows are already
-              rendered above as standard fees, so listing them again duplicated every
-              fee once the legacy->unified migration started materializing presets
-              into customFees. Indices are captured before filtering because the
-              change/remove callbacks address the unfiltered array. */}
-          {customFees
-            .map((fee, i) => ({ fee, i }))
-            .filter(({ fee }) => {
-              const presetId = (fee as ListingFeeRow).presetId;
-              return !presetId || presetId === "custom";
-            })
-            .map(({ fee, i }) => (
+              <div className="flex min-w-0 flex-col justify-center gap-2 border-b border-border/70 px-3 py-3">
+                {!ltOn && !stOn ? <span className="text-xs text-muted">—</span> : null}
+                {ltOn && (row.ltField || row.id === "rent") ? (
+                  <>
+                    <div className={FEE_CONTROL_ROW}>
+                      {rentLtPerRoom ? (
+                        <span className="shrink-0 text-xs text-muted">Set per room above</span>
+                      ) : (
+                        <FeeMoneyInput
+                          value={ltAmount}
+                          onChange={(v) => (row.ltField ? onLtAmount(row.ltField, v) : onLtAmountForRow(rowId, v))}
+                          placeholder={row.id === "holdingDeposit" ? "100" : "0"}
+                          invalid={Boolean(ltErr)}
+                          ariaLabel={`${row.label} amount`}
+                          dataField={row.id === "rent" && isEntireHome ? "monthlyRent" : String(row.ltField)}
+                        />
+                      )}
+                      {!rentLtPerRoom
+                        ? (() => {
+                            const presetId = PRESET_ID_FOR_ROW[rowId];
+                            if (!presetId) return null;
+                            const idx = customFees.findIndex((f) => (f as ListingFeeRow).presetId === presetId);
+                            const presetCadence = LISTING_FEE_PRESETS.find((p) => p.presetId === presetId)?.cadence;
+                            const fallback: "one-time" | "monthly" =
+                              presetCadence === "monthly" ? "monthly" : "one-time";
+                            const current =
+                              idx >= 0
+                                ? customFees[idx]!.frequency === "one-time"
+                                  ? "one-time"
+                                  : "monthly"
+                                : fallback;
+                            return (
+                              <FeeCadenceSelect
+                                value={current}
+                                onChange={(next) =>
+                                  idx >= 0
+                                    ? onCustomFeeChange(idx, { frequency: next })
+                                    : onPresetCadenceChange?.(presetId, next)
+                                }
+                                ariaLabel={`${row.label} payment frequency`}
+                              />
+                            );
+                          })()
+                        : null}
+                    </div>
+                    {ltErr ? <p className="text-xs font-medium text-red-600">{ltErr}</p> : null}
+                  </>
+                ) : null}
+                {stOn && row.stField ? (
+                  <>
+                    <div className={FEE_CONTROL_ROW}>
+                      <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                        Short-term
+                      </span>
+                      <FeeMoneyInput
+                        value={stAmount}
+                        onChange={(v) => onStAmount(rowId, v)}
+                        placeholder={row.id === "rent" ? "85" : "0"}
+                        invalid={Boolean(stErr)}
+                        ariaLabel={`Short-term ${row.label}`}
+                        dataField={String(row.stField)}
+                      />
+                    </div>
+                    {stErr ? <p className="text-xs font-medium text-red-600">{stErr}</p> : null}
+                  </>
+                ) : null}
+              </div>
+
+              <FeeScopeCells
+                target={target}
+                scope={scope}
+                labelForAria={row.label}
+                dataAttrBase={`listing-fee-${rowId}`}
+              />
+
+              <div className="flex items-center justify-end border-b border-border/70 px-3 py-3">
+                {rowIsRemovable(rowId) ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={FEE_REMOVE_BTN}
+                    onClick={() => onRemoveStandardRow(rowId)}
+                    aria-label={`Remove ${row.label}`}
+                  >
+                    Remove
+                  </Button>
+                ) : (
+                  <span className="text-xs text-muted">—</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Only genuinely custom rows belong here. Preset-backed rows are already
+            rendered above as standard fees, so listing them again duplicated every
+            fee once the legacy->unified migration started materializing presets
+            into customFees. Indices are captured before filtering because the
+            change/remove callbacks address the unfiltered array. */}
+        {customFees
+          .map((fee, i) => ({ fee, i }))
+          .filter(({ fee }) => {
+            const presetId = (fee as ListingFeeRow).presetId;
+            return !presetId || presetId === "custom";
+          })
+          .map(({ fee, i }) => {
+            const target: FeeScopeTarget = { kind: "custom", index: i };
+            const leaseScope = scope.leaseScope(target);
+            const stOn = shortTermOffered && leaseScope.includes(SHORT_TERM_LEASE_TERM);
+            const ltOn = leaseScope.some((t) => t !== SHORT_TERM_LEASE_TERM);
+            return (
               <div key={fee.id} className="contents">
                 <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
                   <Input
@@ -579,41 +633,42 @@ export function ListingUnifiedFeesTable({
                   />
                 </div>
 
-                {showShortTerm ? (
-                  <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
+                <div className="flex min-w-0 flex-col justify-center gap-2 border-b border-border/70 px-3 py-3">
+                  {!ltOn && !stOn ? <span className="text-xs text-muted">—</span> : null}
+                  {ltOn ? (
                     <div className={FEE_CONTROL_ROW}>
-                      <TermCheckbox
-                        checked={fee.shortTermAmount !== undefined}
-                        onChange={(on) =>
-                          onCustomFeeChange(i, { shortTermAmount: on ? (fee.shortTermAmount ?? "") : undefined })
-                        }
-                        label={`Apply custom fee ${i + 1} to short-term`}
+                      <FeeMoneyInput
+                        value={fee.amount.replace(/^\$/, "").trim()}
+                        onChange={(v) => onCustomFeeChange(i, { amount: v })}
+                        ariaLabel={`Custom fee ${i + 1} amount`}
                       />
-                      {fee.shortTermAmount !== undefined ? (
-                        <FeeMoneyInput
-                          value={(fee.shortTermAmount ?? "").replace(/^\$/, "").trim()}
-                          onChange={(v) => onCustomFeeChange(i, { shortTermAmount: v })}
-                          ariaLabel={`Short-term custom fee ${i + 1} amount`}
-                        />
-                      ) : null}
+                      <FeeCadenceSelect
+                        value={fee.frequency === "one-time" ? "one-time" : "monthly"}
+                        onChange={(next) => onCustomFeeChange(i, { frequency: next })}
+                        ariaLabel={`Custom fee ${i + 1} payment frequency`}
+                      />
                     </div>
-                  </div>
-                ) : null}
-
-                <div className="flex min-w-0 items-center border-b border-border/70 px-3 py-3">
-                  <div className={FEE_CONTROL_ROW}>
-                    <FeeMoneyInput
-                      value={fee.amount.replace(/^\$/, "").trim()}
-                      onChange={(v) => onCustomFeeChange(i, { amount: v })}
-                      ariaLabel={`Custom fee ${i + 1} amount`}
-                    />
-                    <FeeCadenceSelect
-                      value={fee.frequency === "one-time" ? "one-time" : "monthly"}
-                      onChange={(next) => onCustomFeeChange(i, { frequency: next })}
-                      ariaLabel={`Custom fee ${i + 1} payment frequency`}
-                    />
-                  </div>
+                  ) : null}
+                  {stOn ? (
+                    <div className={FEE_CONTROL_ROW}>
+                      <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                        Short-term
+                      </span>
+                      <FeeMoneyInput
+                        value={(fee.shortTermAmount ?? "").replace(/^\$/, "").trim()}
+                        onChange={(v) => onCustomFeeChange(i, { shortTermAmount: v })}
+                        ariaLabel={`Short-term custom fee ${i + 1} amount`}
+                      />
+                    </div>
+                  ) : null}
                 </div>
+
+                <FeeScopeCells
+                  target={target}
+                  scope={scope}
+                  labelForAria={fee.label.trim() || `custom fee ${i + 1}`}
+                  dataAttrBase={`listing-custom-fee-${i}`}
+                />
 
                 <div className="flex items-center justify-end border-b border-border/70 px-3 py-3">
                   <Button
@@ -627,7 +682,8 @@ export function ListingUnifiedFeesTable({
                   </Button>
                 </div>
               </div>
-            ))}
+            );
+          })}
       </div>
 
       <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
@@ -658,28 +714,22 @@ export function ListingUnifiedFeesTable({
 }
 
 /** A Rooms/Bundles section rendered inside the table: a header row then its expandable rows. */
-function FeeSectionRows({
-  section,
-  showShortTerm,
-}: {
-  section: FeeExpandableSection;
-  showShortTerm: boolean;
-}) {
+function FeeSectionRows({ section, showRooms }: { section: FeeExpandableSection; showRooms: boolean }) {
   return (
     <>
       <SectionHeaderRow
         title={section.title}
         hint={section.hint}
         toolbar={section.toolbar}
-        showShortTerm={showShortTerm}
+        showRooms={showRooms}
       />
       {section.rows.length === 0 && section.emptyHint ? (
-        <div className={cn(feeColSpan(showShortTerm), "border-b border-border/70 px-3 py-2.5 text-xs text-muted")}>
+        <div className={cn(feeColSpan(showRooms), "border-b border-border/70 px-3 py-2.5 text-xs text-muted")}>
           {section.emptyHint}
         </div>
       ) : null}
       {section.rows.map((row) => (
-        <ExpandableRows key={row.id} row={row} showShortTerm={showShortTerm} />
+        <ExpandableRows key={row.id} row={row} showRooms={showRooms} />
       ))}
     </>
   );

@@ -29,10 +29,17 @@ describe("listing service fee payer UI helpers", () => {
     expect(listingServiceFeePayerUiValue(null, "free", true)).toBe("resident");
   });
 
-  it("never asks the listing wizard for a FREE100 box (PRP-421)", () => {
-    expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", false)).toBe(false);
+  // PRP-463 reopened the FREE100 box that PRP-421 closed, but only where it is genuinely
+  // required: a manager who is already entitled is never asked for a code.
+  it("asks for the waiver code only when PropLane absorb is picked without an entitlement", () => {
+    expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", false)).toBe(true);
+    expect(listingProplaneAbsorbNeedsWaiverCode("free", "proplane", true)).toBe(false);
     expect(listingProplaneAbsorbNeedsWaiverCode("pro", "proplane", false)).toBe(false);
     expect(listingProplaneAbsorbNeedsWaiverCode("pro", "proplane", true)).toBe(false);
+    // Never for the other two payers, on any plan.
+    expect(listingProplaneAbsorbNeedsWaiverCode("free", "resident", false)).toBe(false);
+    expect(listingProplaneAbsorbNeedsWaiverCode("free", "manager", false)).toBe(false);
+    expect(listingProplaneAbsorbNeedsWaiverCode("free", null, false)).toBe(false);
   });
 
   it("persists PropLane absorb with FREE100, account grant, or preserved codeless proplane", () => {

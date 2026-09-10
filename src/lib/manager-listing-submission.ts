@@ -262,6 +262,15 @@ export type ManagerCustomFeeRow = {
    * charge may name several types.
    */
   leaseTypes?: string[];
+  /**
+   * Which rooms this charge applies to, by room id.
+   *
+   * Absent or empty means EVERY room — including rooms added after the fee was saved.
+   * That is deliberate: "All rooms" must not persist as a snapshot of the room ids that
+   * happened to exist when the manager ticked it, or adding Room 4 next month would
+   * silently drop the fee from it. Only a real narrowing is stored.
+   */
+  roomIds?: string[];
 };
 
 /** Rows for the public “Bundles & leasing” table (optional — defaults are generated from rooms). */
@@ -336,6 +345,15 @@ export type ManagerBathroomSubmission = {
   allResidents?: boolean;
   /** Optional per-room situation for this bathroom (only meaningful when the room is checked). */
   accessKindByRoomId?: Partial<Record<string, ManagerBathroomRoomAccessKind>>;
+  /**
+   * How this bathroom is reached — the manager's one choice for the whole row (PRP-463).
+   *
+   * {@link accessKindByRoomId} stays the storage every listing surface already reads; this
+   * is the bathroom-level answer the wizard actually asks for, and it is written through
+   * to each assigned room. Absent means it was never set explicitly and is derived from
+   * the per-room kinds, so existing listings are unchanged.
+   */
+  accessKind?: "shared" | "ensuite";
 };
 
 export type ManagerSharedSpaceSubmission = {
@@ -512,6 +530,30 @@ export type ManagerListingSubmissionV1 = {
   moveInFee: string;
   /** Charges included in “payment due at signing” (multi-select). */
   paymentAtSigningIncludes: PaymentAtSigningOptionId[];
+  /**
+   * Which payments are collected at signing, PER lease type (PRP-463).
+   *
+   * Keyed by stored lease-term label; values are signing row keys — a
+   * `PaymentAtSigningOptionId`, `fee:<feeId>` for a manager-added fee, or
+   * `room_rent:<roomId>` when renting by room. Absent means the listing predates the
+   * matrix and every lease type collects {@link paymentAtSigningIncludes}, which is
+   * exactly what that flat list meant.
+   *
+   * {@link paymentAtSigningIncludes} stays the derived union of the four standard ids so
+   * every existing reader (lease documents, charges, listing projection) is untouched.
+   */
+  paymentAtSigningByLeaseType?: Record<string, string[]>;
+  /**
+   * Lease-type and room scope for the STANDARD fee rows, keyed by fee row id
+   * (`applicationFee`, `securityDeposit`, …). Custom fees carry their own
+   * `leaseTypes` / `roomIds`; standard rows are backed by fixed submission fields with
+   * nowhere to hang scope, so it lives here and is stamped onto the materialized fee row
+   * by `ensureSubmissionListingFees` — which is why every downstream reader sees one
+   * shape regardless of where a fee came from.
+   *
+   * An absent entry, like an absent list, means every lease type and every room.
+   */
+  standardFeeScopes?: Record<string, { leaseTypes?: string[]; roomIds?: string[] }>;
   houseCostsDetail: string;
   parkingMonthly: string;
   hoaMonthly: string;
@@ -1187,6 +1229,76 @@ export function applyEntireHomeMonthlyRent(
   return applyEntireHomeListingPricing(sub, { entireHomeMonthlyRent: Math.max(0, Math.round(Number(rent) || 0)) });
 }
 
+/**
+ * Standard-row scope, pruned to what still exists. A scope that ends up naming every
+ * lease type or every room is stored as ABSENT, never as the full list: "all rooms" must
+ * keep meaning all rooms after a fourth room is added, not the three that existed when
+ * the manager ticked it.
+ */
+function normalizeStandardFeeScopeMap(
+  raw: unknown,
+  present: { terms: readonly string[]; roomIds: readonly string[] },
+): Record<string, { leaseTypes?: string[]; roomIds?: string[] }> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const narrow = (value: unknown, allowed: readonly string[]): string[] | undefined => {
+    if (!Array.isArray(value)) return undefined;
+    const picked = new Set(
+      value.filter((v): v is string => typeof v === "string" && v.trim().length > 0).map((v) => v.trim()),
+    );
+    const ordered = allowed.filter((v) => picked.has(v));
+    if (ordered.length === 0 || ordered.length >= allowed.length) return undefined;
+    return ordered;
+  };
+  const out: Record<string, { leaseTypes?: string[]; roomIds?: string[] }> = {};
+  for (const [rowId, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const v = value as { leaseTypes?: unknown; roomIds?: unknown };
+    const scope: { leaseTypes?: string[]; roomIds?: string[] } = {};
+    const leaseTypes = narrow(v.leaseTypes, present.terms);
+    const roomIds = narrow(v.roomIds, present.roomIds);
+    if (leaseTypes) scope.leaseTypes = leaseTypes;
+    if (roomIds) scope.roomIds = roomIds;
+    if (Object.keys(scope).length > 0) out[rowId] = scope;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Keep only lease terms the listing offers and row keys that still name something real,
+ * so a deleted room or fee cannot leave a stranded signing cell behind. Returns
+ * `undefined` when there is nothing to store, which reads as "no matrix" — the flat
+ * `paymentAtSigningIncludes` then applies to every lease type.
+ */
+function normalizeSigningMatrix(
+  raw: unknown,
+  present: { terms: readonly string[]; feeIds: readonly string[]; roomIds: readonly string[] },
+): Record<string, string[]> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const standard = new Set<string>(PAYMENT_AT_SIGNING_OPTIONS.map((o) => o.id));
+  const feeIds = new Set(present.feeIds);
+  const roomIds = new Set(present.roomIds);
+  const keyIsLive = (key: string): boolean => {
+    if (standard.has(key)) return true;
+    if (key.startsWith("fee:")) return feeIds.has(key.slice(4));
+    if (key.startsWith("room_rent:")) return roomIds.has(key.slice(10));
+    return false;
+  };
+  const out: Record<string, string[]> = {};
+  for (const term of present.terms) {
+    const value = (raw as Record<string, unknown>)[term];
+    if (!Array.isArray(value)) continue;
+    out[term] = [
+      ...new Set(
+        value
+          .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+          .map((v) => v.trim())
+          .filter(keyIsLive),
+      ),
+    ];
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /** Coerces older saved submissions into the current v1 shape (preserves listing data where possible). */
 export type NormalizeManagerListingSubmissionOptions = {
   accountPaymentWaiverGranted?: boolean;
@@ -1464,6 +1576,31 @@ export function normalizeManagerListingSubmissionV1(
     customFees = customFees.map((f) => normalizeListingFeeRow(f as ListingFeeRow));
   }
 
+  // Payment at signing, per lease type (PRP-463). The matrix is authoritative when it is
+  // present; the flat list below is DERIVED from it so every existing reader keeps
+  // working. A listing without a matrix is untouched: its flat list still applies to
+  // every lease type, which is what it always meant.
+  const paymentAtSigningByLeaseType = normalizeSigningMatrix(
+    (sub as { paymentAtSigningByLeaseType?: unknown }).paymentAtSigningByLeaseType,
+    {
+      terms: resolveAllowedLeaseTerms(sub),
+      feeIds: customFees.map((f) => f.id),
+      roomIds: rooms.map((r) => r.id),
+    },
+  );
+  const standardFeeScopes = normalizeStandardFeeScopeMap(
+    (sub as { standardFeeScopes?: unknown }).standardFeeScopes,
+    { terms: resolveAllowedLeaseTerms(sub), roomIds: rooms.map((r) => r.id) },
+  );
+
+  if (paymentAtSigningByLeaseType) {
+    const union = new Set<string>();
+    for (const keys of Object.values(paymentAtSigningByLeaseType)) {
+      for (const key of keys) union.add(key);
+    }
+    paymentAtSigningIncludes = PAYMENT_AT_SIGNING_OPTIONS.map((o) => o.id).filter((id) => union.has(id));
+  }
+
   const serviceRequestOptions = Array.isArray((sub as { serviceRequestOptions?: unknown }).serviceRequestOptions)
     ? ((sub as { serviceRequestOptions?: unknown }).serviceRequestOptions as unknown[])
         .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
@@ -1534,6 +1671,10 @@ export function normalizeManagerListingSubmissionV1(
       assignedRoomIds: allResidents ? [] : assignedRoomIds,
       allResidents,
       accessKindByRoomId: allResidents ? undefined : accessKindByRoomId,
+      accessKind: normalizeBathroomAccessKind(
+        (legacyBath as ManagerBathroomSubmission).accessKind,
+        accessKindByRoomId,
+      ),
     };
   });
 
@@ -1764,6 +1905,8 @@ export function normalizeManagerListingSubmissionV1(
     allowedLeaseTerms,
     leaseTermsBody,
     paymentAtSigningIncludes,
+    paymentAtSigningByLeaseType,
+    standardFeeScopes,
     rooms: normalizedRooms,
     bathrooms,
     sharedSpaces,
@@ -2075,6 +2218,21 @@ export function duplicateRoomEntry(source: ManagerRoomSubmission): ManagerRoomSu
   };
 }
 
+/**
+ * The bathroom's access kind: what the manager chose, or — for a listing saved before the
+ * field existed — what its per-room kinds already say. "hall" is a shared bath, so it
+ * reads back as shared rather than losing the row's meaning.
+ */
+export function normalizeBathroomAccessKind(
+  explicit: unknown,
+  accessKindByRoomId: Partial<Record<string, ManagerBathroomRoomAccessKind>> | undefined,
+): "shared" | "ensuite" | undefined {
+  if (explicit === "shared" || explicit === "ensuite") return explicit;
+  const kinds = Object.values(accessKindByRoomId ?? {}).filter(Boolean);
+  if (kinds.length === 0) return undefined;
+  return kinds.every((k) => k === "ensuite") ? "ensuite" : "shared";
+}
+
 export function emptyBathroom(index: number): ManagerBathroomSubmission {
   return {
     id: rid("bath"),
@@ -2091,6 +2249,7 @@ export function emptyBathroom(index: number): ManagerBathroomSubmission {
     assignedRoomIds: [],
     allResidents: false,
     accessKindByRoomId: undefined,
+    accessKind: "shared",
   };
 }
 
