@@ -639,7 +639,6 @@ const TOUR_GUEST_NOTIFY_PREVIEW_COPY: Record<
   TourGuestNotifyPreviewAction,
   {
     title: string;
-    intro: string;
     skipMessageLabel: string;
     confirmLabel: string;
     confirmLabelWithoutMessage: string;
@@ -648,7 +647,6 @@ const TOUR_GUEST_NOTIFY_PREVIEW_COPY: Record<
 > = {
   confirm: {
     title: "Confirm tour",
-    intro: "Confirming schedules the tour and sends this message to the guest.",
     skipMessageLabel: "Don't message guest",
     confirmLabel: "Confirm tour & send notification",
     confirmLabelWithoutMessage: "Confirm tour only",
@@ -656,7 +654,6 @@ const TOUR_GUEST_NOTIFY_PREVIEW_COPY: Record<
   },
   delete: {
     title: "Delete tour",
-    intro: "Deleting removes this tour request from your calendar and sends this message to the guest.",
     skipMessageLabel: "Don't message guest",
     confirmLabel: "Delete tour & send notification",
     confirmLabelWithoutMessage: "Delete tour only",
@@ -664,7 +661,6 @@ const TOUR_GUEST_NOTIFY_PREVIEW_COPY: Record<
   },
   cancel: {
     title: "Cancel tour",
-    intro: "Cancelling removes this tour and sends this message to the guest.",
     skipMessageLabel: "Don't message guest",
     confirmLabel: "Cancel tour & send notification",
     confirmLabelWithoutMessage: "Cancel tour only",
@@ -672,7 +668,6 @@ const TOUR_GUEST_NOTIFY_PREVIEW_COPY: Record<
   },
   "delete-confirmed": {
     title: "Delete tour",
-    intro: "Deleting removes this tour from your calendar and sends this message to the guest.",
     skipMessageLabel: "Don't message guest",
     confirmLabel: "Delete tour & send notification",
     confirmLabelWithoutMessage: "Delete tour only",
@@ -2511,12 +2506,10 @@ export function PortalCalendarPanels({
       recipientPhone={tourGuestNotifyPreview.meeting.phone?.trim() || undefined}
       subject={tourGuestNotifyPreview.subject}
       body={tourGuestNotifyPreview.body}
-      intro={TOUR_GUEST_NOTIFY_PREVIEW_COPY[tourGuestNotifyPreview.action].intro}
       skipMessageLabel={TOUR_GUEST_NOTIFY_PREVIEW_COPY[tourGuestNotifyPreview.action].skipMessageLabel}
       showChannelPicker
       emailAvailable={Boolean(tourGuestNotifyPreview.meeting.email?.includes("@"))}
       smsAvailable={Boolean(tourGuestNotifyPreview.meeting.phone?.trim())}
-      showSchedule={false}
       confirmLabel={TOUR_GUEST_NOTIFY_PREVIEW_COPY[tourGuestNotifyPreview.action].confirmLabel}
       confirmLabelWithoutMessage={
         TOUR_GUEST_NOTIFY_PREVIEW_COPY[tourGuestNotifyPreview.action].confirmLabelWithoutMessage
@@ -2526,7 +2519,7 @@ export function PortalCalendarPanels({
       assigneeKind={tourGuestNotifyPreview.action === "confirm" ? "tour" : undefined}
       assigneeTeamMembers={tourGuestNotifyPreview.action === "confirm" ? teamMembers : undefined}
       assigneeVendors={tourGuestNotifyPreview.action === "confirm" ? vendors : undefined}
-      panelClassName="z-[90] max-w-xl"
+      panelClassName="z-[90]"
       onConfirm={(skipMessage, _channels, draft) => void submitTourGuestNotifyPreview(skipMessage, _channels, draft)}
     />
   ) : null;
@@ -2548,11 +2541,10 @@ export function PortalCalendarPanels({
       emailAvailable
       smsAvailable={Boolean(guestMessagePreview.phone)}
       defaultViaSms={false}
-      showSchedule={false}
       confirmLabel="Send message"
       confirmBusy={guestMessageBusy}
       confirmBusyLabel="Sending…"
-      panelClassName="z-[90] max-w-xl"
+      panelClassName="z-[90]"
       onConfirm={(_skip, channels, draft) => void submitGuestMessage(false, channels, draft)}
     />
   ) : null;

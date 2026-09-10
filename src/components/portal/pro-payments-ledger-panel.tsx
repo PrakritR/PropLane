@@ -1729,7 +1729,6 @@ export function ManagerPaymentsLedgerPanel({
         emailAvailable={Boolean(reminderPreview.row.residentEmail?.includes("@"))}
         smsAvailable
         deliverViaKind="payment_reminder"
-        showWorkNumberHint={false}
         hideSendViaFooterNote
         dynamicSendLabel
         assistantContext="Payment reminder compose"
@@ -1747,7 +1746,6 @@ export function ManagerPaymentsLedgerPanel({
             ? "Send payment reminder"
             : `Send ${bulkReminderPreview.length} payment reminders`
         }
-        intro="Review and edit each reminder before sending. Messages are saved to PropLane inbox."
         items={bulkReminderPreview.map((item) => ({
           id: item.id,
           label: item.chargeLabel,

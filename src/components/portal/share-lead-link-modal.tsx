@@ -818,10 +818,8 @@ export function ShareLeadLinkModal({
         recipientPhone={prospectPhone.trim() || undefined}
         subject={leadInviteSubject(kind, propertyTitle, isMultiProperty ? propertyIds.length : undefined)}
         body={previewBody}
-        intro="Review the message before sending."
         showSkipMessage={false}
         showChannelPicker
-        showSchedule={false}
         emailAvailable
         smsAvailable={smsAvailable}
         defaultViaEmail={viaEmail}

@@ -403,6 +403,14 @@ export function ManagerResidents({
   const [workOrderTick, setWorkOrderTick] = useState(0);
   const [srTick, setSrTick] = useState(0);
   const [inboxTick, setInboxTick] = useState(0);
+  // Applications + lease pipeline must both settle before Potential/Current
+  // counts are trusted — Current depends on executed leases, and an
+  // applications-only redraw classifies every approved tenant as Potential
+  // (PRP-458). Demo and unit tests skip the hold (static markup never runs
+  // the sync effect).
+  const [directorySourcesReady, setDirectorySourcesReady] = useState(
+    () => isDemoModeActive() || process.env.NODE_ENV === "test",
+  );
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const RESIDENT_LIST_DEFAULT_GROUP_MODE: PortalListGroupMode = "house";
   const [groupMode, setGroupMode] = useState<PortalListGroupMode>(RESIDENT_LIST_DEFAULT_GROUP_MODE);
@@ -598,6 +606,7 @@ export function ManagerResidents({
   useEffect(() => {
     if (!authReady || !userId) return;
     let cancelled = false;
+    if (!isDemoModeActive()) setDirectorySourcesReady(false);
     void Promise.allSettled([
       syncPropertyPipelineFromServer(),
       syncManagerApplicationsFromServer({ managerUserId: userId }),
@@ -611,6 +620,11 @@ export function ManagerResidents({
         setInboxTick((n) => n + 1);
         setWorkOrderTick((n) => n + 1);
         setHcTick((n) => n + 1);
+        // Lease stage membership must refresh with applications — relying only
+        // on LEASE_PIPELINE_EVENT left Current empty when that emit raced or
+        // the GET failed (PRP-458).
+        setLeaseTick((n) => n + 1);
+        setDirectorySourcesReady(true);
       }
     });
     return () => {
@@ -727,6 +741,19 @@ export function ManagerResidents({
     // pipeline cache, which React cannot see. Re-filter once that cache
     // hydrates so linked-property rows appear without a manual refresh.
     void propertyTick;
+    // Hold the directory until applications + leases have both settled so an
+    // applications-only event cannot publish Potential counts that flip to
+    // Current a moment later (PRP-458).
+    if (!directorySourcesReady) {
+      if (shouldShowDevResidentListFixtures()) {
+        return DEV_RESIDENT_LIST_FIXTURES.map((row) => ({
+          ...row,
+          stage: (row.isPrevious ? "past" : "current") as ResidentDirectoryStage,
+          statusLabel: "",
+        }));
+      }
+      return [];
+    }
     const built = readManagerApplicationRows()
       .filter((row) => isResidentDirectoryRow(row) && applicationVisibleToPortalUser(row, userId, "residents"))
       .map((row) => {
@@ -775,7 +802,7 @@ export function ManagerResidents({
       }));
     }
     return built;
-  }, [userId, hcTick, propertyTick, executedLeaseKeys]);
+  }, [userId, hcTick, propertyTick, executedLeaseKeys, directorySourcesReady]);
 
   const residents = useMemo(
     () => dedupeResidentsByEmail(residentDirectoryRows),
@@ -1164,6 +1191,7 @@ export function ManagerResidents({
   );
 
   const residentsListEmptyMessage = useMemo(() => {
+    if (!directorySourcesReady) return "Loading residents…";
     if (propertyFilters.length > 0) return "No residents match this filter.";
     if (hasResidentsInOtherTab) {
       if (residentsTab === "past") return "No past residents yet.";
@@ -1171,7 +1199,7 @@ export function ManagerResidents({
       return "No current residents yet.";
     }
     return "No residents yet.";
-  }, [hasResidentsInOtherTab, propertyFilters.length, residentsTab]);
+  }, [directorySourcesReady, hasResidentsInOtherTab, propertyFilters.length, residentsTab]);
 
   const residentTabCounts = useMemo(() => {
     const counts: Record<ResidentsTabId, number> = { potential: 0, current: 0, past: 0 };
@@ -4439,9 +4467,7 @@ export function ManagerResidents({
               })
             : ""
         }
-        intro="Review the portal setup message before creating this resident record."
         showChannelPicker
-        showSchedule
         emailAvailable={Boolean(addResidentNoticePreview?.email?.includes("@"))}
         smsAvailable={Boolean(
           addResidentNoticePreview?.manualResidentDetails?.phone?.trim() ||
@@ -4776,15 +4802,9 @@ export function ManagerResidents({
               })
             : ""
         }
-        intro={
-          approvePreviewRow
-            ? `Approving ${approvePreviewRow.name || approvePreviewRow.email} will update their application status and can send their PropLane resident account setup email.`
-            : undefined
-        }
         warning={approveError ?? undefined}
         warningLead={approveError ? "Could not approve." : null}
         hideSendViaFooterNote
-        showWorkNumberHint={false}
         confirmLabel="Approve & send setup email"
         confirmLabelWithoutMessage="Approve only"
         confirmBusy={approvePreviewRow !== null && approveBusyId === approvePreviewRow.id}
@@ -4821,7 +4841,6 @@ export function ManagerResidents({
         }
         subject={RESIDENT_WELCOME_EMAIL_SUBJECT}
         body={welcomePreviewContent}
-        showSchedule
         smsAvailable={Boolean(
           welcomePreviewFor &&
             (() => {
@@ -4858,7 +4877,6 @@ export function ManagerResidents({
         }
         warningLead={null}
         hideSendViaFooterNote
-        showWorkNumberHint={false}
         confirmLabel="Send lease & notification"
         confirmLabelWithoutMessage="Send lease only"
         confirmBusy={leaseSendBusy}

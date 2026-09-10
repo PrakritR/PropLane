@@ -402,11 +402,6 @@ export function ManagerServiceRequestDetail({
         recipient={recipientLabel}
         subject={decisionDraft?.subject ?? ""}
         body={decisionDraft?.body ?? ""}
-        intro={
-          decisionKind === "deny"
-            ? "Deny this request and notify the resident."
-            : "Approve this request and notify the resident."
-        }
         showChannelPicker
         emailAvailable={Boolean(req.residentEmail?.includes("@"))}
         smsAvailable

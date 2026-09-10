@@ -42,8 +42,11 @@ export function portalMessageConfirmSendLabel(args: {
   dynamic?: boolean;
 }): string {
   if (args.busy) return args.busyLabel ?? "Sending…";
-  if (args.skipMessage || !args.dynamic) return args.staticLabel;
+  if (args.skipMessage) return args.staticLabel;
+  // A scheduled send says Schedule on every surface — "Decline & send
+  // notification" on a message that leaves tomorrow describes the wrong thing.
   if (args.scheduleLater) return "Schedule";
+  if (!args.dynamic) return args.staticLabel;
   if (args.viaEmail && args.viaSms) return "Send message";
   if (args.viaSms) return "Send SMS";
   // PropLane-only: nothing leaves the product, so "Send email" was a promise
@@ -596,11 +599,55 @@ export function defaultScheduleSendAtLocal(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/**
+ * The one checkbox row every compose popup uses — "Don't message …" and
+ * "Schedule for later" sat next to each other in different greys and weights.
+ */
+export function PortalMessageCheckboxRow({
+  label,
+  checked,
+  onChange,
+  disabled = false,
+  dataAttr,
+  children,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  disabled?: boolean;
+  dataAttr?: string;
+  /** Rendered beside the label — the schedule row's date picker. */
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-nowrap items-center gap-3">
+      <label
+        className={cn(
+          "flex shrink-0 items-center gap-2 text-sm",
+          disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+        )}
+      >
+        <input
+          type="checkbox"
+          className="h-4 w-4 shrink-0 rounded border-border accent-primary"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.checked)}
+          data-attr={dataAttr}
+        />
+        <span className="font-medium text-foreground">{label}</span>
+      </label>
+      {children}
+    </div>
+  );
+}
+
 export function PortalMessageScheduleFields({
   scheduleLater,
   onScheduleLaterChange,
   sendAt,
   onSendAtChange,
+  hidden = false,
   disabled = false,
   scheduleDataAttr = "portal-message-schedule-later",
   sendAtDataAttr = "portal-message-schedule-at",
@@ -609,24 +656,23 @@ export function PortalMessageScheduleFields({
   onScheduleLaterChange: (next: boolean) => void;
   sendAt: string;
   onSendAtChange: (next: string) => void;
+  /** Drop the control entirely — the surface has no scheduling at all (residents). */
+  hidden?: boolean;
+  /** Keep the control on screen but inert (nothing is being sent right now). */
   disabled?: boolean;
   scheduleDataAttr?: string;
   sendAtDataAttr?: string;
 }) {
-  if (disabled) return null;
+  if (hidden) return null;
   return (
-    <div className="flex flex-nowrap items-center gap-3">
-      <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="h-4 w-4 shrink-0 rounded border-border accent-primary"
-          checked={scheduleLater}
-          onChange={(e) => onScheduleLaterChange(e.target.checked)}
-          data-attr={scheduleDataAttr}
-        />
-        <span className="font-medium text-foreground">Schedule for later</span>
-      </label>
-      {scheduleLater ? (
+    <PortalMessageCheckboxRow
+      label="Schedule for later"
+      checked={scheduleLater}
+      onChange={onScheduleLaterChange}
+      disabled={disabled}
+      dataAttr={scheduleDataAttr}
+    >
+      {scheduleLater && !disabled ? (
         <Input
           type="datetime-local"
           className="min-w-0 flex-1"
@@ -636,6 +682,6 @@ export function PortalMessageScheduleFields({
           data-attr={sendAtDataAttr}
         />
       ) : null}
-    </div>
+    </PortalMessageCheckboxRow>
   );
 }
