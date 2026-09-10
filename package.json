@@ -49,6 +49,7 @@
     "db:pull": "supabase db pull",
     "db:baseline": "supabase migration repair --status applied $(ls supabase/migrations | sed -E 's/_.*//')",
     "db:status": "supabase migration list --linked",
+    "db:parity": "node scripts/check-migration-parity.mjs",
     "lockfile:verify": "node scripts/verify-lockfile.mjs",
     "delete:account": "node --env-file=.env scripts/delete-account.mjs",
     "seed:env": "node scripts/seed-worktree-env.mjs",
