@@ -89,7 +89,7 @@ export async function POST(req: Request) {
     const managerSettings = await loadManagerApplicationSettings(db, ownerUserId);
 
     const waiverCode = typeof body.waiverCode === "string" ? body.waiverCode.trim() : "";
-    const waiver = waiverCode ? await previewApplicationFeeWaiverCode(db, ownerUserId, waiverCode) : null;
+    const waiver = waiverCode ? await previewApplicationFeeWaiverCode(db, ownerUserId, waiverCode, propertyId) : null;
 
     const residentEmail = typeof body.residentEmail === "string" ? body.residentEmail.trim().toLowerCase() : "";
     let repeatApplicantFeeWaived: boolean | undefined;

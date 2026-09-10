@@ -5,6 +5,8 @@ export type ClientScheduledMessagePatch = {
   customSubject?: string;
   customBody?: string;
   customSendAt?: string;
+  customDeliverViaEmail?: boolean;
+  customDeliverViaSms?: boolean;
 };
 
 const STORAGE_KEY = "propplane.clientScheduledMessageOverrides.v1";
@@ -49,6 +51,11 @@ export function applyClientPatchesToMessages(messages: ScheduledPaymentMessage[]
       subject: patch.customSubject ?? message.subject,
       body: patch.customBody ?? message.body,
       sendAt: patch.customSendAt ?? message.sendAt,
+      // `??` and not `||`: false is a real choice here ("do not send by email"),
+      // and the fall-through carries the row's own absence, which means the
+      // automation settings still decide.
+      deliverViaEmail: patch.customDeliverViaEmail ?? message.deliverViaEmail,
+      deliverViaSms: patch.customDeliverViaSms ?? message.deliverViaSms,
     };
   });
 }

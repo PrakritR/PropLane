@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
   listApplicationFeeWaiverCodes,
@@ -34,8 +35,44 @@ import {
   loadManagerLandlordLegalNameFromProfile,
 } from "@/lib/manager-landlord-profile";
 import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
+import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
 
 export const runtime = "nodejs";
+
+
+/**
+ * Whose waiver codes this request may read or write for one property.
+ *
+ * A waiver code belongs to the LISTING, so a co-manager assigned to it must see
+ * and edit the same code the owner does — scoping to the caller gave them a
+ * blank field, and any code they set was stored under their own id where
+ * redemption (which looks codes up under the property's owner) could never find
+ * it. An unowned or unknown property falls back to the caller, which is exactly
+ * the previous behaviour and exposes nothing new.
+ */
+async function resolveWaiverCodeScope(
+  db: SupabaseClient,
+  callerUserId: string,
+  propertyId: string,
+  level: "read" | "edit",
+): Promise<{ ok: true; ownerUserId: string } | { ok: false; status: number; error: string }> {
+  if (!propertyId) return { ok: true, ownerUserId: callerUserId };
+  const { data } = await db
+    .from("manager_property_records")
+    .select("manager_user_id")
+    .eq("id", propertyId)
+    .maybeSingle();
+  const ownerUserId = String((data as { manager_user_id?: string | null } | null)?.manager_user_id ?? "").trim();
+  if (!ownerUserId || ownerUserId === callerUserId) {
+    return { ok: true, ownerUserId: ownerUserId || callerUserId };
+  }
+  const access = await assertCoManagerModuleAccess(db as never, callerUserId, propertyId, "applications", {
+    ownerManagerUserId: ownerUserId,
+    level,
+  });
+  if (!access.ok) return { ok: false, status: access.status, error: access.error };
+  return { ok: true, ownerUserId };
+}
 
 export async function GET(req: Request) {
   try {
@@ -55,11 +92,20 @@ export async function GET(req: Request) {
     // explicit value the first time (never a silent bulk change to what their
     // existing listings charge).
     const suggestedFeeCents = await suggestedManagerApplicationFeeCents(ctx.db, ctx.userId);
-    const codes = await listApplicationFeeWaiverCodes(ctx.db, ctx.userId);
-    const primary = pickPrimaryApplicationFeeWaiverCode(codes);
+    const scope = await resolveWaiverCodeScope(ctx.db, ctx.userId, propertyId, "read");
+    if (!scope.ok) return NextResponse.json({ error: scope.error }, { status: scope.status });
+    const codes = await listApplicationFeeWaiverCodes(ctx.db, scope.ownerUserId);
+    // NO fallback to the portfolio primary when a property is named. Falling
+    // back showed a neighbouring listing's code under copy that reads "this
+    // property's application" — and the field commits on blur, so it then
+    // spread that code onto a property nobody set it for.
     const propertyWaiverCode = propertyId
-      ? codes.find((c) => c.label === listingWaiverLabel(propertyId) && c.status === "active")?.code ?? null
-      : null;
+      ? codes.find(
+          (c) =>
+            c.status === "active" &&
+            (c.propertyId === propertyId || (c.propertyId == null && c.label === listingWaiverLabel(propertyId))),
+        )?.code ?? null
+      : pickPrimaryApplicationFeeWaiverCode(codes)?.code ?? null;
     return NextResponse.json({
       settings,
       automation,
@@ -67,7 +113,7 @@ export async function GET(req: Request) {
       taskAutomation,
       landlord,
       suggestedFeeCents,
-      waiverCode: propertyWaiverCode ?? primary?.code ?? null,
+      waiverCode: propertyWaiverCode,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed";
@@ -147,9 +193,13 @@ export async function PATCH(req: Request) {
     const raw = body.waiverCode == null ? "" : String(body.waiverCode);
     const waiverPropertyId =
       typeof body.propertyId === "string" && body.propertyId.trim() ? body.propertyId.trim() : "";
+    const waiverScope = await resolveWaiverCodeScope(ctx.db, ctx.userId, waiverPropertyId, "edit");
+    if (!waiverScope.ok) {
+      return NextResponse.json({ error: waiverScope.error }, { status: waiverScope.status });
+    }
     const result = waiverPropertyId
-      ? await upsertPropertyApplicationFeeWaiverCode(ctx.db, ctx.userId, waiverPropertyId, raw)
-      : await setPrimaryApplicationFeeWaiverCode(ctx.db, ctx.userId, raw);
+      ? await upsertPropertyApplicationFeeWaiverCode(ctx.db, waiverScope.ownerUserId, waiverPropertyId, raw)
+      : await setPrimaryApplicationFeeWaiverCode(ctx.db, waiverScope.ownerUserId, raw);
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 400 });
     }

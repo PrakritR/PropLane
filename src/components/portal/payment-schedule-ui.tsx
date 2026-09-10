@@ -414,6 +414,8 @@ export function ChargeRemindersModal({
                     customSubject: next.subject,
                     customBody: next.body,
                     ...(next.sendAt ? { customSendAt: next.sendAt } : {}),
+                    ...(next.deliverViaEmail !== undefined ? { customDeliverViaEmail: next.deliverViaEmail } : {}),
+                    ...(next.deliverViaSms !== undefined ? { customDeliverViaSms: next.deliverViaSms } : {}),
                   });
                   onMessageSaved?.();
                 }
@@ -1216,6 +1218,8 @@ export async function patchScheduledMessage(
     customBody?: string;
     customDaysBeforeDue?: number;
     customSendAt?: string;
+    customDeliverViaEmail?: boolean;
+    customDeliverViaSms?: boolean;
   },
 ): Promise<void> {
   const pathId = encodeScheduledMessagePathId(messageId);
