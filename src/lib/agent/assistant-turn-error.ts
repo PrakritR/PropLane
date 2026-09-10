@@ -47,6 +47,32 @@ function mentionsBillingProblem(lower: string): boolean {
   );
 }
 
+/** True when the provider refused the turn because the service account cannot pay. */
+export function isAssistantBillingFailure(error: unknown): boolean {
+  const ApiError = Anthropic.APIError;
+  if (typeof ApiError === "function" && error instanceof ApiError && error.status === 402) {
+    return true;
+  }
+  const lower =
+    error instanceof Error
+      ? error.message.toLowerCase()
+      : typeof error === "string"
+        ? error.toLowerCase()
+        : "";
+  return Boolean(lower) && mentionsBillingProblem(lower);
+}
+
+/**
+ * SMS cannot stay silent when the model fails: Twilio then retries, marks 11200,
+ * and the texter never gets a reply. Keep this shorter than portal copy.
+ */
+export function formatSmsAgentTurnError(error: unknown): string {
+  if (isAssistantBillingFailure(error)) {
+    return "Sorry, I couldn't reply just now. Please try again in a minute.";
+  }
+  return formatAgentChatUserError(error).message;
+}
+
 /** Prompt/context-window exhaustion, as opposed to a malformed request. */
 function mentionsContextExhaustion(lower: string): boolean {
   return lower.includes("context") || lower.includes("too long") || lower.includes("exceed");
