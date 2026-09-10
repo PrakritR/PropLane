@@ -1,10 +1,7 @@
-import { schedulePortalAccountDeletion } from "@/lib/auth/account-recovery.server";
 import { NextResponse } from "next/server";
 import { track } from "@/lib/analytics/posthog";
-import {
-  deleteOwnPortalAccount,
-  type SelfDeletePortal,
-} from "@/lib/auth/delete-portal-account";
+import { type SelfDeletePortal } from "@/lib/auth/delete-portal-account";
+import { resolvePortalSelfDelete } from "@/lib/auth/resolve-portal-self-delete";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
@@ -64,11 +61,12 @@ export async function POST(req: Request) {
 
   const svc = createSupabaseServiceRoleClient();
   try {
-    const result = portal === "admin"
-      ? await deleteOwnPortalAccount(svc, user.id, portal)
-      : await schedulePortalAccountDeletion(svc, user.id, portal);
+    const result = await resolvePortalSelfDelete(svc, user.id, portal);
 
-    track("portal_account_deleted", user.id, { portal, retention_days: portal === "admin" ? 0 : 30 });
+    track("portal_account_deleted", user.id, {
+      portal,
+      retention_days: result.retentionDays ?? (portal === "admin" ? 0 : 30),
+    });
 
     if (result.signedOut) {
       await supabase.auth.signOut().catch(() => undefined);

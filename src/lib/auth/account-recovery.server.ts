@@ -3,6 +3,7 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { accountArchiveRules, ACCOUNT_RECOVERABLE_TABLES, ACCOUNT_RECOVERY_PATH, normalizeRecoveryPortal } from "@/lib/auth/account-recovery-policy";
+import { isMissingAccountRecoveryTableError } from "@/lib/auth/account-recovery-schema";
 import { cancelActiveManagerSubscription } from "@/lib/auth/delete-portal-account";
 import { purgeManagerPortalData, purgeResidentPortalData, purgeVendorPortalData } from "@/lib/auth/purge-portal-account-data";
 import { purgeSharedAccountAttachments } from "@/lib/auth/purge-shared-account-attachments";
@@ -22,7 +23,12 @@ const COLUMNS = "id,user_id,email,portal,state,expires_at,decision,claim_id,plan
 function check(error: { message: string } | null) { if (error) throw new Error(error.message); }
 export const hashRecoveryToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
-export async function pendingAccountRecovery(db: SupabaseClient, userId: string, portal?: string): Promise<RecoveryRequest | null> {
+export async function pendingAccountRecovery(
+  db: SupabaseClient,
+  userId: string,
+  portal?: string,
+  options: { requireSchema?: boolean } = {},
+): Promise<RecoveryRequest | null> {
   let query = db.from("account_recovery_requests").select(COLUMNS).eq("user_id", userId)
     .in("state", ["archiving", "retained", "recovering", "purging"]).order("created_at").limit(1);
   if (portal) {
@@ -30,7 +36,11 @@ export async function pendingAccountRecovery(db: SupabaseClient, userId: string,
     if (!scope) return null;
     query = query.eq("portal", scope);
   }
-  const { data, error } = await query.maybeSingle(); check(error);
+  const { data, error } = await query.maybeSingle();
+  // Recovery ships separately from its schema. An environment without this
+  // table cannot contain retained accounts, so ordinary sign-in may continue.
+  if (isMissingAccountRecoveryTableError(error) && !options.requireSchema) return null;
+  check(error);
   return data as RecoveryRequest | null;
 }
 
@@ -52,7 +62,7 @@ export async function schedulePortalAccountDeletion(db: SupabaseClient, userId: 
   if (!email) throw new Error("Account identity is unavailable.");
   const roles = [...new Set([String(profile?.role ?? ""), ...(roleRows ?? []).map(row => String(row.role))].filter(Boolean))];
   const remaining = roles.filter(role => normalizeRecoveryPortal(role) !== scope);
-  let request = await pendingAccountRecovery(db, userId, scope);
+  let request = await pendingAccountRecovery(db, userId, scope, { requireSchema: true });
   if (request && request.email !== email) throw new Error("Account identity changed during deletion.");
   if (!request && !roles.some(role => normalizeRecoveryPortal(role) === scope)) throw new Error("This account does not have access to that portal.");
   const complete = request?.plan.complete ?? remaining.length === 0;
@@ -71,7 +81,7 @@ export async function schedulePortalAccountDeletion(db: SupabaseClient, userId: 
       p_user: userId, p_portal: scope, p_profile: profile ?? {},
       p_plan: { complete, scopes, rules: scopes.flatMap(role => accountArchiveRules(role, complete)), recoverableTables: ACCOUNT_RECOVERABLE_TABLES },
     }); check(error);
-    request = await pendingAccountRecovery(db, userId, scope);
+    request = await pendingAccountRecovery(db, userId, scope, { requireSchema: true });
     if (!request || request.id !== id) throw new Error("Retention request is unavailable.");
     const requestId = request.id;
     const mappedObjects = await loadAccountCleanupRows<{ object: RecoveryObject }>((from, to) => db.from("account_recovery_object_holds")
