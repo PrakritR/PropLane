@@ -968,6 +968,14 @@ export async function updateExtraListingFromSubmissionOnServer(
   listingId: string,
   managerUserId: string,
   input: ManagerPropertyDraftInput,
+  /**
+   * Receives the server's own explanation when the write is refused. Without
+   * it the wizard could only say "check your connection" for a refusal the
+   * server had already explained in words — which is how a manager whose
+   * production database was missing a column spent a night being told their
+   * internet was broken.
+   */
+  opts?: { onError?: (message: string, code?: string) => void },
 ): Promise<boolean> {
   if (!managerUserId.trim()) return false;
   const map = readExtrasMap();
@@ -990,6 +998,7 @@ export async function updateExtraListingFromSubmissionOnServer(
       status: "live",
       propertyData,
       rowData,
+      onError: opts?.onError,
     });
     if (!ok) return false;
     await syncPropertyPipelineFromServer({ force: true });
@@ -1007,6 +1016,7 @@ export async function updateExtraListingFromSubmissionOnServer(
     status: "live",
     propertyData,
     rowData,
+    onError: opts?.onError,
   });
   if (!ok) return false;
   list[idx] = propertyData;

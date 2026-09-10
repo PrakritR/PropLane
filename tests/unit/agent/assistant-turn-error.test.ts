@@ -3,6 +3,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   GENERIC_ASSISTANT_ERROR_DEAD_END,
   formatAgentChatUserError,
+  formatSmsAgentTurnError,
+  isAssistantBillingFailure,
   userFacingAssistantError,
 } from "@/lib/agent/assistant-turn-error";
 import { messagesNeedVisionModel } from "@/lib/agent/assistant-vision-turn";
@@ -42,6 +44,10 @@ describe("formatAgentChatUserError", () => {
     const { message } = formatAgentChatUserError(err);
     expect(message).not.toMatch(ATTACHMENT_COPY);
     expect(message).toMatch(/service account/i);
+    expect(isAssistantBillingFailure(err)).toBe(true);
+    expect(formatSmsAgentTurnError(err)).toBe(
+      "Sorry, I couldn't reply just now. Please try again in a minute.",
+    );
   });
 
   it("does not blame an attachment for unrelated 400s", () => {

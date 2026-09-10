@@ -43,6 +43,7 @@ import {
   SMS_PENDING_ACTION_TTL_MS,
 } from "@/lib/sms/agent-confirmation.server";
 import { recordCommsAgentTurnUsage } from "@/lib/comms-billing/agent-usage.server";
+import { formatSmsAgentTurnError } from "@/lib/agent/assistant-turn-error";
 
 type Db = SupabaseClient;
 
@@ -444,7 +445,12 @@ export async function runSmsAgentTurn<Ctx extends SmsAgentActor>(
     );
   } catch (e) {
     console.error(`${surface.sessionKind} agent turn failed`, session.id, e);
-    return null;
+    // Stay audible. Returning null here acks Twilio with empty TwiML, so the
+    // person sees silence and a slow turn becomes 11200 retries.
+    const reply = formatSmsAgentTurnError(e).slice(0, maxReplyChars);
+    const assistantMessageId = await recordAssistantReply(db, session, reply, [], traceId);
+    track(surface.analytics.messageOut, ctx.userId, { channel: messageChannel, tools: 0 });
+    return { reply, sessionId: session.id, inboundMessageId, assistantMessageId, traceId };
   }
 
   if (result.pendingAction) {
