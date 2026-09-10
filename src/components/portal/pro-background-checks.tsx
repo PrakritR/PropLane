@@ -24,7 +24,6 @@ import {
 import { ApplicationScreeningPanel } from "@/components/portal/application-screening-panel";
 import { CheckrScreeningModal } from "@/components/portal/checkr-screening-modal";
 import { ManagerScreeningSettingsModal } from "@/components/portal/pro-screening-settings";
-import { ScreeningTestModeToggle } from "@/components/portal/screening-test-mode-toggle";
 import { ManagerBackgroundChecksGroupedTable } from "@/components/portal/pro-background-checks-grouped-table";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { useCosignerSubmissionsMap } from "@/hooks/use-cosigner-submissions-map";
@@ -48,10 +47,6 @@ import { buildApplicationGroups } from "@/lib/rental-application/application-gro
 import { signerAppIdsForCosignerLookup } from "@/lib/rental-application/application-list-grouping";
 import { resolveCosignerListSelection } from "@/lib/cosigner-list-selection";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { useScreeningTestMode } from "@/hooks/use-screening-test-mode";
-import {
-  isScreeningTestModeActive,
-} from "@/lib/screening/screening-test-mode";
 import {
   buildScreeningSubjects,
   cosignerSubmissionIdForSubject,
@@ -105,7 +100,6 @@ export function ManagerBackgroundChecks({
 }) {
   const { showToast } = useAppUi();
   const { userId, ready: authReady } = useManagerUserId();
-  const screeningTestMode = useScreeningTestMode();
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -281,7 +275,7 @@ export function ManagerBackgroundChecks({
   );
 
   const openBulkRunBackgroundCheck = useCallback(() => {
-    const skipConsentGate = isDemoModeActive() || isScreeningTestModeActive();
+    const skipConsentGate = isDemoModeActive();
     if (singleListSelectedCosigner) {
       const { signerRow, sub } = singleListSelectedCosigner;
       if (!skipConsentGate && !sub.consentCredit) {
@@ -383,7 +377,6 @@ export function ManagerBackgroundChecks({
 
   const listActions = (
     <>
-      <ScreeningTestModeToggle active={screeningTestMode} onChanged={handleScreeningUpdated} />
       {filterSheet}
       {settingsButton}
     </>

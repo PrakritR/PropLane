@@ -25,9 +25,6 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
   isDemoModeActive: () => false,
 }));
-vi.mock("@/lib/screening/screening-test-mode", () => ({
-  isScreeningTestModeActive: () => false,
-}));
 vi.mock("@/lib/analytics/track-client", () => ({
   track: () => undefined,
 }));

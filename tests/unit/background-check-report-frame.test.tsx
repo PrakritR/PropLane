@@ -10,9 +10,6 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
   isDemoModeActive: () => false,
 }));
-vi.mock("@/lib/screening/screening-test-mode", () => ({
-  isScreeningTestModeActive: () => false,
-}));
 
 import { BackgroundCheckReportFrame } from "@/components/portal/application-screening-panel";
 

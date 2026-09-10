@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Plus, Search } from "lucide-react";
@@ -22,7 +22,6 @@ import {
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
-import { ScreeningTestModeToggle } from "@/components/portal/screening-test-mode-toggle";
 import { InboxTwoPane } from "@/components/portal/portal-inbox-ui";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
@@ -32,7 +31,6 @@ import { usePortalNavigate } from "@/lib/portal-nav-client";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { applicationShowsBackgroundCheck } from "@/lib/application-background-check";
 import { applicantDisplayName, applicantSecondaryEmail } from "@/lib/rental-application/applicant-name";
-import { buildDemoBackgroundCheck } from "@/lib/checkr/demo-simulate";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import {
   MANAGER_APPLICATIONS_EVENT,
@@ -46,10 +44,6 @@ import {
 import { isManagerFreePlan, type ManagerSubscriptionTier } from "@/lib/manager-access";
 import { loadManagerSubscriptionTierClient } from "@/lib/manager-subscription-client";
 import { MANAGER_PLAN_PORTAL_URL } from "@/lib/portals/manager-plan-path";
-import {
-  isScreeningTestModeActive,
-  subscribeScreeningTestMode,
-} from "@/lib/screening/screening-test-mode";
 import {
   appendPortalPropertyFilterQuery,
   parsePortalPropertyFilterQuery,
@@ -157,17 +151,6 @@ function formatScreeningListDate(row: DemoApplicantRow): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "2-digit" });
 }
 
-function enrichRowForTestMode(row: DemoApplicantRow): DemoApplicantRow {
-  if (!row.application?.consentCredit) return row;
-  if (row.backgroundCheck?.status === "complete") return row;
-  const backgroundCheck = buildDemoBackgroundCheck(row);
-  return { ...row, backgroundCheck };
-}
-
-function useScreeningTestMode(): boolean {
-  return useSyncExternalStore(subscribeScreeningTestMode, isScreeningTestModeActive, () => false);
-}
-
 export function ManagerScreenings({
   basePath = "/portal",
   screeningId,
@@ -185,7 +168,6 @@ export function ManagerScreenings({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const navigate = usePortalNavigate();
-  const testMode = useScreeningTestMode();
   const [rows, setRows] = useState<DemoApplicantRow[]>([]);
   const [screeningAllowed, setScreeningAllowed] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -234,17 +216,13 @@ export function ManagerScreenings({
 
   const scopedRows = useMemo(() => {
     const visible = rows.filter((r) => applicationVisibleToPortalUser(r, scopeUserId));
-    const withBg = testMode
-      ? visible
-          .filter((r) => applicationShowsBackgroundCheck(r) && r.application?.consentCredit)
-          .map(enrichRowForTestMode)
-      : visible.filter((r) => r.backgroundCheck);
+    const withBg = visible.filter((r) => r.backgroundCheck);
     if (propertyFilters.length === 0) return withBg;
     return withBg.filter((r) => {
       const pid = r.assignedPropertyId?.trim() || r.propertyId?.trim() || r.application?.propertyId?.trim();
       return pid ? propertyFilters.includes(pid) : false;
     });
-  }, [rows, scopeUserId, testMode, propertyFilters]);
+  }, [rows, scopeUserId, propertyFilters]);
 
   const filteredRows = useMemo(() => {
     let list = scopedRows;
@@ -375,7 +353,7 @@ export function ManagerScreenings({
         </p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        <BackgroundCheckReportFrame row={selectedRow} demo={testMode || isDemoModeActive()} bareCanvas />
+        <BackgroundCheckReportFrame row={selectedRow} demo={isDemoModeActive()} bareCanvas />
       </div>
       <div className="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3">
         <ApplicationScreeningPanel
@@ -489,7 +467,6 @@ export function ManagerScreenings({
           titleInlineFilter={filterSheet}
           titleAside={
             <div className="flex flex-wrap items-center gap-2">
-              <ScreeningTestModeToggle active={testMode} onChanged={handleUpdated} />
               <label className="relative hidden sm:block">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
                 <input
