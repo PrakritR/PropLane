@@ -416,9 +416,18 @@ function mirrorApplicationsToServer(rows: DemoApplicantRow[]) {
  */
 export const APPLICATION_SAVE_STATUS_EVENT = "axis:application-save-status";
 
-function emitApplicationSaveStatus(ok: boolean, id: string): void {
+/**
+ * `serverFault` separates "the server refused or broke" from "the request never
+ * arrived". Both lose the applicant's latest typing, but only one of them is
+ * worth checking your wifi over — a 500 told applicants to check their
+ * connection while the actual cause was a server misconfiguration, which is how
+ * a broken deployment reads to the person least able to do anything about it.
+ */
+function emitApplicationSaveStatus(ok: boolean, id: string, serverFault = false): void {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent(APPLICATION_SAVE_STATUS_EVENT, { detail: { ok, id } }));
+  window.dispatchEvent(
+    new CustomEvent(APPLICATION_SAVE_STATUS_EVENT, { detail: { ok, id, serverFault } }),
+  );
 }
 
 /**
@@ -475,9 +484,11 @@ function mirrorApplicationRowToServer(row: DemoApplicantRow): Promise<void> {
           rememberApplicationSetupToken(row.id, body.setupToken);
         }
       }
-      emitApplicationSaveStatus(res.ok, row.id);
+      // A response at all means the network was fine; a 5xx is ours.
+      emitApplicationSaveStatus(res.ok, row.id, res.status >= 500);
     })
     .catch(() => {
+      // No response — the request genuinely did not complete.
       if (generation === applicationWriteGeneration) emitApplicationSaveStatus(false, row.id);
     });
 }

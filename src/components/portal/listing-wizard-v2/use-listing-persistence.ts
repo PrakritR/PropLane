@@ -109,10 +109,23 @@ export function useListingPersistence({
         setBusy(true);
         try {
           const ownerId = editListingOwnerUserId?.trim() || userId;
-          const ok = await updateExtraListingFromSubmissionOnServer(editing, ownerId, submission);
+          // Same contract as `saveDraft` above: the server's own explanation
+          // survives the trip back, and the connection wording is only the
+          // fallback for a refusal that explained nothing.
+          let serverReason = "";
+          const ok = await updateExtraListingFromSubmissionOnServer(editing, ownerId, submission, {
+            // A 4xx is a refusal the server explained and chose to expose; a
+            // 5xx is raw database text and must not become manager-facing copy.
+            onError: (message: string, _code?: string, status?: number) => {
+              if (status != null && status >= 400 && status < 500) serverReason = message;
+            },
+          });
           return ok
             ? { ok: true, id: editing }
-            : { ok: false, message: "Could not save your changes. Check your connection and try again." };
+            : {
+                ok: false,
+                message: serverReason || "Could not save your changes. Check your connection and try again.",
+              };
         } finally {
           setBusy(false);
         }

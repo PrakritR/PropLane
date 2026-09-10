@@ -790,6 +790,78 @@ describe("editing an existing listing", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(showToast).toHaveBeenLastCalledWith(expect.stringMatching(/closed without saving your latest changes/i));
   });
+
+  it("repeats the server's OWN refusal instead of blaming the connection", async () => {
+    SESSION_USER_ID = "supabase-user-1";
+    const listingId = `mgr-edit-close-${MANAGER_ID}`;
+    const spaceId = "test-laundry-space";
+    const initial = {
+      ...validEditSubmission(),
+      sharedSpaces: [
+        {
+          ...emptySharedSpace(0),
+          id: spaceId,
+          name: "Laundry",
+          photoDataUrls: ["data:image/jpeg;base64,AAAA"],
+        },
+      ],
+    };
+    seedDemoManagerProperties(MANAGER_ID, [
+      {
+        id: listingId,
+        buildingName: initial.buildingName,
+        address: initial.address,
+        zip: initial.zip,
+        rentLabel: "$1200",
+        listingSubmission: initial,
+        adminPublishLive: true,
+      } as import("@/data/types").MockProperty,
+    ]);
+
+    const { onClose, showToast } = renderWizard({
+      editListingId: listingId,
+      initialSubmission: initial,
+      initialStepIndex: 3,
+      initialMaxStepReached: 4,
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: { body?: string }) => {
+        if (typeof url === "string" && url.startsWith("data:")) {
+          const mime = url.slice("data:".length, url.indexOf(";")) || "application/octet-stream";
+          return { ok: true, blob: async () => new Blob(["bytes"], { type: mime }) } as unknown as Response;
+        }
+        const body = init?.body ? (JSON.parse(init.body) as RecordedCall) : ({} as RecordedCall);
+        if (body.action)
+          return {
+            ok: false,
+            status: 400,
+            json: async () => ({
+              error:
+                "Application-fee promo code: That code is already in use on another property. Give this one its own code.",
+            }),
+          } as unknown as Response;
+        return { ok: true, status: 200, json: async () => ({ records: [] }) } as unknown as Response;
+      }),
+    );
+
+    const toggle = document.querySelector(`[data-attr="listing-shared-toggle-${spaceId}"]`);
+    if (!toggle) throw new Error("shared space toggle missing");
+    fireEvent.click(toggle);
+    fireEvent.change(screen.getByPlaceholderText(/kitchen & dining/i), {
+      target: { value: "Laundry room" },
+    });
+    clickClose();
+
+    // The reported bug: the manager set a waiver code, the server refused the
+    // save and said exactly why, and the wizard replaced that sentence with
+    // "Check your connection" — sending them to debug their wifi.
+    await waitFor(() => expect(draftSaveErrorText()).toMatch(/already in use on another property/i));
+    expect(draftSaveErrorText()).not.toMatch(/check your connection/i);
+    expect(showToast).toHaveBeenCalledWith(expect.stringMatching(/already in use on another property/i));
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
 
 describe("submitting the wizard", () => {

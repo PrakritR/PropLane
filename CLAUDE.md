@@ -41,6 +41,14 @@ Short version:
 
 Skip only on an explicit **`skip plan`** (hotfix). For Akhil, skip unless he asks.
 
+For Prakrit this is the whole pipeline, not a formatting preference: the plan is
+the spec, it renders real semi-interactive UI in this app's design system, he
+iterates on it over several rounds in the browser, and code is written only after
+he says build. The poll must stay live the entire time or his chat and annotations
+never arrive. Full contract - including that Linear ticket filing is off by
+default - is [`docs/agents/AGENTS-prakrit.md`](docs/agents/AGENTS-prakrit.md)
+§ Default pipeline and § Lavish poll.
+
 ## Ship gate (mandatory)
 
 Before finishing features or promoting to production, follow

@@ -505,6 +505,8 @@ function RentalApplicationWizardInner({
   const [waiverCodeError, setWaiverCodeError] = useState<string | null>(null);
   /** True when the most recent background autosave of THIS application failed. */
   const [autosaveFailed, setAutosaveFailed] = useState(false);
+  /** True when the failure came back FROM the server — never the applicant's connection. */
+  const [autosaveServerFault, setAutosaveServerFault] = useState(false);
   const router = useRouter();
 
   // The step ids that carry a visible question for the CURRENT form variant.
@@ -680,11 +682,12 @@ function RentalApplicationWizardInner({
   useEffect(() => {
     if (isDemoModeActive()) return;
     const on = (e: Event) => {
-      const detail = (e as CustomEvent<{ ok?: boolean; id?: string }>).detail;
+      const detail = (e as CustomEvent<{ ok?: boolean; id?: string; serverFault?: boolean }>).detail;
       if (!detail?.id) return;
       const mine = loadRentalWizardDraftAxisId()?.trim();
       if (!mine || detail.id.trim() !== mine) return;
       setAutosaveFailed(!detail.ok);
+      setAutosaveServerFault(!detail.ok && detail.serverFault === true);
     };
     window.addEventListener(APPLICATION_SAVE_STATUS_EVENT, on as EventListener);
     return () => window.removeEventListener(APPLICATION_SAVE_STATUS_EVENT, on as EventListener);
@@ -2682,7 +2685,9 @@ function RentalApplicationWizardInner({
                 className="rental-wizard-autosave-error mt-6 rounded-xl border px-4 py-3 text-sm portal-banner-pending"
                 data-attr="rental-wizard-autosave-error"
               >
-                We couldn&apos;t save your latest changes. Your progress is kept on this device — keep this tab open and continue; we&apos;ll retry as you edit. If this keeps happening, check your connection.
+                {autosaveServerFault
+                  ? "We couldn't save your latest changes — that's a problem on our side, not yours. Your progress is kept on this device: keep this tab open and continue, and we'll retry as you edit. If it keeps happening, contact the property manager."
+                  : "We couldn't save your latest changes. Your progress is kept on this device — keep this tab open and continue; we'll retry as you edit. If this keeps happening, check your connection."}
               </p>
             ) : null}
 

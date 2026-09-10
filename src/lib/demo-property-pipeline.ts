@@ -235,7 +235,7 @@ export async function upsertPropertyRecordToServer(input: {
    * than on the presence of a message, because a 500 carries raw Postgres text
    * that has no business appearing in a toast.
    */
-  onError?: (message: string, code?: string) => void;
+  onError?: (message: string, code?: string, status?: number) => void;
 }): Promise<boolean> {
   if (typeof window === "undefined") return false;
   // /demo is browser-local — there is no real record to mirror, but the local
@@ -261,7 +261,10 @@ export async function upsertPropertyRecordToServer(input: {
       const body = (await res.json().catch(() => null)) as { error?: unknown; code?: unknown } | null;
       const message = typeof body?.error === "string" ? body.error.trim() : "";
       const code = typeof body?.code === "string" ? body.code : undefined;
-      if (message) input.onError(message, code);
+      // `status` matters as much as the message: a 4xx is a refusal the server
+      // chose to explain and is safe to show, while a 5xx carries raw database
+      // text that must never reach a manager-facing message.
+      if (message) input.onError(message, code, res.status);
     }
     return res.ok;
   } catch {
@@ -969,13 +972,17 @@ export async function updateExtraListingFromSubmissionOnServer(
   managerUserId: string,
   input: ManagerPropertyDraftInput,
   /**
-   * Receives the server's own explanation when the write is refused. Without
-   * it the wizard could only say "check your connection" for a refusal the
-   * server had already explained in words — which is how a manager whose
-   * production database was missing a column spent a night being told their
-   * internet was broken.
+   * Receives the server's own explanation when the edit is refused, the same
+   * way the publish paths above already do. Without it every refusal reached
+   * the wizard as a bare `false` and was reported as a connection problem —
+   * which is how a manager whose database was missing a column spent a night
+   * being told their internet was broken, and how a refused waiver code ("that
+   * code is already in use on another property") looked like a dropped network.
+   *
+   * `status` comes with the message because only a 4xx is safe to repeat: a 5xx
+   * carries raw database text that must never become manager-facing copy.
    */
-  opts?: { onError?: (message: string, code?: string) => void },
+  opts?: { onError?: (message: string, code?: string, status?: number) => void },
 ): Promise<boolean> {
   if (!managerUserId.trim()) return false;
   const map = readExtrasMap();

@@ -56,7 +56,9 @@ describe("publishing an edit", () => {
       expect(r).toEqual({ ok: true, id: "listing-9" });
     });
     expect(submitPending).not.toHaveBeenCalled();
-    expect(updateExtraListing).toHaveBeenCalledWith("listing-9", "co-manager-1", sub);
+    // The 4th argument is the error-reporting hook the wizard passes so a
+    // refusal the server explained is not reported as a connection problem.
+    expect(updateExtraListing).toHaveBeenCalledWith("listing-9", "co-manager-1", sub, expect.anything());
   });
 
   it("writes a co-managed listing under its OWNER, not the co-manager", async () => {
@@ -72,7 +74,7 @@ describe("publishing an edit", () => {
     await act(async () => {
       await result.current.publish(sub);
     });
-    expect(updateExtraListing).toHaveBeenCalledWith("listing-9", "owner-7", sub);
+    expect(updateExtraListing).toHaveBeenCalledWith("listing-9", "owner-7", sub, expect.anything());
   });
 
   it("still saves when the account is at its plan limit — an edit takes no new slot", async () => {
