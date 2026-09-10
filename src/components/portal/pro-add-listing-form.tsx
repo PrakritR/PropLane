@@ -3028,16 +3028,28 @@ export function ManagerAddListingForm({
         }
 
         let ok = false;
+        // The server usually knows exactly why it refused — a waiver code
+        // already in use on another listing, a plan limit. Keep that sentence:
+        // reporting every refusal as a connection problem sent managers to
+        // check their wifi over a message the server had already explained.
+        let serverReason = "";
+        const editOpts = {
+          onError: (message: string, _code?: string, status?: number) => {
+            // Only a refusal the server DECIDED on (4xx) is repeatable. A 5xx
+            // message is raw database text, so those keep the generic wording.
+            if (status != null && status >= 400 && status < 500) serverReason = message;
+          },
+        };
         if (editPendingId) {
           ok = await updatePendingManagerPropertyOnServer(editPendingId, uploadedSubmission, userId);
         } else if (editRequestChangeId) {
           ok = updateRequestChangeProperty(editRequestChangeId, userId, uploadedSubmission);
         } else if (editListingId) {
           const saveUserId = editListingOwnerUserId?.trim() || userId;
-          ok = await updateExtraListingFromSubmissionOnServer(editListingId, saveUserId, uploadedSubmission);
+          ok = await updateExtraListingFromSubmissionOnServer(editListingId, saveUserId, uploadedSubmission, editOpts);
         }
         if (!ok) {
-          const msg = "Could not save changes. Check your connection and try again.";
+          const msg = serverReason || "Could not save changes. Check your connection and try again.";
           setDraftSaveError(msg);
           if (backgroundSave) setAutosaveStatus("error");
           if (!opts?.silent && !opts?.closeAnyway) showToast(msg);
@@ -3500,10 +3512,15 @@ export function ManagerAddListingForm({
       }
       if (editListingId) {
         const saveUserId = editListingOwnerUserId?.trim() || userId;
-        const ok = await updateExtraListingFromSubmissionOnServer(editListingId, saveUserId, uploadedSubmission);
+        let editReason = "";
+        const ok = await updateExtraListingFromSubmissionOnServer(editListingId, saveUserId, uploadedSubmission, {
+          onError: (message: string, _code?: string, status?: number) => {
+            if (status != null && status >= 400 && status < 500) editReason = message;
+          },
+        });
         if (!ok) {
-          console.error("manager-add-listing-form: updateExtraListingFromSubmissionOnServer returned false", { editListingId, saveUserId });
-          showToast("Could not save changes.");
+          console.error("manager-add-listing-form: updateExtraListingFromSubmissionOnServer returned false", { editListingId, saveUserId, editReason });
+          showToast(editReason || "Could not save changes.");
           return;
         }
         showToast("Listing saved. It is live on Rent with PropLane.");

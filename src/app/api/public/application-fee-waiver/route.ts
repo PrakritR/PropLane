@@ -60,7 +60,11 @@ export async function POST(req: Request) {
     });
 
     if (!result.ok) {
-      return NextResponse.json({ error: result.error, code: result.reason }, { status: 400 });
+      // 400 means "we checked and this code cannot be used". `UNAVAILABLE`
+      // means we never got to check, so it must not be a client error — the
+      // applicant is told to retry rather than that their code is bad.
+      const status = result.reason === "UNAVAILABLE" ? 503 : 400;
+      return NextResponse.json({ error: result.error, code: result.reason }, { status });
     }
 
     return NextResponse.json({ ok: true, waived: true });

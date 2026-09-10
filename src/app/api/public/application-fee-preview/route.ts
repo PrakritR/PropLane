@@ -117,6 +117,10 @@ export async function POST(req: Request) {
       applicationFeeOtherInstructions: managerSettings.applicationFeeOtherEnabled
         ? managerSettings.applicationFeeOtherInstructions
         : "",
+      // `error` already carries the distinction the applicant needs: a failed
+      // CHECK now says "we couldn't check that code just now", never that the
+      // code is invalid. No machine tag is added here until a surface actually
+      // branches on one — an unread field only invites drift.
       waiver: waiver ? { valid: waiver.ok, error: waiver.ok ? undefined : waiver.error } : undefined,
     });
   } catch (e) {
