@@ -769,6 +769,25 @@ about short-term deposits. A room's explicit zero deposit overrides the listing.
 Missing or malformed facts stay unknown. Mixed-question replies answer the
 known parts before escalating only the missing information.
 
+The leasing prompt treats recent texts as one conversation: it retains the
+selected room, corrected location, intended duration, move-in urgency, and
+links already sent until the prospect changes the listing. Replies stay
+concise, ask at most one combined clarification question, and include only a
+relevant tool-built link. A prospect ready to reserve, pay, or move immediately
+remains a prospect, so the agent never redirects them to resident rent payment
+or claims approval, reservation, or payment.
+
+For a high-intent manager-only uncertainty with no useful grounded reply left,
+the existing `escalate_to_manager` tool may request an SMS-only quiet handoff.
+Silence is authorized only by the notifier's delivered, non-suppressed result.
+Tool failure, notification suppression, and an audit-only dedupe never prove
+delivery. `runLeasingSmsAgentTurn` records an explicit `quiet_handoff` result
+with an empty reply, does not persist a fictional assistant message, and stores
+that result in the existing paid-turn replay record. The inbound caller marks
+the receipt handled without an outbox or template fallback. `null` still means
+the agent was unavailable or failed and retains the established fallback;
+voice and email retain their reply paths.
+
 ## Historical: Claw Messenger shared line
 
 The former PropLane messaging system used one shared agent line (Twilio

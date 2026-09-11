@@ -666,6 +666,10 @@ export const escalateLeasingToManagerTool = defineWriteTool({
         .min(1)
         .max(500)
         .describe("One or two factual sentences describing what the prospect needs."),
+      handoff: z
+        .enum(["quiet"])
+        .optional()
+        .describe("Use quiet only when a delivered manager handoff is the only useful next step for this SMS prospect."),
     })
     .strict(),
   // Allow-listed on the SMS surface (no human is present on a webhook turn);
@@ -714,7 +718,7 @@ export const escalateLeasingToManagerTool = defineWriteTool({
     const contact = emailedIn
       ? scope.prospectEmail?.trim() || "an unknown address"
       : scope.prospectPhoneE164;
-    await notifyManagerFromAgent(ctx.db, {
+    const notification = await notifyManagerFromAgent(ctx.db, {
       landlordId: ctx.landlordId,
       subject: emailedIn ? "Leasing email needs you" : "Leasing text needs you",
       text: [
@@ -735,8 +739,16 @@ export const escalateLeasingToManagerTool = defineWriteTool({
     await ctx.db
       .from("agent_sessions")
       .update({ status: "escalated", updated_at: new Date().toISOString() })
-      .eq("id", scope.sessionId);
+      .eq("id", scope.sessionId)
+      .eq("landlord_id", ctx.landlordId);
     track("leasing_sms_escalated", ctx.landlordId, { channel: emailedIn ? "email" : "sms" });
-    return { ok: true, message: "The manager has been notified and will follow up." };
+    return {
+      ok: true,
+      message: "The manager has been notified and will follow up.",
+      // An audit record only prevents repeat notices. It is never proof that a
+      // manager can see this handoff, so only the notifier's explicit delivery
+      // result may authorize the SMS runtime to stay quiet.
+      quietHandoff: input.handoff === "quiet" && notification.delivered && !notification.suppressed,
+    };
   },
 });

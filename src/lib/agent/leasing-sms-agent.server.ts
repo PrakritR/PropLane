@@ -9,7 +9,7 @@ import { reserveCommsCredit } from "@/lib/comms-billing/wallet.server";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { track } from "@/lib/analytics/posthog";
-import { runAgentTurn } from "@/lib/agent/loop";
+import { runAgentTurn, type AgentObserver, type ToolCallEvent } from "@/lib/agent/loop";
 import { TIER_MODELS } from "@/lib/agent/model";
 import { leasingSmsSystemPromptForWorkNumberOwner } from "@/lib/agent/leasing-sms-custom-instructions";
 import { PROMPT_IDS, resolvePromptMeta } from "@/lib/agent/prompt-metadata";
@@ -146,6 +146,8 @@ export async function runLeasingSmsAgentTurn(
   },
 ): Promise<{
   reply: string;
+  /** A delivered opt-in manager handoff intentionally sends no prospect SMS. */
+  disposition?: "quiet_handoff";
   sessionId: string;
   inboundMessageId: string | null;
   assistantMessageId: string | null;
@@ -210,7 +212,14 @@ export async function runLeasingSmsAgentTurn(
   const credit = await reserveCommsCredit(db, { managerUserId: session.landlord_id, meter: "ai_agent_turn",
     idempotencyKey: creditKey, metadata: { sessionId: session.id, channel } });
   if (!credit.allowed) return null;
-  type Turn = { reply: string; sessionId: string; inboundMessageId: string | null; assistantMessageId: string | null; traceId: string | null };
+  type Turn = {
+    reply: string;
+    disposition?: "quiet_handoff";
+    sessionId: string;
+    inboundMessageId: string | null;
+    assistantMessageId: string | null;
+    traceId: string | null;
+  };
   if (credit.duplicate) return readCommsTurnResult<Turn>(db, session.landlord_id, creditKey, { reply: INTERRUPTED_COMMS_REPLY, sessionId: session.id, inboundMessageId, assistantMessageId: null, traceId: null });
   const execute = async (): Promise<Turn | null> => {
   const { data: historyRows } = await db
@@ -238,8 +247,10 @@ export async function runLeasingSmsAgentTurn(
     },
   });
 
-  let result;
+  let result: Awaited<ReturnType<typeof runAgentTurn>> | null = null;
   let traceId: string | null = null;
+  let quietHandoffConfirmed = false;
+  const observedToolTrace: Array<{ tool: string; ok: boolean }> = [];
   try {
     // `session.landlord_id` is the manager who owns the sending work number;
     // it is resolved before this function, never supplied by a prospect.
@@ -257,17 +268,47 @@ export async function runLeasingSmsAgentTurn(
         },
       },
       history as { role: string; content: string }[],
-      (observer) =>
-        runAgentTurn({
+      async (observer) => {
+        const observeToolCall = (event: ToolCallEvent) => {
+          observedToolTrace.push({ tool: event.name, ok: event.ok });
+          if (
+            event.name === "escalate_to_manager" &&
+            event.ok &&
+            event.output &&
+            typeof event.output === "object" &&
+            (event.output as { ok?: unknown }).ok === true &&
+            (event.output as { quietHandoff?: unknown }).quietHandoff === true
+          ) {
+            quietHandoffConfirmed = true;
+          }
+          // Inspect the disposition before forwarding. Even a broken optional
+          // observer must not erase a manager handoff the tool already made.
+          try {
+            observer?.onToolCall?.(event);
+          } catch {
+            // Observability remains best-effort, matching the shared loop.
+          }
+        };
+        // Keep the Langfuse observer as the source of truth for every loop
+        // event. This narrow wrapper only inspects the typed escalation result.
+        const forwardingObserver: AgentObserver = {
+          ...(observer ?? {}),
+          onToolCall: observeToolCall,
+        };
+        const turn = await runAgentTurn({
           ctx,
           registry: leasingSmsAgentRegistry,
           messages: history,
-          observer,
+          observer: forwardingObserver,
           system,
           model: { model: TIER_MODELS.standard, tier: "standard" },
           readOnly: true,
           allowWriteTools: LEASING_SMS_INLINE_WRITE_TOOLS,
-        }),
+        });
+        // The trace wrapper records this returned reply. Resolve silence here,
+        // before the trace closes, so it never claims the loop fallback sent.
+        return channel === "sms" && quietHandoffConfirmed ? { ...turn, reply: "" } : turn;
+      },
       {
         name: traceName,
         sessionId: session.id,
@@ -278,33 +319,51 @@ export async function runLeasingSmsAgentTurn(
       },
     );
   } catch (e) {
-    console.error("leasing-sms agent turn failed", session.id, e);
-    return null;
+    if (channel === "sms" && quietHandoffConfirmed) {
+      // The manager notification already reached the existing durable notice
+      // path. A later model generation failure cannot turn that success into a
+      // prospect template reply, which would defeat the requested handoff.
+      console.error("leasing-sms agent turn ended after delivered quiet handoff", session.id, e);
+    } else {
+      console.error("leasing-sms agent turn failed", session.id, e);
+      return null;
+    }
   }
 
-  const reply = result.reply.trim().slice(0, maxReplyChars);
-  if (!reply) return null;
+  const quietHandoff = channel === "sms" && quietHandoffConfirmed;
+  const reply = quietHandoff ? "" : result!.reply.trim().slice(0, maxReplyChars);
+  if (!reply && !quietHandoff) return null;
+  const toolTrace = result?.toolTrace ?? observedToolTrace;
 
-  const { data: assistantMessage } = await db.from("agent_messages").insert({
-    session_id: session.id,
-    landlord_id: session.landlord_id,
-    role: "assistant",
-    content: reply,
-    channel: "agent",
-    tool_trace: result.toolTrace,
-    trace_id: traceId,
-  }).select("id").maybeSingle();
-  await db.from("agent_sessions").update({ updated_at: nowIso }).eq("id", session.id);
-  track(channel === "voice" ? "leasing_voice_message_out" : "leasing_sms_message_out", session.landlord_id, {
-    channel,
-    tools: result.toolTrace.length,
-  });
+  const assistantMessage = quietHandoff
+    ? null
+    : await db.from("agent_messages").insert({
+        session_id: session.id,
+        landlord_id: session.landlord_id,
+        role: "assistant",
+        content: reply,
+        channel: "agent",
+        tool_trace: toolTrace,
+        trace_id: traceId,
+      }).select("id").maybeSingle();
+  await db
+    .from("agent_sessions")
+    .update({ updated_at: nowIso })
+    .eq("id", session.id)
+    .eq("landlord_id", session.landlord_id);
+  if (!quietHandoff) {
+    track(channel === "voice" ? "leasing_voice_message_out" : "leasing_sms_message_out", session.landlord_id, {
+      channel,
+      tools: toolTrace.length,
+    });
+  }
 
   return {
     reply,
+    ...(quietHandoff ? { disposition: "quiet_handoff" as const } : {}),
     sessionId: session.id,
     inboundMessageId,
-    assistantMessageId: assistantMessage?.id ? String(assistantMessage.id) : null,
+    assistantMessageId: assistantMessage?.data?.id ? String(assistantMessage.data.id) : null,
     traceId,
   };
   };
