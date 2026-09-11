@@ -4960,7 +4960,10 @@ export function ManagerAddListingForm({
           <div className="flex w-full min-w-0 items-center justify-between gap-3">
             <div className="min-w-0 flex-1">
               <p className="truncate text-lg font-bold tracking-tight text-foreground sm:text-xl">
-                {wizardTitlePrefix} · {LISTING_FORM_STEPS[stepIndex]?.label}
+                {wizardTitlePrefix}
+              </p>
+              <p className="mt-1 text-xs font-medium text-muted sm:text-sm">
+                Step {visibleStepPosition + 1} of {visibleStepCount} · {LISTING_FORM_STEPS[stepIndex]?.label}
               </p>
             </div>
             <span ref={setAssistantTriggerTarget} className="shrink-0" />
@@ -4974,6 +4977,20 @@ export function ManagerAddListingForm({
             >
               <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" /></svg>
             </button>
+          </div>
+
+          <div
+            className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-accent/50"
+            role="progressbar"
+            aria-label="Listing completion"
+            aria-valuemin={1}
+            aria-valuemax={visibleStepCount}
+            aria-valuenow={visibleStepPosition + 1}
+          >
+            <div
+              className="h-full rounded-full bg-primary transition-[width] duration-300"
+              style={{ width: `${((visibleStepPosition + 1) / visibleStepCount) * 100}%` }}
+            />
           </div>
 
           {/* The single progress + navigation signal (replaces the old

@@ -2494,6 +2494,63 @@ html[data-native] .portal-mobile-nav-bar {
   background-image: none;
 }
 
+/* PropLane portal HIG layer: predictable hierarchy, touch targets, and calm
+   surfaces shared by manager and resident tabs. Keep this here rather than in
+   individual panels so new sections inherit the same interaction language. */
+.portal-shell :where(button, a, input, select, textarea):focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--primary) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.portal-shell :where(button, [role="button"], a[data-attr]) {
+  min-height: 2.75rem;
+}
+
+.portal-shell [data-slot="portal-page-title-band"] {
+  border-radius: 1rem;
+  margin-bottom: 1rem;
+}
+
+.portal-shell [data-slot="portal-page-title-band"] h1,
+.portal-shell [data-slot="portal-page-title-band"] [data-portal-page-title] {
+  letter-spacing: -0.035em;
+}
+
+.portal-shell .portal-section-surface,
+.portal-shell [data-slot="portal-page-shell"] {
+  border-radius: 1.125rem;
+}
+
+@media (max-width: 1023px) {
+  .portal-mobile-chrome {
+    padding-top: max(0.25rem, env(safe-area-inset-top, 0px));
+  }
+
+  .portal-mobile-chrome nav a {
+    min-height: 2.75rem;
+  }
+
+  .portal-shell .portal-main-inner {
+    gap: 0.875rem;
+  }
+
+  .portal-shell [data-slot="portal-page-title-band"] {
+    margin-bottom: 0.75rem;
+    border-radius: 0.875rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-shell *,
+  .portal-shell *::before,
+  .portal-shell *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 .portal-shell select::-ms-expand,
 .demo-portal-frame select::-ms-expand {
   display: none;
