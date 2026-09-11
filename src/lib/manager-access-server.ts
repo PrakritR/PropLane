@@ -8,7 +8,6 @@ import {
   pickBestManagerPurchaseRow,
   resolveEffectiveManagerSkuTier,
   resolveManagerNavLockTierFromPurchase,
-  resolveManagerSubscriptionTierFromPurchase,
   type ManagerSkuTier,
   type ManagerSubscriptionTier,
   type ManagerPurchaseRowRecord,

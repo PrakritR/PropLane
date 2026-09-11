@@ -81,9 +81,13 @@ drops any caller-supplied override, re-applies the stored one, and downgrades
 save that overlaps a staff revocation can never restore the approval. The Payment
 setup modal offers PropLane coverage only when `GET /api/manager/subscription`
 reports `paymentWaiverGranted: true`; a failed read (`paymentCoverageUnknown`)
-disables the option rather than guessing. Coverage:
+disables the option rather than guessing. Per-property choices saved from Payment
+settings are written onto each listing by `applyPropertyServiceFeePayersToListings`
+through that same helper, so the staff grant must be forwarded into that pass or an
+approved `proplane` choice downgrades to `resident` on the listing. Coverage:
 `tests/unit/manager-service-fee-waiver-code.test.tsx`,
-`tests/unit/service-fee-payer-precedence.test.ts`.
+`tests/unit/service-fee-payer-precedence.test.ts`,
+`tests/unit/manual-payment-settings-property-fee-payer-propagation.test.ts`.
 
 The **property choice** is `serviceFeePayer` on `ManagerListingSubmissionV1`,
 edited in the listing wizard's Pricing step. `null` means "follow the account",
