@@ -521,12 +521,12 @@ the bytes are already there, so it costs no round trip. Coverage:
 | Command-strip primary CTA | `portal-metrics.tsx` (`PORTAL_COMMAND_*`), `portal-list-control-stack.tsx` |
 | Table primitives | `portal-data-table.tsx` |
 | Mobile summary card | `PortalMobileSummaryCard` in `portal-data-table.tsx` |
-| In-modal assistant side panel | `modal-assistant-strip.tsx` + `modal.tsx` / `manager-add-listing-form.tsx` |
+| In-modal assistant side panel | `modal-assistant-strip.tsx` + `modal.tsx` / `pro-add-listing-form.tsx` |
 
 ## In-modal PropLane Assistant: side panel, not a bottom band
 
 `ModalAssistantStrip` (embedded via the shared `Modal` component, and directly
-in the listing wizard `manager-add-listing-form.tsx` — the only two embed
+in the listing wizard `pro-add-listing-form.tsx` — the only two embed
 points) opens beside the modal's content once the modal is wide enough,
 instead of always stacking below it. The switch is a CSS container query, not
 a viewport breakpoint: modal widths vary hugely across embed points (`max-w-md`
