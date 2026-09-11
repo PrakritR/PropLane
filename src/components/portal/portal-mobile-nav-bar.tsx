@@ -111,7 +111,9 @@ export function PortalMobileNavBar({
         <AxisLogoMark size="compact" />
       </Link>
       {(definition.kind === "pro" || definition.kind === "manager") && !showBack ? (
-        <div className="min-w-0 flex-1"><WorkspaceSwitcher /></div>
+        <div className="min-w-0 flex-1">
+          <WorkspaceSwitcher variant="mobile" />
+        </div>
       ) : showBack ? (
         <button
           type="button"

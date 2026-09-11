@@ -13,6 +13,10 @@ import {
 } from "@/components/portal/pro-house-properties-panel";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { Button } from "@/components/ui/button";
+import { Settings2, Share2 } from "lucide-react";
+import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import {
   ManagerPortalPageShell,
 } from "@/components/portal/portal-metrics";
@@ -118,6 +122,8 @@ export function ManagerProperties({
   const [portfolioTick, setPortfolioTick] = useState(0);
   const firstListingSeedAttemptedRef = useRef(false);
   const [shareListingOpen, setShareListingOpen] = useState(false);
+  const [listSettingsOpen, setListSettingsOpen] = useState(false);
+  const [listSearch, setListSearch] = useState("");
   const [shareListingPropertyId, setShareListingPropertyId] = useState<string | undefined>();
   /** Several selected listings, for a bulk share from the Properties list (AXI-140). */
   const [shareListingPropertyIds, setShareListingPropertyIds] = useState<string[] | undefined>();
@@ -389,6 +395,7 @@ export function ManagerProperties({
       propertyTourBucket={propertyTourBucket}
       propertyTourId={propertyTourId}
       onAddProperty={tryOpenAdd}
+      searchQuery={listSearch}
       /*
         Disabled only while the PLAN is still unknown — never because the cap is
         spent. A manager at the Free limit gets a live button that refuses and
@@ -413,10 +420,21 @@ export function ManagerProperties({
       ) : (
         <ManagerPortalPageShell
           title="Properties"
+          subtitle="Every home, rentable space, and listing in one place."
           hideTitleOnMobileNav
-          navigationProvidesTitle
           titleInlineFilter={null}
           compactFilterRow
+          primaryAction={
+            <Button
+              type="button"
+              className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+              disabled={!skuLoaded}
+              data-attr="manager-properties-add-top"
+              onClick={tryOpenAdd}
+            >
+              + Add property
+            </Button>
+          }
         >
           <PortalListControlStack
             className="mb-2"
@@ -431,6 +449,33 @@ export function ManagerProperties({
             }))}
             activeDestinationId={activeStage}
             destinationAriaLabel="Property pipeline stage"
+            search={{
+              value: listSearch,
+              onChange: setListSearch,
+              placeholder: "Search properties",
+              dataAttr: "manager-properties-search",
+            }}
+            actions={
+              <>
+                <PortalIconAction
+                  icon={Settings2}
+                  label="Property settings"
+                  data-attr="manager-properties-settings-open"
+                  onClick={() => setListSettingsOpen(true)}
+                />
+                <PortalIconAction
+                  icon={Share2}
+                  label="Share listing link"
+                  data-attr="manager-properties-share-open"
+                  onClick={() => openShareListing()}
+                />
+              </>
+            }
+          />
+          <ManagerPortalSettingsModal
+            open={listSettingsOpen}
+            onClose={() => setListSettingsOpen(false)}
+            initialTab="applications"
           />
           {atPropertyLimit && limitMax != null ? (
             <p className="mb-4 shrink-0 rounded-2xl border px-4 py-3 text-sm portal-banner-danger lg:mb-4">

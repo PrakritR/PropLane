@@ -17,10 +17,9 @@ import {
   PORTAL_LIST_ADD_ICONS,
   PORTAL_LIST_ADD_ROW_WRAP_CLASS,
 } from "@/components/portal/portal-list-add-row";
-import {
-  ManagerPortalPageShell,
-  PORTAL_COMMAND_ACTION_BTN,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { Settings2 } from "lucide-react";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
@@ -665,9 +664,20 @@ export function ManagerTaskList({
   return (
     <ManagerPortalPageShell
       title="Tasks"
+      subtitle="What needs doing, who owns it, and when it is due."
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
+      primaryAction={
+        <Button
+          type="button"
+          className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+          data-attr="manager-task-add-top"
+          onClick={openAddTask}
+        >
+          + Add task
+        </Button>
+      }
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
@@ -676,19 +686,14 @@ export function ManagerTaskList({
         activeDestinationId={tabId}
         destinationAriaLabel="Task status"
         actions={
-          // No Add here: the list's own dashed ADD row is the add path, and a
-          // second one in the toolbar was the same action twice on one screen.
           <>
             {tasksFilterSheet}
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_COMMAND_ACTION_BTN}
+            <PortalIconAction
+              icon={Settings2}
+              label="Task settings"
               data-attr="manager-task-automation-open"
               onClick={() => setSettingsOpen(true)}
-            >
-              Settings
-            </Button>
+            />
           </>
         }
       />

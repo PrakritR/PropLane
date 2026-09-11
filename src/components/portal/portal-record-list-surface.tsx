@@ -27,13 +27,14 @@ import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { cn } from "@/lib/utils";
 
 export type PortalListAddConfig = {
-  /** Visible text. Rendered uppercase by the add row; "Add" is the house default. */
+  /** Legacy visible text. The surface now always shows "Add"; keep `ariaLabel` specific. */
   label?: string;
   /**
    * Accessible name. Every tab shows the same visible "ADD", so without this a
    * screen reader hears a page of identically-named buttons.
    */
   ariaLabel: string;
+  /** Legacy per-list glyph. The surface draws a plus for every list now. */
   icon?: LucideIcon;
   hint?: string;
   onClick: () => void;
@@ -74,9 +75,10 @@ export function PortalRecordListSurface({
         {add ? (
           <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
             <PortalListAddRow
-              label={add.label ?? "Add"}
+              // Every list footer reads "+ Add"; the per-list glyph and long label
+              // moved into the accessible name so the rows stay uniform.
+              label="Add"
               ariaLabel={add.ariaLabel}
-              icon={add.icon}
               hint={add.hint}
               onClick={add.onClick}
               disabled={add.disabled}

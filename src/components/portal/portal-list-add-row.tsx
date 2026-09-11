@@ -12,6 +12,7 @@ import {
   Megaphone,
   MessageSquare,
   HardHat,
+  Plus,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -22,19 +23,23 @@ export const PORTAL_LIST_ADD_ROW_WRAP_CLASS =
   "portal-list-add-row-wrap px-3 py-4 max-md:px-2.5 sm:py-6 max-lg:[&:has(.portal-list-add-row--inline)]:px-2.5 max-lg:[&:has(.portal-list-add-row--inline)]:py-2";
 
 export const PORTAL_LIST_ADD_ROW_CLASS =
-  "portal-list-add-row flex w-full min-h-[12rem] flex-col items-center justify-center gap-3.5 rounded-2xl border-2 border-dashed border-border bg-accent/10 px-5 py-12 text-center transition-colors sm:min-h-[13rem] sm:gap-4 sm:py-14 max-lg:min-h-[12.5rem] max-lg:py-12 hover:border-primary/40 hover:bg-primary/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
+  "portal-list-add-row flex w-full min-h-[9rem] flex-col items-center justify-center gap-2.5 rounded-2xl border-2 border-dashed border-border bg-card px-5 py-8 text-center transition-colors sm:min-h-[10rem] sm:py-10 hover:border-primary/40 hover:bg-primary/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
 
-/** Compact dashed row when a list already has items (mobile list footers). */
+/** Compact dashed row when a list already has items (list footers). */
 export const PORTAL_LIST_ADD_ROW_INLINE_CLASS =
-  "portal-list-add-row portal-list-add-row--inline flex w-full min-h-0 flex-row items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-accent/10 px-4 py-3 text-center transition-colors hover:border-primary/40 hover:bg-primary/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 max-lg:py-2.5";
+  "portal-list-add-row portal-list-add-row--inline flex w-full min-h-11 flex-row items-center justify-center gap-1.5 rounded-xl border border-dashed border-border bg-card px-4 py-2.5 text-center transition-colors hover:border-primary/40 hover:bg-primary/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
 
 /**
  * Dashed list footer — tap to add a property, resident, lease, application, etc.
+ *
+ * Visible text is a plain "Add" with a plus glyph on every list (the redesign
+ * dropped the per-list icon and the uppercase tracking); the accessible name
+ * still says what the row adds.
  */
 export function PortalListAddRow({
   label,
   ariaLabel,
-  icon: Icon = Home,
+  icon: Icon = Plus,
   hint,
   onClick,
   disabled = false,
@@ -65,7 +70,7 @@ export function PortalListAddRow({
   bare?: boolean;
   inline?: boolean;
 }) {
-  const displayLabel = label.trim().toUpperCase();
+  const displayLabel = label.trim();
   const hintText = hint?.trim();
 
   return (
@@ -81,17 +86,12 @@ export function PortalListAddRow({
       {bare ? null : (
         <>
           <Icon
-            className={cn("text-primary", inline ? "h-5 w-5" : "h-9 w-9 sm:h-10 sm:w-10")}
-            strokeWidth={1.35}
+            className={cn("text-primary", inline ? "h-[18px] w-[18px]" : "h-7 w-7")}
+            strokeWidth={Icon === Plus ? 2 : 1.5}
             aria-hidden
           />
           <span className={cn("flex flex-col items-center gap-1", inline && "flex-row gap-2")}>
-            <span
-              className={cn(
-                "font-bold uppercase tracking-[0.16em] text-primary",
-                inline ? "text-[10px] tracking-[0.12em]" : "text-xs sm:text-sm",
-              )}
-            >
+            <span className={cn("font-semibold text-primary", inline ? "text-sm" : "text-sm sm:text-[15px]")}>
               {displayLabel}
             </span>
             {hintText ? (

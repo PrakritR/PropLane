@@ -1,5 +1,7 @@
 "use client";
 
+import { PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
@@ -2873,8 +2875,20 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
   return (
     <ManagerPortalPageShell
       title="Teams"
+      subtitle="Managers who share this workspace, and exactly what each one can do."
       hideTitleOnMobileNav
       compactFilterRow
+      primaryAction={
+        <Button
+          type="button"
+          className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+          data-attr="co-manager-invite-top"
+          disabled={linkAccountBlocked}
+          onClick={openLinkModal}
+        >
+          + Invite manager
+        </Button>
+      }
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"

@@ -2,13 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import {
-  ManagerPortalPageShell,
-  PORTAL_COMMAND_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
-  PORTAL_HEADER_PRIMARY_ACTION_BTN,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell, PORTAL_HEADER_PRIMARY_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
@@ -21,7 +16,6 @@ import {
 } from "@/lib/manager-portfolio-access";
 import { Button } from "@/components/ui/button";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
-import { Badge } from "@/components/ui/badge";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
@@ -899,19 +893,17 @@ export function ManagerPromotion({
     </PortalFilterSortSheet>
   );
 
-  const promotionCommandActions = (
-    <>
-      {promotionFilterSheet}
-      <Button
-        type="button"
-        className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-        style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-        onClick={() => openNewPromotion()}
-        data-attr="promotion-new"
-      >
-        New promotion
-      </Button>
-    </>
+  const promotionCommandActions = <>{promotionFilterSheet}</>;
+
+  const promotionPrimaryAction = (
+    <Button
+      type="button"
+      className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+      onClick={() => openNewPromotion()}
+      data-attr="promotion-new"
+    >
+      + New promotion
+    </Button>
   );
 
   const promotionListAddRow = (
@@ -926,9 +918,11 @@ export function ManagerPromotion({
   return (
     <ManagerPortalPageShell
       title="Promotion"
+      subtitle="Share tools, source labels, and where each listing is being seen."
       titleInlineFilter={null}
       hideTitleOnMobileNav
       compactFilterRow
+      primaryAction={promotionPrimaryAction}
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
@@ -955,9 +949,7 @@ export function ManagerPromotion({
                         <span className="truncate text-xs font-semibold text-foreground">
                           {cluster.propertyLabel}
                         </span>
-                        <Badge tone="info">
-                          {cluster.rows.length === 1 ? "1 promotion" : `${cluster.rows.length} promotions`}
-                        </Badge>
+                        <span className="sr-only">{cluster.rows.length === 1 ? "1 promotion" : `${cluster.rows.length} promotions`}</span>
                       </>
                     }
                   >

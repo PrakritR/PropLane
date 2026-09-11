@@ -97,8 +97,10 @@ describe("delete order", () => {
     }
   });
 
-  it("deletes properties last, because nearly everything references one", () => {
-    expect(DELETE_ORDER[DELETE_ORDER.length - 1]).toBe("manager_property_records");
+  it("deletes properties after everything that references one, then the workspaces they sit in", () => {
+    // A property row references its workspace with ON DELETE RESTRICT, so the
+    // workspace is the one table that must follow properties.
+    expect(DELETE_ORDER.slice(-2)).toEqual(["manager_property_records", "portal_workspaces"]);
   });
 
   it("names each table once", () => {

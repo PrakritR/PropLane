@@ -135,9 +135,7 @@ export function ManagerResidentsGroupedTable({
                 <span className="truncate text-xs font-semibold text-foreground">
                   {cluster.propertyLabel}
                 </span>
-                <Badge tone="info">
-                  {cluster.rows.length === 1 ? "1 resident" : `${cluster.rows.length} residents`}
-                </Badge>
+                <span className="sr-only">{cluster.rows.length === 1 ? "1 resident" : `${cluster.rows.length} residents`}</span>
               </>
             }
           >

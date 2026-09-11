@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import { PortalPageFooterActions, PortalPageTitleBand } from "@/components/portal/portal-section-action-row";
+import { useWorkspaces } from "@/components/portal/workspace-provider";
 import { Fragment, type CSSProperties, type ReactNode } from "react";
 import { FieldSingleSelect } from "@/components/ui/checkbox-multi-select";
 import { Select } from "@/components/ui/input";
@@ -575,6 +576,55 @@ export function PortalDashboardPreviewList<T>({
 
 export { formatCompactChargeLine, formatCompactPlacementLine };
 
+/**
+ * Title + one-line purpose + the page's single prominent action, side by side
+ * at every breakpoint. This is the redesign's page head: the action is the
+ * thing the page exists to do ("+ Add tour"); everything else is a compact tool
+ * in the list command row.
+ */
+export function PortalPageHeadline({
+  title,
+  subtitle,
+  count,
+  primaryAction,
+  filter,
+  className,
+}: {
+  title: string;
+  subtitle?: string;
+  count?: number;
+  primaryAction?: ReactNode;
+  filter?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn("flex w-full min-w-0 items-start justify-between gap-3 pb-1 max-lg:pt-1.5 sm:gap-4", className)}
+      data-slot="portal-page-headline"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <h1 className="min-w-0 truncate text-[1.35rem] font-semibold leading-tight tracking-[-0.02em] text-foreground sm:text-2xl">
+            {title}
+          </h1>
+          {typeof count === "number" ? (
+            <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-xs font-semibold tabular-nums text-muted">
+              {count}
+            </span>
+          ) : null}
+          {filter ? <div className="shrink-0">{filter}</div> : null}
+        </div>
+        {subtitle ? <p className="mt-0.5 line-clamp-2 text-sm text-muted max-md:hidden">{subtitle}</p> : null}
+      </div>
+      {primaryAction ? (
+        <div className="flex shrink-0 items-center gap-2 pt-0.5" data-portal-action-slot="">
+          {primaryAction}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /** Manager sections aligned with admin portal leases / managers shell. */
 export function ManagerPortalPageShell({
   title,
@@ -598,10 +648,17 @@ export function ManagerPortalPageShell({
   stickyPageChrome = true,
   surfaceCard = false,
   count,
+  primaryAction,
 }: {
   title: string;
   subtitle?: string;
   titleAside?: ReactNode;
+  /**
+   * The page's one prominent action ("+ Add property"), drawn beside the title at
+   * every breakpoint. Utility tools (Filter, Settings, Share) belong in the list
+   * command row as plain icons, not here.
+   */
+  primaryAction?: ReactNode;
   /** Filter pill immediately beside the page title (the title band). Pass `null` to opt into the band without a filter. */
   titleInlineFilter?: ReactNode | null;
   /** Inline on the title row (Appendix D4 — direction switch beside page title). */
@@ -637,17 +694,23 @@ export function ManagerPortalPageShell({
   /** Optional record count beside the title. */
   count?: number;
 }) {
+  // Inside the workspace portal the phone top bar shows the workspace name, not
+  // the section, so the page must keep its own title on phones.
+  const mobileNavProvidesTitle = useWorkspaces() == null;
+  const hideTitleOnMobileNavEffective = mobileNavProvidesTitle && hideTitleOnMobileNav;
+  const useHeadline = primaryAction != null || (subtitle != null && !welcomeSubtitle && !titleAside && !titleTrailing);
   const useInlineTitleBand = Boolean(
-    hideTitleOnMobileNav &&
+    !useHeadline &&
+      hideTitleOnMobileNavEffective &&
       !filterRow &&
       (titleAside != null || titleInlineFilter != null) &&
       (!titleTrailing || titleInlineFilter !== undefined),
   );
   const tightChrome = useInlineTitleBand || compactFilterRow;
   const titleAsideDesktopOnly =
-    Boolean(titleAside && filterRow) || Boolean(titleAside && hideTitleOnMobileNav && !useInlineTitleBand);
+    Boolean(titleAside && filterRow) || Boolean(titleAside && hideTitleOnMobileNavEffective && !useInlineTitleBand);
   const showMobileFooterActions = titleAsideDesktopOnly;
-  const showTitleOnMobile = !hideTitleOnMobileNav;
+  const showTitleOnMobile = !hideTitleOnMobileNavEffective;
   const filterRowBorder = surfaceCard ? "border-b border-border" : "";
   const pinChrome = stickyPageChrome && !viewportFillBody;
   usePortalStickyPageChrome(pinChrome);
@@ -668,6 +731,15 @@ export function ManagerPortalPageShell({
     >
       {navigationProvidesTitle ? (
         <h1 className="sr-only">{title}</h1>
+      ) : useHeadline ? (
+        <PortalPageHeadline
+          className={cn(chromeShrink, hideTitleOnNative && "[html[data-native]_&_h1]:sr-only")}
+          title={title}
+          subtitle={subtitle}
+          count={count}
+          primaryAction={primaryAction}
+          filter={titleInlineFilter ?? undefined}
+        />
       ) : useInlineTitleBand ? (
         <PortalPageTitleBand
           className={cn(
@@ -680,7 +752,7 @@ export function ManagerPortalPageShell({
           filter={titleInlineFilter}
           titleTrailing={titleTrailing}
           actions={titleAside}
-          hideTitleOnMobileNav={hideTitleOnMobileNav}
+          hideTitleOnMobileNav={hideTitleOnMobileNavEffective}
         />
       ) : (
         <PageHeader
@@ -698,7 +770,7 @@ export function ManagerPortalPageShell({
           )}
         />
       )}
-      {subtitle ? (
+      {subtitle && !useHeadline ? (
         <p
           className={cn(
             chromeShrink,

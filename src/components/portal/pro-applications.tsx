@@ -14,13 +14,9 @@ import { PortalNotificationPreviewModal } from "@/components/portal/portal-notif
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import {
-  ManagerPortalPageShell,
-  PORTAL_COMMAND_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
-  PORTAL_HEADER_ACTION_BTN,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { Settings2, Share2 } from "lucide-react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { armFilterSheetOpenSuppressFromOverlayDismiss } from "@/components/ui/field-select-portal-interaction";
@@ -1716,43 +1712,29 @@ export function ManagerApplications({
     </PortalFilterSortSheet>
   );
 
-  // Edit and Settings sit together and open with the same property dropdown, so
-  // the pair reads as one idea rather than two adjacent unrelated features.
+  // Edit moved under Settings ("Edit application form") so the toolbar is one
+  // row of plain icons; Send application is the share glyph.
   const applicationsSettingsButton = (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
-        data-attr="application-edit-open"
-        onClick={() => setEditApplicationOpen(true)}
-      >
-        Edit
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
-        data-attr="application-settings-open"
-        onClick={() => setApplicationSettingsOpen(true)}
-      >
-        Settings
-      </Button>
-    </>
+    <PortalIconAction
+      icon={Settings2}
+      label="Application settings"
+      data-attr="application-settings-open"
+      onClick={() => setApplicationSettingsOpen(true)}
+    />
   );
 
   const applicationsAddButton = (
-    <Button
-      type="button"
-      className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-      style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
+    <PortalIconAction
+      icon={Share2}
+      label={
+        shareableProperties.length === 0
+          ? "Send application link (list a property first)"
+          : "Send application link"
+      }
       data-attr="applications-send"
       onClick={openSendApplicationInvite}
       disabled={shareableProperties.length === 0}
-      title={shareableProperties.length === 0 ? "List a property before sending an application link" : undefined}
-    >
-      Send application
-    </Button>
+    />
   );
 
   const applicationsListActions = (
@@ -2018,9 +2000,21 @@ export function ManagerApplications({
     <>
     <ManagerPortalPageShell
       title="Applications"
+      subtitle="A clear path from first application to a considered decision."
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
+      primaryAction={
+        <Button
+          type="button"
+          className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+          data-attr="applications-add-top"
+          disabled={propertyOptions.length === 0}
+          onClick={openAddApplication}
+        >
+          + Add application
+        </Button>
+      }
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-2"
@@ -2058,6 +2052,12 @@ export function ManagerApplications({
         scoped
         propertyOptions={propertyOptions}
         initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
+        editAction={{
+          label: "Edit application form",
+          description: "Questions, documents, and fee settings per property.",
+          dataAttr: "application-edit-open",
+          onSelect: () => setEditApplicationOpen(true),
+        }}
       />
       {checkrScreeningModal}
       {!authReady && rows.length === 0 ? (

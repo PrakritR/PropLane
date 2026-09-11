@@ -1153,6 +1153,7 @@ export function ManagerHousePropertiesPanel({
   onAddProperty,
   addPropertyDisabled = false,
   addPropertyHint,
+  searchQuery = "",
 }: {
   showToast: (m: string) => void;
   activeStage: ManagerStageKey;
@@ -1167,6 +1168,8 @@ export function ManagerHousePropertiesPanel({
   propertyTourId?: string;
   onAddProperty?: () => void;
   addPropertyDisabled?: boolean;
+  /** Free-text match against the row title, address, and neighborhood (list view only). */
+  searchQuery?: string;
   /** Shown under the ADD label when the row is disabled at plan cap. */
   addPropertyHint?: string;
 }) {
@@ -1257,8 +1260,19 @@ export function ManagerHousePropertiesPanel({
         };
       }),
     );
-    return mapped.filter(({ row }) => propertyKeyProp || workspaceContainsProperty(row.listingId?.trim() || row.adminRefId.trim())).sort((a, b) => compareAdminPropertyRowsForDisplay(a.row, b.row));
-  }, [tick, scopeUserId, activeStage, propertyKeyProp]);
+    const needle = searchQuery.trim().toLowerCase();
+    return mapped
+      .filter(({ row }) => propertyKeyProp || workspaceContainsProperty(row.listingId?.trim() || row.adminRefId.trim()))
+      .filter(({ row, sourceBucket }) => {
+        if (!needle) return true;
+        const haystack = [managerPropertyRowTitle(row, sourceBucket), row.address, row.zip, row.neighborhood]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(needle);
+      })
+      .sort((a, b) => compareAdminPropertyRowsForDisplay(a.row, b.row));
+  }, [tick, scopeUserId, activeStage, propertyKeyProp, searchQuery]);
 
   const propertyRowKey = (row: AdminPropertyRow) => row.adminRefId + (row.listingId ?? "");
   const propertyKeyFromRow = (row: AdminPropertyRow) =>

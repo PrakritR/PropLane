@@ -72,7 +72,9 @@ export const EMAIL_COLUMNS = [
  *
  *   - the GL chain first, or deleting the user fails on `ledger_entries_gl_journal_entry_id_fkey`
  *   - the whole vendor chain before `portal_work_order_records`
- *   - `manager_property_records` last, because most things reference a property
+ *   - `manager_property_records` after everything that references a property
+ *   - `portal_workspaces` very last: a property references its workspace (RESTRICT), so the
+ *     workspace can only go once its properties are gone
  */
 export const DELETE_ORDER = [
   // 1. child rows, and the GL/vendor chains that must clear first
@@ -184,6 +186,7 @@ export const DELETE_ORDER = [
   "portal_work_order_records",
   "portal_inbox_thread_records",
   "manager_property_records",
+  "portal_workspaces",
 ];
 
 /** Tables holding the login itself, removed only when the caller is not keeping it. */

@@ -1,9 +1,12 @@
 "use client";
 
+import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+
+import { BookOpen, Settings2 } from "lucide-react";
+
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import {
   ManagerPortalPageShell,
-  PORTAL_COMMAND_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -73,24 +76,18 @@ export function ManagerVendorsToolbar({
 }) {
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
+      <PortalIconAction
+        icon={BookOpen}
+        label="Vendor catalog"
         onClick={onCatalog}
         data-attr="manager-vendor-catalog-open"
-      >
-        Vendor catalog
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
+      />
+      <PortalIconAction
+        icon={Settings2}
+        label="Vendor defaults"
         onClick={onDefaults}
         data-attr="manager-vendor-defaults-open"
-      >
-        Defaults
-      </Button>
+      />
     </>
   );
 }
@@ -726,21 +723,25 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     />
   );
 
-  if (embedded) {
-    return (
-      <ManagerPortalPageShell title="Teams" hideTitleOnMobileNav compactFilterRow>
-        <PortalListControlStack
-          className="mb-2 max-lg:mb-1.5"
-          variant="command"
-          actions={vendorToolbar}
-        />
-        {body}
-      </ManagerPortalPageShell>
-    );
-  }
+  const addVendorAction = (
+    <Button
+      type="button"
+      className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+      data-attr="manager-vendor-add-top"
+      onClick={() => openAddVendorForm()}
+    >
+      + Add vendor
+    </Button>
+  );
 
   return (
-    <ManagerPortalPageShell title="Teams" hideTitleOnMobileNav compactFilterRow>
+    <ManagerPortalPageShell
+      title="Teams"
+      subtitle={embedded ? undefined : "Vendors you dispatch to, and the defaults that route them."}
+      hideTitleOnMobileNav
+      compactFilterRow
+      primaryAction={addVendorAction}
+    >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"

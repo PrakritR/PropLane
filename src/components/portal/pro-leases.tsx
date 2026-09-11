@@ -12,10 +12,9 @@ import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/por
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import {
-  ManagerPortalPageShell,
-  PORTAL_COMMAND_ACTION_BTN,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { Settings2 } from "lucide-react";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { ManagerLeaseTab } from "@/data/demo-portal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -201,30 +200,17 @@ export function ManagerLeases({
     </PortalFilterSortSheet>
   );
 
-  // Edit and Settings sit together and ask the same first question — which
-  // property — through the same dropdown, so the pair reads as one idea rather
-  // than two unrelated features that happen to be adjacent.
+  // Edit lives under Settings ("Edit lease configuration") — the toolbar is one
+  // row of plain icons.
   const leasesListActions = (
     <>
       {leasesFilterSheet}
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
-        data-attr="leases-edit-open"
-        onClick={() => setEditLeasesOpen(true)}
-      >
-        Edit
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
+      <PortalIconAction
+        icon={Settings2}
+        label="Lease settings"
         data-attr="leases-settings-open"
         onClick={() => setLeaseSettingsOpen(true)}
-      >
-        Settings
-      </Button>
+      />
     </>
   );
 
@@ -262,6 +248,12 @@ export function ManagerLeases({
         scopedTitle="Leases"
         propertyOptions={propertyOptions}
         initialPropertyId={propertyFilters.length === 1 ? propertyFilters[0] : undefined}
+        editAction={{
+          label: "Edit lease configuration",
+          description: "Templates, terms, and signing settings per property.",
+          dataAttr: "leases-edit-open",
+          onSelect: () => setEditLeasesOpen(true),
+        }}
       />
     </>
   );
@@ -288,9 +280,20 @@ export function ManagerLeases({
     <>
       <ManagerPortalPageShell
         title="Leases"
+        subtitle="Review, signatures, and executed agreements without losing context."
         titleInlineFilter={null}
         hideTitleOnMobileNav
         compactFilterRow
+        primaryAction={
+          <Button
+            type="button"
+            className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+            data-attr="leases-add-top"
+            onClick={() => setAddLeaseOpen(true)}
+          >
+            + Add lease
+          </Button>
+        }
       >
         <PortalListControlStack
           className="mb-2 max-lg:mb-1.5"

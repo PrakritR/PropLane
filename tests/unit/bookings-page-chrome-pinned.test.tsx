@@ -84,10 +84,16 @@ describe("Bookings page chrome stays pinned while the list scrolls", () => {
     expect(scroller.contains(list!)).toBe(true);
   });
 
-  it("renders the Link Airbnb and Settings controls in that pinned row", async () => {
+  it("renders the Link Airbnb and Settings controls in the pinned chrome", async () => {
     const view = await renderBookings();
+    // Link Airbnb is the page's one prominent action and sits beside the title;
+    // Settings is a plain icon in the command row. Both stay outside the scroller.
+    const scroller = view.container.querySelector(`.${PORTAL_PAGE_SCROLL_BODY_CLASS}`)!;
+    const headline = view.container.querySelector('[data-slot="portal-page-headline"]')!;
+    expect(headline.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')).not.toBeNull();
     const actions = view.container.querySelector('[data-attr="portal-list-command-actions"]')!;
-    expect(actions.querySelector('[data-attr="portfolio-bookings-link-airbnb"]')).not.toBeNull();
     expect(actions.querySelector('[data-attr="bookings-settings-open"]')).not.toBeNull();
+    expect(scroller.contains(headline)).toBe(false);
+    expect(scroller.contains(actions)).toBe(false);
   });
 });

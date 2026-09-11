@@ -960,7 +960,11 @@ export function PortalSidebar({
         </div>
       )}
 
-      <div className="shrink-0 px-2"><WorkspaceSwitcher compact={collapsed} /></div>
+      {definition.kind === "pro" || definition.kind === "manager" ? (
+        <div className={cn("shrink-0", collapsed ? "flex justify-center py-2" : "px-2 pt-2.5")}>
+          <WorkspaceSwitcher compact={collapsed} />
+        </div>
+      ) : null}
       {collapsed ? (
         <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto overscroll-contain px-2 py-2.5" aria-label="Portal sections">
           {navGroups.map((group, i) => (

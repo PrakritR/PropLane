@@ -149,7 +149,9 @@ describe("minting a link", () => {
     expect(PANEL).toContain("onCreateInviteLink={openInviteLinkModal}");
     expect(PANEL).toContain('inviteLinkDataAttr="co-manager-create-invite-link"');
     expect(PANEL).toContain("ManagerInviteLinkModal");
-    expect(PANEL.match(/onClick=\{openLinkModal\}/g)).toHaveLength(1);
+    // Two entry points open the same dialog since the redesign: the page's
+    // "+ Invite manager" beside the title and the dashed row at the list foot.
+    expect(PANEL.match(/onClick=\{openLinkModal\}/g)).toHaveLength(2);
     expect(PANEL).toContain('data-attr="co-manager-link-continue"');
     expect(PANEL).toContain("PortalInviteChoiceStep");
   });

@@ -1,7 +1,6 @@
 import { clearHousingAccessForDeletedProperty } from "@/lib/auth/clear-property-housing-access";
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
+import { readWorkspaceCookie } from "@/lib/workspaces/cookie";
 import { track } from "@/lib/analytics/posthog";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
@@ -316,7 +315,7 @@ export async function POST(req: Request) {
 
     let newWorkspaceId: string | undefined;
     if (!existing && managerUserIdForWrite === user.id) {
-      const selected = (await cookies()).get(WORKSPACE_COOKIE)?.value;
+      const selected = readWorkspaceCookie(req.headers.get("cookie"));
       if (selected) {
         const workspace = await db.from("portal_workspaces").select("id").eq("id", selected).eq("owner_user_id", user.id).maybeSingle();
         if (workspace.error) return NextResponse.json({ error: "Could not verify workspace." }, { status: 503 });

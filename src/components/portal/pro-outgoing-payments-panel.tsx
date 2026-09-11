@@ -20,7 +20,6 @@ import {
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
-import { Badge } from "@/components/ui/badge";
 import { DataList } from "@/components/ui/data-list";
 import type { DemoManagerOutgoingPaymentRow, DemoManagerWorkOrderRow, ManagerPaymentBucket } from "@/data/demo-portal";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -194,9 +193,7 @@ export function ManagerOutgoingPaymentsPanel({
                   <span className="truncate text-xs font-semibold text-foreground">
                     {cluster.propertyLabel}
                   </span>
-                  <Badge tone="info">
-                    {cluster.rows.length === 1 ? "1 payment" : `${cluster.rows.length} payments`}
-                  </Badge>
+                  <span className="sr-only">{cluster.rows.length === 1 ? "1 payment" : `${cluster.rows.length} payments`}</span>
                 </>
               }
             >
@@ -230,9 +227,7 @@ export function ManagerOutgoingPaymentsPanel({
                 {cluster.propertyLabel ? (
                   <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
                 ) : null}
-                <Badge tone="info">
-                  {cluster.rows.length === 1 ? "1 payment" : `${cluster.rows.length} payments`}
-                </Badge>
+                <span className="sr-only">{cluster.rows.length === 1 ? "1 payment" : `${cluster.rows.length} payments`}</span>
               </>
             }
           >

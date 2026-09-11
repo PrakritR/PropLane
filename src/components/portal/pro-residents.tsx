@@ -2,7 +2,8 @@
 
 import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 
-import { Link2 } from "lucide-react";
+import { Link2, Settings2 } from "lucide-react";
+import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { cn } from "@/lib/utils";
@@ -3913,9 +3914,20 @@ export function ManagerResidents({
       ) : (
       <ManagerPortalPageShell
         title="Residents"
+        subtitle="People connected to their home, agreement, and next step."
         hideTitleOnMobileNav
         titleInlineFilter={null}
         compactFilterRow
+        primaryAction={
+          <Button
+            type="button"
+            className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+            data-attr="residents-add-top"
+            onClick={() => setAddResidentOpen(true)}
+          >
+            + Add resident
+          </Button>
+        }
       >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
@@ -3929,7 +3941,17 @@ export function ManagerResidents({
         }))}
         activeDestinationId={residentsTab}
         destinationAriaLabel="Resident directory stage"
-        actions={residentsFilterSheet}
+        actions={
+          <>
+            {residentsFilterSheet}
+            <PortalIconAction
+              icon={Settings2}
+              label="Resident settings"
+              data-attr="residents-settings-open"
+              onClick={() => openResidentDetailSettings("resident")}
+            />
+          </>
+        }
         activeFilterChips={
           propertyFilters.length > 0 || groupMode !== RESIDENT_LIST_DEFAULT_GROUP_MODE ? (
             <PortalActiveFilterChips

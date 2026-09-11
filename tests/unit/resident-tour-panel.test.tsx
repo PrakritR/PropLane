@@ -112,7 +112,8 @@ describe("ResidentTourPanel", () => {
     expect(screen.getByText("Pending")).toBeTruthy();
     expect(screen.getByText("Confirmed")).toBeTruthy();
     expect(screen.queryByText("Your scheduled property tours and requested times.")).toBeNull();
-    expect(screen.getByText("SCHEDULE TOUR")).toBeTruthy();
+    // Add rows read in sentence case since the portal redesign (plus glyph + label).
+    expect(screen.getByText("Schedule tour")).toBeTruthy();
   });
 
   it("opens schedule tour in a modal instead of leaving the tour tab", async () => {

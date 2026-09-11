@@ -97,8 +97,10 @@ describe("resident portal redesign completeness", () => {
         "utf8",
       );
       expect(src).toMatch(/useInlineTitleBand[\s\S]*hideTitleOnMobileNav/);
+      // `hideTitleOnMobileNavEffective` is the prop after the workspace-portal
+      // override (that portal's phone bar shows the workspace, not the section).
       expect(src).toMatch(
-        /titleAsideDesktopOnly[\s\S]*Boolean\(titleAside && hideTitleOnMobileNav && !useInlineTitleBand\)/,
+        /titleAsideDesktopOnly[\s\S]*Boolean\(titleAside && hideTitleOnMobileNav(?:Effective)? && !useInlineTitleBand\)/,
       );
       expect(src).toMatch(/primaryAction=\{titleAside && !titleAsideDesktopOnly/);
       expect(src).toContain("showMobileFooterActions = titleAsideDesktopOnly");

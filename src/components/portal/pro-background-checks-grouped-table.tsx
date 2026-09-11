@@ -6,7 +6,6 @@ import {
   ApplicationHouseholdCluster,
 } from "@/components/portal/application-household-list";
 import { ClusterNavRow } from "@/components/portal/application-review-nav-cluster";
-import { Badge } from "@/components/ui/badge";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import type { CosignerSubmission } from "@/lib/cosigner-submissions-storage";
 import { cosignerListSelectionId } from "@/lib/cosigner-list-selection";
@@ -107,9 +106,7 @@ export function ManagerBackgroundChecksGroupedTable({
                   <span className="truncate text-xs font-semibold text-foreground">
                     {cluster.propertyLabel}
                   </span>
-                  <Badge tone="info">
-                    {cluster.rows.length === 1 ? "1 check" : `${cluster.rows.length} checks`}
-                  </Badge>
+                  <span className="sr-only">{cluster.rows.length === 1 ? "1 check" : `${cluster.rows.length} checks`}</span>
                 </>
               }
             >

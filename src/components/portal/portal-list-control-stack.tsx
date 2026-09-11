@@ -115,8 +115,10 @@ export function PortalListControlStack({
     );
 
   if (variant === "command") {
-    const showActionRow = Boolean(actions);
-    const showUtilityRow = Boolean(filterRow || search);
+    // One tool row beneath the tabs: search grows, the compact utilities sit
+    // beside it on every breakpoint (phones included — no stacked rows), and
+    // anything that does not fit scrolls sideways rather than wrapping.
+    const showToolRow = Boolean(filterRow || search || actions);
     return (
       <div
         ref={stickyDestinations ? destinationRef : undefined}
@@ -132,42 +134,27 @@ export function PortalListControlStack({
         data-variant="command"
         data-sticky={stickyDestinations ? "" : undefined}
       >
-        <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card/75 shadow-sm">
+        <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card shadow-sm">
           {showDestinations ? (
             <HorizontalScrollCapture
-              className={cn(
-                "min-w-0 border-border px-1 pt-1",
-                showActionRow && "border-b",
-              )}
+              className={cn("min-w-0 border-border px-1 pt-1", showToolRow && "border-b")}
             >
               <div data-portal-list-destination-nav>
                 {destinationContent}
               </div>
             </HorizontalScrollCapture>
           ) : null}
-          {showActionRow ? (
+          {showToolRow ? (
             <div
               className={cn(
-                "flex min-w-0 flex-nowrap items-center justify-start gap-2 overflow-x-auto px-2.5 py-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-                !showDestinations && showUtilityRow && "border-b border-border",
-              )}
-              data-attr="portal-list-command-actions"
-            >
-              {actions}
-            </div>
-          ) : null}
-          {showUtilityRow ? (
-            <div
-              className={cn(
-                "flex min-w-0 flex-wrap items-center justify-start gap-2 p-2",
-                (showDestinations || showActionRow) && "border-t border-border",
+                "flex min-w-0 flex-nowrap items-center gap-1 px-1.5 py-1 sm:gap-1.5 sm:px-2",
               )}
               data-attr="portal-list-command-utilities"
             >
               {search ? (
-                <div className="relative min-w-0 w-full flex-1 sm:min-w-[12rem]">
+                <div className="relative min-w-[6rem] flex-1">
                   <Search
-                    className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted"
+                    className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted"
                     strokeWidth={1.75}
                     aria-hidden
                   />
@@ -177,12 +164,23 @@ export function PortalListControlStack({
                     onChange={(e) => search.onChange(e.target.value)}
                     placeholder={search.placeholder}
                     aria-label={search.ariaLabel ?? search.placeholder}
-                    className="portal-list-search h-10 min-h-10 w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm shadow-none outline-none focus:border-primary/40 focus:ring-2 focus:ring-primary/15"
+                    className="portal-list-search h-10 min-h-10 w-full rounded-lg border-0 bg-transparent py-2 pl-8 pr-2 text-sm shadow-none outline-none focus:bg-[var(--secondary)]/50 focus:ring-0"
                     data-attr={search.dataAttr ?? "portal-list-search"}
                   />
                 </div>
-              ) : null}
-              {filterRow ? <div className="shrink-0">{filterRow}</div> : null}
+              ) : (
+                <div className="min-w-0 flex-1" aria-hidden />
+              )}
+              <div
+                className={cn(
+                  "flex shrink-0 flex-nowrap items-center gap-0.5 overflow-x-auto sm:gap-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+                  "[&_button]:shrink-0 [&_a]:shrink-0",
+                )}
+                data-attr="portal-list-command-actions"
+              >
+                {filterRow}
+                {actions}
+              </div>
             </div>
           ) : null}
         </div>

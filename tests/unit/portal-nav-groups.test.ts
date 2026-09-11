@@ -104,13 +104,19 @@ describe("groupNavItems", () => {
       .map((s) => ({ section: s.section }));
     const result = groupNavItems("pro", items);
 
-    // "home" is the ungrouped head of the sidebar; it carries the dashboard and
-    // the "app" section that was added alongside it. Asserted in full because
-    // this case is specifically about bucketing in config order.
-    expect(result[0]).toEqual({ id: "home", label: null, items: [{ section: "dashboard" }, { section: "app" }] });
+    // "workspace" heads the sidebar with the portfolio's two own destinations.
+    // "app" (the download page) is excluded from every nav since the portal
+    // redesign — it stays routable, it is just not a row. Asserted in full
+    // because this case is specifically about bucketing in config order.
+    expect(result[0]).toEqual({
+      id: "workspace",
+      label: "Workspace",
+      items: [{ section: "dashboard" }, { section: "properties" }],
+    });
+    expect(result.flatMap((g) => g.items).map((i) => i.section)).not.toContain("app");
     const leasing = result.find((g) => g.id === "leasing");
     expect(leasing?.label).toBe("Leasing");
-    expect(leasing?.items.map((i) => i.section)).toEqual(["properties", "tours", "applications", "leases"]);
+    expect(leasing?.items.map((i) => i.section)).toEqual(["tours", "applications", "leases"]);
     const operations = result.find((g) => g.id === "operations");
     expect(operations?.items.map((i) => i.section)).toEqual(["tasks", "calendar", "bookings", "communication"]);
     const tenancy = result.find((g) => g.id === "tenancy");

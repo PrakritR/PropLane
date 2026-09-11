@@ -127,9 +127,7 @@ export function ManagerToursGroupedTable({
                 <span className="truncate text-xs font-semibold text-foreground">
                   {cluster.propertyLabel}
                 </span>
-                <Badge tone="info">
-                  {cluster.rows.length === 1 ? "1 tour" : `${cluster.rows.length} tours`}
-                </Badge>
+                <span className="sr-only">{cluster.rows.length === 1 ? "1 tour" : `${cluster.rows.length} tours`}</span>
                 {renderReminderBadge(cluster.rows)}
               </>
             }
@@ -158,9 +156,7 @@ export function ManagerToursGroupedTable({
               {showPropertyColumn && cluster.propertyLabel ? (
                 <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
               ) : null}
-              <Badge tone="info">
-                {cluster.rows.length === 1 ? "1 tour" : `${cluster.rows.length} tours`}
-              </Badge>
+              <span className="sr-only">{cluster.rows.length === 1 ? "1 tour" : `${cluster.rows.length} tours`}</span>
               {renderReminderBadge(cluster.rows)}
             </>
           }

@@ -1,8 +1,10 @@
 "use client";
 
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ClipboardCheck } from "lucide-react";
+import { ClipboardCheck, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -145,7 +147,16 @@ export function pickPrimaryInspectionReport(reports: InspectionSummary[]): Inspe
 
 export function ManagerInspectionsPage({ kind = "move-in", reportId, basePath = "/portal" }: { kind?: InspectionKind; reportId?: string; basePath?: string }) {
   if (reportId) return <InspectionsPanel role="manager" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} />;
-  return <ManagerPortalPageShell title="Inspections" hideTitleOnMobileNav compactFilterRow><InspectionsPanel role="manager" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} /></ManagerPortalPageShell>;
+  return (
+    <ManagerPortalPageShell
+      title="Inspections"
+      subtitle="Move-in and move-out condition reports, organized by resident."
+      hideTitleOnMobileNav
+      compactFilterRow
+    >
+      <InspectionsPanel role="manager" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} />
+    </ManagerPortalPageShell>
+  );
 }
 
 export function InspectionsPanel({ role, applicationId, initialKind = "move-in", reportId, routeBase, embeddedInResident = false }: {
@@ -276,7 +287,7 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       destinations={routeBase ? (["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, href: `${routeBase}/${id}`, dataAttr: `inspection-type-${id}` })) : undefined}
       destinationRow={!routeBase ? <ManagerPortalStatusPills activeId={kind} mobileSelect={false} onChange={id => changeKind(id as InspectionKind)} tabs={(["move-in", "move-out"] as const).map(id => ({ id, label: kindLabel(id), count: rowsFor(id).length, dataAttr: `inspection-type-${id}` }))} /> : undefined}
       actions={role === "manager" && !isDemoModeActive()
-        ? <Button type="button" variant="outline" data-attr="inspections-settings-open" onClick={() => setSettingsOpen(true)}>Settings</Button>
+        ? <PortalIconAction icon={Settings2} label="Inspection settings" data-attr="inspections-settings-open" onClick={() => setSettingsOpen(true)} />
         : undefined}
     />
     )}

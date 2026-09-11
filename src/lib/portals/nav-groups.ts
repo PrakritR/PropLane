@@ -18,6 +18,8 @@ export type NavGroupConfig = { id: string; label: string | null; sections: strin
 export const SIDEBAR_EXCLUDED_SECTIONS = new Set<string>([
   "profile",
   "bugs-feedback",
+  /** App download lives under Settings; the redesign dropped it from every nav. */
+  "app",
   /** Nested under Leasing → Application submenu; not a second sidebar row. */
   "background-checks",
 ]);
@@ -30,6 +32,8 @@ export function isHiddenFromMobileNav(kind: PortalKind, section: string): boolea
   if (section === "bugs-feedback") return kind !== "admin";
   // Settings → mobile profile menu (same as desktop sidebar exclusion).
   if (section === "profile") return true;
+  // App download page: reachable from Settings, never a nav destination.
+  if (section === "app" && (kind === "manager" || kind === "pro")) return true;
   return false;
 }
 
@@ -39,8 +43,11 @@ export function isAppNavHiddenInNativeShell(kind: PortalKind, section: string, i
 }
 
 const PRO_GROUPS: NavGroupConfig[] = [
-  { id: "home", label: null, sections: ["dashboard", "app"] },
-  { id: "leasing", label: "Leasing", sections: ["properties", "tours", "applications", "leases"] },
+  // Portfolio first: the workspace's own two destinations sit above the lifecycle
+  // groups. `app` (the download page) is deliberately not a sidebar row any more —
+  // it stays routable from Settings and the native shell never showed it anyway.
+  { id: "workspace", label: "Workspace", sections: ["dashboard", "properties"] },
+  { id: "leasing", label: "Leasing", sections: ["tours", "applications", "leases"] },
   { id: "tenancy", label: "Tenancy", sections: ["residents", "inspections", "payments", "services"] },
   { id: "operations", label: "Operations", sections: ["tasks", "calendar", "bookings", "communication"] },
   { id: "marketing", label: "Marketing", sections: ["promotion"] },

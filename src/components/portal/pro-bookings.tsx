@@ -5,12 +5,9 @@ import { ApplicationFilterSortFields } from "@/components/portal/application-fil
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { ManagerBookingsListView } from "@/components/portal/manager-bookings-list-view";
-import {
-  ManagerPortalPageShell,
-  PORTAL_COMMAND_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { Settings2 } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -322,26 +319,13 @@ function useBookingsWorkspace({
         <>
           {propertyFilterSheet}
           {roomFilterSheet}
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_COMMAND_ACTION_BTN}
+          <PortalIconAction
+            icon={Settings2}
+            label="Booking settings"
             data-attr="bookings-settings-open"
             disabled={linkDisabled}
             onClick={() => setSettingsModalOpen(true)}
-          >
-            Settings
-          </Button>
-          <Button
-            type="button"
-            className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-            style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-            disabled={linkDisabled}
-            data-attr="portfolio-bookings-link-airbnb"
-            onClick={() => setLinkModalOpen(true)}
-          >
-            Link Airbnb
-          </Button>
+          />
         </>
       }
       activeFilterChips={activeFilterChips}
@@ -409,7 +393,19 @@ function useBookingsWorkspace({
     </>
   );
 
-  return { controlStack, content, modals };
+  const primaryAction = (
+    <Button
+      type="button"
+      className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+      disabled={linkDisabled}
+      data-attr="portfolio-bookings-link-airbnb"
+      onClick={() => setLinkModalOpen(true)}
+    >
+      Link Airbnb
+    </Button>
+  );
+
+  return { controlStack, content, modals, primaryAction };
 }
 
 /**
@@ -417,9 +413,11 @@ function useBookingsWorkspace({
  * the panel's own flex column.
  */
 export function ManagerBookingsWorkspace(props: BookingsWorkspaceProps) {
-  const { controlStack, content, modals } = useBookingsWorkspace(props);
+  const { controlStack, content, modals, primaryAction } = useBookingsWorkspace(props);
   return (
     <>
+      {/* No page headline inside a property tab — the one prominent action sits above the tabs. */}
+      <div className="mb-2 flex shrink-0 justify-end">{primaryAction}</div>
       {controlStack}
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">{content}</div>
       {modals}
@@ -462,7 +460,7 @@ export function ManagerBookings({
 
   const propertyIds = useMemo(() => propertyOptions.map((option) => option.id), [propertyOptions]);
 
-  const { controlStack, content, modals } = useBookingsWorkspace({
+  const { controlStack, content, modals, primaryAction } = useBookingsWorkspace({
     bucket,
     basePath,
     propertyIds,
@@ -483,7 +481,14 @@ export function ManagerBookings({
    * they scrolled away with the rows.
    */
   return (
-    <ManagerPortalPageShell title="Bookings" hideTitleOnMobileNav titleInlineFilter={null} compactFilterRow>
+    <ManagerPortalPageShell
+      title="Bookings"
+      subtitle="Stays, blocked dates, and channel calendars for every space."
+      hideTitleOnMobileNav
+      titleInlineFilter={null}
+      compactFilterRow
+      primaryAction={primaryAction}
+    >
       {controlStack}
       {modals}
       <PortalPageScrollBody>{content}</PortalPageScrollBody>
