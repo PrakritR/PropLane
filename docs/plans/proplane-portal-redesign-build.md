@@ -55,8 +55,15 @@ Prototype screenshots and simulator checks are references, not product evidence.
   vendor (that would need per-vendor A2P registration and credit reservation
   under docs/agents/comms-billing.md); texts to vendors keep going out from
   PropLane's own line.
-- [ ] Shared persistent task system: status/filter/assignee/due/priority,
-  recurrence/reminders/checklists/comments/attachments and bulk actions.
+- [x] Shared persistent task system: status/filter/assignee/due/priority,
+  recurrence/reminders/checklists/comments/attachments and bulk actions. —
+  this commit: recurrence (daily/weekly/monthly, next occurrence filed on
+  completion with month-end clamp — verified Oct 31 → Nov 30 on dev/test),
+  checklists (ticks survive edits), comments (server-stamped author),
+  link attachments; priority/urgency now actually persist on create (they
+  were dropped server-side). Status tabs, filters, assignee, due, reminders
+  and bulk actions were already in place; vendor-assigned tasks share the
+  same record.
 - [ ] Offered lease types and inline amenities checkboxes with Other details.
   Daily/weekly, 3/6/9/12 months, month-to-month, long-term and custom bases;
   automatic custom proration and optional advanced partial-period rate.

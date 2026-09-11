@@ -140,6 +140,13 @@ function taskRowMetaLine(task: ManagerTask): string {
   if (schedule && schedule !== "No schedule or due date") parts.push(schedule);
   const assigneeLabel = formatTaskAssignee(task);
   if (assigneeLabel) parts.push(assigneeLabel);
+  if (task.checklist?.length) {
+    parts.push(`${task.checklist.filter((item) => item.done).length}/${task.checklist.length} steps`);
+  }
+  if (task.recurrence && task.recurrence !== "none") {
+    parts.push(task.recurrence === "daily" ? "Repeats daily" : task.recurrence === "weekly" ? "Repeats weekly" : "Repeats monthly");
+  }
+  if (task.comments?.length) parts.push(`${task.comments.length} ${task.comments.length === 1 ? "comment" : "comments"}`);
   return parts.join(" · ");
 }
 
@@ -612,7 +619,7 @@ export function ManagerTaskList({
           header={
             <>
               <span className="truncate text-xs font-semibold text-foreground">{cluster.propertyLabel}</span>
-              <Badge tone="info">{clusterCountLabel(cluster.rows.length)}</Badge>
+              <span className="sr-only">{clusterCountLabel(cluster.rows.length)}</span>
             </>
           }
         >
@@ -634,7 +641,7 @@ export function ManagerTaskList({
             {cluster.propertyLabel ? (
               <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
             ) : null}
-            <Badge tone="info">{clusterCountLabel(cluster.rows.length)}</Badge>
+            <span className="sr-only">{clusterCountLabel(cluster.rows.length)}</span>
           </>
         }
       >
