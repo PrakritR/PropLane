@@ -14,7 +14,7 @@
  * and misrouting a message then is worse than showing an extra line.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { loadManagerAssistantEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
+import { resolveActiveManagerWorkEmail } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import { resolveActiveManagerSendNumber } from "@/lib/sms/manager-number-provisioning.server";
 import { orFilterForIdentity } from "@/lib/supabase/or-filter";
 
@@ -146,9 +146,9 @@ export async function resolveResidentManagerPhones(
   const contacts = await resolveResidentManagerContacts(db, args);
   const withChannels = await Promise.all(
     contacts.map(async (contact) => {
-      const [phone, assistantRow, profileRow] = await Promise.all([
+      const [phone, assistantEmail, profileRow] = await Promise.all([
         resolveActiveManagerSendNumber(db, contact.managerUserId).catch(() => null),
-        loadManagerAssistantEmail(db, contact.managerUserId).catch(() => null),
+        resolveActiveManagerWorkEmail(db, contact.managerUserId).catch(() => null),
         Promise.resolve(
           db.from("profiles").select("full_name").eq("id", contact.managerUserId).maybeSingle(),
         )
@@ -161,7 +161,7 @@ export async function resolveResidentManagerPhones(
         // number, as it did before there was a name to show.
         managerName: text((profileRow as { full_name?: unknown } | null)?.full_name),
         phone,
-        assistantEmail: assistantRow?.address?.trim() || null,
+        assistantEmail,
       };
     }),
   );

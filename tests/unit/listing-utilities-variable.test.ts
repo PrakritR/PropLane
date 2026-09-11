@@ -69,9 +69,13 @@ describe("the amount is an estimate, never a charge", () => {
     expect(aggregateBillableUtilitiesEstimate(variable)).toBe(0);
   });
 
-  it("still shows an amount input, so a prospect sees a typical figure", () => {
-    expect(longTermUtilitiesEstimateRequired("variable")).toBe(true);
+  // PRP-463, the captain's call: Variable is BY USAGE, so there is no figure to state up
+  // front. Asking for one only invited a number the manager would then bill differently.
+  // What this file really pins — that a variable amount is never BILLED — is unchanged and
+  // covered by the two tests above.
+  it("asks for an amount only where one is actually charged", () => {
     expect(longTermUtilitiesEstimateRequired("manager_billed")).toBe(true);
+    expect(longTermUtilitiesEstimateRequired("variable")).toBe(false);
     expect(longTermUtilitiesEstimateRequired("tenant_direct")).toBe(false);
     expect(longTermUtilitiesEstimateRequired("included_in_rent")).toBe(false);
   });

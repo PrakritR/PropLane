@@ -71,7 +71,7 @@ describe("connect Google services", () => {
     expect(page).not.toContain("Open Settings");
     expect(page).toContain("ManagerOnboardingPhoneSetup");
     expect(page).toContain("ManagerOnboardingWorkNumberSetup");
-    expect(page).toContain("ManagerOnboardingAssistantEmailSetup");
+    expect(page).toContain("ManagerOnboardingWorkEmailSetup");
   });
 
   it("right-aligns Continue to portal", () => {

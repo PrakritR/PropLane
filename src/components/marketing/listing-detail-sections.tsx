@@ -25,6 +25,7 @@ import {
   ListingSidebarRenterCtasContext,
 } from "@/components/marketing/listing-preview-context";
 import { buildSmsDeepLink, isClawMessagingPubliclyEnabled } from "@/lib/claw-leasing-links";
+import { buildListingEmailDeepLink, isListingCtaEmailEnabled } from "@/lib/listing-cta-email";
 
 import { ProspectListingCta } from "@/components/marketing/prospect-listing-cta";
 import type { MockProperty } from "@/data/types";
@@ -171,6 +172,17 @@ function ListingPricingCtaCard({
         toPhone: property.contactSmsPhone,
       })
     : null;
+  // The email door, under the SAME rule as Text: the address is resolved
+  // server-side from this listing's own manager and only when it can actually
+  // receive, so an omitted button means "no live work email", never a dead
+  // mailto:. A prospect who writes in reaches the leasing assistant.
+  const emailTourHref = isListingCtaEmailEnabled(property.contactWorkEmail)
+    ? buildListingEmailDeepLink({
+        intent: "tour",
+        propertyLabel,
+        toEmail: property.contactWorkEmail,
+      })
+    : null;
 
   return (
     <Card className={`overflow-hidden border-border bg-card p-0 shadow-sm backdrop-blur-xl ${className}`}>
@@ -220,6 +232,11 @@ function ListingPricingCtaCard({
         {textTourHref ? (
           <a href={textTourHref} data-attr="listing-text-tour" className={secondaryCtaClass}>
             Text
+          </a>
+        ) : null}
+        {emailTourHref ? (
+          <a href={emailTourHref} data-attr="listing-email-tour" className={secondaryCtaClass}>
+            Email
           </a>
         ) : null}
       </div>

@@ -21,7 +21,6 @@ import { provisionManagerNumber } from "@/lib/sms/manager-number-provisioning.se
 import {
   effectiveRegistrationState,
   isProvisioningEnabled,
-  isTrialWorkNumberOnboardingEnabled,
   managerSmsNumberIsSendable,
   normalizeProvisionState,
   normalizeRegistrationState,
@@ -29,11 +28,15 @@ import {
   normalizeSmsRuntimeMode,
   smsRuntimeAllowsManager,
 } from "@/lib/sms/number-registration-policy";
-import {
-  commsBillingBlockMessage,
-  evaluateManagerCommsBillingGate,
-} from "@/lib/comms-billing/eligibility.server";
+import { commsBillingBlockMessage } from "@/lib/comms-billing/eligibility.server";
 import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
+import {
+  decideManagerCommsRequest,
+  loadManagerCommsPaygGate,
+  managerCommsEntitlementIsUnreadable,
+  managerCommsRequestIsOfferable,
+  managerCommsUseIsAllowed,
+} from "@/lib/comms-billing/manager-comms-eligibility.server";
 import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
 
 export const runtime = "nodejs";
@@ -147,22 +150,19 @@ async function buildStatus(
     number === null ||
     number.state === "pending_registration" ||
     number.state === "failed";
-  const entitlementCanBeReconciled =
-    entitlement.eligible ||
-    (entitlement.reason === "trialing" && isTrialWorkNumberOnboardingEnabled()) ||
-    entitlement.reason === "plan_unreadable" ||
-    entitlement.reason === "legacy_unknown";
   const strictNumberReady = managerSmsNumberIsSendable(normalizedNumber, {
     runtimeMode: mode,
     managerIsAllowlisted,
   });
 
-  const paygBilling = isCommsPaygBillingEnabled()
-    ? await evaluateManagerCommsBillingGate(db, userId)
-    : null;
-  const commsBillingAllowed = paygBilling ? paygBilling.allowed : entitlement.eligible;
-  const canRequestBilling =
-    paygBilling != null ? paygBilling.allowed : entitlementCanBeReconciled;
+  // Shared with the work email so the two can never answer this differently
+  // again — see `manager-comms-eligibility.server.ts`.
+  const paygBilling = await loadManagerCommsPaygGate(db, userId);
+  const commsBillingAllowed = managerCommsUseIsAllowed({ entitlement, paygGate: paygBilling });
+  const canRequestBilling = managerCommsRequestIsOfferable({
+    entitlement,
+    paygGate: paygBilling,
+  });
 
   return {
     mode,
@@ -337,22 +337,21 @@ export async function POST(req: Request) {
   // Under pay-as-you-go a number is BOUGHT, not bundled: a card on file is what
   // qualifies a manager, on any plan including Free. The plan entitlement still
   // stands in when PAYG is off, so turning the flag off restores the old rule
-  // rather than leaving the number ungated.
-  if (isCommsPaygBillingEnabled()) {
-    const gate = await evaluateManagerCommsBillingGate(actor.db, actor.userId);
-    if (!gate.allowed) {
+  // rather than leaving the number ungated. Both rules live in the shared gate.
+  const gate = await decideManagerCommsRequest(actor.db, actor.userId, entitlement);
+  if (!gate.allowed) {
+    if (gate.kind === "payg") {
       return NextResponse.json(
-        { error: commsBillingBlockMessage(gate.reason) },
+        { error: commsBillingBlockMessage(gate.reason, "work_number") },
         { status: 402 },
       );
     }
-  } else if (!entitlement.eligible) {
-    const unreadable = entitlement.reason === "plan_unreadable" || entitlement.reason === "legacy_unknown";
+    const unreadable = managerCommsEntitlementIsUnreadable(gate.entitlement);
     return NextResponse.json(
       {
         error: unreadable
           ? "We could not verify your messaging eligibility. Refresh eligibility or contact support if this continues."
-          : entitlement.reason === "trialing"
+          : gate.entitlement.reason === "trialing"
             ? "Work-number setup is available after your Pro or Business trial converts to a paid subscription."
             : "An active paid Pro or Business plan is required for a dedicated messaging number.",
       },

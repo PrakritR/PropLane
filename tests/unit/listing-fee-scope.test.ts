@@ -24,7 +24,14 @@ import {
   type ManagerListingSubmissionV1,
 } from "@/lib/manager-listing-submission";
 import { leaseDocumentFeeLines } from "@/lib/listing-fees";
+import { computeLeasePaymentAtSigning } from "@/lib/rental-application/listing-fees-display";
 import { resolveStayPricing } from "@/lib/room-pricing";
+import {
+  parseShortTermStayChargeTitle,
+  shortTermStayChargeTitle,
+  shortTermStaySplit,
+  shortTermStayTotalAmount,
+} from "@/lib/short-term-stay-pricing";
 
 const ROOMS = ["room-a", "room-b", "room-c"];
 const TERMS = ["Long-term", "Month-to-Month", "Custom"];
@@ -302,5 +309,95 @@ describe("a room priced per lease type", () => {
       application: { leaseTerm: "Month-to-Month", managerRentOverride: "950" },
     });
     expect(pricing.monthlyRate).toBe(950);
+  });
+});
+
+describe("a short stay bills whole weeks, then the leftover nights", () => {
+  // The captain's example: twelve nights on an $85 night / $500 week room is one week plus
+  // five nights — $500 + 5 x $85 — not twelve nights at the nightly rate. A weekly rate is
+  // a real price and is deliberately cheaper than seven nights, so billing nightly across
+  // a long stay overcharges the guest against the rate they were quoted.
+  it("splits twelve nights into a week and five nights", () => {
+    expect(shortTermStaySplit(12, 500)).toEqual({ weeks: 1, nights: 5 });
+    expect(shortTermStayTotalAmount(85, 12, 500)).toBe(500 + 5 * 85);
+    expect(shortTermStayChargeTitle(12, 85, 500)).toBe("Stay total (1 week × $500 + 5 nights × $85)");
+  });
+
+  it("bills whole weeks with no remainder cleanly", () => {
+    expect(shortTermStaySplit(14, 500)).toEqual({ weeks: 2, nights: 0 });
+    expect(shortTermStayTotalAmount(85, 14, 500)).toBe(1000);
+    expect(shortTermStayChargeTitle(14, 85, 500)).toBe("Stay total (2 weeks × $500)");
+  });
+
+  it("is the nightly maths it always was without a weekly rate, or under a week", () => {
+    expect(shortTermStayTotalAmount(85, 12)).toBe(12 * 85);
+    expect(shortTermStayTotalAmount(85, 5, 500)).toBe(5 * 85);
+    expect(shortTermStayChargeTitle(5, 85, 500)).toBe("Stay total (5 nights × $85)");
+  });
+
+  it("round-trips both titles, so a manager can still edit the charge", () => {
+    expect(parseShortTermStayChargeTitle("Stay total (1 week × $500 + 5 nights × $85)")).toEqual({
+      nights: 12,
+      nightlyRate: 85,
+      weeks: 1,
+      weeklyRate: 500,
+    });
+    expect(parseShortTermStayChargeTitle("Stay total (2 weeks × $500)")).toEqual({
+      nights: 14,
+      nightlyRate: 0,
+      weeks: 2,
+      weeklyRate: 500,
+    });
+    // The pre-existing nightly title still parses exactly as before.
+    expect(parseShortTermStayChargeTitle("Stay total (5 nights × $85)")).toEqual({
+      nights: 5,
+      nightlyRate: 85,
+    });
+  });
+
+  it("hands the weekly rate to the charge path from the room", () => {
+    const pricing = resolveStayPricing({
+      room: { id: "r", monthlyRent: 0, shortTermRent: "85", weeklyRentPrice: 500 },
+      submission: { shortTermRentalsAllowed: true },
+      application: { rentalType: "short_term" },
+    });
+    expect(pricing.dailyRate).toBe(85);
+    expect(pricing.weeklyRate).toBe(500);
+  });
+});
+
+describe("what is due at signing is the property's own fees", () => {
+  // The captain's report: Move-in fee was deleted from Other fees and the signing picker
+  // still offered it. The list is the property's fees, not a fixed four.
+  it("stops offering a standard payment whose fee row was deleted", () => {
+    const sub = subWithRooms();
+    sub.removedStandardListingFeeRows = ["moveInFee"];
+    const keys = paymentAtSigningRows(sub).map((r) => r.key);
+    expect(keys).toContain("security_deposit");
+    expect(keys).not.toContain("move_in_fee");
+    // Rent and utilities are rent, not fees, so they are always on offer.
+    expect(keys).toContain("first_month_rent");
+    expect(keys).toContain("first_month_utilities");
+  });
+
+  it("offers both when neither row was deleted", () => {
+    const keys = paymentAtSigningRows(subWithRooms()).map((r) => r.key);
+    expect(keys).toContain("security_deposit");
+    expect(keys).toContain("move_in_fee");
+  });
+
+  it("totals what THIS lease's term collects, not the union", () => {
+    const sub = subWithRooms();
+    sub.paymentAtSigningByLeaseType = {
+      "Long-term": ["security_deposit", "move_in_fee"],
+      "Month-to-Month": ["security_deposit"],
+    };
+    const n = normalizeManagerListingSubmissionV1(sub);
+    const amounts = { securityDeposit: 1000, moveInFee: 250, monthlyRent: 0, monthlyUtilities: 0 };
+
+    expect(computeLeasePaymentAtSigning(n, amounts, "Long-term")).toBe(1250);
+    expect(computeLeasePaymentAtSigning(n, amounts, "Month-to-Month")).toBe(1000);
+    // No term named — every existing caller — still reads the flat union.
+    expect(computeLeasePaymentAtSigning(n, amounts)).toBe(1250);
   });
 });

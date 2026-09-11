@@ -14,6 +14,7 @@ import type {
   ManagerRoomSubmission,
   ManagerSharedSpaceSubmission,
 } from "@/lib/manager-listing-submission";
+import { resolveListingCtaEmailsByManager } from "@/lib/listing-cta-email.server";
 import { filterSandboxFromPublicCatalog } from "@/lib/public-sandbox-listings";
 import { isProductionRuntime } from "@/lib/server-env";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -63,6 +64,7 @@ const PUBLIC_PROPERTY_KEYS = [
   "mapLng",
   "managerUserId",
   "contactSmsPhone",
+  "contactWorkEmail",
   "managerContactEmail",
   "adminPublishLive",
 ] as const satisfies readonly (keyof MockProperty)[];
@@ -334,6 +336,10 @@ export async function getPublicListings(): Promise<MockProperty[]> {
   ];
   const managerEmailByUserId = new Map<string, string | null>();
   const managerProfileByUserId = new Map<string, ListingCtaManagerProfile>();
+  // The public "Email" CTA target, resolved per owning manager. Only an address
+  // that can actually receive comes back, so a listing never advertises a
+  // mailbox that swallows a prospect's message.
+  const managerWorkEmailByUserId = await resolveListingCtaEmailsByManager(db, managerIds);
   if (managerIds.length > 0) {
     const { data: profiles, error: profileError } = await db
       .from("profiles")
@@ -372,8 +378,12 @@ export async function getPublicListings(): Promise<MockProperty[]> {
         ? managerEmailByUserId.get(row.manager_user_id)?.trim() || undefined
         : undefined,
       // Always overwrite (never merely default) so an unresolved manager drops
-      // the stored number rather than publishing a stale one.
+      // the stored number rather than publishing a stale one. Same rule for the
+      // work email: the stored blob is manager-editable and could name anything.
       contactSmsPhone,
+      contactWorkEmail: row.manager_user_id
+        ? managerWorkEmailByUserId.get(row.manager_user_id)
+        : undefined,
     };
     const dedupeKey = `${withOwner.buildingName}::${withOwner.address}`.trim().toLowerCase();
     byKey.set(dedupeKey, withOwner);
