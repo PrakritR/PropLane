@@ -23,31 +23,26 @@ import { cn } from "@/lib/utils";
 
 /* ─────────────────────────── shell ─────────────────────────── */
 
+/**
+ * A small single-column modal — the shape a short question flow wants.
+ *
+ * The listing EDITOR outgrew this and uses {@link ListingWorkspace} instead; this
+ * is what {@link AddPropertyFlow}'s three questions still render in, where a
+ * step rail and a preview panel would be furniture around two fields.
+ */
 export function WizardModal({
   title,
   onClose,
   children,
   footer,
-  stepper,
   headerAside,
 }: {
   title: string;
   onClose?: () => void;
   children: ReactNode;
   footer: ReactNode;
-  stepper?: ReactNode;
-  /** The Ask PropLane trigger — kept from the previous wizard, which managers use. */
   headerAside?: ReactNode;
 }) {
-  /*
-   * Solid white, like every other PropLane modal (Add resident, Inspections
-   * settings). The card previously inherited a translucent surface, which read
-   * as unfinished against the dimmed page behind it.
-   *
-   * The header carries ONLY Ask PropLane and the close control. Saving lives in
-   * the footer next to the other actions — a second save in the corner competed
-   * with it and is not what the rest of the product does.
-   */
   return (
     <div className="flex max-h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] [html[data-theme=dark]_&]:bg-card">
       <div className="flex shrink-0 items-center justify-between gap-3 px-6 pt-5">
@@ -66,7 +61,6 @@ export function WizardModal({
           ) : null}
         </div>
       </div>
-      {stepper ? <div className="shrink-0 border-b border-border/60 px-6 pb-4 pt-4">{stepper}</div> : null}
       <div className="min-h-0 flex-1 overflow-y-auto bg-white px-6 py-6 [html[data-theme=dark]_&]:bg-card">{children}</div>
       <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border/60 bg-white px-6 py-4 [html[data-theme=dark]_&]:bg-card">
         {footer}
@@ -75,53 +69,177 @@ export function WizardModal({
   );
 }
 
-/** Named, numbered progress. Both numerator and denominator are always shown. */
-export function WizardStepper({
+/**
+ * The three-pane listing workspace: a step rail, the step body, and a panel that
+ * shows what the manager just changed.
+ *
+ * It replaces the single-column modal the wizard opened in. The modal was the
+ * reason nothing on screen ever answered "what does the resident actually pay"
+ * — there was no room for an answer next to the question. The panel is not
+ * decoration: every step supplies its own, and a step with nothing useful to
+ * show does not get one.
+ *
+ * Under 1180px the panel drops out of the grid; steps render it at the foot of
+ * the body instead (see `sidePanel` / `sideBelow`), so a phone loses the column
+ * and keeps the content.
+ */
+export function ListingWorkspace({
+  title,
+  subtitle,
+  badge,
+  saveState,
+  onClose,
+  rail,
+  children,
+  sidePanel,
+  footer,
+  headerAside,
+}: {
+  title: string;
+  subtitle?: string;
+  /** "Listed" / "Draft" — what this listing is right now. */
+  badge?: ReactNode;
+  /** Autosave status, stated once, in the header. */
+  saveState?: ReactNode;
+  onClose?: () => void;
+  rail: ReactNode;
+  children: ReactNode;
+  sidePanel?: ReactNode;
+  footer: ReactNode;
+  /** The Ask PropLane trigger — kept from the previous wizard, which managers use. */
+  headerAside?: ReactNode;
+}) {
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-2xl border border-border bg-white shadow-[0_24px_60px_-28px_rgba(11,27,58,0.45)] [html[data-theme=dark]_&]:bg-card">
+      <div className="flex shrink-0 items-center gap-3 border-b border-border/60 px-5 py-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2.5">
+            <b className="truncate text-[15px] font-bold tracking-tight text-foreground sm:text-[17px]">{title}</b>
+            <span className="shrink-0">{badge}</span>
+          </div>
+          {/* On a phone the address and the save state lose to the title and the
+              close control, so they step aside rather than wrapping into three rows. */}
+          {subtitle ? <p className="hidden truncate text-[12.5px] text-muted sm:block">{subtitle}</p> : null}
+        </div>
+        {saveState ? <div className="hidden shrink-0 text-[12.5px] text-muted sm:block">{saveState}</div> : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {headerAside}
+          {onClose ? (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="grid h-9 w-9 place-items-center rounded-full text-muted hover:bg-accent/50"
+            >
+              ✕
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[212px_minmax(0,1fr)] xl:grid-cols-[212px_minmax(0,1fr)_340px]">
+        <nav
+          aria-label="Listing sections"
+          className="flex shrink-0 flex-col overflow-x-auto border-b border-border/60 bg-[var(--pl-surface-muted)] p-2 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-3 [html[data-theme=dark]_&]:bg-black/20"
+        >
+          {rail}
+        </nav>
+        <main className="min-w-0 overflow-y-auto px-5 py-6 lg:px-8">{children}</main>
+        {sidePanel ? (
+          <aside
+            aria-label="Live panel"
+            className="hidden overflow-y-auto border-l border-border/60 bg-[var(--pl-surface-muted)] p-4 xl:block [html[data-theme=dark]_&]:bg-black/20"
+          >
+            {sidePanel}
+          </aside>
+        ) : null}
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border/60 bg-white px-4 py-3 sm:px-5 [html[data-theme=dark]_&]:bg-card">
+        {footer}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Where the panel goes on a narrow screen.
+ *
+ * The same node the workspace would have put in the right column, rendered at
+ * the foot of the step instead. Hidden at xl, where the column exists.
+ */
+export function SideBelow({ children }: { children: ReactNode }) {
+  if (!children) return null;
+  return <div className="mt-8 border-t border-border/60 pt-6 xl:hidden">{children}</div>;
+}
+
+export type StepRailItem = {
+  id: string;
+  label: string;
+  /** Rooms, bathrooms, spaces, lease types — how many this step holds. */
+  count?: number;
+  /** Things the manager should look at before publishing. */
+  attention?: number;
+};
+
+/**
+ * The step rail.
+ *
+ * Every step is reachable, always. The pill stepper this replaces disabled every
+ * step past the one you were on, which is wrong for an EDIT: a manager opening a
+ * live listing to change one room's rent should not have to walk four screens to
+ * reach it.
+ */
+export function StepRail({
   steps,
   current,
   onJump,
+  visited,
 }: {
-  steps: readonly { id: string; label: string }[];
+  steps: readonly StepRailItem[];
   current: number;
-  onJump?: (index: number) => void;
+  onJump: (index: number) => void;
+  /** Steps the manager has already opened, so "done" means seen, not merely earlier. */
+  visited?: ReadonlySet<string>;
 }) {
   return (
-    <ol className="flex flex-wrap items-center gap-1.5">
+    <ol className="flex gap-1 lg:flex-col">
       {steps.map((step, i) => {
-        const done = i < current;
         const on = i === current;
-        const reachable = i <= current;
+        const warn = (step.attention ?? 0) > 0;
+        const seen = visited ? visited.has(step.id) : i < current;
         return (
           <li key={step.id}>
             <button
               type="button"
-              disabled={!reachable || !onJump}
-              onClick={() => reachable && onJump?.(i)}
+              onClick={() => onJump(i)}
               aria-current={on ? "step" : undefined}
-              aria-label={`Step ${i + 1} of ${steps.length}: ${step.label}`}
+              data-attr={`listing-v2-rail-${step.id}`}
               className={cn(
-                "flex shrink-0 items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3 text-[12px] font-bold transition",
+                "flex w-full shrink-0 items-center gap-2.5 whitespace-nowrap rounded-xl px-2.5 py-2 text-left text-[13.5px] transition",
                 on
-                  ? "bg-primary/10 text-primary"
-                  : done
-                    ? "text-foreground hover:bg-accent/40"
-                    : "cursor-default text-muted/45",
+                  ? "bg-white font-bold text-foreground shadow-[0_0_0_1px_var(--pl-line-strong)] [html[data-theme=dark]_&]:bg-card"
+                  : "text-muted hover:bg-foreground/[0.045] hover:text-foreground",
               )}
             >
               <span
                 className={cn(
-                  "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-extrabold",
-                  done
-                    ? "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
-                    : on
-                      ? "bg-primary text-white"
-                      : "border border-border text-muted/60",
+                  "grid h-[23px] w-[23px] shrink-0 place-items-center rounded-full text-[11px] font-extrabold",
+                  on
+                    ? "bg-primary text-white"
+                    : warn
+                      ? "bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]"
+                      : seen
+                        ? "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
+                        : "border border-border text-muted/70",
                 )}
                 aria-hidden
               >
-                {done ? "✓" : i + 1}
+                {on ? i + 1 : warn ? "!" : seen ? "✓" : i + 1}
               </span>
-              {step.label}
+              <span className="min-w-0 flex-1 truncate">{step.label}</span>
+              {step.count != null ? (
+                <span className="hidden shrink-0 text-[12px] tabular-nums text-muted lg:inline">{step.count}</span>
+              ) : null}
+              {warn ? <span className="sr-only">{step.attention} to look at</span> : null}
             </button>
           </li>
         );
@@ -130,25 +248,59 @@ export function WizardStepper({
   );
 }
 
-/** The heading block at the top of every step body. */
-export function StepHeading({
-  step,
-  total,
-  name,
-  title,
-  subtitle,
+/* ─────────────────────────── side panel ─────────────────────────── */
+
+/** A titled block in the right-hand panel. */
+export function PanelSection({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="mb-5 last:mb-0">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="text-[11.5px] font-bold uppercase tracking-[0.06em] text-muted">{title}</h3>
+        {aside}
+      </div>
+      <div className="rounded-2xl border border-border bg-card p-3.5">{children}</div>
+    </section>
+  );
+}
+
+/** One labelled money line in the panel. */
+export function PanelLine({
+  label,
+  note,
+  amount,
+  muted = false,
+  control,
 }: {
-  step: number;
-  total: number;
-  name: string;
-  title: string;
-  subtitle?: string;
+  label: ReactNode;
+  note?: ReactNode;
+  amount: ReactNode;
+  /** Struck through — not collected at signing. */
+  muted?: boolean;
+  control?: ReactNode;
 }) {
   return (
+    <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 border-b border-dashed border-border py-2 last:border-b-0">
+      <span className="grid h-[18px] w-[18px] place-items-center">{control}</span>
+      <span className="min-w-0 text-[13px] text-foreground">
+        {label}
+        {note ? <span className="block text-[11.5px] text-muted">{note}</span> : null}
+      </span>
+      <span className={cn("text-[13px] tabular-nums", muted ? "text-muted line-through" : "text-foreground")}>
+        {amount}
+      </span>
+    </div>
+  );
+}
+
+/** The heading block at the top of every step body. */
+export function StepHeading({ title, subtitle }: { title: string; subtitle?: string }) {
+  /*
+   * No "Step 3 of 6" here. The rail says where the manager is and the footer
+   * counts the steps; a third copy in the body was the same fact three times on
+   * one screen.
+   */
+  return (
     <div className="mb-5">
-      <p className="mb-2 text-[12px] font-bold text-muted">
-        Step {step} of {total} · {name}
-      </p>
       <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">{title}</h2>
       {subtitle ? <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{subtitle}</p> : null}
     </div>

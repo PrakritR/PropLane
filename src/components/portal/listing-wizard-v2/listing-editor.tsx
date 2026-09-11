@@ -21,7 +21,7 @@
  * downstream reader keep working exactly as before.
  */
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { uploadListingImageFiles } from "@/lib/listing-media-client";
@@ -68,6 +68,16 @@ import {
   suggestionPlaceholder,
 } from "@/lib/listing-room-derived-pricing";
 import { applyListingBedroomSlots } from "@/lib/manager-listing-submission";
+import { listingLeaseTypeScopeOptions } from "@/lib/listing-fee-scope";
+import { LONG_TERM_LEASE_TERM as DEFAULT_QUOTE_TERM } from "@/lib/rental-application/lease-terms";
+import { ListingPricingSections } from "@/components/portal/listing-wizard-v2/listing-pricing-step";
+import {
+  BathroomCoveragePanel,
+  ListingPreviewPanel,
+  PricingReceiptPanel,
+  RoomPreviewPanel,
+  SharedSpacesPanel,
+} from "@/components/portal/listing-wizard-v2/listing-side-panel";
 import {
   applyHouseDefaultsToRooms,
   houseDefaultsForSubmission,
@@ -90,32 +100,34 @@ import {
   RowList,
   RowSelectCell,
   rowTemplate,
+  SideBelow,
   StepColumn,
   StepHeading,
-  WizardModal,
-  WizardStepper,
+  StepRail,
+  ListingWorkspace,
 } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 
 /**
- * Five steps, not seven.
+ * Six steps, and Pricing is one of them.
  *
- * Rent & fees and Photos were tabs full of things that belong to something
- * else: a room's deposit belongs with that room, a bathroom's photos belong
- * with that bathroom. What is genuinely house-wide — the lease lengths, the
- * application fee, the listing's own photos and description — now sits on Home
- * behind its own headings, so it is still one place, just not a place a manager
- * has to walk through to reach the rooms.
+ * The money used to live on a step called **Advanced**, behind an accordion,
+ * beside the certificate of occupancy. That is the wrong place for the thing a
+ * manager opens the editor to change: rent, deposits, fees and what is collected
+ * before move-in are now their own named step, where the live receipt can sit
+ * beside them.
+ *
+ * What is left of Advanced is genuine paperwork a home has once — the building,
+ * move-in logistics, local compliance — and it sits behind a disclosure at the
+ * foot of Basics rather than pretending to be a stage of the work.
  */
 export const LISTING_V2_STEPS = [
-  { id: "basics", label: "Home" },
+  { id: "basics", label: "Basics" },
   { id: "rooms", label: "Rooms" },
   { id: "bathrooms", label: "Bathrooms" },
   { id: "spaces", label: "Shared spaces" },
-  { id: "advanced", label: "Advanced" },
+  { id: "pricing", label: "Pricing" },
   { id: "review", label: "Review" },
 ] as const;
-
-const TOTAL_STEPS = LISTING_V2_STEPS.length;
 
 /** How a room reaches its bathroom. Mirrors ManagerBathroomRoomAccessKind. */
 const BATHROOM_ACCESS_OPTIONS = [
@@ -378,9 +390,6 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
   return (
     <StepColumn>
       <StepHeading
-        step={1}
-        total={TOTAL_STEPS}
-        name="Home"
         title="The home itself"
         subtitle="Where it is, what it is, and how it reads to a renter."
       />
@@ -1667,9 +1676,6 @@ function StepRooms({
   return (
     <StepColumn wide>
       <StepHeading
-        step={2}
-        total={TOTAL_STEPS}
-        name="Rooms"
         title={`Your ${rooms.length} ${rooms.length === 1 ? "room" : "rooms"}`}
         subtitle="Set what is true for most rooms once. Change only the rooms that differ."
       />
@@ -2175,9 +2181,6 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
   return (
     <StepColumn wide>
       <StepHeading
-        step={3}
-        total={TOTAL_STEPS}
-        name="Bathrooms"
         title={`Your ${baths.length} ${baths.length === 1 ? "bathroom" : "bathrooms"}`}
         subtitle="Set what is true for most bathrooms once. Change only the ones that differ."
       />
@@ -2450,9 +2453,6 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
   return (
     <StepColumn wide>
       <StepHeading
-        step={4}
-        total={TOTAL_STEPS}
-        name="Shared spaces"
         title="Kitchen, laundry and the rest"
         subtitle="Everything every resident can use. Open one to add photos and amenities."
       />
@@ -2593,17 +2593,17 @@ function LeaseTypesField({ sub, patch }: { sub: ManagerListingSubmissionV1; patc
   );
 }
 
-function HouseLeaseTermsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+/**
+ * What the LEASE DOCUMENT says — break-lease, holdover, quiet hours, venue.
+ *
+ * None of it is a price a manager sets while pricing a room, and all of it is
+ * rarely touched, so it sits behind a disclosure at the foot of Pricing. Which
+ * lease types are offered moved OUT of here and to the top of the step: it is
+ * the answer every other price on the screen depends on.
+ */
+function LeaseDocumentGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   return (
     <>
-      <Field
-        label="Lease types you offer"
-        required
-        hint="An applicant chooses from exactly these. Long-term is a fixed term whose length is the applicant's own move-in and move-out dates."
-      >
-        <LeaseTypesField sub={sub} patch={patch} />
-      </Field>
-
       <Field label="Lease template" optional hint="Your own document. Leave blank to use PropLane's lease.">
         <Input
           value={sub.leaseTemplateDocName ?? ""}
@@ -3143,76 +3143,77 @@ function HouseComplianceGroup({ sub, patch }: { sub: ManagerListingSubmissionV1;
   );
 }
 
-/* ─────────────────────── step 5 · advanced ─────────────────────── */
+/* ─────────────────────── step 5 · pricing ─────────────────────── */
 
 /**
- * Advanced is its own step now, not a panel hanging off Home.
+ * The money, on its own step.
  *
- * Everything in it is about the PROPERTY, and only the property: rooms carry
- * their own rent, deposit, utilities and prorated rent, so anything that can
- * differ between two rooms is not here. What is left is the paperwork a home
- * has once — how it is let, how money reaches you, what the building is, and
- * what your city requires.
+ * Both groups render exactly the fields they rendered inside Advanced — same
+ * components, same submission, no second copy of any field — but open, in order,
+ * and next to the receipt. A manager setting a deposit can now see what it does
+ * to the move-in total without leaving the field.
  */
+function StepPricing({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  const [leaseDocOpen, setLeaseDocOpen] = useState(false);
+  return (
+    <StepColumn wide>
+      <StepHeading
+        title="Rent, deposits and fees"
+        subtitle="Every lease type you offer, what it collects before move-in, and how rent reaches you. What a resident pays is worked out beside you as you type."
+      />
+      <ListingPricingSections
+        sub={sub}
+        patch={patch}
+        leaseTypesField={<LeaseTypesField sub={sub} patch={patch} />}
+        payments={<HousePaymentsGroup sub={sub} patch={patch} />}
+        applications={<HouseApplicationsGroup sub={sub} patch={patch} />}
+        leaseDocument={
+          <AdvancedPanel
+            summary="What the lease says — break-lease, holdover, quiet hours, venue"
+            open={leaseDocOpen}
+            onToggle={() => setLeaseDocOpen((prev) => !prev)}
+            dataAttr="listing-v2-lease-document"
+          >
+            <div className="px-1 pb-2">
+              <LeaseDocumentGroup sub={sub} patch={patch} />
+            </div>
+          </AdvancedPanel>
+        }
+      />
+    </StepColumn>
+  );
+}
+
 /**
- * The house-wide groups, rendered identically wherever they appear.
+ * The paperwork a home has once — kept, but not made into a stage of the work.
  *
- * They have two doors — a panel at the foot of Home and the Advanced step —
- * because a manager filling in the home often wants the lease terms right then,
- * and one walking the steps expects to meet them in order. Both render this one
- * component against the same submission, so there is no second copy of any
- * field and no way for the two to disagree.
+ * Rendered behind one disclosure at the foot of Basics. Every field is the same
+ * component it was on the Advanced step, so nothing a manager already filled in
+ * has moved anywhere they cannot reach.
  */
-function HouseAdvancedGroups({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+function HouseKeepingGroups({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const toggleGroup = (id: string) => setOpenGroup((prev) => (prev === id ? null : id));
   return (
-    <>
-        <AdvancedGroup
-          title="Lease terms"
-          description="Types this home is let on · your own lease template · break-lease, holdover, deposit handling, quiet hours, guests, venue"
-          open={openGroup === "lease"}
-          onToggle={() => toggleGroup("lease")}
-          dataAttr="listing-v2-house-lease"
-        >
-          <HouseLeaseTermsGroup sub={sub} patch={patch} />
-        </AdvancedGroup>
-        <AdvancedGroup
-          title="Payments"
-          description="Application fee and its waiver code · due at signing · rent day and late fees · card, Zelle, Venmo and ACH · extra charges"
-          open={openGroup === "payments"}
-          onToggle={() => toggleGroup("payments")}
-          dataAttr="listing-v2-house-payments"
-        >
-          <HousePaymentsGroup sub={sub} patch={patch} />
-        </AdvancedGroup>
-        <AdvancedGroup
-          title="Move-in"
-          description="When the home is available · wifi · entry photos and arrival clip · instructions"
-          open={openGroup === "movein"}
-          onToggle={() => toggleGroup("movein")}
-          dataAttr="listing-v2-house-movein"
-        >
-          <HouseMoveInGroup sub={sub} patch={patch} />
-        </AdvancedGroup>
-        <AdvancedGroup
-          title="Applications"
-          description="Applying to several of your homes at once, and whether the fee is charged once"
-          open={openGroup === "applications"}
-          onToggle={() => toggleGroup("applications")}
-          dataAttr="listing-v2-house-applications"
-        >
-          <HouseApplicationsGroup sub={sub} patch={patch} />
-        </AdvancedGroup>
-        <AdvancedGroup
-          title="The building"
-          description="Listing name · year built · floor plan · utility metering · pest service · house rules · quick facts"
-          open={openGroup === "building"}
-          onToggle={() => toggleGroup("building")}
-          dataAttr="listing-v2-house-building"
-        >
-          <HouseBuildingGroup sub={sub} patch={patch} />
-        </AdvancedGroup>
+    <div className="overflow-hidden rounded-2xl border border-border">
+      <AdvancedGroup
+        title="Move-in"
+        description="When the home is available · wifi · entry photos and arrival clip · instructions"
+        open={openGroup === "movein"}
+        onToggle={() => toggleGroup("movein")}
+        dataAttr="listing-v2-house-movein"
+      >
+        <HouseMoveInGroup sub={sub} patch={patch} />
+      </AdvancedGroup>
+      <AdvancedGroup
+        title="The building"
+        description="Listing name · year built · floor plan · utility metering · pest service · house rules · quick facts"
+        open={openGroup === "building"}
+        onToggle={() => toggleGroup("building")}
+        dataAttr="listing-v2-house-building"
+      >
+        <HouseBuildingGroup sub={sub} patch={patch} />
+      </AdvancedGroup>
       <AdvancedGroup
         title="Local compliance"
         description="Certificate of occupancy · RRIO registration"
@@ -3222,24 +3223,7 @@ function HouseAdvancedGroups({ sub, patch }: { sub: ManagerListingSubmissionV1; 
       >
         <HouseComplianceGroup sub={sub} patch={patch} />
       </AdvancedGroup>
-    </>
-  );
-}
-
-function StepAdvanced({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  return (
-    <StepColumn>
-      <StepHeading
-        step={5}
-        total={TOTAL_STEPS}
-        name="Advanced"
-        title="The paperwork"
-        subtitle="Set once for the whole property. Rent and deposits live on the rooms."
-      />
-      <div className="overflow-hidden rounded-2xl border border-border">
-        <HouseAdvancedGroups sub={sub} patch={patch} />
-      </div>
-    </StepColumn>
+    </div>
   );
 }
 
@@ -3281,42 +3265,77 @@ export function listingReadiness(sub: ManagerListingSubmissionV1): ListingReadin
   ];
 }
 
-function StepReview({ sub }: { sub: ManagerListingSubmissionV1 }) {
+/** Which step closes a given readiness gap. */
+const READINESS_STEP: Record<string, (typeof LISTING_V2_STEPS)[number]["id"]> = {
+  address: "basics",
+  description: "basics",
+  rooms: "rooms",
+  photos: "rooms",
+  terms: "pricing",
+  deposit: "pricing",
+};
+
+function StepReview({
+  sub,
+  onJump,
+}: {
+  sub: ManagerListingSubmissionV1;
+  /** Take the manager to the step that closes a gap, rather than describing it. */
+  onJump: (stepId: (typeof LISTING_V2_STEPS)[number]["id"]) => void;
+}) {
   const checks = listingReadiness(sub);
   const done = checks.filter((c) => c.state === "done").length;
   const pct = Math.round((done / checks.length) * 100);
+  const open = checks.filter((c) => c.state !== "done");
   return (
     <StepColumn wide>
       <StepHeading
-        step={6}
-        total={TOTAL_STEPS}
-        name="Review"
-        title="Ready to publish"
+        title={open.length === 0 ? "Ready to publish" : `${open.length} ${open.length === 1 ? "thing needs" : "things need"} attention`}
         subtitle="Nothing here stops you publishing. Stronger listings fill it in."
       />
-      <div className="max-w-[560px]">
+      <div className="max-w-[620px]">
         <b className="text-[13px] font-bold text-foreground">Listing completeness</b>
         <div className="my-2 h-2 overflow-hidden rounded-full bg-border">
           <span className="block h-2 rounded-full bg-primary" style={{ width: `${pct}%` }} />
         </div>
         <p className="mb-4 text-[12px] text-muted">{pct}% complete</p>
         <ul>
-          {checks.map((c) => (
-            <li key={c.id} className="flex items-center gap-2.5 border-b border-border/60 py-2.5 text-[13px] last:border-b-0">
-              <span
-                className={
-                  c.state === "done"
-                    ? "grid h-5 w-5 place-items-center rounded-full border border-emerald-200 bg-emerald-50 text-[10px] font-extrabold text-emerald-700"
-                    : c.state === "warn"
-                      ? "grid h-5 w-5 place-items-center rounded-full border border-amber-200 bg-amber-50 text-[10px] font-extrabold text-amber-700"
-                      : "grid h-5 w-5 place-items-center rounded-full border border-border bg-card text-[10px] font-extrabold text-muted/60"
-                }
+          {checks.map((c) => {
+            const target = READINESS_STEP[c.id];
+            return (
+              <li
+                key={c.id}
+                className="flex items-center gap-2.5 border-b border-border/60 py-2.5 text-[13px] last:border-b-0"
               >
-                {c.state === "done" ? "✓" : c.state === "warn" ? "!" : "○"}
-              </span>
-              <span className="text-foreground">{c.label}</span>
-            </li>
-          ))}
+                <span
+                  className={
+                    c.state === "done"
+                      ? "grid h-5 w-5 place-items-center rounded-full border border-emerald-200 bg-emerald-50 text-[10px] font-extrabold text-emerald-700"
+                      : c.state === "warn"
+                        ? "grid h-5 w-5 place-items-center rounded-full border border-amber-200 bg-amber-50 text-[10px] font-extrabold text-amber-700"
+                        : "grid h-5 w-5 place-items-center rounded-full border border-border bg-card text-[10px] font-extrabold text-muted/60"
+                  }
+                >
+                  {c.state === "done" ? "✓" : c.state === "warn" ? "!" : "○"}
+                </span>
+                <span className="min-w-0 flex-1 text-foreground">{c.label}</span>
+                {/*
+                 * A gap the manager cannot act on from here is just a complaint.
+                 * Every unfinished check carries the step that closes it.
+                 */}
+                {c.state !== "done" && target ? (
+                  <button
+                    type="button"
+                    onClick={() => onJump(target)}
+                    data-attr={`listing-v2-review-fix-${c.id}`}
+                    className="shrink-0 rounded-full border border-border bg-card px-3 py-1 text-[12.5px] font-bold text-foreground hover:bg-accent/40"
+                  >
+                    Fix
+                  </button>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       </div>
     </StepColumn>
@@ -3333,6 +3352,8 @@ export function ListingEditorV2({
   onPublish,
   title,
   busy = false,
+  isEdit = false,
+  saveState,
 }: {
   submission: ManagerListingSubmissionV1;
   onChange: (next: ManagerListingSubmissionV1) => void;
@@ -3342,9 +3363,24 @@ export function ListingEditorV2({
   onPublish: () => void;
   title: string;
   busy?: boolean;
+  /** Editing a listing that is already public, rather than building a new one. */
+  isEdit?: boolean;
+  /** Autosave status, stated once in the header. */
+  saveState?: ReactNode;
 }) {
   const [step, setStep] = useState(0);
   const [defaults, setDefaults] = useState<ListingHouseDefaults>(() => houseDefaultsForSubmission(submission));
+  /**
+   * Steps the manager has actually opened.
+   *
+   * The rail marks a step done when it has been SEEN, not merely when it is
+   * earlier in the list — on an edit a manager may only ever open Pricing, and
+   * telling them Rooms is "done" because it is step 2 would be a lie.
+   */
+  const [visited, setVisited] = useState<Set<string>>(() => new Set([LISTING_V2_STEPS[0]!.id]));
+  /** Which room and lease type the receipt is quoting. */
+  const [quoteRoomId, setQuoteRoomId] = useState<string | null>(null);
+  const [quoteTerm, setQuoteTerm] = useState<string | null>(null);
   // Set while a room, bathroom or shared space detail is open — see useDetailBack.
   const [closeDetail, setCloseDetail] = useState<{ run: () => void } | null>(null);
   const registerDetailBack = useMemo(
@@ -3354,6 +3390,18 @@ export function ListingEditorV2({
   const patch: Patch = (next) => onChange({ ...submission, ...next });
   const last = LISTING_V2_STEPS.length - 1;
   const stepId = LISTING_V2_STEPS[step]!.id;
+
+  const goTo = (index: number) => {
+    const target = LISTING_V2_STEPS[Math.max(0, Math.min(last, index))]!;
+    setStep(LISTING_V2_STEPS.indexOf(target));
+    setVisited((prev) => (prev.has(target.id) ? prev : new Set(prev).add(target.id)));
+  };
+
+  const rooms = submission.rooms ?? [];
+  const leaseTerms = useMemo(() => listingLeaseTypeScopeOptions(submission), [submission]);
+  const receiptTerm = quoteTerm && leaseTerms.includes(quoteTerm) ? quoteTerm : leaseTerms[0] ?? DEFAULT_QUOTE_TERM;
+  const receiptRoomId = quoteRoomId && rooms.some((r) => r.id === quoteRoomId) ? quoteRoomId : rooms[0]?.id ?? null;
+  const openRoom = rooms.find((r) => r.id === receiptRoomId) ?? rooms[0] ?? null;
 
   // The same assistant the previous wizard offered, told which step it is on so
   // it can answer about the field in front of the manager.
@@ -3368,30 +3416,125 @@ export function ListingEditorV2({
     [title, step, submission],
   );
 
+  /**
+   * What the rail flags for attention.
+   *
+   * Drawn from the same `listingReadiness` the Review step reports, so the rail
+   * and Review can never disagree about what is missing.
+   */
+  const attention = useMemo(() => {
+    const checks = listingReadiness(submission);
+    const unresolved = (id: string) => checks.find((c) => c.id === id && c.state !== "done");
+    return {
+      basics: [unresolved("address"), unresolved("description")].filter(Boolean).length,
+      rooms: [unresolved("rooms"), unresolved("photos")].filter(Boolean).length,
+      bathrooms: (submission.bathrooms ?? []).length === 0 ? 1 : 0,
+      spaces: 0,
+      pricing: [unresolved("terms"), unresolved("deposit")].filter(Boolean).length,
+      review: 0,
+    } as Record<string, number>;
+  }, [submission]);
+
+  const railSteps = LISTING_V2_STEPS.map((s) => ({
+    id: s.id,
+    label: s.label,
+    count:
+      s.id === "rooms"
+        ? rooms.length
+        : s.id === "bathrooms"
+          ? (submission.bathrooms ?? []).length
+          : s.id === "spaces"
+            ? (submission.sharedSpaces ?? []).length
+            : s.id === "pricing"
+              ? leaseTerms.length
+              : undefined,
+    attention: attention[s.id] ?? 0,
+  }));
+
   const body = useMemo(() => {
     switch (stepId) {
       case "basics":
-        return <StepBasics sub={submission} patch={patch} />;
+        return (
+          <>
+            <StepBasics sub={submission} patch={patch} />
+            <div className="mt-8 max-w-[860px]">
+              <AdvancedPanel
+                summary="The building · Move-in · Local compliance"
+                open={false}
+                onToggle={() => undefined}
+                dataAttr="listing-v2-house-keeping"
+              >
+                <HouseKeepingGroups sub={submission} patch={patch} />
+              </AdvancedPanel>
+            </div>
+          </>
+        );
       case "rooms":
         return <StepRooms sub={submission} patch={patch} defaults={defaults} setDefaults={setDefaults} />;
       case "bathrooms":
         return <StepBathrooms sub={submission} patch={patch} />;
       case "spaces":
         return <StepSharedSpaces sub={submission} patch={patch} />;
-      case "advanced":
-        return <StepAdvanced sub={submission} patch={patch} />;
+      case "pricing":
+        return <StepPricing sub={submission} patch={patch} />;
       default:
-        return <StepReview sub={submission} />;
+        return <StepReview sub={submission} onJump={(id) => goTo(LISTING_V2_STEPS.findIndex((s) => s.id === id))} />;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepId, submission, defaults]);
 
+  /**
+   * The right-hand panel for this step.
+   *
+   * Every step has one. A step that had nothing worth showing would be a sign
+   * the step itself is wrong, not a reason for an empty column.
+   */
+  const sidePanel = useMemo(() => {
+    switch (stepId) {
+      case "rooms":
+        return <RoomPreviewPanel sub={submission} room={openRoom} />;
+      case "bathrooms":
+        return <BathroomCoveragePanel sub={submission} />;
+      case "spaces":
+        return <SharedSpacesPanel sub={submission} />;
+      case "pricing":
+        return (
+          <PricingReceiptPanel
+            sub={submission}
+            patch={patch}
+            leaseTerm={receiptTerm}
+            roomId={receiptRoomId}
+            leaseTerms={leaseTerms.length > 0 ? leaseTerms : [DEFAULT_QUOTE_TERM]}
+            onRoomChange={setQuoteRoomId}
+            onLeaseTermChange={setQuoteTerm}
+          />
+        );
+      default:
+        return <ListingPreviewPanel sub={submission} />;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepId, submission, openRoom, receiptTerm, receiptRoomId, leaseTerms]);
+
   return (
-    <WizardModal
+    <ListingWorkspace
       title={title}
+      subtitle={
+        isEdit
+          ? `Editing the public listing for ${[submission.address, submission.city, submission.state].filter(Boolean).join(", ")}`
+          : [submission.address, submission.city, submission.state].filter(Boolean).join(", ") || "New listing"
+      }
+      badge={
+        isEdit ? (
+          <span className="rounded-full bg-[var(--status-confirmed-bg)] px-2 py-0.5 text-[11.5px] font-bold text-[var(--status-confirmed-fg)]">
+            Listed
+          </span>
+        ) : null
+      }
+      saveState={saveState}
       onClose={onClose}
       headerAside={<ModalAssistantStrip contextHint={assistantContext} storageScopeKey="listing-wizard-v2" />}
-      stepper={<WizardStepper steps={LISTING_V2_STEPS} current={step} onJump={setStep} />}
+      rail={<StepRail steps={railSteps} current={step} onJump={goTo} visited={visited} />}
+      sidePanel={sidePanel}
       footer={
         <>
           <div className="flex items-center gap-2.5">
@@ -3399,15 +3542,15 @@ export function ListingEditorV2({
               type="button"
               disabled={step === 0 && !closeDetail}
               onClick={() => {
+                // A manager looking at Room 3 who presses the only Back on screen
+                // means "back to the rooms", not "back to Basics".
                 if (closeDetail) closeDetail.run();
-                else setStep((s) => Math.max(0, s - 1));
+                else goTo(step - 1);
               }}
               className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
             >
               Back
             </button>
-            {/* Saving lives here, next to the other actions, rather than in the
-                header corner where it competed with Ask PropLane and the close. */}
             <button
               type="button"
               onClick={() => onSaveExit(step)}
@@ -3415,19 +3558,24 @@ export function ListingEditorV2({
               data-attr="listing-v2-save-exit"
               className="min-h-[44px] rounded-full px-4 text-[13.5px] font-bold text-muted hover:text-foreground disabled:opacity-60"
             >
-              Save &amp; exit
+              {isEdit ? "Save & close" : "Save & exit"}
             </button>
           </div>
+          <span className="hidden text-[12.5px] text-muted sm:inline">
+            Step {step + 1} of {LISTING_V2_STEPS.length}
+          </span>
           {step === last ? (
             <div className="flex gap-2.5">
-              <button
-                type="button"
-                onClick={() => onSaveExit(step)}
-                disabled={busy}
-                className="min-h-[44px] rounded-full border border-border bg-card px-5 text-[14px] font-bold text-foreground disabled:opacity-60"
-              >
-                Keep as draft
-              </button>
+              {isEdit ? null : (
+                <button
+                  type="button"
+                  onClick={() => onSaveExit(step)}
+                  disabled={busy}
+                  className="min-h-[44px] rounded-full border border-border bg-card px-5 text-[14px] font-bold text-foreground disabled:opacity-60"
+                >
+                  Keep as draft
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onPublish}
@@ -3435,23 +3583,24 @@ export function ListingEditorV2({
                 data-attr="listing-v2-publish"
                 className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
               >
-                {busy ? "Publishing…" : "Publish"}
+                {busy ? (isEdit ? "Saving…" : "Publishing…") : isEdit ? "Publish changes" : "Publish"}
               </button>
             </div>
           ) : (
             <button
               type="button"
-              onClick={() => setStep((s) => Math.min(last, s + 1))}
+              onClick={() => goTo(step + 1)}
               data-attr="listing-v2-next"
               className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
             >
-              Next
+              Continue to {LISTING_V2_STEPS[step + 1]!.label}
             </button>
           )}
         </>
       }
     >
       <DetailBackContext.Provider value={registerDetailBack}>{body}</DetailBackContext.Provider>
-    </WizardModal>
+      <SideBelow>{sidePanel}</SideBelow>
+    </ListingWorkspace>
   );
 }
