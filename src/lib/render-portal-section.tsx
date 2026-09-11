@@ -27,7 +27,7 @@ import { ResidentDocumentsPanel } from "@/components/portal/resident-documents-p
 import { ResidentApplicationsPanel } from "@/components/portal/resident-applications-panel";
 import { ResidentTourPanel } from "@/components/portal/resident-tour-panel";
 import { ResidentLeasePanel } from "@/components/portal/resident-lease-panel";
-import { ResidentProfilePanel } from "@/components/portal/resident-profile-panel";
+import { ResidentProfileSection } from "@/components/portal/resident-profile-section";
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { VendorDashboard } from "@/components/portal/vendor-dashboard";
 import { VendorWorkOrdersPanel } from "@/components/portal/vendor-work-orders-panel";
@@ -1227,7 +1227,7 @@ export async function renderPortalSection(
 
   if (kind === "resident" && section === "profile") {
     if (tabParts?.length) notFound();
-    return <ResidentProfilePanel />;
+    return <ResidentProfileSection />;
   }
 
   if (kind === "resident" && section === "payments") {
