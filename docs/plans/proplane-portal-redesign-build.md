@@ -72,10 +72,18 @@ Prototype screenshots and simulator checks are references, not product evidence.
   were dropped server-side). Status tabs, filters, assignee, due, reminders
   and bulk actions were already in place; vendor-assigned tasks share the
   same record.
-- [ ] Offered lease types and inline amenities checkboxes with Other details.
+- [x] Offered lease types and inline amenities checkboxes with Other details.
   Daily/weekly, 3/6/9/12 months, month-to-month, long-term and custom bases;
   automatic custom proration and optional advanced partial-period rate.
-  Listing setup has no stay dates; actual leases may start any time.
+  Listing setup has no stay dates; actual leases may start any time. — this
+  commit: lease options and amenities are visible checkbox grids
+  (`InlineCheckboxGroup`) with an Other field for amenities; Long-term gains
+  offered lengths (3/6/9/12 months, `longTermLengthsOffered`) that pre-fill
+  the applicant's move-out date from move-in — the lease type stays
+  Long-term and the dates stay the truth, so AXI-143's four choices hold.
+  Daily/weekly (short-term), month-to-month, custom with automatic proration
+  and the optional per-day rate were already in place; setup asks only
+  "Available from", never stay dates.
 - [ ] Bookings calendar open by default, reservations from dated bookings,
   signed leases/application holds, reversible explicit date blocks with reasons,
   overlap/capacity enforcement and exclusive check-out.

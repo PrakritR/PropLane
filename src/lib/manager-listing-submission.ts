@@ -510,6 +510,12 @@ export type ManagerListingSubmissionV1 = {
   houseVideoDataUrl?: string | null;
   /** Lease lengths offered on this listing (checkbox selections on Pricing step). */
   allowedLeaseTerms?: string[];
+  /**
+   * Fixed lengths a Long-term let is offered at (months: 3, 6, 9, 12). Empty
+   * means the applicant's dates decide the length. The lease type stays
+   * "Long-term"; a length only pre-fills the move-out date on the application.
+   */
+  longTermLengthsOffered?: number[];
   /** Display copy derived from `allowedLeaseTerms`; kept for older listings and generated lease text. */
   leaseTermsBody: string;
   shortTermRentalsAllowed?: boolean;
@@ -870,6 +876,19 @@ export function syncAirbnbLeaseTermInAllowed(terms: string[], airbnbRentalsAllow
   const without = terms.filter((t) => t !== AIRBNB_LEASE_TERM);
   const withAirbnb = airbnbRentalsAllowed ? [...without, AIRBNB_LEASE_TERM] : without;
   return sortLeaseTermsCanonical(withAirbnb);
+}
+
+/** The lengths a Long-term let may be offered at, in months. */
+export const LONG_TERM_LENGTH_CHOICES = [3, 6, 9, 12] as const;
+
+export function normalizeLongTermLengths(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const picked = new Set<number>();
+  for (const value of raw) {
+    const n = typeof value === "number" ? value : Number(value);
+    if ((LONG_TERM_LENGTH_CHOICES as readonly number[]).includes(n)) picked.add(n);
+  }
+  return [...picked].sort((a, b) => a - b);
 }
 
 export function resolveAllowedLeaseTerms(
@@ -1987,6 +2006,7 @@ export function normalizeManagerListingSubmissionV1(
     holdingDeposit: typeof sub.holdingDeposit === "string" ? sub.holdingDeposit : "",
     holdingDepositTiming: sub.holdingDepositTiming === "at_application" ? "at_application" : "after_approval",
     monthToMonthSurcharge: typeof sub.monthToMonthSurcharge === "string" ? sub.monthToMonthSurcharge : "",
+    longTermLengthsOffered: normalizeLongTermLengths(sub.longTermLengthsOffered),
     // Only an explicit `true` turns rollover on. Anything else — absent, a
     // string, a stored null — keeps the standard "terminates at the end of the
     // term" promise, because the lease document must never assert a continuation

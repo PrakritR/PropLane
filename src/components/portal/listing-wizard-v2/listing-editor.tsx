@@ -23,6 +23,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Input, Select, Textarea } from "@/components/ui/input";
+import { InlineCheckboxGroup } from "@/components/ui/inline-checkbox-group";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { uploadListingImageFiles } from "@/lib/listing-media-client";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
@@ -54,6 +55,8 @@ import {
   type ManagerCustomFeeRow,
   type ManagerRoomSubmission,
   type ManagerSharedSpaceSubmission,
+  LONG_TERM_LENGTH_CHOICES,
+  normalizeLongTermLengths,
 } from "@/lib/manager-listing-submission";
 import {
   AIRBNB_LEASE_TERM,
@@ -205,21 +208,37 @@ function AmenityChips({
   const labels = presets.map((p) => p.label);
   const selected = lines.filter((l) => labels.includes(l));
   const custom = lines.filter((l) => !labels.includes(l));
+  // The approved design shows every amenity as a visible checkbox, with one
+  // "Other" field for anything the catalogue lacks. Stored shape is unchanged:
+  // newline-separated labels, presets in catalogue order, custom lines after.
   return (
-    <CheckboxMultiSelect
-      hideLabel
-      label={label}
-      options={presets.map((p) => ({ value: p.label, label: p.label }))}
-      selected={selected}
-      emptyLabel="Choose amenities…"
-      searchPlaceholder="Search amenities…"
-      onChange={(next) => {
-        // Preserve the manager's own lines, and keep the presets in their
-        // catalogue order so the stored value does not churn on every edit.
-        const picked = new Set(next);
-        onChange([...labels.filter((l) => picked.has(l)), ...custom].join("\n"));
-      }}
-    />
+    <div className="space-y-2">
+      <InlineCheckboxGroup
+        hideLabel
+        label={label}
+        columns={3}
+        options={presets.map((p) => ({ value: p.label, label: p.label }))}
+        selected={selected}
+        dataAttr="amenity"
+        onChange={(next) => {
+          const picked = new Set(next);
+          onChange([...labels.filter((l) => picked.has(l)), ...custom].join("\n"));
+        }}
+      />
+      <label className="block text-xs font-semibold uppercase tracking-wide text-muted">
+        Other (one per line)
+        <textarea
+          className="mt-1 min-h-[44px] w-full rounded-xl border border-border bg-card px-3 py-2 text-sm font-normal normal-case tracking-normal text-foreground"
+          value={custom.join("\n")}
+          placeholder="Anything not listed above"
+          data-attr="amenity-other"
+          onChange={(e) => {
+            const extra = e.target.value.split("\n").map((l) => l.trim()).filter((l) => l && !labels.includes(l));
+            onChange([...labels.filter((l) => selected.includes(l)), ...extra].join("\n"));
+          }}
+        />
+      </label>
+    </div>
   );
 }
 
@@ -2536,6 +2555,24 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
  * listing, which is what a manager means when they open one room and change
  * what it is let on.
  */
+function LongTermLengthsField({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  const lengths = normalizeLongTermLengths(sub.longTermLengthsOffered);
+  return (
+    <InlineCheckboxGroup
+      label="Long-term lengths offered"
+      columns={2}
+      dataAttr="long-term-length"
+      options={LONG_TERM_LENGTH_CHOICES.map((months) => ({
+        value: String(months),
+        label: `${months} months`,
+        hint: months === 12 ? "One year, then the rollover rule applies." : undefined,
+      }))}
+      selected={lengths.map(String)}
+      onChange={(next) => patch({ longTermLengthsOffered: normalizeLongTermLengths(next.map(Number)) })}
+    />
+  );
+}
+
 function LeaseTypesField({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const allowed = resolveAllowedLeaseTerms(sub);
   const named = LEASE_TERM_CHOICES.filter((t) => t !== CUSTOM_LEASE_TERM);
@@ -2546,9 +2583,10 @@ function LeaseTypesField({ sub, patch }: { sub: ManagerListingSubmissionV1; patc
     ...(allowed.includes(CUSTOM_LEASE_TERM) ? [CUSTOM_LEASE_TERM] : []),
   ];
   return (
-    <CheckboxMultiSelect
-      hideLabel
-      label="Lease types you offer"
+    <InlineCheckboxGroup
+      label={`Lease options offered · ${selected.length} selected`}
+      columns={2}
+      dataAttr="lease-type"
       options={[
         {
           value: SHORT_TERM_LEASE_TERM,
@@ -2573,7 +2611,6 @@ function LeaseTypesField({ sub, patch }: { sub: ManagerListingSubmissionV1; patc
         },
       ]}
       selected={selected}
-      emptyLabel="Choose lease types…"
       onChange={(next) => {
         const shortTerm = next.includes(SHORT_TERM_LEASE_TERM);
         const airbnb = next.includes(AIRBNB_LEASE_TERM);
@@ -3164,7 +3201,17 @@ function StepPricing({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: P
       <ListingPricingSections
         sub={sub}
         patch={patch}
-        leaseTypesField={<LeaseTypesField sub={sub} patch={patch} />}
+        leaseTypesField={
+          <div className="space-y-4">
+            <LeaseTypesField sub={sub} patch={patch} />
+            {resolveAllowedLeaseTerms(sub).includes(LONG_TERM_LEASE_TERM) ? (
+              <div>
+                <LongTermLengthsField sub={sub} patch={patch} />
+                <p className="mt-1 text-xs text-muted">Leave all unchecked and the applicant&apos;s move-in and move-out dates set the length.</p>
+              </div>
+            ) : null}
+          </div>
+        }
         payments={<HousePaymentsGroup sub={sub} patch={patch} />}
         applications={<HouseApplicationsGroup sub={sub} patch={patch} />}
         leaseDocument={
