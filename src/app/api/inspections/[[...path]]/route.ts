@@ -4,7 +4,7 @@ import { resolveAgentContext } from "@/lib/tools/context";
 import { resolveResidentAgentContext } from "@/lib/tools/resident-context";
 import { InspectionError } from "@/lib/inspections/model";
 import {
-  addInspectionPhoto, changeInspectionStatus, createInspection, inspectionDetail,
+  addInspectionPhoto, changeResidentSubmission, ensureInspection, inspectionDetail,
   listInspectionResidencies, listInspections, removeInspectionPhoto, saveInspection,
   type InspectionActor,
 } from "@/lib/inspections/server";
@@ -80,11 +80,13 @@ async function handle(req: NextRequest, context: RouteContext) {
     }
     if (req.method === "POST") {
       if (!id) {
-        const created = await createInspection(actor, await body(req));
-        return json(await inspectionDetail(actor, created.id), 201);
+        // Open-or-create: the residency row IS the report, so a second tap returns the same
+        // report rather than a duplicate or a "one already exists" refusal.
+        const report = await ensureInspection(actor, await body(req));
+        return json(await inspectionDetail(actor, report.id), 201);
       }
-      if (path[1] === "status") {
-        await changeInspectionStatus(actor, id, await body(req));
+      if (path[1] === "submission") {
+        await changeResidentSubmission(actor, id, await body(req));
         return json(await inspectionDetail(actor, id));
       }
       if (path[1] === "photos") {

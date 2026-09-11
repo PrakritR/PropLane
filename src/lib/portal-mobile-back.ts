@@ -40,7 +40,15 @@ export function resolvePortalMobileBackTarget(
   if (!section || section === "dashboard") return null;
 
   if (section === "applications" && sectionParts[1] === "apply") {
-    const wizardStep = Number(searchParams?.get("wizardStep") ?? "0");
+    // An ABSENT `wizardStep` on the apply path means step 1, the wizard's own
+    // starting step — not "unknown". The wizard used to stamp `?wizardStep=1`
+    // into the URL on first mount purely so this read would see it, and that
+    // write cost a server round-trip and a visible skeleton frame every time a
+    // resident opened an application link. The write is gone; the default lives
+    // here instead, so the dashboard back action stays hidden on step 1 exactly
+    // as it did before.
+    const raw = searchParams?.get("wizardStep")?.trim();
+    const wizardStep = raw ? Number(raw) : 1;
     if (wizardStep >= 1 && wizardStep <= 3) return null;
   }
 

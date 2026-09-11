@@ -297,9 +297,8 @@ W, `create_owner_distribution` W, `approve_owner_distribution` W,
 `delete_promotion` W destructive), team (`list_co_managers` R), documents
 (`list_documents` R), services (`list_service_requests` R,
 `decide_service_request` W), inspections (`list_inspections` R,
-`get_inspection` R, `create_inspection` W, `save_inspection_observations` W,
-`change_inspection_status` W destructive — completion is irreversible, so manager
-SMS withholds it automatically; `file_inspection_photo` W — files a photo the
+`get_inspection` R, `open_inspection` W, `save_inspection_observations` W,
+`file_inspection_photo` W — files a photo the
 caller already uploaded in chat into their own report section, never a condition
 rating; see [`docs/agents/inspections.md`](agents/inspections.md)).
 
@@ -311,8 +310,8 @@ Reads: `get_my_balance`, `list_my_charges`, `get_my_lease`,
 `get_my_payment_methods`, `get_my_scheduled_messages`,
 `list_my_shared_documents`, `list_open_tour_slots`, `list_inspections`,
 `get_inspection`. Writes:
-`create_inspection`, `save_inspection_observations`,
-`change_inspection_status`, `file_inspection_photo` (the same shared inspection
+`open_inspection`, `save_inspection_observations`,
+`file_inspection_photo` (the same shared inspection
 service the manager uses, scoped to this resident's own residency),
 `create_service_request`, `add_service_request_note`,
 `report_maintenance_issue`, `update_work_order`, `cancel_work_order`

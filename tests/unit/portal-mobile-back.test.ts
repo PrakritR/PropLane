@@ -54,6 +54,24 @@ describe("resolvePortalMobileBackTarget", () => {
     expect(resolvePortalMobileBackTarget("/resident/applications/apply", residentPortal, params)).toBeNull();
   });
 
+  // The wizard no longer stamps `?wizardStep=1` on first mount — that write cost
+  // a server round-trip and a skeleton frame every time a resident opened an
+  // application link. Absence therefore MEANS step 1, and step 1 must keep
+  // hiding the dashboard back action exactly as it did when the param was there.
+  it("treats an absent wizardStep on the apply path as step 1", () => {
+    expect(resolvePortalMobileBackTarget("/resident/applications/apply", residentPortal)).toBeNull();
+    expect(
+      resolvePortalMobileBackTarget("/resident/applications/apply", residentPortal, new URLSearchParams()),
+    ).toBeNull();
+    expect(
+      resolvePortalMobileBackTarget(
+        "/resident/applications/apply",
+        residentPortal,
+        new URLSearchParams({ propertyId: "mgr-alder" }),
+      ),
+    ).toBeNull();
+  });
+
   it("returns dashboard from apply after step 3", () => {
     const params = new URLSearchParams({ wizardStep: "4" });
     expect(resolvePortalMobileBackTarget("/resident/applications/apply", residentPortal, params)).toEqual({

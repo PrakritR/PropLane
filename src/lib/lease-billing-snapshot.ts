@@ -367,14 +367,18 @@ export function buildLeaseBillingSnapshot(
 
   let dueAtSigning: number;
   if (sub) {
-    dueAtSigning = computeLeasePaymentAtSigning(sub, {
-      securityDeposit: depositCollectionDue,
-      moveInFee: moveInFeeDue,
-      monthlyRent: firstPeriodRentDue,
-      monthlyUtilities: firstPeriodUtilitiesDue,
-      otherSigningCost: otherCostDue,
-      customOneTimeFees: customOneTimeFeesDue,
-    });
+    dueAtSigning = computeLeasePaymentAtSigning(
+      sub,
+      {
+        securityDeposit: depositCollectionDue,
+        moveInFee: moveInFeeDue,
+        monthlyRent: firstPeriodRentDue,
+        monthlyUtilities: firstPeriodUtilitiesDue,
+        otherSigningCost: otherCostDue,
+        customOneTimeFees: customOneTimeFeesDue,
+      },
+      applicant.application?.leaseTerm,
+    );
   } else {
     dueAtSigning = dueAtSigningFromCharges(
       charges,
@@ -383,16 +387,20 @@ export function buildLeaseBillingSnapshot(
       resolvedProratedUtilities,
     );
     if (dueAtSigning <= 0) {
-      dueAtSigning = computeLeasePaymentAtSigning(sub, {
-        securityDeposit: depositCollectionDue,
-        moveInFee: moveInFeeDue,
-        monthlyRent,
-        monthlyUtilities,
-        proratedRent: resolvedProratedRent,
-        proratedUtilities: resolvedProratedUtilities,
-        otherSigningCost: otherCostDue,
-        customOneTimeFees: customOneTimeFeesDue,
-      });
+      dueAtSigning = computeLeasePaymentAtSigning(
+        sub,
+        {
+          securityDeposit: depositCollectionDue,
+          moveInFee: moveInFeeDue,
+          monthlyRent,
+          monthlyUtilities,
+          proratedRent: resolvedProratedRent,
+          proratedUtilities: resolvedProratedUtilities,
+          otherSigningCost: otherCostDue,
+          customOneTimeFees: customOneTimeFeesDue,
+        },
+        applicant.application?.leaseTerm,
+      );
     }
   }
 

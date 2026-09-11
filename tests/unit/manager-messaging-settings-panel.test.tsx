@@ -33,26 +33,46 @@ import {
 import type { ManagerMessagingNumberStatus } from "@/lib/sms/manager-messaging-number";
 
 /**
- * The panel now also mounts the pay-as-you-go billing card, which fetches
- * /api/manager/comms-billing on mount. A plain `mockResolvedValueOnce` queue
- * gets consumed by that call, so every positional assertion below shifted.
- * Route by URL instead: billing answers "disabled" (the card renders nothing),
- * and the queued responses stay reserved for the work-number endpoint.
+ * The panel mounts the pay-as-you-go billing card (which fetches
+ * /api/manager/comms-billing) and reads /api/manager/assistant-email so the
+ * resident announcement can name every live channel. A plain
+ * `mockResolvedValueOnce` queue gets consumed by those calls, so every
+ * positional assertion below shifts. Route by URL instead: billing answers
+ * "disabled" (the card renders nothing), the work email answers "none", and the
+ * queued responses stay reserved for the work-number endpoint.
  */
+const SIDE_ENDPOINTS = ["/api/manager/comms-billing", "/api/manager/assistant-email"];
+
 function messagingFetchMock(responses: (Response | Promise<Response>)[]) {
   const queue = [...responses];
   const fn = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(async (input) => {
-    if (String(input).includes("/api/manager/comms-billing")) {
+    const url = String(input);
+    if (url.includes("/api/manager/comms-billing")) {
       return Response.json({ paygEnabled: false });
+    }
+    if (url.includes("/api/manager/assistant-email")) {
+      return Response.json({
+        provisioningAvailable: true,
+        sendingAvailable: false,
+        storageReady: true,
+        planTier: "paid",
+        entitlement: { eligible: true, tier: "pro", source: "stripe" },
+        workspaceRole: "primary",
+        address: null,
+        state: "requestable",
+        canRequest: true,
+        canUse: false,
+        requestedAtSignup: false,
+      });
     }
     return queue.shift() ?? Response.json({});
   });
   return fn;
 }
 
-/** Only the work-number calls — billing noise excluded. */
+/** Only the work-number calls — billing and work-email noise excluded. */
 function numberCalls(fn: ReturnType<typeof messagingFetchMock>) {
-  return fn.mock.calls.filter((c) => !String(c[0]).includes("/api/manager/comms-billing"));
+  return fn.mock.calls.filter((c) => !SIDE_ENDPOINTS.some((url) => String(c[0]).includes(url)));
 }
 
 vi.mock("@/hooks/use-manager-user-id", () => ({
@@ -311,7 +331,7 @@ describe("ManagerMessagingSettingsPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Request work number" }));
     const dialog = await screen.findByRole("dialog");
     expect(
-      within(dialog).getByText("Want to send a message to all your residents to text this new number now?"),
+      within(dialog).getByText("Want to send a message to all your residents about how to reach you now?"),
     ).toBeTruthy();
     expect(within(dialog).getByText("To")).toBeTruthy();
     expect(

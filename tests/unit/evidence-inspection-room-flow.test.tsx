@@ -3,11 +3,15 @@
  * Render regression + evidence harness for the resident/manager room inspection.
  *
  * Drives the REAL `InspectionEditor` through the flow a person actually performs —
- * open a room section, add a photo, let it autosave, read the generated document,
- * submit with the acknowledgment confirmation, then approve as the manager — and
- * writes the rendered markup to EVIDENCE_DIR (when set) so it can be screenshotted
- * in a browser. Same convention as `evidence-lease-template-ui.test.tsx`: the
- * render is always exercised, the HTML is only written when EVIDENCE_DIR asks.
+ * open a room section, add a photo from the section's own camera, let it autosave, submit
+ * it — and writes the rendered markup to EVIDENCE_DIR (when set) so it can be screenshotted
+ * in a browser. Same convention as
+ * `evidence-lease-template-ui.test.tsx`: the render is always exercised, the HTML is
+ * only written when EVIDENCE_DIR asks.
+ *
+ * There is no review ritual to drive: a report is a room and photos of it, from either
+ * side. The one gate is the resident's own submit, which closes THEIR side until a manager
+ * reopens it.
  */
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -39,9 +43,12 @@ function roomReport(overrides: Partial<InspectionRecord> = {}): InspectionRecord
   });
 }
 
+/** The row that OPENS a section, not the camera button sitting beside it. */
+const sectionRow = (label: string) => screen.getByRole("button", { name: new RegExp(`^${label}`) });
+
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-it("resident: room sections, photo upload, autosave, document preview, submit + acknowledge", async () => {
+it("resident: room sections, photo upload from the section, autosave, submit", async () => {
   const detail: InspectionDetail = { report: roomReport(), baseline: null, canEdit: true };
 
   // Only the resident's assigned room — no common areas, no other rooms.
@@ -55,10 +62,13 @@ it("resident: room sections, photo upload, autosave, document preview, submit + 
   for (const gone of [/^Refresh$/, /^Reload$/, /^Save$/, /^Search$/]) {
     expect(screen.queryByRole("button", { name: gone })).toBeNull();
   }
+  // Every section carries its own camera AND its own checkbox, so one tap shoots and a tick
+  // gathers several sections into one action.
   expect(screen.getAllByRole("checkbox")).toHaveLength(8);
-  writeEvidenceSurface("inspection-01-room-sections", "Resident · Inspections · assigned room sections only, each row a checkbox that opens one section. Pinned bottom actions.", 150);
+  expect(screen.getAllByRole("button", { name: /^Add photos to / })).toHaveLength(8);
+  writeEvidenceSurface("inspection-01-room-sections", "Resident · Inspections · assigned room sections only, each row with a checkbox and its own camera. Pinned bottom actions: Download PDF, Add photos, Submit photos.", 150);
 
-  fireEvent.click(screen.getByRole("button", { name: /Room overview/ }));
+  fireEvent.click(sectionRow("Room overview"));
 
   // Typing a note autosaves after the pause — no Save button anywhere.
   const noted = structuredClone(detail);
@@ -81,72 +91,76 @@ it("resident: room sections, photo upload, autosave, document preview, submit + 
     id: "photo-1", path: "private/room-3.jpg", url: PHOTO_URL, uploadedBy: "resident", uploadedAt: "2026-09-05T10:00:00Z",
   });
   request.mockResolvedValueOnce(withPhoto);
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Upload photos" })); });
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Add photos" })); });
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Choose from files" })); });
   await screen.findByText("Photo added. Your document is up to date.");
   expect(screen.getByAltText("Room overview evidence")).toBeTruthy();
-  writeEvidenceSurface("inspection-02-section-photo-note", "Resident · one open section · photo uploaded from the picker, optional note autosaved (“Saved automatically.” / “Photo added.”). No Good/liability inferred from the photo.", 150);
+  writeEvidenceSurface("inspection-02-section-photo-note", "Resident · one open section · photo uploaded from the picker, optional note autosaved (“Saved automatically.” / “Photo added.”). No condition or liability inferred from the photo.", 150);
 
-  // The document preview is deterministic: exactly what was saved.
-  fireEvent.click(screen.getByRole("button", { name: "View" }));
-  expect(screen.getByText("ROOM CONDITION REPORT")).toBeTruthy();
-  expect(screen.getByText("Small scuff to the left of the door frame.")).toBeTruthy();
-  expect(screen.getByText(/Resident acknowledgment pending/)).toBeTruthy();
-  writeEvidenceSurface("inspection-03-document-preview", "Resident · generated document preview — Room 3 only, resident observations, acknowledgment + manager approval both pending.", 150);
-
-  expect(screen.queryByRole("button", { name: "Submit for review" })).toBeNull();
-  cleanup();
+  // Submitting closes the RESIDENT's side only, and cannot be undone from here.
   const submitted = structuredClone(withPhoto);
-  submitted.report.status = "submitted"; submitted.report.revision = 4;
-  const acknowledged = structuredClone(submitted); acknowledged.report.revision = 5;
-  acknowledged.report.document.residentAcknowledgment = { userId: "resident", at: "2026-09-05T11:00:00Z" };
-  request.mockResolvedValueOnce(acknowledged);
-  render(<InspectionEditor initial={submitted} role="resident" userId="resident" onBack={() => {}} onChanged={() => {}} />);
-  fireEvent.click(screen.getByRole("button", { name: "Confirm review" }));
-  const dialog = await screen.findByRole("dialog");
-  expect(dialog.textContent).toContain("not agreement with charges");
-  await act(async () => { fireEvent.click(dialog.querySelector("[data-attr='inspection-confirm']")!); });
-  expect(JSON.parse(request.mock.calls.at(-1)![2].body)).toEqual({ revision: 4, action: "acknowledge" });
-  expect(screen.queryByRole("button", { name: "Confirm review" })).toBeNull();
+  submitted.report.revision = 4;
+  submitted.report.document.residentSubmission = { userId: "resident", at: "2026-09-05T11:00:00Z" };
+  request.mockResolvedValueOnce(submitted);
+  fireEvent.click(screen.getByRole("button", { name: "Back to room sections" }));
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Submit photos" })); });
+  expect(JSON.parse(request.mock.calls.at(-1)![2].body)).toEqual({ revision: 3, action: "submit" });
+  expect(screen.queryByRole("button", { name: "Submit photos" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Add photos" })).toBeNull();
+  expect(screen.getAllByText(/Ask your manager to reopen/).length).toBeGreaterThan(0);
+  writeEvidenceSurface("inspection-03-resident-submitted", "Resident · after submitting — their side is read-only and only the manager can reopen it. Download PDF remains.", 150);
   vi.unstubAllGlobals();
 });
 
-it("manager: approves only once the resident has acknowledged, and a completed report is locked", async () => {
-  const report = roomReport({ status: "submitted", revision: 5 });
-  report.document.areas[0]!.items[0]!.resident.notes = "Small scuff to the left of the door frame.";
-  report.document.areas[0]!.items[0]!.resident.photos.push({
+/**
+ * "There is a room, either resident or manager uploads photos in move-in and move-out."
+ * No confirmation, no approval, no review — the only state is the resident's submit, and it
+ * never closes the MANAGER's side.
+ */
+it("offers no review ritual, and the resident submit never closes the manager's side", async () => {
+  const draft = roomReport();
+  draft.document.areas[0]!.items[0]!.resident.notes = "Small scuff to the left of the door frame.";
+  draft.document.areas[0]!.items[0]!.resident.photos.push({
     id: "photo-1", path: "private/room-3.jpg", url: PHOTO_URL, uploadedBy: "resident", uploadedAt: "2026-09-05T10:00:00Z",
   });
-  report.document.residentAcknowledgment = { userId: "resident", at: "2026-09-05T11:00:00Z", revision: 4 };
-  report.document.history = [
-    { at: "2026-09-05T09:00:00Z", role: "manager", action: "created" },
-    { at: "2026-09-05T10:30:00Z", role: "resident", action: "submitted" },
-    { at: "2026-09-05T11:00:00Z", role: "resident", action: "acknowledged" },
-  ];
-  const detail: InspectionDetail = { report, baseline: null, canEdit: true };
-  render(<InspectionEditor initial={detail} role="manager" userId="owner" onBack={vi.fn()} onChanged={vi.fn()} />);
-  fireEvent.click(screen.getByRole("button", { name: /Room overview/ }));
-  // The manager reads the resident's observations separately from their own.
-  expect(screen.getByText("Resident observations")).toBeTruthy();
-  expect((screen.getByRole("button", { name: "Approve inspection" }) as HTMLButtonElement).disabled).toBe(false);
-  writeEvidenceSurface("inspection-06-manager-review", "Manager · submitted report — resident observations shown separately, Request changes + Approve inspection pinned. Approve is enabled only because the resident acknowledged.", 150);
 
-  const completed = structuredClone(detail);
-  completed.report.status = "completed"; completed.report.revision = 6;
-  request.mockResolvedValueOnce(completed);
-  fireEvent.click(screen.getByRole("button", { name: "Approve inspection" }));
-  await screen.findByRole("dialog");
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Approve inspection", selector: "[data-attr='inspection-confirm']" })); });
-  expect(screen.getByText("Completed")).toBeTruthy();
-  // A completed report is immutable: no editing, no submit, no approve.
-  for (const gone of ["Upload photos", "Submit for review", "Approve inspection", "Request changes"]) {
+  render(<InspectionEditor initial={{ report: structuredClone(draft), baseline: null, canEdit: true }} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+  for (const gone of ["Submit for review", "Request confirmation", "Confirm review", "Request changes", "Approve inspection", "Mark reviewed", "View document"]) {
     expect(screen.queryByRole("button", { name: gone })).toBeNull();
   }
-  writeEvidenceSurface("inspection-07-completed-locked", "Manager · completed report is permanently locked — read-only observations, no upload/submit/approve controls remain.", 150);
+  expect(screen.getByRole("button", { name: "Add photos" })).toBeTruthy();
+  writeEvidenceSurface("inspection-04-resident-photos-only", "Resident · a report with saved photos and notes — the pinned footer holds Add photos and View document, and nothing else. No submit, no confirmation.", 150);
+  cleanup();
+
+  // The manager opens the SAME report: reads the resident's evidence, adds their own.
+  render(<InspectionEditor initial={{ report: structuredClone(draft), baseline: null, canEdit: true }} role="manager" userId="owner" onBack={vi.fn()} onChanged={vi.fn()} />);
+  for (const gone of ["Request confirmation", "Approve inspection", "Request changes", "Mark reviewed", "Submit photos"]) {
+    expect(screen.queryByRole("button", { name: gone })).toBeNull();
+  }
+  fireEvent.click(sectionRow("Room overview"));
+  // The manager reads the resident's evidence separately from their own.
+  expect(screen.getByText("Resident observations")).toBeTruthy();
+  expect(screen.getByRole("textbox", { name: "Room overview notes" })).toBeTruthy();
+  writeEvidenceSurface("inspection-05-manager-same-report", "Manager · the same report — the resident's photos and notes read as their own section, and the manager adds theirs beside them. No approval gate.", 150);
+  cleanup();
+
+  // A resident who has submitted locks their own side; the manager's never locks, and only
+  // the manager can reopen theirs.
+  const afterSubmit = structuredClone(draft);
+  afterSubmit.document.residentSubmission = { userId: "resident", at: "2026-09-05T11:00:00Z" };
+  render(<InspectionEditor initial={{ report: structuredClone(afterSubmit), baseline: null, canEdit: true }} role="manager" userId="owner" onBack={vi.fn()} onChanged={vi.fn()} />);
+  expect(screen.getByRole("button", { name: "Add photos" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Allow changes" })).toBeTruthy();
+  cleanup();
+
+  render(<InspectionEditor initial={{ report: structuredClone(afterSubmit), baseline: null, canEdit: true }} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
+  expect(screen.queryByRole("button", { name: "Add photos" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Allow changes" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Download PDF" })).toBeTruthy();
 });
 
 it("move-out: the move-in baseline stays readable beside the new observations", async () => {
-  const baseline = roomReport({ id: "baseline-id", status: "completed", inspection_date: "2026-03-01" });
+  const baseline = roomReport({ id: "baseline-id", inspection_date: "2026-03-01" });
   baseline.document.areas[0]!.items[0]!.resident.notes = "Wall was clean at move-in.";
   baseline.document.areas[0]!.items[0]!.resident.photos.push({
     id: "baseline-photo", path: "private/baseline.jpg", url: PHOTO_URL, uploadedBy: "resident", uploadedAt: "2026-03-01T10:00:00Z",
@@ -157,58 +171,10 @@ it("move-out: the move-in baseline stays readable beside the new observations", 
     canEdit: true,
   };
   render(<InspectionEditor initial={detail} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
-  fireEvent.click(screen.getByRole("button", { name: /Room overview/ }));
+  fireEvent.click(sectionRow("Room overview"));
   // Same residency / property / manager / room, with the move-in report as baseline.
   expect(screen.getByText(/Move-in photos and notes · 2026-03-01/)).toBeTruthy();
   fireEvent.click(screen.getByText(/Move-in photos and notes · 2026-03-01/));
   expect(screen.getByText("Wall was clean at move-in.")).toBeTruthy();
-  writeEvidenceSurface("inspection-08-move-out-baseline", "Resident · move-out on the same room — the completed move-in report is the baseline, readable inline beside the new observations.", 150);
-});
-
-it("only the manager can request confirmation; the resident confirms the frozen report", async () => {
-  // A draft the resident has already documented: photo + note saved automatically.
-  const draft = roomReport();
-  draft.document.areas[0]!.items[0]!.resident.notes = "Small scuff to the left of the door frame.";
-  draft.document.areas[0]!.items[0]!.resident.photos.push({
-    id: "photo-1", path: "private/room-3.jpg", url: PHOTO_URL, uploadedBy: "resident", uploadedAt: "2026-09-05T10:00:00Z",
-  });
-
-  // Resident side of the SAME draft: no submit affordance of any kind.
-  render(<InspectionEditor initial={{ report: structuredClone(draft), baseline: null, canEdit: true }} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
-  for (const gone of ["Submit for review", "Request confirmation", "Submit", "Request"]) {
-    expect(screen.queryByRole("button", { name: gone })).toBeNull();
-  }
-  writeEvidenceSurface("inspection-04-resident-draft-no-submit", "Resident · draft with saved evidence — autosaved, and NO Submit/Request control anywhere in the pinned footer. Residents never submit.", 150);
-  cleanup();
-
-  // Manager side of the same draft: the only Request confirmation button in the product.
-  render(<InspectionEditor initial={{ report: structuredClone(draft), baseline: null, canEdit: true }} role="manager" userId="owner" onBack={vi.fn()} onChanged={vi.fn()} />);
-  expect(screen.getByRole("button", { name: "Request confirmation" })).toBeTruthy();
-  writeEvidenceSurface("inspection-05a-manager-request-confirmation", "Manager · same draft — “Request confirmation” is the manager-only control that freezes both parties' photos and notes for the resident to review.", 150);
-
-  fireEvent.click(screen.getByRole("button", { name: "Request confirmation" }));
-  const requestDialog = await screen.findByRole("dialog");
-  expect(requestDialog.textContent).toContain("freezes both parties' photos and notes for the resident to review");
-  writeEvidenceSurface("inspection-05b-manager-request-confirm-gate", "Manager · confirmation gate for Request confirmation — states exactly what freezing does before anything is written.", 150);
-
-  const submitted = structuredClone(draft);
-  submitted.status = "submitted"; submitted.revision = 2;
-  request.mockResolvedValueOnce({ report: submitted, baseline: null, canEdit: true });
-  await act(async () => { fireEvent.click(requestDialog.querySelector("[data-attr='inspection-confirm']")!); });
-  expect(JSON.parse(request.mock.calls.at(-1)![2].body)).toEqual({ revision: 1, action: "submit" });
-  cleanup();
-
-  // The resident now confirms review of that frozen revision — a separate, explicit action.
-  const acknowledged = structuredClone(submitted);
-  acknowledged.revision = 3;
-  acknowledged.document.residentAcknowledgment = { userId: "resident", at: "2026-09-05T11:00:00Z", revision: 2 };
-  request.mockResolvedValueOnce({ report: acknowledged, baseline: null, canEdit: true });
-  render(<InspectionEditor initial={{ report: structuredClone(submitted), baseline: null, canEdit: true }} role="resident" userId="resident" onBack={vi.fn()} onChanged={vi.fn()} />);
-  expect(screen.getByRole("button", { name: "Confirm review" })).toBeTruthy();
-  writeEvidenceSurface("inspection-05c-resident-confirm-review", "Resident · frozen report awaiting review — read-only, with the explicit “Confirm review” action (confirmation of review, not agreement with charges).", 150);
-  fireEvent.click(screen.getByRole("button", { name: "Confirm review" }));
-  const ackDialog = await screen.findByRole("dialog");
-  await act(async () => { fireEvent.click(ackDialog.querySelector("[data-attr='inspection-confirm']")!); });
-  expect(JSON.parse(request.mock.calls.at(-1)![2].body)).toEqual({ revision: 2, action: "acknowledge" });
-  expect(screen.queryByRole("button", { name: "Confirm review" })).toBeNull();
+  writeEvidenceSurface("inspection-06-move-out-baseline", "Resident · move-out on the same room — the move-in report is attached automatically as the baseline, readable inline beside the new photos.", 150);
 });

@@ -114,12 +114,26 @@ export function ProPortalSettingsModal({
     if (open) setTab(initialTab);
   }, [open, initialTab]);
 
+  /**
+   * Seed the property selection on open, keyed on the first option's ID rather than the
+   * `propertyOptions` array.
+   *
+   * A caller that omits the prop gets the `[]` default, which is a NEW array on every render —
+   * so depending on the array reran this effect every render, and `setPropertyIds([])` wrote a
+   * new array identity into state every time, which rendered again: "Maximum update depth
+   * exceeded" the moment a section opened its settings without property options (Inspections,
+   * Bookings, Residents). A string dependency plus a value-equality guard closes both halves.
+   */
+  const firstPropertyOptionId = propertyOptions[0]?.id ?? "";
   useEffect(() => {
     if (!open) return;
-    const preferred = initialPropertyId?.trim() || propertyOptions[0]?.id || "";
+    const preferred = initialPropertyId?.trim() || firstPropertyOptionId;
     setPropertyId(preferred);
-    setPropertyIds(preferred ? [preferred] : []);
-  }, [open, initialPropertyId, propertyOptions]);
+    setPropertyIds((current) => {
+      const next = preferred ? [preferred] : [];
+      return current.length === next.length && current.every((id, index) => id === next[index]) ? current : next;
+    });
+  }, [open, initialPropertyId, firstPropertyOptionId]);
 
   useEffect(() => {
     setPanelFooter(null);

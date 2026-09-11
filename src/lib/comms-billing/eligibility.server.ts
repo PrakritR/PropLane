@@ -68,17 +68,32 @@ export async function evaluateManagerCommsBillingGate(
   return { allowed: true, billingOwnerId: ownerId };
 }
 
-export function commsBillingBlockMessage(reason: CommsBillingBlockReason): string {
+/**
+ * The refusal, worded for the channel the manager was actually asking for.
+ *
+ * Defaults to the work number so every existing caller keeps its exact copy.
+ * Only the two channel-specific refusals differ; the rest are about the billing
+ * account itself and read the same either way.
+ */
+export function commsBillingBlockMessage(
+  reason: CommsBillingBlockReason,
+  channel: "work_number" | "work_email" = "work_number",
+): string {
+  const forEmail = channel === "work_email";
   switch (reason) {
     case "free_tier":
       // Retained for stored rows written before plan gating was dropped.
-      return "Add a payment method in Settings to use texting and voice on your work number.";
+      return forEmail
+        ? "Add a payment method in Settings to use your PropLane work email."
+        : "Add a payment method in Settings to use texting and voice on your work number.";
     case "allowance_exhausted":
       // The one refusal a manager can act on immediately, so it says the
       // number and the fix rather than "not allowed".
       return commsAllowanceBlockedMessage("free");
     case "no_payment_method":
-      return "Add a payment method in Settings before sending texts or taking calls on your work number. Usage is billed as you go on any plan, including Free.";
+      return forEmail
+        ? "Add a payment method in Settings before setting up your work email. Communication usage is billed as you go on any plan, including Free."
+        : "Add a payment method in Settings before sending texts or taking calls on your work number. Usage is billed as you go on any plan, including Free.";
     case "billing_paused":
       return "Communication is paused until your payment method is updated.";
     case "plan_unreadable":

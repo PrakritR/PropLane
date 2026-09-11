@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo } from "react";
 import { ResidentHousemateSharing } from "@/components/portal/resident-housemate-sharing";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
@@ -223,31 +222,12 @@ function InstructionsTabContent({ resolved }: { resolved: ResidentMoveInResolved
   );
 }
 
-function InspectionsTabLink({ basePath }: { basePath: string }) {
-  return (
-    <div className={PORTAL_LIST_PAGE_BODY}>
-      <h2 className="text-base font-semibold text-foreground">Inspections</h2>
-      <p className="mt-1 text-sm text-muted">
-        Record the condition of your room and upload move-in or move-out photos.
-      </p>
-      <Link
-        href={residentMoveInHref(basePath, "inspections")}
-        className="mt-3 inline-flex text-sm font-semibold text-primary hover:underline"
-        data-attr="resident-move-in-inspections-link"
-      >
-        Open inspections
-      </Link>
-    </div>
-  );
-}
 
 function ResidentMoveInTabContent({
   activeTab,
-  basePath,
   resolved,
 }: {
   activeTab: ResidentMoveInTabId;
-  basePath: string;
   resolved: ResidentMoveInResolved;
 }) {
   switch (activeTab) {
@@ -256,18 +236,16 @@ function ResidentMoveInTabContent({
     case "housemates":
       return <><ResidentHousemateSharing /><HousematesTabContent resolved={resolved} /></>;
     case "info":
-      return <InfoTabContent resolved={resolved} />;
-    case "amenities":
-      return <AmenitiesTabContent resolved={resolved} />;
-    case "instructions":
+      // Arrival details live here now: keys, parking and access codes are house information,
+      // and a "Move-in" tab beside "Inspections" read as a second inspection.
       return (
         <div className="space-y-6">
+          <InfoTabContent resolved={resolved} />
           <InstructionsTabContent resolved={resolved} />
-          <section aria-label="Move-in and move-out inspections">
-            <InspectionsTabLink basePath={basePath} />
-          </section>
         </div>
       );
+    case "amenities":
+      return <AmenitiesTabContent resolved={resolved} />;
     case "inspections":
       return <InspectionsPanel role="resident" />;
     default:
@@ -341,7 +319,7 @@ export function ResidentMoveInShell({
             destinationItemLayout="equal"
             destinationDenseEqualRow
           />
-          <ResidentMoveInTabContent activeTab={tabId} basePath={basePath} resolved={resolved} />
+          <ResidentMoveInTabContent activeTab={tabId} resolved={resolved} />
         </>
       )}
     </div>

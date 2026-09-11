@@ -233,7 +233,21 @@ export async function revokeApplicationFeeWaiverCode(
   return { ok: true };
 }
 
-export type WaiverRedeemFailureReason = "NOT_FOUND" | "REVOKED" | "EXPIRED" | "EXHAUSTED";
+/**
+ * `UNAVAILABLE` is OUR failure, not the applicant's: the code lookup itself
+ * could not run (schema drift, a database outage, a dropped connection). It
+ * exists because reporting that as `NOT_FOUND` told applicants their manager's
+ * perfectly good code was invalid — which is exactly how a missing
+ * `property_id` column read to everyone using the product, on both sides, for a
+ * full day. A refusal we cannot substantiate must never be phrased as a verdict
+ * on the code.
+ */
+export type WaiverRedeemFailureReason =
+  | "NOT_FOUND"
+  | "REVOKED"
+  | "EXPIRED"
+  | "EXHAUSTED"
+  | "UNAVAILABLE";
 
 export type WaiverRedeemResult =
   | { ok: true; codeId: string }
@@ -244,6 +258,7 @@ const WAIVER_REDEEM_FAILURE_MESSAGES: Record<WaiverRedeemFailureReason, string> 
   REVOKED: "That code has been revoked.",
   EXPIRED: "That code has expired.",
   EXHAUSTED: "That code has already been used the maximum number of times.",
+  UNAVAILABLE: "We couldn't check that code just now. Please try again in a moment.",
 };
 
 /**
@@ -273,11 +288,15 @@ async function classifyWaiverRedeemFailure(
   normalizedCode: string,
   propertyId: string,
 ): Promise<{ reason: WaiverRedeemFailureReason; error: string }> {
-  const { data } = await db
+  const { data, error } = await db
     .from("manager_application_fee_waiver_codes")
     .select("status, expires_at, max_uses, used_count, property_id")
     .eq("manager_user_id", managerUserId)
     .eq("code_normalized", normalizedCode);
+  if (error) {
+    console.error("[application-fee-waiver] classify lookup failed:", error.message);
+    return { reason: "UNAVAILABLE", error: WAIVER_REDEEM_FAILURE_MESSAGES.UNAVAILABLE };
+  }
   const row = pickWaiverCodeRowForProperty(
     (data as (Pick<WaiverCodeRow, "status" | "expires_at" | "max_uses" | "used_count"> & {
       property_id: string | null;
@@ -335,7 +354,9 @@ export async function redeemApplicationFeeWaiverCode(
     .eq("manager_user_id", managerUserId)
     .eq("code_normalized", normalizedCode);
   if (lookupError) {
-    return { ok: false, reason: "NOT_FOUND", error: WAIVER_REDEEM_FAILURE_MESSAGES.NOT_FOUND };
+    // Never blame the applicant for a query we could not run.
+    console.error("[application-fee-waiver] redeem lookup failed:", lookupError.message);
+    return { ok: false, reason: "UNAVAILABLE", error: WAIVER_REDEEM_FAILURE_MESSAGES.UNAVAILABLE };
   }
   const candidates = (codeRows as { id: string; property_id: string | null; status: string }[] | null) ?? [];
   const codeRow = pickWaiverCodeRowForProperty(candidates, propertyId);
@@ -354,7 +375,7 @@ export async function redeemApplicationFeeWaiverCode(
     // Never echo raw database errors to the (public, unauthenticated) waiver
     // route — log server-side and answer with the generic invalid-code message.
     console.error("[application-fee-waiver] redeem RPC failed:", redeemError.message);
-    return { ok: false, reason: "NOT_FOUND", error: WAIVER_REDEEM_FAILURE_MESSAGES.NOT_FOUND };
+    return { ok: false, reason: "UNAVAILABLE", error: WAIVER_REDEEM_FAILURE_MESSAGES.UNAVAILABLE };
   }
   const rows = (redeemed as { id: string }[] | null) ?? [];
   if (rows.length === 0 || !rows[0]?.id) {
@@ -383,11 +404,17 @@ export async function previewApplicationFeeWaiverCode(
 ): Promise<{ ok: true } | { ok: false; reason: WaiverRedeemFailureReason; error: string }> {
   const normalized = normalizeWaiverCode(code);
   if (!normalized) return { ok: false, reason: "NOT_FOUND", error: WAIVER_REDEEM_FAILURE_MESSAGES.NOT_FOUND };
-  const { data } = await db
+  const { data, error } = await db
     .from("manager_application_fee_waiver_codes")
     .select("status, expires_at, max_uses, used_count, property_id")
     .eq("manager_user_id", managerUserId.trim())
     .eq("code_normalized", normalized);
+  // The error was previously discarded, so a database that could not answer
+  // looked identical to a code that does not exist. That is the whole bug.
+  if (error) {
+    console.error("[application-fee-waiver] preview lookup failed:", error.message);
+    return { ok: false, reason: "UNAVAILABLE", error: WAIVER_REDEEM_FAILURE_MESSAGES.UNAVAILABLE };
+  }
   const row = pickWaiverCodeRowForProperty(
     (data as (Pick<WaiverCodeRow, "status" | "expires_at" | "max_uses" | "used_count"> & {
       property_id: string | null;

@@ -114,6 +114,32 @@ else
   note "missing scripts/check-production-env.mjs — cannot detect silently-dark features"
 fi
 
+# 2026-09-10: the application-fee waiver code was broken for every manager and
+# applicant on staging AND production because a merged migration had never been
+# applied to either database. Production's ledger was three migrations behind,
+# and two other live features were failing for the same reason. Every gate was
+# green: unit tests mock Supabase, so nothing compared a query against the schema
+# it would actually meet, and this script checked branches, workflows and env but
+# never the migration ledger.
+#
+# FAIL only when it actually looked and found drift. When no connection string is
+# available it WARNS with the command to run — a promote must not be blocked
+# because a database password is not in this shell, but it must not read as
+# "verified" either.
+if [[ -f "scripts/check-migration-parity.mjs" ]]; then
+  echo
+  echo "-- migration parity --"
+  parity=0
+  node scripts/check-migration-parity.mjs --target "${PARITY_TARGET:-production}" || parity=$?
+  case "$parity" in
+    0) pass "every repo migration is applied to the target database" ;;
+    2) note "migration ledger not checked — set SUPABASE_DB_URL (or pass --db-url) and re-run before promoting" ;;
+    *) bad "target database is BEHIND this repo — apply migrations before promoting (npm run db:push)" ;;
+  esac
+else
+  note "missing scripts/check-migration-parity.mjs — a migration can ship without being applied"
+fi
+
 # PRP-273: denied agent proposals are the primary eval set — every one is a case where a
 # person looked at what the assistant wanted to do and said no. Replaying them against the
 # CURRENT prompts and tool schemas catches a change that reintroduces a rejected behaviour.
@@ -144,6 +170,7 @@ echo "  [ ] security-review + bugbot on branch changes"
 echo "  [ ] cache/rendering/perf pass for UI/route changes"
 echo "  [ ] full feature walkthrough + edge cases (not /demo alone)"
 echo "  [ ] unit/integration tests green"
+echo "  [ ] migration parity checked against staging AND production (npm run db:parity)"
 echo "  [ ] ff-only merge main → staging, QA sign-off, then staging → production"
 echo "  [ ] after push: Vercel production + GitHub Action 'iOS TestFlight' green"
 echo "  [ ] ASC secrets ASC_KEY_ID / ASC_ISSUER_ID / ASC_KEY_P8 configured in GitHub"

@@ -29,6 +29,13 @@ export type MockProperty = {
    * Populated from `profiles.sms_from_number` on public listing APIs.
    */
   contactSmsPhone?: string;
+  /**
+   * Manager PropLane work email for the public "Email" CTA. Populated from that
+   * listing's own manager on public listing APIs, and never from
+   * `profiles.email` — a prospect emailing here reaches the leasing assistant
+   * and the Communication inbox, not somebody's private mailbox.
+   */
+  contactWorkEmail?: string;
   /** Manager account email for public apply contact when applications are closed. */
   managerContactEmail?: string;
   /** When true, listing is admin-approved for live rent display; property portal inventory only shows extras with this set. */

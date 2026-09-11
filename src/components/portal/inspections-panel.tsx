@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import { ClipboardCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input, Select } from "@/components/ui/input";
-import { Modal } from "@/components/ui/modal";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -18,10 +16,22 @@ import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { downloadInspection, inspectionRequest, loadInspectionList, INSPECTIONS_CHANGED, type InspectionList } from "@/lib/inspections/client";
-import { inspectionRoomLabel, createInspectionSchema, type InspectionDetail, type InspectionKind, type InspectionResidency, type InspectionRole, type InspectionStatus, type InspectionSummary } from "@/lib/inspections/model";
+import { inspectionRoomLabel, type InspectionDetail, type InspectionKind, type InspectionPhotoCounts, type InspectionResidency, type InspectionRole, type InspectionSummary } from "@/lib/inspections/model";
 
 const kindLabel = (kind: InspectionKind) => kind === "move-in" ? "Move-in" : "Move-out";
-const statusLabel = (status: InspectionStatus) => status === "submitted" ? "Awaiting review" : status === "completed" ? "Completed" : "Draft";
+/**
+ * A row says how many photos exist and who added them. It deliberately does not say which
+ * review step the report is parked on: there are no review steps — a report is a room, and
+ * photos of it from either side.
+ */
+const photoLine = (photos: InspectionPhotoCounts) => {
+  if (!photos.total) return "No photos yet";
+  const parts = [photos.resident ? `resident ${photos.resident}` : "", photos.manager ? `manager ${photos.manager}` : ""].filter(Boolean);
+  return `${photos.total} photo${photos.total === 1 ? "" : "s"}${parts.length > 1 ? ` · ${parts.join(", ")}` : ""}`;
+};
+const photoBadge = (photos: InspectionPhotoCounts) => photos.total
+  ? { label: `${photos.total} photo${photos.total === 1 ? "" : "s"}`, tone: "success" as const }
+  : { label: "Needs photos", tone: "warning" as const };
 
 /** Hide the dev-only missing-table banner for managers; still show real partial-load notices. */
 function showInspectionLoadNotice(role: InspectionRole, notice: string): boolean {
@@ -59,12 +69,6 @@ type InspectionRow = {
   sortKey: string;
 };
 
-const occupancyBadge = {
-  upcoming: { label: "Moving in", tone: "warning" as const },
-  current: { label: "Living here", tone: "success" as const },
-  past: { label: "Moved out", tone: "neutral" as const },
-};
-
 /** Which occupancy states belong on each tab. A past resident no longer needs a move-in. */
 const TAB_OCCUPANCY: Record<InspectionKind, InspectionResidency["occupancy"][]> = {
   "move-in": ["upcoming", "current"],
@@ -86,25 +90,20 @@ export function buildInspectionRows(kind: InspectionKind, residencies: Inspectio
     }
     return moveOut ? `Moves out ${moveOut}` : "Move-out date not set";
   };
-  const reportBadge = (report: InspectionSummary) => ({
-    label: statusLabel(report.status),
-    tone: report.status === "completed" ? "success" as const : report.status === "submitted" ? "warning" as const : "neutral" as const,
-  });
-
   // One row per FILED report, so an earlier completed report never becomes unreachable just
   // because a newer one exists — plus one roster row for every resident who has none yet. A
   // report whose residency is gone (withdrawn, reassigned) still gets its row: evidence must
   // not disappear because the application row moved on.
   const rows: InspectionRow[] = forKind.map(report => {
     const residency = byId.get(report.application_id);
-    const filed = `${kindLabel(kind)} inspection ${tenancyDate(report.inspection_date) || report.inspection_date}`;
+    const filed = photoLine(report.photos);
     const tenancy = tenancyLine(residency);
     return {
       key: `report:${report.id}`,
       name: residency?.name || report.resident_name,
       subtitle: `${residency?.property || report.property_label}${(residency?.room || report.room_label) ? ` · ${inspectionRoomLabel(residency?.room || report.room_label)}` : ""}`,
       preview: tenancy ? `${tenancy} · ${filed}` : filed,
-      badge: reportBadge(report),
+      badge: photoBadge(report.photos),
       report,
       residency,
       sortKey: (residency && (kind === "move-in" ? residency.moveInDate : residency.moveOutDate)) || report.inspection_date || "9999-12-31",
@@ -121,8 +120,8 @@ export function buildInspectionRows(kind: InspectionKind, residencies: Inspectio
       key: `residency:${residency.id}`,
       name: residency.name,
       subtitle: `${residency.property}${residency.room ? ` · ${inspectionRoomLabel(residency.room)}` : ""}`,
-      preview: `${tenancyLine(residency)} · ${required ? `${kindLabel(kind)} inspection required` : `No ${kindLabel(kind).toLowerCase()} inspection yet`}`,
-      badge: required ? { label: "Inspection required", tone: "warning" as const } : occupancyBadge[residency.occupancy],
+      preview: `${tenancyLine(residency)} · No photos yet${required ? " · required" : ""}`,
+      badge: { label: "Needs photos", tone: "warning" as const },
       residency,
       sortKey: (kind === "move-in" ? residency.moveInDate : residency.moveOutDate) || "9999-12-31",
     });
@@ -134,11 +133,14 @@ export function buildInspectionRows(kind: InspectionKind, residencies: Inspectio
     || (a.report?.inspection_date ?? "").localeCompare(b.report?.inspection_date ?? "") || a.key.localeCompare(b.key));
 }
 
-/** Prefer the editable draft, then submitted, then the newest completed report. */
+/**
+ * The report a residency opens into: the newest one for that moment. Older reports are never
+ * deleted, so a residency that somehow holds two keeps both — the newest is simply the one the
+ * shortcut opens, and the same rule runs on the server in `ensureInspection`.
+ */
 export function pickPrimaryInspectionReport(reports: InspectionSummary[]): InspectionSummary | undefined {
   if (!reports.length) return undefined;
-  const rank = (status: InspectionStatus) => (status === "draft" ? 0 : status === "submitted" ? 1 : 2);
-  return [...reports].sort((a, b) => rank(a.status) - rank(b.status) || b.inspection_date.localeCompare(a.inspection_date))[0];
+  return [...reports].sort((a, b) => b.inspection_date.localeCompare(a.inspection_date) || b.created_at.localeCompare(a.created_at))[0];
 }
 
 export function ManagerInspectionsPage({ kind = "move-in", reportId, basePath = "/portal" }: { kind?: InspectionKind; reportId?: string; basePath?: string }) {
@@ -166,10 +168,6 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<InspectionDetail | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [createOpen, setCreateOpen] = useState(false);
-  const [application, setApplication] = useState(applicationId ?? "");
-  const [date, setDate] = useState(() => { const now = new Date(); return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`; });
-  const [baseline, setBaseline] = useState("");
   const [busy, setBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const working = useRef(false);
@@ -212,25 +210,22 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
     setDetail(await inspectionRequest<InspectionDetail>(role, `/${id}`)); setSelected(new Set());
   });
   /**
-   * Manager sign-off on a submitted report. The transition is the model's `complete`, which
-   * refuses a report the resident has not acknowledged — the refusal is shown rather than
-   * swallowed, so "reviewed" can never mean "nobody confirmed it".
+   * Open the residency's report for this tab, creating it on the spot the first time anyone
+   * looks. The roster row already knows the resident, the room and the move date, so the old
+   * "New inspection" dialog only asked the manager to retype what the row was showing them.
    */
-  const markReviewed = (reports: InspectionSummary[]) => run(async () => {
-    for (const report of reports) {
-      await inspectionRequest(role, `/${report.id}/status`, {
-        method: "POST", body: JSON.stringify({ revision: report.revision, action: "complete" }),
-      });
-    }
+  const openResidency = (residency: InspectionResidency) => run(async () => {
+    const value = await inspectionRequest<InspectionDetail>(role, "", {
+      method: "POST", body: JSON.stringify({ applicationId: residency.id, kind }),
+    });
     setSelected(new Set());
-    await refresh(true);
+    if (routeBase) router.push(`${routeBase}/${kind}/${value.report.id}`);
+    else setDetail(value);
   });
   const changeKind = (next: InspectionKind) => {
-    setSelected(new Set()); setDetail(null); setKind(next); setBaseline("");
+    setSelected(new Set()); setDetail(null); setKind(next);
     if (routeBase) router.push(`${routeBase}/${next}`);
   };
-  const residencies = data.residencies.filter(r => (!applicationId || r.id === applicationId) && r.canCreate);
-  const candidates = data.reports.filter(r => r.application_id === application && r.kind === "move-in" && r.status === "completed" && r.inspection_date <= date);
   const visible = data.residencies.filter(r => !applicationId || r.id === applicationId);
   const embeddedScope = embeddedInResident && applicationId;
   const embeddedResidency = embeddedScope ? visible.find(r => r.id === applicationId) : undefined;
@@ -241,28 +236,14 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
   const rows = rowsFor(kind);
   const selectedRows = rows.filter(row => selected.has(row.key));
   const selectedReports = selectedRows.filter(row => row.report).map(row => row.report!);
-  const reviewable = selectedReports.filter(report => report.status === "submitted");
-  const openSelectedRow = () => {
-    const row = selectedRows[0];
-    if (!row) return;
+  const openRow = (row: InspectionRow) => {
     if (row.report) void open(row.report.id);
-    else if (row.residency?.canCreate) startInspection(row.residency);
+    else if (row.residency?.canCreate) openResidency(row.residency);
   };
-  const startInspection = (residency: InspectionResidency) => {
-    setApplication(residency.id); setBaseline(""); setCreateOpen(true);
-  };
-  const create = () => run(async () => {
-    const parsed = createInspectionSchema.safeParse({ applicationId: application, kind, inspectionDate: date, baselineId: kind === "move-out" && baseline ? baseline : null });
-    if (!parsed.success) throw new Error(parsed.error.issues[0]?.message || "Check the inspection details.");
-    const value = await inspectionRequest<InspectionDetail>(role, "", { method: "POST", body: JSON.stringify(parsed.data) });
-    setCreateOpen(false); setSelected(new Set());
-    if (routeBase) router.push(`${routeBase}/${kind}/${value.report.id}`);
-    else setDetail(value);
-  });
 
   const openEmbeddedInspection = () => {
     if (embeddedPrimaryReport) void open(embeddedPrimaryReport.id);
-    else if (embeddedResidency?.canCreate) startInspection(embeddedResidency);
+    else if (embeddedResidency?.canCreate) openResidency(embeddedResidency);
   };
   const embeddedEditDisabled = !embeddedPrimaryReport && !embeddedResidency?.canCreate;
 
@@ -307,11 +288,11 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       <div className="mx-1 flex flex-col items-center gap-4 rounded-2xl border border-dashed border-border bg-card/40 px-6 py-10 text-center" data-attr="inspection-embedded-empty">
         <ClipboardCheck className="h-10 w-10 text-primary" aria-hidden />
         <div className="space-y-2">
-          <p className="text-base font-semibold">No {kindLabel(kind).toLowerCase()} inspection yet</p>
-          <p className="text-sm text-muted">Create one to walk through each room section, upload photos, and add optional notes. The assigned room only — not the whole house.</p>
+          <p className="text-base font-semibold">No {kindLabel(kind).toLowerCase()} photos yet</p>
+          <p className="text-sm text-muted">Photograph the assigned room section by section — the room only, not the whole house. Notes are optional.</p>
         </div>
         <Button onClick={openEmbeddedInspection} disabled={busy || embeddedEditDisabled} data-attr="inspection-embedded-create">
-          Create {kindLabel(kind).toLowerCase()} inspection
+          Add {kindLabel(kind).toLowerCase()} photos
         </Button>
       </div>
     ) : null}
@@ -319,40 +300,31 @@ function InspectionWorkspace({ userId, role, applicationId, initialKind, reportI
       <div className="mx-1 space-y-4 rounded-2xl border border-border bg-card/50 p-5" data-attr="inspection-embedded-resume">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-base font-semibold">{kindLabel(kind)} inspection</p>
-            <p className="text-sm text-muted">{tenancyDate(embeddedPrimaryReport.inspection_date) || embeddedPrimaryReport.inspection_date} · {statusLabel(embeddedPrimaryReport.status)}</p>
+            <p className="text-base font-semibold">{kindLabel(kind)} photos</p>
+            <p className="text-sm text-muted">{tenancyDate(embeddedPrimaryReport.inspection_date) || embeddedPrimaryReport.inspection_date} · {photoLine(embeddedPrimaryReport.photos)}</p>
           </div>
-          <Badge tone={embeddedPrimaryReport.status === "completed" ? "success" : embeddedPrimaryReport.status === "submitted" ? "warning" : "neutral"}>{statusLabel(embeddedPrimaryReport.status)}</Badge>
+          <Badge tone={photoBadge(embeddedPrimaryReport.photos).tone}>{photoBadge(embeddedPrimaryReport.photos).label}</Badge>
         </div>
-        <p className="text-sm text-muted">Open the room checklist to add photos per section — Room overview, walls, windows, door, lights, and more for the assigned room.</p>
+        <p className="text-sm text-muted">Add photos section by section — room overview, walls, windows, door, lights and the rest of the assigned room.</p>
         <Button onClick={openEmbeddedInspection} disabled={busy} data-attr="inspection-embedded-continue">
-          {embeddedPrimaryReport.status === "draft" ? "Continue inspection" : "View inspection"}
+          {embeddedPrimaryReport.photos.total ? "Open photos" : "Add photos"}
         </Button>
       </div>
     ) : null}
     {loading ? <div role="status" aria-label="Loading inspections" className="space-y-3 p-4"><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /><div className="h-16 animate-pulse rounded-xl bg-foreground/5" /></div> : embeddedScope ? null : <PortalRecordListSurface
       isEmpty={rows.length === 0}
-      empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to create and review residency inspections." : kind === "move-in" ? "No one is moving in or living here yet. Approve an application and give it a property placement to start." : "No one is living here or has moved out yet."}</p>}
-      add={residencies.length ? { ariaLabel: `Add ${kindLabel(kind).toLowerCase()} inspection`, icon: ClipboardCheck, onClick: () => { setApplication(applicationId ?? residencies[0]?.id ?? ""); setBaseline(""); setCreateOpen(true); }, dataAttr: "inspection-add" } : undefined}
+      empty={<p className="p-5 text-sm text-muted">{isDemoModeActive() ? "Open your signed-in portal to add and read residency inspection photos." : kind === "move-in" ? "No one is moving in or living here yet. Approve an application and give it a property placement to start." : "No one is living here or has moved out yet."}</p>}
+      /* No ADD: every resident with an assigned room already has a report waiting on their
+         row, so a "＋ Add inspection" footer would only offer to duplicate one. */
       bulkCount={selected.size}
       bulkActions={<PortalSectionActionRow variant="header">
-        <Button variant="outline" disabled={busy || selectedReports.length === 0} onClick={() => run(async () => { for (const report of selectedReports) await downloadInspection(role, report.id); })} data-attr="inspection-bulk-download">Download</Button>
-        <Button variant="outline" disabled={busy || selectedRows.length !== 1 || (!selectedRows[0]!.report && !selectedRows[0]!.residency?.canCreate)} onClick={openSelectedRow} data-attr="inspection-bulk-open">View</Button>
-        {role === "manager" && <Button disabled={busy || reviewable.length === 0} onClick={() => markReviewed(reviewable)} data-attr="inspection-bulk-review">Mark reviewed</Button>}
+        <Button variant="outline" disabled={busy || selectedReports.length === 0} onClick={() => run(async () => { for (const report of selectedReports) await downloadInspection(role, report.id); })} data-attr="inspection-bulk-download">Download PDF</Button>
       </PortalSectionActionRow>}
     >{rows.map(row => <PortalPersonRecordRow key={row.key} name={row.name} subtitle={row.subtitle} preview={row.preview} trailing={<Badge tone={row.badge.tone}>{row.badge.label}</Badge>}
       checked={selected.has(row.key)}
       onSelectedChange={checked => setSelected(current => { const next = new Set(current); if (checked) next.add(row.key); else next.delete(row.key); return next; })}
-      onOpen={() => { if (row.report) { void open(row.report.id); } else if (row.residency?.canCreate) startInspection(row.residency); }}
+      onOpen={() => openRow(row)}
       dataAttr="inspection-row" />)}</PortalRecordListSurface>}
     {role === "manager" && <ProPortalSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} initialTab="inspections" scoped />}
-    <Modal open={createOpen} onClose={() => { if (!busy) setCreateOpen(false); }} dismissBlocked={busy} title={`New ${kindLabel(kind).toLowerCase()} inspection`} assistantStrip={false} footer={<Button onClick={create} disabled={busy || !application || !date} data-attr="inspection-create">Create inspection</Button>}>
-      <div className="space-y-4">
-        <label className="block space-y-1 text-sm">Resident and placement<Select aria-label="Resident and placement" value={application} disabled={Boolean(applicationId)} onChange={e => { setApplication(e.target.value); setBaseline(""); }} data-attr="inspection-residency">{residencies.map(r => <option key={r.id} value={r.id}>{r.name} · {r.property}{r.room ? ` · ${inspectionRoomLabel(r.room)}` : ""}</option>)}</Select></label>
-        <label className="block space-y-1 text-sm">Inspection date<Input aria-label="Inspection date" type="date" value={date} onChange={e => { setDate(e.target.value); setBaseline(""); }} data-attr="inspection-date" /></label>
-        {kind === "move-out" && <label className="block space-y-1 text-sm">Move-in baseline<Select aria-label="Move-in baseline" value={baseline} onChange={e => setBaseline(e.target.value)} data-attr="inspection-baseline"><option value="">No baseline</option>{candidates.map(r => <option key={r.id} value={r.id}>{r.inspection_date} · {r.property_label} · {inspectionRoomLabel(r.room_label) || "Property"}</option>)}</Select><span className="block text-xs text-muted">Only completed move-in reports from this residency can be used as a baseline.</span></label>}
-        {error && <p role="alert" className="text-sm">{error}</p>}
-      </div>
-    </Modal>
   </div>;
 }

@@ -46,11 +46,13 @@ export type RoomPricingLike = {
   securityDeposit?: string | null;
   shortTermDeposit?: string | null;
   /**
-   * "flexible" means the room advertises NO billable price — the rent is agreed with
-   * each resident (PRP-329). Absent or "fixed" is the long-standing behaviour.
+   * "flexible" (PRP-462) means the room still lists and bills the same rent fields as
+   * Fixed; Communication / SMS will ask the manager before accepting a counter-offer.
+   * Absent or "fixed" locks the listed price in replies. Legacy `flexibleRentMin/Max`
+   * may still exist on old rows but are no longer the advertised price.
    */
   pricingMode?: "fixed" | "flexible";
-  /** Advertised guidance bounds for a flexible room. Never a charge. */
+  /** @deprecated Legacy guidance bounds — not the billed or primary advertised price (PRP-462). */
   flexibleRentMin?: number | null;
   flexibleRentMax?: number | null;
 };
@@ -221,40 +223,41 @@ export function roomFlexibleRange(
 }
 
 /**
- * What a PROSPECT is shown for this room.
+ * What a PROSPECT is shown for this room (PRP-462).
  *
- * Deliberately never returns a bare number for a flexible room: the range is guidance
- * the manager may agree an exception to, and a naked "$600" would read as the price.
- * With no bounds at all it says so in words rather than inventing $0 — PRP-329 acceptance 2.
+ * Flexible uses the same listed rent as Fixed, with a · Flexible suffix so they know
+ * a counter-offer can be discussed. Legacy Min/Max guidance only appears when there is
+ * no listed rent yet (old rows that never got a monthly/daily/weekly figure).
  */
 export function roomAdvertisedPriceLabel(
   room: RoomPricingLike | null | undefined,
   fallback = "—",
 ): string {
-  if (!roomPricingIsFlexible(room)) return roomHeadlinePriceLabel(room, fallback);
-  const suffix = roomPricePeriodSuffix(room);
-  const range = roomFlexibleRange(room);
-  if (!range) return "Flexible pricing · Contact manager to discuss pricing";
-  const { min, max } = range;
-  const span =
-    min !== undefined && max !== undefined
-      ? `${formatRoomPriceAmount(min)}\u2013${formatRoomPriceAmount(max)}`
-      : min !== undefined
-        ? `From ${formatRoomPriceAmount(min)}`
-        : `Up to ${formatRoomPriceAmount(max as number)}`;
-  return `${span}${suffix} · Flexible pricing`;
+  const listed = roomHeadlinePriceLabel(room, "");
+  if (roomPricingIsFlexible(room)) {
+    if (listed) return `${listed} · Flexible`;
+    const suffix = roomPricePeriodSuffix(room);
+    const range = roomFlexibleRange(room);
+    if (!range) return "Flexible · Contact manager to discuss pricing";
+    const { min, max } = range;
+    const span =
+      min !== undefined && max !== undefined
+        ? `${formatRoomPriceAmount(min)}\u2013${formatRoomPriceAmount(max)}`
+        : min !== undefined
+          ? `From ${formatRoomPriceAmount(min)}`
+          : `Up to ${formatRoomPriceAmount(max as number)}`;
+    return `${span}${suffix} · Flexible`;
+  }
+  return listed || fallback;
 }
 
 /**
- * The comparable figure a flexible room sorts and budget-filters on, or undefined when
- * it advertises no bounds.
- *
- * The MINIMUM, never a midpoint: a midpoint is a number the manager never wrote, and a
- * prospect filtering "under $700" should still be shown a $600-$900 room they may well
- * be able to agree. An unpriced flexible room returns undefined so callers can decide
- * to show-but-not-rank it rather than sorting it as free.
+ * Sort / budget figure for a flexible room: prefer the listed rent (PRP-462), else
+ * legacy Min/Max guidance when no listed amount exists.
  */
 export function roomFlexibleSortAmount(room: RoomPricingLike | null | undefined): number | undefined {
+  const listed = roomMonthlyEquivalent(room);
+  if (listed > 0) return listed;
   const range = roomFlexibleRange(room);
   if (!range) return undefined;
   return range.min ?? range.max;
@@ -386,6 +389,12 @@ export type StayPricingInput = {
         rentalType?: string | null;
         leaseStart?: string | null;
         leaseEnd?: string | null;
+        /**
+         * The lease's own term. A room may price a term differently (PRP-463); absent
+         * means the room's long-term price applies, which is what every caller that does
+         * not name a term has always got.
+         */
+        leaseTerm?: string | null;
         managerRentOverride?: string | null;
         managerSecurityDepositOverride?: string | null;
         signedMonthlyRent?: number | null;
@@ -393,6 +402,18 @@ export type StayPricingInput = {
     | null
     | undefined;
 };
+
+/** The room's price for this lease's term, when it set one. */
+function roomTermPrice(
+  room: RoomPricingLike | null | undefined,
+  leaseTerm: string | null | undefined,
+): { monthlyRent?: number; securityDeposit?: string } | undefined {
+  const term = String(leaseTerm ?? "").trim();
+  if (!term) return undefined;
+  const table = (room as { termPricing?: Record<string, { monthlyRent?: number; securityDeposit?: string }> } | null | undefined)
+    ?.termPricing;
+  return table?.[term];
+}
 
 function positiveMoney(raw: string | null | undefined): number | undefined {
   const amount = parseMoneyAmount(String(raw ?? "").trim());
@@ -471,6 +492,7 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
       overrideMoney(room?.shortTermDeposit) ??
       positiveMoney(sub?.shortTermDeposit))
     : (overrideMoney(app?.managerSecurityDepositOverride) ??
+      overrideMoney(roomTermPrice(room, app?.leaseTerm)?.securityDeposit) ??
       overrideMoney(room?.securityDeposit) ??
       positiveMoney(sub?.securityDeposit));
 
@@ -499,11 +521,17 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
     const listingDaily = shortTermNightlyRate(sub?.shortTermDailyCost) || undefined;
     const roomRate = roomShortTerm ?? roomDaily;
     const dailyRate = roomRate ?? listingDaily;
+    // The room's weekly rate rides along so a stay of a week or more is billed in whole
+    // weeks plus the leftover nights (PRP-463) — the rate the manager actually quoted.
+    // Read straight off the field, NOT through `roomWeeklyRentPrice`: that one answers
+    // "is this room priced BY the week" and needs `rentBasis`, which the wizard no longer
+    // sets. On a short stay a weekly rate that was typed in is a weekly rate that applies.
+    const shortTermWeekly = positiveNumber(room?.weeklyRentPrice);
     return {
       stayKind: "short",
       basis: "daily",
       dailyRate,
-      weeklyRate: undefined,
+      weeklyRate: shortTermWeekly,
       monthlyRate: undefined,
       deposit,
       // A nightly stay is already priced for being short; a monthly short-lease
@@ -527,25 +555,8 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
     };
   }
 
-  // A flexible room reaching here has NO agreed rent for this resident: every
-  // negotiated path above (manager override, signed/renewed rent) already returned.
-  // Falling through to the room's own monthly OR daily figure would bill a figure the public listing stopped
-  // showing the moment the manager switched to flexible pricing — a stale hidden
-  // fixed value, which PRP-329 acceptance 3 names explicitly. Undefined instead, so
-  // the caller must obtain an agreed amount before a lease or charge exists. The
-  // deposit still resolves: it is agreed separately and is not the negotiated rent.
-  if (roomPricingIsFlexible(room)) {
-    return {
-      stayKind: "long",
-      basis: "monthly",
-      dailyRate: undefined,
-      weeklyRate: undefined,
-      monthlyRate: undefined,
-      deposit,
-      shortLeaseSurcharge: 0,
-      source: "room",
-    };
-  }
+  // PRP-462: Flexible lists and bills the same rent as Fixed. A counter-offer is a
+  // Communication/SMS ask — not a blank ledger. Negotiated overrides above still win.
 
   if (roomDaily !== undefined) {
     // The daily basis alone does NOT make this a short stay. A daily-priced room is a
@@ -589,7 +600,11 @@ export function resolveStayPricing(input: StayPricingInput): StayPricing {
   // separate fee line, while `shortLeaseSurcharge` keeps the breakdown for the
   // agreement. Folding rather than adding a charge is what keeps the ledger, the lease
   // document and the listing quoting the same figure.
-  const baseMonthly = positiveNumber(room?.monthlyRent);
+  // A room that prices this lease's term separately bills THAT rent (PRP-463). Absent —
+  // which is every room until a manager unticks "Same as Long-term" — falls straight
+  // through to the long-term figure, so nothing already saved changes.
+  const termRent = positiveNumber(roomTermPrice(room, app?.leaseTerm)?.monthlyRent);
+  const baseMonthly = termRent ?? positiveNumber(room?.monthlyRent);
   const surcharge = tenancyPaysShortLeaseSurcharge(room, app) ? roomShortLeaseSurcharge(room) : 0;
   return {
     stayKind: "long",

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { AuthCard } from "@/components/auth/auth-card";
 import { AuthPageHeader } from "@/components/auth/auth-mobile-primitives";
 import {
-  ManagerOnboardingAssistantEmailSetup,
+  ManagerOnboardingWorkEmailSetup,
   ManagerOnboardingPhoneSetup,
   ManagerOnboardingWorkNumberSetup,
 } from "@/components/auth/manager-onboarding-inline-setup";
@@ -14,7 +14,10 @@ import { MANAGER_GOOGLE_SERVICES_ONBOARDING_PATH } from "@/lib/auth/manager-goog
 import { formatGoogleCalendarConnectError } from "@/lib/google-calendar/connect-errors";
 import { portalDashboardPath } from "@/lib/auth/portal-roles";
 import { assistantEmailUpsellMessage } from "@/lib/manager-assistant-email/assistant-email-eligibility-copy";
-import type { ManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
+import {
+  isManagerAssistantEmailStatus,
+  type ManagerAssistantEmailStatus,
+} from "@/lib/manager-assistant-email/manager-assistant-email-status";
 import {
   shouldOfferWorkNumberSetup,
   workNumberOnboardingPhone,
@@ -133,7 +136,10 @@ function ConnectGoogleServicesContent() {
         ]);
         if (workRes.ok) setWorkNumber((await workRes.json()) as WorkNumberOnboardingStatus);
         if (phoneRes.ok) setPhoneSettings((await phoneRes.json()) as PhoneSettings);
-        if (emailRes.ok) setAssistantEmail((await emailRes.json()) as ManagerAssistantEmailStatus);
+        if (emailRes.ok) {
+          const emailBody: unknown = await emailRes.json();
+          if (isManagerAssistantEmailStatus(emailBody)) setAssistantEmail(emailBody);
+        }
       } catch {
         /* optional signup step — failed reads stay quiet */
       }
@@ -273,8 +279,8 @@ function ConnectGoogleServicesContent() {
           </SetupOptionCard>
 
           <SetupOptionCard
-            title="PropLane assistant email"
-            description="Email your assistant from any device — same capabilities as texting your work number."
+            title="PropLane work email"
+            description="An address residents and prospects can email; PropLane Assistant answers and it lands in your inbox."
             statusLabel={
               assistantReady
                 ? `Ready · ${assistantAddress}`
@@ -283,7 +289,7 @@ function ConnectGoogleServicesContent() {
             statusTone={assistantReady ? "confirmed" : "muted"}
           >
             {!assistantReady && assistantEmail ? (
-              <ManagerOnboardingAssistantEmailSetup status={assistantEmail} onUpdated={setAssistantEmail} />
+              <ManagerOnboardingWorkEmailSetup status={assistantEmail} onUpdated={setAssistantEmail} />
             ) : null}
           </SetupOptionCard>
 

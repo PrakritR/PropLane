@@ -32,6 +32,10 @@ developer file before you do any work.** Do not apply both. Do not skip this.
 - They talk like the captain (ticket, plan, promote, lavish) → Prakrit.
 - Still unclear → ask "Akhil or Prakrit?" and wait. Do not guess a process.
 
+Captain default: **every message becomes a Lavish plan before code, and issues
+do not get Linear tickets unless he asks** —
+[`docs/agents/lavish-plan-standard.md`](docs/agents/lavish-plan-standard.md).
+
 Shared safety in this file always wins (production lock, staging ladder, RLS,
 tool layer). The developer file only adds **how to work with that person**.
 

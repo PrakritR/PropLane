@@ -26,6 +26,7 @@ export function SignupFieldStack({
   disabled = false,
   emailDisabled = false,
   phonePlaceholder = "Phone (optional)",
+  phoneRequired = false,
   onSubmit,
 }: {
   values: SignupFieldValues;
@@ -35,6 +36,8 @@ export function SignupFieldStack({
   emailDisabled?: boolean;
   /** The tour funnel pre-fills the number the prospect gave, and says so. */
   phonePlaceholder?: string;
+  /** The signup form refuses an empty number, so say so in the markup too (PRP-380). */
+  phoneRequired?: boolean;
   onSubmit?: () => void;
 }) {
   const enterSubmits = (e: { key: string }) => {
@@ -66,6 +69,7 @@ export function SignupFieldStack({
       />
       <PhoneNumberField
         placeholder={phonePlaceholder}
+        required={phoneRequired}
         value={values.phone}
         onChange={(phone) => onChange({ phone })}
         disabled={disabled}

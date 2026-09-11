@@ -505,6 +505,8 @@ function RentalApplicationWizardInner({
   const [waiverCodeError, setWaiverCodeError] = useState<string | null>(null);
   /** True when the most recent background autosave of THIS application failed. */
   const [autosaveFailed, setAutosaveFailed] = useState(false);
+  /** True when the failure came back FROM the server — never the applicant's connection. */
+  const [autosaveServerFault, setAutosaveServerFault] = useState(false);
   const router = useRouter();
 
   // The step ids that carry a visible question for the CURRENT form variant.
@@ -577,7 +579,18 @@ function RentalApplicationWizardInner({
     if (mode !== "portal" || postSubmit || isDemoModeActive() || !isOnScreen()) return;
     const params = new URLSearchParams(searchParams.toString());
     const prev = params.get("wizardStep");
-    if (step <= 3) {
+    if (step === 1) {
+      // Step 1 is where the wizard already starts, so `?wizardStep=1` tells the
+      // URL nothing the bare path did not. Writing it anyway fired on FIRST
+      // MOUNT — a `router.replace` on a dynamic route with a loading boundary,
+      // which costs a server round-trip and a skeleton frame about a second
+      // after the application opens. That is the "it resets again" half of the
+      // flicker a resident sees on a manager's application link. Absence now
+      // MEANS step 1 (`resolvePortalMobileBackTarget` reads it that way too);
+      // only a stale param left over from a deeper step still needs clearing.
+      if (!prev) return;
+      params.delete("wizardStep");
+    } else if (step <= 3) {
       const next = String(step);
       if (prev === next) return;
       params.set("wizardStep", next);
@@ -669,11 +682,12 @@ function RentalApplicationWizardInner({
   useEffect(() => {
     if (isDemoModeActive()) return;
     const on = (e: Event) => {
-      const detail = (e as CustomEvent<{ ok?: boolean; id?: string }>).detail;
+      const detail = (e as CustomEvent<{ ok?: boolean; id?: string; serverFault?: boolean }>).detail;
       if (!detail?.id) return;
       const mine = loadRentalWizardDraftAxisId()?.trim();
       if (!mine || detail.id.trim() !== mine) return;
       setAutosaveFailed(!detail.ok);
+      setAutosaveServerFault(!detail.ok && detail.serverFault === true);
     };
     window.addEventListener(APPLICATION_SAVE_STATUS_EVENT, on as EventListener);
     return () => window.removeEventListener(APPLICATION_SAVE_STATUS_EVENT, on as EventListener);
@@ -2671,7 +2685,9 @@ function RentalApplicationWizardInner({
                 className="rental-wizard-autosave-error mt-6 rounded-xl border px-4 py-3 text-sm portal-banner-pending"
                 data-attr="rental-wizard-autosave-error"
               >
-                We couldn&apos;t save your latest changes. Your progress is kept on this device — keep this tab open and continue; we&apos;ll retry as you edit. If this keeps happening, check your connection.
+                {autosaveServerFault
+                  ? "We couldn't save your latest changes — that's a problem on our side, not yours. Your progress is kept on this device: keep this tab open and continue, and we'll retry as you edit. If it keeps happening, contact the property manager."
+                  : "We couldn't save your latest changes. Your progress is kept on this device — keep this tab open and continue; we'll retry as you edit. If this keeps happening, check your connection."}
               </p>
             ) : null}
 

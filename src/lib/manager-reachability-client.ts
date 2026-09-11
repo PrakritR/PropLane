@@ -18,7 +18,10 @@ export async function fetchManagerReachabilityForWelcome(): Promise<ManagerReach
         } | null)
       : null;
     const emailBody = emailRes.ok
-      ? ((await emailRes.json().catch(() => null)) as { address?: string | null } | null)
+      ? ((await emailRes.json().catch(() => null)) as {
+          canUse?: boolean;
+          address?: string | null;
+        } | null)
       : null;
 
     const phoneE164 =
@@ -28,7 +31,9 @@ export async function fetchManagerReachabilityForWelcome(): Promise<ManagerReach
 
     return {
       workPhoneLabel: phoneE164 ? formatManagerMessagingPhone(phoneE164) || phoneE164 : null,
-      assistantEmail: trimmedText(emailBody?.address) || null,
+      // `canUse` is the email's `canSend`: only ever preview an address that
+      // can actually carry a reply.
+      assistantEmail: emailBody?.canUse ? trimmedText(emailBody.address) || null : null,
     };
   } catch {
     return { workPhoneLabel: null, assistantEmail: null };

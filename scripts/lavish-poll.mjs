@@ -27,6 +27,7 @@ function parseArgs(argv) {
     if (a === "--wait") out.wait = true;
     else if (a === "--clear") out.clear = true;
     else if (a === "--plan") out.plan = resolve(REPO_ROOT, next());
+    else if (a === "--reply" || a === "--agent-reply") out.reply = next();
     else if (a === "--help" || a === "-h") out.help = true;
   }
   return out;
@@ -38,14 +39,18 @@ function printHelp() {
   npm run lavish:poll              Short poll; prints queued feedback if any
   npm run lavish:poll -- --wait    Block until captain sends feedback
   npm run lavish:poll -- --plan .lavish/plans/foo/plan.html
+  npm run lavish:poll -- --reply "Applied your edits — reload the plan"
   npm run lavish:poll -- --clear   Clear active session after approved — build
 
 Agents: run \`npm run lavish:poll\` as the FIRST command when active-session.json exists.
 Never end a turn after opening Lavish without polling at least once.`);
 }
 
-function runPoll(planPath, { wait }) {
+function runPoll(planPath, { wait, reply }) {
   const args = ["-y", "lavish-axi", "poll", planPath];
+  // Answer in the Lavish chat itself, so the captain sees the reply where he
+  // wrote the feedback instead of only in the terminal.
+  if (reply) args.push("--agent-reply", reply);
   if (!wait) args.push("--timeout-ms", "12000");
   const r = spawnSync("npx", args, {
     cwd: REPO_ROOT,
@@ -102,11 +107,13 @@ function main() {
       } catch {
         /* ignore */
       }
-      process.exit(0);
+      // A pending --reply still has to reach the browser, so only short-circuit
+      // when this call had nothing to say back.
+      if (!args.reply) process.exit(0);
     }
   }
 
-  const { code, out } = runPoll(planPath, { wait: args.wait });
+  const { code, out } = runPoll(planPath, { wait: args.wait, reply: args.reply });
   if (out) console.log(out);
 
   if (hasFeedback(out)) {

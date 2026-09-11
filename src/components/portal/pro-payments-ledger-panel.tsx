@@ -513,8 +513,8 @@ export function ManagerPaymentsLedgerPanel({
         showToast("Enter a valid number of nights.");
         return;
       }
-      amt = shortTermStayTotalAmount(parsed.nightlyRate, nights);
-      title = shortTermStayChargeTitle(nights, parsed.nightlyRate);
+      amt = shortTermStayTotalAmount(parsed.nightlyRate, nights, parsed.weeklyRate);
+      title = shortTermStayChargeTitle(nights, parsed.nightlyRate, parsed.weeklyRate);
     }
     const dueLabel = editDueDateDraft.trim() ? dueDateInputToLabel(editDueDateDraft) : undefined;
     if (!dueLabel && editDueDateDraft.trim()) {
@@ -877,6 +877,7 @@ export function ManagerPaymentsLedgerPanel({
                 ? shortTermStayChargeTitle(
                     parseInt(editNightsDraft, 10) || parsed?.nights || 0,
                     parsed?.nightlyRate ?? 0,
+                    parsed?.weeklyRate,
                   )
                 : row.chargeTitle}
             </p>
@@ -901,7 +902,7 @@ export function ManagerPaymentsLedgerPanel({
                     if (parsed && next) {
                       const nights = parseInt(next, 10);
                       if (Number.isFinite(nights) && nights >= 1) {
-                        setEditAmountDraft(shortTermStayTotalAmount(parsed.nightlyRate, nights).toFixed(2));
+                        setEditAmountDraft(shortTermStayTotalAmount(parsed.nightlyRate, nights, parsed.weeklyRate).toFixed(2));
                       }
                     }
                   }}

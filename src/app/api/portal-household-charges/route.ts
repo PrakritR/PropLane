@@ -117,7 +117,10 @@ export async function GET() {
     const rawCharges = chargeRows.map((r) => r.row_data as HouseholdCharge);
     const charges = await enrichHouseholdChargesFromPropertyRecords(db, rawCharges);
     const rentProfiles = (profileResult.data ?? []).map((r) => r.row_data);
-    return NextResponse.json({ charges, rentProfiles });
+    // The viewer's role travels with the read so the browser store can refuse a
+    // write it is not allowed to make (PRP-391) instead of discovering it from a
+    // 403. The POST guard below is still the authority; this is the second copy.
+    return NextResponse.json({ charges, rentProfiles, viewerRole: user.role });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load charges.";
     return NextResponse.json({ error: message }, { status: 500 });

@@ -329,6 +329,7 @@ export function ManagerTrialSignupForm({
             }}
             disabled={locked}
             phonePlaceholder="Phone number"
+            phoneRequired
             onSubmit={() => void submit()}
           />
           <Button

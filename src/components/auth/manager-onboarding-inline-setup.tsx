@@ -212,7 +212,7 @@ export function ManagerOnboardingWorkNumberSetup({
   );
 }
 
-export function ManagerOnboardingAssistantEmailSetup({
+export function ManagerOnboardingWorkEmailSetup({
   status,
   onUpdated,
 }: {
@@ -238,11 +238,11 @@ export function ManagerOnboardingAssistantEmailSetup({
       });
       const body = (await res.json().catch(() => ({}))) as ManagerAssistantEmailStatus & { error?: string };
       if (!res.ok) {
-        setError(body.error ?? "Could not set up assistant email.");
+        setError(body.error ?? "Could not set up your work email.");
         return;
       }
       onUpdated(body);
-      if (body.address) showToast("Your PropLane assistant email is ready.");
+      if (body.address) showToast("Your PropLane work email is ready.");
     } catch {
       setError("Network error. Try again.");
     } finally {
@@ -253,7 +253,7 @@ export function ManagerOnboardingAssistantEmailSetup({
   if (status.address?.trim()) return null;
 
   return (
-    <div className="mt-3 space-y-3 border-t border-border/70 pt-3" data-onboarding-inline="assistant-email">
+    <div className="mt-3 space-y-3 border-t border-border/70 pt-3" data-onboarding-inline="work-email">
       {upsell ? <p className="text-xs leading-relaxed text-muted">{upsell}</p> : null}
       {error ? <p className="text-xs text-rose-600">{error}</p> : null}
       {status.canRequest ? (
@@ -263,9 +263,9 @@ export function ManagerOnboardingAssistantEmailSetup({
           className="min-h-0 h-8 rounded-full px-4 text-xs"
           disabled={busy}
           onClick={() => void requestAddress()}
-          data-attr="onboarding-set-up-assistant-email"
+          data-attr="onboarding-set-up-work-email"
         >
-          {busy ? "Setting up…" : "Set up assistant email"}
+          {busy ? "Setting up…" : "Set up work email"}
         </Button>
       ) : null}
     </div>

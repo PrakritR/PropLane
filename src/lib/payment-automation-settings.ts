@@ -84,6 +84,13 @@ export type ManagerAutomationSettings = {
    * honoured yet is visible rather than silently dropped.
    */
   workNumberRequestedAtSignup: boolean;
+  /**
+   * They asked for a PropLane work email while creating the account. Same
+   * intent-only contract as `workNumberRequestedAtSignup` above: it never
+   * provisions anything, it just keeps a "yes" that could not be honoured yet
+   * visible in Settings instead of silently dropping it.
+   */
+  workEmailRequestedAtSignup: boolean;
   templates: {
     preDue: ReminderTemplate;
     overdue: ReminderTemplate;
@@ -176,6 +183,7 @@ export const DEFAULT_MANAGER_AUTOMATION_SETTINGS: ManagerAutomationSettings = {
   maintenanceDeliverViaSms: false,
   inboxAiDraftAutoSend: false,
   workNumberRequestedAtSignup: false,
+  workEmailRequestedAtSignup: false,
   templates: {
     preDue: {
       subject: "Payment due {daysUntilDuePhrase}: {chargeTitle}",
@@ -405,6 +413,7 @@ export function normalizeManagerAutomationSettings(raw: unknown): ManagerAutomat
     maintenanceDeliverViaSms: row.maintenanceDeliverViaSms === true,
     inboxAiDraftAutoSend: row.inboxAiDraftAutoSend === true,
     workNumberRequestedAtSignup: row.workNumberRequestedAtSignup === true,
+    workEmailRequestedAtSignup: row.workEmailRequestedAtSignup === true,
     templates: {
       preDue: normalizeTemplate(templatesRaw.preDue, base.templates.preDue),
       overdue: normalizeTemplate(templatesRaw.overdue, base.templates.overdue),

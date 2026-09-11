@@ -1,20 +1,23 @@
 #!/usr/bin/env node
 /**
- * Phase ① + ②: Linear ticket (required) → Lavish plan scaffold → open for review.
- * Does NOT build code. Captain must say "approved — build" before phase ③.
+ * Phase ①: turn the captain's message into a Lavish plan and open it for review.
+ *
+ * No Linear ticket is created — the plan IS the artifact. File a ticket only
+ * when the captain explicitly asks for one (`npm run linear:ticket`).
  *
  * Usage:
  *   npm run workflow:plan -- --chat "Residents tab crashes on open"
- *   npm run workflow:plan -- --ticket PRP-170 --title "..." --summary "..." --image /path.png
+ *   npm run workflow:plan -- --chat "…" --image /path/shot.png
+ *   npm run workflow:plan -- --title "…" --summary "…"
+ *   npm run workflow:plan -- --ticket PRP-170 --title "…"   # label only, no API call
  *
- * Requires LINEAR_API_KEY in .env.local
+ * Does NOT build code. The captain says "approved — build" first.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { appendIssueSection, fetchIssue } from "./linear/update-issue.mjs";
 import { writeActiveSession } from "./lavish-session.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -26,7 +29,7 @@ function parseArgs(argv) {
     const a = argv[i];
     const next = () => argv[++i];
     if (a === "--chat") out.chat = next();
-    else if (a === "--ticket") out.ticket = next();
+    else if (a === "--ticket" || a === "--id") out.id = next();
     else if (a === "--title") out.title = next();
     else if (a === "--summary") out.summary = next();
     else if (a === "--image") out.images.push(next());
@@ -36,120 +39,74 @@ function parseArgs(argv) {
   return out;
 }
 
-function runNode(script, extraArgs) {
-  const r = spawnSync(process.execPath, [script, ...extraArgs], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-  if (r.status !== 0) {
-    throw new Error(r.stderr?.trim() || r.stdout?.trim() || `${script} failed`);
-  }
-  return r.stdout.trim();
-}
-
 function printHelp() {
-  console.log(`PropLane workflow — ticket first, then Lavish plan (no code until approved)
+  console.log(`PropLane workflow — plan first, no code until the captain approves
 
   npm run workflow:plan -- --chat "describe the work"
-  npm run workflow:plan -- --ticket PRP-170 --title "..." --summary "..."
+  npm run workflow:plan -- --title "…" --summary "…"
 
 Options:
-  --chat              Create Linear ticket from natural language (phase ①)
-  --ticket PRP-###    Use existing ticket (skip create)
-  --title / --summary Plan metadata (required with --ticket if no --chat)
-  --image <path>      Captain screenshot (repeatable)
-  --no-open           Skip opening Lavish in browser
+  --chat <text>       captain's own words (becomes title + summary)
+  --title / --summary explicit plan metadata
+  --image <path>      captain screenshot (repeatable)
+  --ticket <id>       optional label only; no Linear ticket is filed
+  --no-open           write the plan without opening Lavish
 
-Next: captain reviews plan → says "approved — build" → agent implements (phase ③)
+The scaffold is a shell. Fill it — especially the UI tab — before showing him:
+docs/agents/lavish-plan-standard.md
 
-See docs/share/proplane-collaborator-workflow.md`);
+Next: he annotates in Lavish → you poll, apply, re-open → "approved — build".`);
 }
 
-async function main() {
+function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     printHelp();
     return;
   }
 
-  if (!args.chat && !args.ticket) {
-    console.error("error: pass --chat (new ticket) or --ticket PRP-### (existing)");
+  if (!args.chat && !args.title) {
+    console.error("error: pass --chat \"<his message>\" or --title \"…\"");
     printHelp();
     process.exit(1);
   }
 
-  let ticket = args.ticket?.trim().toUpperCase();
-  let title = args.title;
-  let summary = args.summary;
+  const title = args.title ?? args.chat.slice(0, 120);
+  const summary = args.summary ?? args.chat ?? title;
 
-  if (args.chat) {
-    console.log("① Creating Linear ticket…");
-    const out = runNode("scripts/linear-file-ticket.mjs", ["--chat", args.chat]);
-    const match = out.match(/(PRP-\d+)/);
-    if (!match) throw new Error(`Could not parse ticket id from:\n${out}`);
-    ticket = match[1];
-    const line = out.split("\n").find((l) => l.includes("http"));
-    console.log(out);
-    if (!title) title = args.chat.slice(0, 120);
-    if (!summary) summary = args.chat;
-  } else {
-    console.log(`① Verifying ${ticket}…`);
-    const issue = await fetchIssue(ticket);
-    if (!title) title = issue.title;
-    if (!summary) summary = issue.description?.split("\n").slice(0, 8).join("\n") || issue.title;
-    console.log(`   ${issue.url}`);
-  }
-
-  if (!title) {
-    console.error("error: --title required when using --ticket without --chat");
-    process.exit(1);
-  }
-
-  console.log("\n② Scaffolding Lavish plan…");
-  const lavishArgs = [
-    "--ticket",
-    ticket,
-    "--title",
-    title,
-    "--summary",
-    summary ?? title,
-  ];
+  const lavishArgs = ["--title", title, "--summary", summary];
+  if (args.id) lavishArgs.push("--id", args.id);
   for (const img of args.images) lavishArgs.push("--image", img);
   if (args.open) lavishArgs.push("--open");
 
-  const planOut = runNode("scripts/lavish-plan.mjs", lavishArgs);
-  console.log(planOut);
+  const r = spawnSync(process.execPath, ["scripts/lavish-plan.mjs", ...lavishArgs], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const out = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
+  console.log(out);
+  if (r.status !== 0) process.exit(r.status ?? 1);
 
-  const planPath = planOut
+  const planPath = out
     .split("\n")
     .map((l) => l.trim())
     .find((l) => l.endsWith("plan.html") && l.includes(".lavish"));
   if (!planPath || !existsSync(planPath)) {
-    throw new Error("Could not find plan.html path in lavish output");
+    console.error("error: could not find plan.html path in lavish output");
+    process.exit(1);
   }
 
-  writeActiveSession({ planPath, ticket });
-
-  console.log("\n③ Linking plan on Linear ticket…");
-  await appendIssueSection(
-    ticket,
-    "Lavish plan (review before build)",
-    `Local path: \`${planPath}\`\n\nOpen: \`npx -y lavish-axi ${planPath}\`\nPoll: \`npm run lavish:poll\`\n\n**Do not build until captain approves** (chat: \`approved — build\`).`,
-  );
+  writeActiveSession({ planPath, ticket: args.id ?? null });
 
   console.log(`
-✓ Workflow paused at plan review
-  Ticket:  ${ticket}
-  Plan:    ${planPath}
-  Open:    npx -y lavish-axi ${planPath}
-  Poll:    npm run lavish:poll
+✓ Paused at plan review
+  Plan:   ${planPath}
+  Listen: npm run lavish:listen
+  Poll:   npm run lavish:poll
 
-Captain: annotate in Lavish or reply **approved — build** when ready.
-Agent:   run **npm run lavish:poll** (and **npm run lavish:listen** after open) before ending turn; do NOT write product code until approval.`);
+Agent: fill the scaffold, keep polling every turn, reply with --agent-reply.
+       No product code until the captain says **approved — build**.`);
 }
 
-main().catch((e) => {
-  console.error(`error: ${e.message}`);
-  process.exit(1);
-});
+main();

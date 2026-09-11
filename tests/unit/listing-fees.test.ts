@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { LISTING_STANDARD_FEE_ROWS } from "@/lib/listing-fee-term-toggles";
 import {
   applyListingFeesToSubmission,
   customFeeBelongsInShortTermLeaseSection,
@@ -96,19 +97,27 @@ describe("listing fees migration", () => {
     expect(n.removedStandardListingFeeRows).toEqual(["parkingMonthly", "hoaMonthly"]);
   });
 
+  // PRP-463: a new listing starts with ONE fee row. Custom lease pricing used to start
+  // visible alongside Application fee, so a manager who wanted one fee was shown two.
   it("new listing wizard hides every standard other fee except application", () => {
     const hidden = defaultRemovedStandardListingFeeRowsForNewListing();
     expect(hidden).not.toContain("applicationFee");
-    expect(hidden).not.toContain("customLeaseSurcharge");
+    expect(hidden).toContain("customLeaseSurcharge");
     expect(hidden).toContain("parkingMonthly");
     expect(hidden).toContain("holdingDeposit");
+    // Every removable standard row bar the application fee, and no other exception.
+    expect(
+      LISTING_STANDARD_FEE_ROWS.filter((row) => row.id !== "rent" && !hidden.includes(row.id)).map(
+        (row) => row.id,
+      ),
+    ).toEqual(["applicationFee"]);
 
     const sub = createNewListingWizardSubmission();
     expect(sub.removedStandardListingFeeRows).toEqual(hidden);
     expect(sub.holdingDeposit).toBe("");
     expect(sub.customFees?.some((f) => f.presetId === "parking_monthly")).toBe(false);
     expect(sub.customFees?.some((f) => f.presetId === "holding_deposit")).toBe(false);
-    expect(sub.customFees?.some((f) => f.presetId === "custom_lease_surcharge")).toBe(true);
+    expect(sub.customFees?.some((f) => f.presetId === "custom_lease_surcharge")).toBe(false);
   });
 
   it("re-shows custom lease pricing on edit when a price was saved", () => {

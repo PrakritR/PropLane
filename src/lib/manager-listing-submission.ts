@@ -47,6 +47,27 @@ export const PAYMENT_AT_SIGNING_OPTIONS: readonly { id: PaymentAtSigningOptionId
   { id: "first_month_utilities", label: "First month utilities" },
 ];
 
+/**
+ * A room's price for ONE lease type, when it differs from its long-term price (PRP-463).
+ *
+ * Absent means "same as long-term", which is what every room saved before this field
+ * existed meant and what the wizard's "Same as Long-term" checkbox stores. Only a real
+ * difference is written, so a room cannot end up carrying three copies of one rent that
+ * then drift apart.
+ */
+export type ManagerRoomTermPrice = {
+  monthlyRent?: number;
+  securityDeposit?: string;
+  /** Monthly utilities estimate for this term, when it differs from long-term. */
+  utilitiesEstimate?: string;
+  /** Whether this term is open to an offer, when it differs from long-term. */
+  pricingMode?: "fixed" | "flexible";
+  /** How a part month is prorated on this term, and the rates when it is set per day. */
+  prorateMethod?: "auto" | "daily_rate";
+  dailyRentRate?: number;
+  dailyUtilitiesRate?: number;
+};
+
 export type ManagerRoomUnavailableRange = {
   id: string;
   /** Inclusive YYYY-MM-DD — room cannot be leased overlapping this span. */
@@ -71,6 +92,14 @@ export type ManagerRoomSubmission = {
   moveInVideoDataUrl: string | null;
   /** Manager-defined blocks when the room must not be booked (overlaps disallowed with applicant lease). */
   manualUnavailableRanges: ManagerRoomUnavailableRange[];
+  /**
+   * Per-lease-type price overrides, keyed by stored lease-term label (PRP-463).
+   *
+   * A term with no entry bills the room's long-term rent and deposit — the behaviour
+   * every room has always had. `resolveStayPricing` reads this when the lease names its
+   * term, so what the wizard shows and what the ledger bills are the same number.
+   */
+  termPricing?: Record<string, ManagerRoomTermPrice>;
   detail: string;
   /** Furnishing level or what is included (shown on listing). */
   furnishing: string;
@@ -171,20 +200,6 @@ export type ManagerRoomSubmission = {
    */
   bedCount?: number;
   /**
-   * Whether this room advertises ONE price or is negotiated per resident (PRP-329,
-   * Marc's sober-living model, where residents pay according to what they can afford).
-   *
-   * Absent or "fixed" → the room behaves exactly as it always has: {@link monthlyRent}
-   * (or {@link dailyRentPrice}) is both the advertised figure and the billed one.
-   *
-   * "flexible" → there is NO advertised billable price. The optional
-   * {@link flexibleRentMin}/{@link flexibleRentMax} are GUIDANCE shown to prospects,
-   * never a charge: `resolveStayPricing` refuses to bill a flexible room until the
-   * manager sets that resident's agreed rent, rather than falling back to a stale
-   * `monthlyRent` the public listing is no longer showing. This is a different axis
-   * from {@link rentBasis} (monthly vs daily billing) — a flexible room can be either.
-   */
-  /**
    * Headline WEEKLY rate (USD dollars), used when {@link rentBasis} is "weekly".
    *
    * The third rung of the rate card a manager actually quotes — "$55/day, $350/week,
@@ -211,10 +226,18 @@ export type ManagerRoomSubmission = {
    * short-term/nightly stay, which is priced by its own nightly rate instead.
    */
   shortLeaseMaxMonths?: number;
+  /**
+   * Whether this room's listed rent is Fixed or Flexible (PRP-462).
+   *
+   * Absent or "fixed" → listed rent is locked in Communication replies.
+   * "flexible" → same rent fields are listed and billed; a prospect counter-offer
+   * asks the manager before changing anything. Legacy {@link flexibleRentMin}/
+   * {@link flexibleRentMax} may remain on old rows but are not the primary price.
+   */
   pricingMode?: "fixed" | "flexible";
-  /** Optional advertised floor for a flexible room (USD dollars). Guidance only, never billed. */
+  /** @deprecated Legacy guidance bounds (PRP-329); not billed under PRP-462. */
   flexibleRentMin?: number;
-  /** Optional advertised ceiling for a flexible room (USD dollars). Guidance only, never billed. */
+  /** @deprecated Legacy guidance bounds (PRP-329); not billed under PRP-462. */
   flexibleRentMax?: number;
   /** Required evidence for this room; independent for arrival and departure. */
   moveInInspectionRequired?: boolean;
@@ -262,6 +285,15 @@ export type ManagerCustomFeeRow = {
    * charge may name several types.
    */
   leaseTypes?: string[];
+  /**
+   * Which rooms this charge applies to, by room id.
+   *
+   * Absent or empty means EVERY room — including rooms added after the fee was saved.
+   * That is deliberate: "All rooms" must not persist as a snapshot of the room ids that
+   * happened to exist when the manager ticked it, or adding Room 4 next month would
+   * silently drop the fee from it. Only a real narrowing is stored.
+   */
+  roomIds?: string[];
 };
 
 /** Rows for the public “Bundles & leasing” table (optional — defaults are generated from rooms). */
@@ -281,6 +313,23 @@ export type ManagerBundleRow = {
   shortTermEnabled?: boolean;
   /** Nightly rate for short-term stays on this bundle (stay total = rate × nights). */
   shortTermNightlyRent?: string;
+  /**
+   * Weekly rate for a grouped short stay. A stay of a week or more bills whole weeks at
+   * this rate plus the leftover nights at the nightly one (PRP-463).
+   */
+  shortTermWeeklyRent?: number;
+  /** Whether the bundle price is open to an offer. */
+  pricingMode?: "fixed" | "flexible";
+  /** How a part month is prorated on the bundle, and the rates when it is set per day. */
+  prorateMethod?: "auto" | "daily_rate";
+  dailyRentRate?: number;
+  dailyUtilitiesRate?: number;
+  /**
+   * Per-lease-type price overrides for the bundle, keyed by stored lease-term label
+   * (PRP-463) — the same shape a room carries. A term with no entry is priced like the
+   * bundle's long-term rent and deposit, which is what every bundle has always meant.
+   */
+  termPricing?: Record<string, ManagerRoomTermPrice>;
   /** Per-bundle short-term move-in fee and deposit (round 20 dedicated short-term section).
    *  Advertised default for a grouped short-term stay; no separate utilities (all-in rate). */
   shortTermMoveInFee?: string;
@@ -336,6 +385,15 @@ export type ManagerBathroomSubmission = {
   allResidents?: boolean;
   /** Optional per-room situation for this bathroom (only meaningful when the room is checked). */
   accessKindByRoomId?: Partial<Record<string, ManagerBathroomRoomAccessKind>>;
+  /**
+   * How this bathroom is reached — the manager's one choice for the whole row (PRP-463).
+   *
+   * {@link accessKindByRoomId} stays the storage every listing surface already reads; this
+   * is the bathroom-level answer the wizard actually asks for, and it is written through
+   * to each assigned room. Absent means it was never set explicitly and is derived from
+   * the per-room kinds, so existing listings are unchanged.
+   */
+  accessKind?: "shared" | "ensuite";
 };
 
 export type ManagerSharedSpaceSubmission = {
@@ -390,6 +448,12 @@ export type ManagerListingSubmissionV1 = {
   /** How utilities are paid for an entire-home lease. */
   entireHomeUtilitiesPaymentModel?: UtilitiesPaymentModel;
   entireHomeProrateMethod?: "auto" | "daily_rate";
+  /**
+   * Whether the whole-home SHORT-TERM rate is open to an offer (PRP-463). Rooms and
+   * bundles keep theirs in `termPricing`; a whole home has no such record, so it lives
+   * here beside the other whole-home short-term figures.
+   */
+  shortTermPricingMode?: "fixed" | "flexible";
   entireHomeDailyRentRate?: number;
   entireHomeDailyUtilitiesRate?: number;
   listingStoriesId?: string;
@@ -512,6 +576,40 @@ export type ManagerListingSubmissionV1 = {
   moveInFee: string;
   /** Charges included in “payment due at signing” (multi-select). */
   paymentAtSigningIncludes: PaymentAtSigningOptionId[];
+  /**
+   * Which payments are collected at signing, PER lease type (PRP-463).
+   *
+   * Keyed by stored lease-term label; values are signing row keys — a
+   * `PaymentAtSigningOptionId`, `fee:<feeId>` for a manager-added fee, or
+   * `room_rent:<roomId>` when renting by room. Absent means the listing predates the
+   * matrix and every lease type collects {@link paymentAtSigningIncludes}, which is
+   * exactly what that flat list meant.
+   *
+   * {@link paymentAtSigningIncludes} stays the derived union of the four standard ids so
+   * every existing reader (lease documents, charges, listing projection) is untouched.
+   */
+  paymentAtSigningByLeaseType?: Record<string, string[]>;
+  /**
+   * Which inspections this listing requires, per lease type.
+   *
+   * Keyed by stored lease-term label; values are inspection kinds (`move-in`,
+   * `move-out`). A three-night Airbnb stay and a twelve-month lease do not need the same
+   * evidence, which is why this is a matrix and not a switch. Absent, or a term with no
+   * entry, means nothing is required on that lease type — the same default a listing has
+   * always had. Per-room requirements are independent and add to whatever this says.
+   */
+  inspectionsByLeaseType?: Record<string, string[]>;
+  /**
+   * Lease-type and room scope for the STANDARD fee rows, keyed by fee row id
+   * (`applicationFee`, `securityDeposit`, …). Custom fees carry their own
+   * `leaseTypes` / `roomIds`; standard rows are backed by fixed submission fields with
+   * nowhere to hang scope, so it lives here and is stamped onto the materialized fee row
+   * by `ensureSubmissionListingFees` — which is why every downstream reader sees one
+   * shape regardless of where a fee came from.
+   *
+   * An absent entry, like an absent list, means every lease type and every room.
+   */
+  standardFeeScopes?: Record<string, { leaseTypes?: string[]; roomIds?: string[] }>;
   houseCostsDetail: string;
   parkingMonthly: string;
   hoaMonthly: string;
@@ -1187,6 +1285,96 @@ export function applyEntireHomeMonthlyRent(
   return applyEntireHomeListingPricing(sub, { entireHomeMonthlyRent: Math.max(0, Math.round(Number(rent) || 0)) });
 }
 
+/**
+ * Standard-row scope, pruned to what still exists. A scope that ends up naming every
+ * lease type or every room is stored as ABSENT, never as the full list: "all rooms" must
+ * keep meaning all rooms after a fourth room is added, not the three that existed when
+ * the manager ticked it.
+ */
+function normalizeStandardFeeScopeMap(
+  raw: unknown,
+  present: { terms: readonly string[]; roomIds: readonly string[] },
+): Record<string, { leaseTypes?: string[]; roomIds?: string[] }> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const narrow = (value: unknown, allowed: readonly string[]): string[] | undefined => {
+    if (!Array.isArray(value)) return undefined;
+    const picked = new Set(
+      value.filter((v): v is string => typeof v === "string" && v.trim().length > 0).map((v) => v.trim()),
+    );
+    const ordered = allowed.filter((v) => picked.has(v));
+    if (ordered.length === 0 || ordered.length >= allowed.length) return undefined;
+    return ordered;
+  };
+  const out: Record<string, { leaseTypes?: string[]; roomIds?: string[] }> = {};
+  for (const [rowId, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const v = value as { leaseTypes?: unknown; roomIds?: unknown };
+    const scope: { leaseTypes?: string[]; roomIds?: string[] } = {};
+    const leaseTypes = narrow(v.leaseTypes, present.terms);
+    const roomIds = narrow(v.roomIds, present.roomIds);
+    if (leaseTypes) scope.leaseTypes = leaseTypes;
+    if (roomIds) scope.roomIds = roomIds;
+    if (Object.keys(scope).length > 0) out[rowId] = scope;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Keep only lease terms the listing offers and row keys that still name something real,
+ * so a deleted room or fee cannot leave a stranded signing cell behind. Returns
+ * `undefined` when there is nothing to store, which reads as "no matrix" — the flat
+ * `paymentAtSigningIncludes` then applies to every lease type.
+ */
+/**
+ * Keep only real lease terms and real inspection kinds, and drop a term that requires
+ * nothing so an untouched listing stores nothing at all.
+ */
+function normalizeInspectionMatrix(
+  raw: unknown,
+  terms: readonly string[],
+): Record<string, string[]> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const kinds = ["move-in", "move-out"];
+  const out: Record<string, string[]> = {};
+  for (const term of terms) {
+    const value = (raw as Record<string, unknown>)[term];
+    if (!Array.isArray(value)) continue;
+    const picked = kinds.filter((kind) => value.includes(kind));
+    if (picked.length > 0) out[term] = picked;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function normalizeSigningMatrix(
+  raw: unknown,
+  present: { terms: readonly string[]; feeIds: readonly string[]; roomIds: readonly string[] },
+): Record<string, string[]> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const standard = new Set<string>(PAYMENT_AT_SIGNING_OPTIONS.map((o) => o.id));
+  const feeIds = new Set(present.feeIds);
+  const roomIds = new Set(present.roomIds);
+  const keyIsLive = (key: string): boolean => {
+    if (standard.has(key)) return true;
+    if (key.startsWith("fee:")) return feeIds.has(key.slice(4));
+    if (key.startsWith("room_rent:")) return roomIds.has(key.slice(10));
+    return false;
+  };
+  const out: Record<string, string[]> = {};
+  for (const term of present.terms) {
+    const value = (raw as Record<string, unknown>)[term];
+    if (!Array.isArray(value)) continue;
+    out[term] = [
+      ...new Set(
+        value
+          .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+          .map((v) => v.trim())
+          .filter(keyIsLive),
+      ),
+    ];
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /** Coerces older saved submissions into the current v1 shape (preserves listing data where possible). */
 export type NormalizeManagerListingSubmissionOptions = {
   accountPaymentWaiverGranted?: boolean;
@@ -1385,6 +1573,9 @@ export function normalizeManagerListingSubmissionV1(
         }
         return out;
       })(),
+      termPricing: normalizeRoomTermPricing(
+        (legacyRoom as ManagerRoomSubmission & { termPricing?: unknown }).termPricing,
+      ),
     };
   });
 
@@ -1432,6 +1623,12 @@ export function normalizeManagerListingSubmissionV1(
         typeof b.utilitiesEstimate === "string" && b.utilitiesEstimate.trim()
           ? b.utilitiesEstimate.trim()
           : undefined,
+      termPricing: normalizeRoomTermPricing((b as ManagerBundleRow & { termPricing?: unknown }).termPricing),
+      shortTermWeeklyRent: positiveRate((b as ManagerBundleRow).shortTermWeeklyRent),
+      pricingMode: (b as ManagerBundleRow).pricingMode === "flexible" ? "flexible" : undefined,
+      prorateMethod: (b as ManagerBundleRow).prorateMethod === "daily_rate" ? "daily_rate" : undefined,
+      dailyRentRate: positiveRate((b as ManagerBundleRow).dailyRentRate),
+      dailyUtilitiesRate: positiveRate((b as ManagerBundleRow).dailyUtilitiesRate),
     };
   });
 
@@ -1462,6 +1659,35 @@ export function normalizeManagerListingSubmissionV1(
     // id/label/amount/frequency defaulting the prakrit lane did explicitly, and it
     // additionally preserves the custom-fee shortTermAmount and recovers preset labels.
     customFees = customFees.map((f) => normalizeListingFeeRow(f as ListingFeeRow));
+  }
+
+  // Payment at signing, per lease type (PRP-463). The matrix is authoritative when it is
+  // present; the flat list below is DERIVED from it so every existing reader keeps
+  // working. A listing without a matrix is untouched: its flat list still applies to
+  // every lease type, which is what it always meant.
+  const paymentAtSigningByLeaseType = normalizeSigningMatrix(
+    (sub as { paymentAtSigningByLeaseType?: unknown }).paymentAtSigningByLeaseType,
+    {
+      terms: resolveAllowedLeaseTerms(sub),
+      feeIds: customFees.map((f) => f.id),
+      roomIds: rooms.map((r) => r.id),
+    },
+  );
+  const inspectionsByLeaseType = normalizeInspectionMatrix(
+    (sub as { inspectionsByLeaseType?: unknown }).inspectionsByLeaseType,
+    resolveAllowedLeaseTerms(sub),
+  );
+  const standardFeeScopes = normalizeStandardFeeScopeMap(
+    (sub as { standardFeeScopes?: unknown }).standardFeeScopes,
+    { terms: resolveAllowedLeaseTerms(sub), roomIds: rooms.map((r) => r.id) },
+  );
+
+  if (paymentAtSigningByLeaseType) {
+    const union = new Set<string>();
+    for (const keys of Object.values(paymentAtSigningByLeaseType)) {
+      for (const key of keys) union.add(key);
+    }
+    paymentAtSigningIncludes = PAYMENT_AT_SIGNING_OPTIONS.map((o) => o.id).filter((id) => union.has(id));
   }
 
   const serviceRequestOptions = Array.isArray((sub as { serviceRequestOptions?: unknown }).serviceRequestOptions)
@@ -1534,6 +1760,10 @@ export function normalizeManagerListingSubmissionV1(
       assignedRoomIds: allResidents ? [] : assignedRoomIds,
       allResidents,
       accessKindByRoomId: allResidents ? undefined : accessKindByRoomId,
+      accessKind: normalizeBathroomAccessKind(
+        (legacyBath as ManagerBathroomSubmission).accessKind,
+        accessKindByRoomId,
+      ),
     };
   });
 
@@ -1740,6 +1970,8 @@ export function normalizeManagerListingSubmissionV1(
     shortTermRequirements: typeof sub.shortTermRequirements === "string" ? sub.shortTermRequirements : "",
     shortTermDailyCost: typeof sub.shortTermDailyCost === "string" ? sub.shortTermDailyCost : "",
     shortTermDeposit: typeof sub.shortTermDeposit === "string" ? sub.shortTermDeposit : "",
+    shortTermPricingMode:
+      (sub as ManagerListingSubmissionV1).shortTermPricingMode === "flexible" ? "flexible" : undefined,
     shortTermMoveInFee: typeof sub.shortTermMoveInFee === "string" ? sub.shortTermMoveInFee : "",
     shortTermHoldingDeposit: typeof sub.shortTermHoldingDeposit === "string" ? sub.shortTermHoldingDeposit : "",
     shortTermParkingMonthly: typeof sub.shortTermParkingMonthly === "string" ? sub.shortTermParkingMonthly : "",
@@ -1764,6 +1996,9 @@ export function normalizeManagerListingSubmissionV1(
     allowedLeaseTerms,
     leaseTermsBody,
     paymentAtSigningIncludes,
+    paymentAtSigningByLeaseType,
+    inspectionsByLeaseType,
+    standardFeeScopes,
     rooms: normalizedRooms,
     bathrooms,
     sharedSpaces,
@@ -2075,6 +2310,63 @@ export function duplicateRoomEntry(source: ManagerRoomSubmission): ManagerRoomSu
   };
 }
 
+/**
+ * The bathroom's access kind: what the manager chose, or — for a listing saved before the
+ * field existed — what its per-room kinds already say. "hall" is a shared bath, so it
+ * reads back as shared rather than losing the row's meaning.
+ */
+export function normalizeBathroomAccessKind(
+  explicit: unknown,
+  accessKindByRoomId: Partial<Record<string, ManagerBathroomRoomAccessKind>> | undefined,
+): "shared" | "ensuite" | undefined {
+  if (explicit === "shared" || explicit === "ensuite") return explicit;
+  const kinds = Object.values(accessKindByRoomId ?? {}).filter(Boolean);
+  if (kinds.length === 0) return undefined;
+  return kinds.every((k) => k === "ensuite") ? "ensuite" : "shared";
+}
+
+/**
+ * Per-lease-type room prices, pruned to terms the system knows and to entries that
+ * actually say something. An entry equal to nothing is dropped, so "same as long-term"
+ * is stored as absence rather than as a copy that could drift.
+ */
+/** A rate stored only when it is a real, positive figure. */
+function positiveRate(raw: unknown): number | undefined {
+  const n = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : undefined;
+}
+
+export function normalizeRoomTermPricing(raw: unknown): Record<string, ManagerRoomTermPrice> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const out: Record<string, ManagerRoomTermPrice> = {};
+  for (const [term, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!LISTING_LEASE_TERM_OPTION_SET.has(term)) continue;
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    const v = value as { monthlyRent?: unknown; securityDeposit?: unknown };
+    const entry: ManagerRoomTermPrice = {};
+    const rent = typeof v.monthlyRent === "number" ? v.monthlyRent : Number(v.monthlyRent);
+    if (Number.isFinite(rent) && rent > 0) entry.monthlyRent = Math.round(rent * 100) / 100;
+    const deposit = typeof v.securityDeposit === "string" ? v.securityDeposit.replace(/^\$/, "").trim() : "";
+    if (deposit) entry.securityDeposit = deposit;
+    const utils =
+      typeof (v as { utilitiesEstimate?: unknown }).utilitiesEstimate === "string"
+        ? ((v as { utilitiesEstimate: string }).utilitiesEstimate).replace(/^\$/, "").trim()
+        : "";
+    if (utils) entry.utilitiesEstimate = utils;
+    const mode = (v as { pricingMode?: unknown }).pricingMode;
+    if (mode === "fixed" || mode === "flexible") entry.pricingMode = mode;
+    const prorate = (v as { prorateMethod?: unknown }).prorateMethod;
+    if (prorate === "auto" || prorate === "daily_rate") entry.prorateMethod = prorate;
+    for (const key of ["dailyRentRate", "dailyUtilitiesRate"] as const) {
+      const raw = (v as Record<string, unknown>)[key];
+      const n = typeof raw === "number" ? raw : Number(raw);
+      if (Number.isFinite(n) && n > 0) entry[key] = Math.round(n * 100) / 100;
+    }
+    if (Object.keys(entry).length > 0) out[term] = entry;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export function emptyBathroom(index: number): ManagerBathroomSubmission {
   return {
     id: rid("bath"),
@@ -2091,6 +2383,7 @@ export function emptyBathroom(index: number): ManagerBathroomSubmission {
     assignedRoomIds: [],
     allResidents: false,
     accessKindByRoomId: undefined,
+    accessKind: "shared",
   };
 }
 

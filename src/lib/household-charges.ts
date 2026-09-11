@@ -383,8 +383,39 @@ function scheduleHouseholdMirrorPost(): void {
     });
 }
 
+/**
+ * The charge ledger is manager-owned. A resident browser holds only the rows it
+ * can see, so any write it sends — above all `action:"replace"` — offers the
+ * server a partial copy of a collection it does not own (PRP-391).
+ *
+ * `POST /api/portal-household-charges` already answers a resident with 403, and
+ * that remains the authority. This is the second line of defence the 403 should
+ * always have had: the read tells us who is looking, and a resident session
+ * simply never attempts the write. Unknown role (no successful read yet) is
+ * permissive, because the server still refuses.
+ */
+type HouseholdViewerRole = "admin" | "manager" | "resident";
+let householdViewerRole: HouseholdViewerRole | null = null;
+let warnedHouseholdWriteRefused = false;
+
+function householdWritesForbidden(): boolean {
+  if (householdViewerRole !== "resident") return false;
+  if (!warnedHouseholdWriteRefused) {
+    warnedHouseholdWriteRefused = true;
+    console.warn("[charges] resident session does not write the charge ledger; skipped the server write.");
+  }
+  return true;
+}
+
+/** Test seam: forget the role learned from the last read. */
+export function resetHouseholdViewerRoleForTests() {
+  householdViewerRole = null;
+  warnedHouseholdWriteRefused = false;
+}
+
 function postHouseholdPayload(body: unknown) {
   if (!isBrowser() || isDemoModeActive()) return;
+  if (householdWritesForbidden()) return;
   const action = (body as { action?: string }).action;
   // Full-list mirrors fire on nearly every sync/write — collapse concurrent
   // callers into one POST with the latest in-memory snapshot.
@@ -397,6 +428,7 @@ function postHouseholdPayload(body: unknown) {
 
 async function postHouseholdPayloadAwait(body: unknown): Promise<boolean> {
   if (!isBrowser() || isDemoModeActive()) return false;
+  if (householdWritesForbidden()) return false;
   const res = await fetch("/api/portal-household-charges", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -469,7 +501,16 @@ async function runHouseholdChargesSync({
   const syncPromise = fetch("/api/portal-household-charges")
     .then(async (res) => {
       notePortalResponse(res.status);
-      const body = res.ok ? (await res.json() as { charges?: HouseholdCharge[]; rentProfiles?: RecurringRentProfile[] }) : {};
+      const body = res.ok
+        ? (await res.json() as {
+            charges?: HouseholdCharge[];
+            rentProfiles?: RecurringRentProfile[];
+            viewerRole?: string;
+          })
+        : {};
+      if (body.viewerRole === "resident" || body.viewerRole === "manager" || body.viewerRole === "admin") {
+        householdViewerRole = body.viewerRole;
+      }
       const serverCharges = Array.isArray(body.charges) ? body.charges : [];
       const serverProfiles = Array.isArray(body.rentProfiles) ? body.rentProfiles : [];
       hydrateHouseholdStateFromSession();
@@ -1606,6 +1647,14 @@ function selectedRoomUtilities(row: Pick<DemoApplicantRow, "assignedRoomChoice" 
       return { raw: String(totals.monthlyUtilities), amount: totals.monthlyUtilities };
     }
   }
+  // A room may estimate utilities differently for this lease's term (PRP-463). Absent —
+  // every room until a manager unticks "Same as Long-term" — falls through untouched.
+  const term = row.application?.leaseTerm?.trim();
+  const termUtilities = term
+    ? (room as { termPricing?: Record<string, { utilitiesEstimate?: string }> } | undefined)
+        ?.termPricing?.[term]?.utilitiesEstimate?.trim()
+    : undefined;
+  if (termUtilities) return { raw: termUtilities, amount: parseMoneyAmount(termUtilities) };
   const amount = utilitiesBillableMonthlyAmount(sub, room);
   const raw = amount > 0 ? String(amount) : room?.utilitiesEstimate?.trim() || "";
   return { raw, amount };
@@ -3541,7 +3590,7 @@ function syncPendingApprovedChargesFromListing(
           // mount, so reading listing-level fields here quietly rewrote a room-priced stay
           // back down to the listing's nightly rate minutes after it was billed correctly.
           const stayRoom = resolveRowSubmissionRoom(row).room;
-          const nightlyRate =
+          const stayPricing =
             resolveStayPricing({
               room: stayRoom,
               submission: sub,
@@ -3549,17 +3598,20 @@ function syncPendingApprovedChargesFromListing(
                 rentalType: row.application?.rentalType,
                 leaseStart,
                 leaseEnd,
+                leaseTerm: row.application?.leaseTerm,
                 managerRentOverride: row.application?.managerRentOverride,
                 managerSecurityDepositOverride: row.application?.managerSecurityDepositOverride,
                 signedMonthlyRent: row.signedMonthlyRent,
               },
-            }).dailyRate ?? 0;
+            });
+          const nightlyRate = stayPricing.dailyRate ?? 0;
+          const weeklyRate = stayPricing.weeklyRate;
           const nights = shortTermStayNightCount(leaseStart, leaseEnd);
-          if (nightlyRate > 0 && nights) {
+          if ((nightlyRate > 0 || (weeklyRate ?? 0) > 0) && nights) {
             out.push({
               kind: "stay_total",
-              amount: shortTermStayTotalAmount(nightlyRate, nights),
-              title: shortTermStayChargeTitle(nights, nightlyRate),
+              amount: shortTermStayTotalAmount(nightlyRate, nights, weeklyRate),
+              title: shortTermStayChargeTitle(nights, nightlyRate, weeklyRate),
               dueDateLabel: "Before check-in",
             });
           }
@@ -3928,7 +3980,7 @@ export function recordApprovedApplicationCharges(
     // listing's shortTermDailyCost. That precedence lives in resolveStayPricing, the same
     // resolver the lease document reads, so the stay total charged here always matches the
     // figure the agreement states. A stay is still ALL-IN: this branch bills no utilities line.
-    const nightlyRate =
+    const stayPricing =
       resolveStayPricing({
         room,
         submission: sub,
@@ -3936,17 +3988,20 @@ export function recordApprovedApplicationCharges(
           rentalType: row.application?.rentalType,
           leaseStart,
           leaseEnd,
+          leaseTerm: row.application?.leaseTerm,
           managerRentOverride: row.application?.managerRentOverride,
           managerSecurityDepositOverride: row.application?.managerSecurityDepositOverride,
           signedMonthlyRent: row.signedMonthlyRent,
         },
-      }).dailyRate ?? 0;
+      });
+    const nightlyRate = stayPricing.dailyRate ?? 0;
+    const weeklyRate = stayPricing.weeklyRate;
     const nights = shortTermStayNightCount(leaseStart, leaseEnd);
-    if (nightlyRate > 0 && nights) {
+    if ((nightlyRate > 0 || (weeklyRate ?? 0) > 0) && nights) {
       pushCharge(
         "stay_total",
-        shortTermStayTotalAmount(nightlyRate, nights),
-        shortTermStayChargeTitle(nights, nightlyRate),
+        shortTermStayTotalAmount(nightlyRate, nights, weeklyRate),
+        shortTermStayChargeTitle(nights, nightlyRate, weeklyRate),
         true,
         "Before check-in",
       );

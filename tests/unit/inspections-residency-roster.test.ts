@@ -18,8 +18,10 @@ const report = (over: Partial<InspectionSummary> & { id: string; application_id:
   manager_user_id: "mgr", property_id: "prop", resident_name: "Resident",
   property_label: "5259 Brooklyn Ave NE", room_label: "Room 1", kind: "move-in", status: "draft",
   inspection_date: "2026-03-04", baseline_id: null, revision: 1,
-  created_at: "2026-03-04T00:00:00.000Z", updated_at: "2026-03-04T00:00:00.000Z", ...over,
+  created_at: "2026-03-04T00:00:00.000Z", updated_at: "2026-03-04T00:00:00.000Z",
+  photos: { manager: 0, resident: 0, total: 0, lastAt: null }, ...over,
 });
+const photos = (manager: number, resident: number) => ({ manager, resident, total: manager + resident, lastAt: "2026-08-09T00:00:00.000Z" });
 
 describe("residencyOccupancy", () => {
   const today = "2026-09-05";
@@ -47,8 +49,8 @@ describe("buildInspectionRows", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.name).toBe("Sohan Vivek Naik");
     expect(rows[0]!.preview).toContain("Moves in Oct 1, 2026");
-    expect(rows[0]!.preview).toContain("No move-in inspection yet");
-    expect(rows[0]!.badge.label).toBe("Moving in");
+    expect(rows[0]!.preview).toContain("No photos yet");
+    expect(rows[0]!.badge.label).toBe("Needs photos");
   });
 
   it("shows a current resident with the date they moved in", () => {
@@ -57,7 +59,7 @@ describe("buildInspectionRows", () => {
     ], []);
 
     expect(rows[0]!.preview).toContain("Moved in Aug 1, 2026");
-    expect(rows[0]!.badge.label).toBe("Living here");
+    expect(rows[0]!.badge.label).toBe("Needs photos");
   });
 
   it("puts current residents on the move-out tab as still to move out", () => {
@@ -83,15 +85,16 @@ describe("buildInspectionRows", () => {
       residency({ id: "app-1", moveInDate: "2026-08-01", occupancy: "current" }),
     ], [
       report({ id: "r-old", application_id: "app-1", created_at: "2026-08-01T00:00:00.000Z", inspection_date: "2026-08-01" }),
-      report({ id: "r-new", application_id: "app-1", created_at: "2026-08-09T00:00:00.000Z", inspection_date: "2026-08-09", status: "completed" }),
+      report({ id: "r-new", application_id: "app-1", created_at: "2026-08-09T00:00:00.000Z", inspection_date: "2026-08-09", photos: photos(2, 1) }),
       report({ id: "r-out", application_id: "app-1", kind: "move-out" }),
     ]);
 
     // Both move-in reports stay reachable; the move-out one belongs to the other tab.
     expect(rows.map(row => row.report?.id)).toEqual(["r-old", "r-new"]);
     expect(rows.every(row => row.preview.includes("Moved in Aug 1, 2026"))).toBe(true);
-    expect(rows[1]!.badge.label).toBe("Completed");
-    expect(rows[1]!.preview).toContain("Move-in inspection Aug 9, 2026");
+    expect(rows[1]!.badge.label).toBe("3 photos");
+    expect(rows[1]!.preview).toContain("3 photos · resident 1, manager 2");
+    expect(rows[0]!.badge.label).toBe("Needs photos");
   });
 
   it("keeps a report whose residency is gone reachable on its own row", () => {
@@ -128,8 +131,7 @@ describe("buildInspectionRows", () => {
       residency({ id: "app-1", moveInDate: "2026-10-01", occupancy: "upcoming", requiredKinds: ["move-in"] }),
     ], []);
 
-    expect(rows[0]!.badge.label).toBe("Inspection required");
-    expect(rows[0]!.preview).toContain("Move-in inspection required");
+    expect(rows[0]!.preview).toContain("required");
   });
 
   it("leaves a row unmarked when the room requires the other kind only", () => {
@@ -137,18 +139,20 @@ describe("buildInspectionRows", () => {
       residency({ id: "app-1", moveInDate: "2026-10-01", occupancy: "upcoming", requiredKinds: ["move-out"] }),
     ], []);
 
-    expect(rows[0]!.badge.label).toBe("Moving in");
-    expect(rows[0]!.preview).toContain("No move-in inspection yet");
+    expect(rows[0]!.badge.label).toBe("Needs photos");
+    expect(rows[0]!.preview).not.toContain("required");
   });
 });
 
 describe("pickPrimaryInspectionReport", () => {
-  it("prefers draft over submitted and completed", () => {
+  // No status ranks above another any more: a report is a room and photos of it, so the
+  // shortcut opens the newest one and older reports stay reachable on their own rows.
+  it("opens the newest report for that moment", () => {
     const picked = pickPrimaryInspectionReport([
-      report({ id: "done", application_id: "app-1", status: "completed", inspection_date: "2026-09-01" }),
-      report({ id: "live", application_id: "app-1", status: "draft", inspection_date: "2026-08-01" }),
-      report({ id: "wait", application_id: "app-1", status: "submitted", inspection_date: "2026-09-02" }),
+      report({ id: "older", application_id: "app-1", inspection_date: "2026-08-01" }),
+      report({ id: "newest", application_id: "app-1", inspection_date: "2026-09-02" }),
+      report({ id: "middle", application_id: "app-1", inspection_date: "2026-09-01" }),
     ]);
-    expect(picked?.id).toBe("live");
+    expect(picked?.id).toBe("newest");
   });
 });

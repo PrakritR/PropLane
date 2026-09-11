@@ -3,6 +3,7 @@ import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { accountArchiveRules, ACCOUNT_RECOVERABLE_TABLES, ACCOUNT_RECOVERY_PATH, normalizeRecoveryPortal } from "@/lib/auth/account-recovery-policy";
+import { isMissingAccountRecoveryTableError } from "@/lib/auth/account-recovery-schema";
 import { cancelActiveManagerSubscription } from "@/lib/auth/delete-portal-account";
 import { purgeManagerPortalData, purgeResidentPortalData, purgeVendorPortalData } from "@/lib/auth/purge-portal-account-data";
 import { purgeSharedAccountAttachments } from "@/lib/auth/purge-shared-account-attachments";
@@ -22,7 +23,12 @@ const COLUMNS = "id,user_id,email,portal,state,expires_at,decision,claim_id,plan
 function check(error: { message: string } | null) { if (error) throw new Error(error.message); }
 export const hashRecoveryToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
-export async function pendingAccountRecovery(db: SupabaseClient, userId: string, portal?: string, options: { requireSchema?: boolean } = {}): Promise<RecoveryRequest | null> {
+export async function pendingAccountRecovery(
+  db: SupabaseClient,
+  userId: string,
+  portal?: string,
+  options: { requireSchema?: boolean } = {},
+): Promise<RecoveryRequest | null> {
   let query = db.from("account_recovery_requests").select(COLUMNS).eq("user_id", userId)
     .in("state", ["archiving", "retained", "recovering", "purging"]).order("created_at").limit(1);
   if (portal) {
@@ -35,10 +41,7 @@ export async function pendingAccountRecovery(db: SupabaseClient, userId: string,
   // table cannot contain retained accounts, so ordinary sign-in may continue.
   // Do not swallow missing columns, permission errors, or transport failures.
   // Deletion opts out before subscription cancellation or any other side effect.
-  const missingTable = error?.code === "PGRST205"
-    ? error.message === "Could not find the table 'public.account_recovery_requests' in the schema cache"
-    : error?.code === "42P01" && /^relation "(?:public\.)?account_recovery_requests" does not exist$/.test(error.message);
-  if (missingTable && !options.requireSchema) return null;
+  if (isMissingAccountRecoveryTableError(error) && !options.requireSchema) return null;
   check(error);
   return data as RecoveryRequest | null;
 }
