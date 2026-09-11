@@ -3,12 +3,13 @@
 import { Fragment, createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import type { PortalWorkspace, WorkspacePayload } from "@/lib/workspaces/types";
+import type { PortalWorkspace, WorkspacePayload, WorkspacePlan } from "@/lib/workspaces/types";
 import { setWorkspaceSelection } from "@/lib/workspaces/selection";
 
 export type WorkspaceContextValue = {
   workspaces: PortalWorkspace[];
   active: PortalWorkspace | null;
+  plan: WorkspacePlan | null;
   error: string | null;
   loading: boolean;
   refresh: () => Promise<void>;
@@ -52,7 +53,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   }, [mutate, router]);
   const active = payload.workspaces.find((w) => w.id === payload.activeWorkspaceId) ?? null;
   return (
-    <WorkspaceContext.Provider value={{ workspaces: payload.workspaces, active, error, loading, refresh, mutate, select }}>
+    <WorkspaceContext.Provider value={{ workspaces: payload.workspaces, active, plan: payload.plan ?? null, error, loading, refresh, mutate, select }}>
       {error ? <div role="alert" className="flex items-center gap-2 border-b border-border bg-card px-3 py-2 text-sm">
         <span>{error}</span><Button variant="ghost" onClick={refresh}>Retry</Button>
       </div> : null}

@@ -28,9 +28,17 @@ Prototype screenshots and simulator checks are references, not product evidence.
   `e67467f6` (portfolio dashboard) + `PortalPropertyRail` with "All properties"
   as the one exit; bottom nav unchanged (Properties · Residents · Dashboard ·
   Communication · More).
-- [ ] Workspace persistence, Settings management, top-left switching, properties,
+- [x] Workspace persistence, Settings management, top-left switching, properties,
   managers/vendors/sharing and explicit permissions. Server-enforced caps of
-  3 owned workspaces and 10 property records per workspace, drafts included.
+  3 owned workspaces and 10 property records per workspace, drafts included. —
+  `f54f8041` (codex-1's persisted model, switcher, DB caps) + this commit:
+  plan-aware caps (Free 1 / Pro 2 / Business 3 workspaces, enforced on create
+  under the DB ceiling; properties and team seats read from the same tier
+  helpers the listing quota and co-manager cap use), a plan card with usage
+  meters and a Free/Pro/Business comparison in Settings → Workspaces, per-
+  workspace record meters and team roll-up, and Team / Vendors managed from
+  Settings (the manager sidebar no longer has a Teams group; `/portal/teams/*`
+  stays routable for deep links). Captain's Sep 11 instruction.
 - [x] Manager and vendor invite links, property/module grants with No access,
   View, Edit and Manage; empty grants deny access. — `5b74d6e8` (four-level
   module access editor; vendor links carry property scope onto the directory row).

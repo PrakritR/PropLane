@@ -4,13 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, 
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   CreditCard,
+  HardHat,
   KeyRound,
   Lock,
-  MessagesSquare,
   MessageSquareText,
+  MessagesSquare,
   Settings2,
   SlidersHorizontal,
   UserRound,
+  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +24,9 @@ import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
 import { WorkspaceSettings } from "@/components/portal/workspace-settings";
+import { useManagerUserId } from "@/hooks/use-manager-user-id";
+import { ProAccountLinksPanel } from "@/components/portal/pro-account-links-panel";
+import { ManagerVendorsPanel } from "@/components/portal/pro-vendors-panel";
 import {
   PortalSettingsField,
   PortalSettingsFormBody,
@@ -80,6 +85,8 @@ const SETTINGS_TAB_PARAM = "tab";
 
 type SettingsGroupId =
   | "workspaces"
+  | "team"
+  | "vendors"
   | "profile"
   | "billing"
   | "messaging"
@@ -132,6 +139,7 @@ export function PortalProfileClient({
 }) {
   const { showToast } = useAppUi();
   const demo = isDemoModeActive();
+  const { userId: settingsUserId } = useManagerUserId();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [editing, setEditing] = useState(false);
@@ -284,7 +292,9 @@ export function PortalProfileClient({
       },
     ];
     if (!demo && variant === "manager") {
-      list.push({ id: "workspaces", label: "Workspaces", description: "Properties, managers, vendors, permissions, sharing, and limits.", icon: Settings2, group: "Workspace" });
+      list.push({ id: "workspaces", label: "Workspaces", description: "Plan limits, your workspaces, and who works in each.", icon: Settings2, group: "Workspace" });
+      list.push({ id: "team", label: "Team", description: "Managers you share houses with, and exactly what each can do.", icon: Users, group: "Workspace" });
+      list.push({ id: "vendors", label: "Vendors", description: "Vendors you dispatch to, invite links, and defaults.", icon: HardHat, group: "Workspace" });
       list.push({
         id: "billing",
         label: "Billing & plan",
@@ -436,6 +446,18 @@ export function PortalProfileClient({
     switch (id) {
       case "workspaces":
         return <WorkspaceSettings />;
+      case "team":
+        return (
+          <PortalSettingsSection title="Team" description="Managers who share your houses. An assigned house grants nothing until a module is set to View, Edit, or Manage.">
+            {settingsUserId ? <ProAccountLinksPanel userId={settingsUserId} bare /> : <p className="text-sm text-muted">Loading…</p>}
+          </PortalSettingsSection>
+        );
+      case "vendors":
+        return (
+          <PortalSettingsSection title="Vendors" description="The tradespeople you dispatch to. Invite by link or email; assign houses per vendor.">
+            <ManagerVendorsPanel bare />
+          </PortalSettingsSection>
+        );
       case "profile":
         return personalInfoSection;
       case "billing":

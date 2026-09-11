@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligibility.server";
-import { loadWorkspaces } from "@/lib/workspaces/server";
+import { loadWorkspacePlan, loadWorkspaces } from "@/lib/workspaces/server";
 import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 
 export const runtime = "nodejs";
@@ -20,10 +20,12 @@ export async function GET() {
     const ctx = await actor();
     if (!ctx) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     const workspaces = await loadWorkspaces(ctx.db, ctx.user.id);
+    const plan = await loadWorkspacePlan(ctx.db, ctx.user.id, workspaces);
     const selected = (await cookies()).get(WORKSPACE_COOKIE)?.value;
     return NextResponse.json({
       workspaces,
       activeWorkspaceId: workspaces.find((w) => w.id === selected)?.id ?? workspaces[0]?.id ?? null,
+      plan,
     }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return NextResponse.json({ error: "Could not load workspaces. Please retry." }, { status: 503 });
@@ -66,6 +68,19 @@ export async function POST(request: Request) {
       // Reserve the default workspace first, even for a manager with no houses.
       const initial = await db.rpc("ensure_default_portal_workspace", { p_owner: user.id });
       if (initial.error) throw initial.error;
+      // The plan's cap sits under the database ceiling; an unknown plan refuses
+      // rather than guessing Free or Business.
+      const current = await loadWorkspaces(db, user.id);
+      const plan = await loadWorkspacePlan(db, user.id, current);
+      if (plan.unknown) return NextResponse.json({ error: "We could not verify your plan. Try again in a moment." }, { status: 503 });
+      if (plan.usage.workspaces >= plan.workspaceLimit) {
+        return NextResponse.json(
+          {
+            error: `Your ${plan.tier ? plan.tier[0].toUpperCase() + plan.tier.slice(1) : "current"} plan includes ${plan.workspaceLimit} ${plan.workspaceLimit === 1 ? "workspace" : "workspaces"}. Upgrade to add another.`,
+          },
+          { status: 403 },
+        );
+      }
       const result = await db.from("portal_workspaces").insert({ owner_user_id: user.id, name }).select("id").single();
       if (result.error) throw result.error;
       return NextResponse.json({ id: result.data.id }, { status: 201 });

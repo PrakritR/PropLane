@@ -106,11 +106,14 @@ function vendorRowPreview(row: ManagerVendorRow): string {
 export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   {
     embedded = false,
+    bare = false,
     vendorId: vendorIdProp,
     listBasePath,
   }: {
     /** When true, render inside Services tab shell (no duplicate page header). */
     embedded?: boolean;
+    /** Inside Settings → Vendors: no page shell at all. */
+    bare?: boolean;
     vendorId?: string;
     listBasePath?: string;
   },
@@ -733,6 +736,25 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       + Add vendor
     </Button>
   );
+
+  if (bare) {
+    return (
+      <div className="min-w-0" data-attr="settings-team-vendors">
+        <PortalListControlStack
+          className="mb-2 max-lg:mb-1.5"
+          variant="command"
+          stickyDestinations={false}
+          actions={
+            <>
+              {vendorToolbar}
+              {addVendorAction}
+            </>
+          }
+        />
+        {body}
+      </div>
+    );
+  }
 
   return (
     <ManagerPortalPageShell

@@ -556,7 +556,16 @@ function AddPropertyToCoManager({
   );
 }
 
-export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: string; linkId?: string }) {
+export function ProAccountLinksPanel({
+  userId,
+  linkId: linkIdProp,
+  bare = false,
+}: {
+  userId: string;
+  linkId?: string;
+  /** Inside Settings → Team: no page shell; the section header carries the title and the invite action sits in the tool row. */
+  bare?: boolean;
+}) {
   const { email: managerEmail, ready: managerSessionReady } = useManagerUserId();
   const [managerDisplayName, setManagerDisplayName] = useState("Your property manager");
   const { showToast } = useAppUi();
@@ -2832,34 +2841,71 @@ export function ProAccountLinksPanel({ userId, linkId: linkIdProp }: { userId: s
     );
   }
 
-  return (
-    <ManagerPortalPageShell
-      title="Teams"
-      subtitle="Managers who share this workspace, and exactly what each one can do."
-      hideTitleOnMobileNav
-      compactFilterRow
-      primaryAction={
-        <Button
-          type="button"
-          className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-          data-attr="co-manager-invite-top"
-          disabled={linkAccountBlocked}
-          onClick={openLinkModal}
-        >
-          + Invite manager
-        </Button>
-      }
+  const inviteAction = (
+    <Button
+      type="button"
+      className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+      data-attr="co-manager-invite-top"
+      disabled={linkAccountBlocked}
+      onClick={openLinkModal}
     >
+      + Invite manager
+    </Button>
+  );
+
+  const teamBody = (
+    <>
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"
-        actions={teamFilterSheet}
+        stickyDestinations={!bare}
+        actions={
+          <>
+            {teamFilterSheet}
+            {bare ? inviteAction : null}
+          </>
+        }
         activeFilterChips={teamActiveFilterChips}
       />
       <div className="space-y-4">
         {teamListAlerts}
         {teamListBody}
       </div>
+    </>
+  );
+
+  if (bare) {
+    return (
+      <div className="min-w-0" data-attr="settings-team-managers">
+        {teamBody}
+        {selectedIds.size > 0 ? (
+          <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+            <Button
+              type="button"
+              variant="outline"
+              className={`${PORTAL_BULK_BAR_BTN} text-rose-800`}
+              data-attr="team-bulk-remove"
+              disabled={teamRemoveBusy}
+              onClick={() => bulkRemoveSelected()}
+            >
+              Remove
+            </Button>
+          </BulkActionBar>
+        ) : null}
+        {teamModals}
+      </div>
+    );
+  }
+
+  return (
+    <ManagerPortalPageShell
+      title="Teams"
+      subtitle="Managers who share this workspace, and exactly what each one can do."
+      hideTitleOnMobileNav
+      compactFilterRow
+      primaryAction={inviteAction}
+    >
+      {teamBody}
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments">
           <Button

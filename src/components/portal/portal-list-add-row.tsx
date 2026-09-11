@@ -39,7 +39,8 @@ export const PORTAL_LIST_ADD_ROW_INLINE_CLASS =
 export function PortalListAddRow({
   label,
   ariaLabel,
-  icon: Icon = Plus,
+  // Kept for callers; every add row draws the same plus glyph now.
+  icon,
   hint,
   onClick,
   disabled = false,
@@ -70,6 +71,7 @@ export function PortalListAddRow({
   bare?: boolean;
   inline?: boolean;
 }) {
+  void icon;
   const displayLabel = label.trim();
   const hintText = hint?.trim();
 
@@ -85,9 +87,9 @@ export function PortalListAddRow({
     >
       {bare ? null : (
         <>
-          <Icon
+          <Plus
             className={cn("text-primary", inline ? "h-[18px] w-[18px]" : "h-7 w-7")}
-            strokeWidth={Icon === Plus ? 2 : 1.5}
+            strokeWidth={2}
             aria-hidden
           />
           <span className={cn("flex flex-col items-center gap-1", inline && "flex-row gap-2")}>

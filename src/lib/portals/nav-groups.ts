@@ -36,6 +36,8 @@ export function isHiddenFromMobileNav(kind: PortalKind, section: string): boolea
   if (section === "app" && (kind === "manager" || kind === "pro")) return true;
   // Vendor tasks sit inside Services.
   if (section === "tasks" && kind === "vendor") return true;
+  // Manager team management lives in Settings.
+  if (section === "teams" && (kind === "manager" || kind === "pro")) return true;
   return false;
 }
 
@@ -53,7 +55,8 @@ const PRO_GROUPS: NavGroupConfig[] = [
   { id: "tenancy", label: "Tenancy", sections: ["residents", "inspections", "payments", "services"] },
   { id: "operations", label: "Operations", sections: ["tasks", "calendar", "bookings", "communication"] },
   { id: "marketing", label: "Marketing", sections: ["promotion"] },
-  { id: "team", label: "Team", sections: ["teams"] },
+  // Team (managers, vendors) is managed under Settings → Workspaces / Team / Vendors;
+  // the /teams routes stay reachable for deep links and detail pages.
   { id: "finances", label: "Finances", sections: ["financials", "documents"] },
 ];
 
@@ -126,7 +129,9 @@ export function groupNavItems<T extends { section: string }>(
       !assigned.has(i.section) &&
       !SIDEBAR_EXCLUDED_SECTIONS.has(i.section) &&
       // Vendor tasks are a Services tab, not a row; the route stays reachable.
-      !(kind === "vendor" && i.section === "tasks"),
+      !(kind === "vendor" && i.section === "tasks") &&
+      // Manager Teams moved into Settings (Workspaces / Team / Vendors).
+      !((kind === "manager" || kind === "pro") && i.section === "teams"),
   );
   if (leftovers.length) groups.push({ id: "more", label: null, items: leftovers });
 
