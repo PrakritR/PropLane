@@ -563,6 +563,8 @@ function plannedTourForLink(
   return planned.find(
     (event) =>
       textField(event, "kind") === "tour" &&
+      // A cancelled event is not a confirmed tour, whoever cancelled it.
+      !textField(event, "canceledAt") &&
       (textField(event, "sourceInquiryId") === link.inquiry_id ||
         (Boolean(link.tour_group_id) && textField(event, "tourGroupId") === link.tour_group_id)),
   );

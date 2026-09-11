@@ -31,10 +31,16 @@ Prototype screenshots and simulator checks are references, not product evidence.
 - [ ] Workspace persistence, Settings management, top-left switching, properties,
   managers/vendors/sharing and explicit permissions. Server-enforced caps of
   3 owned workspaces and 10 property records per workspace, drafts included.
-- [ ] Manager and vendor invite links, property/module grants with No access,
-  View, Edit and Manage; empty grants deny access.
-- [ ] Resident record pages, dedicated Inspections and move-in/move-out dashboard
-  obligations; room-scoped evidence and completion. No general resident Tasks.
+- [x] Manager and vendor invite links, property/module grants with No access,
+  View, Edit and Manage; empty grants deny access. — `5b74d6e8` (four-level
+  module access editor; vendor links carry property scope onto the directory row).
+- [x] Resident record pages, dedicated Inspections and move-in/move-out dashboard
+  obligations; room-scoped evidence and completion. No general resident Tasks. —
+  this commit: `/resident/inspections/{move-in,move-out}` is its own section
+  (old My home sub-tab redirects), "Your next steps" on the resident dashboard
+  lists each required report with its due date, resident tour popup is
+  Reschedule / Message host / Cancel tour only (`POST /api/portal-resident-tours/cancel`).
+  Manager resident record pages already carry Overview … Notes tabs.
 - [ ] Complete Vendor business profile/work email/work number, Services (Tasks
   included), invoices/files/payments and workspace access.
 - [ ] Shared persistent task system: status/filter/assignee/due/priority,
@@ -50,7 +56,9 @@ Prototype screenshots and simulator checks are references, not product evidence.
   compact editable contact, work-number strip, full-width composer above nav,
   visible Send via selector in tools row, AI/attachments/emoji/draft recovery,
   authorized channels and scheduling; no resident scheduling.
-- [ ] Resident tour popup only Reschedule, Message host and Cancel tour, plus close.
+- [x] Resident tour popup only Reschedule, Message host and Cancel tour, plus close. —
+  same commit as the resident section above; driven end to end on dev/test
+  (book → cancel → withdrawn, host notified in the property thread).
 - [ ] Preserve empty/loading/error/permission states and all existing flows.
 - [ ] Browser verification on real dev/test across Manager/Resident/Vendor,
   desktop and phone; route and native parity, relevant unit/integration/e2e.

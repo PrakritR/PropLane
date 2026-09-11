@@ -53,6 +53,7 @@ export const NATIVE_BOTTOM_NAV_RESIDENT_ORDER = [
   "payments",
   "communication",
   "move-in",
+  "inspections",
   "documents",
 ] as const;
 

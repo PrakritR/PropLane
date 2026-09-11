@@ -64,7 +64,7 @@ const ADMIN_GROUPS: NavGroupConfig[] = [
 
 const RESIDENT_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard", "tour", "applications"] },
-  { id: "my-home", label: "My home", sections: ["lease", "move-in", "services"] },
+  { id: "my-home", label: "My home", sections: ["lease", "move-in", "services", "inspections"] },
   { id: "finances", label: "Finances", sections: ["payments", "documents"] },
   { id: "messages", label: "Messages", sections: ["communication"] },
 ];

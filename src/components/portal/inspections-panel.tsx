@@ -145,6 +145,21 @@ export function pickPrimaryInspectionReport(reports: InspectionSummary[]): Inspe
   return [...reports].sort((a, b) => b.inspection_date.localeCompare(a.inspection_date) || b.created_at.localeCompare(a.created_at))[0];
 }
 
+/** Resident's own Inspections section — move-in / move-out reports for their room. */
+export function ResidentInspectionsPage({ kind = "move-in", reportId, basePath = "/resident" }: { kind?: InspectionKind; reportId?: string; basePath?: string }) {
+  if (reportId) return <InspectionsPanel role="resident" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} />;
+  return (
+    <ManagerPortalPageShell
+      title="Inspections"
+      subtitle="Move-in and move-out condition reports for your room. Complete each one before its due date."
+      hideTitleOnMobileNav
+      compactFilterRow
+    >
+      <InspectionsPanel role="resident" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} />
+    </ManagerPortalPageShell>
+  );
+}
+
 export function ManagerInspectionsPage({ kind = "move-in", reportId, basePath = "/portal" }: { kind?: InspectionKind; reportId?: string; basePath?: string }) {
   if (reportId) return <InspectionsPanel role="manager" initialKind={kind} reportId={reportId} routeBase={`${basePath}/inspections`} />;
   return (

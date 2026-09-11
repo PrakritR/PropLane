@@ -22,6 +22,7 @@ import { useResidentPortalAxisContext } from "@/hooks/use-resident-portal-axis";
 import { RESIDENT_DASHBOARD_SECTIONS, type ResidentDashboardSectionId } from "@/lib/resident-dashboard-preferences";
 import { RESIDENT_INBOX_THREAD_FALLBACK } from "@/components/portal/resident-inbox-panel";
 import { usePortalSession } from "@/hooks/use-portal-session";
+import { ResidentInspectionNextSteps } from "@/components/portal/resident-inspection-next-steps";
 import {
   chargeDueLabel,
   HOUSEHOLD_CHARGES_EVENT,
@@ -626,7 +627,6 @@ export function ResidentDashboard({
 
   const welcomeName =
     displayName && displayName !== "Resident" ? displayName.split(/\s+/)[0] : null;
-  void welcomeName;
 
   const communicationHref = `${BASE}/communication`;
   const overdueChargeCount = pendingCharges.filter((c) => isHouseholdChargeOverdue(c)).length;
@@ -675,7 +675,12 @@ export function ResidentDashboard({
 
   return (
     <ManagerPortalPageShell
-      title="Dashboard"
+      title={leaseSigned ? `Welcome home${welcomeName ? `, ${welcomeName}` : ""}.` : `Welcome${welcomeName ? `, ${welcomeName}` : ""}.`}
+      subtitle={
+        leaseSigned
+          ? "Everything you need for your home, in one place."
+          : "Your tour, application, and next step, in one place."
+      }
       hideTitleOnNative
       hideTitleOnMobileNav
     >
@@ -684,15 +689,18 @@ export function ResidentDashboard({
           <Link
             href={houseDetailsHref}
             data-attr="resident-dashboard-move-in-hero"
-            className="mb-1 flex w-full items-center justify-between gap-3 rounded-2xl border border-primary/25 bg-[color-mix(in_srgb,var(--status-approved-bg)_55%,var(--card))] px-4 py-3.5 transition-colors hover:border-primary/40 [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
+            className="mb-1 flex w-full items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-accent px-4 py-3.5 transition-colors hover:border-primary/40 [html[data-native]_&]:px-3.5 [html[data-native]_&]:py-3"
           >
             <span className="min-w-0">
-              <span className="block text-sm font-bold text-foreground [html[data-native]_&]:text-[13px]">
-                Move-in details
+              <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-primary">
+                Your home
               </span>
-              <span className="mt-0.5 block truncate text-xs text-muted [html[data-native]_&]:text-[11px]">
+              <span className="mt-0.5 block truncate text-lg font-semibold text-foreground [html[data-native]_&]:text-base">
+                {appProperty || "Move-in details"}
+              </span>
+              <span className="block truncate text-sm text-muted [html[data-native]_&]:text-[12px]">
                 {appProperty
-                  ? `${appProperty}${appRoom ? ` · ${appRoom}` : ""}`
+                  ? appRoom || "Placement, keys, and house information"
                   : "Placement, keys, and house information"}
               </span>
             </span>
@@ -701,6 +709,7 @@ export function ResidentDashboard({
             </span>
           </Link>
         ) : null}
+        {leaseSigned ? <ResidentInspectionNextSteps userId={userId} basePath={BASE} /> : null}
         <PortalDashboardKpiRow>
             {showTourKpi ? (
             <PortalDashboardKpiTile
