@@ -16,7 +16,14 @@ import {
   LONG_TERM_LEASE_TERM,
   isLegacyFixedLeaseTerm,
 } from "@/lib/rental-application/lease-terms";
-import { feeAppliesToLeaseType, listingFeeRowIdForPresetId, standardFeeScopeFor } from "@/lib/listing-fee-scope";
+import {
+  derivePaymentAtSigningIncludesFromMatrix,
+  feeAppliesToLeaseType,
+  listingFeeRowIdForPresetId,
+  paymentAtSigningMatrix,
+  setPaymentAtSigningCell,
+  standardFeeScopeFor,
+} from "@/lib/listing-fee-scope";
 import { parseMoneyAmount } from "@/lib/parse-money";
 import { listingFoldsAllMonthlyFeesIntoRent, type RentRuleAddress } from "@/lib/seattle-rent-rule";
 
@@ -542,6 +549,38 @@ export function derivePaymentAtSigningIncludes(
   if (keepRent) next.push("first_month_rent");
   if (keepUtils) next.push("first_month_utilities");
   return next;
+}
+
+/**
+ * Tick or untick ONE payment-at-signing cell on a submission, keeping all three
+ * stores of that fact in step.
+ *
+ * "Is the deposit collected at signing on a month-to-month lease" is recorded in
+ * three places: the per-lease-type matrix, the flat legacy list every lease
+ * document and charge generator still reads, and — for the two standard presets —
+ * a `dueAtSigning` flag on the fee row itself. Writing one and not the others is
+ * the bug `applyPaymentAtSigningSelection` documents: the tick saves, then the
+ * next fee edit recomputes from the store that never moved and silently drops it.
+ *
+ * Every surface that toggles a signing cell goes through here, so the receipt
+ * panel and the signing table cannot disagree about what they just wrote.
+ */
+export function applyPaymentAtSigningCell<T extends ManagerListingSubmissionV1>(
+  sub: T,
+  leaseTerm: string,
+  rowKey: string,
+  on: boolean,
+): T {
+  const next = setPaymentAtSigningCell(paymentAtSigningMatrix(sub), leaseTerm, rowKey, on);
+  const withMatrix = {
+    ...sub,
+    paymentAtSigningByLeaseType: next,
+    paymentAtSigningIncludes: derivePaymentAtSigningIncludesFromMatrix(next),
+  } as T;
+  const standardId = PAYMENT_AT_SIGNING_OPTIONS.find((o) => o.id === rowKey)?.id;
+  if (!standardId) return withMatrix;
+  const stillOn = derivePaymentAtSigningIncludesFromMatrix(next).includes(standardId);
+  return applyPaymentAtSigningSelection(withMatrix, standardId, stillOn);
 }
 
 /** Apply fee list to submission — updates customFees and legacy scalars. */

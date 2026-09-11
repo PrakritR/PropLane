@@ -8,17 +8,17 @@
  * every one of those questions is asked again on the Home step, so a manager
  * answered the same three things twice before reaching anything new.
  *
- * {@link AddPropertyFlow} and {@link submissionFromAddProperty} are kept for
- * callers that already collected those answers elsewhere; the wizard itself no
- * longer puts them in front of a manager.
+ * `AddPropertyFlow` and {@link submissionFromAddProperty} are kept for callers
+ * that already collected those answers elsewhere; the wizard itself no longer
+ * puts them in front of a manager, so only the result type is imported here.
  *
  * It reads and writes the SAME `ManagerListingSubmissionV1` the existing wizard
  * uses, so drafts, normalization, validation, publishing and every downstream
  * reader are unchanged. Nothing here is a second source of truth for a listing.
  */
 
-import { useState } from "react";
-import { AddPropertyFlow, type AddPropertyResult } from "@/components/portal/listing-wizard-v2/add-property-flow";
+import { useEffect, useRef, useState } from "react";
+import type { AddPropertyResult } from "@/components/portal/listing-wizard-v2/add-property-flow";
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
 import {
@@ -110,6 +110,31 @@ export function ListingWizardV2({
   );
 
   const label = submission.buildingName.trim() || submission.address.trim() || "New listing";
+  const editing = Boolean(editListingId?.trim());
+
+  /*
+   * Whether the manager's work is on the server, stated in the header.
+   *
+   * This wizard does NOT autosave — `useListingPersistence` writes on Save and
+   * on Publish, and nowhere else — so the header must never say "Saved" merely
+   * because time has passed. It reports what actually happened: unsaved from the
+   * first edit until a save comes back ok, and saved again only then.
+   */
+  const [dirty, setDirty] = useState(false);
+  /*
+   * The submission as it last stood on the server. Compared by reference, not by
+   * a "have I rendered before" flag — an effect that fires twice in development
+   * would report unsaved work the instant the editor opened.
+   */
+  const savedRef = useRef(submission);
+  useEffect(() => {
+    setDirty(submission !== savedRef.current);
+  }, [submission]);
+  const markSaved = () => {
+    savedRef.current = submission;
+    setDirty(false);
+  };
+  const saveState = busy ? "Saving…" : dirty ? "Unsaved changes" : editing ? "Saved" : "Not saved yet";
 
   return (
     <ListingEditorV2
@@ -118,6 +143,8 @@ export function ListingWizardV2({
       onChange={setSubmission}
       onClose={onClose}
       busy={busy}
+      isEdit={editing}
+      saveState={saveState}
       onSaveExit={async (stepIndex) => {
         if (editListingId?.trim()) {
           // There is no draft behind an edit — "save and exit" writes the
@@ -127,6 +154,7 @@ export function ListingWizardV2({
             showToast?.(result.message);
             return;
           }
+          markSaved();
           onSaved?.(submission);
           showToast?.("Changes saved.");
           onClose();
@@ -139,6 +167,7 @@ export function ListingWizardV2({
           showToast?.(result.message);
           return;
         }
+        markSaved();
         onSaved?.(submission);
         showToast?.("Saved to Drafts.");
         onClose();
