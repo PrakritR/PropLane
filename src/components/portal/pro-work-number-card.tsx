@@ -49,24 +49,28 @@ export function ManagerWorkNumberCard({
     return () => window.clearTimeout(timer);
   }, [copied]);
 
-  const phone = status?.number?.phoneNumber?.trim() || null;
+  const ownPhone = status?.number?.phoneNumber?.trim() || null;
+  const sharedPhone = status?.workspaceNumber?.phoneNumber?.trim() || null;
+  const phone = ownPhone ?? sharedPhone;
   // No number is not an empty state here — the header's setup button is the
   // surface for that, so this card is simply absent.
   if (!phone || isDemoModeActive()) return null;
 
   const label = formatSmsPhoneLabel(phone) || phone;
   const ready = Boolean(status?.canSend) && Boolean(status?.sendingAvailable);
-  const caption = workNumberReadinessCaption({
-    canSend: Boolean(status?.canSend),
-    sendingAvailable: Boolean(status?.sendingAvailable),
-    carrierRegistered: status?.number?.carrierRegistrationState === "registered",
-  });
+  const caption = ownPhone
+    ? workNumberReadinessCaption({
+        canSend: Boolean(status?.canSend),
+        sendingAvailable: Boolean(status?.sendingAvailable),
+        carrierRegistered: status?.number?.carrierRegistrationState === "registered",
+      })
+    : "Shared by everyone in this workspace";
 
   return (
     <PortalInboxContactCard
       dataAttr="manager-work-number-card"
       value={label}
-      label="Your work number"
+      label="Workspace work number"
       note={caption}
       noteTone={ready ? "muted" : "warn"}
       leading={

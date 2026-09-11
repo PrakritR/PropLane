@@ -15,7 +15,7 @@ import {
   getEffectiveManagerSmsEntitlement,
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
-import { isPureCoManagerWorkspace } from "@/lib/sms/manager-workspace-role.server";
+import { isPureCoManagerWorkspace, resolveWorkspaceOwnerForWorkNumber } from "@/lib/sms/manager-workspace-role.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { provisionManagerNumber } from "@/lib/sms/manager-number-provisioning.server";
 import {
@@ -158,9 +158,27 @@ async function buildStatus(
   const commsBillingAllowed = billing.allowed;
   const canRequestBilling = entitlementCanBeReconciled;
 
+  // The workspace's front door for a co-manager without a line of their own.
+  let workspaceNumber: { phoneNumber: string; ownerUserId: string } | null = null;
+  if (pureCoManager && !number) {
+    const workspace = await resolveWorkspaceOwnerForWorkNumber(db, userId).catch(() => null);
+    if (workspace?.sharedFromCoManager) {
+      const ownerNumber = await db
+        .from("manager_sms_numbers")
+        .select("phone_number, provision_state")
+        .eq("manager_user_id", workspace.ownerUserId)
+        .maybeSingle();
+      const phone = typeof ownerNumber.data?.phone_number === "string" ? ownerNumber.data.phone_number.trim() : "";
+      if (phone && normalizeProvisionState(ownerNumber.data?.provision_state) === "active") {
+        workspaceNumber = { phoneNumber: phone, ownerUserId: workspace.ownerUserId };
+      }
+    }
+  }
+
   return {
     mode,
     workspaceRole: pureCoManager ? "co_manager" : "primary",
+    workspaceNumber,
     provisioningAvailable: provisioningEnvEnabled && modeAllowsManager,
     sendingAvailable: sendEnvEnabled && modeAllowsManager,
     planTier,

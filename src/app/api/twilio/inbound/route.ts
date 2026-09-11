@@ -9,7 +9,7 @@ import { isClawSharedLineBridgeEnabled } from "@/lib/claw-leasing-links";
 import { forwardResidentInboundToManagerCell } from "@/lib/sms/manager-relay.server";
 import { resolveManagerSmsInboundIdentity } from "@/lib/sms/manager-sms-access.server";
 import { ensureManagerInboundReplyConsent } from "@/lib/sms/manager-conversation-consent.server";
-import { isPureCoManagerWorkspace } from "@/lib/sms/manager-workspace-role.server";
+import { resolveWorkspaceOwnerForWorkNumber } from "@/lib/sms/manager-workspace-role.server";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 import {
   deliverManagerSmsReply,
@@ -609,19 +609,19 @@ export async function POST(req: Request) {
       counterpartyRole: "prospect",
       lastInboundAt: new Date().toISOString(),
     }).catch(() => ({ ok: false as const, error: "contact_upsert_failed" }));
+    // A work number is the WORKSPACE's front door. A co-manager's line leases
+    // the owner's houses — tenant records stay with the property owner, the
+    // reply still goes out from the line that was texted — instead of turning
+    // every prospect away with a "message your property manager" notice.
+    const workspace = await resolveWorkspaceOwnerForWorkNumber(db, managerId, { throwOnError: true });
     handled = await handleClawLeasingInbound({
       from: fromPhone,
       text: body,
       messageId: messageSid,
-      managerUserId: managerId,
+      managerUserId: workspace.ownerUserId,
       workNumber,
       service: "SMS",
       durablyClaimed: true,
-      // Tenant records remain with the property owner. Do not guess an owner
-      // or start leasing someone else's property through a teammate's line.
-      routingReply: await isPureCoManagerWorkspace(db, managerId, { throwOnError: true })
-        ? "This is a co-manager's PropLane assistant number. For your rental or application, please message your property manager through PropLane or use the contact number on your listing."
-        : undefined,
       onPreparedReply: (prepared) =>
         prepareInboundReply(db, {
           messageSid,

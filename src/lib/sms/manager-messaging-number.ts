@@ -58,6 +58,12 @@ export type ManagerMessagingNumberStatus = {
   planTier: ManagerMessagingPlanTier;
   entitlement: ManagerMessagingEntitlement;
   number: ManagerMessagingNumber | null;
+  /**
+   * The workspace's shared line when this account has none of its own — a
+   * co-manager reads the owner's number here. Display only: the number stays
+   * the owner's row; sends and inbound routing already answer for the workspace.
+   */
+  workspaceNumber?: { phoneNumber: string; ownerUserId: string } | null;
   canRequest: boolean;
   /**
    * They ticked "set up a PropLane number" while creating the account. Carried
