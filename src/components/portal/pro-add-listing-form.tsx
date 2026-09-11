@@ -130,7 +130,6 @@ import {
   type ManagerRoomSubmission,
   type ManagerRoomTermPrice,
   type ManagerSharedSpaceSubmission,
-  type PaymentAtSigningOptionId,
 } from "@/lib/manager-listing-submission";
 import { normalizeRoomOccupancyCapacity } from "@/lib/rental-application/room-occupancy";
 import { applyListingFeeContextDefaults } from "@/lib/listing-fee-defaults";
@@ -140,7 +139,6 @@ import {
   longTermUtilitiesEstimateRequired,
   utilitiesAmountFieldNoun,
   longTermUtilitiesPickerValue,
-  resolveRoomUtilitiesPaymentModel,
   type UtilitiesPaymentModel,
 } from "@/lib/listing-utilities-payment";
 import {
@@ -213,7 +211,6 @@ import {
   listingSharedSpaceNameKey,
   validateListingWizardStep,
 } from "@/lib/listing-wizard-validation";
-import { roomHeadlinePriceLabel } from "@/lib/room-pricing";
 import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import { listingRoomPricingSummaryLabel } from "@/lib/rental-application/listing-fees-display";
 import {
@@ -4993,11 +4990,11 @@ export function ManagerAddListingForm({
             />
           </div>
 
-          {/* The single progress + navigation signal (replaces the old
-              "STEP X OF 6" line + duplicate progress bar). A completed step
-              shows a ✓ and stays clickable; the current step is filled; a step
-              not yet reached is visible but disabled, so the wizard never styles
-              a jump the manager cannot actually make. */}
+          {/* The only navigation control. The "Step X of N" subtitle and the
+              progressbar above report position/completion; this row is what
+              moves. A completed step shows a ✓ and stays clickable; the current
+              step is filled; a step not yet reached is visible but disabled, so
+              the wizard never styles a jump the manager cannot actually make. */}
           <nav aria-label="Listing steps" className="mt-3 -mx-1 overflow-x-auto px-1 [-webkit-overflow-scrolling:touch]">
             <ol className="flex min-w-max items-center gap-1">
               {wizardSteps.map((i, pillPos) => {

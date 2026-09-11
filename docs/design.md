@@ -285,10 +285,12 @@ Shared pattern for rental apply (12 steps), tours/contact, manager-id onboarding
 - **Footer dots**: active elongated cobalt pill
 - **Compact strip** (`WizardProgressStrip`): 3-step auth onboarding
 
-The manager add-listing wizard (6 steps, `manager-add-listing-form.tsx`)
-deliberately diverges: its clickable step-pill row is the **single** progress
-signal (✓ completed steps stay clickable, current filled, unreached visibly
-disabled) — no separate "Step X of N" line or progress bar alongside it.
+The manager add-listing wizard (6 steps, `pro-add-listing-form.tsx`)
+diverges from the rail: its header stacks a "Step X of N · label" subtitle,
+a thin `role="progressbar"` completion bar (HIG), and the clickable step-pill
+row that is the only **navigation** control (✓ completed steps stay clickable,
+current filled, unreached visibly disabled). The bar and subtitle count only
+the steps visible in the current scope, never the six-step total.
 
 Wizards use **quiet substrate** — no chrome behind fields.
 
