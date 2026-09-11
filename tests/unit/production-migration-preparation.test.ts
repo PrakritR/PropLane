@@ -95,8 +95,8 @@ describe("private CLI workspace", () => {
       "20260911010000_production_recovery_schema.sql",
     ]);
     expect(generated.command).toEqual([
-      "npx", "-y", "supabase@2.117.0", "db", "push", "--project-ref", "qahnczmilgptcedaqype",
-      "--skip-vault", "--workdir", root, "--dry-run",
+      "npx", "-y", "supabase@2.117.0", "db", "dump", "--project-ref", "qahnczmilgptcedaqype",
+      "--data-only", "--schema", "public", "--dry-run", "--yes",
     ]);
     expect(readFileSync(join(root, "supabase", "migrations", "20260907090000_resident_invite_links.sql"), "utf8"))
       .toContain("Historical ledger sentinel must never execute");
