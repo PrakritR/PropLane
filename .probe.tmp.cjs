@@ -1,8 +1,9 @@
 const{open,BASE}=require('./.pw.tmp.cjs');
-(async()=>{const{b,p}=await open('manager',{width:390,height:844});
-await p.goto(BASE+'/portal/tours/pending',{waitUntil:'domcontentloaded'});await p.waitForTimeout(3000);
-console.log(await p.evaluate(()=>{const q=s=>document.querySelector(s);const r=e=>e?[Math.round(e.getBoundingClientRect().top),Math.round(e.getBoundingClientRect().height)]:null;
- const st=q('[data-slot=portal-list-control-stack]');const hl=q('[data-slot=portal-page-headline]');
- const chain=[];let e=st;while(e&&e!==document.body){const cs=getComputedStyle(e);chain.push([e.tagName,(e.getAttribute('data-slot')||e.id||e.className.toString().slice(0,50)),r(e),cs.position,cs.overflowY,cs.marginTop,cs.paddingTop]);e=e.parentElement}
- return JSON.stringify({bar:r(q('.portal-mobile-nav-bar')),hl:r(hl),st:r(st),stTop:getComputedStyle(st).top,chain:chain.slice(0,8)},null,1)}));
-await b.close();})();
+const OUT='/private/tmp/claude-501/-Users-prakrit-firstmate-projects-proplane-claude-3/465f868e-c1f2-459a-807b-be3cd898b80f/scratchpad/shots/';
+(async()=>{const{b,p}=await open('manager');
+await p.goto(BASE+'/portal/properties/listed',{waitUntil:'domcontentloaded'});await p.waitForTimeout(3000);
+await p.locator('[data-attr="property-list-row"]').first().click();await p.waitForTimeout(3500);console.log('detail',p.url());
+await p.screenshot({path:OUT+'prop-preview-desktop.png'});
+for(const tab of ['house-details','tours','applications','lease','services','bookings','promotion','move-in']){const u=p.url().replace(/\/[^/]+$/,'/'+tab);await p.goto(u,{waitUntil:'domcontentloaded'});await p.waitForTimeout(2500);console.log(tab,new URL(p.url()).pathname);await p.screenshot({path:OUT+'prop-'+tab+'-desktop.png'});}
+await p.setViewportSize({width:390,height:844});await p.goto(p.url().replace(/\/[^/]+$/,'/preview'),{waitUntil:'domcontentloaded'});await p.waitForTimeout(2500);await p.screenshot({path:OUT+'prop-preview-mobile.png'});
+await b.close();})().catch(e=>{console.error(e.message.slice(0,200));process.exit(1)});

@@ -12,6 +12,7 @@ import {
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
+import { PortalPropertyRail } from "@/components/portal/portal-property-rail";
 import type { MockProperty } from "@/data/types";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
 import { ListingStickySubnav } from "@/components/marketing/listing-detail-subnav";
@@ -893,7 +894,16 @@ function ManagerPropertyInlineDetails({
   if (!row || !mock || !managerSubmission) return null;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 lg:flex-row">
+      <PortalPropertyRail
+        items={topNavItems}
+        activeId={activeTopNavId}
+        backHref={propertyListHref(propertiesBase, stage)}
+        title={managerPropertyRowTitle(row, bucket)}
+        subtitle={row.address}
+        className="lg:mr-5 lg:rounded-xl lg:border lg:bg-card"
+      />
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <PortalPageChrome>
         <div
           className="border-b border-border/40 bg-background"
@@ -905,6 +915,7 @@ function ManagerPropertyInlineDetails({
             ariaLabel="Property sections"
             denseEqualRow
             appearance="command"
+            className="lg:hidden"
           />
           {isListingPreview && hasPreview ? (
             <div className="w-full border-t border-border/60 bg-accent/30 px-1 py-1">
@@ -1134,6 +1145,7 @@ function ManagerPropertyInlineDetails({
         initialTab="tours"
         scopedTitle="Tour"
       />
+    </div>
     </div>
   );
 }

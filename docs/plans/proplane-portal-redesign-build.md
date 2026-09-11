@@ -15,13 +15,19 @@ the required reviews and no-mistakes before integration.
 Items remain unchecked until implemented and verified against the approved UI.
 Prototype screenshots and simulator checks are references, not product evidence.
 
-- [ ] Shared blue brand, compact spacing, canonical plane, full viewport shell;
-  sidebar/main/property rail scroll independently.
-- [ ] Compact accessible plain utility icons, inline primary Add actions,
+- [x] Shared blue brand, compact spacing, canonical plane, full viewport shell;
+  sidebar/main/property rail scroll independently. — `5159c624` (shell, canvas,
+  sidebar groups), property rail in the desktop detail view (this commit).
+- [x] Compact accessible plain utility icons, inline primary Add actions,
   side-by-side mobile controls and bulk actions; no duplicate property groups,
-  redundant status badges/counts or portal eyebrow headings.
-- [ ] Portfolio-wide Manager navigation with explicit property entry/exit;
-  mobile bottom navigation remains visible, including conversations.
+  redundant status badges/counts or portal eyebrow headings. — `5159c624`
+  (`PortalIconAction`, `PortalPageHeadline`, one-row command stack, "+ Add"
+  footers, group count chips removed, one white card per property).
+- [x] Portfolio-wide Manager navigation with explicit property entry/exit;
+  mobile bottom navigation remains visible, including conversations. —
+  `e67467f6` (portfolio dashboard) + `PortalPropertyRail` with "All properties"
+  as the one exit; bottom nav unchanged (Properties · Residents · Dashboard ·
+  Communication · More).
 - [ ] Workspace persistence, Settings management, top-left switching, properties,
   managers/vendors/sharing and explicit permissions. Server-enforced caps of
   3 owned workspaces and 10 property records per workspace, drafts included.
