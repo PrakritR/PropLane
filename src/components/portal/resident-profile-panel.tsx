@@ -36,6 +36,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { usePortalSession } from "@/hooks/use-portal-session";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { formatProplaneIdForDisplay } from "@/lib/manager-id";
+import { formatSmsPhoneLabel } from "@/lib/phone-e164";
 
 const SETTINGS_TAB_PARAM = "tab";
 
@@ -53,26 +54,45 @@ function emptyToDash(v: string) {
   return t.length ? t : "—";
 }
 
-export function ResidentProfilePanel() {
+export type ResidentProfilePanelProps = {
+  initialUserId?: string | null;
+  initialFullName?: string;
+  initialEmail?: string;
+  initialPhone?: string;
+  initialAxisId?: string;
+};
+
+export function ResidentProfilePanel({
+  initialUserId = null,
+  initialFullName = "",
+  initialEmail = "",
+  initialPhone = "",
+  initialAxisId = "",
+}: ResidentProfilePanelProps = {}) {
   const { showToast } = useAppUi();
-  const session = usePortalSession();
+  const session = usePortalSession({
+    userId: initialUserId,
+    email: initialEmail || null,
+  });
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const demo = isDemoModeActive();
 
-  const [userId, setUserId] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(initialUserId);
   const [editing, setEditing] = useState(false);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [axisId, setAxisId] = useState("");
+  const [name, setName] = useState(initialFullName);
+  const [email, setEmail] = useState(initialEmail);
+  const [phone, setPhone] = useState(initialPhone);
+  const [axisId, setAxisId] = useState(initialAxisId);
   const [saving, setSaving] = useState(false);
 
+  const effectiveUserId = session.userId ?? initialUserId;
+
   useEffect(() => {
-    if (!session.userId) return;
+    if (!effectiveUserId) return;
     if (demo) {
-      const demoUserId = session.userId;
-      const demoEmail = session.email ?? "";
+      const demoUserId = effectiveUserId;
+      const demoEmail = session.email ?? initialEmail;
       queueMicrotask(() => {
         const normalizedEmail = demoEmail.trim().toLowerCase();
         const matchingApplication = readManagerApplicationRows()
@@ -92,12 +112,12 @@ export function ResidentProfilePanel() {
       try {
         const supabase = createSupabaseBrowserClient();
         const [{ data: profile }, { data: authUser }] = await Promise.all([
-          supabase.from("profiles").select("*").eq("id", session.userId).maybeSingle(),
+          supabase.from("profiles").select("*").eq("id", effectiveUserId).maybeSingle(),
           supabase.auth.getUser(),
         ]);
         if (cancelled) return;
 
-        const normalizedEmail = (session.email ?? "").trim().toLowerCase();
+        const normalizedEmail = (session.email ?? authUser?.user?.email ?? initialEmail).trim().toLowerCase();
         const matchingApplication = readManagerApplicationRows()
           .slice()
           .reverse()
@@ -115,17 +135,18 @@ export function ResidentProfilePanel() {
         const meta = authUser?.user?.user_metadata as Record<string, unknown> | undefined;
         const metaAxis = typeof meta?.axis_id === "string" ? meta.axis_id : null;
 
-        setUserId(session.userId);
-        setEmail(session.email ?? "");
-        setName((current) => current || resolvedName);
-        setPhone((current) => current || resolvedPhone);
-        setAxisId(
-          resolveResidentPortalAxisId({
+        setUserId(effectiveUserId);
+        setEmail((current) => current || session.email || authUser?.user?.email || initialEmail);
+        setName((current) => current || resolvedName || initialFullName);
+        setPhone((current) => current || resolvedPhone || initialPhone);
+        setAxisId((current) => {
+          const resolved = resolveResidentPortalAxisId({
             profileManagerId: profile?.manager_id,
             authUserAxisId: metaAxis,
             applicationRowId: matchingApplication?.id,
-          }),
-        );
+          });
+          return current || resolved || initialAxisId;
+        });
 
         const appCanonical = matchingApplication?.id
           ? normalizeApplicationAxisId(matchingApplication.id)
@@ -156,7 +177,7 @@ export function ResidentProfilePanel() {
     return () => {
       cancelled = true;
     };
-  }, [demo, session.email, session.userId]);
+  }, [demo, effectiveUserId, initialAxisId, initialEmail, initialFullName, initialPhone, session.email]);
 
   const saveProfile = useCallback(async () => {
     if (!userId) {
@@ -267,7 +288,7 @@ export function ResidentProfilePanel() {
           <>
             <PortalSettingsField label="Full name" value={emptyToDash(name)} />
             <PortalSettingsField label="Email" value={email} />
-            <PortalSettingsField label="Phone" value={emptyToDash(phone)} />
+            <PortalSettingsField label="Phone" value={formatSmsPhoneLabel(phone) || emptyToDash(phone)} />
             {/*
               Shown through the display formatter. Accounts created before the
               rebrand still STORE an `AXIS-` id — every lookup accepts both
@@ -426,7 +447,7 @@ export function ResidentProfilePanel() {
       <div ref={layoutTopRef} className="lg:flex lg:items-start lg:gap-10">
         <PortalSettingsNav
           className="sticky top-0 max-lg:hidden"
-          name={emptyToDash(name)}
+          name={name}
           email={email}
           items={groups.map((g) => ({
             id: g.id,
@@ -439,7 +460,7 @@ export function ResidentProfilePanel() {
         <div className="min-w-0 flex-1 lg:max-w-3xl">
           {activeGroup === null ? (
             <div className="space-y-5 lg:hidden">
-              <PortalSettingsProfileHeader name={emptyToDash(name)} email={email} />
+              <PortalSettingsProfileHeader name={name} email={email} />
               <PortalSettingsGroup>
                 {groups.map((g) => (
                   <PortalSettingsLinkRow
