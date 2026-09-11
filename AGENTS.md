@@ -52,25 +52,34 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
 
 - **Never write production data.** Dev/test only (`emstjswhotsnyksqhqyf`). Staging DB is the only other write target. See `.cursor/rules/no-production-data-writes.mdc`.
 - **Never write the locked live listings** (5257 / 5259 Brooklyn, 4709A 8th Ave). See `.cursor/rules/no-production-live-listings.mdc`.
-- **Never skip `staging`.** Live ships from `production` only after QA. Agents never merge to `prakrit`, `main`, `staging`, or `production`.
+- **Never skip `staging`.** Live ships from `production` only after QA. Prakrit's
+  agents never merge to protected branches. Agents working for Akhil may merge
+  only his keeper → `main` → `staging` → `production`, and only after his
+  explicit ship request under `docs/agents/AGENTS-akhil.md`.
 - **Never fabricate a listing photo.** Empty `imageUrl` renders `NoImagePlaceholder`. Stock photos only on `/demo`.
 - **User-facing copy says "service", never "work order".** Schema names stay. `tests/unit/services-vocabulary.test.ts`.
 - **No agent's branch name belongs in this file.** Keeper names live in local instructions only.
 
 # Landing rule
 
-**Keepers → `prakrit` (captain integrate) → `main`. QA on `staging`. Live from `production`.**
+**Prakrit: keepers → `prakrit` (captain integrate) → `main`; agents working
+for Akhil after his explicit ship request: his keeper → `main`. QA on
+`staging`. Live from `production`.**
 Commit and push your keeper (fast-forward only, never force). Open a PR only on request.
 If a push is not a fast-forward, stop.
 
 **Agent handoff:** `npm run sandbox:open -- </route>` and put the Review URL in the reply.
-**Captain integration (not agents):** `npm run ship:to-prakrit -- --source <keeper>`.
+**Prakrit captain integration:** `npm run ship:to-prakrit -- --source <keeper>`.
+Akhil's explicit release authority bypasses this integration rung only, never
+staging or fast-forward rules.
 Details: `docs/agents/sandbox-open-review.md`.
 
 # Branching & deployment (Vercel)
 
-Vercel project `axis-2` builds **only** `staging` and `production`. `main` is localhost.
+Vercel project `proplane` builds **only** `staging` and `production`. `main` is localhost.
 There is no long-lived `dev` branch.
+
+Prakrit's path:
 
 ```
 keepers  →  prakrit  →  main  →  staging  →  production
@@ -112,7 +121,9 @@ Finished means it has been **run, with real data, including the edges**.
 2. Exercise the whole path in the browser. State the edges you drove.
 3. Report real test/lint exit codes (no piped `| tail`).
 4. Pin the port **before** starting the server (`npm run sandbox:pin -- 3000`), ports **3000-3014**, then `npm run sandbox:open -- </route>`.
-5. Stop. Do not promote a feature the developer has not seen.
+5. Without an explicit Akhil ship request, stop after the Review URL. With his
+   explicit ship request, agents working for him may complete the reviewed and
+   QA-tested ladder without separate captain or human handoff approval.
 
 # Mandatory ship / change gate (agents)
 
