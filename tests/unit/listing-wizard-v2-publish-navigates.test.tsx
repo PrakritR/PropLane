@@ -62,12 +62,28 @@ function Harness({
   );
 }
 
-/** Walk to the last step. Derived from the step list so adding a step cannot rot this. */
+/**
+ * Walk to the last step.
+ *
+ * Derived from the step list so adding a step cannot rot this, and driven by the
+ * stable `data-attr` rather than the button's words — the footer names the step
+ * it is going to ("Continue to Rooms"), and this test is about publishing, not
+ * about copy.
+ */
 async function goToReview() {
   for (let i = 0; i < LISTING_V2_STEPS.length - 1; i++) {
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    const next = document.querySelector('[data-attr="listing-v2-next"]');
+    if (!next) throw new Error(`no Continue button on step ${i + 1}`);
+    fireEvent.click(next);
   }
-  await screen.findByText("Ready to publish");
+  await waitFor(() => expect(document.querySelector('[data-attr="listing-v2-publish"]')).not.toBeNull());
+}
+
+/** The publish button, found by its stable attribute. */
+function publishButton(): Element {
+  const el = document.querySelector('[data-attr="listing-v2-publish"]');
+  if (!el) throw new Error("publish button not rendered");
+  return el;
 }
 
 beforeEach(() => {
@@ -85,7 +101,7 @@ describe("publishing from the redesigned wizard", () => {
     const onMessage = vi.fn();
     render(<Harness onPublished={onPublished} onMessage={onMessage} />);
     await goToReview();
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    fireEvent.click(publishButton());
     await waitFor(() => expect(onPublished).toHaveBeenCalledWith("mgr-test-ave-unit-abc123"));
     expect(onMessage).not.toHaveBeenCalled();
   });
@@ -96,7 +112,7 @@ describe("publishing from the redesigned wizard", () => {
     const onMessage = vi.fn();
     render(<Harness onPublished={onPublished} onMessage={onMessage} propertyCount={2} />);
     await goToReview();
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    fireEvent.click(publishButton());
     await waitFor(() => expect(onMessage).toHaveBeenCalledWith(expect.stringContaining("plan limit")));
     expect(onPublished).not.toHaveBeenCalled();
     expect(submitPending).not.toHaveBeenCalled();
@@ -113,7 +129,7 @@ describe("publishing from the redesigned wizard", () => {
     const onMessage = vi.fn();
     render(<Harness onPublished={onPublished} onMessage={onMessage} />);
     await goToReview();
-    fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+    fireEvent.click(publishButton());
     await waitFor(() => expect(onMessage).toHaveBeenCalledWith("Upgrade your plan to add another property."));
     expect(onPublished).not.toHaveBeenCalled();
   });
