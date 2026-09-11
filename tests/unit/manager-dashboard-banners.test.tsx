@@ -118,6 +118,10 @@ vi.mock("@/lib/portal-inbox-storage", () => ({
 
 vi.mock("@/lib/demo-admin-property-inventory", () => ({
   adminKpiCounts: () => [2, 0, 4],
+  // The portfolio overview reads property rows per stage; an empty portfolio
+  // keeps this test about the banners.
+  managerPropertyRowsForStage: () => [],
+  adminPropertyRentDisplayLabel: () => "",
 }));
 
 vi.mock("@/lib/demo-admin-scheduling", () => ({

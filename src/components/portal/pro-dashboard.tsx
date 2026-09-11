@@ -2,6 +2,14 @@
 
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import {
+  PortfolioMetricCard,
+  PortfolioNextStep,
+  PortfolioPropertiesSection,
+  readPortfolioSnapshot,
+} from "@/components/portal/pro-dashboard-portfolio";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
@@ -74,10 +82,7 @@ import {
 } from "@/lib/portal-inbox-storage";
 import {
   ManagerPortalPageShell,
-  portalDashboardWelcomeSubtitle,
   PORTAL_DASHBOARD_STACK,
-  PortalDashboardKpiRow,
-  PortalDashboardKpiTile,
   formatCompactChargeLine,
   formatCompactPlacementLine,
 } from "@/components/portal/portal-metrics";
@@ -113,6 +118,7 @@ import { syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
 import { propertyListHref } from "@/lib/portal-detail-routes";
 
 const BASE = "/portal";
+
 
 /** Semantic status foreground tokens for the leading issue-row dots. */
 const DOT_INFO = "var(--status-approved-fg)";
@@ -837,7 +843,10 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
     // Vacant = units actively listed for rent (a live listing is a unit to fill).
     const roomsVacant = livePropertyCount;
 
+    const portfolio = readPortfolioSnapshot(userId);
+
     return {
+      portfolio,
       pendingApps,
       pendingLeaseRows,
       pendingCharges,
@@ -858,6 +867,7 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
   if (!data) return null;
 
   const {
+    portfolio,
     pendingApps,
     pendingLeaseRows,
     pendingCharges,
@@ -931,13 +941,62 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
       ? `${BASE}/documents/other?expiry=expired`
       : `${BASE}/documents/other?expiry=expiring30`;
 
+  // One suggested next step, in priority order: money owed, then a decision
+  // waiting on the manager, then a tour to confirm, then an unfinished setup.
+  const nextStep =
+    overdueChargeCount > 0
+      ? {
+          title: `${overdueChargeCount} overdue ${overdueChargeCount === 1 ? "charge" : "charges"} to chase.`,
+          detail: `${overdueBalanceLabel} is past due across your residents.`,
+          actionLabel: "Review payments",
+          href: `${BASE}/payments/incoming/overdue`,
+        }
+      : pendingApps.length > 0
+        ? {
+            title: `A good next step for ${pendingApps[0]?.property || "your portfolio"}.`,
+            detail: `${pendingApps.length} ${pendingApps.length === 1 ? "application is" : "applications are"} ready for review.`,
+            actionLabel: "Review applications",
+            href: `${BASE}/applications/pending`,
+          }
+        : managerSignatureLeaseCount > 0
+          ? {
+              title: `${managerSignatureLeaseCount} ${managerSignatureLeaseCount === 1 ? "lease is" : "leases are"} waiting for your signature.`,
+              detail: "Residents have signed; countersign to make them official.",
+              actionLabel: "Sign leases",
+              href: `${BASE}/leases/manager`,
+            }
+          : pendingTours.length > 0
+            ? {
+                title: `${pendingTours.length} tour ${pendingTours.length === 1 ? "request" : "requests"} to confirm.`,
+                detail: "Confirm a time so the guest gets their reminder.",
+                actionLabel: "Confirm tours",
+                href: `${BASE}/tours/pending`,
+              }
+            : portfolio.draftCount > 0
+              ? {
+                  title: "Pick up where you left off.",
+                  detail: `${portfolio.draftCount} ${portfolio.draftCount === 1 ? "property is" : "properties are"} still in setup.`,
+                  actionLabel: "Continue setup",
+                  href: propertyListHref(BASE, "drafts"),
+                }
+              : null;
+
   return (
     <ManagerPortalPageShell
-      title="Dashboard"
-      subtitle={portalDashboardWelcomeSubtitle(displayName)}
+      title="Your portfolio, in focus."
+      subtitle={`Welcome back, ${displayName}. Keep homes organized. Keep the next step clear.`}
       hideTitleOnNative
       hideTitleOnMobileNav
-      welcomeSubtitle
+      primaryAction={
+        <Button
+          type="button"
+          className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+          data-attr="dashboard-add-property"
+          onClick={() => router.push(`${propertyListHref(BASE, "drafts")}?wizard=v2`)}
+        >
+          + Add property
+        </Button>
+      }
     >
       {/* Full width: Ask PropLane opens a popup by default, and a
           manager who pins it gets the portal-wide rail from the shell layout
@@ -975,57 +1034,45 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
           </Link>
         ) : null}
 
-        {/* Command center — restrained KPI stat row (scrolls horizontally on narrow screens). */}
-        <PortalDashboardKpiRow>
-            <PortalDashboardKpiTile
-              label="Rooms vacant"
-              value={roomsVacant}
-              tone={roomsVacant > 0 ? "warning" : "success"}
-              emphasis={roomsVacant > 0}
-              href={`${BASE}/properties`}
-              dataAttr="dashboard-kpi-vacant"
-            />
-            <PortalDashboardKpiTile
-              label="Leases"
-              value={pendingLeaseRows.length}
-              tone="brand"
-              emphasis={managerSignatureLeaseCount > 0 || pendingLeaseRows.length > 0}
-              href={`${BASE}/leases`}
-              dataAttr="dashboard-kpi-leases"
-            />
-            <PortalDashboardKpiTile
-              label="Applications"
-              value={pendingApps.length}
-              tone={pendingApps.length > 0 ? "warning" : "brand"}
-              emphasis={pendingApps.length > 0}
-              href={`${BASE}/applications`}
-              dataAttr="dashboard-kpi-applications"
-            />
-            <PortalDashboardKpiTile
-              label="Overdue"
-              value={overdueBalanceLabel}
-              tone={overdueChargeCount > 0 ? "danger" : "success"}
-              emphasis={overdueChargeCount > 0}
-              href={`${BASE}/payments`}
-              dataAttr="dashboard-kpi-overdue"
-            />
-            <PortalDashboardKpiTile
-              label="Services"
-              value={serviceItems.length}
-              tone={serviceItems.length > 0 ? "warning" : "neutral"}
-              emphasis={serviceItems.length > 0}
-              href={`${BASE}/services/requests`}
-              dataAttr="dashboard-kpi-services"
-            />
-            <PortalDashboardKpiTile
-              label="Messages"
-              value={inboxCount}
-              tone={inboxCount > 0 ? "brand" : "neutral"}
-              emphasis={inboxCount > 0}
-              href={`${BASE}/communication/inbox/unopened`}
-              dataAttr="dashboard-kpi-messages"
-            />
-        </PortalDashboardKpiRow>
+        {/* Portfolio at a glance — four white cards, then the one next step worth taking. */}
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <PortfolioMetricCard
+            label="Properties"
+            value={String(portfolio.propertyCount)}
+            detail={portfolio.draftCount > 0 ? `${portfolio.draftCount} still in setup` : "Across your portfolio"}
+            href={propertyListHref(BASE, "listed")}
+            dataAttr="dashboard-metric-properties"
+          />
+          <PortfolioMetricCard
+            label="Rentable spaces"
+            value={String(portfolio.rentableSpaces)}
+            detail={`Across ${portfolio.propertyCount - portfolio.draftCount} ${portfolio.propertyCount - portfolio.draftCount === 1 ? "property" : "properties"}`}
+            href={propertyListHref(BASE, "listed")}
+            dataAttr="dashboard-metric-spaces"
+          />
+          <PortfolioMetricCard
+            label="Occupied spaces"
+            value={`${activeResidents.length} / ${Math.max(portfolio.rentableSpaces, activeResidents.length)}`}
+            detail={
+              roomsVacant > 0
+                ? `${roomsVacant} ${roomsVacant === 1 ? "listing" : "listings"} open for rent`
+                : "Nothing listed right now"
+            }
+            href={`${BASE}/residents/current`}
+            dataAttr="dashboard-metric-occupied"
+          />
+          <PortfolioMetricCard
+            label="Applications"
+            value={String(pendingApps.length)}
+            detail={pendingApps.length > 0 ? "Ready for review" : "No applications waiting"}
+            href={`${BASE}/applications/pending`}
+            dataAttr="dashboard-metric-applications"
+          />
+        </div>
+
+        {nextStep ? <PortfolioNextStep {...nextStep} dataAttr="dashboard-next-step" /> : null}
+
+        <PortfolioPropertiesSection cards={portfolio.cards} basePath={BASE} />
 
         {/* Financial trend graphs — payments collected vs. expenses, last 6 months. */}
         {visibility.cashflow ? (
