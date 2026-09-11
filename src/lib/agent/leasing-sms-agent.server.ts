@@ -244,6 +244,7 @@ export async function runLeasingSmsAgentTurn(
       prospectPhoneE164: prospectPhone,
       workNumber: args.workNumber?.trim() || null,
       crossCatalog: args.crossCatalog === true,
+      channel,
     },
   });
 

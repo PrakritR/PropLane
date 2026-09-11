@@ -13,13 +13,23 @@ on:
 
 jobs:
   unit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
           cache: npm
+      - name: Provision PostgreSQL 16 harness tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-16 postgresql-client-16 openssl
+          echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
+      - name: Report local harness tool versions
+        run: |
+          /usr/lib/postgresql/16/bin/initdb --version
+          /usr/lib/postgresql/16/bin/pg_ctl --version
+          openssl version
       - run: npm run lockfile:verify
       - run: npm run test:unit
 

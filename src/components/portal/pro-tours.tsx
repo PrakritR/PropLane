@@ -207,6 +207,15 @@ function buildTourNotifyContext(row: ManagerTourRow) {
     notes: row.notes || null,
     managerLabel: "Property Manager",
     tourInquiryId: row.source === "inquiry" ? row.sourceId : null,
+    replyOptions: {
+      // The preview knows whether a guest can receive SMS, but cannot know
+      // whether the deployed email Reply-To secret is configured. The server
+      // re-evaluates this before delivery and supplies the authoritative copy.
+      smsSelected: false,
+      smsAvailable: Boolean(row.guestPhone?.trim()),
+      emailSelected: Boolean(row.guestEmail?.includes("@")),
+      emailReplyAvailable: false,
+    },
   });
 }
 
@@ -585,6 +594,12 @@ export function ManagerTours({
       notes: row.notes || null,
       managerLabel: "Property Manager",
       tourInquiryId: row.source === "inquiry" ? row.sourceId : null,
+      replyOptions: {
+        smsSelected: false,
+        smsAvailable: Boolean(row.guestPhone?.trim()),
+        emailSelected: Boolean(row.guestEmail?.includes("@")),
+        emailReplyAvailable: false,
+      },
     });
   }, []);
 

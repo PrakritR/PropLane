@@ -314,12 +314,15 @@ carrier reviewer can inspect cold). On the tours-contact page
 strict boolean and ignores any client-supplied timestamp, so per-lead consent is
 provable), and a positive opt-in written to the `sms_consent` ledger via
 `recordOptIn(..., "tours-contact")` in the `partner-inquiries` /
-`property-lead-message` routes. The load-bearing
-send gate is in `textTourGuest` (`tour-notification-delivery.server.ts`): a
-prospect is texted ONLY when `smsConsent === true`. Absence of a prior STOP is
-NOT consent — `sendResidentOutboundSms`/`sendSms` only check `isPhoneOptedOut`,
-which fails open, so a positive opt-in is required before any tour SMS. A later
-inbound STOP still supersedes the recorded opt-in. Coverage:
+`property-lead-message` routes. The load-bearing send gate is
+`resolveTourSmsEligibility`: it accepts either that explicit tour opt-in or a
+current trusted inbound grant for the exact manager, Messaging Service,
+prospect conversation, transactional class, and lifecycle purpose. New
+non-SMS-origin inquiries cannot borrow historical conversation evidence.
+Conversation-derived purpose grants record their derivation and are rechecked
+both on retry and at final outbox dispatch; explicit opt-in and independently
+restored purpose consent remain distinct. Any global, purpose, or source
+conversation revoke fails closed. Coverage:
 `tests/unit/tour-guest-sms-consent.test.ts`,
 `tests/unit/partner-inquiry-sms-consent.test.ts`,
 `tests/unit/tours-contact-sms-consent-ui.test.tsx`.

@@ -55,7 +55,11 @@ function inquiryFromPlannedEvent(event: Record<string, unknown>): Record<string,
     roomLabel: textField(event, "roomLabel"),
     notes: textField(event, "notes"),
     adminLabel: textField(event, "adminLabel"),
+    // This is the owner stored on the authorized planned event, not the actor
+    // who requested the change. Admins may operate on another manager's tour.
+    managerUserId: textField(event, "managerUserId"),
     smsConsent: event.smsConsent,
+    ...(typeof event.smsOrigin === "string" ? { smsOrigin: event.smsOrigin } : {}),
   };
 }
 
@@ -204,7 +208,12 @@ export async function cancelPlannedTour(
       db,
       notifyReq,
       inquiryFromPlannedEvent(event),
-      { start, end, adminLabel: textField(event, "adminLabel") || undefined },
+      {
+        start,
+        end,
+        managerUserId,
+        adminLabel: textField(event, "adminLabel") || undefined,
+      },
       opts.reason,
       {
         subject: opts.notificationSubject,
@@ -304,7 +313,12 @@ export async function reschedulePlannedTour(
   if (opts.notifyGuest) {
     const notifyReq = opts.req ?? new Request(PRODUCTION_APP_ORIGIN);
     guestNotification = await notifyTenantTourRescheduled(db, notifyReq, inquiryFromPlannedEvent(event), {
-      window: { start, end, adminLabel: textField(event, "adminLabel") || undefined },
+      window: {
+        start,
+        end,
+        managerUserId,
+        adminLabel: textField(event, "adminLabel") || undefined,
+      },
       previousWindow: previous,
       rescheduleGeneration,
       reason: opts.reason,

@@ -1,12 +1,12 @@
 ---
-description: After a user-facing fix, open localhost to the review route for instant captain testing
+description: After a user-facing fix, open localhost to the review route for instant developer testing
 alwaysApply: true
 ---
 
 # Open sandbox to the fixed feature (mandatory handoff)
 
 When you finish a **user-facing** change (UI, route, portal flow, public page),
-the captain must be able to test it **immediately** without hunting for the URL.
+the developer must be able to test it **immediately** without hunting for the URL.
 
 ## Before you say "ready" or "done" (every agent, every pane)
 
@@ -17,7 +17,7 @@ the captain must be able to test it **immediately** without hunting for the URL.
 npm run sandbox:open -- </route-to-the-fix>
 ```
 
-This opens the captain's browser **and** writes `.proplane-review-path` so
+This opens the developer's browser **and** writes `.proplane-review-path` so
 `npm run ship:to-prakrit` can reopen the same route on integration localhost.
 
 3. Put the **full Review URL** in your reply (`Review URL: http://localhost:…`).
@@ -34,11 +34,12 @@ This opens the captain's browser **and** writes `.proplane-review-path` so
 If a modal has no deep link yet, open the parent section and say which control
 to click (e.g. Tasks → **Settings**).
 
-`--print` only when the captain asked not to steal focus.
+`--print` only when the developer asked not to steal focus.
 
-## Promote ladder (captain / firstmate — not agents)
+## Prakrit promote ladder
 
-Agents **do not** merge to `prakrit` or `main`. After captain approves:
+Under Prakrit's process, agents **do not** merge to `prakrit` or `main`. After
+Prakrit approves:
 
 ```bash
 npm run ship:to-prakrit -- --source <keeper-branch>
@@ -46,5 +47,10 @@ npm run ship:to-prakrit -- --source <keeper-branch>
 
 Runs **security review + no-mistakes** before pushing `prakrit`, then opens
 `http://localhost:3000` on the route from `.proplane-review-path` (or `--path`).
+
+Akhil's process defaults to keeper handoff plus the Review URL. Only an explicit
+Akhil ship request authorizes agents working for him to promote his keeper →
+`main` → `staging` → `production`. They do not write `prakrit`, run
+no-mistakes, or waive staging and production safety.
 
 Full doc: `docs/agents/sandbox-open-review.md`.

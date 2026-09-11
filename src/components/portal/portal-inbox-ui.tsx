@@ -1597,7 +1597,7 @@ export function InboxComposer({
             })}
           </div>
         ) : null}
-        <div className="portal-inbox-composer-row flex items-end gap-2">
+        <div className="portal-inbox-composer-row flex items-end gap-2 max-md:flex-wrap">
           {leadingControl}
           {onAttachmentsPick ? (
             <label className="mb-0.5 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-border bg-secondary text-muted hover:bg-accent/40 hover:text-foreground md:h-[42px] md:w-[42px]">
@@ -1619,7 +1619,11 @@ export function InboxComposer({
           {/* Send via sits BEFORE the field, not after it. After the field it
               lands hard against the right edge and its menu, which is anchored
               to the trigger, overflowed the viewport by ~80px. */}
-          {resolvedChannel}
+          {resolvedChannel ? (
+            <div className="shrink-0 max-md:order-last max-md:basis-full max-md:pt-0.5">
+              {resolvedChannel}
+            </div>
+          ) : null}
           <div className="relative flex min-w-0 flex-1 items-end">
             <textarea
               ref={inputRef}
