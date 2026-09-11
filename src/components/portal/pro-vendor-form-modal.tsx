@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { Button } from "@/components/ui/button";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -396,6 +397,12 @@ export function ManagerVendorFormModal({
   const [createdVendorId, setCreatedVendorId] = useState<string | null>(null);
   const [addStep, setAddStep] = useState<"essentials" | "options">("essentials");
   const [inviteLinkOpen, setInviteLinkOpen] = useState(false);
+  // Houses the vendor link can be scoped to — read when the link dialog opens
+  // so a property added mid-session is offered.
+  const inviteLinkPropertyOptions = useMemo(
+    () => (inviteLinkOpen ? buildManagerPropertyFilterOptions(userId).map((o) => ({ value: o.id, label: o.label })) : []),
+    [inviteLinkOpen, userId],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -826,7 +833,7 @@ export function ManagerVendorFormModal({
         open={inviteLinkOpen}
         onClose={() => setInviteLinkOpen(false)}
         kind="vendor"
-        propertyOptions={[]}
+        propertyOptions={inviteLinkPropertyOptions}
       />
     </>
   );

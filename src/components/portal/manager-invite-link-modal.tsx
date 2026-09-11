@@ -110,7 +110,7 @@ export function ManagerInviteLinkModal({
         body: JSON.stringify({
           kind,
           label: label.trim() || undefined,
-          assignedPropertyIds: isVendor ? [] : selectedPropIds,
+          assignedPropertyIds: selectedPropIds,
           propertyPermissions: isVendor ? {} : permissions,
           expiry,
           uses,
@@ -246,8 +246,7 @@ export function ManagerInviteLinkModal({
           </div>
         ) : (
           <>
-            {!isVendor ? (
-              <>
+            <>
                 <div>
                   {propertyOptions.length === 0 ? (
                     <p className="rounded-xl border border-border bg-accent/30 px-4 py-3 text-sm text-muted">
@@ -255,7 +254,7 @@ export function ManagerInviteLinkModal({
                     </p>
                   ) : (
                     <CheckboxMultiSelect
-                      label="Properties this link grants access to"
+                      label={isVendor ? "Properties this vendor works on" : "Properties this link grants access to"}
                       labelClassName="text-xs font-semibold uppercase tracking-wide text-muted"
                       options={propertyOptions}
                       selected={selectedPropIds}
@@ -267,7 +266,7 @@ export function ManagerInviteLinkModal({
                   )}
                 </div>
 
-                {renderPermissionsEditor
+                {renderPermissionsEditor && !isVendor
                   ? selectedPropIds.map((pid) => (
                       <div key={pid} className="rounded-xl border border-border bg-accent/25 p-4">
                         <p className="text-sm font-semibold text-foreground">
@@ -284,8 +283,7 @@ export function ManagerInviteLinkModal({
                       </div>
                     ))
                   : null}
-              </>
-            ) : null}
+            </>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-xs font-semibold uppercase tracking-wide text-muted">

@@ -268,16 +268,9 @@ function levelsToGrant(levels: GrantLevels): CoManagerPermissions[CoManagerPermi
 // "All full access" is read+edit+delete (collapses to the legacy `true`). The
 // grant-map builder lives in the lib (buildAllModulesGrant) so it is unit-tested.
 const CO_MANAGER_PERMISSION_PRESETS: { label: string; preset: CoManagerBulkPreset }[] = [
-  { label: "All read-only", preset: "read" },
-  { label: "All write", preset: "edit" },
-  { label: "All delete", preset: "delete" },
-  { label: "All full access", preset: "full" },
-];
-
-const CO_MANAGER_READ_WRITE_PRESETS: { label: string; preset: CoManagerBulkPreset }[] = [
-  { label: "All read-only", preset: "read" },
-  { label: "All write", preset: "edit" },
-  { label: "All full access", preset: "full" },
+  { label: "All view", preset: "read" },
+  { label: "All edit", preset: "edit" },
+  { label: "All manage", preset: "full" },
 ];
 
 const permissionToggleActive =
@@ -317,6 +310,36 @@ function PermissionLevelToggle({
   );
 }
 
+type ModuleAccessLevel = "none" | "view" | "edit" | "manage";
+
+const MODULE_ACCESS_OPTIONS: Array<{ id: ModuleAccessLevel; label: string; hint: string }> = [
+  { id: "none", label: "No access", hint: "The module is hidden for this property." },
+  { id: "view", label: "View", hint: "Read records; nothing can be changed." },
+  { id: "edit", label: "Edit", hint: "Create and change records; never delete." },
+  { id: "manage", label: "Manage", hint: "Everything, including delete." },
+];
+
+function levelsToAccess(levels: GrantLevels): ModuleAccessLevel {
+  if (levels.delete) return "manage";
+  if (levels.edit) return "edit";
+  if (levels.read) return "view";
+  return "none";
+}
+
+function accessToLevels(access: ModuleAccessLevel, notification: boolean | undefined): GrantLevels {
+  if (access === "none") return {};
+  const notify = notification ?? true;
+  if (access === "view") return { read: true, notification: notify };
+  if (access === "edit") return { read: true, edit: true, notification: notify };
+  return { read: true, edit: true, delete: true, notification: notify };
+}
+
+/**
+ * Per-module access, one decision each: No access / View / Edit / Manage,
+ * plus whether the person is notified. Empty means no access — assigning a
+ * property never grants a module by itself. The grant written is the same
+ * `{ read, edit, delete, notification }` shape every server gate reads.
+ */
 function CoManagerPermissionsEditor({
   value,
   onChange,
@@ -326,42 +349,26 @@ function CoManagerPermissionsEditor({
   value: CoManagerPermissions;
   onChange: (next: CoManagerPermissions) => void;
   disabled?: boolean;
-  /** Property permissions expose read + write only; transfer flows may use full. */
+  /** Kept for callers; both variants now expose the same four levels. */
   variant?: "readWrite" | "full";
 }) {
-  const presets = variant === "full" ? CO_MANAGER_PERMISSION_PRESETS : CO_MANAGER_READ_WRITE_PRESETS;
+  void variant;
+  const presets = CO_MANAGER_PERMISSION_PRESETS;
 
   const setLevels = (id: CoManagerPermissionId, levels: GrantLevels) => {
     const next = { ...value };
-    // The readWrite editor shows no Delete control. Dropping the level outright
-    // revoked an existing delete grant the moment ANY level was toggled, but
-    // carrying it through unconditionally made it UNREVOCABLE — every toggle
-    // rewrote a grant that still contained delete, and read is derived from it.
-    // Carry it only while the module is still granted; clearing read and write
-    // removes the module outright, delete included.
-    const normalized: GrantLevels =
-      variant === "readWrite"
-        ? levels.read || levels.edit || levels.notification
-          ? {
-              read: levels.read,
-              edit: levels.edit,
-              delete:
-                levels.read || levels.edit ? grantToLevels(value[id]).delete : undefined,
-              notification: levels.notification,
-            }
-          : {}
-        : levels;
-    const grant = levelsToGrant(normalized);
+    const grant = levelsToGrant(levels);
     if (grant === undefined) delete next[id];
     else next[id] = grant;
     onChange(next);
   };
 
   const isEmpty = Object.keys(value).length === 0;
+  const grantedCount = CO_MANAGER_PERMISSION_OPTIONS.filter(({ id }) => levelsToAccess(grantToLevels(value[id])) !== "none").length;
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {presets.map((preset) => (
           <button
             key={preset.label}
@@ -374,127 +381,80 @@ function CoManagerPermissionsEditor({
             {preset.label}
           </button>
         ))}
+        <button
+          type="button"
+          disabled={disabled || isEmpty}
+          onClick={() => onChange({})}
+          className="rounded-full border border-border bg-card px-2.5 py-1 text-xs font-medium text-muted transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+          data-attr="co-manager-preset-none"
+        >
+          Clear all
+        </button>
+        <span className="ml-auto text-xs text-muted" data-attr="co-manager-effective-access">
+          {isEmpty
+            ? "No access"
+            : `${grantedCount} of ${CO_MANAGER_PERMISSION_OPTIONS.length} modules granted`}
+        </span>
       </div>
       {isEmpty ? (
         <p className="rounded-lg border border-dashed border-border bg-accent/20 px-3 py-2 text-xs text-muted">
-          No access. Turn on Read, Write, and Notify for each module below, or use a preset above.
+          No access. Choose View, Edit, or Manage for each module below, or start from a preset.
         </p>
       ) : null}
       <div className="space-y-2">
         {CO_MANAGER_PERMISSION_OPTIONS.map(({ id, label }) => {
           const levels = grantToLevels(value[id]);
+          const access = levelsToAccess(levels);
           return (
             <div
               key={id}
               className={`flex flex-col gap-2 rounded-xl border border-border bg-card px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between ${
                 disabled ? "opacity-60" : ""
               }`}
+              data-attr={`co-manager-module-${id}`}
             >
               <span className="text-sm font-medium text-foreground">{label}</span>
               <div className="flex flex-wrap items-center gap-1.5">
-                {/*
-                  Write implies read (`grantToLevels` derives read as
-                  read||edit||delete), so with Write on there is no Read choice
-                  left to make. This used to render the Read toggle anyway, lit
-                  and disabled — two controls where one was inert, which reads
-                  as a broken switch rather than an implication. Now the choice
-                  disappears and says what is true instead.
-                */}
-                {levels.edit ? (
-                  <span
-                    className="rounded-full border border-border bg-accent/30 px-2.5 py-1 text-xs font-medium text-muted"
-                    data-attr={`co-manager-${id}-read-implied`}
-                  >
-                    Read included
-                  </span>
+                <div
+                  role="radiogroup"
+                  aria-label={`${label} access`}
+                  className="inline-flex rounded-full border border-border bg-[var(--secondary)]/50 p-0.5"
+                >
+                  {MODULE_ACCESS_OPTIONS.map((option) => (
+                    <button
+                      key={option.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={access === option.id}
+                      disabled={disabled}
+                      title={option.hint}
+                      data-attr={`co-manager-${id}-${option.id}`}
+                      onClick={() => setLevels(id, accessToLevels(option.id, levels.notification))}
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                        access === option.id
+                          ? "bg-card text-primary shadow-sm"
+                          : "text-muted hover:text-foreground"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                {/* Read is implied by every level above No access, so the only
+                    remaining choice per module is whether alerts are sent. */}
+                {access !== "none" ? (
+                  <PermissionLevelToggle
+                    label="Notify"
+                    active={Boolean(levels.notification)}
+                    disabled={disabled}
+                    dataAttr={`co-manager-${id}-notify`}
+                    onToggle={() => setLevels(id, { ...levels, notification: !levels.notification })}
+                  />
                 ) : (
-                <PermissionLevelToggle
-                  label="Read"
-                  active={Boolean(levels.read)}
-                  disabled={disabled}
-                  dataAttr={`co-manager-${id}-read`}
-                  onToggle={() =>
-                    setLevels(
-                      id,
-                      levels.read
-                        ? {
-                            edit: levels.edit,
-                            delete: variant === "full" ? levels.delete : undefined,
-                            notification: levels.notification,
-                          }
-                        : {
-                            read: true,
-                            edit: levels.edit,
-                            delete: variant === "full" ? levels.delete : undefined,
-                            notification: levels.notification ?? true,
-                          },
-                    )
-                  }
-                />
+                  <span className="sr-only" data-attr={`co-manager-${id}-read-implied`}>
+                    Read included with any access level
+                  </span>
                 )}
-                <PermissionLevelToggle
-                  label="Write"
-                  active={Boolean(levels.edit)}
-                  disabled={disabled}
-                  dataAttr={`co-manager-${id}-write`}
-                  onToggle={() =>
-                    setLevels(
-                      id,
-                      levels.edit
-                        ? { read: levels.read || (variant === "full" ? levels.delete : false), notification: levels.notification }
-                        : { read: true, edit: true, notification: levels.notification ?? true },
-                    )
-                  }
-                />
-                <PermissionLevelToggle
-                  label="Notify"
-                  active={Boolean(levels.notification)}
-                  disabled={disabled}
-                  dataAttr={`co-manager-${id}-notify`}
-                  onToggle={() =>
-                    setLevels(
-                      id,
-                      levels.notification
-                        ? {
-                            read: levels.read,
-                            edit: levels.edit,
-                            delete: variant === "full" ? levels.delete : undefined,
-                            notification: false,
-                          }
-                        : {
-                            read: levels.read,
-                            edit: levels.edit,
-                            delete: variant === "full" ? levels.delete : undefined,
-                            notification: true,
-                          },
-                    )
-                  }
-                />
-                {variant === "full" ? (
-                  <>
-                    <PermissionLevelToggle
-                      label="Remove"
-                      active={!levels.read && !levels.edit && !levels.delete}
-                      disabled={disabled}
-                      dataAttr={`co-manager-${id}-remove`}
-                      onToggle={() => setLevels(id, {})}
-                    />
-                    <PermissionLevelToggle
-                      label="Delete"
-                      active={Boolean(levels.delete)}
-                      disabled={disabled}
-                      dataAttr={`co-manager-${id}-delete`}
-                      onToggle={() =>
-                        setLevels(
-                          id,
-                          levels.delete
-                            ? { read: levels.read || levels.edit, edit: levels.edit }
-                            : { read: true, delete: true, edit: levels.edit },
-                        )
-                      }
-                    />
-                  </>
-                ) : null}
               </div>
             </div>
           );

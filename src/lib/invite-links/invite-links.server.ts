@@ -138,12 +138,10 @@ export async function mintInviteLink(
 
   const kind = normalizeInviteLinkKind(input.kind);
 
-  // Vendor links need no property grant — they link a tradesperson into the
-  // manager's vendor directory, not into co-manager module access.
-  const propertyIds =
-    kind === "vendor"
-      ? []
-      : [...new Set(input.assignedPropertyIds.map((id) => String(id).trim()).filter(Boolean))];
+  // Every kind may carry properties. A vendor link's properties are NOT a
+  // module grant (vendors have none) — they become the directory row's
+  // assigned houses on redemption, the same scoping a manager sets by hand.
+  const propertyIds = [...new Set(input.assignedPropertyIds.map((id) => String(id).trim()).filter(Boolean))];
   // Who this link is really FOR. A co-manager with Team edit may mint on the
   // owner's behalf (PRP-400), so the owner is resolved and authorized here
   // rather than taken from the caller — for every kind, resident included.
@@ -731,7 +729,7 @@ function toResidentInviteClaim(row: DbClaimRow, linkLabel: string | null): Resid
  */
 async function redeemVendorLink(args: {
   db: SupabaseClient;
-  link: { id: string; owner_user_id: string; label?: string | null };
+  link: { id: string; owner_user_id: string; label?: string | null; assigned_property_ids?: string[] | null };
   redeemerUserId: string;
   alreadyRedeemed: boolean;
   spendUse: () => Promise<{ ok: true } | { ok: false; status: number; error: string }>;
@@ -808,6 +806,8 @@ async function redeemVendorLink(args: {
           email: claimantEmail,
           notes: "",
           active: true,
+          // Houses the manager chose when minting the link; empty = no scope yet.
+          propertyIds: Array.isArray(link.assigned_property_ids) ? link.assigned_property_ids : [],
           createdAt: nowIso,
           updatedAt: nowIso,
         },
