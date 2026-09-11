@@ -662,6 +662,12 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { detachIds: ["vendor_user_id"] },
   },
   {
+    // The vendor's own business record — theirs alone, gone with the login.
+    table: "vendor_business_profiles",
+    phase: 3,
+    vendor: { ids: ["user_id"] },
+  },
+  {
     table: "portal_work_order_records",
     phase: 3,
     manager: { ids: ["manager_user_id"] },
@@ -739,6 +745,7 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
 export const NON_OWNERSHIP_COLUMNS: Readonly<Record<string, string>> = {
   "manager_property_owners.owner_email": "Contact address for a third-party property owner, not a PropLane login.",
   "manager_sms_contacts.contact_email": "Denormalized contact address on the manager's own SMS contact row.",
+  "vendor_business_profiles.work_email": "The vendor's public business mailbox, keyed by user_id; the row is deleted with the login.",
 };
 
 export function purgeRulesForScope(scope: PurgeScope, phase: 1 | 2 | 3) {

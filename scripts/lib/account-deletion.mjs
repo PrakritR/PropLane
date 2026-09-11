@@ -98,6 +98,7 @@ export const DELETE_ORDER = [
   "vendor_invoices",
   "vendor_payouts",
   "vendor_tax_profiles",
+  "vendor_business_profiles",
   "vendor_availability_rules",
   "vendor_invites",
   "action_event_deliveries",

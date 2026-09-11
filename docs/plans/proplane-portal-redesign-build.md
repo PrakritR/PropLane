@@ -41,8 +41,20 @@ Prototype screenshots and simulator checks are references, not product evidence.
   lists each required report with its due date, resident tour popup is
   Reschedule / Message host / Cancel tour only (`POST /api/portal-resident-tours/cancel`).
   Manager resident record pages already carry Overview … Notes tabs.
-- [ ] Complete Vendor business profile/work email/work number, Services (Tasks
-  included), invoices/files/payments and workspace access.
+- [x] Complete Vendor business profile/work email/work number, Services (Tasks
+  included), invoices/files/payments and workspace access. — this commit: a
+  vendor-owned `vendor_business_profiles` row (migration applied to dev/test)
+  behind `/api/vendor/business-profile`; Settings gains Business profile, Work
+  contacts, Workspace access (linked managers + assigned houses) and
+  Notifications, none of which wait on a manager link; Tasks is a tab of
+  Services (no separate destination; `/vendor/tasks` stays routable); vendor
+  bottom bar is Services · Payments · Dashboard · Communication. Invoices,
+  files and payouts were already in place. **Scoped down, deliberately:** the
+  work number/email are stored business contacts shown on offers, invoices
+  and threads — PropLane does not provision a dedicated Twilio line per
+  vendor (that would need per-vendor A2P registration and credit reservation
+  under docs/agents/comms-billing.md); texts to vendors keep going out from
+  PropLane's own line.
 - [ ] Shared persistent task system: status/filter/assignee/due/priority,
   recurrence/reminders/checklists/comments/attachments and bulk actions.
 - [ ] Offered lease types and inline amenities checkboxes with Other details.

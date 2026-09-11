@@ -142,7 +142,8 @@ export const NATIVE_BOTTOM_NAV_RESIDENT_PRIMARY = residentBottomNavPrimarySectio
 
 export const NATIVE_BOTTOM_NAV_ADMIN_PRIMARY = ["dashboard", "properties", "axis-users", "events"] as const;
 
-export const NATIVE_BOTTOM_NAV_VENDOR_PRIMARY = ["work-orders", "calendar", "communication", "payments"] as const;
+// Services · Payments · Dashboard · Communication (+ More), per the portal redesign.
+export const NATIVE_BOTTOM_NAV_VENDOR_PRIMARY = ["work-orders", "payments", "dashboard", "communication"] as const;
 
 /**
  * Every role gets the fixed native bottom bar. Settings stays in the profile

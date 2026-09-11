@@ -34,6 +34,8 @@ export function isHiddenFromMobileNav(kind: PortalKind, section: string): boolea
   if (section === "profile") return true;
   // App download page: reachable from Settings, never a nav destination.
   if (section === "app" && (kind === "manager" || kind === "pro")) return true;
+  // Vendor tasks sit inside Services.
+  if (section === "tasks" && kind === "vendor") return true;
   return false;
 }
 
@@ -71,7 +73,8 @@ const RESIDENT_GROUPS: NavGroupConfig[] = [
 
 const VENDOR_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard"] },
-  { id: "work", label: "Work", sections: ["work-orders", "tasks", "calendar"] },
+  // Vendor tasks live inside Services (a tab there); the route stays but is not a row.
+  { id: "work", label: "Work", sections: ["work-orders", "calendar"] },
   { id: "operations", label: "Operations", sections: ["communication"] },
   { id: "finances", label: "Finances", sections: ["financials", "payments", "documents"] },
 ];
@@ -118,7 +121,13 @@ export function groupNavItems<T extends { section: string }>(
     return { id: g.id, label: g.label, items: groupItems };
   });
 
-  const leftovers = items.filter((i) => !assigned.has(i.section) && !SIDEBAR_EXCLUDED_SECTIONS.has(i.section));
+  const leftovers = items.filter(
+    (i) =>
+      !assigned.has(i.section) &&
+      !SIDEBAR_EXCLUDED_SECTIONS.has(i.section) &&
+      // Vendor tasks are a Services tab, not a row; the route stays reachable.
+      !(kind === "vendor" && i.section === "tasks"),
+  );
   if (leftovers.length) groups.push({ id: "more", label: null, items: leftovers });
 
   return groups.filter((g) => g.items.length > 0);

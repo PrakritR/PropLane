@@ -3,16 +3,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
+  Bell,
   Briefcase,
+  Building2,
   CalendarClock,
+  Contact,
   Lock,
   MessageSquareText,
   Settings2,
   SlidersHorizontal,
   Smartphone,
-
   Wrench,
 } from "lucide-react";
+import {
+  useVendorBusinessProfile,
+  VendorBusinessProfilePane,
+  VendorNotificationsPane,
+  VendorWorkContactsPane,
+  VendorWorkspaceAccessPane,
+} from "@/components/portal/vendor-business-settings";
+import { resolvePropertyLabelForId } from "@/lib/manager-portfolio-access";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { PortalCollapsibleSection } from "@/components/portal/portal-collapsible-section";
@@ -53,6 +63,10 @@ import {
 const SETTINGS_TAB_PARAM = "tab";
 
 type VendorSettingsGroupId =
+  | "business"
+  | "work-contacts"
+  | "workspaces"
+  | "notifications"
   | "profile"
   | "capabilities"
   | "availability"
@@ -1011,6 +1025,8 @@ export function VendorSettingsPanel() {
   // Both writable panes are dead until a manager links the account, so the
   // banner rides with them rather than sitting once at the top of a scroll the
   // vendor may never reach.
+  const business = useVendorBusinessProfile(!demo);
+
   const unlinkedBanner = unlinked ? (
     <p
       className="rounded-lg border px-4 py-3 text-sm portal-banner-pending"
@@ -1023,9 +1039,30 @@ export function VendorSettingsPanel() {
   const groups = useMemo<VendorSettingsGroup[]>(
     () => [
       {
+        id: "business",
+        label: "Business profile",
+        description: "Your business name, contact, and service area — yours, no manager link needed.",
+        icon: Building2,
+        group: "Business",
+      },
+      {
+        id: "work-contacts",
+        label: "Work contacts",
+        description: "The work number and email managers and residents reach you at.",
+        icon: Contact,
+        group: "Business",
+      },
+      {
+        id: "workspaces",
+        label: "Workspace access",
+        description: "Manager workspaces you are linked into and the houses assigned to you.",
+        icon: Briefcase,
+        group: "Business",
+      },
+      {
         id: "profile",
-        label: "Profile",
-        description: "Business name, contact details, and how managers reach you.",
+        label: "Directory listing",
+        description: "Language, texting consent, and payment methods on your manager directory entry.",
         icon: Briefcase,
         group: "Business",
       },
@@ -1042,6 +1079,13 @@ export function VendorSettingsPanel() {
         description: "Weekly hours, one-off open dates, and blocked dates.",
         icon: CalendarClock,
         group: "Availability",
+      },
+      {
+        id: "notifications",
+        label: "Notifications",
+        description: "Which events reach your inbox and phone.",
+        icon: Bell,
+        group: "Account",
       },
       {
         id: "messaging",
@@ -1142,6 +1186,14 @@ export function VendorSettingsPanel() {
 
   const renderPane = (id: VendorSettingsGroupId): ReactNode => {
     switch (id) {
+      case "business":
+        return <VendorBusinessProfilePane ctx={business} />;
+      case "work-contacts":
+        return <VendorWorkContactsPane ctx={business} />;
+      case "workspaces":
+        return <VendorWorkspaceAccessPane ctx={business} propertyLabel={(id) => resolvePropertyLabelForId(id)} />;
+      case "notifications":
+        return <VendorNotificationsPane ctx={business} />;
       case "profile":
         return (
           <>
