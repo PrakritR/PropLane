@@ -632,7 +632,7 @@ export function proplaneSiteLinks(origin: string) {
   const base = origin.replace(/\/$/, "");
   return {
     origin: base,
-    browseHomes: `${base}/rent`,
+    browseHomes: `${base}/rent/browse`,
     startApplication: `${base}/rent/apply`,
     pricing: `${base}/pricing`,
     demo: `${base}/demo`,

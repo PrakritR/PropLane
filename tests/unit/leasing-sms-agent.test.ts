@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { routeResolves } from "../helpers/route-resolves";
 
 vi.mock("@/lib/public-listings.server", () => ({
   getPublicListings: vi.fn(),
@@ -512,7 +513,8 @@ describe("pure listing helpers", () => {
 describe("proplaneSiteLinks", () => {
   it("builds production-origin links, never localhost", () => {
     const links = proplaneSiteLinks(PROD_ORIGIN);
-    expect(links.browseHomes).toBe(`${PROD_ORIGIN}/rent`);
+    expect(links.browseHomes).toBe(`${PROD_ORIGIN}/rent/browse`);
+    expect(routeResolves(new URL(links.browseHomes).pathname)).toBe(true);
     expect(links.startApplication).toBe(`${PROD_ORIGIN}/rent/apply`);
     expect(links.pricing).toBe(`${PROD_ORIGIN}/pricing`);
     for (const url of Object.values(links)) {
@@ -591,7 +593,7 @@ describe("per-manager line stays scoped (no cross-catalog leakage)", () => {
 describe("get_site_links tool", () => {
   it("returns production-origin canonical links", async () => {
     const res = await getSiteLinksTool.handler(ctxFor({ crossCatalog: true }), {});
-    expect(res.links.browseHomes).toBe(`${PROD_ORIGIN}/rent`);
+    expect(res.links.browseHomes).toBe(`${PROD_ORIGIN}/rent/browse`);
     expect(res.links.startApplication).toBe(`${PROD_ORIGIN}/rent/apply`);
     expect(res.links.origin).toBe(PROD_ORIGIN);
   });
