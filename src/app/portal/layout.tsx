@@ -26,6 +26,7 @@ import {
 import { buildProPortalDefinition } from "@/lib/portals/pro-nav";
 import { getAssistantDockCollapsed } from "@/lib/assistant-dock-state";
 import { getSidebarCollapsed } from "@/lib/portal-sidebar-state";
+import { WorkspaceProvider } from "@/components/portal/workspace-provider";
 
 export default async function PropertyPortalLayout({ children }: { children: React.ReactNode }) {
   // A production admin (founder/ops) identity must not cross into the property
@@ -42,6 +43,7 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
   return (
     <AxisAssistant managerName={profile?.full_name ?? null} dockable>
       <div className={PORTAL_SHELL_ROOT_CLASS}>
+        <WorkspaceProvider>
         <SurfaceThemeDefault theme="light" />
         <PublicHomePrefetch />
         <PortalDataPrefetch kind="pro" />
@@ -97,6 +99,7 @@ export default async function PropertyPortalLayout({ children }: { children: Rea
             initialCollapsed={assistantDockCollapsed}
           />
         </div>
+        </WorkspaceProvider>
       </div>
     </AxisAssistant>
   );

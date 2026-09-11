@@ -1,5 +1,7 @@
 "use client";
 
+import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+
 import { Link2 } from "lucide-react";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
@@ -755,7 +757,7 @@ export function ManagerResidents({
       return [];
     }
     const built = readManagerApplicationRows()
-      .filter((row) => isResidentDirectoryRow(row) && applicationVisibleToPortalUser(row, userId, "residents"))
+      .filter((row) => isResidentDirectoryRow(row) && applicationVisibleToPortalUser(row, userId, "residents") && workspaceContainsProperty(row.assignedPropertyId || row.propertyId || row.application?.propertyId))
       .map((row) => {
         const propId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || "";
         const prop = propId ? getPropertyById(propId) : null;

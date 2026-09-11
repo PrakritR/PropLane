@@ -287,20 +287,20 @@ export function PortalSectionActionRow({
   return (
     <div
       className={cn(
-        "flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2",
-        "max-sm:[&_button]:w-full max-sm:[&_a]:w-full",
+        "flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain",
+        "[&_button]:w-auto [&_a]:w-auto",
         className,
       )}
       data-slot="portal-section-action-row"
     >
-      <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:[&_button]:w-auto sm:[&_a]:w-auto">
+      <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2 [&_button]:shrink-0 [&_a]:shrink-0">
         {children}
       </div>
       {destructive ? (
         <div
           className={cn(
-            "flex w-full min-w-0 flex-col gap-3 border-t border-border pt-3 sm:ml-auto sm:w-auto sm:flex-row sm:border-0 sm:border-l sm:pl-3 sm:pt-0",
-            "max-sm:[&_button]:w-full sm:[&_button]:w-auto",
+            "ml-auto flex shrink-0 items-center gap-2 border-l border-border pl-2",
+            "[&_button]:w-auto",
           )}
           data-slot="portal-section-action-row-destructive"
         >

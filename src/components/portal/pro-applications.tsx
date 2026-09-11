@@ -1,5 +1,7 @@
 "use client";
 
+import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -740,7 +742,7 @@ export function ManagerApplications({
     // hydrates so linked-property rows appear without a manual refresh.
     void portfolioTick;
     if (!scopeUserId) return [];
-    return rows.filter((r) => applicationVisibleToPortalUser(r, scopeUserId, "applications"));
+    return rows.filter((r) => applicationVisibleToPortalUser(r, scopeUserId, "applications") && workspaceContainsProperty(r.assignedPropertyId || r.propertyId || r.application?.propertyId));
   }, [rows, scopeUserId, portfolioTick]);
 
   // Reconcile group applications across every bucket (a group can span pending / approved /

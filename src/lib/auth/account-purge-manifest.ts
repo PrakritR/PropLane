@@ -40,13 +40,19 @@ export type PurgeTableRule = {
    * delete concurrently with the cascade that is already removing it — children first,
    * parents (journal entries, work orders, properties, documents) last.
    */
-  phase: 1 | 2 | 3;
+  phase: 1 | 2 | 3 | 4;
   manager?: PurgeScopeRule;
   resident?: PurgeScopeRule;
   vendor?: PurgeScopeRule;
 };
 
 export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
+  {
+    table: "portal_workspaces",
+    // Properties must be removed first; deleting a workspace never deletes houses.
+    phase: 4,
+    manager: { ids: ["owner_user_id"] },
+  },
   // ---------------------------------------------------------------- phase 1: child rows
   {
     table: "gl_journal_lines",

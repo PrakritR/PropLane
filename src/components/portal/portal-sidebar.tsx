@@ -46,6 +46,7 @@ import {
 } from "@/lib/portal-layout-classes";
 import { prefetchPortalPanelChunks } from "@/lib/portal-panel-prefetch";
 import { SIDEBAR_COLLAPSED_COOKIE } from "@/lib/portal-sidebar-cookie";
+import { WorkspaceSwitcher } from "@/components/portal/workspace-switcher";
 import { groupNavItems, isAppNavHiddenInNativeShell, isHiddenFromMobileNav } from "@/lib/portals/nav-groups";
 import { PAYMENT_BUCKETS } from "@/lib/portal-detail-routes";
 import type { PortalDefinition, PortalKind } from "@/lib/portal-types";
@@ -959,8 +960,9 @@ export function PortalSidebar({
         </div>
       )}
 
+      <div className="shrink-0 px-2"><WorkspaceSwitcher compact={collapsed} /></div>
       {collapsed ? (
-        <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-2 py-2.5" aria-label="Portal sections">
+        <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto overscroll-contain px-2 py-2.5" aria-label="Portal sections">
           {navGroups.map((group, i) => (
             <div
               key={group.id}
@@ -972,7 +974,7 @@ export function PortalSidebar({
           ))}
         </nav>
       ) : (
-        <nav className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto px-2 py-2.5" aria-label="Portal sections">
+        <nav className="flex min-h-0 flex-1 flex-col gap-px overflow-y-auto overscroll-contain px-2 py-2.5" aria-label="Portal sections">
           {navGroups.map((group, i) => (
             <div
               key={group.id}
