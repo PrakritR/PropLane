@@ -604,7 +604,7 @@ export function PortalPageHeadline({
     >
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          <h1 className="min-w-0 truncate text-[1.35rem] font-semibold leading-tight tracking-[-0.02em] text-foreground sm:text-2xl">
+          <h1 className="min-w-0 text-[1.35rem] font-semibold leading-tight tracking-[-0.02em] text-foreground max-sm:line-clamp-2 sm:truncate sm:text-2xl">
             {title}
           </h1>
           {typeof count === "number" ? (

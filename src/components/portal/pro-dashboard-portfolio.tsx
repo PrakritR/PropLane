@@ -139,13 +139,13 @@ export function PortfolioNextStep({
       <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-card text-primary shadow-sm" aria-hidden>
         <Sparkles className="size-5" strokeWidth={1.75} />
       </span>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 basis-[12rem]">
         <p className="text-[15px] font-semibold text-foreground">{title}</p>
         <p className="text-sm text-muted">{detail}</p>
       </div>
       <Link
         href={href}
-        className="inline-flex min-h-10 shrink-0 items-center gap-1 rounded-lg bg-card px-3.5 text-sm font-semibold text-primary shadow-sm transition hover:bg-card/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+        className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-lg bg-card px-3.5 text-sm font-semibold text-primary shadow-sm transition hover:bg-card/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 max-sm:w-full"
       >
         {actionLabel}
         <ArrowUpRight className="size-4" aria-hidden />
