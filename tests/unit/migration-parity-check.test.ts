@@ -1,41 +1,44 @@
-// The gate that would have caught 2026-09-10, tested — because an untested gate
-// is exactly what let that day happen. `20260909210000` merged and shipped to
-// production while neither staging nor production had ever run it, and every
-// existing check stayed green: unit tests mock Supabase, so nothing compared a
-// query against the schema it would actually meet.
-//
-// The comparison, not the database plumbing, is where the verdict is made, so
-// that is what is pinned here — including the real repo's own migration
-// filenames, so a badly named file is caught before it can be silently ignored.
-import { describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { diffMigrations, parseMigrationFileNames } from "../../scripts/check-migration-parity.mjs";
+import { describe, expect, it } from "vitest";
+import {
+  diffMigrations,
+  hasFatalMigrationDrift,
+  migrationIdentityProblems,
+  parseArguments,
+  parseMigrationFileNames,
+  TARGET_PROJECT_REFS,
+  validateTargetConnection,
+} from "../../scripts/check-migration-parity.mjs";
 
 const MIGRATIONS_DIR = join(process.cwd(), "supabase", "migrations");
 
 describe("reading the repo's own migrations", () => {
   it("parses every .sql file in supabase/migrations", () => {
-    const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql"));
+    const files = readdirSync(MIGRATIONS_DIR).filter((file) => file.endsWith(".sql"));
     const parsed = parseMigrationFileNames(files);
-    // A file the parser silently skips is a migration this gate would never
-    // notice was unapplied — the whole failure mode, one level down.
-    const skipped = files.filter((f) => !parsed.some((p) => f.startsWith(`${p.version}_`)));
-    expect(skipped, "migration filenames must be <14-digit version>_<name>.sql").toEqual([]);
-    expect(parsed.length).toBe(files.length);
+    const parsedFiles = new Set(parsed.map((row) => `${row.version}_${row.name}.sql`));
+    expect(files.filter((file) => !parsedFiles.has(file)), "migration filenames must carry a name").toEqual([]);
+    expect(parsed).toHaveLength(files.length);
   });
 
-  it("keeps versions unique and ordered", () => {
+  it("keeps versions ordered and surfaces the existing duplicate name", () => {
     const parsed = parseMigrationFileNames(readdirSync(MIGRATIONS_DIR));
-    const versions = parsed.map((p) => p.version);
-    expect(new Set(versions).size, "two migrations share a version").toBe(versions.length);
-    expect([...versions].sort()).toEqual(versions);
+    expect(migrationIdentityProblems(parsed, "repo")).toEqual([
+      expect.objectContaining({
+        source: "repo",
+        kind: "duplicate-name",
+        version: "20260716090000",
+        name: "agent_pending_actions",
+      }),
+    ]);
+    expect(parsed.map((row) => row.version)).toEqual(parsed.map((row) => row.version).sort());
   });
 
   it("includes the migration whose absence broke the waiver code", () => {
     const parsed = parseMigrationFileNames(readdirSync(MIGRATIONS_DIR));
-    expect(parsed.some((p) => p.version === "20260909210000")).toBe(true);
+    expect(parsed.some((row) => row.name === "scope_application_fee_waiver_codes_to_property")).toBe(true);
   });
 });
 
@@ -46,74 +49,234 @@ const local = [
   { version: "20260909210000", name: "scope_application_fee_waiver_codes_to_property" },
 ];
 
-describe("the verdict", () => {
-  it("reports nothing when the database is level with the repo", () => {
-    expect(diffMigrations(local, local)).toEqual({ missing: [], extra: [] });
+describe("name-based migration parity", () => {
+  it("reports exact name parity as unambiguous", () => {
+    const result = diffMigrations(local, local);
+    expect(result).toEqual({ missing: [], extra: [], problems: [] });
+    expect(hasFatalMigrationDrift(result)).toBe(false);
   });
 
-  it("names exactly what production was missing on Sep 10", () => {
-    // Production's real ledger that morning: it stopped at 20260909090000.
-    const applied = [local[0]!];
-    const { missing, extra } = diffMigrations(local, applied);
-    expect(missing.map((m) => m.version)).toEqual([
-      "20260909100000",
-      "20260909110000",
-      "20260909210000",
+  it("treats the same name under a different version as applied", () => {
+    const applied = local.map((row, index) => ({ ...row, version: `2027010100000${index}` }));
+    expect(diffMigrations(local, applied)).toEqual({ missing: [], extra: [], problems: [] });
+  });
+
+  it("treats a different name under the same version as missing and unresolved", () => {
+    const applied = local.map((row) => ({ ...row }));
+    applied[3] = { ...applied[3]!, name: "bundled_history" };
+    const result = diffMigrations(local, applied);
+    expect(result.missing).toEqual([local[3]]);
+    expect(result.extra).toEqual([applied[3]]);
+    expect(result.problems).toEqual([]);
+  });
+
+  it("reports genuinely absent repo migrations", () => {
+    const result = diffMigrations(local, [local[0]!]);
+    expect(result.missing.map((row) => row.name)).toEqual([
+      "atomic_lease_action_events",
+      "action_event_sms_deferred_until",
+      "scope_application_fee_waiver_codes_to_property",
     ]);
-    expect(extra).toEqual([]);
+    expect(result.extra).toEqual([]);
   });
 
-  it("treats a version the database has and the repo does not as non-fatal", () => {
-    const applied = [...local, { version: "20260101000000", name: "squashed_baseline" }];
-    const { missing, extra } = diffMigrations(local, applied);
-    expect(missing).toEqual([]);
-    expect(extra.map((e) => e.version)).toEqual(["20260101000000"]);
+  it("reports an extra-only legacy bundle without inventing drift", () => {
+    const bundle = { version: "20260909999999", name: "legacy_production_bundle" };
+    const result = diffMigrations(local, [...local, bundle]);
+    expect(result.missing).toEqual([]);
+    expect(result.extra).toEqual([bundle]);
+    expect(hasFatalMigrationDrift(result)).toBe(false);
   });
 
-  it("does not mistake an equal COUNT for parity", () => {
-    // Same number of rows either side, one substituted — a length comparison
-    // would have called this in sync.
-    const applied = [...local.slice(0, 3), { version: "20260909999999", name: "something_else" }];
-    const { missing, extra } = diffMigrations(local, applied);
-    expect(missing.map((m) => m.version)).toEqual(["20260909210000"]);
-    expect(extra.map((e) => e.version)).toEqual(["20260909999999"]);
+  it("does not use a legacy bundle to satisfy a missing repo name", () => {
+    const bundle = { version: local[3]!.version, name: "legacy_production_bundle" };
+    const result = diffMigrations(local, [...local.slice(0, 3), bundle]);
+    expect(result.missing).toEqual([local[3]]);
+    expect(result.extra).toEqual([bundle]);
+    expect(hasFatalMigrationDrift(result)).toBe(true);
+  });
+
+  it.each([
+    {
+      label: "empty name",
+      rows: [{ version: "20260909090000", name: "" }],
+      kind: "invalid-name",
+    },
+    {
+      label: "whitespace-only name",
+      rows: [{ version: "20260909090000", name: "   " }],
+      kind: "invalid-name",
+    },
+    {
+      label: "duplicate name",
+      rows: [
+        { version: "20260909090000", name: "same_name" },
+        { version: "20260909090001", name: "same_name" },
+      ],
+      kind: "duplicate-name",
+    },
+    {
+      label: "duplicate version",
+      rows: [
+        { version: "20260909090000", name: "first_name" },
+        { version: "20260909090000", name: "second_name" },
+      ],
+      kind: "duplicate-version",
+    },
+  ])("fails closed on a database $label", ({ rows, kind }) => {
+    const result = diffMigrations(local, rows);
+    expect(result.problems).toEqual(expect.arrayContaining([expect.objectContaining({ source: "database", kind })]));
+    expect(hasFatalMigrationDrift(result)).toBe(true);
+  });
+
+  it("fails closed on duplicate repo names too", () => {
+    const duplicatedLocal = [...local, { version: "20260909220000", name: local[0]!.name }];
+    const result = diffMigrations(duplicatedLocal, local);
+    expect(result.problems).toEqual([
+      expect.objectContaining({ source: "repo", kind: "duplicate-name", name: local[0]!.name }),
+    ]);
   });
 });
 
-describe("the CLI's exit codes, which ship-preflight branches on", () => {
-  const run = (args: string[], env: Record<string, string> = {}) => {
-    try {
-      const stdout = execFileSync("node", ["scripts/check-migration-parity.mjs", ...args], {
-        encoding: "utf8",
-        // Strip any inherited connection string so "no URL" really means none.
-        env: { ...process.env, SUPABASE_DB_URL: "", POSTGRES_URL: "", DATABASE_URL: "", ...env },
-      });
-      return { code: 0, stdout };
-    } catch (e) {
-      const err = e as { status?: number; stdout?: string; stderr?: string };
-      return { code: err.status ?? 1, stdout: `${err.stdout ?? ""}${err.stderr ?? ""}` };
-    }
-  };
+describe("target binding before database I/O", () => {
+  const pooler = "aws-1-us-west-2.pooler.supabase.com";
 
-  it("exits 2 and says so when there is no database to check", () => {
-    const { code, stdout } = run([]);
-    expect(code).toBe(2);
-    expect(stdout).toContain("NOT CHECKED");
-    // "Not checked" must never read as a pass.
-    expect(stdout).not.toContain("OK");
+  it.each(Object.entries(TARGET_PROJECT_REFS))(
+    "accepts the %s project's direct and pooler credential shapes",
+    (target, projectRef) => {
+      expect(validateTargetConnection(target, `postgresql://postgres:secret@db.${projectRef}.supabase.co/postgres`)).toEqual({ ok: true });
+      expect(validateTargetConnection(target, `postgresql://postgres.${projectRef}:secret@${pooler}/postgres`)).toEqual({ ok: true });
+      expect(validateTargetConnection(target, `postgresql://cli_login_postgres.${projectRef}:secret@${pooler}/postgres`)).toEqual({ ok: true });
+    },
+  );
+
+  it("rejects a valid credential for the wrong named target", () => {
+    const url = `postgresql://postgres.${TARGET_PROJECT_REFS.production}:secret@${pooler}/postgres`;
+    expect(validateTargetConnection("staging", url)).toEqual({ ok: false, reason: "target-mismatch" });
   });
 
-  it("exits 2 without echoing the connection string when the database is unreachable", () => {
-    const secret = "s3cret-should-never-print";
-    const { code, stdout } = run([
-      "--db-url",
-      `postgresql://postgres:${secret}@127.0.0.1:1/postgres`,
+  it("rejects forged project usernames on non-Supabase hosts", () => {
+    const url = `postgresql://postgres.${TARGET_PROJECT_REFS.staging}:secret@127.0.0.1:5432/postgres`;
+    expect(validateTargetConnection("staging", url)).toEqual({ ok: false, reason: "target-mismatch" });
+  });
+
+  it("rejects unknown targets and malformed credentials", () => {
+    expect(validateTargetConnection("preview", "postgresql://postgres:secret@localhost/postgres")).toEqual({ ok: false, reason: "unknown-target" });
+    expect(validateTargetConnection("staging", "not a database URL")).toEqual({ ok: false, reason: "malformed-url" });
+  });
+
+  it("keeps untargeted valid URLs available for local diagnostics", () => {
+    expect(validateTargetConnection("", "postgresql://postgres:secret@127.0.0.1:5432/postgres")).toEqual({ ok: true });
+  });
+
+  it("permits known TLS options but rejects endpoint override query parameters", () => {
+    const base = `postgresql://postgres.${TARGET_PROJECT_REFS.staging}:secret@${pooler}/postgres`;
+    expect(validateTargetConnection("staging", `${base}?sslmode=require`)).toEqual({ ok: true });
+    for (const query of ["host=evil.test", "hostaddr=127.0.0.1", "user=postgres", "port=1", "database=other", "service=evil"]) {
+      expect(validateTargetConnection("staging", `${base}?${query}`)).toEqual({ ok: false, reason: "malformed-url" });
+    }
+  });
+});
+
+describe("argument parsing", () => {
+  it("distinguishes an absent target from explicit valid flags", () => {
+    expect(parseArguments([])).toEqual({ ok: true, target: "", dbUrl: "" });
+    expect(parseArguments(["--target=staging", "--db-url", "postgresql://postgres@localhost/db"])).toEqual({
+      ok: true,
+      target: "staging",
+      dbUrl: "postgresql://postgres@localhost/db",
+    });
+  });
+
+  it.each([
+    ["missing target", ["--target"]],
+    ["empty target", ["--target="]],
+    ["duplicate target", ["--target", "staging", "--target", "production"]],
+    ["missing URL", ["--db-url"]],
+    ["empty URL", ["--db-url="]],
+    ["duplicate URL", ["--db-url", "postgresql://postgres@localhost/a", "--db-url", "postgresql://postgres@localhost/b"]],
+    ["unknown flag", ["--apply"]],
+    ["positional argument", ["staging"]],
+  ])("rejects %s", (_label, args) => {
+    expect(parseArguments(args)).toEqual({ ok: false, reason: "invalid-arguments" });
+  });
+});
+
+describe("CLI exit and redaction behavior", () => {
+  const run = (args: string[], env: Record<string, string> = {}) => {
+    const result = spawnSync(process.execPath, ["scripts/check-migration-parity.mjs", ...args], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      env: { ...process.env, SUPABASE_DB_URL: "", POSTGRES_URL: "", DATABASE_URL: "", ...env },
+    });
+    return { code: result.status, output: `${result.stdout}${result.stderr}` };
+  };
+
+  it("exits 2 and never reads as a pass when no URL is available", () => {
+    const result = run([]);
+    expect(result.code).toBe(2);
+    expect(result.output).toContain("NOT CHECKED");
+    expect(result.output).not.toContain("migration parity: OK");
+  });
+
+  it("rejects an unknown target before needing a URL", () => {
+    const result = run(["--target", "preview"]);
+    expect(result.code).toBe(2);
+    expect(result.output).toContain("unknown target");
+  });
+
+  it.each([
+    ["--target"],
+    ["--target="],
+    ["--db-url"],
+    ["--db-url="],
+    ["--target", "staging", "--target", "production"],
+    ["--unknown"],
+  ])("rejects malformed CLI arguments before I/O: %j", (...args) => {
+    const result = run(args);
+    expect(result.code).toBe(2);
+    expect(result.output).toContain("invalid command arguments");
+  });
+
+  it("rejects endpoint override query parameters before I/O", () => {
+    const secret = "query-secret";
+    const url = `postgresql://postgres.${TARGET_PROJECT_REFS.staging}:${secret}@aws-1-us-west-2.pooler.supabase.com/postgres?host=127.0.0.1`;
+    const result = run(["--target", "staging", "--db-url", url]);
+    expect(result.code).toBe(2);
+    expect(result.output).toContain("malformed database URL");
+    expect(result.output).not.toContain(secret);
+  });
+
+  it("rejects a wrong target without attempting the supplied local socket", () => {
+    const secret = "wrong-target-secret";
+    const result = run([
       "--target",
       "staging",
+      "--db-url",
+      `postgresql://postgres.${TARGET_PROJECT_REFS.production}:${secret}@127.0.0.1:1/postgres`,
     ]);
-    expect(code).toBe(2);
-    expect(stdout).toContain("NOT CHECKED");
-    expect(stdout).toContain("staging");
-    expect(stdout).not.toContain(secret);
+    expect(result.code).toBe(2);
+    expect(result.output).toContain("connection does not match target");
+    expect(result.output).not.toContain(secret);
+    expect(result.output).not.toContain("could not read");
+  });
+
+  it("rejects malformed credentials without disclosing them", () => {
+    const secret = "malformed-secret";
+    const result = run(["--target", "production", "--db-url", `not-a-url-${secret}`]);
+    expect(result.code).toBe(2);
+    expect(result.output).toContain("malformed database URL");
+    expect(result.output).not.toContain(secret);
+  });
+
+  it("redacts driver errors for an unreachable untargeted local database", () => {
+    const secret = "driver-secret";
+    const url = `postgresql://postgres:${secret}@127.0.0.1:1/postgres`;
+    const result = run(["--db-url", url]);
+    expect(result.code).toBe(2);
+    expect(result.output).toContain("NOT CHECKED");
+    expect(result.output).toContain("details and driver errors were suppressed");
+    expect(result.output).not.toContain(secret);
+    expect(result.output).not.toContain(url);
   });
 }, 30_000);
