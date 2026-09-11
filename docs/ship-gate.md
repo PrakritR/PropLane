@@ -10,6 +10,11 @@ a substantial feature. Agents must follow it (see `AGENTS.md` and
 > agent branches together); Prakrit's agents never land there themselves. The deploy rungs remain
 > `main` → `staging` → `production`. `scripts/promote-main-to-production.sh`
 > is retired and exits 1 — live ships from `staging`.
+>
+> Temporary exception: until 2026-09-15T04:00:00Z, Akhil-authorized releases
+> may explicitly run `npm run ship:production -- --skip-staging`. The
+> [machine-readable policy](agents/temporary-direct-production-policy.json)
+> fixes the source at `origin/main`; every other gate in this document remains.
 
 ## Why
 
@@ -300,6 +305,17 @@ Dedicated QA then tests the staging URL. Staging uses project
 # after QA sign-off on staging
 npm run ship:production
 ```
+
+During the active dated Akhil exception only:
+
+```bash
+npm run ship:production -- --skip-staging
+```
+
+This option expires at 2026-09-15T04:00:00Z and fails closed if its
+[policy](agents/temporary-direct-production-policy.json) is missing, malformed,
+expired, or changed beyond the authorized scope. It still runs preflight and
+requires `origin/production` to be an ancestor of `origin/main`.
 
 Or manually:
 

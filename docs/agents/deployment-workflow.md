@@ -1,8 +1,11 @@
 # Deployment workflow (all agents)
 
-**`production` deploys the live site; `staging` is QA; `main` is tested on
-localhost.** Every agent must follow this ladder. See `AGENTS.md` § Branching &
-deployment for the contract.
+**`production` deploys the live site; `staging` is QA by default; `main` is
+tested on localhost.** Every agent must follow this ladder. A single
+[temporary policy](temporary-direct-production-policy.json) permits an
+explicit Akhil-authorized `origin/main` → `origin/production` promotion only
+until 2026-09-15T04:00:00Z. See `AGENTS.md` § Branching & deployment for the
+rest of the contract.
 
 ## Branch ladder
 
@@ -21,8 +24,8 @@ and agent branches are the messy layer.
 
 An explicit Akhil ship request authorizes agents working for him to promote
 only his keeper → `main` → `staging` → `production`; it does not authorize
-writing `prakrit` or waive staging QA, fast-forward-only promotion, or any
-production safety gate.
+writing `prakrit`. Only the active dated policy above may waive staging QA;
+fast-forward-only promotion and every production safety gate remain.
 
 ## Vercel: `proplane` is PropLane production
 
@@ -65,8 +68,9 @@ agent branch  →  prakrit (:3000)  →  main  →  staging  →  production
 5. For Akhil only, after his explicit ship request, agents working for him may
    use the fast-forward-only integration path to land his reviewed keeper on
    `main`. They do not write `prakrit` or run Prakrit's no-mistakes pipeline.
-6. `npm run ship:staging` then dedicated QA on staging URL. Staging uses project
-   `xwszcafaontidfgznlxd`, never the live production Supabase project.
+6. `npm run ship:staging` then dedicated QA on staging URL by default. During
+   the dated exception only, an explicit Akhil-authorized release may omit this
+   rung and later pass `--skip-staging` to `ship:production`.
 7. Apply production Supabase migrations **before** pushing `production`.
 8. `npm run ship:production` after QA sign-off (live + TestFlight).
 9. Confirm Vercel Production **and** iOS TestFlight succeeded.
@@ -86,8 +90,9 @@ agent branch  →  prakrit (:3000)  →  main  →  staging  →  production
 ## Agent rules
 
 - Never push feature branches expecting a Vercel deploy.
-- Never merge directly to `production`. Never skip `staging`.
+- Never merge directly to `production`. Never skip `staging` outside the
+  active dated policy.
 - Keep `staging` a strict fast-forward of `main`, and `production` a strict
-  fast-forward of `staging`. Never commit unique work to either.
+  fast-forward of the script-selected source. Never commit unique work to either.
 - Run `npm run ship:preflight` before promoting to production.
 - See also `docs/ship-gate.md` and `AGENTS.md` § Branching & deployment.

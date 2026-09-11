@@ -17,6 +17,10 @@ RLS, tool layer, listing photos). This file is how to work **with him**.
   With that request, agents working for Akhil may promote only his keeper →
   `main` → `staging` → `production` under the shared staging, review,
   fast-forward, and production-safety gates. They do not write `prakrit`.
+- Akhil's dated staging exception is defined only by
+  [the temporary direct-production policy](temporary-direct-production-policy.json).
+  It expires at 2026-09-15T04:00:00Z and does not relax review, preflight,
+  fast-forward, production database, deployment, or TestFlight verification gates.
 
 ## Working style
 

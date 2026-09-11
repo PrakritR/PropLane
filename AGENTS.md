@@ -52,7 +52,12 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
 
 - **Never write production data.** Dev/test only (`emstjswhotsnyksqhqyf`). Staging DB is the only other write target. See `.cursor/rules/no-production-data-writes.mdc`.
 - **Never write the locked live listings** (5257 / 5259 Brooklyn, 4709A 8th Ave). See `.cursor/rules/no-production-live-listings.mdc`.
-- **Never skip `staging`.** Live ships from `production` only after QA. Prakrit's
+- **Never skip `staging` outside the dated exception.** Live ships from
+  `production` only after QA by default. Until 2026-09-15T04:00:00Z, an
+  explicit Akhil-authorized release may use
+  `npm run ship:production -- --skip-staging` under
+  [the temporary policy](docs/agents/temporary-direct-production-policy.json).
+  Prakrit's
   agents never merge to protected branches. Agents working for Akhil may merge
   only his keeper → `main` → `staging` → `production`, and only after his
   explicit ship request under `docs/agents/AGENTS-akhil.md`.
@@ -64,7 +69,8 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
 
 **Prakrit: keepers → `prakrit` (captain integrate) → `main`; agents working
 for Akhil after his explicit ship request: his keeper → `main`. QA on
-`staging`. Live from `production`.**
+`staging` by default, subject only to the dated policy above. Live from
+`production`.**
 Commit and push your keeper (fast-forward only, never force). Open a PR only on request.
 If a push is not a fast-forward, stop.
 
@@ -102,9 +108,11 @@ Production Branch setting stays **`production`**. Full ops: `docs/agents/deploym
 ```
 npm run ship:staging      # ff origin/main → origin/staging
 npm run ship:production   # ff origin/staging → origin/production
+npm run ship:production -- --skip-staging # temporary, policy-gated origin/main → origin/production
 ```
 
-Never ff `main` onto `production`. Retired: `scripts/promote-main-to-production.sh` (exits 1).
+Never ff `main` onto `production` except through the active dated policy
+option above. Retired: `scripts/promote-main-to-production.sh` (exits 1).
 
 ## Production push also ships iOS
 

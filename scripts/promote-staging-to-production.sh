@@ -16,19 +16,10 @@ usage() {
   exit 1
 }
 
-source_branch="staging"
-source_ref="origin/staging"
-
-case "$#" in
-  0) ;;
-  1)
-    if [ "$1" != "--skip-staging" ]; then
-      usage
-    fi
-
-    # The policy has an immutable scope and end date in this script, so editing
-    # the data file cannot extend or broaden the temporary exception.
-    node - "$POLICY_PATH" "$DIRECT_SOURCE" "$DIRECT_TARGET" "$DIRECT_EXPIRY" <<'NODE'
+validate_direct_policy() {
+  # The policy has an immutable scope and end date in this script, so editing
+  # the data file cannot extend or broaden the temporary exception.
+  node - "$POLICY_PATH" "$DIRECT_SOURCE" "$DIRECT_TARGET" "$DIRECT_EXPIRY" <<'NODE'
 const fs = require("node:fs");
 const [policyPath, source, target, expiry] = process.argv.slice(2);
 const expected = {
@@ -61,8 +52,23 @@ if (!Number.isFinite(expiryMs) || Date.now() >= expiryMs) {
   process.exit(1);
 }
 NODE
+}
+
+source_branch="staging"
+source_ref="origin/staging"
+direct_release=false
+
+case "$#" in
+  0) ;;
+  1)
+    if [ "$1" != "--skip-staging" ]; then
+      usage
+    fi
+
+    validate_direct_policy
     source_branch="main"
     source_ref="$DIRECT_SOURCE"
+    direct_release=true
     ;;
   *) usage ;;
 esac
@@ -85,6 +91,12 @@ if [ "$(git rev-parse "$source_ref")" = "$(git rev-parse origin/production 2>/de
 fi
 
 npm run ship:preflight
+
+# Preflight may take long enough to cross the fixed expiry. Recheck immediately
+# before changing branches or pushing production.
+if [ "$direct_release" = true ]; then
+  validate_direct_policy
+fi
 
 git checkout production
 git merge --ff-only "$source_ref"

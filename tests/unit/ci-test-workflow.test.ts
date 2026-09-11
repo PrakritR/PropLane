@@ -170,6 +170,19 @@ describe("Test workflow resource budget", () => {
     expect(unit.steps[unitCommandIndex].if).toBeUndefined();
   });
 
+  it("checks out full history for the immutable migration source verification", () => {
+    const unit = jobConfig("unit");
+    const checkout = unit.steps.find((step) => step.uses === "actions/checkout@11d5960a326750d5838078e36cf38b85af677262");
+
+    expect(checkout?.with?.["fetch-depth"]).toBe(0);
+    for (const [name, job] of Object.entries(jobs)) {
+      if (name === "unit") continue;
+      for (const step of job.steps.filter((candidate) => candidate.uses?.startsWith("actions/checkout@"))) {
+        expect(step.with?.["fetch-depth"], `${name} checkout should keep the default shallow history`).toBeUndefined();
+      }
+    }
+  });
+
   it("rejects a commented-out diagnostics upload even when its full contract appears in YAML", () => {
     const fixture = parse(`steps:
   - run: npm run test:e2e

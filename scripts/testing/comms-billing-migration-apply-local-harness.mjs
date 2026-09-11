@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import net from "node:net";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import pg from "pg";
 import { runFixedOperation } from "../apply-20260911-comms-billing-migrations.mjs";
 
@@ -14,9 +15,10 @@ const FIXTURE = join(ROOT, "scripts/testing/fixtures/production-migration-rehear
 const RECOVERY = ["20260907130000_webhook_subscriptions.sql", "20260907214100_preserve_resident_financial_history.sql", "20260907221500_preserve_shared_vendor_financial_history.sql", "20260907223000_account_attachment_references.sql", "20260907224000_account_recovery_shared_retention.sql", "20260907224500_account_recovery_snapshot.sql", "20260907225000_account_recovery_identity_patches.sql", "20260907225500_account_recovery_capture.sql", "20260907230000_account_recovery_object_generations.sql", "20260907231000_account_recovery_financial_access_keys.sql", "20260907232000_account_recovery_restore.sql", "20260907233000_account_recovery_finish_archival.sql"];
 const run = (file, args) => execFileSync(file, args, { cwd: ROOT, encoding: "utf8", stdio: "pipe" });
 
-function assertLocalPrerequisites() {
-  for (const tool of ["initdb", "pg_ctl", "openssl"]) {
-    try { run(tool, ["--version"]); }
+export function assertLocalPrerequisites(runCommand = run) {
+  const probes = [["initdb", ["--version"]], ["pg_ctl", ["--version"]], ["openssl", ["version"]]];
+  for (const [tool, args] of probes) {
+    try { runCommand(tool, args); }
     catch {
       throw new Error(`Local communication-billing harness requires PostgreSQL server tools (initdb and pg_ctl) and OpenSSL on PATH. Missing or unusable: ${tool}. Install PostgreSQL 16 server tools and OpenSSL, then add /usr/lib/postgresql/16/bin (or the local equivalent) to PATH.`);
     }
@@ -198,16 +200,20 @@ async function exercise(mode) {
   } finally { await stop(cluster); }
 }
 
-assertLocalPrerequisites();
-for (const mode of ["auxiliary", "catalog", "timeout", "disconnect", "success", "lost-commit"]) await exercise(mode);
+async function main() {
+  assertLocalPrerequisites();
+  for (const mode of ["auxiliary", "catalog", "timeout", "disconnect", "success", "lost-commit"]) await exercise(mode);
 
-const tlsCluster = await start({ tls: true });
-try {
-  const trusted = new pg.Client({ ...tlsCluster.connection, ssl: { ca: tlsCluster.certificate, servername: "localhost", rejectUnauthorized: true }, connectionTimeoutMillis: 2_000 });
-  await trusted.connect();
-  await trusted.end();
-  await assert.rejects(new pg.Client({ ...tlsCluster.connection, ssl: { ca: tlsCluster.certificate, servername: "wrong.localhost", rejectUnauthorized: true }, connectionTimeoutMillis: 2_000 }).connect(), /Hostname\/IP does not match|not in the cert/i);
-  await assert.rejects(new pg.Client({ ...tlsCluster.connection, ssl: { rejectUnauthorized: true }, connectionTimeoutMillis: 2_000 }).connect(), /self-signed|unable to verify/i);
-} finally { await stop(tlsCluster); }
+  const tlsCluster = await start({ tls: true });
+  try {
+    const trusted = new pg.Client({ ...tlsCluster.connection, ssl: { ca: tlsCluster.certificate, servername: "localhost", rejectUnauthorized: true }, connectionTimeoutMillis: 2_000 });
+    await trusted.connect();
+    await trusted.end();
+    await assert.rejects(new pg.Client({ ...tlsCluster.connection, ssl: { ca: tlsCluster.certificate, servername: "wrong.localhost", rejectUnauthorized: true }, connectionTimeoutMillis: 2_000 }).connect(), /Hostname\/IP does not match|not in the cert/i);
+    await assert.rejects(new pg.Client({ ...tlsCluster.connection, ssl: { rejectUnauthorized: true }, connectionTimeoutMillis: 2_000 }).connect(), /self-signed|unable to verify/i);
+  } finally { await stop(tlsCluster); }
 
-console.log("PASS: fixed runner real-pg commit/readback, auxiliary and catalog rollback, timeout, async disconnect, lost-response no-replay, and local TLS trust rejection all held.");
+  console.log("PASS: fixed runner real-pg commit/readback, auxiliary and catalog rollback, timeout, async disconnect, lost-response no-replay, and local TLS trust rejection all held.");
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
