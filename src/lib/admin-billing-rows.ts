@@ -8,7 +8,6 @@ import {
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import { isSignupTrialManagerPurchase, managerPurchasePeriodEndMs } from "@/lib/manager-tier-expiry";
 import {
-  evaluateCommsAllowance,
   normalizeCommsPlanTier,
   type CommsAllowanceState,
 } from "@/lib/comms-billing/allowances";
@@ -25,7 +24,7 @@ import {
  * Every number here comes from the resolver the product actually enforces — `resolveEffectiveManagerSkuTier`
  * for the plan, `maxPropertiesForManagerTier` + the staff cap override for the limit, the same
  * listing-slot statuses the quota counts, `resolveServiceFeePayerFor` for who pays processing, and
- * the comms allowance table for usage. A staff screen that computed any of them a second way would
+ * the prepaid wallet snapshot for communication credit. A staff screen that computed any of them a second way would
  * eventually disagree with what the manager is charged, which is the whole failure this list exists
  * to make visible.
  *
@@ -66,8 +65,21 @@ export type AdminBillingRowInput = {
   adminFeeOverride: ServiceFeePayer | null;
   /** Month-to-date communication usage in cents. `null` when the usage read is unavailable. */
   commsUsedCents: number | null;
+  /**
+   * The wallet the dispatcher actually spends from (`comms_wallet_snapshot`, read-only): this
+   * month's granted allowance — which can exceed the plan table during a preserved migration
+   * month — what is left of it, and unspent purchased packs. `null` when the wallet read failed.
+   */
+  commsWallet: AdminCommsWalletInput | null;
   commsHasPaymentMethod: boolean;
   nowMs?: number;
+};
+
+export type AdminCommsWalletInput = {
+  allowanceCents: number;
+  includedRemainingCents: number;
+  purchasedRemainingCents: number;
+  paused: boolean;
 };
 
 export type AdminBillingRow = {
@@ -111,6 +123,30 @@ export type AdminBillingRow = {
 };
 
 const PLAN_LABELS: Record<ManagerSkuTier, string> = { free: "Free", pro: "Pro", business: "Business" };
+
+/**
+ * Communication credit as the wallet holds it. Usage alone cannot say whether a manager is
+ * blocked: a preserved migration-month allowance or a purchased pack keeps them sending past the
+ * plan table's number, so a row without a wallet read shows nothing rather than a wrong verdict.
+ */
+function deriveCommsState(
+  tier: ReturnType<typeof normalizeCommsPlanTier> | null,
+  input: AdminBillingRowInput,
+): CommsAllowanceState | null {
+  if (tier === null || input.commsUsedCents === null || input.commsWallet === null) return null;
+  const wallet = input.commsWallet;
+  const remainingCents = wallet.includedRemainingCents + wallet.purchasedRemainingCents;
+  const exhausted = remainingCents <= 0;
+  return {
+    tier,
+    allowanceCents: wallet.allowanceCents,
+    usedCents: Math.max(0, Math.round(input.commsUsedCents)),
+    remainingCents,
+    purchasedRemainingCents: wallet.purchasedRemainingCents,
+    exhausted,
+    blocked: exhausted || wallet.paused,
+  };
+}
 
 export function deriveAdminBillingRow(input: AdminBillingRowInput): AdminBillingRow {
   const nowMs = input.nowMs ?? Date.now();
@@ -169,14 +205,7 @@ export function deriveAdminBillingRow(input: AdminBillingRowInput): AdminBilling
           waiverGranted: isWaiverGrantedManagerPurchase(purchase?.promoCode ?? null),
         });
 
-  const comms =
-    input.commsUsedCents === null || planUnknown
-      ? null
-      : evaluateCommsAllowance({
-          tier: normalizeCommsPlanTier(tier),
-          usedCents: input.commsUsedCents,
-          hasPaymentMethod: input.commsHasPaymentMethod,
-        });
+  const comms = deriveCommsState(planUnknown ? null : normalizeCommsPlanTier(tier), input);
 
   return {
     id: input.id,

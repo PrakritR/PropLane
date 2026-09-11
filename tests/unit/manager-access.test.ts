@@ -51,7 +51,7 @@ describe("manager-access", () => {
     expect(managerSectionAllowedForTier("residents", "free")).toBe(false);
     expect(managerSectionAllowedForTier("leases", "free")).toBe(false);
     expect(managerSectionAllowedForTier("services", "free")).toBe(false);
-    expect(managerSectionAllowedForTier("communication", "free")).toBe(false);
+    expect(managerSectionAllowedForTier("communication", "free")).toBe(true);
     expect(managerSectionAllowedForTier("documents", "free")).toBe(false);
     expect(managerSectionAllowedForTier("financials", "free")).toBe(false);
     expect(managerSectionAllowedForTier("documents", "paid")).toBe(true);

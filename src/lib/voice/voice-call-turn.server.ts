@@ -13,11 +13,6 @@ import {
   type VoiceCallRoute,
 } from "@/lib/voice/voice-call-routing.server";
 import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
-import {
-  recordCommsAgentTurnUsage,
-  recordVoiceSpeechGatherUsage,
-} from "@/lib/comms-billing/agent-usage.server";
-import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
 
 const FALLBACK_REPLY =
   "Sorry, I could not process that right now. Please try again or text this number instead.";
@@ -47,6 +42,7 @@ export async function runVoiceCallTurnFromSpeech(args: {
   toPhone: string;
   speechResult: string;
   callSid: string;
+  turnId?: string;
 }): Promise<string | null> {
   const resolved = await resolveVoiceCallRoute(args.db, {
     fromPhone: args.fromPhone,
@@ -54,10 +50,8 @@ export async function runVoiceCallTurnFromSpeech(args: {
   });
   if (!resolved.ok) return null;
 
-  if (isCommsPaygBillingEnabled()) {
-    const billing = await evaluateManagerCommsBillingGate(args.db, resolved.managerId);
-    if (!billing.allowed) return null;
-  }
+  const billing = await evaluateManagerCommsBillingGate(args.db, resolved.managerId, 15);
+  if (!billing.allowed) return null;
 
   const { managerId, route } = resolved;
   await touchSmsContact(args.db, { managerId, fromPhone: args.fromPhone, route });
@@ -81,7 +75,7 @@ export async function runVoiceCallTurnFromSpeech(args: {
       ctx: managerIdentity.ctx,
       managerPhoneE164: fromE164,
       inboundText: speech,
-      inboundCallSid: callSid,
+      inboundCallSid: `${callSid}:${args.turnId ?? "legacy"}`,
     });
     reply = turn?.reply?.trim() || null;
   } else if (route.kind === "resident") {
@@ -90,7 +84,7 @@ export async function runVoiceCallTurnFromSpeech(args: {
       ownerManagerUserId: managerId,
       residentPhoneE164: fromE164,
       inboundText: speech,
-      inboundCallSid: callSid,
+      inboundCallSid: `${callSid}:${args.turnId ?? "legacy"}`,
     });
     reply = turn?.reply?.trim() || null;
   } else {
@@ -99,25 +93,12 @@ export async function runVoiceCallTurnFromSpeech(args: {
       prospectPhoneE164: fromE164,
       inboundText: speech,
       workNumber: resolved.workNumber,
-      inboundCallSid: callSid,
+      inboundCallSid: `${callSid}:${args.turnId ?? "legacy"}`,
     });
     reply = turn?.reply?.trim() || null;
   }
 
   if (!reply) return null;
-
-  const turnKey = `${Date.now()}:${speech.slice(0, 32)}`;
-  await recordVoiceSpeechGatherUsage(args.db, {
-    managerUserId: managerId,
-    callSid,
-    turnKey,
-  });
-  await recordCommsAgentTurnUsage(args.db, {
-    managerUserId: managerId,
-    idempotencyKey: `ai_voice:${callSid}:${turnKey}`,
-    channel: "voice",
-    metadata: { callSid },
-  });
 
   await logVoiceCallTurnNotes(args.db, {
     ...logIdentity,
@@ -135,6 +116,7 @@ export async function runVoiceCallTurnFromSpeechOrFallback(args: {
   toPhone: string;
   speechResult: string;
   callSid: string;
+  turnId?: string;
 }): Promise<string> {
   const reply = await runVoiceCallTurnFromSpeech(args);
   return reply?.trim() || FALLBACK_REPLY;

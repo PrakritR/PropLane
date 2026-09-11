@@ -1,3 +1,4 @@
+vi.mock("@/lib/agent/vendor-agent.server", () => ({ resolveVendorAgentSessionForInbound: vi.fn(async () => ({ kind: "unknown_phone" })), runVendorAgentSessionTurn: vi.fn() }));
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -6,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   deliverLeasing: vi.fn(),
   rpc: vi.fn(),
   inboundLogSelects: 0,
+  inboundBodies: [] as Record<string, unknown>[],
   receiptUpdates: [] as Record<string, unknown>[],
   receipt: { status: "processing" } as Record<string, unknown> | null,
   ownedNumber: true,
@@ -79,7 +81,7 @@ function makeDb() {
                 error: null,
               })
             : Promise.resolve({ data: [], error: null }),
-        insert: () => Promise.resolve({ data: null, error: null }),
+        insert: (values: Record<string, unknown>) => { if (table === "inbound_sms_log") mocks.inboundBodies.push(values); return Promise.resolve({ data: null, error: null }); },
         update: (values: Record<string, unknown>) => {
           isUpdate = true;
           if (table === "sms_inbound_receipts") mocks.receiptUpdates.push(values);
@@ -122,6 +124,7 @@ function inboundRequest() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.inboundBodies = [];
   mocks.inboundLogSelects = 0;
   mocks.receiptUpdates = [];
   mocks.receipt = { status: "processing" };
@@ -246,6 +249,7 @@ describe("managed Twilio inbound retry", () => {
     );
     expect(mocks.inboundLogSelects).toBe(0);
     expect(mocks.relayInbound).not.toHaveBeenCalled();
+    expect(mocks.inboundBodies[0]).toMatchObject({ manager_user_id: "11111111-1111-4111-8111-111111111111", message_sid: "SM11111111111111111111111111111111" });
   });
 
   it("completes without re-entering the handler once its durable outbox owns the reply", async () => {
@@ -393,3 +397,5 @@ describe("managed Twilio inbound retry", () => {
     expect(mocks.handleInbound).not.toHaveBeenCalled();
   });
 });
+
+vi.mock("@/lib/comms-billing/record-usage.server", () => ({recordManagerCommsUsage:vi.fn(async()=>({recorded:true,duplicate:false,totalCents:2}))}));

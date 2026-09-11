@@ -1,4 +1,11 @@
 import type { Metadata } from "next";
+import { COMMS_INCLUDED_ALLOWANCE_CENTS } from "@/lib/comms-billing/allowances";
+import { COMMS_CREDIT_PACKS_CENTS } from "@/lib/comms-billing/credit-packs";
+import {
+  COMMS_BILLING_RATES_CENTS,
+  formatCentsRate,
+  formatUsdFromCents,
+} from "@/lib/comms-billing/rates";
 import Link from "next/link";
 import {
   MANAGER_PLAN_TIERS,
@@ -28,10 +35,15 @@ const TIER_CTA: Record<
   business: { href: `${CTA_BASE}&tier=business`, label: "Start 14-day trial", solid: false },
 };
 
+const CREDIT_PACKS_TEXT = (() => {
+  const packs = COMMS_CREDIT_PACKS_CENTS.map((cents) => `$${cents / 100}`);
+  return `${packs.slice(0, -1).join(", ")} or ${packs[packs.length - 1]}`;
+})();
+
 const FAQ: { q: string; a: string }[] = [
   {
     q: "Is the free tier actually free?",
-    a: "Yes. Free is $0 with no card. You get one property listing, applications and tour scheduling, and payment collection. Residents, leases, services, inbox, and co-managers live on Pro and up.",
+    a: "Yes. Free is $0 with no card. You get one property listing, applications and tour scheduling, and payment collection. A dedicated phone number, inbox, and monthly communication credit are included. Residents, leases, services, and co-managers live on Pro and up.",
   },
   {
     q: "Do I need a credit card to try Pro or Business?",
@@ -43,11 +55,11 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: "How much texting, calling and AI assistant use is included?",
-    a: "Every plan includes a monthly amount of communication — $2.50 on Free, $15 on Pro, $150 on Business — measured by what you actually use (a text is a few cents, an assistant reply is 15¢). The work number itself is free on every plan. Past the included amount you pay as you go at those rates, only if you have a card on file; without one, sending pauses until you add a card.",
+    a: `Free includes ${formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.free!)} per month, Pro ${formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.pro!)} and Business ${formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.business!)} in communication credit, including on annual plans. Number setup and rental are included separately. Outgoing SMS costs ${formatCentsRate(COMMS_BILLING_RATES_CENTS.sms_outbound_segment)} per segment, incoming SMS ${formatCentsRate(COMMS_BILLING_RATES_CENTS.sms_inbound_segment)}, voice ${formatCentsRate(COMMS_BILLING_RATES_CENTS.voice_minute)} per minute and work-number AI ${formatCentsRate(COMMS_BILLING_RATES_CENTS.ai_agent_turn)} per turn; recognition and recording have additional rates shown in Settings. Buy ${CREDIT_PACKS_TEXT} of extra credit anytime. Purchased credit carries forward; included credit resets monthly. At zero, new outgoing activity pauses. A saved card never authorizes automatic recharge.`,
   },
   {
     q: "Can I change plans later?",
-    a: "Yes. Upgrade or downgrade anytime. Upgrading unlocks residents, leases, the inbox, and more co-managers right away. Every tier is the same on payments: residents pay face value, you receive it in full, and PropLane covers payment processing.",
+    a: "Yes. Upgrade or downgrade anytime. Upgrading unlocks residents, leases, and more co-managers right away. No plan includes payment processing fees: residents pay by default, and Pro or Business managers may choose to pay instead. PropLane covers fees only for individually approved accounts.",
   },
 ];
 

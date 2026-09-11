@@ -14,7 +14,8 @@ import type { MockProperty } from "@/data/types";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
 import { ListingStickySubnav } from "@/components/marketing/listing-detail-subnav";
 import { getListingRichContent } from "@/data/listing-rich-content";
-import { ManagerAddListingForm } from "@/components/portal/pro-add-listing-form";
+import { ListingWizardV2 } from "@/components/portal/listing-wizard-v2";
+import { ListingWizardOverlay } from "@/components/portal/listing-wizard-v2/wizard-overlay";
 import { ManagerPropertyBookingsPanel } from "@/components/portal/pro-property-bookings-panel";
 import { ManagerPropertyHouseDetailsPanel } from "@/components/portal/pro-property-house-details-panel";
 import { ManagerPropertyRoomMoveInPanel } from "@/components/portal/pro-property-room-move-in-panel";
@@ -494,18 +495,20 @@ function ManagerPropertyInlineDetails({
         onClose: () => {
           setListingEditorOpen(false);
         },
-        onSubmitted: () => {
+        /* Publishing an EDIT writes the listing in place — there is no new id to follow. */
+        onPublished: () => {
           setListingEditorOpen(false);
+          onUpdated();
+        },
+        onSaved: () => {
           onUpdated();
         },
         showToast,
         skuTier,
-        propCountBeforeSubmit: propCount,
+        userId: managerUserId,
+        propertyCount: propCount,
         initialSubmission: portalSub.sub,
-        noteKey,
-        editPendingId: null,
         editListingId: portalSub.saveId,
-        editRequestChangeId: null,
         editListingOwnerUserId: portalSub.ownerUserId ?? null,
       }
     : null;
@@ -516,7 +519,7 @@ function ManagerPropertyInlineDetails({
     bucket === 5 && managerUserId
       ? {
           onClose: () => setDraftEditorOpen(false),
-          onSubmitted: (listingId?: string) => {
+          onPublished: (listingId?: string) => {
             setDraftEditorOpen(false);
             showToast("Listing submitted and published.");
             onUpdated();
@@ -533,15 +536,13 @@ function ManagerPropertyInlineDetails({
               );
             }
           },
-          onSaved: onUpdated,
+          onSaved: () => onUpdated(),
           showToast,
           skuTier,
-          propCountBeforeSubmit: propCount,
+          userId: managerUserId,
+          propertyCount: propCount,
           initialSubmission: managerSubmission,
-          noteKey,
-          editDraftId: row?.adminRefId,
-          initialStepIndex: row?.draftStepIndex ?? null,
-          initialMaxStepReached: row?.draftMaxStepReached ?? null,
+          initialDraftId: row?.adminRefId ?? null,
         }
       : null;
 
@@ -1062,13 +1063,15 @@ function ManagerPropertyInlineDetails({
       ) : null}
 
       {/*
-        Edit and Continue editing open the SAME wizard the ADD flow uses. They
-        mounted the previous one directly, so a manager who created a listing in
-        the redesigned wizard was thrown back into the old one the moment they
-        reopened it — two different editors for one record.
+        Edit and Continue editing open the SAME editor the ADD flow uses — the
+        redesigned workspace. They used to mount the original form directly, so
+        a listing created in one editor reopened in the other: two surfaces for
+        one record, and every pricing change had to be made twice.
       */}
       {listingEditorOpen && listingFormProps ? (
-        <ManagerAddListingForm {...listingFormProps} wizardScope="full" />
+        <ListingWizardOverlay>
+          <ListingWizardV2 {...listingFormProps} />
+        </ListingWizardOverlay>
       ) : null}
 
       {/*
@@ -1084,7 +1087,9 @@ function ManagerPropertyInlineDetails({
       ) : null}
 
       {draftEditorOpen && draftFormProps ? (
-        <ManagerAddListingForm {...draftFormProps} wizardScope="full" />
+        <ListingWizardOverlay>
+          <ListingWizardV2 {...draftFormProps} />
+        </ListingWizardOverlay>
       ) : null}
 
       {draftEditorOpen && !draftFormProps ? (

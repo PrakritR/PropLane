@@ -1,3 +1,4 @@
+import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isWaiverGrantedManagerPurchase } from "@/lib/manager-access";
@@ -20,7 +21,7 @@ export type SmsEntitlementReason =
   | "plan_unreadable";
 
 export type SmsEntitlement =
-  | { eligible: true; tier: "pro" | "business"; source: "stripe" | "apple"; trial?: true }
+  | { eligible: true; tier: "free" | "pro" | "business"; source: "stripe" | "apple" | "none"; trial?: true }
   | { eligible: false; reason: SmsEntitlementReason };
 
 type PurchaseSku = Awaited<ReturnType<typeof getManagerPurchaseSku>>;
@@ -126,6 +127,7 @@ export async function reconcileManagerSmsEntitlement(
     loadStripeSubscription?: (id: string) => Promise<Stripe.Subscription>;
   } = {},
 ): Promise<SmsEntitlement> {
+  if (deps.preferPaid !== true) return resolveNumberPlan(managerUserId);
   const own = await reconcileManagerSmsEntitlementDirect(db, managerUserId, deps);
   if (own.eligible && (deps.preferPaid !== true || !own.trial)) return own;
   if (!(await isPureCoManagerWorkspace(db, managerUserId))) return own;
@@ -242,6 +244,7 @@ export async function getEffectiveManagerSmsEntitlement(
   managerUserId: string,
   options: { preferPaid?: boolean } = {},
 ): Promise<SmsEntitlement> {
+  if (options.preferPaid !== true) return resolveNumberPlan(managerUserId);
   const own = await getStoredManagerSmsEntitlement(db, managerUserId);
   if (own.eligible && (options.preferPaid !== true || !own.trial)) return own;
   if (!(await isPureCoManagerWorkspace(db, managerUserId))) return own;
@@ -330,4 +333,12 @@ export async function getStoredManagerSmsEntitlement(
   if (data.status === "past_due") return { eligible: false, reason: "past_due" };
   if (data.tier === "free") return { eligible: false, reason: "free" };
   return { eligible: false, reason: "canceled" };
+}
+
+/** Work-number access uses the same effective plan as the wallet, including Free. */
+async function resolveNumberPlan(managerUserId: string): Promise<SmsEntitlement> {
+  try {
+    const plan = await getEffectiveManagerSkuTier(managerUserId);
+    return plan.ok ? { eligible: true, tier: plan.tier ?? "free", source: "none" } : { eligible: false, reason: "plan_unreadable" };
+  } catch { return { eligible: false, reason: "plan_unreadable" }; }
 }

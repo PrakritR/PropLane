@@ -57,10 +57,10 @@ describe("plan transitions change who is charged on the next payment", () => {
     return residentServiceFeeBreakdown(subtotal, "card", resolveServiceFeePayer(tier, choice));
   }
 
-  it("Business (PropLane pays) → Pro (resident): the fee starts being charged", () => {
+  it("Business legacy PropLane choice → Pro: neither plan grants coverage", () => {
     const before = chargeFor("business", "proplane");
-    expect(before.totalCents).toBe(subtotal); // PropLane absorbed
-    expect(before.applicationFeeCents).toBe(0);
+    expect(before.totalCents).toBe(subtotal + fee); // no staff approval
+    expect(before.applicationFeeCents).toBe(fee);
 
     const after = chargeFor("pro", "resident");
     expect(after.totalCents).toBe(subtotal + fee); // resident now pays the fee
@@ -83,13 +83,13 @@ describe("plan transitions change who is charged on the next payment", () => {
     expect(after.managerPayoutCents).toBe(subtotal);
   });
 
-  it("Pro → Business (PropLane pays): the fee stops entirely", () => {
+  it("Upgrading Pro → Business does not waive processing fees", () => {
     const before = chargeFor("pro", "resident");
     expect(before.totalCents).toBe(subtotal + fee);
 
     const after = chargeFor("business", "proplane");
-    expect(after.totalCents).toBe(subtotal);
-    expect(after.applicationFeeCents).toBe(0);
+    expect(after.totalCents).toBe(subtotal + fee);
+    expect(after.applicationFeeCents).toBe(fee);
     expect(after.managerPayoutCents).toBe(subtotal);
   });
 

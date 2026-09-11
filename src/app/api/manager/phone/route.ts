@@ -321,7 +321,7 @@ export async function POST(req: Request) {
     phone,
     `Your PropLane verification code is ${code}. It expires in 10 minutes.`,
     String(fromNumber),
-    { skipOptOutCheck: true },
+    { skipOptOutCheck: true, purpose: "phone_verification" },
   );
   if (!sent.sent) {
     console.error("legacy phone verification SMS failed", { userId: user.id, reason: sent.error });

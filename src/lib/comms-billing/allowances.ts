@@ -1,40 +1,4 @@
-/**
- * Included communication allowance, by plan.
- *
- * Every manager gets a real amount of texting, calling and AI for free, so a
- * work number can be set up and used without a card on file at all. Only usage
- * BEYOND the allowance is billed, and only then is a card required.
- *
- * The allowance is expressed in CENTS OF USAGE VALUE rather than a message
- * count, because the meters are not comparable: an outbound SMS segment is 3¢
- * and an AI turn is 15¢. One number per plan covers every meter and stays
- * correct when a rate changes.
- *
- * The WORK NUMBER is not part of this. Provisioning and holding a number is
- * free on every plan (`rates.ts` zero-rates both meters), so the allowance is
- * spent purely on what the number DOES. Before that, a Free manager's $3/mo
- * number consumed most of their allowance and the number was "free" in name
- * only.
- *
- * Sizing, against the September 2026 cost model — outbound SMS $0.0120,
- * inbound $0.0075, voice $0.0140/min, number $1.15/mo, and a modelled resident
- * at 6 outbound + 4 inbound + 2 voice minutes a month:
- *
- *   Free      $2.50   ~83 texts / ~16 AI turns / ~62 voice min.  Costs us
- *                     ~$0.92 of usage + $1.15 for the number on a $0 plan, so
- *                     it has to be usable for one property without being worth
- *                     farming.
- *   Pro      $15.00   ~500 texts / ~100 AI turns.  ~$5.55 of usage against $20
- *                     of revenue — comfortably inside the plan.
- *   Business $150.00  ~5,000 texts / ~1,000 AI turns.  ~$55 against $200, and
- *                     far above what 20 properties generate.
- *
- * Business is CAPPED rather than unmetered. "No limit" is not a price, it is an
- * unbounded liability on a fixed fee, and it removes the only signal that an
- * account has started doing something nobody priced. The cap sits so far above
- * real use that reaching it is itself the alert — and with a card on file,
- * passing it bills rather than blocks.
- */
+/** Monthly retail communication credit. Number setup and rental are included separately. */
 
 export type CommsPlanTier = "free" | "pro" | "business";
 
@@ -43,9 +7,9 @@ export type CommsPlanTier = "free" | "pro" | "business";
  * deliberate uncapped plan stays expressible without reworking every reader.
  */
 export const COMMS_INCLUDED_ALLOWANCE_CENTS: Record<CommsPlanTier, number | null> = {
-  free: 250,
-  pro: 1500,
-  business: 15000,
+  free: 200,
+  pro: 1000,
+  business: 10000,
 };
 
 export function normalizeCommsPlanTier(raw: string | null | undefined): CommsPlanTier {
@@ -66,11 +30,13 @@ export type CommsAllowanceState = {
   usedCents: number;
   /** null when uncapped. Never negative. */
   remainingCents: number | null;
+  /** Purchased pack credit still unspent, when the wallet was read. */
+  purchasedRemainingCents?: number;
   /** Past the included allowance — from here on, usage costs money. */
   exhausted: boolean;
   /**
-   * Hard stop: the allowance is spent AND there is no card to bill. This is the
-   * only state that refuses to send; with a card, going over simply bills.
+   * Hard stop when included and purchased credit are exhausted. A saved card
+   * never authorizes more usage.
    */
   blocked: boolean;
 };
@@ -79,6 +45,7 @@ export function evaluateCommsAllowance(input: {
   tier: CommsPlanTier;
   usedCents: number;
   hasPaymentMethod: boolean;
+  purchasedRemainingCents?: number;
 }): CommsAllowanceState {
   const allowanceCents = includedAllowanceCents(input.tier);
   const usedCents = Math.max(0, Math.round(input.usedCents));
@@ -94,14 +61,15 @@ export function evaluateCommsAllowance(input: {
     };
   }
 
-  const exhausted = usedCents >= allowanceCents;
+  const purchased = Math.max(0, Math.round(input.purchasedRemainingCents ?? 0));
+  const exhausted = usedCents >= allowanceCents + purchased;
   return {
     tier: input.tier,
     allowanceCents,
     usedCents,
-    remainingCents: Math.max(0, allowanceCents - usedCents),
+    remainingCents: Math.max(0, allowanceCents + purchased - usedCents),
     exhausted,
-    blocked: exhausted && !input.hasPaymentMethod,
+    blocked: exhausted,
   };
 }
 
@@ -124,11 +92,11 @@ export function commsAllowanceFeatureText(tier: CommsPlanTier): string {
   const allowance = includedAllowanceCents(tier);
   if (allowance === null) return "Unlimited texting, calls & AI assistant";
   const dollars = allowance % 100 === 0 ? `$${allowance / 100}` : `$${(allowance / 100).toFixed(2)}`;
-  return `${dollars}/mo of texting, calls & AI assistant included, then pay as you go`;
+  return `${dollars}/mo of communication credit included; buy more anytime`;
 }
 
 export function commsAllowanceBlockedMessage(tier: CommsPlanTier): string {
   const allowance = includedAllowanceCents(tier);
   const label = allowance === null ? "" : `$${(allowance / 100).toFixed(2)}`;
-  return `You've used the ${label} of messaging and calling included with your plan this month. Add a card in Settings → Communication to keep sending — usage past the included amount is billed as you go.`;
+  return `You've used the ${label} of communication credit included with your plan this month. Buy more usage in Settings → Billing & plan to resume texting, calls and AI. A saved card does not enable automatic charges.`;
 }

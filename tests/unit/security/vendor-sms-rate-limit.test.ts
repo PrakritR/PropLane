@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   rateLimit: vi.fn(),
   resolveSession: vi.fn(),
   runTurn: vi.fn(),
+  resolveOwnedWorkNumber: vi.fn(),
+  recordUsage: vi.fn(),
 }));
 vi.mock("twilio", () => ({ default: { validateRequest: () => true } }));
 vi.mock("@/lib/twilio-client.server", () => ({
@@ -15,6 +17,12 @@ vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () =
 vi.mock("@/lib/agent/vendor-agent.server", () => ({
   resolveVendorAgentSessionForInbound: mocks.resolveSession,
   runVendorAgentSessionTurn: mocks.runTurn,
+}));
+vi.mock("@/lib/sms/resolve-owned-work-number.server", () => ({
+  resolveOwnedWorkNumber: mocks.resolveOwnedWorkNumber,
+}));
+vi.mock("@/lib/comms-billing/record-usage.server", () => ({
+  recordManagerCommsUsage: mocks.recordUsage,
 }));
 
 import { POST } from "@/app/api/webhooks/twilio/sms/route";
@@ -39,6 +47,8 @@ it.each([
 
   expect(response.status).toBe(expectedStatus);
   expect(mocks.rateLimit).toHaveBeenCalledOnce();
+  expect(mocks.resolveOwnedWorkNumber).not.toHaveBeenCalled();
+  expect(mocks.recordUsage).not.toHaveBeenCalled();
   expect(mocks.resolveSession).not.toHaveBeenCalled();
   expect(mocks.runTurn).not.toHaveBeenCalled();
 });

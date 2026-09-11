@@ -24,8 +24,17 @@
 
 let cachedTier: string | null | undefined;
 let cachedEffectiveTier: string | null | undefined;
-let cachedPaymentWaiverGranted: boolean | undefined;
+let cachedPaymentWaiverGranted: boolean | null | undefined;
+let paymentWaiverLoadedAt = 0;
 let inflight: Promise<void> | null = null;
+
+/**
+ * Processing-fee coverage is granted and revoked independently of the plan, so
+ * it cannot ride the sticky tier cache — but re-fetching it on every read makes
+ * one modal issue two calls to a route that reads Supabase. A short window
+ * keeps the intended freshness without the duplicate round-trips.
+ */
+const PAYMENT_WAIVER_TTL_MS = 30_000;
 
 function loadSubscription(): Promise<void> {
   if (inflight) return inflight;
@@ -35,12 +44,14 @@ function loadSubscription(): Promise<void> {
         tier?: string | null;
         effectiveTier?: string | null;
         planUnknown?: boolean;
-        paymentWaiverGranted?: boolean;
+        paymentWaiverGranted?: boolean | null;
+        paymentCoverageUnknown?: boolean;
       };
       if (!res.ok) {
         cachedTier = null;
         cachedEffectiveTier = null;
-        cachedPaymentWaiverGranted = false;
+        cachedPaymentWaiverGranted = null;
+        paymentWaiverLoadedAt = Date.now();
         return;
       }
       // The route could not read this account's plan. Caching that would freeze
@@ -54,12 +65,14 @@ function loadSubscription(): Promise<void> {
       // to the raw tier keeps the pre-check at its pre-cap behaviour rather
       // than inventing a Free plan the server is not enforcing.
       cachedEffectiveTier = body.effectiveTier ?? body.tier ?? null;
-      cachedPaymentWaiverGranted = body.paymentWaiverGranted === true;
+      cachedPaymentWaiverGranted = body.paymentCoverageUnknown || body.paymentWaiverGranted === null ? null : body.paymentWaiverGranted === true;
+      paymentWaiverLoadedAt = Date.now();
     })
     .catch(() => {
       cachedTier = null;
       cachedEffectiveTier = null;
-      cachedPaymentWaiverGranted = false;
+      cachedPaymentWaiverGranted = null;
+      paymentWaiverLoadedAt = Date.now();
     })
     .finally(() => {
       inflight = null;
@@ -85,9 +98,14 @@ export function loadManagerEffectivePlanTierClient(): Promise<string | null> {
   return loadSubscription().then(() => cachedEffectiveTier ?? null);
 }
 
-export function loadManagerPaymentWaiverGrantedClient(): Promise<boolean> {
-  if (cachedPaymentWaiverGranted !== undefined) return Promise.resolve(cachedPaymentWaiverGranted);
-  return loadSubscription().then(() => cachedPaymentWaiverGranted === true);
+export function loadManagerPaymentWaiverGrantedClient(): Promise<boolean | null> {
+  if (
+    cachedPaymentWaiverGranted !== undefined &&
+    Date.now() - paymentWaiverLoadedAt < PAYMENT_WAIVER_TTL_MS
+  ) {
+    return Promise.resolve(cachedPaymentWaiverGranted);
+  }
+  return loadSubscription().then(() => cachedPaymentWaiverGranted ?? null);
 }
 
 /** Test / sign-out hooks may clear the cache. */
@@ -95,5 +113,6 @@ export function resetManagerSubscriptionTierClientCache() {
   cachedTier = undefined;
   cachedEffectiveTier = undefined;
   cachedPaymentWaiverGranted = undefined;
+  paymentWaiverLoadedAt = 0;
   inflight = null;
 }

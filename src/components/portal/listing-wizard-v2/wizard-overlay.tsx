@@ -27,8 +27,13 @@ export function ListingWizardOverlay({ children }: { children: ReactNode }) {
   }, []);
   if (!mounted) return null;
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto overscroll-contain bg-foreground/30 p-3 backdrop-blur-sm sm:p-6">
-      <div className="w-full max-w-4xl">{children}</div>
+    <div className="fixed inset-0 z-[80] flex items-stretch justify-center overscroll-contain bg-foreground/30 p-0 backdrop-blur-sm sm:p-4">
+      {/*
+       * The editor is a workspace, not a dialog: a step rail, the form, and the
+       * panel showing what the manager just changed need the screen. Capping it
+       * at max-w-4xl is what left no room for the third column.
+       */}
+      <div className="h-full w-full max-w-[1560px]">{children}</div>
     </div>,
     document.body,
   );

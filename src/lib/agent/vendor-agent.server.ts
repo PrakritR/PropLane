@@ -1,3 +1,7 @@
+import { ensureVendorConversationConsent } from "@/lib/sms/vendor-conversation-consent.server";
+import { readCommsTurnResult, completeCommsTurn, INTERRUPTED_COMMS_REPLY } from "@/lib/comms-billing/turn-result.server";
+import { enqueueOwnerSms } from "@/lib/sms/owner-sms-dispatcher.server";
+import { reserveCommsCredit } from "@/lib/comms-billing/wallet.server";
 /**
  * Vendor-agent conversation runtime. A session (agent_sessions row, kind
  * 'vendor_work_order') binds one work order + one vendor + one conversation
@@ -18,7 +22,7 @@ import { buildVendorAgentContext } from "@/lib/tools/context";
 import { vendorWorkOrderAgentRegistry } from "@/lib/tools";
 import { ESCALATE_TOOL_NAME } from "@/lib/tools/domains/vendor-work-order";
 import { isPhoneOptedOut, optedOutFromTimestamps } from "@/lib/sms-consent";
-import { normalizeE164, sendSms } from "@/lib/twilio";
+import { normalizeE164 } from "@/lib/twilio";
 import { resolveWorkOrderReference } from "@/lib/work-order-reference";
 import {
   resolveVisibleWorkOrderReference,
@@ -75,16 +79,19 @@ export async function findVendorAgentSessionByThread(db: Db, inboxThreadId: stri
 }
 
 /** Newest active-ish session for a phone number — how inbound SMS finds its conversation. */
-export async function findVendorAgentSessionByPhone(db: Db, phoneE164: string): Promise<VendorAgentSessionRow | null> {
-  const { data } = await db
+export async function findVendorAgentSessionByPhone(db: Db, phoneE164: string, managerUserId?: string): Promise<VendorAgentSessionRow | null> {
+  let query = db
     .from("agent_sessions")
     .select(SESSION_COLUMNS)
     .eq("kind", "vendor_work_order")
     .eq("vendor_phone_e164", phoneE164)
     .in("status", ["active", "escalated"])
-    .order("updated_at", { ascending: false })
+;
+  if (managerUserId) query = query.eq("landlord_id", managerUserId);
+  const { data, error } = await query.order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (error) throw new Error("Vendor session lookup unavailable.");
   return (data as VendorAgentSessionRow | null) ?? null;
 }
 
@@ -102,20 +109,24 @@ export async function resolveVendorAgentSessionForInbound(
   db: Db,
   phoneE164: string,
   inboundText: string,
+  managerUserId?: string,
 ): Promise<VendorInboundSessionResolution> {
   if (resolveWorkOrderReference(inboundText).length === 0) {
-    const session = await findVendorAgentSessionByPhone(db, phoneE164);
+    const session = await findVendorAgentSessionByPhone(db, phoneE164, managerUserId);
     return session ? { kind: "session", session, reference: null } : { kind: "unknown_phone" };
   }
 
-  const { data } = await db
+  let query = db
     .from("agent_sessions")
     .select(SESSION_COLUMNS)
     .eq("kind", "vendor_work_order")
     .eq("vendor_phone_e164", phoneE164)
     .in("status", ["active", "escalated"])
-    .order("updated_at", { ascending: false })
+;
+  if (managerUserId) query = query.eq("landlord_id", managerUserId);
+  const { data, error } = await query.order("updated_at", { ascending: false })
     .limit(100);
+  if (error) throw new Error("Vendor session lookup unavailable.");
   const sessions = (data ?? []) as VendorAgentSessionRow[];
   if (sessions.length === 0) return { kind: "unknown_phone" };
 
@@ -210,21 +221,28 @@ export async function deliverVendorAgentReply(
   session: VendorAgentSessionRow,
   text: string,
   inboundChannel?: "sms" | "inbox",
+  dedupeKey?: string,
+  inboundMessageSid?: string,
 ): Promise<void> {
   if (session.inbox_thread_id) {
     await appendToInboxThread(db, session.inbox_thread_id, { from: "PropLane Assistant", body: text }, { unread: true });
   }
-  const from = process.env.AXIS_AGENT_SMS_FROM?.trim();
-  if (!session.vendor_phone_e164 || !from) return;
+  if (!session.vendor_phone_e164) return;
   const { optedOut, consentAt } = await vendorSmsState(db, session);
   if (optedOut) return;
-  if (inboundChannel !== "sms" && !consentAt) return;
-  const result = await sendSms(session.vendor_phone_e164, text, from);
-  if (!result.sent && result.error) {
-    // ponytail: no email fallback for agent replies yet — the inbox copy above
-    // is always written; wire sendVendorNotification here if delivery gaps show up.
-    console.error("vendor-agent SMS send failed", session.id, result.error);
-  }
+  if (!consentAt && !(inboundChannel === "sms" && inboundMessageSid)) return;
+  const consent = await ensureVendorConversationConsent(db, { managerUserId: session.landlord_id,
+    vendorUserId: session.vendor_user_id, phone: session.vendor_phone_e164, sessionId: session.id,
+    evidence: inboundChannel === "sms" && inboundMessageSid ? { inboundMessageSid } : { consentAt: consentAt! },
+  });
+  if (!consent.allowed) return;
+  const delivered = await enqueueOwnerSms({ managerUserId: session.landlord_id, actorUserId: session.landlord_id,
+    recipientPhone: session.vendor_phone_e164, recipientUserId: session.vendor_user_id,
+    body: text, sendClass: "transactional", purpose: "vendor_conversation", conversationKey: consent.conversationKey, counterpartyRole: "vendor",
+    dedupeKey,
+  }, db);
+  if (!delivered.ok) throw new Error("Vendor reply delivery could not be queued.");
+
 }
 
 /** Merge consecutive same-role rows and drop a leading assistant run so the
@@ -258,7 +276,7 @@ export async function runVendorAgentSessionTurn(
   session: VendorAgentSessionRow,
   inboundText: string,
   channel: "sms" | "inbox",
-  options?: { precomputedReply?: string | null; reference?: WorkOrderReferenceCandidate | null },
+  options?: { inboundMessageSid?: string; precomputedReply?: string | null; reference?: WorkOrderReferenceCandidate | null },
 ): Promise<string | null> {
   const text = inboundText.trim().slice(0, 2000);
   if (!text) return null;
@@ -279,6 +297,17 @@ export async function runVendorAgentSessionTurn(
   }
 
   const nowIso = new Date().toISOString();
+  const creditKey = `vendor_ai:${session.id}:${options?.inboundMessageSid ?? nowIso}`;
+  if (channel === "sms") {
+    const credit = await reserveCommsCredit(db, { managerUserId: session.landlord_id, meter: "ai_agent_turn", idempotencyKey: creditKey });
+    if (!credit.allowed) return null;
+    if (credit.duplicate) {
+      const reply = await readCommsTurnResult<string>(db, session.landlord_id, creditKey, INTERRUPTED_COMMS_REPLY);
+      if (reply) await deliverVendorAgentReply(db, session, reply, channel, creditKey, options?.inboundMessageSid);
+      return reply;
+    }
+  }
+
   await db.from("agent_messages").insert({
     session_id: session.id,
     landlord_id: session.landlord_id,
@@ -311,7 +340,8 @@ export async function runVendorAgentSessionTurn(
       channel,
       tools: 0,
     });
-    await deliverVendorAgentReply(db, session, precomputedReply, channel);
+    if (channel === "sms") await completeCommsTurn(db, session.landlord_id, creditKey, precomputedReply);
+    await deliverVendorAgentReply(db, session, precomputedReply, channel, creditKey, options?.inboundMessageSid);
     return precomputedReply;
   }
 
@@ -381,7 +411,8 @@ export async function runVendorAgentSessionTurn(
     tools: result.toolTrace.length,
   });
 
-  await deliverVendorAgentReply(db, session, result.reply, channel);
+  if (channel === "sms") await completeCommsTurn(db, session.landlord_id, creditKey, result.reply);
+  await deliverVendorAgentReply(db, session, result.reply, channel, creditKey, options?.inboundMessageSid);
   return result.reply;
 }
 
@@ -501,13 +532,17 @@ export async function ensureVendorAgentSession(
 
   // Opening SMS: transactional job coordination; STOP is honored via the
   // webhook + Twilio Advanced Opt-Out, and we never text an opted-out number.
-  const from = process.env.AXIS_AGENT_SMS_FROM?.trim();
-  if (phoneE164 && from && !optedOut && consentOk) {
-    await sendSms(
-      phoneE164,
-      `PropLane here about the job "${args.workOrderTitle}" at ${args.propertyLabel}. Reply to this number any time with questions about the job (entry details, directions, timing). Reply STOP to opt out.`,
-      from,
-    );
+  if (phoneE164 && !optedOut && consentOk) {
+    const consent = await ensureVendorConversationConsent(db, { managerUserId: session.landlord_id,
+      vendorUserId: session.vendor_user_id, phone: phoneE164, sessionId: session.id,
+      evidence: { invitedVendorDirectoryId: args.vendorDirectoryId },
+    });
+    if (!consent.allowed) return session;
+    await enqueueOwnerSms({ managerUserId: session.landlord_id, actorUserId: session.landlord_id,
+      recipientPhone: phoneE164, recipientUserId: session.vendor_user_id, counterpartyRole: "vendor",
+      body: `PropLane here about the service "${args.workOrderTitle}" at ${args.propertyLabel}. Reply with questions about entry details, directions or timing. Reply STOP to opt out.`,
+      sendClass: "transactional", purpose: "vendor_conversation", conversationKey: consent.conversationKey, dedupeKey: `vendor_opening:${session.id}`,
+    }, db);
   }
 
   return session;

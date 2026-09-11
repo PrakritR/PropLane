@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   fetchCreatedAt: vi.fn(async () => "2026-08-25T11:59:59.000Z"),
   rateLimit: vi.fn(() => ({ ok: true })),
+  resolveOwnedWorkNumber: vi.fn(),
+  recordUsage: vi.fn(async () => ({ recorded: true, duplicate: false, totalCents: 2 })),
 }));
 
 vi.mock("twilio", () => ({ default: { validateRequest: vi.fn().mockReturnValue(true) } }));
@@ -16,11 +18,19 @@ vi.mock("@/lib/agent/vendor-agent.server", () => ({
   resolveVendorAgentSessionForInbound: vi.fn(),
   runVendorAgentSessionTurn: vi.fn().mockResolvedValue("ok"),
 }));
+vi.mock("@/lib/sms/resolve-owned-work-number.server", () => ({
+  resolveOwnedWorkNumber: mocks.resolveOwnedWorkNumber,
+}));
+vi.mock("@/lib/comms-billing/record-usage.server", () => ({
+  recordManagerCommsUsage: mocks.recordUsage,
+}));
 
 import twilio from "twilio";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { resolveVendorAgentSessionForInbound, runVendorAgentSessionTurn } from "@/lib/agent/vendor-agent.server";
 import { POST } from "@/app/api/webhooks/twilio/sms/route";
+
+const WORK_NUMBER = "+12065550100";
 
 const SESSION = {
   id: "sess-1",
@@ -113,6 +123,9 @@ describe("/api/webhooks/twilio/sms", () => {
     vi.stubEnv("TWILIO_WEBHOOK_URL", "https://axis.example/api/webhooks/twilio/sms");
     const { client } = mockDb();
     vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(client);
+    mocks.resolveOwnedWorkNumber.mockImplementation(async (_db: unknown, to: string) =>
+      to === WORK_NUMBER ? { managerId: "mgr-a", messagingServiceSid: "MG1" } : null,
+    );
     vi.mocked(resolveVendorAgentSessionForInbound).mockResolvedValue({
       kind: "session",
       session: SESSION,
@@ -120,7 +133,10 @@ describe("/api/webhooks/twilio/sms", () => {
     } as never);
   });
 
-  afterEach(() => vi.unstubAllEnvs());
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
 
   it("rejects a forged signature with 403 and runs nothing", async () => {
     vi.mocked(twilio.validateRequest).mockReturnValue(false);
@@ -138,26 +154,62 @@ describe("/api/webhooks/twilio/sms", () => {
 
   it("silently drops unknown numbers with an empty TwiML 200", async () => {
     vi.mocked(resolveVendorAgentSessionForInbound).mockResolvedValue({ kind: "unknown_phone" });
-    const res = await POST(smsRequest({ From: "+19998887777", Body: "who dis" }));
+    const res = await POST(smsRequest({ From: "+19998887777", To: WORK_NUMBER, Body: "who dis" }));
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("<Response></Response>");
     expect(runVendorAgentSessionTurn).not.toHaveBeenCalled();
   });
 
-  it("binds the newest active session for the sender and runs a turn", async () => {
-    const res = await POST(smsRequest({ From: "+1 (206) 555-0001", Body: "cual es el codigo del porton?" }));
+  it("drops a text to a shared or unmanaged destination before any session or wallet is touched", async () => {
+    const res = await POST(smsRequest({ From: "+12065550001", To: "+12065550999", Body: "hola", MessageSid: "SMshared" }));
     expect(res.status).toBe(200);
+    expect(await res.text()).toContain("<Response></Response>");
+    expect(mocks.recordUsage).not.toHaveBeenCalled();
+    expect(resolveVendorAgentSessionForInbound).not.toHaveBeenCalled();
+    expect(runVendorAgentSessionTurn).not.toHaveBeenCalled();
+  });
+
+  it("scopes the session to the owner of the texted work number and meters the inbound segment to them", async () => {
+    const res = await POST(smsRequest({
+      From: "+1 (206) 555-0001",
+      To: WORK_NUMBER,
+      Body: "cual es el codigo del porton?",
+      MessageSid: "SMinbound1",
+    }));
+    expect(res.status).toBe(200);
+    expect(mocks.recordUsage).toHaveBeenCalledWith(expect.anything(), {
+      managerUserId: "mgr-a",
+      meter: "sms_inbound_segment",
+      quantity: 1,
+      idempotencyKey: "sms_inbound:SMinbound1",
+      metadata: { messageSid: "SMinbound1" },
+    });
     expect(resolveVendorAgentSessionForInbound).toHaveBeenCalledWith(
       expect.anything(),
       "+12065550001",
       "cual es el codigo del porton?",
+      "mgr-a",
     );
     expect(runVendorAgentSessionTurn).toHaveBeenCalledWith(
       expect.anything(),
       SESSION,
       "cual es el codigo del porton?",
       "sms",
-      { precomputedReply: null, reference: null },
+      { inboundMessageSid: "SMinbound1", precomputedReply: null, reference: null },
+    );
+  });
+
+  it("still runs the vendor turn when the inbound meter is unavailable", async () => {
+    mocks.recordUsage.mockRejectedValueOnce(new Error("wallet offline"));
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const res = await POST(smsRequest({ From: "+12065550001", To: WORK_NUMBER, Body: "hola", MessageSid: "SMinbound2" }));
+    expect(res.status).toBe(200);
+    expect(runVendorAgentSessionTurn).toHaveBeenCalledWith(
+      expect.anything(),
+      SESSION,
+      "hola",
+      "sms",
+      expect.objectContaining({ inboundMessageSid: "SMinbound2" }),
     );
   });
 

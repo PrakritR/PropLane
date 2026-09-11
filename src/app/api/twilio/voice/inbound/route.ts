@@ -1,19 +1,16 @@
+import { reserveBoundedVoiceCall, fundedVoiceGather, VOICE_CREDIT_UNAVAILABLE } from "@/lib/comms-billing/voice-credit.server";
 import { NextResponse } from "next/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import {
   isManagerVoiceAgentEnabled,
   isVoiceRecordingEnabled,
   resolveVoiceInboundWebhookUrl,
-  resolveVoiceTurnWebhookUrl,
-  twimlGatherSpeech,
   twimlHangup,
   twimlResponse,
   twimlSay,
   validateTwilioVoiceWebhook,
 } from "@/lib/twilio-voice.server";
 import { logVoiceCallStarted } from "@/lib/voice/log-voice-call-notes.server";
-import { evaluateManagerCommsBillingGate } from "@/lib/comms-billing/eligibility.server";
-import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
 import {
   MANAGER_VOICE_UNCONFIGURED_PROMPT,
   resolveVoiceCallRoute,
@@ -53,22 +50,10 @@ export async function POST(req: Request) {
     return twimlResponse(twimlSay(MANAGER_VOICE_UNCONFIGURED_PROMPT) + twimlHangup());
   }
 
-  if (isCommsPaygBillingEnabled()) {
-    const billing = await evaluateManagerCommsBillingGate(db, resolved.managerId);
-    if (!billing.allowed) {
-      return twimlResponse(
-        twimlSay("This number cannot take calls right now. Please try again later.") + twimlHangup(),
-      );
-    }
-  }
-
+  const funded = await reserveBoundedVoiceCall(db, resolved.managerId, callSid).catch(() => false);
+  if (!funded) return twimlResponse(twimlSay(VOICE_CREDIT_UNAVAILABLE) + twimlHangup());
   if (isVoiceRecordingEnabled()) {
-    return twimlResponse(
-      twimlGatherSpeech({
-        actionUrl: resolveVoiceTurnWebhookUrl("consent"),
-        prompt: CONSENT_PROMPT,
-      }),
-    );
+    return twimlResponse(await fundedVoiceGather(db, { owner: resolved.managerId, callSid, turnId: "start", phase: "consent", prompt: CONSENT_PROMPT }));
   }
 
   const logIdentity = voiceCallLogIdentity({
@@ -79,10 +64,5 @@ export async function POST(req: Request) {
   });
   await logVoiceCallStarted(db, { ...logIdentity, callSid });
 
-  return twimlResponse(
-    twimlGatherSpeech({
-      actionUrl: resolveVoiceTurnWebhookUrl("agent"),
-      prompt: voiceGreetingForRoute(resolved.route),
-    }),
-  );
+  return twimlResponse(await fundedVoiceGather(db, { owner: resolved.managerId, callSid, turnId: "start", phase: "agent", prompt: voiceGreetingForRoute(resolved.route) }));
 }

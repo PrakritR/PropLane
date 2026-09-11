@@ -546,7 +546,7 @@ async function persistClawInboundSms(args: {
     source: "automated",
     counterpartyRole: args.counterpartyRole,
   });
-  const { error } = await db.from("inbound_sms_log").insert({
+  const identity = {
     manager_user_id: args.managerUserId,
     from_phone: args.fromPhone,
     to_phone: args.toPhone,
@@ -559,10 +559,27 @@ async function persistClawInboundSms(args: {
       counterpartyUserId: args.residentUserId,
       fromPhone: args.fromPhone,
     }),
-  });
+  };
+  const { error } = await db.from("inbound_sms_log").insert(identity);
   const inboundLogStored = !error || error.code === "23505";
   if (!inboundLogStored) {
     console.error("claw inbound_sms_log insert failed", error.message);
+  }
+  if (error?.code === "23505" && identity.message_sid) {
+    // The route preserves the incoming body before any billing read, so the row
+    // already exists carrying the `unknown` placeholder role. Promote the
+    // identity this handler resolved; without it a resident's message stays
+    // threaded as an unidentified conversation.
+    await db
+      .from("inbound_sms_log")
+      .update(identity)
+      .eq("message_sid", identity.message_sid)
+      .eq("manager_user_id", args.managerUserId)
+      .eq("counterparty_role", "unknown")
+      .then(
+        () => undefined,
+        (e) => console.error("claw inbound_sms_log identity promote failed", e),
+      );
   }
   if (inboundLogStored) {
     const role = args.counterpartyRole ?? (args.residentUserId ? "resident" : "prospect");

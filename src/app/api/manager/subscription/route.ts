@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
+import { loadManagerManualPaymentSettings } from "@/lib/manager-manual-payment-settings";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import {
   formatManagerMonthlyLabel,
   isBusinessSkuTier,
   isProSkuTier,
-  isWaiverGrantedManagerPurchase,
   maxAccountLinksForTier,
   maxPropertiesForManagerTier,
   monthlyUsdForManagerTier,
@@ -94,7 +95,7 @@ export async function GET() {
       /* Stripe not configured or transient error — serve last known DB state */
     }
 
-    const { tier, billing, stripeSubscriptionId, appleOriginalTransactionId, promoCode, paidAt, readFailed } =
+    const { tier, billing, stripeSubscriptionId, appleOriginalTransactionId, paidAt, readFailed } =
       await getManagerPurchaseSku(user.id);
     let stripeManaged = false;
     try {
@@ -135,10 +136,12 @@ export async function GET() {
       }
     }
 
+    const paymentSettings = await Promise.resolve().then(() => loadManagerManualPaymentSettings(createSupabaseServiceRoleClient(), user.id)).catch(() => null);
     return NextResponse.json({
       ...base,
       isFree,
-      paymentWaiverGranted: isWaiverGrantedManagerPurchase(promoCode),
+      paymentWaiverGranted: paymentSettings ? paymentSettings.adminServiceFeeOverride === "proplane" : null,
+      paymentCoverageUnknown: paymentSettings === null,
       stripeManaged,
       appleManaged,
       cancelAtPeriodEnd,

@@ -63,10 +63,10 @@ describe("resolveServiceFeePayer — the plan rule", () => {
   it("Pro / Business → the manager's stored choice", () => {
     expect(resolveServiceFeePayer("pro", "resident")).toBe("resident");
     expect(resolveServiceFeePayer("pro", "manager")).toBe("manager");
-    expect(resolveServiceFeePayer("pro", "proplane")).toBe("proplane");
+    expect(resolveServiceFeePayer("pro", "proplane")).toBe("resident");
     expect(resolveServiceFeePayer("business", "resident")).toBe("resident");
     expect(resolveServiceFeePayer("business", "manager")).toBe("manager");
-    expect(resolveServiceFeePayer("business", "proplane")).toBe("proplane");
+    expect(resolveServiceFeePayer("business", "proplane")).toBe("resident");
   });
 });
 
@@ -153,10 +153,10 @@ describe("plan → charged amount (acceptance table)", () => {
     { tier: "free", choice: "proplane", expected: "resident" },
     { tier: "pro", choice: "resident", expected: "resident" },
     { tier: "pro", choice: "manager", expected: "manager" },
-    { tier: "pro", choice: "proplane", expected: "proplane" },
+    { tier: "pro", choice: "proplane", expected: "resident" },
     { tier: "business", choice: "resident", expected: "resident" },
     { tier: "business", choice: "manager", expected: "manager" },
-    { tier: "business", choice: "proplane", expected: "proplane" },
+    { tier: "business", choice: "proplane", expected: "resident" },
   ];
 
   const subtotal = 200_000; // $2,000 rent

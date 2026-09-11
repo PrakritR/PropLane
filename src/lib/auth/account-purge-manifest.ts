@@ -304,6 +304,8 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     phase: 2,
     manager: { ids: ["manager_user_id"] },
   },
+  { table: "manager_comms_credit_adjustments", phase: 2, manager: { ids: ["manager_user_id"] } },
+  { table: "manager_comms_credit_purchases", phase: 2, manager: { ids: ["manager_user_id"] } },
   {
     table: "manager_comms_billing_accounts",
     phase: 2,
@@ -693,6 +695,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
  * entry here as a decision; an unlisted table is a gap.
  */
 export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
+  comms_credit_policy: "Global credit-policy cutover timestamp; contains no account data.",
   account_recovery_retired_source_keys: "Hashes of obsolete physical file paths; stop delayed uploads after logical recovery.",
   account_recovery_objects: "Private retained file generations and active logical-path mappings; lifecycle-managed.",
   account_recovery_object_holds: "Shared file retention ownership; lifecycle-managed.",

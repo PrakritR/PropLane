@@ -191,7 +191,14 @@ export function isProvisioningEnabled(
   return String(env.SMS_PROVISIONING_ENABLED ?? "").trim() === "1";
 }
 
-/** Temporary onboarding offer; unset restores paid-only trial enrollment. */
+/**
+ * Legacy trial-onboarding flag. Work-number access no longer depends on it —
+ * the number entitlement resolves from the effective plan on every tier, Free
+ * included (`resolveNumberPlan` in `manager-sms-entitlement.server.ts`). It
+ * only decides whether a still-trialing
+ * Pro/Business subscription counts as a paid plan on the `preferPaid`
+ * (assistant-email) path; unset restores paid-only trial enrollment there.
+ */
 export function isTrialWorkNumberOnboardingEnabled(
   env: Record<string, string | undefined> = process.env,
 ): boolean {

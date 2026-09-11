@@ -4,7 +4,6 @@ import { normalizeE164 } from "@/lib/phone-e164";
 import { readSmsSuppressionState } from "@/lib/sms-consent";
 import { ensureApplicationScopedSmsConsent } from "@/lib/sms/application-consent.server";
 import { validateTourSmsPurposeAtDispatch } from "@/lib/sms/tour-sms-eligibility.server";
-import { getEffectiveManagerSmsEntitlement } from "@/lib/sms/manager-sms-entitlement.server";
 import {
   estimateSmsSegments,
   evaluateManagerSmsNumberSendability,
@@ -18,8 +17,8 @@ import { conversationPhoneRef, isSmsCounterpartyRole, type SmsCounterpartyRole }
 import {
   evaluateManagerCommsBillingGate,
 } from "@/lib/comms-billing/eligibility.server";
-import { isCommsPaygBillingEnabled } from "@/lib/comms-billing/rates";
-import { recordManagerCommsUsage } from "@/lib/comms-billing/record-usage.server";
+import { unitPriceCentsForMeter } from "@/lib/comms-billing/rates";
+import { reserveCommsCredit, finishCommsCredit } from "@/lib/comms-billing/wallet.server";
 
 const CONVERSATION_DERIVED_TOUR_PURPOSES = new Set([
   "tour_request_received",
@@ -142,13 +141,9 @@ async function loadSendPolicy(
     return { allowed: false, reason: "provider_identity_mismatch" };
   }
 
-  const entitlement = await getEffectiveManagerSmsEntitlement(db, ownerId);
-  if (isCommsPaygBillingEnabled()) {
-    const billing = await evaluateManagerCommsBillingGate(db, ownerId);
-    if (!billing.allowed) return { allowed: false, reason: `comms_billing_${billing.reason}` };
-  } else if (!entitlement.eligible) {
-    return { allowed: false, reason: `entitlement_${entitlement.reason}` };
-  }
+  const billing = await evaluateManagerCommsBillingGate(db, ownerId,
+    segmentEstimate.segmentCount * unitPriceCentsForMeter("sms_outbound_segment"));
+  if (!billing.allowed) return { allowed: false, reason: `comms_billing_${billing.reason}` };
 
   const suppression = await readSmsSuppressionState(db, recipient, { userId: input.recipientUserId });
   if (!suppression.ok) return { allowed: false, reason: suppression.error };
@@ -389,6 +384,8 @@ async function blockOrDeferClaim(
   return !error && Boolean(data);
 }
 
+const CREDIT_UNAVAILABLE_REASON = "credit_unavailable";
+
 function retryableDispatchPolicy(
   policy: Exclude<SendPolicy, { allowed: true }>,
 ): Exclude<SendPolicy, { allowed: true }> {
@@ -487,6 +484,7 @@ export async function dispatchOwnerSmsOutbox(
     const policy = await loadSendPolicy(db, {
       managerUserId: row.manager_user_id,
       actorUserId: row.actor_user_id ?? row.manager_user_id,
+      recipientUserId: row.recipient_user_id,
       recipientPhone: row.recipient_phone,
       recipientEmail: row.recipient_email,
       body: row.body,
@@ -551,11 +549,11 @@ export async function dispatchOwnerSmsOutbox(
       continue;
     }
 
-    // Spend only after this worker atomically owns the submit transition. A
-    // stale worker that loses the lease cannot burn the campaign budget and
-    // then let a later claimant spend it again for the same attempt.
-    const { data: budgetAvailable, error: budgetError } = await db.rpc("spend_sms_segment_budget", {
-      p_segments: row.segment_count,
+    // The RPC rechecks the claim and reserves once per outbox/UTC day, so a
+    // lost response or transient wallet failure cannot spend again on retry.
+    const { data: budgetAvailable, error: budgetError } = await db.rpc("spend_sms_outbox_segment_budget", {
+      p_outbox_id: row.id,
+      p_worker_id: workerId,
     });
     if (budgetError || budgetAvailable !== true) {
       const retryAt = new Date();
@@ -590,7 +588,50 @@ export async function dispatchOwnerSmsOutbox(
       continue;
     }
 
-    const sent = await sendSms(row.recipient_phone, row.body, policy.fromNumber, { skipOptOutCheck: true });
+    const creditKey = `sms_outbound:${row.id}`;
+    const credit = await reserveCommsCredit(db, {
+      managerUserId: row.manager_user_id, meter: "sms_outbound_segment",
+      quantity: policy.segmentCount, idempotencyKey: creditKey, metadata: { outboxId: row.id },
+    }).catch(() => ({ allowed: false as const, reason: CREDIT_UNAVAILABLE_REASON }));
+    if (!credit.allowed && credit.reason === CREDIT_UNAVAILABLE_REASON) {
+      const { data: deferred } = await db
+        .from("sms_outbox")
+        .update({
+          status: "deferred",
+          available_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+          blocked_reason: CREDIT_UNAVAILABLE_REASON,
+          dispatch_started_at: null,
+          lease_owner: null,
+          lease_expires_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", row.id)
+        .eq("lease_owner", workerId)
+        .eq("status", "submitting")
+        .select("id")
+        .maybeSingle();
+      await db.from("sms_delivery_attempts").update({ state: "pre_dispatch_failed", finished_at: new Date().toISOString() }).eq("id", attempt.id);
+      if (!deferred) result.unknown += 1;
+      if (!deferred) recordInfrastructureError("credit_transition_unavailable");
+      continue;
+    }
+    if (!credit.allowed || credit.duplicate) {
+      await db.from("sms_outbox").update({ status: "blocked", blocked_reason: credit.allowed ? "credit_already_reserved" : credit.reason,
+        lease_owner: null, lease_expires_at: null, updated_at: new Date().toISOString() }).eq("id", row.id).eq("status", "submitting");
+      await db.from("sms_delivery_attempts").update({ state: "pre_dispatch_failed", finished_at: new Date().toISOString() }).eq("id", attempt.id);
+      result.blocked += 1;
+      continue;
+    }
+
+    const sent = await sendSms(row.recipient_phone, row.body, policy.fromNumber, { skipOptOutCheck: true, creditReservationKey: creditKey });
+    if (!sent.sent && sent.providerAttempted === false) {
+      await finishCommsCredit(db, row.manager_user_id, creditKey, true);
+      await db.from("sms_outbox").update({ status: "blocked", blocked_reason: sent.error ?? "provider_unavailable",
+        lease_owner: null, lease_expires_at: null, updated_at: new Date().toISOString() }).eq("id", row.id);
+      await db.from("sms_delivery_attempts").update({ state: "pre_dispatch_failed", finished_at: new Date().toISOString() }).eq("id", attempt.id);
+      result.blocked += 1;
+      continue;
+    }
     if (!sent.sent || !sent.sid) {
       const providerErrorCode = sent.error?.match(/\b\d{5}\b/)?.[0] ?? null;
       await db
@@ -643,15 +684,9 @@ export async function dispatchOwnerSmsOutbox(
       .eq("id", row.id)
       .select("id")
       .maybeSingle();
-    if (isCommsPaygBillingEnabled()) {
-      await recordManagerCommsUsage(db, {
-        managerUserId: row.manager_user_id,
-        meter: "sms_outbound_segment",
-        quantity: row.segment_count,
-        idempotencyKey: `sms_outbound:${row.id}`,
-        metadata: { outboxId: row.id, messageSid: sent.sid },
-      });
-    }
+    await finishCommsCredit(db, row.manager_user_id, creditKey).catch(() => {
+      recordInfrastructureError("credit_settlement_unavailable");
+    });
     if (submitPersistError || !submittedRow) {
       // The provider accepted the message. Never resend. If the attempt SID was
       // saved, a callback can still correlate it through the atomic RPC.

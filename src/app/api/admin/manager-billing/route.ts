@@ -7,6 +7,8 @@ import {
 } from "@/lib/auth/admin-portal-manager-ids.server";
 import { pickBestManagerPurchaseRow, type ManagerPurchaseRowRecord } from "@/lib/manager-access";
 import { deriveAdminBillingRow, type AdminBillingRowInput } from "@/lib/admin-billing-rows";
+import { normalizeCommsPlanTier } from "@/lib/comms-billing/allowances";
+import { loadCommsWalletTotals } from "@/lib/comms-billing/wallet.server";
 import {
   EMPTY_MANAGER_BILLING_OVERRIDES,
   loadManagerBillingOverridesForIds,
@@ -168,6 +170,7 @@ export async function GET() {
         .from("manager_comms_usage_events")
         .select("manager_user_id, total_cents")
         .in("manager_user_id", chunk)
+        .neq("credit_state", "released")
         .gte("created_at", start)
         .lt("created_at", end);
       if (error) {
@@ -195,7 +198,7 @@ export async function GET() {
       }
     }
 
-    const rows = visible.map((profile) => {
+    const inputs = visible.map((profile): AdminBillingRowInput => {
       const email = String(profile.email ?? "").toLowerCase();
       const candidates = purchases.filter(
         (p) => p.user_id === profile.id || String(p.email ?? "").toLowerCase() === email,
@@ -243,10 +246,23 @@ export async function GET() {
         managerFeeChoice: (fees.managerChoice as AdminBillingRowInput["managerFeeChoice"]) ?? null,
         adminFeeOverride: (fees.adminOverride as AdminBillingRowInput["adminFeeOverride"]) ?? null,
         commsUsedCents: commsReadFailed ? null : (commsUsed.get(profile.id) ?? 0),
+        commsWallet: null,
         commsHasPaymentMethod: commsCard.has(profile.id),
       };
-      return deriveAdminBillingRow(input);
+      return input;
     });
+
+    // ---- prepaid wallet totals, computed by the same snapshot the dispatcher spends from ----
+    // The wallet's grant depends on the enforced plan, so derive the plan first and ask for every
+    // readable owner in one round trip. A row whose wallet could not be read shows "comms —".
+    const provisional = inputs.map((input) => deriveAdminBillingRow(input));
+    const walletOwners = provisional.flatMap((row) =>
+      row.planUnknown ? [] : [{ managerUserId: row.id, tier: normalizeCommsPlanTier(row.tier) }],
+    );
+    const wallets = await loadCommsWalletTotals(db, walletOwners);
+    const rows = inputs.map((input) =>
+      deriveAdminBillingRow({ ...input, commsWallet: wallets.get(input.id) ?? null }),
+    );
 
     rows.sort((a, b) => (a.email || a.id).localeCompare(b.email || b.id));
     return NextResponse.json({ rows });

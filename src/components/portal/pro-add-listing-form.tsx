@@ -89,8 +89,8 @@ import {
 import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
 import {
   SERVICE_FEE_PAYER_OPTION_LABELS,
-  listingPaymentWaiverCodeMatches,
-  listingProplaneAbsorbNeedsWaiverCode,
+  LISTING_PROCESSING_FEE_PAYER_HELP,
+  managerCanSelectProplaneServiceFee,
   listingServiceFeePayerUiValue,
   managerCanSelectManagerAbsorbServiceFee,
   type ServiceFeePayer,
@@ -1860,6 +1860,10 @@ export function ManagerAddListingForm({
     if (isDemoModeActive()) return;
     void loadManagerPaymentWaiverGrantedClient().then(setPaymentWaiverGranted);
   }, []);
+  useEffect(() => {
+    if (paymentWaiverGranted !== false) return;
+    setSub((current) => current.serviceFeePayer === "proplane" ? { ...current, serviceFeePayer: "resident", serviceFeeWaiverCode: undefined } : current);
+  }, [paymentWaiverGranted]);
   const [assistantTriggerTarget, setAssistantTriggerTarget] = useState<HTMLSpanElement | null>(null);
   const resumedStepIndex = clampWizardStep(initialStepIndex);
   const resumedMaxStepReached = Math.max(clampWizardStep(initialMaxStepReached), resumedStepIndex);
@@ -4017,6 +4021,10 @@ export function ManagerAddListingForm({
   }, [draftAutoSaveEligible, editAutoSaveEligible, persistEditListing, persistListingDraft]);
 
   const submitListing = async () => {
+    if (paymentWaiverGranted === null && !isDemoModeActive()) {
+      showToast("Processing-fee coverage could not be verified. Refresh and try again before submitting.");
+      return;
+    }
     // EXACTLY what the steps run. Submit used to omit `stFeeToggles` and
     // `ltFeeToggles`, so the short-term fee checks were skipped entirely and
     // the long-term ones fell back to a derived guess. Already-visited steps
@@ -4720,7 +4728,7 @@ export function ManagerAddListingForm({
                       setBundle(i, { shortTermNightlyRent: v, shortTermEnabled: v.trim() !== "" });
                     }}
                     onDeposit={(v) => setBundle(i, { shortTermDeposit: v })}
-                  
+
                     footer={
                       <LeaseTermFeeRows
                         roomId={bundle.id}
@@ -5760,10 +5768,12 @@ export function ManagerAddListingForm({
                       <FieldLabel>Processing fee paid by</FieldLabel>
                       <Select
                         value={serviceFeePayerUi}
+                        disabled={paymentWaiverGranted === null}
                         onChange={(e) => {
                           const raw = e.target.value;
                           const next: ServiceFeePayer =
                             raw === "proplane" || raw === "manager" || raw === "resident" ? raw : "resident";
+                          if (next === "proplane" && !managerCanSelectProplaneServiceFee(managerSkuTier, paymentWaiverGranted === true)) return;
                           if (next === "manager" && !canSelectManagerAbsorbFee) return;
                           setSub((s) => ({
                             ...s,
@@ -5781,56 +5791,11 @@ export function ManagerAddListingForm({
                           {SERVICE_FEE_PAYER_OPTION_LABELS.manager}
                           {canSelectManagerAbsorbFee ? "" : " — needs paid plan"}
                         </option>
-                        <option value="proplane">{SERVICE_FEE_PAYER_OPTION_LABELS.proplane}</option>
+                        <option value="proplane" disabled={!managerCanSelectProplaneServiceFee(managerSkuTier, paymentWaiverGranted === true)}>{SERVICE_FEE_PAYER_OPTION_LABELS.proplane}{paymentWaiverGranted === true ? "" : " — requires account approval"}</option>
                       </Select>
-                      {/*
-                        The code is what authorises PropLane absorb for a LISTING, on every
-                        plan (PRP-463). An account-wide entitlement is not the same as
-                        choosing it here, so there is no "your plan covers it" shortcut:
-                        no valid code, no absorb, and validation says so.
-                      */}
-                      {listingProplaneAbsorbNeedsWaiverCode(
-                        managerSkuTier,
-                        serviceFeePayerUi,
-                        paymentWaiverGranted === true,
-                      ) ? (
-                        <div
-                          className="mt-2 rounded-lg border border-dashed border-primary/40 bg-primary/5 p-2.5"
-                          data-wizard-field="serviceFeeWaiverCode"
-                        >
-                          <FieldLabel required>PropLane processing waive code</FieldLabel>
-                          <Input
-                            aria-label="PropLane processing waive code"
-                            data-attr="listing-service-fee-waiver-code"
-                            className={cn(
-                              "w-full font-mono uppercase",
-                              wizardFieldErrorClass(Boolean(stepFieldErrors.serviceFeeWaiverCode)),
-                            )}
-                            placeholder="Enter code"
-                            autoComplete="off"
-                            aria-invalid={Boolean(stepFieldErrors.serviceFeeWaiverCode)}
-                            value={sub.serviceFeeWaiverCode ?? ""}
-                            onChange={(e) => {
-                              clearListingFieldError("serviceFeeWaiverCode");
-                              setSub((s) => ({ ...s, serviceFeeWaiverCode: e.target.value.toUpperCase() }));
-                            }}
-                          />
-                          <p
-                            className={cn(
-                              "mt-1 text-xs",
-                              listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
-                                ? "font-medium text-success"
-                                : "text-muted",
-                            )}
-                            data-attr="listing-service-fee-waiver-status"
-                          >
-                            {listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
-                              ? "Code accepted — PropLane absorbs the processing fee on this listing."
-                              : "Without a valid code this listing stays on Resident pays."}
-                          </p>
-                          <StepFieldError msg={stepFieldErrors.serviceFeeWaiverCode} />
-                        </div>
-                      ) : null}
+                      <p id="listing-processing-fee-payer-help" className="mt-1 text-xs text-muted">
+                        {paymentWaiverGranted === null ? "Processing-fee coverage is being verified. Try reopening if it remains unavailable." : LISTING_PROCESSING_FEE_PAYER_HELP}
+                      </p>
                       {stepFieldErrors.serviceFeePayer ? (
                         <p className="text-xs text-destructive">{stepFieldErrors.serviceFeePayer}</p>
                       ) : null}

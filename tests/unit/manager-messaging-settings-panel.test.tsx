@@ -540,7 +540,7 @@ describe("ManagerMessagingSettingsPanel", () => {
           // Once reconciled, the plan class settles — here to a confirmed free
           // plan, which is what the upsell copy keys off under plan-tier gating.
           planTier: "free",
-          entitlement: { eligible: false, reason: "free" },
+          entitlement: { eligible: true, tier: "free", source: "none" },
         }),]);
     vi.stubGlobal("fetch", fetchMock);
     render(<ManagerMessagingSettingsPanel />);
@@ -550,15 +550,8 @@ describe("ManagerMessagingSettingsPanel", () => {
       action: "refresh_eligibility",
     });
     expect(screen.queryByRole("button", { name: "Check eligibility" })).toBeNull();
-    // Once settled, the state is a real plan answer with a real next step.
-    expect(
-      await screen.findByText(
-        // PAYG changed this line: a number is no longer "included" with a paid
-        // plan, so the free-plan next step is upgrade AND a payment method.
-        "Upgrade to Pro or Business, then add a payment method for pay-as-you-go texting and voice.",
-      ),
-    ).toBeTruthy();
-    expect(screen.getByRole("link", { name: "View plans" })).toBeTruthy();
+    expect((await screen.findAllByText(/Dedicated number setup is in a limited rollout/)).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Upgrade to Pro or Business/)).toBeNull();
   });
 
   it("gives free-plan managers a direct path to billing", async () => {

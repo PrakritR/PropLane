@@ -24,7 +24,6 @@ import {
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { buildManagerInboxLiveContacts } from "@/lib/manager-inbox-contacts";
-import { ManagerCommsBillingPanel } from "@/components/portal/manager-comms-billing-panel";
 import { ManagerSmsWorkNumberHint } from "@/components/portal/pro-sms-work-number-hint";
 import { useManagerCommunicationDeliverVia } from "@/hooks/use-manager-communication-deliver-via";
 import {
@@ -111,21 +110,8 @@ function entitlementIsUnverified(
 function messagingUpsellMessage(
   status: ManagerMessagingNumberStatus,
 ): string | null {
-  if (status.planTier === "free") {
-    return "Upgrade to Pro or Business, then add a payment method for pay-as-you-go texting and voice.";
-  }
-  if (status.entitlement.eligible) return null;
-  switch (status.entitlement.reason) {
-    case "trialing":
-      return "Dedicated messaging becomes available after your paid subscription begins.";
-    case "past_due":
-      return "Update your billing details to restore messaging eligibility.";
-    case "canceled":
-      return "Restart a paid Pro or Business plan to request a messaging number.";
-    default:
-      // free / legacy_unknown / plan_unreadable on a paid-or-unknown plan.
-      return null;
-  }
+  if (status.entitlement.eligible || entitlementIsUnverified(status)) return null;
+  return "Work-number access is included on every plan. Refresh eligibility to verify your account.";
 }
 
 /**
@@ -616,7 +602,6 @@ export function ManagerMessagingSettingsPanel({
 
   return (
     <>
-    <ManagerCommsBillingPanel />
     <PortalSettingsSection
       title="Work number"
       description={

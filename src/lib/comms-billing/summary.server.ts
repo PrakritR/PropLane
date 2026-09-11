@@ -5,12 +5,12 @@ import {
   type CommsBillingMeter,
   formatUsdFromCents,
   isCommsPaygBillingEnabled,
-} from "@/lib/comms-billing/rates";
+} from "./rates";
 import {
   commsBillingBlockMessage,
-  evaluateManagerCommsBillingGate,
   type CommsBillingBlockReason,
-} from "@/lib/comms-billing/eligibility.server";
+} from "./eligibility.server";
+import { loadCommsWallet, type CommsWallet } from "./wallet.server";
 
 export type CommsUsageMeterTotal = {
   meter: CommsBillingMeter;
@@ -18,7 +18,6 @@ export type CommsUsageMeterTotal = {
   quantity: number;
   totalCents: number;
 };
-
 export type ManagerCommsBillingSummary = {
   paygEnabled: boolean;
   allowed: boolean;
@@ -33,108 +32,121 @@ export type ManagerCommsBillingSummary = {
   periodStart: string;
   periodEnd: string;
   formattedMonthToDate: string;
+  wallet: CommsWallet;
+  purchases: {
+    id: string;
+    creditCents: number;
+    status: string;
+    createdAt: string;
+    reversedCents: number;
+  }[];
 };
 
-function currentBillingPeriodUtc(): { start: string; end: string } {
-  const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-  return { start: start.toISOString(), end: end.toISOString() };
+async function usageRows(
+  db: SupabaseClient,
+  owner: string,
+  start: string,
+  end: string,
+) {
+  const rows: {
+    meter: string;
+    quantity: number;
+    total_cents: number;
+    credit_state: string;
+  }[] = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await db
+      .from("manager_comms_usage_events")
+      .select("meter, quantity, total_cents, credit_state")
+      .eq("manager_user_id", owner)
+      .gte("created_at", start)
+      .lt("created_at", end)
+      .order("id")
+      .range(offset, offset + 499);
+    if (error) throw new Error("Communication usage could not be loaded.");
+    rows.push(...(data ?? []).filter((row) => row.credit_state !== "released"));
+    if ((data?.length ?? 0) < 500) return rows;
+  }
 }
 
-/**
- * Month-to-date usage in cents, for the allowance gate.
- *
- * Separate from the full summary because the gate runs on the hot path of every
- * send — it needs one number, not the per-meter breakdown and account row the
- * settings panel asks for.
- */
-export async function monthToDateUsageCents(
-  db: SupabaseClient,
-  managerUserId: string,
-): Promise<number> {
-  const { start, end } = currentBillingPeriodUtc();
-  const { data, error } = await db
-    .from("manager_comms_usage_events")
-    .select("total_cents")
-    .eq("manager_user_id", managerUserId)
-    .gte("created_at", start)
-    .lt("created_at", end);
-  // A failed read must not read as "no usage" — that would hand out unlimited
-  // free usage whenever the database hiccups. Report the allowance as spent and
-  // let the card check decide.
-  if (error) return Number.MAX_SAFE_INTEGER;
-  let cents = 0;
-  for (const row of data ?? []) cents += Number((row as { total_cents?: unknown }).total_cents) || 0;
-  return cents;
+export async function monthToDateUsageCents(db: SupabaseClient, owner: string) {
+  const now = new Date();
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+  ).toISOString();
+  const end = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+  ).toISOString();
+  return (await usageRows(db, owner, start, end)).reduce(
+    (total, row) => total + Number(row.total_cents),
+    0,
+  );
 }
 
 export async function loadManagerCommsBillingSummary(
   db: SupabaseClient,
   managerUserId: string,
 ): Promise<ManagerCommsBillingSummary> {
-  const { start, end } = currentBillingPeriodUtc();
-  const paygEnabled = isCommsPaygBillingEnabled();
-  const gate = await evaluateManagerCommsBillingGate(db, managerUserId);
-
-  const [{ data: account }, { data: events }] = await Promise.all([
+  const wallet = await loadCommsWallet(db, managerUserId);
+  const [events, accountResult, purchasesResult] = await Promise.all([
+    usageRows(db, managerUserId, wallet.periodStart, wallet.periodEnd),
     db
       .from("manager_comms_billing_accounts")
-      .select(
-        "monthly_budget_cents, has_default_payment_method, billing_paused_at",
-      )
+      .select("monthly_budget_cents, has_default_payment_method")
       .eq("manager_user_id", managerUserId)
       .maybeSingle(),
     db
-      .from("manager_comms_usage_events")
-      .select("meter, quantity, total_cents")
+      .from("manager_comms_credit_purchases")
+      .select("id, credit_cents, status, created_at, reversed_cents")
       .eq("manager_user_id", managerUserId)
-      .gte("created_at", start)
-      .lt("created_at", end),
+      .order("created_at", { ascending: false })
+      .limit(20),
   ]);
-
-  const byMeter = new Map<CommsBillingMeter, { quantity: number; totalCents: number }>();
-  let monthToDateCents = 0;
-  for (const row of events ?? []) {
-    const meter = String(row.meter) as CommsBillingMeter;
-    const quantity = Number(row.quantity) || 0;
-    const totalCents = Number(row.total_cents) || 0;
-    monthToDateCents += totalCents;
-    const prev = byMeter.get(meter) ?? { quantity: 0, totalCents: 0 };
-    byMeter.set(meter, {
-      quantity: prev.quantity + quantity,
-      totalCents: prev.totalCents + totalCents,
-    });
-  }
-
-  const meterTotals = (Object.keys(COMMS_BILLING_RATES_CENTS) as CommsBillingMeter[])
+  if (accountResult.error || purchasesResult.error)
+    throw new Error("Communication billing could not be loaded.");
+  const meterTotals = (
+    Object.keys(COMMS_BILLING_RATES_CENTS) as CommsBillingMeter[]
+  )
     .map((meter) => {
-      const totals = byMeter.get(meter) ?? { quantity: 0, totalCents: 0 };
+      const rows = events.filter((row) => row.meter === meter);
       return {
         meter,
         label: COMMS_BILLING_METER_LABELS[meter],
-        quantity: totals.quantity,
-        totalCents: totals.totalCents,
+        quantity: rows.reduce((sum, row) => sum + Number(row.quantity), 0),
+        totalCents: rows.reduce((sum, row) => sum + Number(row.total_cents), 0),
       };
     })
     .filter((row) => row.quantity > 0);
-
-  const blockReason = gate.allowed ? null : gate.reason;
-
+  const monthToDateCents = meterTotals.reduce(
+    (sum, row) => sum + row.totalCents,
+    0,
+  );
+  const blockReason = wallet.paused
+    ? "billing_paused"
+    : wallet.remainingCents === 0
+      ? "allowance_exhausted"
+      : null;
   return {
-    paygEnabled,
-    allowed: gate.allowed,
+    wallet,
+    paygEnabled: isCommsPaygBillingEnabled(),
+    allowed: !blockReason,
     blockReason,
     blockMessage: blockReason ? commsBillingBlockMessage(blockReason) : null,
     monthToDateCents,
-    monthlyBudgetCents:
-      account?.monthly_budget_cents != null ? Number(account.monthly_budget_cents) : null,
-    hasPaymentMethod: Boolean(account?.has_default_payment_method),
-    billingPaused: Boolean(account?.billing_paused_at),
+    formattedMonthToDate: formatUsdFromCents(monthToDateCents),
+    monthlyBudgetCents: accountResult.data?.monthly_budget_cents ?? null,
+    hasPaymentMethod: accountResult.data?.has_default_payment_method === true,
+    billingPaused: wallet.paused,
     ratesCents: COMMS_BILLING_RATES_CENTS,
     meterTotals,
-    periodStart: start,
-    periodEnd: end,
-    formattedMonthToDate: formatUsdFromCents(monthToDateCents),
+    periodStart: wallet.periodStart,
+    periodEnd: wallet.periodEnd,
+    purchases: (purchasesResult.data ?? []).map((row) => ({
+      id: row.id,
+      creditCents: row.credit_cents,
+      status: row.status,
+      createdAt: row.created_at,
+      reversedCents: row.reversed_cents,
+    })),
   };
 }

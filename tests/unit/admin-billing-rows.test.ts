@@ -41,6 +41,7 @@ function input(over: Partial<AdminBillingRowInput> = {}): AdminBillingRowInput {
     managerFeeChoice: null,
     adminFeeOverride: null,
     commsUsedCents: 0,
+    commsWallet: { allowanceCents: 200, includedRemainingCents: 200, purchasedRemainingCents: 0, paused: false },
     commsHasPaymentMethod: false,
     nowMs: NOW,
     ...over,
@@ -223,18 +224,74 @@ describe("who pays processing", () => {
 });
 
 describe("communication allowance", () => {
-  it("reports usage against the plan's included amount", () => {
+  it("reports usage against the wallet's granted amount", () => {
     const row = deriveAdminBillingRow(
       input({
         purchase: purchase({ tier: "pro", stripeSubscriptionId: "sub_1" }),
         commsUsedCents: 400,
+        commsWallet: { allowanceCents: 1000, includedRemainingCents: 600, purchasedRemainingCents: 0, paused: false },
       }),
     );
-    expect(row.comms).toMatchObject({ tier: "pro", usedCents: 400, allowanceCents: 1500, exhausted: false });
+    expect(row.comms).toMatchObject({
+      tier: "pro",
+      usedCents: 400,
+      allowanceCents: 1000,
+      remainingCents: 600,
+      exhausted: false,
+      blocked: false,
+    });
+  });
+
+  it("shows the preserved migration-month grant, not the plan table, when the wallet kept a larger allowance", () => {
+    const row = deriveAdminBillingRow(
+      input({
+        purchase: purchase({ tier: "business", stripeSubscriptionId: "sub_1" }),
+        commsUsedCents: 2_000,
+        commsWallet: { allowanceCents: 15_000, includedRemainingCents: 13_000, purchasedRemainingCents: 0, paused: false },
+      }),
+    );
+    expect(row.comms).toMatchObject({ allowanceCents: 15_000, remainingCents: 13_000, exhausted: false });
+  });
+
+  it("a purchased pack keeps a manager sending past the included allowance", () => {
+    const row = deriveAdminBillingRow(
+      input({
+        commsUsedCents: 200,
+        commsWallet: { allowanceCents: 200, includedRemainingCents: 0, purchasedRemainingCents: 2_500, paused: false },
+      }),
+    );
+    expect(row.comms).toMatchObject({
+      allowanceCents: 200,
+      purchasedRemainingCents: 2_500,
+      remainingCents: 2_500,
+      exhausted: false,
+      blocked: false,
+    });
+  });
+
+  it("is exhausted only when both included and purchased credit are gone, and blocked while paused", () => {
+    const empty = deriveAdminBillingRow(
+      input({
+        commsUsedCents: 200,
+        commsWallet: { allowanceCents: 200, includedRemainingCents: 0, purchasedRemainingCents: 0, paused: false },
+      }),
+    );
+    expect(empty.comms).toMatchObject({ exhausted: true, blocked: true });
+    const paused = deriveAdminBillingRow(
+      input({
+        commsWallet: { allowanceCents: 200, includedRemainingCents: 200, purchasedRemainingCents: 0, paused: true },
+      }),
+    );
+    expect(paused.comms).toMatchObject({ exhausted: false, blocked: true });
   });
 
   it("shows nothing rather than a wrong zero when usage could not be read", () => {
     const row = deriveAdminBillingRow(input({ commsUsedCents: null }));
+    expect(row.comms).toBeNull();
+  });
+
+  it("shows nothing rather than the plan table's number when the wallet could not be read", () => {
+    const row = deriveAdminBillingRow(input({ commsUsedCents: 400, commsWallet: null }));
     expect(row.comms).toBeNull();
   });
 });
@@ -263,7 +320,7 @@ describe("tabs", () => {
     // Two: the staff-overridden row AND the Business account that has made no choice of its own —
     // `resolveServiceFeePayerFor`'s default for a paid plan IS `proplane`. The tab reports the net
     // answer, not "staff pushed a button", which is the point of reading it from that resolver.
-    expect(counts.absorbing).toBe(2);
+    expect(counts.absorbing).toBe(1);
     expect(ADMIN_BILLING_TABS.map((t) => t.id)).toEqual([
       "all",
       "trial",

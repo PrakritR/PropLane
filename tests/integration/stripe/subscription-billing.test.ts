@@ -14,8 +14,13 @@ vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: vi.fn(),
 }));
 
-vi.mock("@/lib/manager-access-server", () => ({
-  getManagerPurchaseSku: vi.fn(),
+vi.mock("@/lib/manager-route-guard.server", () => ({
+  requireManagerRouteUser: vi.fn(),
+}));
+
+vi.mock("@/lib/manager-stripe-customer.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/manager-stripe-customer.server")>()),
+  ensureManagerBillingCustomer: vi.fn(),
 }));
 
 vi.mock("@/lib/manager-purchase-from-session", () => ({
@@ -42,7 +47,8 @@ vi.mock("@/lib/supabase/service", () => ({
 
 import { getStripe } from "@/lib/stripe";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getManagerPurchaseSku } from "@/lib/manager-access-server";
+import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
+import { ensureManagerBillingCustomer } from "@/lib/manager-stripe-customer.server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 import { reconcileManagerPurchaseByStripeSubscriptionId } from "@/lib/manager-stripe-subscription-sync";
 import { POST as checkout } from "@/app/api/stripe/checkout/route";
@@ -67,9 +73,30 @@ function serviceRoleDbMock(opts: { user_id?: string | null; update?: ReturnType<
   };
 }
 
+function billingIdentityDbMock() {
+  return {
+    from: vi.fn((table: string) => {
+      const query = {
+        select: vi.fn(() => query), eq: vi.fn(() => query),
+        or: vi.fn(() => query), order: vi.fn(() => query),
+        limit: vi.fn().mockResolvedValue({ data: [{ user_id: "user_1", stripe_customer_id: "cus_test_123", stripe_subscription_id: "sub_test_123" }], error: null }),
+        maybeSingle: vi.fn().mockResolvedValue({ data: table === "manager_comms_billing_accounts" ? null : {}, error: null }),
+      };
+      return query;
+    }),
+  };
+}
+const stripeIdentityMock = () => ({
+  customers: { retrieve: vi.fn().mockResolvedValue({ id: "cus_test_123", metadata: { manager_user_id: "user_1" } }) },
+  subscriptions: { retrieve: vi.fn().mockResolvedValue({ id: "sub_test_123", customer: "cus_test_123" }) },
+});
+
 describe("Stripe subscription billing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(requireManagerRouteUser).mockResolvedValue(null);
+    vi.mocked(ensureManagerBillingCustomer).mockResolvedValue("cus_test_123");
+    vi.mocked(createSupabaseServiceRoleClient).mockReturnValue(billingIdentityDbMock() as never);
     vi.mocked(createSupabaseServerClient).mockResolvedValue({
       auth: { getUser: vi.fn().mockResolvedValue({ data: { user: null } }) },
     } as never);
@@ -87,6 +114,7 @@ describe("Stripe subscription billing", () => {
       client_secret: "cs_test_secret",
     });
     vi.mocked(getStripe).mockReturnValue({
+      ...stripeIdentityMock(),
       checkout: { sessions: { create } },
     } as never);
 
@@ -140,7 +168,33 @@ describe("Stripe subscription billing", () => {
     expect(res.status).toBe(401);
   });
 
+  it.each(["resident", "vendor"])(
+    "POST /api/stripe/checkout-portal rejects a %s-only user before billing or Stripe side effects",
+    async () => {
+      vi.mocked(createSupabaseServerClient).mockResolvedValue({
+        auth: {
+          getUser: vi.fn().mockResolvedValue({
+            data: { user: { id: "user_1", email: "non-manager@example.com" } },
+          }),
+        },
+      } as never);
+      vi.mocked(requireManagerRouteUser).mockResolvedValue(null);
+
+      const req = jsonRequest("http://localhost/api/stripe/checkout-portal", {
+        method: "POST",
+        body: { tier: "pro", billing: "monthly" },
+      });
+      const res = await checkoutPortal(req);
+
+      expect(res.status).toBe(403);
+      expect(ensureManagerBillingCustomer).not.toHaveBeenCalled();
+      expect(getStripe).not.toHaveBeenCalled();
+      expect(createSupabaseServiceRoleClient).not.toHaveBeenCalled();
+    },
+  );
+
   it("POST /api/stripe/checkout-portal starts hosted checkout for authenticated manager", async () => {
+    const managerDb = billingIdentityDbMock();
     vi.mocked(createSupabaseServerClient).mockResolvedValue({
       auth: {
         getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user_1", email: "mgr@example.com" } } }),
@@ -156,9 +210,16 @@ describe("Stripe subscription billing", () => {
         }),
       }),
     } as never);
+    vi.mocked(requireManagerRouteUser).mockResolvedValue({
+      userId: "user_1",
+      // The canonical guard admits additive multi-role accounts whenever one
+      // of their profile_roles rows is manager.
+      db: managerDb,
+    } as never);
 
     const create = vi.fn().mockResolvedValue({ id: "cs_portal", url: "https://checkout.stripe.test/session" });
     vi.mocked(getStripe).mockReturnValue({
+      ...stripeIdentityMock(),
       checkout: { sessions: { create } },
     } as never);
 
@@ -171,6 +232,8 @@ describe("Stripe subscription billing", () => {
 
     expect(status).toBe(200);
     expect(data.url).toContain("checkout.stripe");
+    expect(requireManagerRouteUser).toHaveBeenCalledOnce();
+    expect(ensureManagerBillingCustomer).toHaveBeenCalledWith(managerDb, "user_1");
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({
         mode: "subscription",
@@ -181,17 +244,38 @@ describe("Stripe subscription billing", () => {
     expect(create.mock.calls[0]?.[0]).not.toHaveProperty("payment_method_types");
   });
 
+  it("POST /api/stripe/checkout-portal refuses a mismatched canonical manager identity", async () => {
+    vi.mocked(createSupabaseServerClient).mockResolvedValue({
+      auth: {
+        getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user_1", email: "mgr@example.com" } } }),
+      },
+    } as never);
+    vi.mocked(requireManagerRouteUser).mockResolvedValue({
+      userId: "different-user",
+      db: billingIdentityDbMock(),
+    } as never);
+
+    const req = jsonRequest("http://localhost/api/stripe/checkout-portal", {
+      method: "POST",
+      body: { tier: "pro", billing: "monthly" },
+    });
+    const res = await checkoutPortal(req);
+
+    expect(res.status).toBe(403);
+    expect(ensureManagerBillingCustomer).not.toHaveBeenCalled();
+    expect(getStripe).not.toHaveBeenCalled();
+    expect(createSupabaseServiceRoleClient).not.toHaveBeenCalled();
+  });
+
   it("POST /api/stripe/billing-portal opens portal for Stripe customer", async () => {
     vi.mocked(createSupabaseServerClient).mockResolvedValue({
       auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user_1" } } }) },
     } as never);
-    vi.mocked(getManagerPurchaseSku).mockResolvedValue({
-      stripeCustomerId: "cus_test_123",
-      stripeSubscriptionId: "sub_test_123",
-    });
+    vi.mocked(requireManagerRouteUser).mockResolvedValue({ userId: "user_1", db: billingIdentityDbMock() } as never);
 
     const create = vi.fn().mockResolvedValue({ url: "https://billing.stripe.test/portal" });
     vi.mocked(getStripe).mockReturnValue({
+      ...stripeIdentityMock(),
       billingPortal: { sessions: { create } },
     } as never);
 

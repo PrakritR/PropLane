@@ -85,24 +85,20 @@ export function ManagerProperties({
    * acquire a Suspense boundary it does not otherwise need.
    *
    * It starts as `null` — "not decided yet" — so the first paint renders NEITHER
-   * wizard. Defaulting to true would flash the new wizard for a manager who
-   * asked for the old one, and defaulting to false would flash the old one for
-   * everybody else.
+   * wizard. Defaulting either way would flash the wrong editor for a moment at
+   * the one time a manager is watching the screen most closely.
    */
   const [useV2Wizard, setUseV2Wizard] = useState<boolean | null>(null);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
-    // The ORIGINAL wizard is what everybody gets. The redesign stays reachable
-    // at ?wizard=v2 so it can still be worked on and reviewed, but it is no
-    // longer the default: the captain asked for the old flow back, pricing on
-    // its own step and all.
-    setUseV2Wizard(params.get("wizard") === "v2");
-    // `?wizard=v2` also opens it straight away, which is how the redesign is
-    // reviewed without going through the ADD affordance — that affordance turns
-    // into a paywall link once a manager is at their plan limit. Publishing is
-    // still gated: useListingPersistence pre-checks the plan and the server
-    // re-checks it.
+    // The redesigned workspace is what everybody gets. `?wizard=v1` is the way
+    // back to the original form while it is still in the tree, and `?wizard=v2`
+    // still opens the redesign straight away — that is how it is reviewed
+    // without going through the ADD affordance, which turns into a paywall link
+    // once a manager is at their plan limit. Publishing is still gated:
+    // useListingPersistence pre-checks the plan and the server re-checks it.
+    setUseV2Wizard(params.get("wizard") !== "v1");
     if (params.get("wizard") === "v2") setWizardOpen(true);
   }, []);
   /** Resume the seeded / first draft in the wizard (PRP-396). */
@@ -453,10 +449,10 @@ export function ManagerProperties({
       )}
       {wizardOpen && useV2Wizard === true ? (
         /*
-         * The redesigned wizard, opened ONLY with ?wizard=v2 so it can be
-         * reviewed against the live one without changing what anybody gets.
-         * It writes the same submission shape, so a draft saved here opens in
-         * either wizard.
+         * The redesigned listing workspace — a step rail, the form, and a panel
+         * that shows what the manager just changed. It writes the same
+         * submission shape as the original form, so a draft saved in either
+         * opens in the other.
          */
         <ListingWizardOverlay>
           <ListingWizardV2

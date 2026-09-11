@@ -70,7 +70,7 @@ describe("per-tier messaging and calling limits", () => {
   });
 });
 
-describe("running out asks for a card rather than an upgrade", () => {
+describe("running out requires purchased credit", () => {
   const usage = (tier: CommsPlanTier, usedCents: number, hasPaymentMethod: boolean) =>
     evaluateCommsAllowance({ tier, usedCents, hasPaymentMethod });
 
@@ -80,17 +80,17 @@ describe("running out asks for a card rather than an upgrade", () => {
     expect(state.blocked).toBe(false);
   });
 
-  it("blocks only when the allowance is spent AND there is no card", () => {
+  it("blocks when allowance is spent even with a card", () => {
     const spent = includedAllowanceCents("free")!;
     expect(usage("free", spent, false).blocked).toBe(true);
-    expect(usage("free", spent, true).blocked).toBe(false);
+    expect(usage("free", spent, true).blocked).toBe(true);
   });
 
-  it("lets a manager pay for more — past the allowance, a card bills", () => {
+  it("a saved card does not enable automatic usage charges", () => {
     const over = includedAllowanceCents("pro")! + 500;
     const state = usage("pro", over, true);
     expect(state.exhausted).toBe(true);
-    expect(state.blocked).toBe(false);
+    expect(state.blocked).toBe(true);
     expect(billableCentsAboveAllowance({ tier: "pro", totalUsedCents: over })).toBe(500);
   });
 

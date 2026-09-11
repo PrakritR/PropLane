@@ -13,12 +13,9 @@ import {
   applyPropertyServiceFeePayersToListings,
   loadPropertyServiceFeePayers,
 } from "@/lib/manager-manual-payment-settings.server";
-import { isWaiverGrantedManagerPurchase } from "@/lib/manager-access";
-import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import {
   LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
   type ServiceFeePayer,
-  waiverGrantedFromPromoCode,
 } from "@/lib/payment-policy";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -71,12 +68,8 @@ function parsePropertyServiceFeePayerUpdates(
   return out;
 }
 
-async function accountWaiverGranted(_db: ReturnType<typeof createSupabaseServiceRoleClient>, userId: string) {
-  const purchase = await getManagerPurchaseSku(userId);
-  if (purchase.readFailed) {
-    throw new Error("Could not read account payment waiver status.");
-  }
-  return isWaiverGrantedManagerPurchase(purchase.promoCode);
+async function accountWaiverGranted(db: ReturnType<typeof createSupabaseServiceRoleClient>, userId: string) {
+  return (await loadManagerManualPaymentSettings(db, userId)).adminServiceFeeOverride === "proplane";
 }
 
 export async function GET(req: Request) {
@@ -113,16 +106,9 @@ export async function PATCH(req: Request) {
       if (normalized.zellePaymentsEnabled && !isValidZelleContact(normalized.zelleContact)) {
         return NextResponse.json({ error: "Enter a valid Zelle phone number or email address." }, { status: 400 });
       }
-      let grant = false;
-      if (normalized.serviceFeePayer === "proplane") {
-        const purchase = await getManagerPurchaseSku(ctx.userId);
-        if (purchase.readFailed) {
-          return NextResponse.json({ error: "Could not read account payment waiver status." }, { status: 500 });
-        }
-        grant = waiverGrantedFromPromoCode(purchase.promoCode);
-      }
+      const grant = settings.adminServiceFeeOverride === "proplane";
       if (
-        normalized.serviceFeePayer === "proplane" &&
+        rest.serviceFeePayer === "proplane" &&
         resolveSavedServiceFeeSelection(normalized, settings, grant).serviceFeePayer !== "proplane"
       ) {
         return NextResponse.json({ error: LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID }, { status: 400 });

@@ -23,22 +23,22 @@ describe("plan communication allowance copy (PRP-282)", () => {
   });
 
   it("states the dollar value that the allowance table enforces", () => {
-    expect(commsAllowanceFeatureText("free")).toContain("$2.50");
-    expect(commsAllowanceFeatureText("pro")).toContain("$15");
-    expect(commsAllowanceFeatureText("business")).toContain("$150");
-    expect(COMMS_INCLUDED_ALLOWANCE_CENTS).toEqual({ free: 250, pro: 1500, business: 15000 });
+    expect(commsAllowanceFeatureText("free")).toContain("$2");
+    expect(commsAllowanceFeatureText("pro")).toContain("$10");
+    expect(commsAllowanceFeatureText("business")).toContain("$100");
+    expect(COMMS_INCLUDED_ALLOWANCE_CENTS).toEqual({ free: 200, pro: 1000, business: 10000 });
   });
 
-  it("the paywall copy names the amount and the way out (add a card, pay as you go)", () => {
+  it("the paywall copy names the amount and the way out (buy prepaid credit)", () => {
     const msg = commsAllowanceBlockedMessage("pro");
-    expect(msg).toContain("$15.00");
-    expect(msg).toMatch(/add a card/i);
-    expect(msg).toMatch(/billed as you go/i);
+    expect(msg).toContain("$10.00");
+    expect(msg).toMatch(/buy more usage/i);
+    expect(msg).toMatch(/does not enable automatic charges/i);
   });
 
   it("the public pricing FAQ answers the allowance question with the same three amounts", () => {
     const src = readFileSync("src/app/(public)/pricing/page.tsx", "utf8");
     expect(src).toContain("How much texting, calling and AI assistant use is included?");
-    for (const amount of ["$2.50", "$15", "$150"]) expect(src).toContain(amount);
+    for (const tier of ["free", "pro", "business"]) expect(src).toContain(`COMMS_INCLUDED_ALLOWANCE_CENTS.${tier}`);
   });
 });

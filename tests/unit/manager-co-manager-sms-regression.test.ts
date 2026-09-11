@@ -83,12 +83,12 @@ describe("manager + two co-managers texting work numbers", () => {
     expect(await identity(db)).toBeNull();
   });
 
-  it("inherits sending eligibility without overwriting the co-manager's own billing state", async () => {
+  it("inherits paid assistant-email eligibility without overwriting the co-manager's own billing state", async () => {
     const db = seed();
     expect(await getStoredManagerSmsEntitlement(db as never, co)).toMatchObject({ eligible: false });
-    expect(await getEffectiveManagerSmsEntitlement(db as never, co)).toMatchObject({ eligible: true });
+    expect(await getEffectiveManagerSmsEntitlement(db as never, co, { preferPaid: true })).toMatchObject({ eligible: true });
     db.__tables.account_link_invites[0].status = "cancelled";
-    expect(await getEffectiveManagerSmsEntitlement(db as never, co)).toMatchObject({ eligible: false });
+    expect(await getEffectiveManagerSmsEntitlement(db as never, co, { preferPaid: true })).toMatchObject({ eligible: false });
   });
 
   it("records reply consent for the exact owner + actor conversation, preserving revocation", async () => {

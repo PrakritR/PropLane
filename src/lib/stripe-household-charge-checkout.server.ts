@@ -220,7 +220,8 @@ export async function createHouseholdChargeCheckout(
     if (!resolved.ok) return resolved;
     const { loaded, managerUserId } = resolved;
 
-    const { tier: managerTierRaw, promoCode } = await getManagerPurchaseSku(managerUserId);
+    const { tier: managerTierRaw, promoCode, readFailed } = await getManagerPurchaseSku(managerUserId);
+    if (readFailed) throw new Error("Payment plan could not be verified. Try again.");
     const managerTier = normalizeManagerSkuTier(managerTierRaw) ?? "free";
     const managerSettings = await loadManagerManualPaymentSettings(db, managerUserId);
     const propertyChoices = [...new Set(loaded.map((row) => row.propertyFeePayer ?? "inherit"))];

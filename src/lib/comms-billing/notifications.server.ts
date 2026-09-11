@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { formatUsdFromCents } from "@/lib/comms-billing/rates";
-import { loadManagerCommsBillingSummary } from "@/lib/comms-billing/summary.server";
+
 
 const DEFAULT_FROM = "PropLane <notifications@prop-lane.space>";
 
@@ -47,8 +47,8 @@ export async function notifyCommsBillingPaymentMethodUpdated(
     text: [
       "Your payment method for PropLane communication usage was updated.",
       "",
-      "Text, voice, and AI assistant usage on your work number is billed pay-as-you-go.",
-      "View usage in Settings → Messaging.",
+      "Communication uses prepaid credit. A saved card never authorizes automatic usage charges.",
+      "View usage in Settings → Billing & plan.",
     ].join("\n"),
   });
 }
@@ -88,88 +88,26 @@ export async function maybeNotifyCommsBudgetThreshold(
   db: SupabaseClient,
   managerUserId: string,
 ): Promise<void> {
-  const summary = await loadManagerCommsBillingSummary(db, managerUserId);
-  if (!summary.paygEnabled || summary.monthlyBudgetCents == null || summary.monthlyBudgetCents <= 0) {
-    return;
-  }
-
-  const budget = summary.monthlyBudgetCents;
-  const used = summary.monthToDateCents;
-  const ratio = used / budget;
-  if (ratio < 0.8) return;
-
-  const { data: account } = await db
-    .from("manager_comms_billing_accounts")
-    .select("notified_budget_80_at, notified_budget_100_at")
-    .eq("manager_user_id", managerUserId)
-    .maybeSingle();
-
-  const now = new Date().toISOString();
+  if (!process.env.RESEND_API_KEY?.trim()) return;
+  const { data: account, error } = await db.from("manager_comms_billing_accounts")
+    .select("monthly_budget_cents").eq("manager_user_id", managerUserId).maybeSingle();
+  if (error || !account?.monthly_budget_cents) return;
   const email = await loadManagerEmail(db, managerUserId);
   if (!email) return;
-
-  if (ratio >= 1 && !account?.notified_budget_100_at) {
-    await db
-      .from("manager_comms_billing_accounts")
-      .upsert(
-        {
-          manager_user_id: managerUserId,
-          notified_budget_100_at: now,
-          updated_at: now,
-        },
-        { onConflict: "manager_user_id" },
-      );
-    await sendManagerCommsBillingEmail({
-      to: email,
-      subject: "PropLane — communication usage at 100% of budget",
-      text: [
-        `Your communication usage this month is ${formatUsdFromCents(used)}.`,
-        `Your budget is ${formatUsdFromCents(budget)}.`,
-        "",
-        "Usage continues to accrue. Update your budget or payment method in Settings if needed.",
-      ].join("\n"),
-    });
-    return;
-  }
-
-  if (ratio >= 0.8 && ratio < 1 && !account?.notified_budget_80_at) {
-    await db
-      .from("manager_comms_billing_accounts")
-      .upsert(
-        {
-          manager_user_id: managerUserId,
-          notified_budget_80_at: now,
-          updated_at: now,
-        },
-        { onConflict: "manager_user_id" },
-      );
-    await sendManagerCommsBillingEmail({
-      to: email,
-      subject: "PropLane — communication usage at 80% of budget",
-      text: [
-        `Your communication usage this month is ${formatUsdFromCents(used)} (${Math.round(ratio * 100)}% of your ${formatUsdFromCents(budget)} budget).`,
-        "",
-        "View details in Settings → Messaging.",
-      ].join("\n"),
-    });
-  }
+  const { data: alert, error: claimError } = await db.rpc("claim_comms_budget_alert", { p_owner: managerUserId });
+  if (claimError || !alert) return;
+  await sendManagerCommsBillingEmail({ to: email,
+    subject: `PropLane — communication usage at ${alert.threshold}% of budget`,
+    text: `Your communication usage this month is ${formatUsdFromCents(alert.used)}. Your budget is ${formatUsdFromCents(alert.budget)}.\n\nView usage and buy credit in Settings → Billing & plan. New outgoing activity stops when credit runs out.`,
+  });
 }
 
 export async function clearCommsBillingPause(
   db: SupabaseClient,
   managerUserId: string,
 ): Promise<void> {
-  const now = new Date().toISOString();
-  await db
-    .from("manager_comms_billing_accounts")
-    .upsert(
-      {
-        manager_user_id: managerUserId,
-        billing_paused_at: null,
-        billing_pause_reason: null,
-        updated_at: now,
-      },
-      { onConflict: "manager_user_id" },
-    );
+  await db.from("manager_comms_billing_accounts")
+    .update({ billing_paused_at: null, billing_pause_reason: null, updated_at: new Date().toISOString() })
+    .eq("manager_user_id", managerUserId).eq("billing_pause_reason", "payment_failed");
   await notifyCommsBillingPaymentMethodUpdated(db, managerUserId);
 }

@@ -295,11 +295,12 @@ export async function getManagerServiceFeePayerByManagerId(
   if (!normalized) return "resident";
   try {
     const supabase = createSupabaseServiceRoleClient();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("manager_purchases")
       .select("user_id, tier, promo_code")
       .eq("manager_id", normalized)
       .maybeSingle();
+    if (error) throw new Error("Payment fee coverage could not be verified.");
     if (!data) return "resident";
     const tier = normalizeManagerSkuTier(data.tier != null ? String(data.tier) : null) ?? "free";
     const userId = data.user_id != null ? String(data.user_id).trim() : "";
@@ -314,7 +315,7 @@ export async function getManagerServiceFeePayerByManagerId(
       ),
     });
   } catch {
-    return "resident";
+    throw new Error("Payment fee coverage could not be verified. Try again.");
   }
 }
 

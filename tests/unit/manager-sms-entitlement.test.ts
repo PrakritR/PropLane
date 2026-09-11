@@ -24,17 +24,17 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("manager SMS entitlement", () => {
+describe("paid assistant-email entitlement policy", () => {
   it.each(["none", "stripe"] as const)("expires an enrolled %s trial without another reconciliation", async (source) => {
     vi.stubEnv("SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED", "1");
     const db = createMemoryDb({
       sms_manager_entitlements: [],
       manager_purchases: [{ user_id: MANAGER, tier: "pro", billing: "trial", paid_at: PURCHASE.paidAt }],
     });
-    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, {
+    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, { ...({
       loadPurchase: async () => source === "stripe" ? PURCHASE : { ...PURCHASE, billing: "trial", stripeSubscriptionId: null },
       loadStripeSubscription: async () => ({ status: "trialing", trial_end: Math.floor(Date.now() / 1000) + 3600 }) as never,
-    })).resolves.toMatchObject({ eligible: true });
+    }), preferPaid: true })).resolves.toMatchObject({ eligible: true });
     const end = Date.parse(String(db.__tables.sms_manager_entitlements[0].valid_until));
     vi.spyOn(Date, "now").mockReturnValue(end);
     await expect(getStoredManagerSmsEntitlement(db as never, MANAGER)).resolves.toEqual({ eligible: false, reason: "canceled" });
@@ -55,9 +55,9 @@ describe("manager SMS entitlement", () => {
       loadPurchase: async () => PURCHASE,
       loadStripeSubscription: async () => ({ status: "trialing", trial_end: trialEnd }) as never,
     };
-    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, deps)).resolves.toEqual({ eligible: false, reason: "plan_unreadable" });
+    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, { ...(deps), preferPaid: true })).resolves.toEqual({ eligible: false, reason: "plan_unreadable" });
     expect(db.__tables.sms_manager_entitlements[0]).toEqual(original);
-    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, deps)).resolves.toMatchObject({ eligible: true });
+    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, { ...(deps), preferPaid: true })).resolves.toMatchObject({ eligible: true });
   });
 
   it.each(["pro", "business"])("temporarily enrolls a %s signup trial and preserves only its original window", async (tier) => {
@@ -69,14 +69,14 @@ describe("manager SMS entitlement", () => {
     });
     const deps = { loadPurchase: async () => purchase };
     const eligible = { eligible: true, tier, source: "stripe", trial: true };
-    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, deps)).resolves.toEqual(eligible);
+    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, { ...(deps), preferPaid: true })).resolves.toEqual(eligible);
     expect(db.__tables.sms_manager_entitlements[0]).toMatchObject({ status: "trialing", source: "none", eligible: true });
     await expect(getStoredManagerSmsEntitlement(db as never, MANAGER)).resolves.toEqual(eligible);
 
     vi.stubEnv("SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED", "0");
-    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, deps)).resolves.toEqual(eligible);
+    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, { ...(deps), preferPaid: true })).resolves.toEqual(eligible);
     await expect(getStoredManagerSmsEntitlement(db as never, MANAGER)).resolves.toEqual(eligible);
-    await expect(reconcileManagerSmsEntitlement(db as never, "another-manager", deps)).resolves.toEqual({ eligible: false, reason: "trialing" });
+    await expect(reconcileManagerSmsEntitlement(db as never, "another-manager", { ...(deps), preferPaid: true })).resolves.toEqual({ eligible: false, reason: "trialing" });
 
     db.__tables.manager_purchases[0].billing = "free";
     await expect(getStoredManagerSmsEntitlement(db as never, MANAGER)).resolves.toEqual({ eligible: false, reason: "plan_unreadable" });
@@ -90,15 +90,15 @@ describe("manager SMS entitlement", () => {
       loadPurchase: async () => PURCHASE,
       loadStripeSubscription: async () => ({ status: "trialing", trial_end: trialEnd }) as never,
     };
-    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, deps)).resolves.toMatchObject({ eligible: true });
+    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, { ...(deps), preferPaid: true })).resolves.toMatchObject({ eligible: true });
     expect(db.__tables.sms_manager_entitlements[0]).toMatchObject({
       status: "trialing", valid_until: new Date(trialEnd * 1000).toISOString(),
     });
     await expect(getStoredManagerSmsEntitlement(db as never, MANAGER)).resolves.toMatchObject({ eligible: true });
     vi.stubEnv("SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED", "0");
-    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, {
+    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, { ...({
       ...deps, loadStripeSubscription: async () => ({ status: "trialing", trial_end: trialEnd + 3600 }) as never,
-    })).resolves.toMatchObject({ eligible: true, trial: true });
+    }), preferPaid: true })).resolves.toMatchObject({ eligible: true, trial: true });
     expect(db.__tables.sms_manager_entitlements[0].valid_until).toBe(new Date(trialEnd * 1000).toISOString());
     vi.spyOn(Date, "now").mockReturnValue(trialEnd * 1000);
     await expect(getStoredManagerSmsEntitlement(db as never, MANAGER)).resolves.toEqual({ eligible: false, reason: "canceled" });
@@ -115,19 +115,19 @@ describe("manager SMS entitlement", () => {
       loadPurchase: async () => source === "none" ? purchase : PURCHASE,
       loadStripeSubscription: async () => ({ status: "trialing", trial_end: providerEnd }) as never,
     };
-    await reconcileManagerSmsEntitlement(db as never, MANAGER, deps);
+    await reconcileManagerSmsEntitlement(db as never, MANAGER, { ...(deps), preferPaid: true });
     const originalEnd = Date.parse(String(db.__tables.sms_manager_entitlements[0].valid_until));
     vi.stubEnv("SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED", "0");
     purchase.paidAt = new Date(Date.parse(purchase.paidAt) + 3600000).toISOString();
     db.__tables.manager_purchases[0].paid_at = purchase.paidAt;
     providerEnd += 3600;
     await expect(getStoredManagerSmsEntitlement(db as never, MANAGER)).resolves.toMatchObject({ eligible: true, trial: true });
-    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, deps)).resolves.toMatchObject({ eligible: true, trial: true });
+    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, { ...(deps), preferPaid: true })).resolves.toMatchObject({ eligible: true, trial: true });
     expect(Date.parse(String(db.__tables.sms_manager_entitlements[0].valid_until))).toBe(originalEnd);
     purchase.paidAt = new Date(Date.parse(purchase.paidAt) - 5400000).toISOString();
     db.__tables.manager_purchases[0].paid_at = purchase.paidAt;
     providerEnd -= 5400;
-    await reconcileManagerSmsEntitlement(db as never, MANAGER, deps);
+    await reconcileManagerSmsEntitlement(db as never, MANAGER, { ...(deps), preferPaid: true });
     expect(Date.parse(String(db.__tables.sms_manager_entitlements[0].valid_until))).toBe(originalEnd - 1800000);
     vi.spyOn(Date, "now").mockReturnValue(originalEnd - 1800000);
     await expect(getStoredManagerSmsEntitlement(db as never, MANAGER)).resolves.toEqual({ eligible: false, reason: "canceled" });
@@ -139,13 +139,13 @@ describe("manager SMS entitlement", () => {
       manager_user_id: MANAGER, tier: "pro", source: change === "source" ? "none" : "stripe",
       status: "trialing", eligible: true, valid_until: new Date(Date.now() + 3600000).toISOString(),
     }] });
-    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, {
+    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, { ...({
       loadPurchase: async () => PURCHASE,
       loadStripeSubscription: async () => ({
         status: change === "canceled" ? "canceled" : "trialing",
         trial_end: Math.floor(Date.now() / 1000) + (change === "expired" ? -1 : 3600),
       }) as never,
-    })).resolves.toMatchObject({ eligible: false });
+    }), preferPaid: true })).resolves.toMatchObject({ eligible: false });
     await expect(getStoredManagerSmsEntitlement(db as never, MANAGER)).resolves.toMatchObject({ eligible: false });
   });
 
@@ -155,14 +155,14 @@ describe("manager SMS entitlement", () => {
       account_link_invites: [{ invitee_user_id: MANAGER, inviter_user_id: "owner", status: "accepted" }],
       manager_purchases: [{ user_id: "owner", tier: "pro", billing: "admin" }],
     });
-    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, {
+    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, { ...({
       preferPaid: true,
       loadPurchase: async (id) => id === MANAGER ? PURCHASE : { ...PURCHASE, billing: "admin", stripeSubscriptionId: null },
       loadStripeSubscription: async () => ({ status: "trialing", trial_end: Math.floor(Date.now() / 1000) + 3600 }) as never,
-    });
+    }), preferPaid: true });
     expect(result).toEqual({ eligible: true, tier: "pro", source: "stripe" });
     await expect(getStoredManagerSmsEntitlement(db as never, MANAGER)).resolves.toMatchObject({ eligible: true, trial: true });
-    await expect(getEffectiveManagerSmsEntitlement(db as never, MANAGER, { preferPaid: true })).resolves.toEqual(result);
+    await expect(getEffectiveManagerSmsEntitlement(db as never, MANAGER, { ...({ preferPaid: true }), preferPaid: true })).resolves.toEqual(result);
   });
 
   it("honors a shortened signup expiry on stored reads before reconciliation", async () => {
@@ -176,27 +176,27 @@ describe("manager SMS entitlement", () => {
   it.each([null, "invalid", "2020-01-01T00:00:00.000Z"])("refuses signup trial with invalid or expired start %s", async (paidAt) => {
     vi.stubEnv("SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED", "1");
     const db = createMemoryDb({ sms_manager_entitlements: [] });
-    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, {
+    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, { ...({
       loadPurchase: async () => ({ ...PURCHASE, billing: "trial", stripeSubscriptionId: null, paidAt }),
-    })).resolves.toMatchObject({ eligible: false });
+    }), preferPaid: true })).resolves.toMatchObject({ eligible: false });
     await expect(getStoredManagerSmsEntitlement(db as never, MANAGER)).resolves.toMatchObject({ eligible: false });
   });
 
   it("does not grant Free accounts access during trial onboarding", async () => {
     vi.stubEnv("SMS_TRIAL_WORK_NUMBER_ONBOARDING_ENABLED", "1");
     const db = createMemoryDb({ sms_manager_entitlements: [] });
-    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, {
+    await expect(reconcileManagerSmsEntitlement(db as never, MANAGER, { ...({
       loadPurchase: async () => ({ ...PURCHASE, tier: "free", billing: "free", stripeSubscriptionId: null }),
-    })).resolves.toEqual({ eligible: false, reason: "free" });
+    }), preferPaid: true })).resolves.toEqual({ eligible: false, reason: "free" });
   });
 
   it("persists an active paid Stripe subscription for fast dispatch reads", async () => {
     const db = createMemoryDb({ sms_manager_entitlements: [] });
     const validUntil = Math.floor(Date.now() / 1000) + 3600;
-    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, {
+    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, { ...({
       loadPurchase: async () => PURCHASE,
       loadStripeSubscription: async () => ({ status: "active", current_period_end: validUntil }) as never,
-    });
+    }), preferPaid: true });
 
     expect(result).toEqual({ eligible: true, tier: "pro", source: "stripe" });
     await expect(getStoredManagerSmsEntitlement(db as never, MANAGER)).resolves.toEqual(result);
@@ -204,10 +204,10 @@ describe("manager SMS entitlement", () => {
 
   it("does not grant SMS during a Stripe trial", async () => {
     const db = createMemoryDb({ sms_manager_entitlements: [] });
-    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, {
+    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, { ...({
       loadPurchase: async () => PURCHASE,
       loadStripeSubscription: async () => ({ status: "trialing", trial_end: Math.floor(Date.now() / 1000) + 3600 }) as never,
-    });
+    }), preferPaid: true });
 
     expect(result).toEqual({ eligible: false, reason: "trialing" });
     expect(db.__tables.sms_manager_entitlements[0]).toEqual(
@@ -220,9 +220,9 @@ describe("manager SMS entitlement", () => {
       sms_manager_entitlements: [],
       sms_runtime_config: [{ singleton: true, pilot_manager_user_ids: [MANAGER] }],
     });
-    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, {
+    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, { ...({
       loadPurchase: async () => ({ ...PURCHASE, tier: "free", billing: "free", stripeSubscriptionId: null }),
-    });
+    }), preferPaid: true });
 
     expect(result).toEqual({ eligible: false, reason: "free" });
   });
@@ -255,7 +255,7 @@ describe("manager SMS entitlement", () => {
           promo_code: purchase.promoCode,
         }],
       });
-      const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, {
+      const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, { ...({
         loadPurchase: async () => ({
           ...PURCHASE,
           tier: "business",
@@ -266,7 +266,7 @@ describe("manager SMS entitlement", () => {
         loadStripeSubscription: async () => {
           throw new Error(`${grant.label} must never reach Stripe`);
         },
-      });
+      }), preferPaid: true });
 
       expect(result, grant.label).toEqual({ eligible: true, tier: "business", source: "stripe" });
       expect(db.__tables.sms_manager_entitlements[0], grant.label).toEqual(
@@ -287,16 +287,16 @@ describe("manager SMS entitlement", () => {
 
   it("recognizes a signup Business trial without treating it as an unverifiable payment", async () => {
     const db = createMemoryDb({ sms_manager_entitlements: [] });
-    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, {
+    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, { ...({
       loadPurchase: async () => ({ ...PURCHASE, tier: "business", billing: "trial", stripeSubscriptionId: null }),
-    });
+    }), preferPaid: true });
     expect(result).toEqual({ eligible: false, reason: "trialing" });
     await expect(getStoredManagerSmsEntitlement(db as never, MANAGER)).resolves.toEqual(result);
   });
 
   it("still refuses a paid tier with no grant and no subscription", async () => {
     const db = createMemoryDb({ sms_manager_entitlements: [] });
-    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, {
+    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, { ...({
       loadPurchase: async () => ({
         ...PURCHASE,
         tier: "business",
@@ -304,7 +304,7 @@ describe("manager SMS entitlement", () => {
         stripeCheckoutSessionId: null,
         promoCode: null,
       }),
-    });
+    }), preferPaid: true });
 
     expect(result).toEqual({ eligible: false, reason: "legacy_unknown" });
   });
@@ -319,7 +319,7 @@ describe("manager SMS entitlement", () => {
         apple_original_transaction_id: "otx_1",
       }],
     });
-    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, {
+    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, { ...({
       loadPurchase: async () => ({
         ...PURCHASE,
         tier: "business",
@@ -327,7 +327,7 @@ describe("manager SMS entitlement", () => {
         stripeSubscriptionId: null,
         appleOriginalTransactionId: "otx_1",
       }),
-    });
+    }), preferPaid: true });
 
     expect(result).toEqual({ eligible: true, tier: "business", source: "apple" });
     await expect(getStoredManagerSmsEntitlement(db as never, MANAGER)).resolves.toEqual(result);
@@ -342,14 +342,14 @@ describe("manager SMS entitlement", () => {
         billing: "admin",
       }],
     });
-    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, {
+    const result = await reconcileManagerSmsEntitlement(db as never, MANAGER, { ...({
       loadPurchase: async () => ({
         ...PURCHASE,
         tier: "business",
         billing: "admin",
         stripeSubscriptionId: null,
       }),
-    });
+    }), preferPaid: true });
 
     expect(result).toEqual({ eligible: true, tier: "business", source: "stripe" });
     expect(db.__tables.sms_manager_entitlements[0]).toEqual(

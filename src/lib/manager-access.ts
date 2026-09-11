@@ -36,6 +36,7 @@ export const FREE_SUBSCRIPTION_SECTIONS = new Set([
   "profile",
   "bugs-feedback",
   "app",
+  "communication",
 ]);
 
 /** Normalize DB tier string; unknown/null → treat as legacy full access (not Pro-limited). */

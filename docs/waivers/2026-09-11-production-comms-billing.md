@@ -27,6 +27,20 @@ The prospective operation is limited to these six exact sources in order:
 5. `20260910190000_sms_outbox_campaign_budget.sql` - 1,467 bytes - `9c32e16882f869ae059483655b087117edd2a2c740a40321dc9c28f2d53ead47`
 6. `20260911160000_comms_credit_recovery_guards.sql` - 1,579 bytes - `229e0699bc0e4685dc8ba2f6380ef9d2358816a1d72415abe7d4adb7a9c49713`
 
+## Fixed apply candidate (review pending)
+
+Fixed runner: `scripts/apply-20260911-comms-billing-migrations.mjs`
+
+- Runner SHA-256: `56e88313a0da9b14ef04e4d146392782a79085e80ff04266149e8a6f9be09cc6`
+- Fixed staging target: `xwszcafaontidfgznlxd`
+- Fixed production target: `qahnczmilgptcedaqype`
+- Production acknowledgement name: `2026-09-11-production-comms-billing`
+
+This fingerprint records a candidate for independent review only. The status
+above remains DRAFT, so the runner will refuse production apply. A later named
+approval must preserve the exact runner and bundle fingerprints and must be
+recorded before a production operation is apply-capable.
+
 Source six is a proposed additive correction. It attaches the existing account
 recovery write guard and delete-capture trigger functions to only
 `manager_comms_credit_purchases` and `manager_comms_credit_adjustments`. It does
@@ -58,8 +72,8 @@ must not change the bundle hash above.
 
 - The preparation entrypoint accepts no arguments and has no apply, remote,
   database URL, target override, or generic SQL path.
-- A fixed, certificate-verified apply entrypoint does not exist for this scope.
-  It must be implemented, independently reviewed, and fingerprinted before any
+- The fixed, certificate-verified apply entrypoint above is a review candidate.
+  It must pass independent review and all remaining release gates before any
   approval request or execution.
 - No reuse of the consumed `2026-09-11-production-recovery-schema` waiver.
 - No production, staging, or dev database write; no seed, wipe, ledger repair,

@@ -13,10 +13,7 @@ import {
   probeAssistantEmailStorageReady,
 } from "@/lib/manager-assistant-email/manager-assistant-email.server";
 import type { ManagerAssistantEmailStatus } from "@/lib/manager-assistant-email/manager-assistant-email-status";
-import { commsBillingBlockMessage } from "@/lib/comms-billing/eligibility.server";
 import {
-  decideManagerCommsRequest,
-  loadManagerCommsPaygGate,
   managerCommsRequestIsOfferable,
   managerCommsUseIsAllowed,
 } from "@/lib/comms-billing/manager-comms-eligibility.server";
@@ -66,15 +63,12 @@ async function buildStatus(
   const provisioningEnvEnabled = isAssistantEmailProvisioningEnabled();
   const workspaceRole = pureCoManager ? "co_manager" : "primary";
 
-  // The one shared gate, same as the work number.
-  const paygBilling = await loadManagerCommsPaygGate(db, userId);
+  // Email is unmetered; an empty communication wallet never disables it.
   const canRequestBilling = managerCommsRequestIsOfferable({
     entitlement,
-    paygGate: paygBilling,
   });
   const commsBillingAllowed = managerCommsUseIsAllowed({
     entitlement,
-    paygGate: paygBilling,
   });
 
   const canUse = commsBillingAllowed && sendEnvEnabled && Boolean(row);
@@ -223,17 +217,10 @@ export async function POST(req: Request) {
   const planTier: ManagerAssistantEmailStatus["planTier"] =
     planTierResult === "free" ? "free" : planTierResult === null ? "unknown" : "paid";
 
-  const gate = await decideManagerCommsRequest(actor.db, actor.userId, entitlement);
-  if (!gate.allowed) {
-    if (gate.kind === "payg") {
-      return NextResponse.json(
-        { error: commsBillingBlockMessage(gate.reason, "work_email") },
-        { status: 402 },
-      );
-    }
+  if (!entitlement.eligible) {
     return NextResponse.json(
-      { error: assistantEmailEligibilityError(planTier, gate.entitlement) },
-      { status: 403 },
+      { error: assistantEmailEligibilityError(planTier, entitlement) },
+      { status: entitlement.reason === "plan_unreadable" || entitlement.reason === "legacy_unknown" ? 503 : 403 },
     );
   }
 

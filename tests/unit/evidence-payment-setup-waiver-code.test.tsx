@@ -40,6 +40,7 @@ vi.mock("@/components/providers/app-ui-provider", () => ({
  useAppUi: () => ({ showToast }) }));
 vi.mock("@/lib/demo/demo-session", () => ({ isDemoModeActive: () => false }));
 vi.mock("@/lib/manager-subscription-client", () => ({
+  loadManagerSubscriptionTierClient: vi.fn(async () => "pro"),
   loadManagerPaymentWaiverGrantedClient: vi.fn(async () => false),
 }));
 vi.mock("@/lib/stripe-connect-onboarding-client", () => ({
@@ -60,7 +61,6 @@ vi.mock("@/components/ui/modal", () => ({
 }));
 
 import { ManagerPaymentSetupModal } from "@/components/portal/pro-payment-setup-modal";
-import { LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID } from "@/lib/payment-policy";
 
 let patches: Record<string, unknown>[] = [];
 
@@ -103,33 +103,15 @@ function feeCard(): string {
   return dialog!.outerHTML;
 }
 
-async function click(dataAttr: string) {
-  const el = document.querySelector<HTMLElement>(`[data-attr="${dataAttr}"]`);
-  expect(el, dataAttr).toBeTruthy();
-  await act(async () => {
-    el!.click();
-  });
-}
-
-async function typeCode(value: string) {
-  const input = document.querySelector<HTMLInputElement>('[data-attr="manager-service-fee-waiver-code"]');
-  expect(input, "waiver code field").toBeTruthy();
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
-  await act(async () => {
-    setter.call(input!, value);
-    input!.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-}
-
-describe("evidence · PropLane covers it requires the promo code", () => {
-  it("walks the dialog from the choice to the applied code", async () => {
+describe("evidence · PropLane coverage requires staff approval", () => {
+  it("shows fee choices without a shared waiver-code entry", async () => {
     await act(async () => {
       render(
         <ManagerPaymentSetupModal
           open
           onClose={vi.fn()}
           portalBase="/portal"
-          propertyOptions={[{ id: "home", label: "5259 Brooklyn Ave NE" }]}
+          propertyOptions={[{ id: "home", label: "QA Sample Home" }]}
           presetPropertyIds={["home"]}
         />,
       );
@@ -141,39 +123,8 @@ describe("evidence · PropLane covers it requires the promo code", () => {
       feeCard(),
     );
 
-    // 1. The code entry is the door, because the dialog only OFFERS the choice
-    //    outright once the account grant is server-verified. Opening it saves NOTHING.
-    await click("manager-service-fee-waiver-open");
-    expect(document.querySelector('[data-attr="manager-service-fee-waiver-code"]')).toBeTruthy();
+    expect(document.querySelector('[data-attr="manager-service-fee-waiver-open"]')).toBeNull();
+    expect(document.querySelector('[data-attr="manager-service-fee-payer-proplane"]')).toBeNull();
     expect(patches).toHaveLength(0);
-    shot(
-      "payment-setup-02-code-required",
-      "Asking for PropLane to cover the fee opens the inline waiver-code field. No save was sent (0 PATCH requests).",
-      feeCard(),
-    );
-
-    // 2. A wrong code is refused, still with nothing written.
-    await typeCode("NOPE123");
-    await click("manager-service-fee-waiver-apply");
-    expect(patches).toHaveLength(0);
-    // The refusal message is the shared one, so the product never prints the code
-    // itself back at a manager who does not have it.
-    expect(document.body.textContent).toContain(LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID);
-    shot(
-      "payment-setup-03-wrong-code",
-      "A wrong code is refused inline — still 0 PATCH requests, so nothing was stored.",
-      feeCard(),
-    );
-
-    // 3. FREE100 checks out: now — and only now — the choice is saved with the code.
-    await typeCode("free100");
-    await click("manager-service-fee-waiver-apply");
-    expect(patches).toHaveLength(1);
-    expect(patches[0]).toMatchObject({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" });
-    shot(
-      "payment-setup-04-code-applied",
-      "FREE100 checks out: 'PropLane covers it' is selected and saved with the code (PATCH serviceFeePayer=proplane, serviceFeeWaiverCode=FREE100).",
-      feeCard(),
-    );
   });
 });

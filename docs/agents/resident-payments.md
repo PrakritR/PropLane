@@ -3,40 +3,17 @@
 
 # Resident payments: who pays the service fee depends on the manager's plan + clearing-window `processing` status
 
-**The service fee (Stripe's real per-method processing cost) is paid by
-different parties depending on the manager's plan** (captain decision
-2026-07-26, superseding the 2026-07-23 "face value on every tier, PropLane
-absorbs" model):
+**No subscription includes processing-fee coverage** (captain decision September 10, 2026).
+All plans default to resident pays. Pro and Business managers may choose to absorb
+the fee through their payout. PropLane covers it only when staff explicitly approve
+that manager account through `adminServiceFeeOverride: "proplane"`.
 
-| Manager plan | Who pays the service fee |
-| --- | --- |
-| **Free** | The **resident** — added on top of what they pay — unless a server-validated payment waiver applies (below). |
-| **Pro** | The **manager chooses** — resident, manager, or PropLane. Plan default **PropLane**. |
-| **Business** | The **manager chooses** — resident, manager, or PropLane. Plan default **PropLane**. |
-
-`proplane` (PropLane absorbing Stripe's cost so neither party is charged) is a
-**paid-plan** capability, and it is also the plan DEFAULT on a paid plan (the
-AXI-149 rule: a manager who pays for the product does not additionally hand
-Stripe's cost to their residents). It is a default, not a floor — an explicit
-`resident` or `manager` choice on the account or on one property is kept.
-Arriving from a manager- or property-writable field on **Free** it is discarded
-and read as `resident`, because honouring it would let a manager stop paying
-fees by writing one word into their own record. Staff can still direct it at
-PropLane on any plan; see the override below.
-
-**The one exception on Free is a server-validated waiver.**
-`resolveServiceFeePayerFor` takes `waiverGranted`, and a granted waiver makes a
-Free account resolve as if it were Pro, so PropLane-absorbed fees become
-selectable and honoured. Two independent sources satisfy it
-(`resolveAccountOrListingWaiverGranted`): the account's own
-`manager_purchases.promo_code` grant (`isWaiverGrantedManagerPurchase`, surfaced
-to the client as `paymentWaiverGranted` on `GET /api/manager/subscription` and
-cached by `loadManagerPaymentWaiverGrantedClient`), and a per-listing
-`serviceFeeWaiverCode` entered on the listing wizard's Pricing step when the
-account does not already have a grant. The comp code is never shown in product
-UI — PropLane shares it directly. Storing `proplane` on a listing without a
-valid waiver is not persisted — `persistListingServiceFeePayer` falls back
-to `resident` rather than saving an absorb the code does not back.
+A shared promo code, paid plan, legacy `proplane` selection, or per-listing waiver
+code cannot grant coverage. Application-fee waivers remain separate. Subscription
+GET exposes `paymentWaiverGranted` from the staff-owned override; a failed read is
+unknown and disables coverage selection. Manager settings and staff overrides use
+separate atomic RPCs on the same row, so a manager save cannot overwrite a concurrent
+staff revocation. Unknown plan reads stop checkout before deciding who pays.
 
 **The money still lands in the manager's own connected account.** Every resident
 payment stays a Connect **destination charge** on the PLATFORM account
@@ -48,7 +25,7 @@ moves, via `application_fee_amount`:
 | --- | --- | --- | --- | --- |
 | resident (Free, or an explicit paid-plan choice) | subtotal + fee | fee | subtotal | ≈ 0 |
 | manager (explicit paid-plan choice) | subtotal | fee | subtotal − fee | ≈ 0 |
-| proplane (paid-plan default, or Free + waiver) | subtotal | omitted | subtotal | − Stripe's fee |
+| proplane (explicit staff account approval only) | subtotal | omitted | subtotal | − Stripe's fee |
 
 `src/lib/payment-policy.ts` is the single source of truth:
 - `residentProcessingFeeCents(subtotal, method)` — Stripe's cost (ACH 0.8% cap
@@ -56,13 +33,16 @@ moves, via `application_fee_amount`:
 - `resolveServiceFeePayer(tier, proChoice)` — the plan rule above. `tier` is the
   normalized SKU tier (`normalizeManagerSkuTier(...) ?? "free"`), so a
   legacy/unknown tier resolves to `resident`.
-- `resolveServiceFeePayerFor({ tier, adminOverride, propertyChoice, managerChoice, waiverGranted })`
+- `resolveServiceFeePayerFor({ tier, adminOverride, propertyChoice, managerChoice })`
   — the ONE resolver the money paths call. Precedence, most specific first:
   **staff override → the property's own Pricing setting → the manager's account
   default → the plan default**. Steps 2-4 stay subject to the plan rule above;
   the staff override deliberately ignores it, because staff absorbing a
-  free-tier manager's fees is the whole point of that control.
-  `managerCanSelectProplaneServiceFee(tier, waiverGranted)` /
+  free-tier manager's fees is the whole point of that control. The legacy
+  `waiverGranted` input is deprecated and ignored: a promo or waiver code is
+  never a grant, so a `proplane` choice without the override resolves to
+  `resident`.
+  `managerCanSelectProplaneServiceFee(tier, accountApproved)` /
   `managerCanSelectManagerAbsorbServiceFee(tier)` are the same rule for the
   Payment setup UI, so what the modal offers cannot drift from what checkout
   honours.
@@ -86,22 +66,24 @@ precedence the money paths do, so the payer a resident is shown before checkout
 cannot disagree with the one they are billed under; it resolves without a
 `propertyChoice` because the account-wide disclosure has no property in hand.
 
-**Choosing `proplane` for the ACCOUNT also requires a valid waiver code** (or an
-account-level grant), because it spends PropLane's own money either way.
-`resolveSavedServiceFeeSelection` (`manager-manual-payment-settings.ts`) is the one
-decision: a NEW `proplane` selection with no valid `serviceFeeWaiverCode` falls back
-to `resident`, exactly as `persistListingServiceFeePayer` does, while a save that
-merely CARRIES FORWARD an account already stored on `proplane` keeps it — legacy rows
-carry no code, so an unrelated toggle must not quietly move Stripe's cost onto their
-residents. `PATCH /api/portal/manager-manual-payment-settings` REFUSES the code-less
-new selection with **400** rather than storing the downgrade and answering 200, and
-`saveManagerManualPaymentSettings` THROWS when the stored settings cannot be read at
-all: a failed read cannot tell a legacy absorber from a code-less new choice. The
-Payment setup modal asks for the code inline and saves nothing until it matches, and
-it refuses to write anything before its own settings GET has succeeded — the draft
-defaults to `resident`, so one click on the Stripe checkbox would otherwise overwrite
-a stored `proplane` with a choice the server cannot refuse. Coverage:
-`tests/unit/manager-service-fee-waiver-code.test.tsx`.
+**Choosing `proplane` for the ACCOUNT requires the staff override on that same
+row**, because it spends PropLane's own money. `resolveSavedServiceFeeSelection`
+(`manager-manual-payment-settings.ts`) is the one decision: a `proplane` selection
+without `adminServiceFeeOverride: "proplane"` resolves to `resident`, exactly as
+`persistListingServiceFeePayer` does per listing; a typed waiver code changes
+nothing and is never stored (`serviceFeeWaiverCode` is stripped on save). `PATCH
+/api/portal/manager-manual-payment-settings` REFUSES the unapproved selection with
+**400** rather than storing the downgrade and answering 200. The save itself goes
+through the `save_manager_payment_preferences` RPC
+(`20260910140000_manager_communication_credits.sql`), which locks the settings row,
+drops any caller-supplied override, re-applies the stored one, and downgrades
+`proplane` to `resident` unless that stored override approves it — so a manager
+save that overlaps a staff revocation can never restore the approval. The Payment
+setup modal offers PropLane coverage only when `GET /api/manager/subscription`
+reports `paymentWaiverGranted: true`; a failed read (`paymentCoverageUnknown`)
+disables the option rather than guessing. Coverage:
+`tests/unit/manager-service-fee-waiver-code.test.tsx`,
+`tests/unit/service-fee-payer-precedence.test.ts`.
 
 The **property choice** is `serviceFeePayer` on `ManagerListingSubmissionV1`,
 edited in the listing wizard's Pricing step. `null` means "follow the account",
@@ -115,9 +97,10 @@ silently change what the resident is charged.
 The **staff override** is `adminServiceFeeOverride` on the same
 `ManagerManualPaymentSettings` row, but it is not the manager's to write:
 `saveManagerManualPaymentSettings` (which the manager's own settings route calls)
-drops whatever the caller supplied and restores the stored value, and staff write
-it through `saveAdminServiceFeeOverride` behind `GET/PATCH
-/api/admin/manager-service-fee`, which is where the admin check lives. `null`
+drops whatever the caller supplied and the RPC restores the stored value, and staff
+write it through `saveAdminServiceFeeOverride` (`set_staff_payment_fee_override`
+RPC, same row lock) behind `GET/PATCH /api/admin/manager-service-fee`, which is
+where the admin check lives. `null`
 CLEARS the override back to the plan-and-choice rule; pinning `resident` is a
 different act that fixes the answer whatever the manager later chooses.
 Application-fee checkout reads the override and the account default (there is no
@@ -154,9 +137,11 @@ deleted staff member only has `actor_user_id` detached.
 decision, 2026-07-26, superseding the earlier "out of scope, always face
 value" carve-out): `/api/stripe/application-fee-checkout`
 (`src/lib/application-fee-checkout.server.ts`) resolves `feePayer` from
-`resolveServiceFeePayer` + the manager's `loadManagerManualPaymentSettings`,
-exactly like a household charge — Free applicants pay the fee, Pro follows the
-manager's choice, Business is absorbed by PropLane. The listing page itself
+`resolveServiceFeePayerFor` + the manager's `loadManagerManualPaymentSettings`,
+exactly like a household charge — Free applicants pay the fee, Pro and Business
+follow the manager's resident/manager choice, and PropLane absorbs it only under
+the staff override. A plan that cannot be read stops checkout instead of
+defaulting a payer. The listing page itself
 still shows only the application fee (no plan tier leaks there); the itemized
 service fee only appears once an applicant reaches the payment step
 (`/api/public/application-fee-preview` returns the same breakdown the checkout

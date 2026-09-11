@@ -21,7 +21,7 @@ export function resolveVoiceInboundWebhookUrl(): string {
   return `${base}/api/twilio/voice/inbound`;
 }
 
-export function resolveVoiceTurnWebhookUrl(phase: "consent" | "agent" = "agent"): string {
+export function resolveVoiceTurnWebhookUrl(phase: "consent" | "agent" = "agent", turnId?: string): string {
   const explicit = process.env.TWILIO_VOICE_TURN_WEBHOOK_URL?.trim();
   if (explicit) {
     try {
@@ -30,13 +30,14 @@ export function resolveVoiceTurnWebhookUrl(phase: "consent" | "agent" = "agent")
         url.pathname = `${url.pathname.replace(/\/$/, "")}/turn`;
       }
       url.searchParams.set("phase", phase);
+      if (turnId) url.searchParams.set("turn", turnId);
       return url.toString();
     } catch {
       /* fall through to derived URL */
     }
   }
   const base = (resolveEmailLinkBaseUrl() || PRODUCTION_APP_ORIGIN).replace(/\/$/, "");
-  return `${base}/api/twilio/voice/turn?phase=${phase}`;
+  return `${base}/api/twilio/voice/turn?phase=${phase}${turnId ? `&turn=${encodeURIComponent(turnId)}` : ""}`;
 }
 
 /** Twilio call-status callback (fires on completed/failed/no-answer). */
@@ -93,7 +94,7 @@ export function twimlSay(text: string, voice = resolveVoicePollyVoice(), languag
 export function twimlDial(args: { toPhone: string; callerId: string; timeoutSeconds?: number }): string {
   const timeout = Math.max(5, Math.min(60, args.timeoutSeconds ?? 25));
   return (
-    `<Dial answerOnBridge="true" callerId="${escapeXml(args.callerId)}" timeout="${timeout}">` +
+    `<Dial timeLimit="300" answerOnBridge="true" callerId="${escapeXml(args.callerId)}" timeout="${timeout}">` +
     `<Number>${escapeXml(args.toPhone)}</Number>` +
     `</Dial>`
   );

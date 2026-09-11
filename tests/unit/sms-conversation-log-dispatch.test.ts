@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   sendSms: vi.fn(),
   log: vi.fn(),
+  readSuppression: vi.fn(),
 }));
 
 vi.mock("@/lib/twilio", () => ({
@@ -17,7 +18,7 @@ vi.mock("@/lib/sms/application-consent.server", () => ({
   ensureApplicationScopedSmsConsent: vi.fn(async () => ({ ok: true, granted: true })),
 }));
 vi.mock("@/lib/sms-consent", () => ({
-  readSmsSuppressionState: vi.fn(async () => ({ ok: true, optedOut: false })),
+  readSmsSuppressionState: mocks.readSuppression,
   normalizeConsentPhone: (phone: string) => phone.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, ""),
 }));
 vi.mock("@/lib/sms/number-registration-policy", () => ({
@@ -25,27 +26,36 @@ vi.mock("@/lib/sms/number-registration-policy", () => ({
   evaluateManagerSmsNumberSendability: vi.fn(() => ({ sendable: true })),
   quietHoursBlocks: vi.fn(() => false),
 }));
-vi.mock("@/lib/comms-billing/rates", () => ({ isCommsPaygBillingEnabled: vi.fn(() => false) }));
+vi.mock("@/lib/comms-billing/rates", () => ({ isCommsPaygBillingEnabled: vi.fn(() => false), unitPriceCentsForMeter: () => 3 }));
 
 import {
   dispatchOwnerSmsOutbox,
   reconcileSubmittedSmsConversationLogs,
 } from "@/lib/sms/owner-sms-dispatcher.server";
+import { reserveCommsCredit } from "@/lib/comms-billing/wallet.server";
 
 type Row = Record<string, unknown>;
 
-function dispatchDb({ failFirstConversationLogMarkerWrite = false, revokedDerivedTour = false } = {}) {
+function dispatchDb({
+  failFirstConversationLogMarkerWrite = false,
+  derivedTourConsent,
+  recipientUserId,
+}: {
+  failFirstConversationLogMarkerWrite?: boolean;
+  derivedTourConsent?: "allowed" | "revoked";
+  recipientUserId?: string | null;
+} = {}) {
   const outbox: Row = {
     id: "outbox-1", manager_user_id: "manager-1", actor_user_id: "manager-1",
-    recipient_user_id: null, recipient_email: "prospect@example.com", recipient_phone: "+12065550142",
+    recipient_user_id: recipientUserId ?? null, recipient_email: "prospect@example.com", recipient_phone: "+12065550142",
     body: "Your application has been approved.", send_class: "transactional",
     purpose: "application_approved_notification", conversation_key: "manager-1:prospect:+12065550142",
     counterparty_role: "prospect", property_id: "property-1", recipient_timezone: "America/Los_Angeles",
     dedupe_key: "approval-1", trace_id: null, segment_count: 1, status: "claimed", lease_owner: "worker-1",
     lease_expires_at: "2999-01-01T00:00:00.000Z", conversation_log_status: "pending", conversation_log_attempts: 0,
   };
-  if (revokedDerivedTour) outbox.purpose = "tour_rescheduled";
-  const consentEvents: Row[] = revokedDerivedTour ? [
+  if (derivedTourConsent) outbox.purpose = "tour_rescheduled";
+  const consentEvents: Row[] = derivedTourConsent ? [
     {
       recipient_phone_key: "2065550142", manager_user_id: "manager-1",
       messaging_service_sid: "MG1", purpose: "tour_rescheduled", send_class: "transactional",
@@ -56,12 +66,15 @@ function dispatchDb({ failFirstConversationLogMarkerWrite = false, revokedDerive
     {
       recipient_phone_key: "2065550142", manager_user_id: "manager-1",
       messaging_service_sid: "MG1", purpose: "manager_conversation", send_class: "transactional",
-      conversation_key: "manager-1:prospect:+12065550142", event_type: "revoked",
-      source: "twilio_stop", occurred_at: "2026-09-10T10:01:00.000Z", evidence: {},
+      conversation_key: "manager-1:prospect:+12065550142",
+      event_type: derivedTourConsent === "allowed" ? "granted" : "revoked",
+      source: derivedTourConsent === "allowed" ? "recipient_initiated_inbound" : "twilio_stop",
+      occurred_at: "2026-09-10T10:01:00.000Z", evidence: {},
     },
   ] : [];
   const attempts: Row[] = [];
   let claimAvailable = true;
+  let campaignAllocations = 0;
   let markerWriteFailed = false;
   const matching = (filters: Array<(r: Row) => boolean>) => filters.every((filter) => filter(outbox));
 
@@ -134,6 +147,11 @@ function dispatchDb({ failFirstConversationLogMarkerWrite = false, revokedDerive
   };
   return {
     outbox,
+    reclaim() {
+      claimAvailable = true;
+      Object.assign(outbox, { status: "claimed", lease_owner: "worker-1", lease_expires_at: "2999-01-01T00:00:00.000Z" });
+    },
+    campaignAllocations: () => campaignAllocations,
     db: {
       from,
       rpc: vi.fn(async (name: string) => {
@@ -142,7 +160,14 @@ function dispatchDb({ failFirstConversationLogMarkerWrite = false, revokedDerive
           claimAvailable = false;
           return { data: [{ ...outbox }], error: null };
         }
-        if (name === "spend_sms_segment_budget") return { data: true, error: null };
+        if (name === "spend_sms_outbox_segment_budget") {
+          const today = new Date().toISOString().slice(0, 10);
+          if (outbox.campaign_budget_spent_on !== today) {
+            campaignAllocations += 1;
+            outbox.campaign_budget_spent_on = today;
+          }
+          return { data: true, error: null };
+        }
         return { data: null, error: null };
       }),
     } as never,
@@ -157,6 +182,8 @@ describe("dispatcher conversation-log repair handoff", () => {
     process.env.TWILIO_CAMPAIGN_SID = "CP1";
     mocks.sendSms.mockReset().mockResolvedValue({ sent: true, sid: "SM-original" });
     mocks.log.mockReset().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    mocks.readSuppression.mockReset().mockResolvedValue({ ok: true, optedOut: false });
+    vi.mocked(reserveCommsCredit).mockReset().mockResolvedValue({ allowed: true, duplicate: false, state: "reserved" });
   });
 
   it("submits once, snapshots the original sender, then repairs the same SID without a provider resend", async () => {
@@ -219,13 +246,112 @@ describe("dispatcher conversation-log repair handoff", () => {
   });
 
   it("blocks a queued conversation-derived tour after its source authority is revoked", async () => {
-    const { db, outbox } = dispatchDb({ revokedDerivedTour: true });
+    const { db, outbox, campaignAllocations } = dispatchDb({ derivedTourConsent: "revoked" });
     await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db)).resolves.toMatchObject({
       claimed: 1,
       submitted: 0,
       blocked: 1,
     });
+    expect(campaignAllocations()).toBe(0);
+    expect(vi.mocked(reserveCommsCredit)).not.toHaveBeenCalled();
     expect(mocks.sendSms).not.toHaveBeenCalled();
     expect(outbox).toMatchObject({ status: "blocked", blocked_reason: "tour_sms_consent_missing" });
+  });
+
+  it("rechecks a claimed row against user-keyed STOP when the queued phone has changed", async () => {
+    const { db, outbox, campaignAllocations } = dispatchDb({ recipientUserId: "resident-1" });
+    outbox.recipient_phone = "+12065550199";
+    mocks.readSuppression.mockImplementation(async (_db, _phone, options) => ({
+      ok: true,
+      optedOut: options?.userId === "resident-1",
+    }));
+
+    await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db)).resolves.toMatchObject({
+      claimed: 1,
+      submitted: 0,
+      blocked: 1,
+    });
+    expect(mocks.readSuppression).toHaveBeenCalledWith(expect.anything(), "+12065550199", { userId: "resident-1" });
+    expect(campaignAllocations()).toBe(0);
+    expect(vi.mocked(reserveCommsCredit)).not.toHaveBeenCalled();
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+    expect(outbox).toMatchObject({ status: "blocked", blocked_reason: "recipient_opted_out" });
+  });
+
+  it("retains campaign and wallet dispatch for a currently authorized derived tour", async () => {
+    const { db, outbox, campaignAllocations } = dispatchDb({ derivedTourConsent: "allowed" });
+    await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db)).resolves.toMatchObject({
+      claimed: 1,
+      submitted: 1,
+    });
+    expect(campaignAllocations()).toBe(1);
+    expect(vi.mocked(reserveCommsCredit)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        managerUserId: "manager-1",
+        meter: "sms_outbound_segment",
+        quantity: 1,
+        idempotencyKey: "sms_outbound:outbox-1",
+      }),
+    );
+    expect(mocks.sendSms).toHaveBeenCalledTimes(1);
+    expect(outbox).toMatchObject({ status: "submitted", provider_message_sid: "SM-original" });
+  });
+});
+
+vi.mock("@/lib/comms-billing/eligibility.server", () => ({evaluateManagerCommsBillingGate:vi.fn(async()=>({allowed:true}))}));
+vi.mock("@/lib/comms-billing/wallet.server", () => ({reserveCommsCredit:vi.fn(async()=>({allowed:true,duplicate:false,state:"reserved"})),finishCommsCredit:vi.fn(async()=>{})}));
+
+describe("dispatcher credit reservation outcomes", () => {
+  beforeEach(() => {
+    process.env.SMS_RUNTIME_ENABLED = "1";
+    process.env.SMS_OUTBOX_SCHEDULER_READY = "1";
+    process.env.TWILIO_MESSAGING_SERVICE_SID = "MG1";
+    process.env.TWILIO_CAMPAIGN_SID = "CP1";
+    mocks.sendSms.mockReset().mockResolvedValue({ sent: true, sid: "SM-original" });
+    mocks.log.mockReset().mockResolvedValue(true);
+    vi.mocked(reserveCommsCredit).mockReset();
+  });
+
+  it("defers, rather than blocks, when the wallet itself could not be read", async () => {
+    vi.mocked(reserveCommsCredit).mockRejectedValueOnce(new Error("plan unreadable"));
+    const { db, outbox } = dispatchDb();
+    const before = Date.now();
+    await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db)).resolves.toMatchObject({
+      ok: true, claimed: 1, submitted: 0, blocked: 0, unknown: 0,
+    });
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+    expect(outbox).toMatchObject({
+      status: "deferred", blocked_reason: "credit_unavailable", lease_owner: null, dispatch_started_at: null,
+    });
+    expect(Date.parse(String(outbox.available_at))).toBeGreaterThanOrEqual(before + 5 * 60_000 - 1_000);
+  });
+
+  it("retries wallet failures without spending the campaign allocation again", async () => {
+    vi.mocked(reserveCommsCredit).mockRejectedValue(new Error("wallet unavailable"));
+    const fixture = dispatchDb();
+    await dispatchOwnerSmsOutbox({ workerId: "worker-1" }, fixture.db);
+    fixture.reclaim();
+    await dispatchOwnerSmsOutbox({ workerId: "worker-1" }, fixture.db);
+    expect(vi.mocked(reserveCommsCredit)).toHaveBeenCalledTimes(2);
+    expect(fixture.campaignAllocations()).toBe(1);
+    expect(fixture.outbox.status).toBe("deferred");
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+  });
+
+  it("still blocks terminally when the wallet answered that credit is exhausted", async () => {
+    vi.mocked(reserveCommsCredit).mockResolvedValueOnce({ allowed: false, reason: "allowance_exhausted" });
+    const { db, outbox } = dispatchDb();
+    await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db)).resolves.toMatchObject({ claimed: 1, blocked: 1 });
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+    expect(outbox).toMatchObject({ status: "blocked", blocked_reason: "allowance_exhausted" });
+  });
+
+  it("blocks a duplicate reservation so a resend never spends twice", async () => {
+    vi.mocked(reserveCommsCredit).mockResolvedValueOnce({ allowed: true, duplicate: true, state: "reserved" });
+    const { db, outbox } = dispatchDb();
+    await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db)).resolves.toMatchObject({ claimed: 1, blocked: 1 });
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+    expect(outbox).toMatchObject({ status: "blocked", blocked_reason: "credit_already_reserved" });
   });
 });
