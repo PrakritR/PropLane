@@ -2497,13 +2497,21 @@ html[data-native] .portal-mobile-nav-bar {
 /* PropLane portal HIG layer: predictable hierarchy, touch targets, and calm
    surfaces shared by manager and resident tabs. Keep this here rather than in
    individual panels so new sections inherit the same interaction language. */
-.portal-shell :where(button, a, input, select, textarea):focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--primary) 35%, transparent);
-  outline-offset: 2px;
-}
+@layer base {
+  .portal-shell :where(button, a, input, select, textarea):focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--primary) 35%, transparent);
+    outline-offset: 2px;
+  }
 
-.portal-shell :where(button, [role="button"], a[data-attr]) {
-  min-height: 2.75rem;
+  .portal-shell :where(button, [role="button"], a[data-attr]) {
+    min-height: 2.75rem;
+  }
+
+  @media (max-width: 1023px) {
+    .portal-mobile-chrome nav a {
+      min-height: 2.75rem;
+    }
+  }
 }
 
 .portal-shell [data-slot="portal-page-title-band"] {
@@ -2524,10 +2532,6 @@ html[data-native] .portal-mobile-nav-bar {
 @media (max-width: 1023px) {
   .portal-mobile-chrome {
     padding-top: max(0.25rem, env(safe-area-inset-top, 0px));
-  }
-
-  .portal-mobile-chrome nav a {
-    min-height: 2.75rem;
   }
 
   .portal-shell .portal-main-inner {

@@ -983,9 +983,10 @@ describe("resuming a saved draft", () => {
   it("reopens on the step the draft was saved at", () => {
     renderWizard({ initialStepIndex: 2, initialMaxStepReached: 3, editDraftId: "mgr-listing-abc123" });
 
-    // Step index 2 of the six-step wizard is Bathrooms. The header now carries a
-    // single stepper signal (the redundant "Step 3 of 6" text + progress bar were
-    // removed), so the resumed step is the one the stepper marks as current.
+    // Step index 2 of the six-step wizard is Bathrooms. The header stacks a
+    // "Step X of N" subtitle and a progress bar above the step-pill row, but the
+    // pill row is the only navigation control, so the resumed step is the one
+    // the stepper marks as current (see docs/design.md).
     const currentStep = screen.getByRole("button", { current: "step" });
     expect(currentStep.textContent).toMatch(/Bathrooms/);
   });
