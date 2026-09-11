@@ -108,7 +108,7 @@ export function orderNativeBottomNavItems<T extends { section: string }>(
  * see `moreSheetItems` in portal-sidebar.tsx) and/or nested inside the most
  * relevant primary tab's own page (Promotion + Co-managers inside Properties;
  * Feedback inside Profile/Settings — see portal-settings-extras.tsx and
- * manager-properties.tsx). Keep in sync with `src/lib/platform/parity.ts`.
+ * pro-properties.tsx). Keep in sync with `src/lib/platform/parity.ts`.
  */
 export const NATIVE_BOTTOM_NAV_PRO_MANAGER_PRIMARY = [
   "properties",

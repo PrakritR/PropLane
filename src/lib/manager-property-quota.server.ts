@@ -20,8 +20,8 @@ import {
 /**
  * Server-side enforcement of the plan's property-listing cap.
  *
- * The cap used to exist only in the browser (`manager-properties.tsx` disabled
- * "+ Add property", `manager-add-listing-form.tsx` refused to submit), so any
+ * The cap used to exist only in the browser (`pro-properties.tsx` disabled
+ * "+ Add property", `pro-add-listing-form.tsx` refused to submit), so any
  * request that skipped the interface published as many listings as it liked —
  * `POST /api/property-records` is a plain upsert and every client posts to it
  * directly. That is the whole of audit finding F-SET-1's monetization half.

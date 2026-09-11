@@ -1751,15 +1751,6 @@ function bundleRoomsLine(roomIds: string[], rooms: ManagerRoomSubmission[]) {
   return names.length === rooms.length ? `Whole house - ${names.length} rooms` : names.join(", ");
 }
 
-function bundleRentLabel(roomIds: string[], rooms: ManagerRoomSubmission[], entireHomeRent = 0) {
-  if (entireHomeRent > 0) return `$${entireHomeRent}/mo`;
-  const total = roomIds
-    .map((id) => rooms.find((room) => room.id === id)?.monthlyRent ?? 0)
-    .filter((rent) => Number.isFinite(rent) && rent > 0)
-    .reduce((sum, rent) => sum + rent, 0);
-  return total > 0 ? `$${total}/mo` : "";
-}
-
 export function ManagerAddListingForm({
   onClose,
   onSubmitted,

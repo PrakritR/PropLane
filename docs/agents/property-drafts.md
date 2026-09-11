@@ -75,7 +75,7 @@ is a `"draft"` value on the existing `ManagerPropertyRecordStatus`
 - **Draft saving is unvalidated** (partial-friendly, on every step) and does NOT
   count toward the plan property limit; **publishing** runs full validation +
   the limit gate like any new listing — so the wizard's `skuTier`/`skuLoaded`
-  come from the one `/api/manager/subscription` load in `manager-properties.tsx`
+  come from the one `/api/manager/subscription` load in `pro-properties.tsx`
   (a null tier reads as "no limit", so Continue editing waits for `skuLoaded`).
   Saving also persists the wizard position (`draftStepIndex` /
   `draftMaxStepReached`) so resuming reopens on the saved step with the earlier
