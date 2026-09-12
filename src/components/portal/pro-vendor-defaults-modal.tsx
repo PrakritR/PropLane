@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
-import { Modal, ModalFooter } from "@/components/ui/modal";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { Modal } from "@/components/ui/modal";
+import { SaveStatus } from "@/components/ui/save-status";
+import { useAutosaveDraft } from "@/hooks/use-autosave-draft";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import {
   MANAGER_VENDORS_EVENT,
@@ -29,15 +30,20 @@ export function ManagerVendorDefaultsModal({
   /** Opens the add-vendor form with the trade pre-filled. */
   onAddForCategory?: (trade: string) => void;
 }) {
-  const { showToast } = useAppUi();
   const { userId } = useManagerUserId();
   const [tick, setTick] = useState(0);
   const [defaults, setDefaults] = useState<Record<string, string>>({});
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setHydrated(false);
+      return;
+    }
     void syncManagerVendorsFromServer({ force: true }).then(() => setTick((n) => n + 1));
     setDefaults(readManagerVendorCategorySettings(userId).defaultVendorIdByTrade);
+    const t = setTimeout(() => setHydrated(true), 0);
+    return () => clearTimeout(t);
   }, [open, userId]);
 
   useEffect(() => {
@@ -52,12 +58,17 @@ export function ManagerVendorDefaultsModal({
     return readOwnManagerVendorRows(userId);
   }, [tick, userId]);
 
-  const saveDefaults = useCallback(() => {
-    if (!userId) return;
-    saveManagerVendorCategorySettings({ defaultVendorIdByTrade: defaults }, userId);
-    showToast("Default vendors saved.");
-    onClose();
-  }, [defaults, onClose, showToast, userId]);
+  const persist = useCallback(
+    async (next: Record<string, string>) => {
+      if (!userId) throw new Error("Not signed in.");
+      saveManagerVendorCategorySettings({ defaultVendorIdByTrade: next }, userId);
+    },
+    [userId],
+  );
+  const autosave = useAutosaveDraft({ draft: defaults, enabled: open && hydrated && Boolean(userId), save: persist });
+  const handleClose = useCallback(() => {
+    void autosave.flush().finally(onClose);
+  }, [autosave, onClose]);
 
   const focusTrade = initialTrade?.trim();
 
@@ -65,22 +76,10 @@ export function ManagerVendorDefaultsModal({
     <Modal
       open={open}
       title="Vendor defaults"
-      onClose={onClose}
+      onClose={handleClose}
       panelClassName="max-w-lg"
       dense
-      footer={
-        <ModalFooter className="w-full">
-          <Button
-            type="button"
-            variant="primary"
-            className="ml-auto rounded-full"
-            data-attr="vendor-defaults-save"
-            onClick={saveDefaults}
-          >
-            Save
-          </Button>
-        </ModalFooter>
-      }
+      status={<SaveStatus status={autosave} />}
     >
       <div className="space-y-4 text-sm">
         <p className="text-xs text-muted">
