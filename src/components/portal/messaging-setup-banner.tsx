@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useManagerMessagingNumberStatus } from "@/hooks/use-manager-messaging-number-status";
@@ -50,6 +51,7 @@ function readDismissed(): boolean {
  */
 export function ManagerMessagingSetupBanner() {
   const { resolved, statusError, status } = useManagerMessagingNumberStatus();
+  const pathname = usePathname();
   // Read after mount so the server and the first client paint agree.
   const [dismissed, setDismissed] = useState<boolean | null>(null);
   useEffect(() => {
@@ -59,6 +61,9 @@ export function ManagerMessagingSetupBanner() {
   }, []);
 
   if (!resolved || statusError || !status) return null;
+  // Communication's own header carries the same "Set up messaging" action;
+  // the notice above it said the same thing twice on one screen.
+  if (pathname?.startsWith("/portal/communication")) return null;
   if (status.number?.phoneNumber) return null;
   if (status.planTier === "free") return null;
   if (dismissed !== false) return null;

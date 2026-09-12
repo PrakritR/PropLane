@@ -158,8 +158,10 @@ describe("AI draft in the unified Communication inbox", () => {
     const reply = await screen.findByDisplayValue(/I'll look into availability/);
     expect(reply.getAttribute("data-attr")).toBe("inbox-reply");
     // Adopting consumes the pending draft, so the AI affordance falls back to
-    // its slim "Draft with AI" pill above that one composer…
-    expect(await screen.findByRole("button", { name: "Draft with AI" })).toBeTruthy();
+    // the composer row's ✦ menu (round 3: Draft with AI lives there, not in a
+    // pill above the field)…
+    expect(await screen.findByRole("button", { name: "AI" })).toBeTruthy();
+    expect(document.querySelector('[data-attr="inbox-composer-ai-menu"]')).not.toBeNull();
     // …and there is NO second message box: the legacy draft composer, its send
     // button, and its discard control are all gone.
     expect(document.querySelector('[data-attr="inbox-ai-draft"]')).toBeNull();

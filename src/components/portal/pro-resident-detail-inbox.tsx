@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Archive, Pencil, Trash2 } from "lucide-react";
+import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
 import {
-  PortalMessageScheduleFields,
-  defaultScheduleSendAtLocal,
-} from "@/components/portal/portal-message-compose-fields";
+  InboxComposerAiMenu,
+  InboxComposerChannelMenu,
+  InboxComposerScheduleMenu,
+} from "@/components/portal/inbox-composer-tools";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
 import {
   INBOX_THREAD_ICON_BTN,
@@ -173,6 +175,8 @@ export function ResidentDirectChatPane({
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
   const [scheduleLater, setScheduleLater] = useState(false);
   const [scheduleSendAt, setScheduleSendAt] = useState(() => defaultScheduleSendAtLocal());
+  // The composer's ✦ menu opens the thread assistant rail; each bump is one ask.
+  const [askAssistantSignal, setAskAssistantSignal] = useState(0);
   const [sending, setSending] = useState(false);
   const [inboxTick, setInboxTick] = useState(0);
   const [manualScheduledMessages, setManualScheduledMessages] = useState<ScheduledInboxMessageRecord[]>([]);
@@ -672,6 +676,20 @@ export function ResidentDirectChatPane({
     />
   );
 
+  const replyChannelMenu = (
+    <InboxComposerChannelMenu
+      viaEmail={replyViaEmail}
+      viaSms={replyViaSms}
+      viaProplane={replyViaProplane}
+      onViaProplaneChange={setReplyViaProplane}
+      onViaEmailChange={setReplyViaEmail}
+      onViaSmsChange={setReplyViaSms}
+      emailAvailable={emailAvailable}
+      smsAvailable={smsAvailable}
+      proplaneAvailable
+    />
+  );
+
   const contactEditInitial = useMemo(
     () => ({
       name: displayName,
@@ -781,7 +799,9 @@ export function ResidentDirectChatPane({
               {scheduledCards}
             </div>
           ) : null}
-          <div className="portal-inbox-compose-actions flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-card px-3.5 pb-1.5 pt-2.5 [&>*]:!m-0 [&>*]:!flex [&>*]:!items-center [&>*]:!border-0 [&>*]:!bg-transparent [&>*]:!p-0">
+          {/* Draft with AI, Ask PropLane and Schedule live in the composer
+              row (its ✦ and 🕒 tools). Only a draft in flight, a failed
+              draft, or a draft waiting for approval still shows above it. */}
           <AiDraftReplyCard
             drafting={aiDrafting}
             draft={aiDraftText.trim() ? aiDraftText : undefined}
@@ -802,6 +822,7 @@ export function ResidentDirectChatPane({
               setAiDraftText("");
               setAiDraftError(null);
             }}
+            hideGenerateButton
           />
           <InboxThreadAssistantStrip
             contextHint={buildInboxThreadAssistantContext({
@@ -810,18 +831,9 @@ export function ResidentDirectChatPane({
               email,
             })}
             storageScopeKey={`resident-detail-${email.trim().toLowerCase()}`}
+            hideTrigger
+            openSignal={askAssistantSignal}
           />
-          {emailAvailable ? (
-            <PortalMessageScheduleFields
-              scheduleLater={scheduleLater}
-              onScheduleLaterChange={setScheduleLater}
-              sendAt={scheduleSendAt}
-              onSendAtChange={setScheduleSendAt}
-              scheduleDataAttr="inbox-thread-schedule-later"
-              sendAtDataAttr="inbox-thread-schedule-at"
-            />
-          ) : null}
-          </div>
           <InboxComposer
             value={draft}
             onChange={setDraft}
@@ -837,7 +849,33 @@ export function ResidentDirectChatPane({
             placeholder="Write a reply…"
             maxLength={replyViaSms && !replyViaEmail && !replyViaProplane ? 1600 : undefined}
             dataAttr="resident-direct-chat-compose"
-            channelControl={replyChannelPicker}
+            hint={
+              scheduleLater && emailAvailable
+                ? `Send schedules this reply for ${new Date(scheduleSendAt).toLocaleString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}.`
+                : undefined
+            }
+            trailingControls={
+              <>
+                <InboxComposerAiMenu
+                  onDraft={aiDrafting || aiDraftText.trim() ? undefined : () => void requestAiDraft()}
+                  onAsk={() => setAskAssistantSignal((n) => n + 1)}
+                />
+                {emailAvailable ? (
+                  <InboxComposerScheduleMenu
+                    scheduleLater={scheduleLater}
+                    onScheduleLaterChange={setScheduleLater}
+                    sendAt={scheduleSendAt}
+                    onSendAtChange={setScheduleSendAt}
+                  />
+                ) : null}
+                {replyChannelMenu}
+              </>
+            }
             attachments={replyAttachments}
             onAttachmentsPick={pickReplyAttachments}
             onAttachmentRemove={removeReplyAttachment}

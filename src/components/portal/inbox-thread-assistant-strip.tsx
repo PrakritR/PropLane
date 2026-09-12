@@ -23,16 +23,23 @@ export function buildInboxThreadAssistantContext({
 export function InboxThreadAssistantStrip({
   contextHint,
   storageScopeKey = "Communication thread",
+  hideTrigger = false,
+  openSignal,
 }: {
   contextHint: string;
   storageScopeKey?: string;
+  /** The composer's ✦ menu owns the entry point; keep the strip's own off. */
+  hideTrigger?: boolean;
+  openSignal?: number;
 }) {
   if (!contextHint.trim()) return null;
   return (
     <ModalAssistantStrip
       contextHint={contextHint}
       storageScopeKey={storageScopeKey}
-      className="shrink-0 bg-card px-1 md:px-2"
+      hideTrigger={hideTrigger}
+      openSignal={openSignal}
+      className={hideTrigger ? "hidden" : "shrink-0 bg-card px-1 md:px-2"}
     />
   );
 }

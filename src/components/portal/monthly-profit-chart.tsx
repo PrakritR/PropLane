@@ -118,6 +118,7 @@ export function MonthlyProfitChart({
   className = "",
   defaultMetric = "revenue",
   defaultRangeMonths = 6,
+  aspect = "hero",
 }: {
   points: MonthlyCashflowPoint[] | MonthlyProfitPoint[];
   title?: string;
@@ -125,6 +126,11 @@ export function MonthlyProfitChart({
   className?: string;
   defaultMetric?: CashflowChartMetric;
   defaultRangeMonths?: CashflowChartRangeMonths;
+  /**
+   * `hero` is the 360×140 card the Cash flow tab draws; `wide` (900×170) is
+   * for a full-width overview row, where the hero box would stand 450px tall.
+   */
+  aspect?: "hero" | "wide";
 }) {
   const fillId = useId().replace(/:/g, "");
   const allPoints = useMemo(() => normalizePoints(rawPoints), [rawPoints]);
@@ -151,8 +157,8 @@ export function MonthlyProfitChart({
   );
 
   const chart = useMemo(() => {
-    const w = 360;
-    const h = 140;
+    const w = aspect === "wide" ? 900 : 360;
+    const h = aspect === "wide" ? 170 : 140;
     const padX = 4;
     const padY = 12;
     const values = points.map((p) => cashflowMetricValue(p, metric));
@@ -175,7 +181,7 @@ export function MonthlyProfitChart({
         : "";
 
     return { w, h, coords, zeroY, lineD, areaD, stroke, padX };
-  }, [points, metric, activeValue]);
+  }, [points, metric, activeValue, aspect]);
 
   return (
     <div
