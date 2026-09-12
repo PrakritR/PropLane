@@ -96,7 +96,7 @@ export function AdminCommunication({
   );
 
   return (
-    <PortalCommunicationShell title="Communication" titleAside={titleAside}>
+    <PortalCommunicationShell title="Inbox" titleAside={titleAside}>
       {/*
         Communication chrome clips #portal-main-content (no page scroll). Admin
         stacks email + SMS, so this column must be the scroller — otherwise the

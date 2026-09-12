@@ -72,8 +72,6 @@ function clusterPosition(sameDirAsPrev: boolean, sameDirAsNext: boolean): InboxB
 
 /** Group consecutive same-direction bubbles (Instagram-style clusters). */
 export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): InboxTimelineItem[] {
-  const channels = new Set(messages.map((m) => m.channel ?? "email"));
-  const multiChannel = channels.size > 1;
   const items: InboxTimelineItem[] = [];
   const keyOccurrences = new Map<string, number>();
 
@@ -100,7 +98,10 @@ export function buildInboxMessageTimeline(messages: InboxBubbleMessage[]): Inbox
     const sameDirAsNext = next?.direction === message.direction && !nextDayChanged;
     const cluster = clusterPosition(sameDirAsPrev, sameDirAsNext);
     const showMeta = !sameDirAsNext;
-    const showChannel = multiChannel && showMeta;
+    // Every message names its channel beside its time ("Email · 3:42 PM") when
+    // the channel is known. An untagged legacy turn shows the time alone rather
+    // than a guessed "Email".
+    const showChannel = showMeta && message.channel != null;
     // Inbox storage de-duplicates known persisted histories, but this shared
     // UI primitive also accepts caller-supplied messages. Keep rendered keys
     // unique if malformed data still contains an id collision.

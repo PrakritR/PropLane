@@ -113,12 +113,20 @@ export function ManagerCommunication({
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
   const [propertyTick, setPropertyTick] = useState(0);
 
+  // Rebuilt on every portfolio / applications event (`propertyTick`): the
+  // directory is read from the applications cache, which is usually still
+  // syncing when this mounts, and a list built once from an empty cache left
+  // every thread header without its person — no role, house, room or phone.
   const filterContacts = useMemo(() => {
+    void propertyTick;
     const live = buildManagerInboxLiveContacts(userId);
     return [axisAdminFilterContact(), ...live];
-  }, [userId]);
+  }, [userId, propertyTick]);
 
-  const liveContacts = useMemo(() => buildManagerInboxLiveContacts(userId), [userId]);
+  const liveContacts = useMemo(() => {
+    void propertyTick;
+    return buildManagerInboxLiveContacts(userId);
+  }, [userId, propertyTick]);
 
   useEffect(() => {
     const bump = () => setPropertyTick((n) => n + 1);
@@ -320,8 +328,8 @@ export function ManagerCommunication({
 
   return (
     <PortalCommunicationShell
-      title="Communication"
-      subtitle="Every conversation with your residents, applicants and vendors, in one inbox."
+      title="Inbox"
+      subtitle="Residents, applicants and vendors, in one place."
       titleAside={communicationCommandActions}
       hideTitleOnMobileNav
       controlStack={controlStack}
@@ -366,7 +374,7 @@ export function ManagerCommunication({
         open={communicationSettingsOpen}
         onClose={() => setCommunicationSettingsOpen(false)}
         initialTab="communication"
-        scopedTitle="Communication"
+        scopedTitle="Inbox"
       />
     </PortalCommunicationShell>
   );

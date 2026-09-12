@@ -12,6 +12,8 @@ export type InboxScopedContact = {
   /** Resident listing label for grouped compose / schedule pickers. */
   propertyLabel?: string;
   propertyId?: string;
+  /** The room on that house, when the application names one (resident role only). */
+  roomLabel?: string;
   /** Approved tenant vs pending applicant on a house (resident role only). */
   /**
    * Where this person is in their tenancy.
