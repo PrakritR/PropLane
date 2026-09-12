@@ -355,6 +355,7 @@ export async function recordResidentProspectInboxMessage(
  */
 async function recordGuestInboxCopy(
   db: Db,
+  inquiryId: string | null,
   input: Parameters<typeof recordResidentProspectInboxMessage>[1],
 ): Promise<{ sent: boolean; error?: string }> {
   try {
@@ -362,7 +363,7 @@ async function recordGuestInboxCopy(
     return { sent: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not record the guest inbox copy.";
-    console.warn("[tour-notification] guest inbox copy skipped", { email: input.participantEmail, error: message });
+    console.warn("[tour-notification] guest inbox copy skipped", { inquiryId, error: message });
     return { sent: false, error: message };
   }
 }
@@ -624,7 +625,7 @@ export async function notifyTenantTourRequestReceived(
   const text = buildTourRequestTenantBody(ctx);
   const email = await deliverEmail([guestEmail], subject, text);
 
-  await recordGuestInboxCopy(db, {
+  await recordGuestInboxCopy(db, textField(inquiry as Record<string, unknown>, "id") || null, {
     participantEmail: guestEmail,
     subject,
     body: text,
@@ -698,7 +699,7 @@ export async function notifyTenantTourRequestRemoved(
   const text = opts?.body?.trim() || buildTourRequestRemovedTenantBody(ctx);
   const managerUserId = textField(row, "managerUserId");
 
-  const inbox = await recordGuestInboxCopy(db, {
+  const inbox = await recordGuestInboxCopy(db, textField(row, "id") || null, {
     participantEmail: guestEmail,
     subject,
     body: text,

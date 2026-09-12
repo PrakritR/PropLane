@@ -152,7 +152,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    let guestNotification: { ok: boolean; skipped?: boolean; error?: string } | null = null;
+    let guestNotification: Awaited<ReturnType<typeof notifyTenantTourRequestRemoved>> | null = null;
     if (targetInquiry && textField(targetInquiry, "kind") === "tour" && notifyTenant) {
       const window = windowsFromInquiry(targetInquiry)[0];
       guestNotification = await notifyTenantTourRequestRemoved(db, req, targetInquiry, window, {

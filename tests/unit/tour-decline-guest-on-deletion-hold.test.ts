@@ -98,7 +98,7 @@ describe("tour guest notifications when the guest's inbox is frozen", () => {
     expect(result.inbox).toEqual({ sent: false, error: RECOVERY_GUARD_ERROR });
     expect(warn).toHaveBeenCalledWith(
       "[tour-notification] guest inbox copy skipped",
-      expect.objectContaining({ email: INQUIRY.email, error: RECOVERY_GUARD_ERROR }),
+      { inquiryId: INQUIRY.id, error: RECOVERY_GUARD_ERROR },
     );
   });
 
