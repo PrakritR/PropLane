@@ -203,7 +203,7 @@ function WorkspaceCard({
           <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-[var(--secondary)]" aria-hidden>
             <div className={cn("h-full rounded-full", records >= WORKSPACE_PROPERTY_LIMIT ? "bg-[var(--status-pending-fg)]" : "bg-primary")} style={{ width: `${pct}%` }} />
           </div>
-          <p className="mt-1 text-xs text-muted">Drafts count toward this workspace's records.</p>
+          <p className="mt-1 text-xs text-muted">Drafts count toward this workspace&apos;s records.</p>
         </div>
         <div>
           <div className="flex items-baseline justify-between">
@@ -275,10 +275,11 @@ function WorkspaceCard({
   );
 }
 
-export function WorkspaceSettings() {
+export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {}) {
   const ctx = useWorkspaces();
   const confirm = useConfirm();
-  const [editing, setEditing] = useState<PortalWorkspace | "new" | null>(null);
+  // `openNew` is the sidebar's "New workspace" landing here with the form already open.
+  const [editing, setEditing] = useState<PortalWorkspace | "new" | null>(openNew ? "new" : null);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [moving, setMoving] = useState<{ id: string; destination: string } | null>(null);

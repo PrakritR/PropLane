@@ -35,6 +35,11 @@ import {
 import { readBugFeedbackRows } from "@/lib/portal-bug-feedback";
 import { prefetchPortalData } from "@/lib/portal-data-store";
 import type { PortalKind } from "@/lib/portal-types";
+import { countManagerManagedPropertiesForUser } from "@/lib/demo-property-pipeline";
+import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
+import { managerPaymentBucketCounts, readManagerPaymentsLedgerCharges } from "@/lib/manager-payments-scope";
+import { MANAGER_TASKS_EVENT, readManagerTasksLocal } from "@/lib/manager-tasks";
+import { buildManagerTourRows, countManagerTourRowsByBucket } from "@/lib/manager-tour-list";
 
 /**
  * Unread Communication conversations for the nav badge.
@@ -48,6 +53,15 @@ import type { PortalKind } from "@/lib/portal-types";
  */
 function countUnreadCommunication(rows: { folder?: string; unread?: boolean }[]): number {
   return rows.filter((t) => t.folder === "inbox" && t.unread).length;
+}
+
+/** A count that must never take the sidebar down with it — a half-migrated mirror reads as 0. */
+function safeCount(read: () => number): number {
+  try {
+    return read();
+  } catch {
+    return 0;
+  }
 }
 
 /** Pending / unread counts for sidebar nav badges (0 = hide badge). */
@@ -74,8 +88,10 @@ export function usePortalNavCounts(kind: PortalKind): Partial<Record<string, num
     window.addEventListener(MANAGER_APPLICATIONS_EVENT, bump);
     window.addEventListener(MANAGER_WORK_ORDERS_EVENT, bump);
     window.addEventListener(SERVICE_REQUESTS_EVENT, bump);
+    window.addEventListener(MANAGER_TASKS_EVENT, bump);
     window.addEventListener("storage", bump);
     return () => {
+      window.removeEventListener(MANAGER_TASKS_EVENT, bump);
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, bump);
       window.removeEventListener(ADMIN_UI_EVENT, bump);
       window.removeEventListener(MANAGER_APPLICATIONS_EVENT, bump);
@@ -114,8 +130,30 @@ export function usePortalNavCounts(kind: PortalKind): Partial<Record<string, num
         (w) => moduleRowVisibleToPortalUser(w, userId, "services") && w.bucket === "open",
       ).length;
       const inbox = countUnreadCommunication(loadPersistedInbox(MANAGER_INBOX_STORAGE_KEY, []));
+      // The same numbers the list tabs render — Properties' plan meter, Tours'
+      // Pending tab, Payments' Pending + Overdue, Tasks' Open — read from the
+      // same local mirrors, so the nav can never disagree with the page.
+      const properties = safeCount(() => countManagerManagedPropertiesForUser(userId));
+      const tours = safeCount(
+        () =>
+          countManagerTourRowsByBucket(
+            buildManagerTourRows({
+              viewerUserId: userId,
+              propertyIds: buildManagerPropertyFilterOptions(userId).map((o) => o.id),
+            }),
+          ).pending,
+      );
+      const payments = safeCount(() => {
+        const c = managerPaymentBucketCounts(readManagerPaymentsLedgerCharges(userId));
+        return c.pending + c.overdue;
+      });
+      const tasks = safeCount(() => readManagerTasksLocal(userId).filter((t) => !t.completed).length);
       return {
+        properties,
+        tours,
         applications: pendingApps,
+        payments,
+        tasks,
         services: pendingServiceRequests + pendingWorkOrders,
         communication: inbox,
       };

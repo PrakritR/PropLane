@@ -445,7 +445,7 @@ export function PortalProfileClient({
   const renderPane = (id: SettingsGroupId): ReactNode => {
     switch (id) {
       case "workspaces":
-        return <WorkspaceSettings />;
+        return <WorkspaceSettings openNew={searchParams?.get("new") === "1"} />;
       case "team":
         return (
           <PortalSettingsSection title="Team" description="Managers who share your houses. An assigned house grants nothing until a module is set to View, Edit, or Manage.">

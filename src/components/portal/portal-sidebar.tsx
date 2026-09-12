@@ -632,7 +632,7 @@ export function PortalSidebar({
               />
               {!locked && count > 0 ? (
                 <span className="absolute -top-1 -right-1.5">
-                  <PortalNavCountBadge count={count} />
+                  <PortalNavCountBadge count={count} tone={navCountTone(s.section)} />
                 </span>
               ) : null}
             </span>
@@ -678,7 +678,7 @@ export function PortalSidebar({
           </span>
         ) : null}
         {s.label}
-        {!locked ? <PortalNavCountBadge count={count} /> : null}
+        {!locked ? <PortalNavCountBadge count={count} tone={navCountTone(s.section)} /> : null}
         {locked ? <NavLockIcon className="h-3 w-3 text-muted" /> : null}
       </Link>
     );
@@ -714,7 +714,7 @@ export function PortalSidebar({
             <span className="min-w-0 truncate">{item.label}</span>
           </span>
           <span className="flex shrink-0 items-center gap-1.5">
-            {!locked ? <PortalNavCountBadge count={count} /> : null}
+            {!locked ? <PortalNavCountBadge count={count} tone={navCountTone(item.section)} /> : null}
             {locked ? <NavLockIcon className="h-3.5 w-3.5 text-muted" /> : null}
             {expanded ? (
               <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted/70" aria-hidden />
@@ -800,7 +800,7 @@ export function PortalSidebar({
           <span className="min-w-0 truncate">{s.label}</span>
         </span>
         <span className="flex shrink-0 items-center gap-1.5">
-          {!locked ? <PortalNavCountBadge count={count} /> : null}
+          {!locked ? <PortalNavCountBadge count={count} tone={navCountTone(s.section)} /> : null}
           {locked ? <NavLockIcon className="h-3.5 w-3.5 text-muted" /> : null}
         </span>
       </>
@@ -911,6 +911,9 @@ export function PortalSidebar({
   const rawSubtitle = subtitle?.trim() || brand.subtitle;
   // Property portal: show the portal name instead of the billing tier.
   const headerSubtitle = rawSubtitle === "Pro" || rawSubtitle === "Business" ? "Property" : rawSubtitle;
+  const isWorkspacePortal = definition.kind === "pro" || definition.kind === "manager";
+  /** Unread mail is the one count that is a call to action; the rest are inventory. */
+  const navCountTone = (section: string): "muted" | "alert" => (section === "communication" ? "alert" : "muted");
 
   const desktopAside = (
     <aside
@@ -920,7 +923,15 @@ export function PortalSidebar({
       )}
     >
       {collapsed ? (
-        <div className="flex h-14 shrink-0 items-center justify-center border-b border-border">
+        <div className="flex shrink-0 flex-col items-center gap-1 border-b border-border py-2">
+          {/*
+           * A manager's sidebar opens with the WORKSPACE, not the product: one
+           * block that says which portfolio this is (avatar · name · role and
+           * property count) and switches it — the way Linear and Loom open. It
+           * replaces the logo row, the "PROPERTY" badge and the separate "My
+           * workspace" box that used to stack above the nav.
+           */}
+          {isWorkspacePortal ? <WorkspaceSwitcher compact /> : null}
           <button
             type="button"
             onClick={toggleCollapsed}
@@ -929,6 +940,19 @@ export function PortalSidebar({
             className="grid h-8 w-8 place-items-center rounded-[8px] text-muted transition-colors duration-150 hover:bg-[var(--secondary)]/60 hover:text-foreground"
           >
             <ChevronsRight className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+      ) : isWorkspacePortal ? (
+        <div className="flex h-14 shrink-0 items-center gap-0.5 border-b border-border pl-1.5 pr-1.5">
+          <WorkspaceSwitcher />
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label="Collapse sidebar"
+            aria-expanded
+            className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] text-muted/70 transition-colors duration-150 hover:bg-[var(--secondary)]/60 hover:text-foreground"
+          >
+            <ChevronsLeft className="h-4 w-4" aria-hidden />
           </button>
         </div>
       ) : (
@@ -960,11 +984,6 @@ export function PortalSidebar({
         </div>
       )}
 
-      {definition.kind === "pro" || definition.kind === "manager" ? (
-        <div className={cn("shrink-0", collapsed ? "flex justify-center py-2" : "px-2 pt-2.5")}>
-          <WorkspaceSwitcher compact={collapsed} />
-        </div>
-      ) : null}
       {collapsed ? (
         <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto overscroll-contain px-2 py-2.5" aria-label="Portal sections">
           {navGroups.map((group, i) => (
