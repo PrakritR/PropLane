@@ -394,7 +394,7 @@ export function VendorCommunication({
 
   return (
     <PortalCommunicationShell
-      title="Communication"
+      title="Inbox"
       subtitle="Messages about the jobs you are assigned, and the managers who dispatch them."
       titleAside={newMessageButton}
       hideTitleOnMobileNav

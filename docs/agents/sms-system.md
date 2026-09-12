@@ -359,12 +359,15 @@ carrier reviewer can inspect cold). On the tours-contact page
 strict boolean and ignores any client-supplied timestamp, so per-lead consent is
 provable), and a positive opt-in written to the `sms_consent` ledger via
 `recordOptIn(..., "tours-contact")` in the `partner-inquiries` /
-`property-lead-message` routes. The load-bearing
-send gate is in `textTourGuest` (`tour-notification-delivery.server.ts`): a
-prospect is texted ONLY when `smsConsent === true`. Absence of a prior STOP is
-NOT consent — `sendResidentOutboundSms`/`sendSms` only check `isPhoneOptedOut`,
-which fails open, so a positive opt-in is required before any tour SMS. A later
-inbound STOP still supersedes the recorded opt-in. Coverage:
+`property-lead-message` routes. The load-bearing send gate is
+`resolveTourSmsEligibility`: it accepts either that explicit tour opt-in or a
+current trusted inbound grant for the exact manager, Messaging Service,
+prospect conversation, transactional class, and lifecycle purpose. New
+non-SMS-origin inquiries cannot borrow historical conversation evidence.
+Conversation-derived purpose grants record their derivation and are rechecked
+both on retry and at final outbox dispatch; explicit opt-in and independently
+restored purpose consent remain distinct. Any global, purpose, or source
+conversation revoke fails closed. Coverage:
 `tests/unit/tour-guest-sms-consent.test.ts`,
 `tests/unit/partner-inquiry-sms-consent.test.ts`,
 `tests/unit/tours-contact-sms-consent-ui.test.tsx`.
@@ -813,6 +816,25 @@ dates satisfy the canonical billing predicate; standard deposits say nothing
 about short-term deposits. A room's explicit zero deposit overrides the listing.
 Missing or malformed facts stay unknown. Mixed-question replies answer the
 known parts before escalating only the missing information.
+
+The leasing prompt treats recent texts as one conversation: it retains the
+selected room, corrected location, intended duration, move-in urgency, and
+links already sent until the prospect changes the listing. Replies stay
+concise, ask at most one combined clarification question, and include only a
+relevant tool-built link. A prospect ready to reserve, pay, or move immediately
+remains a prospect, so the agent never redirects them to resident rent payment
+or claims approval, reservation, or payment.
+
+For a high-intent manager-only uncertainty with no useful grounded reply left,
+the existing `escalate_to_manager` tool may request an SMS-only quiet handoff.
+Silence is authorized only by the notifier's delivered, non-suppressed result.
+Tool failure, notification suppression, and an audit-only dedupe never prove
+delivery. `runLeasingSmsAgentTurn` records an explicit `quiet_handoff` result
+with an empty reply, does not persist a fictional assistant message, and stores
+that result in the existing paid-turn replay record. The inbound caller marks
+the receipt handled without an outbox or template fallback. `null` still means
+the agent was unavailable or failed and retains the established fallback;
+voice and email retain their reply paths.
 
 ## Historical: Claw Messenger shared line
 

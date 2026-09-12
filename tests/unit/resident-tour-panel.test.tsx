@@ -28,6 +28,8 @@ vi.mock("@/components/ui/modal", () => ({
     children: ReactNode;
   }) => (open ? <div role="dialog" aria-label={title}><h2>{title}</h2>{children}</div> : null),
   ModalFooter: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  // The phone action sheet (vaul) imports the close-button class from here.
+  MODAL_HEADER_CLOSE_CLASS: "",
 }));
 vi.mock("@/components/marketing/tour-schedule-flow", () => ({
   TourScheduleFlow: () => <div data-testid="tour-schedule-flow" />,

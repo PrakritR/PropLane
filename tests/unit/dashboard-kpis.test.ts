@@ -31,6 +31,20 @@ describe("dashboardPeriods", () => {
     expect(p[1]!.end).toBe(p[2]!.start);
     expect(p[0]!.end).toBe(p[1]!.start);
   });
+
+  it("every week and 30-day boundary is a local midnight across a DST change", () => {
+    // Mon Nov 9 2026, the week after US fall-back (Nov 1).
+    const afterFallBack = new Date(2026, 10, 9, 12).getTime();
+    for (const kind of ["week", "30d"] as const) {
+      for (const p of dashboardPeriods(kind, afterFallBack, 8)) {
+        expect(new Date(p.start).getHours()).toBe(0);
+        expect(new Date(p.end).getHours()).toBe(0);
+      }
+    }
+    const weeks = dashboardPeriods("week", afterFallBack, 2);
+    expect(weeks[0]!.start).toBe(new Date(2026, 10, 2).getTime());
+    expect(weeks[1]!.start).toBe(new Date(2026, 10, 9).getTime());
+  });
 });
 
 describe("bucketSeries and stockSeries", () => {
@@ -55,6 +69,20 @@ describe("bucketSeries and stockSeries", () => {
     ];
     expect(stockSeries(leases, periods, (l) => toMs(l.signed), (l) => toMs(l.ended))).toEqual([2, 2, 2]);
     // Jul: first + third (third ends in Aug) = 2; Aug: first + second (third ended Aug 20) = 2; Sep: 2.
+  });
+
+  it("cuts the current period at now, so a lease ending later this month still counts today", () => {
+    const leases = [
+      { signed: "2026-06-15", ended: "2026-09-25" },
+      { signed: "2026-08-10", ended: null },
+      { signed: "2026-09-05", ended: null },
+    ];
+    // Cut at the period's end, the first lease is already over by Sep 30.
+    expect(stockSeries(leases, periods, (l) => toMs(l.signed), (l) => toMs(l.ended))).toEqual([1, 2, 2]);
+    // Cut at Sep 11 it is still active; past periods keep their own end.
+    expect(stockSeries(leases, periods, (l) => toMs(l.signed), (l) => toMs(l.ended), NOW)).toEqual([1, 2, 3]);
+    const octoberFirst = new Date(2026, 9, 1).getTime();
+    expect(stockSeries(leases, periods, (l) => toMs(l.signed), (l) => toMs(l.ended), octoberFirst)).toEqual([1, 2, 2]);
   });
 });
 

@@ -1,3 +1,4 @@
+import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import { MANAGER_PROPERTY_LIMIT_ERROR_CODE } from "@/lib/manager-access";
 import type { MockProperty } from "@/data/types";
@@ -747,6 +748,20 @@ export function countManagerManagedPropertiesForUser(userId: string | null): num
   const scopeUserId = resolveManagerScopeUserId(userId);
   if (!scopeUserId) return 0;
   return readPendingManagerPropertiesForUser(scopeUserId).length + readScopedExtraListings(scopeUserId).length;
+}
+
+/**
+ * The same count narrowed to the active workspace. The plan meter keeps using
+ * the account-wide number above — a cap is on the account — but anything that
+ * labels a list (the nav badge) must agree with the rows that list shows.
+ */
+export function countManagerManagedPropertiesInWorkspace(userId: string | null): number {
+  const scopeUserId = resolveManagerScopeUserId(userId);
+  if (!scopeUserId) return 0;
+  return (
+    readPendingManagerPropertiesForUser(scopeUserId).filter((row) => workspaceContainsProperty(row.id)).length +
+    readScopedExtraListings(scopeUserId).filter((listing) => workspaceContainsProperty(listing.id)).length
+  );
 }
 
 /** @deprecated Use countManagerManagedPropertiesForUser */

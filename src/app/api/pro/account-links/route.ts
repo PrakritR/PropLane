@@ -11,6 +11,7 @@ import { userIsPropertyPortalManager } from "@/lib/auth/co-manager-invite-eligib
 import { managerPlanAllowsCoManagerInvites } from "@/lib/co-manager-plan-access.server";
 import { normalizePropertyCoManagerPermissions, flatCoManagerPermissionsFromProperty, type CoManagerPermissions } from "@/lib/co-manager-permissions";
 import { maxAccountLinksForTier } from "@/lib/manager-access";
+import { addonUnitsForCap, loadManagerPlanAddonQuantities } from "@/lib/plan-addons.server";
 import { ensureProfileProplaneId, getManagerPurchaseSku } from "@/lib/manager-access-server";
 import { proplaneIdLookupVariants } from "@/lib/manager-id";
 import { isCrossSandboxPortalPair, CROSS_SANDBOX_PORTAL_PAIR_ERROR } from "@/lib/portal-sandbox-accounts";
@@ -24,6 +25,23 @@ import { resolveRequestOrigin } from "@/lib/app-url";
 import { asStringArray, serializeInvite, type InviteRow } from "@/lib/account-link-invite-row";
 
 export const runtime = "nodejs";
+
+/**
+ * The plan's seat cap plus the extra seats the account pays for (round 3 plan
+ * model). An unread add-on row counts as no extras: the plan's own seats are
+ * never withheld, and a paid seat that cannot be read is retried on the next
+ * invite rather than waved through.
+ */
+async function seatCapWithAddons(
+  svc: import("@supabase/supabase-js").SupabaseClient,
+  inviterUserId: string,
+  tier: string | null,
+): Promise<number | null> {
+  const base = maxAccountLinksForTier(tier);
+  if (base == null) return null;
+  const addons = await loadManagerPlanAddonQuantities(svc, inviterUserId);
+  return base + (addons.ok ? addonUnitsForCap(addons.quantities, "extra_seat", tier) : 0);
+}
 
 
 async function countParticipantLinks(
@@ -275,7 +293,7 @@ export async function POST(req: Request) {
           { status: 403 },
         );
       }
-      const openLinkCap = maxAccountLinksForTier(openInviterTier);
+      const openLinkCap = await seatCapWithAddons(svc, inviterUserId, openInviterTier);
       if (openLinkCap != null) {
         const { count: used, error: capErr } = await countParticipantLinks(svc, inviterUserId, tabKind);
         if (capErr) {
@@ -430,7 +448,7 @@ export async function POST(req: Request) {
     }
     void inviterBilling;
 
-    const inviterLinkCap = maxAccountLinksForTier(inviterTier);
+    const inviterLinkCap = await seatCapWithAddons(svc, inviterUserId, inviterTier);
     if (inviterLinkCap != null) {
       const { count: used, error: capErr } = await countParticipantLinks(svc, inviterUserId, tabKind);
 

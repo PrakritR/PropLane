@@ -79,13 +79,42 @@ export function isValidZelleContact(value: string): boolean {
 
 type ServiceFeeSelection = { serviceFeePayer: ServiceFeePayer; serviceFeeWaiverCode?: string };
 
-/** Only staff-owned account approval permits selecting PropLane as payer. */
+/**
+ * Which fee-payer a save is allowed to keep.
+ *
+ * Selecting `proplane` — PropLane, not the manager and not the resident, bearing Stripe's
+ * cost — needs a promo grant, because it spends PropLane's own money: a valid typed code,
+ * or a grant already on the account (`manager_purchases.promo_code`, or staff approval).
+ * Two cases are deliberately different:
+ *
+ * - A NEW selection with no grant falls back to `resident`, exactly like
+ *   {@link persistListingServiceFeePayer} does per listing.
+ * - A save that merely CARRIES FORWARD an account already on `proplane` keeps it, so an
+ *   unrelated save (toggling Stripe off, say) can never quietly move Stripe's cost back
+ *   onto that manager's residents.
+ */
 export function resolveSavedServiceFeeSelection(
   incoming: ServiceFeeSelection,
-  _stored: ServiceFeeSelection | null,
-  accountApproved = false,
+  stored: ServiceFeeSelection | null,
+  accountWaiverGranted = false,
 ): ServiceFeeSelection {
-  return { serviceFeePayer: incoming.serviceFeePayer === "proplane" && !accountApproved ? "resident" : incoming.serviceFeePayer };
+  if (incoming.serviceFeePayer !== "proplane") return { serviceFeePayer: incoming.serviceFeePayer };
+  if (listingPaymentWaiverCodeMatches(incoming.serviceFeeWaiverCode)) {
+    return {
+      serviceFeePayer: "proplane",
+      serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(incoming.serviceFeeWaiverCode ?? ""),
+    };
+  }
+  if (accountWaiverGranted) {
+    return { serviceFeePayer: "proplane" };
+  }
+  if (stored?.serviceFeePayer === "proplane") {
+    return {
+      serviceFeePayer: "proplane",
+      ...(stored.serviceFeeWaiverCode ? { serviceFeeWaiverCode: stored.serviceFeeWaiverCode } : {}),
+    };
+  }
+  return { serviceFeePayer: "resident" };
 }
 
 export function normalizeManagerManualPaymentSettings(raw: unknown): ManagerManualPaymentSettings {
@@ -179,17 +208,50 @@ export async function loadManagerManualPaymentSettings(
   );
 }
 
+/**
+ * The manager's own settings save. The staff override is deliberately NOT taken from the
+ * caller — this is what the manager's settings route writes through, so honouring an
+ * inbound value would let a manager hand their processing fees to PropLane by adding one
+ * field to their save; the `save_manager_payment_preferences` RPC restores the stored one.
+ *
+ * `opts.accountWaiverGranted` is the caller's server-side answer to "does a promo grant or
+ * staff approval already back this account". Together with a valid typed code it decides
+ * whether a `proplane` selection survives ({@link resolveSavedServiceFeeSelection}); the
+ * same answer is handed to the RPC as `p_coverage_granted`, which otherwise downgrades a
+ * `proplane` it cannot see a grant for.
+ */
 export async function saveManagerManualPaymentSettings(
   db: SupabaseClient,
   managerUserId: string,
   settings: ManagerManualPaymentSettings,
   opts?: { accountWaiverGranted?: boolean },
 ): Promise<ManagerManualPaymentSettings> {
-  void opts;
+  const stored = await loadManagerManualPaymentSettings(db, managerUserId).catch(() => null);
   const normalized = normalizeManagerManualPaymentSettings(settings);
   delete normalized.adminServiceFeeOverride;
-  delete normalized.serviceFeeWaiverCode;
-  const { data, error } = await db.rpc("save_manager_payment_preferences", { p_owner: managerUserId, p_settings: normalized });
+  const accountWaiverGranted = opts?.accountWaiverGranted === true;
+  // A failed read is not evidence of a new selection. Without the stored value a legacy
+  // account already absorbing fees is indistinguishable from a code-less new choice, and
+  // resolving to `resident` would silently move Stripe's cost onto that manager's residents
+  // while the route answered 200. The caller's 500 is the honest answer.
+  if (
+    stored === null &&
+    normalized.serviceFeePayer === "proplane" &&
+    !listingPaymentWaiverCodeMatches(normalized.serviceFeeWaiverCode) &&
+    !accountWaiverGranted
+  ) {
+    throw new Error("Could not read stored payment settings; refusing to change who pays the service fee.");
+  }
+  const feeSelection = resolveSavedServiceFeeSelection(normalized, stored, accountWaiverGranted);
+  normalized.serviceFeePayer = feeSelection.serviceFeePayer;
+  if (feeSelection.serviceFeeWaiverCode) normalized.serviceFeeWaiverCode = feeSelection.serviceFeeWaiverCode;
+  else delete normalized.serviceFeeWaiverCode;
+  const coverageGranted = feeSelection.serviceFeePayer === "proplane";
+  const { data, error } = await db.rpc("save_manager_payment_preferences", {
+    p_owner: managerUserId,
+    p_settings: normalized,
+    p_coverage_granted: coverageGranted,
+  });
   if (error || !data) throw new Error("Could not save payment settings. Try again.");
   return normalizeManagerManualPaymentSettings(data);
 }

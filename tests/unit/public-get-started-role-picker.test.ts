@@ -46,6 +46,9 @@ describe("the generic Get started CTA lands on the role picker", () => {
     for (const file of [
       "src/components/marketing/landing-home-sections.tsx",
       "src/components/marketing/landing-demo-hero.tsx",
+      "src/components/marketing/site/primitives.tsx",
+      "src/components/marketing/site/hero.tsx",
+      "src/components/marketing/site/final-cta.tsx",
       "src/app/(public)/docs/page.tsx",
       "src/app/(public)/reviews/page.tsx",
     ]) {

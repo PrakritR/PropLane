@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const sendSms = vi.fn();
 const sendFromManager = vi.fn();
+const runLeasingAgent = vi.fn();
 
 vi.mock("@/lib/proplane-sms-transport.server", () => ({
   sendPropLaneSms: (...args: unknown[]) => sendSms(...args),
@@ -32,7 +33,7 @@ vi.mock("@/lib/sms-inbox-notice.server", () => ({
 }));
 
 vi.mock("@/lib/agent/leasing-sms-agent.server", () => ({
-  runLeasingSmsAgentTurn: vi.fn(async () => null),
+  runLeasingSmsAgentTurn: (...args: unknown[]) => runLeasingAgent(...args),
   deliverLeasingSmsReply: vi.fn(async () => ({ ok: false })),
 }));
 
@@ -64,6 +65,8 @@ describe("handleClawLeasingInbound via Twilio work number", () => {
     sendFromManager.mockReset();
     sendFromManager.mockResolvedValue({ ok: true, channel: "twilio", sid: "SM1" });
     sendSms.mockResolvedValue({ ok: true, channel: "twilio", sid: "SM1" });
+    runLeasingAgent.mockReset();
+    runLeasingAgent.mockResolvedValue(null);
     vi.resetModules();
   });
 
@@ -112,5 +115,44 @@ describe("handleClawLeasingInbound via Twilio work number", () => {
     expect(notice.managerUserId).toBe("mgr-1");
     expect(notice.from).toBe("+15551234567");
     expect(notice.threadType).toBe("claw_leasing_sms");
+  });
+
+  it("completes a confirmed quiet handoff without sending a fallback SMS", async () => {
+    runLeasingAgent.mockResolvedValue({
+      reply: "",
+      disposition: "quiet_handoff",
+      sessionId: "sess-quiet",
+      inboundMessageId: "inbound-quiet",
+      assistantMessageId: null,
+      traceId: "trace-quiet",
+    });
+    const { handleClawLeasingInbound } = await import("@/lib/claw-leasing-bot.server");
+
+    const result = await handleClawLeasingInbound({
+      from: "+15551234567",
+      text: "I can reserve today if the manager can approve my exception.",
+      messageId: `test-quiet-${Date.now()}`,
+      managerUserId: "mgr-1",
+      workNumber: "+14258909021",
+    });
+
+    expect(result).toMatchObject({ ok: true, replied: false });
+    expect(sendFromManager).not.toHaveBeenCalled();
+    expect(sendSms).not.toHaveBeenCalled();
+  });
+
+  it("propagates durable turn-result failures so the inbound receipt retries", async () => {
+    runLeasingAgent.mockRejectedValue(new Error("Communication reply could not be saved. Retry delivery."));
+    const { handleClawLeasingInbound } = await import("@/lib/claw-leasing-bot.server");
+
+    await expect(handleClawLeasingInbound({
+      from: "+15551234567",
+      text: "I can reserve today if the manager approves this exception.",
+      messageId: `test-durable-failure-${Date.now()}`,
+      managerUserId: "mgr-1",
+      workNumber: "+14258909021",
+    })).rejects.toThrow("Communication reply could not be saved");
+    expect(sendFromManager).not.toHaveBeenCalled();
+    expect(sendSms).not.toHaveBeenCalled();
   });
 });

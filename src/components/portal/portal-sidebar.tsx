@@ -565,6 +565,8 @@ export function PortalSidebar({
     [navItems, definition.kind],
   );
 
+  const isWorkspacePortal = definition.kind === "pro" || definition.kind === "manager";
+
   const lockAriaLabel = (label: string, locked: boolean, section?: string) => {
     if (!locked) return label;
     if (definition.kind === "resident" && residentNavStage && section) {
@@ -589,6 +591,8 @@ export function PortalSidebar({
     const count = navCounts[s.section] ?? 0;
 
     if (variant === "bottom") {
+      // The bar says what the sidebar says — Dashboard stays Dashboard.
+      const bottomLabel = s.label;
       return (
         <Link
           key={`${s.section}-${s.sectionTabId ?? "default"}`}
@@ -609,15 +613,10 @@ export function PortalSidebar({
           className={`${PORTAL_NATIVE_BOTTOM_NAV_ITEM_CLASS} ${
             active ? "text-primary" : "text-muted"
           }`}
-          aria-label={lockAriaLabel(s.label, locked, s.section)}
+          aria-label={lockAriaLabel(bottomLabel, locked, s.section)}
           aria-current={active ? "page" : undefined}
         >
-          {active ? (
-            <span
-              className="absolute inset-x-[18%] top-0 h-0.5 rounded-full bg-primary"
-              aria-hidden
-            />
-          ) : null}
+          {/* The active tab is the FILLED glyph (PortalNavIcon `active`); no underline. */}
           {showNavIcons ? (
             <span
               className={`${PORTAL_NATIVE_BOTTOM_NAV_ICON_SLOT_CLASS} transition-opacity duration-200 ${
@@ -630,9 +629,10 @@ export function PortalSidebar({
                 className={PORTAL_NATIVE_BOTTOM_NAV_ICON_CLASS}
                 active={active}
               />
-              {!locked && count > 0 ? (
+              {/* Only unread mail badges a bottom tab; inventory counts belong to the sidebar. */}
+              {!locked && count > 0 && navCountTone(s.section) === "alert" ? (
                 <span className="absolute -top-1 -right-1.5">
-                  <PortalNavCountBadge count={count} tone={navCountTone(s.section)} />
+                  <PortalNavCountBadge count={count} tone="alert" />
                 </span>
               ) : null}
             </span>
@@ -640,7 +640,7 @@ export function PortalSidebar({
             <span className={PORTAL_NATIVE_BOTTOM_NAV_ICON_SLOT_CLASS} aria-hidden />
           )}
           <span className={`${PORTAL_NATIVE_BOTTOM_NAV_LABEL_CLASS} ${active ? "text-primary" : "text-muted"}`}>
-            {s.label}
+            {bottomLabel}
           </span>
         </Link>
       );
@@ -911,7 +911,6 @@ export function PortalSidebar({
   const rawSubtitle = subtitle?.trim() || brand.subtitle;
   // Property portal: show the portal name instead of the billing tier.
   const headerSubtitle = rawSubtitle === "Pro" || rawSubtitle === "Business" ? "Property" : rawSubtitle;
-  const isWorkspacePortal = definition.kind === "pro" || definition.kind === "manager";
   /** Unread mail is the one count that is a call to action; the rest are inventory. */
   const navCountTone = (section: string): "muted" | "alert" => (section === "communication" ? "alert" : "muted");
 

@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { HorizontalScrollCapture } from "@/components/portal/portal-horizontal-scroll";
+import { PortalTitleActionsHost, useTitleActionsPublished } from "@/components/portal/portal-title-actions-slot";
 import { cn } from "@/lib/utils";
 
 /** Compact portal page header — title scrolls on mobile; not a fixed chrome bar. */
@@ -31,6 +32,10 @@ export function PageHeader({
   showTitleOnMobile?: boolean;
 }) {
   const hideTitleOnMobile = !showTitleOnMobile;
+  // A tab's Filter / Settings controls publish themselves into this row (see
+  // portal-title-actions-slot); they count as an action for the phone rules.
+  const hasSlotActions = useTitleActionsPublished();
+  const hasActions = Boolean(primaryAction) || hasSlotActions;
 
   return (
     <header
@@ -45,16 +50,16 @@ export function PageHeader({
         data-slot="page-header-title-row"
         className={cn(
           "flex min-w-0 flex-nowrap items-center gap-2 sm:gap-3",
-          hideTitleOnMobile && primaryAction && !titleTrailing && "max-md:justify-end max-md:py-0",
-          hideTitleOnMobile && !primaryAction && !titleTrailing && "max-md:hidden",
-          hideTitleOnMobile && titleTrailing && !primaryAction && "max-md:w-full",
+          hideTitleOnMobile && hasActions && !titleTrailing && "max-md:justify-end max-md:py-0",
+          hideTitleOnMobile && !hasActions && !titleTrailing && "max-md:hidden",
+          hideTitleOnMobile && titleTrailing && !hasActions && "max-md:w-full",
         )}
       >
         <h1
           className={cn(
             PAGE_HEADER_TITLE_CLASS,
             titleTrailing ? "shrink-0" : "min-w-0 flex-1",
-            primaryAction && !titleTrailing && "truncate",
+            hasActions && !titleTrailing && "truncate",
           )}
         >
           {title}
@@ -62,9 +67,14 @@ export function PageHeader({
         {titleTrailing ? (
           <HorizontalScrollCapture className="min-w-0 flex-1">{titleTrailing}</HorizontalScrollCapture>
         ) : null}
-        {primaryAction ? (
-          <div className="flex shrink-0 items-center gap-2">{primaryAction}</div>
-        ) : null}
+        {hasActions ? (
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <PortalTitleActionsHost className="flex items-center gap-1 sm:gap-1.5" />
+            {primaryAction}
+          </div>
+        ) : (
+          <PortalTitleActionsHost className="flex shrink-0 items-center gap-1 sm:gap-1.5" />
+        )}
       </div>
       {filterSlot ? <div className="min-w-0">{filterSlot}</div> : null}
     </header>

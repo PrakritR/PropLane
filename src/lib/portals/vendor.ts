@@ -11,7 +11,7 @@ export const vendorPortal: PortalDefinition = {
     { section: "work-orders", label: "Services", tabs: [] },
     { section: "tasks", label: "Tasks", tabs: [] },
     { section: "calendar", label: "Calendar", tabs: [] },
-    { section: "communication", label: "Communication", tabs: [] },
+    { section: "communication", label: "Inbox", tabs: [] },
     {
       section: "financials",
       label: "Finances",
@@ -44,7 +44,7 @@ export const VENDOR_PORTAL_SMOKE_PATHS = [
   { label: "Services", path: "/vendor/work-orders" },
   { label: "Tasks", path: "/vendor/tasks" },
   { label: "Calendar", path: "/vendor/calendar" },
-  { label: "Communication", path: "/vendor/communication/active" },
+  { label: "Inbox", path: "/vendor/communication/active" },
   { label: "Finances", path: "/vendor/financials/income" },
   { label: "Invoices", path: "/vendor/financials/invoices" },
   { label: "Payments", path: "/vendor/payments" },

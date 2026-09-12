@@ -1,6 +1,7 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { BulkBarActionLimitContext } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -86,6 +87,15 @@ export function PortalAdaptiveActionRow({
   moreButtonClassName,
   gapPx = DEFAULT_GAP_PX,
   align = "start",
+  /**
+   * Show this many actions without measuring; only the rest fold into "…".
+   *
+   * The floating selection pill sizes itself to its content, so measuring
+   * "how many fit" there is circular — it always came back as none and every
+   * action hid behind the dots. Inside the pill the rule is a count, not a
+   * width. Set automatically when rendered inside {@link BulkActionBar}.
+   */
+  maxVisible,
 }: {
   actions: PortalAdaptiveAction[];
   pinnedMenuItems?: ReactNode[];
@@ -97,16 +107,24 @@ export function PortalAdaptiveActionRow({
   gapPx?: number;
   /** Row alignment inside its slot — bulk bars and mobile title bands use start. */
   align?: "start" | "end";
+  maxVisible?: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
   const { optional } = useMemo(() => splitAdaptiveActions(actions), [actions]);
-  const [optionalFitCount, setOptionalFitCount] = useState(optional.length);
+  const [measuredFitCount, setOptionalFitCount] = useState(optional.length);
+  const bulkBarLimit = useContext(BulkBarActionLimitContext);
+  const fixedLimit = maxVisible ?? bulkBarLimit;
+  const fixed = fixedLimit != null;
+  const optionalFitCount = fixed
+    ? Math.max(0, fixedLimit - (actions.length - optional.length))
+    : measuredFitCount;
   const moreBtnClass = moreButtonClassName ?? DEFAULT_MORE_BTN;
 
   const pinnedCount = pinnedMenuItems.length;
 
   useLayoutEffect(() => {
+    if (fixed) return;
     const container = containerRef.current;
     const measure = measureRef.current;
     if (!container || !measure || actions.length === 0) {
@@ -152,9 +170,10 @@ export function PortalAdaptiveActionRow({
       ro?.disconnect();
       window.removeEventListener("resize", sync);
     };
-  }, [actions, gapPx, optional.length]);
+  }, [actions, fixed, gapPx, optional.length]);
 
   useLayoutEffect(() => {
+    if (fixed) return;
     const row = containerRef.current;
     if (!row) return;
     // During mount (or inside a clipped overflow-hidden ancestor) clientWidth can
@@ -170,7 +189,7 @@ export function PortalAdaptiveActionRow({
     if (optional.length > 0 && optionalFitCount >= optional.length) {
       setOptionalFitCount((count) => Math.max(0, count - 1));
     }
-  }, [optionalFitCount, optional.length, actions]);
+  }, [fixed, optionalFitCount, optional.length, actions]);
 
   if (actions.length === 0 && pinnedCount === 0) return null;
 
@@ -205,7 +224,8 @@ export function PortalAdaptiveActionRow({
   ) : null;
 
   return (
-    <div className="relative min-w-0 w-full flex-1 overflow-hidden">
+    <div className={cn("relative min-w-0", fixed ? "w-auto" : "w-full flex-1 overflow-hidden")}>
+      {fixed ? null : (
       <div
         ref={measureRef}
         className="pointer-events-none invisible absolute left-0 top-0 -z-10 flex gap-0.5"
@@ -223,9 +243,10 @@ export function PortalAdaptiveActionRow({
           </Button>
         </div>
       </div>
+      )}
       <div
         ref={containerRef}
-        className={cn(DEFAULT_ROW_CLASS, rowAlignClass(align), rowClassName, className)}
+        className={cn(fixed ? "flex min-w-0 flex-nowrap items-center gap-0.5" : DEFAULT_ROW_CLASS, rowAlignClass(align), rowClassName, className)}
         style={{ gap: gapPx }}
       >
         {visibleLeading.map((action) => (

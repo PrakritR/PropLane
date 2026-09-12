@@ -55,7 +55,9 @@ describe("ADD PROPERTY at the plan limit", () => {
 });
 
 /**
- * Empty property stages show only the ADD row — no empty-state card.
+ * Empty property stages show the titled empty card (§15) — what the stage
+ * holds, the stage that has rows, and Add property — never a bare dashed box
+ * and never the old PortalEmptyState copy table.
  */
 describe("empty property stages", () => {
   const PANEL = readFileSync(
@@ -63,10 +65,11 @@ describe("empty property stages", () => {
     "utf8",
   );
 
-  it("renders only the ADD row when a stage has no properties", () => {
+  it("renders the empty card when a stage has no properties", () => {
     expect(PANEL).not.toContain("PortalEmptyState");
     expect(PANEL).not.toContain("PROPERTY_STAGE_EMPTY_COPY");
-    expect(PANEL).toContain("renderAddPropertyRow()");
+    expect(PANEL).not.toContain("PortalListAddRow");
+    expect(PANEL).toContain("renderEmptyState()");
     expect(PANEL).toContain("PORTAL_LIST_PAGE_BODY");
   });
 });

@@ -82,7 +82,7 @@ export const RESIDENT_APPLICATION_PHASE_PORTAL_SECTIONS: PortalSection[] = [
   { section: "tour", label: "Tour", tabs: [] },
   { section: "applications", label: "Application", tabs: [] },
   { section: "dashboard", label: "Dashboard", tabs: [] },
-  { section: "communication", label: "Communication", tabs: [] },
+  { section: "communication", label: "Inbox", tabs: [] },
   { section: "profile", label: "Settings", tabs: [] },
 ];
 
@@ -98,7 +98,7 @@ export const RESIDENT_UNIFIED_PORTAL_SECTIONS: PortalSection[] = [
   { section: "services", label: "Services", tabs: [] },
   { section: "inspections", label: "Inspections", tabs: [...INSPECTIONS_TABS] },
   { section: "payments", label: "Payments", tabs: [] },
-  { section: "communication", label: "Communication", tabs: [] },
+  { section: "communication", label: "Inbox", tabs: [] },
   { section: "move-in", label: "My home", tabs: [...MOVE_IN_TABS] },
   { section: "documents", label: "Documents", tabs: [...DOCUMENTS_TABS] },
   { section: "profile", label: "Settings", tabs: [] },
@@ -111,7 +111,7 @@ export const RESIDENT_PRE_LEASE_PORTAL_SECTIONS: PortalSection[] = [
   { section: "applications", label: "Application", tabs: [] },
   { section: "lease", label: "Lease", tabs: [] },
   { section: "payments", label: "Payments", tabs: [] },
-  { section: "communication", label: "Communication", tabs: [] },
+  { section: "communication", label: "Inbox", tabs: [] },
   { section: "documents", label: "Documents", tabs: [...DOCUMENTS_TABS] },
   { section: "profile", label: "Settings", tabs: [] },
 ];
@@ -130,7 +130,7 @@ export const RESIDENT_APPROVED_PORTAL_SECTIONS: PortalSection[] = [
   { section: "payments", label: "Payments", tabs: [] },
   { section: "dashboard", label: "Dashboard", tabs: [] },
   { section: "tour", label: "Tour", tabs: [] },
-  { section: "communication", label: "Communication", tabs: [] },
+  { section: "communication", label: "Inbox", tabs: [] },
   { section: "applications", label: "Application", tabs: [] },
   { section: "lease", label: "Lease", tabs: [] },
   { section: "move-in", label: "My home", tabs: [...MOVE_IN_TABS] },
@@ -182,7 +182,7 @@ export const RESIDENT_PORTAL_SMOKE_PATHS = [
   { label: "Payments", path: `${RESIDENT_PORTAL_BASE_PATH}/payments` },
   { label: "My home", path: `${RESIDENT_PORTAL_BASE_PATH}/move-in` },
   { label: "Inspections", path: `${RESIDENT_PORTAL_BASE_PATH}/inspections/move-in` },
-  { label: "Communication", path: `${RESIDENT_PORTAL_BASE_PATH}/communication/active` },
+  { label: "Inbox", path: `${RESIDENT_PORTAL_BASE_PATH}/communication/active` },
   { label: "Documents", path: `${RESIDENT_PORTAL_BASE_PATH}/documents/application` },
 ] as const;
 

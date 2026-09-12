@@ -107,6 +107,7 @@ vi.mock("@/components/portal/inbox-thread-assistant-strip", () => ({
   InboxThreadAssistantStrip: () => null,
 }));
 
+import { setInboxChannelsViaMenu } from "../helpers/inbox-channel-menu";
 import { ResidentInboxPanel } from "@/components/portal/resident-inbox-panel";
 
 const REFUSAL = "You can only message people connected to your account.";
@@ -156,18 +157,10 @@ function stubFetchSequence(sendResponses: { status: number; body: Record<string,
  * send tests exercise the same two-request path a resident uses.
  */
 async function enableEmailAndSmsChannels() {
-  await waitFor(() => expect(document.querySelectorAll('[aria-label="Send via"]').length).toBeGreaterThan(0));
-  const picker = document.querySelectorAll('[aria-label="Send via"]')[0] as HTMLElement;
-  fireEvent.click(picker);
-  const tapOption = async (name: RegExp) => {
-    const option = await screen.findByRole("option", { name });
-    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
-    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
-  };
-  await tapOption(/^Email$/i);
-  await tapOption(/^Text$/i);
-  await tapOption(/^PropLane$/i);
-  await waitFor(() => expect(picker.textContent).toContain("Email & Text"));
+  // Texting comes on once the SMS status loads, and the panel re-resolves its
+  // default channels at that moment — the helper waits for the Text row to be
+  // enabled before ticking anything.
+  await setInboxChannelsViaMenu({ sms: true, email: true, proplane: false });
 }
 
 async function openThreadAndReply(text: string) {

@@ -145,7 +145,7 @@ export function ManagerCommsBillingPanel() {
   return (
     <PortalSettingsSection
       title="Communication credit"
-      description="Your work number is included on every plan. Control what you spend on texts, calls and work-number AI."
+      description="Pro includes $10 and Business $100 of credit each month; Free has none. Control what you spend on texts, calls and work-number AI."
     >
       {loading && !summary ? (
         <p role="status" className="text-sm text-muted">

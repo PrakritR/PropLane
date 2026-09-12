@@ -18,8 +18,8 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { lastUserText as lastUserMessageText } from "@/lib/agent/chat-handler";
 
 export type ModelTier = "simple" | "standard" | "complex";
-export type AgentProvider = "anthropic" | "openrouter";
-export type AgentRoute = "anthropic" | "fast_direct" | "fast_lookup";
+export type AgentProvider = "anthropic" | "openrouter" | "openai";
+export type AgentRoute = "anthropic" | "fast_direct" | "fast_lookup" | "openai_shadow";
 export type AgentModelSelection = {
   model: string;
   tier: ModelTier;

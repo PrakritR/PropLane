@@ -11,6 +11,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"))
 };
 
 type WorkflowStep = {
+  name?: string;
   uses?: string;
   run?: string;
   if?: string;
@@ -133,10 +134,52 @@ describe("Test workflow resource budget", () => {
   it("keeps every non-browser validation job defined and independently triggered", () => {
     // `integration` is not in `check`'s needs, but it must still run on every
     // push and PR so its signal stays visible next to the required status.
-    for (const name of ["unit", "integration", "lint", "build"]) {
+    const runners = {
+      unit: "ubuntu-24.04",
+      integration: "ubuntu-latest",
+      lint: "ubuntu-latest",
+      build: "ubuntu-latest",
+    } as const;
+
+    for (const [name, runner] of Object.entries(runners)) {
       const job = jobConfig(name);
-      expect(job["runs-on"]).toBe("ubuntu-latest");
+      expect(job["runs-on"]).toBe(runner);
       expect(job.if ?? "", `${name} must not be event-gated`).not.toContain("github.event_name");
+    }
+  });
+
+  it("keeps the unit harness provisioned with PostgreSQL 16 and OpenSSL before its unconditional command", () => {
+    const unit = jobConfig("unit");
+    const provisioningIndex = unit.steps.findIndex(
+      (step) => step.name === "Provision PostgreSQL 16 harness tools",
+    );
+    const unitCommandIndex = unit.steps.findIndex((step) => step.run === "npm run test:unit");
+
+    expect(provisioningIndex).toBeGreaterThanOrEqual(0);
+    expect(unitCommandIndex).toBeGreaterThan(provisioningIndex);
+    expect(unit.steps[provisioningIndex].if).toBeUndefined();
+
+    const provisioningLines = unit.steps[provisioningIndex].run
+      ?.split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    expect(provisioningLines).toContain(
+      "sudo apt-get install --yes postgresql-16 postgresql-client-16 openssl",
+    );
+    expect(provisioningLines).toContain('echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"');
+    expect(unit.steps[unitCommandIndex].if).toBeUndefined();
+  });
+
+  it("checks out full history for the immutable migration source verification", () => {
+    const unit = jobConfig("unit");
+    const checkout = unit.steps.find((step) => step.uses === "actions/checkout@11d5960a326750d5838078e36cf38b85af677262");
+
+    expect(checkout?.with?.["fetch-depth"]).toBe(0);
+    for (const [name, job] of Object.entries(jobs)) {
+      if (name === "unit") continue;
+      for (const step of job.steps.filter((candidate) => candidate.uses?.startsWith("actions/checkout@"))) {
+        expect(step.with?.["fetch-depth"], `${name} checkout should keep the default shallow history`).toBeUndefined();
+      }
     }
   });
 

@@ -38,7 +38,41 @@ export type TourNotificationContext = {
   /** Resident sign-up — track tours and message the property team in PropLane. */
   createAccountUrl?: string;
   residentPortalUrl?: string;
+  /**
+   * Server-owned reply-path facts used only by default lifecycle copy. These
+   * are deliberately optional so existing manager-authored message bodies do
+   * not change, and callers can keep secrets out of the shared context.
+   */
+  replyOptions?: TourReplyOptions;
 };
+
+export type TourReplyOptions = {
+  smsSelected?: boolean;
+  smsAvailable?: boolean;
+  emailSelected?: boolean;
+  emailReplyAvailable?: boolean;
+};
+
+function tourReplyInstructions(ctx: TourNotificationContext): string {
+  const options = ctx.replyOptions;
+  const sms = options?.smsSelected === true && options.smsAvailable === true;
+  const email = options?.emailSelected === true && options.emailReplyAvailable === true;
+  const fallbackUrl = ctx.createAccountUrl?.trim() || ctx.residentPortalUrl?.trim();
+
+  if (sms && email) {
+    return "Reply YES by SMS to confirm the new time. You can also reply to this email. If it does not work, reply with another time that works.";
+  }
+  if (sms) {
+    return "Reply YES by SMS to confirm the new time. If it does not work, reply with another time that works.";
+  }
+  if (email) {
+    return "Reply to this email to confirm the new time. If it does not work, reply with another time that works.";
+  }
+  if (fallbackUrl) {
+    return `Create or sign in to a PropLane account to confirm the new time: ${fallbackUrl} If it does not work, use the account to tell the property team another time that works.`;
+  }
+  return "Contact the property team through PropLane to confirm the new time. If it does not work, share another time that works.";
+}
 
 export function formatTourTimeRange(startIso: string, endIso: string): string {
   const start = new Date(startIso);
@@ -259,12 +293,7 @@ export function buildTourRescheduleConfirmRequestBody(
   ];
   if (ctx.roomLabel?.trim()) lines.push(`Room: ${ctx.roomLabel.trim()}`);
   if (ctx.propertyAddress?.trim()) lines.push(`Address: ${ctx.propertyAddress.trim()}`);
-  lines.push(
-    "",
-    "Please reply in your PropLane inbox to confirm this new time works for you. If it does not, we will find another slot.",
-    "",
-    "— PropLane",
-  );
+  lines.push("", tourReplyInstructions(ctx), "", "— PropLane");
   return lines.join("\n");
 }
 
@@ -312,7 +341,13 @@ export function buildTourRescheduledTenantBody(
   if (ctx.instructions?.trim()) lines.push("", "Before you arrive:", ctx.instructions.trim());
   lines.push(
     "",
-    "If the new time does not work, reply in your PropLane inbox and the property team will find another.",
+    tourReplyInstructions(ctx).replace(
+      "confirm the new time",
+      "confirm",
+    ).replace(
+      "If it does not work, reply with another time that works.",
+      "If the new time does not work, reply with another time and the property team will find another.",
+    ),
     "",
     "— PropLane",
   );
@@ -393,6 +428,7 @@ export function buildTourNotificationContext(input: {
   managerLabel?: string | null;
   instructions?: string | null;
   tourInquiryId?: string | null;
+  replyOptions?: TourReplyOptions;
 }): TourNotificationContext {
   const origin = input.origin.replace(/\/$/, "");
   const nextPath = input.propertyId?.trim()
@@ -421,5 +457,6 @@ export function buildTourNotificationContext(input: {
     applyUrl: buildTourApplyUrl(input.origin, input.propertyId, input.roomLabel),
     createAccountUrl: `${origin}/auth/create-account?${createAccountParams.toString()}`,
     residentPortalUrl: `${origin}/resident/applications`,
+    replyOptions: input.replyOptions,
   };
 }

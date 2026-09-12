@@ -1,7 +1,7 @@
 import type { PropertyCoManagerPermissions } from "@/lib/co-manager-permissions";
 
 /** Hard ceiling enforced in the database; the plan below narrows it per tier. */
-export const WORKSPACE_LIMIT = 3;
+export const WORKSPACE_LIMIT = 10;
 /** Property records per workspace, drafts included (database trigger). */
 export const WORKSPACE_PROPERTY_LIMIT = 10;
 export const WORKSPACE_COOKIE = "proplane-workspace";
@@ -19,7 +19,9 @@ export const WORKSPACE_PLAN_ENTITLEMENTS: Record<
   { label: string; workspaces: number; properties: number; recordsPerWorkspace: number; team: number; vendors: number | null }
 > = {
   free: { label: "Free", workspaces: 1, properties: 1, recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT, team: 0, vendors: null },
-  pro: { label: "Pro", workspaces: 2, properties: 2, recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT, team: 2, vendors: null },
+  // Round 3 plan model: Pro includes ONE workspace; a second and third are
+  // the "extra workspace" add-on. Business includes three.
+  pro: { label: "Pro", workspaces: 1, properties: 2, recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT, team: 2, vendors: null },
   business: { label: "Business", workspaces: 3, properties: 20, recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT, team: 20, vendors: null },
 };
 

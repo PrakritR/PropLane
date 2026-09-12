@@ -1,15 +1,43 @@
 # Manager communication credit
 
-Free, Pro and Business all include a work number and Communication access. Provisioning,
-phone verification, carrier registration, consent and runtime rollout controls still apply.
-The phone itself has no setup or monthly usage deduction. Work email uses the same verified plan entitlement and remains unmetered; an empty
-communication wallet never disables its address or setup.
+**A work number is a paid feature (round 3 plan model, Sep 2026).** Free has no work
+number and no communication credit; Pro includes one number; Business includes one per
+workspace. A signup or Stripe trial is not yet paying and cannot provision a number
+(`reconcileManagerSmsEntitlement` refuses `trialing` on the number path); a FREE100 /
+admin comp grant counts as paid. Provisioning, phone verification, carrier registration,
+consent and runtime rollout controls still apply. The phone itself has no setup or monthly
+usage deduction. Work email uses the same verified plan entitlement and remains unmetered;
+an empty communication wallet never disables its address or setup.
 
-| Plan | Subscription | Monthly retail communication credit |
+| Plan | Subscription | Work number | Monthly retail communication credit |
+| --- | --- | --- | --- |
+| Free | $0 | none | $0 |
+| Pro | $20/month or $192/year | 1 | $10 |
+| Business | $200/month or $1,920/year | 1 per workspace | $100 |
+
+Numbers held by Free accounts from the earlier every-plan policy are released once per
+environment after the deploy: `POST /api/admin/release-free-work-numbers` (admin-gated;
+`{ "dryRun": false }` to release, default is a dry run that lists them).
+
+## Add-ons
+
+Past the bundle a paying account adds one unit at a time from Settings → Billing & plan
+(`src/lib/plan-addons.ts`, quantities in `manager_plan_addons`, route
+`/api/manager/plan-addons`). Each quota reads its plan cap PLUS the add-on quantity
+(`manager-property-quota.server.ts`, `workspaces/server.ts`, `/api/pro/account-links`).
+
+| Add-on | Pro | Business |
 | --- | --- | --- |
-| Free | $0 | $2 |
-| Pro | $20/month or $192/year | $10 |
-| Business | $200/month or $1,920/year | $100 |
+| Extra property listing | $8/mo | $6/mo |
+| Extra work number | $5/mo | $5/mo |
+| Extra workspace | $15/mo (up to 2, i.e. 3 total) | $30/mo |
+| Extra co-manager seat | $5/mo | $5/mo |
+
+A Stripe-managed subscription needs one Price per add-on and plan in env —
+`STRIPE_PRICE_ADDON_<EXTRA_LISTING|EXTRA_WORK_NUMBER|EXTRA_WORKSPACE|EXTRA_SEAT>_<PRO|BUSINESS>`
+— and the route adds/updates/removes a subscription item with proration before the
+quantity is written; without the Price the Add button is disabled ("not available for
+purchase yet"). Comp and admin grants record quantities without Stripe.
 
 Annual subscriptions receive the same monthly credit. Credit resets on the first of
 each month at 00:00 UTC. Existing managers keep their higher current allowance during
@@ -18,8 +46,8 @@ positive allowance difference once; downgrades take effect at the next reset.
 
 The paid allowance is 50% of monthly subscription price in **retail usage credit**,
 not provider cost. Rates include operational overhead; provider and carrier costs can
-vary. Free's $2 buys at most 66 outbound single-segment texts, Pro 333 and Business
-3,333 if used only for that meter. Incoming messages, voice and AI share the same balance.
+vary. Pro's $10 buys at most 333 outbound single-segment texts and Business 3,333 if
+used only for that meter; Free spends only purchased packs. Incoming messages, voice and AI share the same balance.
 
 ## Purchases and stops
 

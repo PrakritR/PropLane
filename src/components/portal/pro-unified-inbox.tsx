@@ -423,6 +423,16 @@ export function ManagerUnifiedInbox({
     );
   }, [emailThreads, threadFilters, filterContacts, listSegment, smsUiEnabled, viewerId]);
 
+  // Badges on the rail — the same rows the three segments would list.
+  const segmentCounts = useMemo(
+    () => ({
+      active: filteredEmail.filter((t) => t.folder !== "trash").length,
+      unread: filteredEmail.filter((t) => t.folder === "inbox" && t.unread).length,
+      archived: filteredEmail.filter((t) => t.folder === "trash").length,
+    }),
+    [filteredEmail],
+  );
+
   const emailListItems = useMemo((): UnifiedInboxListItem[] => {
     const q = query.trim().toLowerCase();
     let rows = filteredEmail;
@@ -766,7 +776,7 @@ export function ManagerUnifiedInbox({
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <ManagerWorkNumberCard onTellResidents={onAddConversation} />
-      <InboxListSegmentRail commBase={commBase} listSegment={listSegment} />
+      <InboxListSegmentRail commBase={commBase} listSegment={listSegment} counts={segmentCounts} />
       {listChrome === "internal" ? (
         <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
           <div className="relative min-w-0">

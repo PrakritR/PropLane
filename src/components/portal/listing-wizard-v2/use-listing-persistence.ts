@@ -162,8 +162,9 @@ export function useListingPersistence({
 
   /**
    * Forget the draft this hook has been updating, so the next save creates a
-   * new row. Quick Add's "add another property" needs this: without it the
-   * second property would silently overwrite the first one's draft.
+   * new row. A caller that lets a manager add a second property from the same
+   * mounted hook needs this: without it the second property would silently
+   * overwrite the first one's draft.
    */
   const startFresh = useCallback(() => {
     draftIdRef.current = null;

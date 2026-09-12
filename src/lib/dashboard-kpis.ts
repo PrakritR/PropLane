@@ -54,22 +54,23 @@ export function dashboardPeriods(kind: DashboardPeriodKind, nowMs: number, count
     }
     return periods;
   }
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const d = now.getDate();
+  const localDay = (offset: number) => new Date(y, m, d + offset).getTime();
   if (kind === "week") {
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dow = (today.getDay() + 6) % 7; // Monday = 0
-    const thisMonday = today.getTime() - dow * DAY_MS;
+    const dow = (new Date(y, m, d).getDay() + 6) % 7; // Monday = 0
     for (let i = count - 1; i >= 0; i--) {
-      const start = thisMonday - i * 7 * DAY_MS;
-      const end = start + 7 * DAY_MS;
-      periods.push({ start, end, label: `${shortDate(start)}–${shortDate(end - DAY_MS)}` });
+      const start = localDay(-dow - i * 7);
+      const end = localDay(-dow - i * 7 + 7);
+      periods.push({ start, end, label: `${shortDate(start)}–${shortDate(localDay(-dow - i * 7 + 6))}` });
     }
     return periods;
   }
-  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
   for (let i = count - 1; i >= 0; i--) {
-    const end = endOfToday - i * 30 * DAY_MS;
-    const start = end - 30 * DAY_MS;
-    periods.push({ start, end, label: `${shortDate(start)} – ${shortDate(end - DAY_MS)}` });
+    const end = localDay(1 - i * 30);
+    const start = localDay(1 - (i + 1) * 30);
+    periods.push({ start, end, label: `${shortDate(start)} – ${shortDate(localDay(-i * 30))}` });
   }
   return periods;
 }
@@ -95,15 +96,19 @@ export function bucketSeries<T>(
  * How many of `items` existed at the END of each period — for a stock, not a
  * flow. Occupancy is a stock: what matters is how many leases were signed by
  * the last day of August, not how many were signed during it.
+ *
+ * The current period has not ended, so its cut is `nowMs`: a lease that ends
+ * later this month is still occupied today.
  */
 export function stockSeries<T>(
   items: readonly T[],
   periods: readonly DashboardPeriod[],
   from: (item: T) => number | null,
   until: (item: T) => number | null = () => null,
+  nowMs = Number.MAX_SAFE_INTEGER,
 ): number[] {
   return periods.map((p) => {
-    const cut = Math.min(p.end, Number.MAX_SAFE_INTEGER);
+    const cut = Math.min(p.end, nowMs);
     let n = 0;
     for (const item of items) {
       const a = from(item);

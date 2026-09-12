@@ -1,5 +1,7 @@
 "use client";
 
+import { PenSquare } from "lucide-react";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
@@ -113,12 +115,20 @@ export function ManagerCommunication({
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
   const [propertyTick, setPropertyTick] = useState(0);
 
+  // Rebuilt on every portfolio / applications event (`propertyTick`): the
+  // directory is read from the applications cache, which is usually still
+  // syncing when this mounts, and a list built once from an empty cache left
+  // every thread header without its person — no role, house, room or phone.
   const filterContacts = useMemo(() => {
+    void propertyTick;
     const live = buildManagerInboxLiveContacts(userId);
     return [axisAdminFilterContact(), ...live];
-  }, [userId]);
+  }, [userId, propertyTick]);
 
-  const liveContacts = useMemo(() => buildManagerInboxLiveContacts(userId), [userId]);
+  const liveContacts = useMemo(() => {
+    void propertyTick;
+    return buildManagerInboxLiveContacts(userId);
+  }, [userId, propertyTick]);
 
   useEffect(() => {
     const bump = () => setPropertyTick((n) => n + 1);
@@ -283,14 +293,13 @@ export function ManagerCommunication({
     <Button
       type="button"
       variant="primary"
-      className={PORTAL_HEADER_PRIMARY_ACTION_BTN}
+      className={`${PORTAL_HEADER_PRIMARY_ACTION_BTN} gap-1.5 max-sm:w-9 max-sm:px-0`}
       data-attr="communication-new-message"
       aria-label="New message"
+      title="New message"
       onClick={() => openCompose("email")}
     >
-      <span className="sm:hidden" aria-hidden="true">
-        Message
-      </span>
+      <PenSquare className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
       <span className="hidden sm:inline">New message</span>
     </Button>
   );
@@ -321,7 +330,7 @@ export function ManagerCommunication({
   return (
     <PortalCommunicationShell
       title="Communication"
-      subtitle="Every conversation with your residents, applicants and vendors, in one inbox."
+      subtitle="Residents, applicants and vendors, in one place."
       titleAside={communicationCommandActions}
       hideTitleOnMobileNav
       controlStack={controlStack}

@@ -2,13 +2,19 @@
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
-import { Archive, ArchiveRestore, Pencil, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, Pencil, Phone, Trash2, UserRound } from "lucide-react";
+import Link from "next/link";
+import { residentDetailHref } from "@/lib/portal-detail-routes";
+import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
+import { clearInboxReplyDraft, readInboxReplyDraft, writeInboxReplyDraft } from "@/lib/inbox-reply-draft-store";
 import { inboxCounterpartyName } from "@/lib/manager-inbox-contacts";
 import { inboxRowAddressLabel } from "@/lib/communication-row-meta";
+import { defaultScheduleSendAtLocal } from "@/components/portal/portal-message-compose-fields";
 import {
-  PortalMessageScheduleFields,
-  defaultScheduleSendAtLocal,
-} from "@/components/portal/portal-message-compose-fields";
+  InboxComposerAiMenu,
+  InboxComposerChannelMenu,
+  InboxComposerScheduleMenu,
+} from "@/components/portal/inbox-composer-tools";
 import { Button } from "@/components/ui/button";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import {
@@ -285,8 +291,10 @@ export const ManagerInbox = forwardRef<
       scheduledMessages.filter((m) => upcoming(m.status, m.sendAt)).length
     );
   }, [manualScheduledMessages, scheduledMessages]);
-  const { userId } = useManagerUserId();
+  const { userId, email: viewerEmail } = useManagerUserId();
   const [smsCanSend, setSmsCanSend] = useState(false);
+  /** The line texts leave on — the manager's own number, or the workspace's shared one. */
+  const [smsSendingNumber, setSmsSendingNumber] = useState<string | null>(null);
   /** Work-number replies stay live when canSend even if the global SMS comm UI flag is off. */
   const smsOutboundEnabled = smsUiEnabled || smsCanSend;
 
@@ -297,7 +305,13 @@ export const ManagerInbox = forwardRef<
       .then((res) => (res.ok ? res.json() : null))
       .then((body) => {
         if (cancelled || !body || typeof body !== "object") return;
-        setSmsCanSend((body as { canSend?: boolean }).canSend === true);
+        const status = body as {
+          canSend?: boolean;
+          number?: { phoneNumber?: string | null } | null;
+          workspaceNumber?: { phoneNumber?: string | null } | null;
+        };
+        setSmsCanSend(status.canSend === true);
+        setSmsSendingNumber(status.number?.phoneNumber ?? status.workspaceNumber?.phoneNumber ?? null);
       })
       .catch(() => {
         if (!cancelled) setSmsCanSend(false);
@@ -332,6 +346,8 @@ export const ManagerInbox = forwardRef<
   const [composeOpen, setComposeOpen] = useState(false);
   const [scheduleLater, setScheduleLater] = useState(false);
   const [scheduleSendAt, setScheduleSendAt] = useState(() => defaultScheduleSendAtLocal());
+  // The composer's ✦ menu opens the thread assistant rail; each bump is one ask.
+  const [askAssistantSignal, setAskAssistantSignal] = useState(0);
   const [workflowWorkOrderOpen, setWorkflowWorkOrderOpen] = useState(false);
   const [workflowServiceOpen, setWorkflowServiceOpen] = useState(false);
   const [workflowMessageText, setWorkflowMessageText] = useState("");
@@ -1086,7 +1102,9 @@ export const ManagerInbox = forwardRef<
   );
 
   // ---- Open conversation (right pane) ----------------------------------
-  const [replyDraft, setReplyDraft] = useState("");
+  const [reply, setReply] = useState<{ threadId: string | null; text: string }>({ threadId: null, text: "" });
+  const replyDraft = reply.text;
+  const setReplyDraft = useCallback((text: string) => setReply((prev) => ({ ...prev, text })), []);
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
   const [replySending, setReplySending] = useState(false);
   const [replyViaEmail, setReplyViaEmail] = useState(true);
@@ -1122,14 +1140,23 @@ export const ManagerInbox = forwardRef<
     markReadSilent(activeThread.id);
   }, [activeThread?.id]);
 
-  // A fresh draft per conversation.
+  // A draft per conversation — restored when the manager comes back to it.
+  // The text and the conversation it belongs to travel as one value, so the
+  // write below never files the previous thread's words under the new id.
   useEffect(() => {
-    setReplyDraft("");
+    const threadId = activeThread?.id ?? null;
+    setReply({ threadId, text: threadId ? readInboxReplyDraft(threadId) : "" });
     setReplyAttachments((prev) => {
       prev.forEach(revokeInboxAttachmentPreview);
       return [];
     });
   }, [expandedId]);
+
+  // Keep the unsent text for THIS conversation as it is typed.
+  useEffect(() => {
+    if (!reply.threadId || reply.threadId !== activeThread?.id) return;
+    writeInboxReplyDraft(reply.threadId, reply.text);
+  }, [activeThread?.id, reply]);
 
   useEffect(() => {
     if (activeThread?.aiDraft?.status === "pending_approval") {
@@ -1545,6 +1572,7 @@ export const ManagerInbox = forwardRef<
         // Clear the reply only on success, so a refused schedule never loses
         // what the manager typed.
         setReplyDraft("");
+        clearInboxReplyDraft(activeThread.id);
         setReplyAttachments([]);
         setScheduleLater(false);
         showToast("Message scheduled.");
@@ -1574,6 +1602,7 @@ export const ManagerInbox = forwardRef<
       );
       if (!outcome) return;
       setReplyDraft("");
+      clearInboxReplyDraft(activeThread.id);
       setReplyAttachments((prev) => {
         prev.forEach(revokeInboxAttachmentPreview);
         return [];
@@ -1796,6 +1825,15 @@ export const ManagerInbox = forwardRef<
     approveActiveDraft,
   ]);
 
+  const replySendingAs = useMemo(
+    () => ({
+      sms: smsSendingNumber ? formatTourContactPhoneDisplay(smsSendingNumber) : undefined,
+      email: viewerEmail?.trim() || undefined,
+      proplane: "PropLane",
+    }),
+    [smsSendingNumber, viewerEmail],
+  );
+
   const replyChannelPicker = (
     <InboxReplyChannelPicker
       viaEmail={replyViaEmail}
@@ -1808,6 +1846,23 @@ export const ManagerInbox = forwardRef<
       smsAvailable={activeSmsAvailable}
       proplaneAvailable={activeProplaneAvailable}
       onAddPhone={canAddThreadPhone ? openThreadPhone : undefined}
+      sendingAs={replySendingAs}
+    />
+  );
+
+  const replyChannelMenu = (
+    <InboxComposerChannelMenu
+      viaEmail={replyViaEmail}
+      viaSms={replyViaSms}
+      viaProplane={replyViaProplane}
+      onViaProplaneChange={setReplyViaProplane}
+      onViaEmailChange={setReplyViaEmail}
+      onViaSmsChange={setReplyViaSms}
+      emailAvailable={activeEmailAvailable}
+      smsAvailable={activeSmsAvailable}
+      proplaneAvailable={activeProplaneAvailable}
+      onAddPhone={canAddThreadPhone ? openThreadPhone : undefined}
+      sendingAs={replySendingAs}
     />
   );
 
@@ -1823,6 +1878,7 @@ export const ManagerInbox = forwardRef<
       smsAvailable={activeSmsAvailable}
       proplaneAvailable={activeProplaneAvailable}
       onAddPhone={canAddThreadPhone ? openThreadPhone : undefined}
+      sendingAs={replySendingAs}
     />
   );
 
@@ -2049,28 +2105,91 @@ export const ManagerInbox = forwardRef<
         "Unknown sender"
     : "";
 
+  /**
+   * The thread header is a compact contact card: role · property · room ·
+   * phone · email on one line, with Call and Open resident beside the
+   * conversation controls. Everything the manager used to open a second tab
+   * for sits above the messages.
+   */
+  const activeThreadContact = useMemo(
+    () =>
+      activeThread && !activeIsAssistantThread
+        ? filterContacts?.find(
+            (c) => c.email.trim().toLowerCase() === activeThread.email.trim().toLowerCase(),
+          ) ?? null
+        : null,
+    [activeThread, activeIsAssistantThread, filterContacts],
+  );
+  const activeThreadPhone = activeSmsTarget?.phone?.trim() || "";
+
   const activeThreadSubtitle = (() => {
     if (!activeThread || activeIsAssistantThread) return undefined;
-    const contact = filterContacts?.find(
-      (c) => c.email.trim().toLowerCase() === activeThread.email.trim().toLowerCase(),
-    );
+    const contact = activeThreadContact;
     // The directory's role union is not the filter's ("manager" vs
     // "management"), so map rather than cast — a cast would print "PropLane
     // admin" for a manager.
     const role =
       contact?.role === "resident"
-        ? "Resident"
+        ? contact.tenancyStatus === "applicant"
+          ? "Applicant"
+          : contact.tenancyStatus === "past"
+            ? "Past resident"
+            : "Resident"
         : contact?.role === "vendor"
           ? "Vendor"
           : contact?.role === "manager"
             ? "Manager"
             : null;
-    const parts = [role, inboxRowAddressLabel(contact?.propertyLabel)].filter(Boolean) as string[];
+    const place = [inboxRowAddressLabel(contact?.propertyLabel), contact?.roomLabel]
+      .filter(Boolean)
+      .join(", ");
+    const parts = [
+      role,
+      place,
+      activeThreadPhone ? formatTourContactPhoneDisplay(activeThreadPhone) : null,
+      activeThread.email?.trim() || null,
+    ].filter(Boolean) as string[];
     if (parts.length > 0) return parts.join(" · ");
     // Nothing known about them beyond the address they write from — better than
     // repeating the subject, which the open thread already shows.
     return activeThread.email || activeThread.subject || undefined;
   })();
+
+  const activeResidentHref = (() => {
+    const contact = activeThreadContact;
+    if (!contact || contact.role !== "resident" || !contact.id.startsWith("res-")) return null;
+    const tab =
+      contact.tenancyStatus === "applicant" ? "potential" : contact.tenancyStatus === "past" ? "past" : "current";
+    return residentDetailHref(portalBase, tab, contact.id.slice(4), "application");
+  })();
+
+  const threadContactActions =
+    activeThread && !activeIsAssistantThread && !embeddedResidentChat ? (
+      <>
+        {activeThreadPhone ? (
+          <a
+            href={`tel:${activeThreadPhone}`}
+            className={INBOX_THREAD_ICON_BTN}
+            aria-label="Call"
+            title={`Call ${formatTourContactPhoneDisplay(activeThreadPhone)}`}
+            data-attr="inbox-thread-call"
+          >
+            <Phone className="h-4 w-4" aria-hidden />
+          </a>
+        ) : null}
+        {activeResidentHref ? (
+          <Link
+            href={activeResidentHref}
+            className={INBOX_THREAD_ICON_BTN}
+            aria-label="Open resident"
+            title="Open resident"
+            data-attr="inbox-thread-open-resident"
+          >
+            <UserRound className="h-4 w-4" aria-hidden />
+          </Link>
+        ) : null}
+      </>
+    ) : null;
 
   const threadHeaderActions =
     activeThread && showThreadHeaderActions ? (
@@ -2099,7 +2218,8 @@ export const ManagerInbox = forwardRef<
       </>
     ) : (
       <>
-        {/* One row of matching circular controls: edit, archive, delete. */}
+        {/* One row of matching circular controls: call, open, edit, archive, delete. */}
+        {threadContactActions}
         {threadContactEditButton}
         <button
           type="button"
@@ -2124,7 +2244,10 @@ export const ManagerInbox = forwardRef<
       </>
     )
   ) : activeThread && embeddedInCommunication ? (
-    threadContactEditButton
+    <>
+      {threadContactActions}
+      {threadContactEditButton}
+    </>
   ) : null;
 
   const scheduledCards =
@@ -2197,10 +2320,9 @@ export const ManagerInbox = forwardRef<
                 onSelect={openInboundWorkflow}
               />
             ) : null}
-            {/* Draft with AI and Ask PropLane sit on ONE row. Each renders its
-                own top border and padding for the standalone panel, so the
-                wrapper neutralises those and owns the row's chrome instead. */}
-            <div className="portal-inbox-compose-actions flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-card px-3.5 pb-1.5 pt-2.5 [&>*]:!m-0 [&>*]:!flex [&>*]:!items-center [&>*]:!border-0 [&>*]:!bg-transparent [&>*]:!p-0">
+            {/* Draft with AI, Ask PropLane and Schedule live in the composer
+                row (its ✦ and 🕒 tools). Only a draft in flight, a failed
+                draft, or a draft waiting for approval still shows above it. */}
             {showAiDraftUi ? (
               <AiDraftReplyCard
                 drafting={draftingIds.has(activeThread.id) && !activeThread.aiDraft?.text}
@@ -2246,6 +2368,7 @@ export const ManagerInbox = forwardRef<
                       }
                     : undefined
                 }
+                hideGenerateButton
               />
             ) : null}
             <InboxThreadAssistantStrip
@@ -2260,18 +2383,9 @@ export const ManagerInbox = forwardRef<
                   ? `resident-detail-${activeThread.email.trim().toLowerCase()}`
                   : "Communication thread"
               }
+              hideTrigger
+              openSignal={askAssistantSignal}
             />
-            {inboxThreadHasEmail(activeThread.email) ? (
-              <PortalMessageScheduleFields
-                scheduleLater={scheduleLater}
-                onScheduleLaterChange={setScheduleLater}
-                sendAt={scheduleSendAt}
-                onSendAtChange={setScheduleSendAt}
-                scheduleDataAttr="inbox-thread-schedule-later"
-                sendAtDataAttr="inbox-thread-schedule-at"
-              />
-            ) : null}
-            </div>
             <InboxComposer
               value={replyDraft}
               onChange={setReplyDraft}
@@ -2280,7 +2394,40 @@ export const ManagerInbox = forwardRef<
               placeholder="Write a reply…"
               maxLength={!embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined}
               dataAttr="inbox-reply"
-              channelControl={showReplyChannelPicker ? replyChannelPicker : undefined}
+              hint={
+                scheduleLater && inboxThreadHasEmail(activeThread.email)
+                  ? `Send schedules this reply for ${new Date(scheduleSendAt).toLocaleString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}.`
+                  : undefined
+              }
+              trailingControls={
+                <>
+                  <InboxComposerAiMenu
+                    onDraft={
+                      showAiDraftUi && activeThread.aiDraft?.status !== "pending_approval"
+                        ? () => {
+                            draftAttemptedRef.current.delete(activeThread.id);
+                            void requestInboxAiDraft(activeThread.id, true);
+                          }
+                        : undefined
+                    }
+                    onAsk={() => setAskAssistantSignal((n) => n + 1)}
+                  />
+                  {inboxThreadHasEmail(activeThread.email) ? (
+                    <InboxComposerScheduleMenu
+                      scheduleLater={scheduleLater}
+                      onScheduleLaterChange={setScheduleLater}
+                      sendAt={scheduleSendAt}
+                      onSendAtChange={setScheduleSendAt}
+                    />
+                  ) : null}
+                  {showReplyChannelPicker ? replyChannelMenu : null}
+                </>
+              }
               attachments={replyAttachments}
               onAttachmentsPick={pickReplyAttachments}
               onAttachmentRemove={removeReplyAttachment}

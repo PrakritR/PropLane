@@ -48,6 +48,7 @@ function inquiry(over: Record<string, unknown> = {}) {
     email: "guest@example.com",
     phone: "2065550123",
     smsConsent: true,
+    smsOrigin: "non_sms",
     managerUserId: MANAGER,
     eligibleHostUserIds: [MANAGER],
     propertyId: "prop-1",
@@ -125,7 +126,11 @@ describe("confirmTourInquiry pushes the tour to Google before answering", () => 
       attendeeName: "Guest",
       attendeeEmail: "guest@example.com",
     });
-    expect(written.planned.at(-1)).toMatchObject({ smsConsent: true, attendeePhone: "2065550123" });
+    expect(written.planned.at(-1)).toMatchObject({
+      smsConsent: true,
+      smsOrigin: "non_sms",
+      attendeePhone: "2065550123",
+    });
   });
 
   it("books the tour and reports a Google failure rather than failing the confirm", async () => {
@@ -164,7 +169,7 @@ describe("acceptTourInquiry (the calendar tool's path) waits the same way", () =
           }, 20),
         ),
     );
-    const { db } = makeDb();
+    const { db, written } = makeDb();
 
     const result = await acceptTourInquiry(db, MANAGER, { inquiryId: "inq-1" });
 
@@ -172,6 +177,11 @@ describe("acceptTourInquiry (the calendar tool's path) waits the same way", () =
     if (!result.ok) return;
     expect(pushSettled).toBe(true);
     expect(result.calendarSync).toEqual({ ok: true });
+    expect(written.planned.at(-1)).toMatchObject({
+      smsConsent: true,
+      smsOrigin: "non_sms",
+      attendeePhone: "2065550123",
+    });
   });
 
   it("reports a Google failure without failing the accept", async () => {

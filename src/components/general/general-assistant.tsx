@@ -28,6 +28,7 @@ import {
   subscribePortalAssistantPresence,
 } from "@/lib/general-assistant/open-store";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
+import { usePathname } from "next/navigation";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type Suggestion = { label: string; prompt: string };
@@ -92,9 +93,22 @@ export function GeneralAssistantTrigger() {
   );
 }
 
+/**
+ * Marketing pages carry no floating control (site round 2 §5): the story,
+ * pricing and audience pages are read, not chatted with. The bubble stays on
+ * docs, support, the auth flow and the rental browse, where a visitor has a
+ * question in hand.
+ */
+const MARKETING_PATHS = ["/", "/pricing", "/why-proplane", "/partner", "/vendors", "/reviews", "/about", "/app", "/contact", "/security"];
+export function isMarketingPath(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return MARKETING_PATHS.some((p) => (p === "/" ? pathname === "/" : pathname === p || pathname.startsWith(`${p}/`)));
+}
+
 /** Floating chat control for public pages — bottom-right, hidden when the portal assistant is active. */
 export function GeneralAssistantFab() {
   const open = useGeneralOpen();
+  const pathname = usePathname();
   const portalPresent = useSyncExternalStore(
     subscribePortalAssistantPresence,
     getPortalAssistantPresent,
@@ -102,7 +116,7 @@ export function GeneralAssistantFab() {
   );
   const { isNative } = useIsNativeApp();
 
-  if (open || portalPresent || isNative) return null;
+  if (open || portalPresent || isNative || isMarketingPath(pathname)) return null;
 
   function toggleAssistant() {
     if (open) {

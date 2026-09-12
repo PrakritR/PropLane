@@ -170,6 +170,14 @@ the proposed window for manager follow-up; it never books the pending inquiry.
 Once a guest notification is accepted, a later reply-state failure leaves the
 persisted window in place and returns a warning rather than rolling it back.
 
+Tour SMS eligibility is resolved from explicit opt-in or exact scoped
+conversation evidence. `smsOrigin` survives inquiry confirmation and planned
+cancel/reschedule projections so new non-SMS requests cannot become legacy by
+crossing a storage boundary. Legacy reply proposals are compatible only after
+current evidence is revalidated and the exact still-actionable snapshot is
+CAS-upgraded; its original phone pair, window, generation, version, and status
+remain authoritative, and terminal proposals are never reopened.
+
 **A manager can also book a tour with no inquiry behind it.**
 `POST /api/portal/manual-tour` → `createManualPlannedTour`
 (`manual-planned-tour.server.ts`) writes a planned event directly for a walk-in

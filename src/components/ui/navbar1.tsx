@@ -33,6 +33,13 @@ export interface NavbarMenuItem {
   description?: string;
   icon?: ReactNode;
   items?: NavbarMenuItem[];
+  /**
+   * A mega menu: named columns of links, optionally with a featured panel on
+   * the right. When present, `items` is ignored on desktop and the groups are
+   * flattened under their headings on the phone sheet.
+   */
+  groups?: { heading: string; items: NavbarMenuItem[] }[];
+  featured?: ReactNode;
   active?: boolean;
   activeChildHref?: string;
   dataAttr?: string;
@@ -44,9 +51,13 @@ export interface Navbar1Props {
   auth?: {
     login: { text: string; url: string };
     signup: { text: string; url: string };
+    /** A quieter second door beside the primary (Book a demo). Desktop only. */
+    secondary?: { text: string; url: string; dataAttr?: string };
   };
   portalLink?: { text: string; url: string };
   actionsSlot?: ReactNode;
+  /** Pinned under the phone sheet's buttons (e.g. the App Store badge). */
+  mobileFooter?: ReactNode;
 }
 
 function MenuIcon({ className }: { className?: string }) {
@@ -81,11 +92,12 @@ export function Navbar1({
   },
   portalLink,
   actionsSlot,
+  mobileFooter,
 }: Navbar1Props) {
   return (
     <div className="mx-auto flex min-h-[56px] w-full max-w-6xl items-center px-4 sm:px-5">
       {/* Desktop — logo left, links centered, actions right (3-col grid). */}
-      <nav className="hidden w-full grid-cols-[1fr_auto_1fr] items-center lg:grid">
+      <nav className="hidden w-full grid-cols-[auto_1fr_auto] items-center gap-4 lg:grid">
         <div className="justify-self-start">{logoSlot}</div>
         <div className="justify-self-center">
           <NavigationMenu>
@@ -96,7 +108,7 @@ export function Navbar1({
             </NavigationMenuList>
           </NavigationMenu>
         </div>
-        <div className="flex items-center gap-2 justify-self-end">
+        <div className="flex items-center gap-2 justify-self-end whitespace-nowrap">
           {actionsSlot && <div className="hidden items-center lg:flex">{actionsSlot}</div>}
           {portalLink ? (
             <Button
@@ -109,14 +121,25 @@ export function Navbar1({
             <>
               <Link
                 href={auth.login.url}
-                className="mr-2 inline-flex items-center gap-1.5 px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:text-primary"
+                className="mr-1 inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:text-primary"
               >
                 {auth.login.text}
                 <ArrowRightIcon className="size-4" />
               </Link>
+              {auth.secondary ? (
+                <Button
+                  asChild
+                  variant="outline"
+                  className="h-9 min-h-0 whitespace-nowrap rounded-full border-border bg-card px-4 text-[13px] shadow-none"
+                >
+                  <Link href={auth.secondary.url} data-attr={auth.secondary.dataAttr}>
+                    {auth.secondary.text}
+                  </Link>
+                </Button>
+              ) : null}
               <Button
                 asChild
-                className="btn-brand-cta h-9 min-h-0 px-4 text-[13px] text-white hover:brightness-110"
+                className="btn-brand-cta h-9 min-h-0 whitespace-nowrap px-4 text-[13px] text-white hover:brightness-110"
               >
                 <Link href={auth.signup.url}>{auth.signup.text}</Link>
               </Button>
@@ -144,7 +167,7 @@ export function Navbar1({
               <SheetTitle>{logoSlot}</SheetTitle>
             </SheetHeader>
             <div className="my-6 flex flex-col gap-6">
-              <Accordion type="single" collapsible className="flex w-full flex-col gap-4">
+              <Accordion type="single" collapsible className="flex w-full flex-col divide-y divide-border">
                 {menu.map((item) => (
                   <MobileMenuItem key={item.title} item={item} />
                 ))}
@@ -172,6 +195,7 @@ export function Navbar1({
                   </Button>
                 </div>
               )}
+              {mobileFooter ? <div className="flex justify-center">{mobileFooter}</div> : null}
             </div>
           </SheetContent>
         </Sheet>
@@ -180,7 +204,58 @@ export function Navbar1({
   );
 }
 
+function MegaLink({ item, active }: { item: NavbarMenuItem; active: boolean }) {
+  return (
+    <NavigationMenuLink asChild>
+      <Link
+        href={item.url}
+        data-attr={item.dataAttr}
+        className={cn(
+          "flex select-none items-start gap-3 rounded-xl px-2.5 py-2 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground",
+          active && "bg-accent text-primary",
+        )}
+      >
+        {item.icon ? (
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary [&>svg]:h-4 [&>svg]:w-4">
+            {item.icon}
+          </span>
+        ) : null}
+        <span className="min-w-0">
+          <span className="block text-[13.5px] font-semibold">{item.title}</span>
+          {item.description ? <span className="mt-0.5 block text-[12.5px] leading-snug text-muted">{item.description}</span> : null}
+        </span>
+      </Link>
+    </NavigationMenuLink>
+  );
+}
+
 function DesktopMenuItem({ item }: { item: NavbarMenuItem }) {
+  if (item.groups) {
+    return (
+      <NavigationMenuItem>
+        <NavigationMenuTrigger className={cn(item.active && "bg-card text-primary", !item.active && "text-foreground/85")}>
+          {item.title}
+        </NavigationMenuTrigger>
+        <NavigationMenuContent>
+          <div className={cn("flex gap-3 p-3", item.featured ? "w-[760px]" : "w-[520px]")}>
+            {item.groups.map((g) => (
+              <div key={g.heading} className="min-w-0 flex-1">
+                <p className="px-2.5 pb-1.5 pt-1 text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-muted">{g.heading}</p>
+                <ul className="flex flex-col gap-0.5">
+                  {g.items.map((sub) => (
+                    <li key={sub.title}>
+                      <MegaLink item={sub} active={item.activeChildHref === sub.url} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            {item.featured ? <div className="w-[210px] shrink-0">{item.featured}</div> : null}
+          </div>
+        </NavigationMenuContent>
+      </NavigationMenuItem>
+    );
+  }
   if (item.items) {
     return (
       <NavigationMenuItem>
@@ -243,14 +318,15 @@ function DesktopMenuItem({ item }: { item: NavbarMenuItem }) {
 }
 
 function MobileMenuItem({ item }: { item: NavbarMenuItem }) {
-  if (item.items) {
+  const subItems = item.groups ? item.groups.flatMap((g) => g.items) : item.items;
+  if (subItems) {
     return (
       <AccordionItem value={item.title} className="border-b-0">
-        <AccordionTrigger className="py-0 text-[14px] font-semibold hover:no-underline">
+        <AccordionTrigger className="min-h-[48px] py-0 text-[15px] font-semibold hover:no-underline">
           {item.title}
         </AccordionTrigger>
-        <AccordionContent className="mt-2">
-          {item.items.map((subItem) => {
+        <AccordionContent className="pb-3">
+          {subItems.map((subItem) => {
             const isActive = item.activeChildHref === subItem.url;
             return (
               <Link
@@ -261,7 +337,11 @@ function MobileMenuItem({ item }: { item: NavbarMenuItem }) {
                   isActive && "bg-accent font-semibold text-primary",
                 )}
               >
-                {subItem.icon}
+                {subItem.icon ? (
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary [&>svg]:h-4 [&>svg]:w-4">
+                    {subItem.icon}
+                  </span>
+                ) : null}
                 <div>
                   <div className="text-sm font-semibold">{subItem.title}</div>
                   {subItem.description && (
@@ -281,7 +361,7 @@ function MobileMenuItem({ item }: { item: NavbarMenuItem }) {
       href={item.url}
       data-attr={item.dataAttr}
       className={cn(
-        "flex min-h-[44px] items-center text-[14px] font-semibold",
+        "flex min-h-[48px] items-center text-[15px] font-semibold",
         item.active && "text-primary",
       )}
     >

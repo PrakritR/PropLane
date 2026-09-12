@@ -84,7 +84,7 @@ describe("public navbar signed-in portal link", () => {
     });
   }
 
-  it("shows no portal link and keeps Log in / Get started when signed out", async () => {
+  it("shows no portal link and keeps Log in / Start free when signed out", async () => {
     mockRole = null;
     localStorage.removeItem("axis:signed_in");
     render(<PublicNavbar />);
@@ -92,7 +92,7 @@ describe("public navbar signed-in portal link", () => {
     await waitFor(() => {
       expect(screen.getAllByRole("link", { name: /log in/i }).length).toBeGreaterThan(0);
     });
-    expect(screen.getAllByRole("link", { name: /get started/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: /start free/i }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("link", { name: /^portal$/i })).toBeNull();
   });
 });

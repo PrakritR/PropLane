@@ -88,7 +88,7 @@ describe("Modal Radix / Vaul shell", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it("renders Vaul drawer on small portal viewports", () => {
+  it("renders a content-height Vaul sheet on small portal viewports by default", () => {
     mockMatchMedia(true);
     render(
       <Modal open title="Mobile sheet" onClose={() => {}}>
@@ -97,21 +97,22 @@ describe("Modal Radix / Vaul shell", () => {
     );
     const drawer = document.querySelector('[data-slot="modal-vaul-drawer"]');
     expect(drawer).toBeTruthy();
-    expect(drawer?.className).toContain("h-[100dvh]");
+    // Hugs its content and scrolls inside — no screen of white under a short form.
+    expect(drawer?.className).toContain("max-h-[min(92dvh,56rem)]");
+    expect(drawer?.className).not.toContain("h-[100dvh]");
     expect(drawer?.className).toContain("!w-screen");
     expect(drawer?.className).toContain("!max-w-none");
   });
 
-  it("honors fullScreenMobile={false} for a partial-height sheet", () => {
+  it("honors fullScreenMobile for a flow that is a page in its own right", () => {
     mockMatchMedia(true);
     render(
-      <Modal open title="Compact sheet" onClose={() => {}} fullScreenMobile={false}>
+      <Modal open title="Editor" onClose={() => {}} fullScreenMobile>
         <p>content</p>
       </Modal>,
     );
     const drawer = document.querySelector('[data-slot="modal-vaul-drawer"]');
-    expect(drawer?.className).toContain("max-h-[min(92dvh,56rem)]");
-    expect(drawer?.className).not.toContain("h-[100dvh]");
+    expect(drawer?.className).toContain("h-[100dvh]");
     expect(drawer?.className).toContain("!w-screen");
   });
 

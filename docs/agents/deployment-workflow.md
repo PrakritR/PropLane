@@ -1,8 +1,11 @@
 # Deployment workflow (all agents)
 
-**`production` deploys the live site; `staging` is QA; `main` is tested on
-localhost.** Every agent must follow this ladder. See `AGENTS.md` § Branching &
-deployment for the contract.
+**`production` deploys the live site; `staging` is QA by default; `main` is
+tested on localhost.** Every agent must follow this ladder. A single
+[temporary policy](temporary-direct-production-policy.json) permits an
+explicit Akhil-authorized `origin/main` → `origin/production` promotion only
+until 2026-09-15T04:00:00Z. See `AGENTS.md` § Branching & deployment for the
+rest of the contract.
 
 ## Branch ladder
 
@@ -14,36 +17,41 @@ deployment for the contract.
 | `staging` | QA candidate. Fast-forward of `main`. | staging project `xwszcafaontidfgznlxd` (never live production) | **Preview** (branch-scoped env) | same as `main` |
 | `production` | Live site + TestFlight | live production | **Production** | TestFlight workflow |
 
-`prakrit` is the integration branch between all agent keepers. Agents do not
-merge there themselves — captain runs `npm run ship:to-prakrit -- --source
+`prakrit` is Prakrit's integration branch between agent keepers. Agents do not
+merge there themselves — Prakrit runs `npm run ship:to-prakrit -- --source
 <keeper>` (or `/promote prakrit`). There is no long-lived `dev` branch; feature
 and agent branches are the messy layer.
 
-## Vercel: `axis-2` is PropLane production
+An explicit Akhil ship request authorizes agents working for him to promote
+only his keeper → `main` → `staging` → `production`; it does not authorize
+writing `prakrit`. Only the active dated policy above may waive staging QA;
+fast-forward-only promotion and every production safety gate remain.
 
-The dashboard project is still named **`axis-2`** — it serves `prop-lane.space`.
-Do **not** use the auto-created **`proplane-cursor-branch-1`** project for live
-traffic.
+## Vercel: `proplane` is PropLane production
+
+The live dashboard project is **`proplane`**
+(`prj_rupckw3T2v0oXVg2nTLVCYePKDUc`) and serves `prop-lane.space`. Do not relink
+it or use a separate branch-created project for live traffic. The generic
+Preview environment shares production defaults, so staging deployments must
+retain their `staging` branch-scoped variables.
 
 If Production deployments stay on an old commit:
 
-1. **GitHub `Vercel Deploy` may be skipping** — without `VERCEL_TOKEN`,
+1. **GitHub `Vercel Deploy` may be skipping** - without `VERCEL_TOKEN`,
    `VERCEL_ORG_ID`, and `VERCEL_PROJECT_ID` repo secrets, only a no-op notice
-   runs. Add secrets from `.vercel/project.json` after
-   `npx vercel link --project axis-2`.
-2. **Vercel Hobby rejects sub-daily crons** — remove `*/10` schedules from
+   runs. Verify those secrets target the existing `proplane` project; do not
+   relink the checkout.
+2. **Vercel Hobby rejects sub-daily crons** - remove `*/10` schedules from
    `vercel.json` or upgrade to Pro.
-3. **Manual deploy:** `npm run vercel:deploy:production` on the `production`
-   branch (see `scripts/vercel-deploy-cli.sh`).
+3. Use the protected Git branch workflow. The current manual CLI wrappers are
+   still pinned to the retired project name and must not be used for this release.
 
-For a manual QA deploy, run `npm run vercel:deploy:staging` on `staging`.
-The helper pulls Preview variables with `--git-branch=staging`; omitting that
-scope can select the shared Preview defaults instead of the staging credentials
-(see [database environments](../database-environments.md)). It rejects `main`.
-The **Vercel Deploy** workflow likewise permits only `staging` and `production`,
-including manual dispatch; `main` retains its CI checks.
+The **Vercel Deploy** workflow permits only `staging` and `production`, including
+manual dispatch; `main` retains its CI checks. Staging must use its branch-scoped
+variables because generic Preview defaults point at production (see
+[database environments](../database-environments.md)).
 
-## Ship path
+## Prakrit ship path
 
 ```
 agent branch  →  prakrit (:3000)  →  main  →  staging  →  production
@@ -57,17 +65,20 @@ agent branch  →  prakrit (:3000)  →  main  →  staging  →  production
    (security review + no-mistakes, opens prakrit on the review route).
 4. Captain tests on `http://localhost:3000`, then
    `bin/fm-proplane-promote-prakrit-to-main.sh --push-main` (also no-mistakes).
-5. Or merge to `main` directly: `npm run ship:integrate -- --source <branch>`
-   — **does not** run no-mistakes; prefer the prakrit ladder for gated promotion.
-6. `npm run ship:staging` then dedicated QA on staging URL. Staging uses project
-   `xwszcafaontidfgznlxd`, never the live production Supabase project.
+5. For Akhil only, after his explicit ship request, agents working for him may
+   use the fast-forward-only integration path to land his reviewed keeper on
+   `main`. They do not write `prakrit` or run Prakrit's no-mistakes pipeline.
+6. `npm run ship:staging` then dedicated QA on staging URL by default. During
+   the dated exception only, an explicit Akhil-authorized release may omit this
+   rung and later pass `--skip-staging` to `ship:production`.
 7. Apply production Supabase migrations **before** pushing `production`.
 8. `npm run ship:production` after QA sign-off (live + TestFlight).
 9. Confirm Vercel Production **and** iOS TestFlight succeeded.
 
 ## Enforcement (do not weaken)
 
-1. **Vercel project** `axis-2` → Production branch = **`production`**.
+1. **Vercel project** `proplane` (`prj_rupckw3T2v0oXVg2nTLVCYePKDUc`) →
+   Production branch = **`production`**.
 2. **`vercel.json`** `git.deploymentEnabled`: only `staging` and
    `production` are `true`; `main` and `**` are `false`.
 3. **`scripts/vercel-should-build.sh`**: builds only those two refs.
@@ -79,8 +90,9 @@ agent branch  →  prakrit (:3000)  →  main  →  staging  →  production
 ## Agent rules
 
 - Never push feature branches expecting a Vercel deploy.
-- Never merge directly to `production`. Never skip `staging`.
+- Never merge directly to `production`. Never skip `staging` outside the
+  active dated policy.
 - Keep `staging` a strict fast-forward of `main`, and `production` a strict
-  fast-forward of `staging`. Never commit unique work to either.
+  fast-forward of the script-selected source. Never commit unique work to either.
 - Run `npm run ship:preflight` before promoting to production.
 - See also `docs/ship-gate.md` and `AGENTS.md` § Branching & deployment.

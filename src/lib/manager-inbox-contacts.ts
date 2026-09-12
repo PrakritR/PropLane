@@ -3,6 +3,7 @@ import { PRIMARY_AXIS_ADMIN_EMAIL, PRIMARY_AXIS_ADMIN_LABEL } from "@/data/inbox
 import { readManagerApplicationRows } from "@/lib/manager-applications-storage";
 import { readOwnActiveManagerVendorRows, isVendorCategorySettingsRow } from "@/lib/manager-vendors-storage";
 import { readProRelationships } from "@/lib/pro-relationships";
+import { getRoomChoiceLabel } from "@/lib/rental-application/data";
 import { trimmedText } from "@/lib/trimmed-text";
 
 /** Merge contact lists by email — first occurrence wins. */
@@ -47,6 +48,13 @@ export function buildManagerInboxLiveContacts(userId: string | null | undefined)
     seen.add(email);
     const propertyLabel = trimmedText(row.property) || undefined;
     const propertyId = trimmedText(row.assignedPropertyId) || trimmedText(row.propertyId) || undefined;
+    // Same derivation the Residents directory uses for its room column.
+    const roomLabel =
+      trimmedText(row.manualResidentDetails?.roomNumber) ||
+      getRoomChoiceLabel(trimmedText(row.assignedRoomChoice) || trimmedText(row.application?.roomChoice1))
+        .split(" · ")[0]
+        ?.trim() ||
+      undefined;
     // A resident whose move-out date has passed is PAST, not current (PRP-150).
     // Read from the manual detail first and the application second, the same
     // order `resolveLeaseDatesForBilling` uses, so the picker and the ledger
@@ -64,6 +72,7 @@ export function buildManagerInboxLiveContacts(userId: string | null | undefined)
       role: "resident",
       propertyLabel,
       propertyId,
+      roomLabel,
       tenancyStatus,
     });
   }

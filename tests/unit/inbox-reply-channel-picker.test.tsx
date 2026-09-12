@@ -20,7 +20,11 @@ describe("inbox reply channel helpers", () => {
 });
 
 describe("InboxReplyChannelPicker", () => {
-  it("lists email and sms as independent checkboxes when sms is unavailable", () => {
+  // The picker is a VISIBLE segmented control (In-app · Email · Text) with
+  // aria-pressed per segment — Mobbin polish §13 — not a dropdown of options.
+  const segment = (name: RegExp) => screen.getByRole("button", { name, pressed: undefined });
+
+  it("shows email on and text off but present when sms is unavailable", () => {
     render(
       <InboxReplyChannelPicker
         viaEmail
@@ -31,12 +35,12 @@ describe("InboxReplyChannelPicker", () => {
         smsAvailable={false}
       />,
     );
-    const trigger = screen.getByLabelText("Send via");
-    expect(trigger).toHaveTextContent("Email");
-    fireEvent.click(trigger);
-    expect(screen.getByRole("option", { name: /Email/i })).toBeTruthy();
-    expect(screen.getByRole("option", { name: /Text \(texting is off\)/i })).toBeTruthy();
-    expect(screen.queryByRole("option", { name: /Email & Text/i })).toBeNull();
+    const group = screen.getByRole("group", { name: "Send via" });
+    expect(group).toHaveTextContent("Email");
+    expect(segment(/^Email$/)).toHaveAttribute("aria-pressed", "true");
+    const text = segment(/^Text$/);
+    expect(text).toBeDisabled();
+    expect(text).toHaveAttribute("title", "Texting is off for this conversation");
   });
 
   it("still lists email when the thread has no address, and offers to add one", () => {
@@ -52,10 +56,11 @@ describe("InboxReplyChannelPicker", () => {
         onAddEmail={onAddEmail}
       />,
     );
-    fireEvent.click(screen.getByLabelText("Send via"));
-    // Hiding the unreachable channel made the menu look like SMS was the only
+    // Hiding the unreachable channel made it look like SMS was the only
     // option the conversation ever had.
-    expect(screen.getByRole("option", { name: /Email \(no address\)/i })).toBeTruthy();
+    const email = segment(/^Email$/);
+    expect(email).toBeDisabled();
+    expect(email).toHaveAttribute("title", "No email address on this conversation");
     fireEvent.click(screen.getByRole("button", { name: /Add an email address/i }));
     expect(onAddEmail).toHaveBeenCalled();
   });
@@ -73,12 +78,11 @@ describe("InboxReplyChannelPicker", () => {
         onAddPhone={onAddPhone}
       />,
     );
-    fireEvent.click(screen.getByLabelText("Send via"));
     fireEvent.click(screen.getByRole("button", { name: /Add a phone number/i }));
     expect(onAddPhone).toHaveBeenCalled();
   });
 
-  it("allows selecting email and sms independently when both channels are available", () => {
+  it("toggles text on beside email — the two are independent", () => {
     const onEmail = vi.fn();
     const onSms = vi.fn();
     render(
@@ -91,16 +95,28 @@ describe("InboxReplyChannelPicker", () => {
         smsAvailable
       />,
     );
-    fireEvent.click(screen.getByLabelText("Send via"));
-    const smsOption = screen.getByRole("option", { name: /^Text$/i });
-    // A pick is pointerdown + pointerup at the same point; pointerdown alone is a scroll start.
-    fireEvent.pointerDown(smsOption, { pointerId: 1, clientX: 10, clientY: 10 });
-    fireEvent.pointerUp(smsOption, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.click(segment(/^Text$/));
     expect(onSms).toHaveBeenCalledWith(true);
     expect(onEmail).toHaveBeenCalledWith(true);
   });
 
-  it("shows Email & Text on the trigger when both are selected", () => {
+  it("never lets the last channel be switched off — a reply always has one", () => {
+    const onEmail = vi.fn();
+    render(
+      <InboxReplyChannelPicker
+        viaEmail
+        viaSms={false}
+        onViaEmailChange={onEmail}
+        onViaSmsChange={vi.fn()}
+        emailAvailable
+        smsAvailable
+      />,
+    );
+    fireEvent.click(segment(/^Email$/));
+    expect(onEmail).not.toHaveBeenCalled();
+  });
+
+  it("shows both segments pressed when both are selected, and says who it sends as", () => {
     render(
       <InboxReplyChannelPicker
         viaEmail
@@ -109,12 +125,15 @@ describe("InboxReplyChannelPicker", () => {
         onViaSmsChange={vi.fn()}
         emailAvailable
         smsAvailable
+        sendingAs={{ sms: "(206) 555-0100", email: "manager@example.com" }}
       />,
     );
-    expect(screen.getByLabelText("Send via")).toHaveTextContent("Email & Text");
+    expect(segment(/^Email$/)).toHaveAttribute("aria-pressed", "true");
+    expect(segment(/^Text$/)).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Sending as (206) 555-0100 · manager@example.com")).toBeTruthy();
   });
 
-  it("lists PropLane alongside email and sms when all channels are available", () => {
+  it("lists In-app alongside email and text when all channels are available", () => {
     render(
       <InboxReplyChannelPicker
         viaEmail
@@ -128,10 +147,9 @@ describe("InboxReplyChannelPicker", () => {
         smsAvailable
       />,
     );
-    fireEvent.click(screen.getByLabelText("Send via"));
-    expect(screen.getByRole("option", { name: /^PropLane$/i })).toBeTruthy();
-    expect(screen.getByRole("option", { name: /^Email$/i })).toBeTruthy();
-    expect(screen.getByRole("option", { name: /^Text$/i })).toBeTruthy();
+    expect(segment(/^In-app$/)).toBeTruthy();
+    expect(segment(/^Email$/)).toBeTruthy();
+    expect(segment(/^Text$/)).toBeTruthy();
   });
 });
 

@@ -16,6 +16,7 @@ import {
   propertyStatusOccupiesListingSlot,
   type ManagerPropertyRecordStatus,
 } from "@/lib/persisted-property-records";
+import { addonUnitsForCap, loadManagerPlanAddonQuantities } from "@/lib/plan-addons.server";
 
 /**
  * Server-side enforcement of the plan's property-listing cap.
@@ -113,8 +114,14 @@ export async function assertManagerPropertyListingQuota(
   const overrideResult = await loadManagerBillingOverrides(db, ownerUserId);
   if (!overrideResult.ok) return { ok: false, status: 500, error: overrideResult.error };
 
+  // Paid add-ons raise the plan's cap by the units the account holds (round 3
+  // plan model). Read as a result for the same reason as the override: an
+  // unread add-on row must not refuse the listing it is paying for.
+  const addons = await loadManagerPlanAddonQuantities(db, ownerUserId);
+  if (!addons.ok) return { ok: false, status: 500, error: addons.error };
+  const planLimit = maxPropertiesForManagerTier(tier);
   const cap = resolveManagerPropertyCap({
-    planLimit: maxPropertiesForManagerTier(tier),
+    planLimit: planLimit === null ? null : planLimit + addonUnitsForCap(addons.quantities, "extra_listing", tier),
     capOverride: overrideResult.overrides.propertyCap,
   });
   if (cap.limit === null) return { ok: true };

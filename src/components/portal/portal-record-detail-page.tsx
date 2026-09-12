@@ -6,6 +6,7 @@ import { PortalPageFooterActions } from "@/components/portal/portal-section-acti
 import { PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { usePortalStickyPageChrome } from "@/hooks/use-portal-sticky-page-chrome";
+import { PortalTitleActionsProvider, usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
 import { cn } from "@/lib/utils";
 
 /**
@@ -87,6 +88,7 @@ export function PortalRecordDetailPage({
     children
   );
   return (
+    <PortalTitleActionsProvider>
     <div className={cn("flex min-h-0 flex-col", bodyFill && "flex-1")}>
       <div className={pinScrollBody ? "shrink-0" : undefined}>
       <PortalDetailHeader
@@ -105,11 +107,27 @@ export function PortalRecordDetailPage({
       />
       </div>
       <div className={cn(bodyFill && "flex min-h-0 flex-1 flex-col")}>{body}</div>
-      {footer ? (
-        <PortalPageFooterActions pinned rowVariant="header" omitSpacer={footerOmitSpacer}>
-          {footer}
-        </PortalPageFooterActions>
-      ) : null}
+      {/* A footer handed in here is published into the header too (round 3:
+          no pinned bar). The prop stays so callers do not change. */}
+      {footer ? <PortalRecordActions>{footer}</PortalRecordActions> : null}
     </div>
+    </PortalTitleActionsProvider>
+  );
+}
+
+/**
+ * The actions a record's current tab offers, placed in the record's header.
+ *
+ * Renders nothing in place while a header host is mounted; where a record
+ * page has no header (a bare embed), it falls back to the pinned foot bar so
+ * the actions are never lost.
+ */
+export function PortalRecordActions({ children, omitSpacer = false }: { children: ReactNode; omitSpacer?: boolean }) {
+  const published = usePublishTitleActions(children, true);
+  if (published) return null;
+  return (
+    <PortalPageFooterActions pinned rowVariant="header" omitSpacer={omitSpacer}>
+      {children}
+    </PortalPageFooterActions>
   );
 }

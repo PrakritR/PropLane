@@ -5,15 +5,22 @@
 
 **No subscription includes processing-fee coverage** (captain decision September 10, 2026).
 All plans default to resident pays. Pro and Business managers may choose to absorb
-the fee through their payout. PropLane covers it only when staff explicitly approve
-that manager account through `adminServiceFeeOverride: "proplane"`.
+the fee through their payout. **PropLane covers it with a promo code** (captain
+decision September 12, 2026, reversing the staff-only rule of September 10): the
+account's own `manager_purchases.promo_code` grant (written only by server flows
+that validated it — signup FREE100, onboard comp), or the listing's own
+`serviceFeeWaiverCode` typed on the Pricing step when "PropLane pays" is chosen.
+Staff can still approve any account outright through
+`adminServiceFeeOverride: "proplane"`.
 
-A shared promo code, paid plan, legacy `proplane` selection, or per-listing waiver
-code cannot grant coverage. Application-fee waivers remain separate. Subscription
-GET exposes `paymentWaiverGranted` from the staff-owned override; a failed read is
-unknown and disables coverage selection. Manager settings and staff overrides use
-separate atomic RPCs on the same row, so a manager save cannot overwrite a concurrent
-staff revocation. Unknown plan reads stop checkout before deciding who pays.
+A paid plan alone, or a legacy `proplane` selection with nothing backing it, does
+not grant coverage; it reads as `resident`. The promo code itself is never printed
+in product copy — fields ask for it, they do not show it. Application-fee waivers
+remain separate. Subscription GET exposes `paymentWaiverGranted` = staff override OR
+account promo grant; a failed read is unknown and disables coverage selection.
+Manager settings and staff overrides use separate atomic RPCs on the same row, so a
+manager save cannot overwrite a concurrent staff revocation. Unknown plan reads stop
+checkout before deciding who pays.
 
 **The money still lands in the manager's own connected account.** Every resident
 payment stays a Connect **destination charge** on the PLATFORM account
@@ -25,7 +32,7 @@ moves, via `application_fee_amount`:
 | --- | --- | --- | --- | --- |
 | resident (Free, or an explicit paid-plan choice) | subtotal + fee | fee | subtotal | ≈ 0 |
 | manager (explicit paid-plan choice) | subtotal | fee | subtotal − fee | ≈ 0 |
-| proplane (explicit staff account approval only) | subtotal | omitted | subtotal | − Stripe's fee |
+| proplane (promo grant — account or listing code — or staff approval) | subtotal | omitted | subtotal | − Stripe's fee |
 
 `src/lib/payment-policy.ts` is the single source of truth:
 - `residentProcessingFeeCents(subtotal, method)` — Stripe's cost (ACH 0.8% cap
@@ -33,16 +40,18 @@ moves, via `application_fee_amount`:
 - `resolveServiceFeePayer(tier, proChoice)` — the plan rule above. `tier` is the
   normalized SKU tier (`normalizeManagerSkuTier(...) ?? "free"`), so a
   legacy/unknown tier resolves to `resident`.
-- `resolveServiceFeePayerFor({ tier, adminOverride, propertyChoice, managerChoice })`
+- `resolveServiceFeePayerFor({ tier, adminOverride, propertyChoice, managerChoice, waiverGranted })`
   — the ONE resolver the money paths call. Precedence, most specific first:
   **staff override → the property's own Pricing setting → the manager's account
-  default → the plan default**. Steps 2-4 stay subject to the plan rule above;
+  default → resident**. Steps 2-4 stay subject to the plan rule above;
   the staff override deliberately ignores it, because staff absorbing a
-  free-tier manager's fees is the whole point of that control. The legacy
-  `waiverGranted` input is deprecated and ignored: a promo or waiver code is
-  never a grant, so a `proplane` choice without the override resolves to
-  `resident`.
-  `managerCanSelectProplaneServiceFee(tier, accountApproved)` /
+  free-tier manager's fees is the whole point of that control. `waiverGranted`
+  is the server-validated promo grant
+  (`resolveAccountOrListingWaiverGranted(accountPromoCode, listingWaiverCode)`);
+  a `proplane` choice resolves to `proplane` only with it, otherwise to
+  `resident` on every tier. It unlocks `proplane` only — it does not turn Free
+  into a paid plan for the `manager` choice.
+  `managerCanSelectProplaneServiceFee(tier, granted)` /
   `managerCanSelectManagerAbsorbServiceFee(tier)` are the same rule for the
   Payment setup UI, so what the modal offers cannot drift from what checkout
   honours.
@@ -66,26 +75,32 @@ precedence the money paths do, so the payer a resident is shown before checkout
 cannot disagree with the one they are billed under; it resolves without a
 `propertyChoice` because the account-wide disclosure has no property in hand.
 
-**Choosing `proplane` for the ACCOUNT requires the staff override on that same
-row**, because it spends PropLane's own money. `resolveSavedServiceFeeSelection`
-(`manager-manual-payment-settings.ts`) is the one decision: a `proplane` selection
-without `adminServiceFeeOverride: "proplane"` resolves to `resident`, exactly as
-`persistListingServiceFeePayer` does per listing; a typed waiver code changes
-nothing and is never stored (`serviceFeeWaiverCode` is stripped on save). `PATCH
-/api/portal/manager-manual-payment-settings` REFUSES the unapproved selection with
-**400** rather than storing the downgrade and answering 200. The save itself goes
-through the `save_manager_payment_preferences` RPC
-(`20260910140000_manager_communication_credits.sql`), which locks the settings row,
-drops any caller-supplied override, re-applies the stored one, and downgrades
-`proplane` to `resident` unless that stored override approves it — so a manager
-save that overlaps a staff revocation can never restore the approval. The Payment
-setup modal offers PropLane coverage only when `GET /api/manager/subscription`
-reports `paymentWaiverGranted: true`; a failed read (`paymentCoverageUnknown`)
-disables the option rather than guessing. Per-property choices saved from Payment
-settings are written onto each listing by `applyPropertyServiceFeePayersToListings`
-through that same helper, so the staff grant must be forwarded into that pass or an
-approved `proplane` choice downgrades to `resident` on the listing. Coverage:
+**Choosing `proplane` for the ACCOUNT requires a promo grant or the staff
+override**, because it spends PropLane's own money. `resolveSavedServiceFeeSelection`
+(`manager-manual-payment-settings.ts`) is the one decision: a valid typed code keeps
+`proplane` and stores the normalized code; an account grant (promo or staff) keeps
+it without one; an account already on `proplane` carries it forward on an unrelated
+re-save; anything else resolves to `resident`, exactly as
+`persistListingServiceFeePayer` does per listing. `PATCH
+/api/portal/manager-manual-payment-settings` looks the grant up server-side
+(`accountWaiverGranted`: staff override, else `getManagerPurchaseSku().promoCode`)
+and REFUSES an unbacked selection with **400** rather than storing the downgrade and
+answering 200. The save itself goes through the `save_manager_payment_preferences`
+RPC (`20260912120000_payment_preferences_promo_coverage.sql`), which locks the
+settings row, drops any caller-supplied override, re-applies the stored one, and
+downgrades `proplane` to `resident` unless the server passed `p_coverage_granted`
+or the stored override approves it — so a manager save that overlaps a staff
+revocation can never restore the approval, and the grant answer is never taken from
+the client. The Payment setup modal offers PropLane coverage outright only when
+`GET /api/manager/subscription` reports `paymentWaiverGranted: true`; otherwise it
+shows "Have a PropLane promo code?" and asks for one; a failed read
+(`paymentCoverageUnknown`) disables the option rather than guessing. Per-property
+choices saved from Payment settings are written onto each listing by
+`applyPropertyServiceFeePayersToListings` through that same helper, so the grant
+must be forwarded into that pass or an approved `proplane` choice downgrades to
+`resident` on the listing. Coverage:
 `tests/unit/manager-service-fee-waiver-code.test.tsx`,
+`tests/unit/evidence-manual-payment-settings-route-waiver.test.ts`,
 `tests/unit/service-fee-payer-precedence.test.ts`,
 `tests/unit/manual-payment-settings-property-fee-payer-propagation.test.ts`.
 

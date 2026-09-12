@@ -1,4 +1,11 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { SiteFinalCta } from "@/components/marketing/site/final-cta";
+import {
+  PUBLIC_SUPPORT_ADDRESS_LINE,
+  PUBLIC_SUPPORT_PHONE_DISPLAY,
+  PUBLIC_SUPPORT_PHONE_TEL,
+} from "@/lib/marketing/public-contact";
 import {
   MarketingHero,
   MarketingPageShell,
@@ -99,6 +106,39 @@ export default function AboutPage() {
         </ul>
       </MarketingSection>
 
+      <MarketingSection>
+        <div className="grid gap-8 lg:grid-cols-[1fr_1.35fr] lg:gap-16">
+          <div>
+            <p className="lp-page-kicker">Where we are</p>
+            <h2 className="mt-2 max-w-[14ch]">Seattle, and a phone that answers</h2>
+          </div>
+          <dl className="grid gap-4 sm:grid-cols-2">
+            <div className="lp-page-card lp-page-card-pad">
+              <dt className="text-[12px] font-bold uppercase tracking-[0.08em] text-[var(--lp-blue)]">Address</dt>
+              <dd className="mt-2 text-[15px] font-semibold text-[var(--lp-ink)]">{PUBLIC_SUPPORT_ADDRESS_LINE}</dd>
+            </div>
+            <div className="lp-page-card lp-page-card-pad">
+              <dt className="text-[12px] font-bold uppercase tracking-[0.08em] text-[var(--lp-blue)]">Phone</dt>
+              <dd className="mt-2 text-[15px] font-semibold tabular-nums text-[var(--lp-ink)]">
+                <a href={`tel:${PUBLIC_SUPPORT_PHONE_TEL}`}>{PUBLIC_SUPPORT_PHONE_DISPLAY}</a>
+              </dd>
+            </div>
+            <div className="lp-page-card lp-page-card-pad sm:col-span-2">
+              <dt className="text-[12px] font-bold uppercase tracking-[0.08em] text-[var(--lp-blue)]">Security</dt>
+              <dd className="mt-2 text-[14.5px] leading-relaxed text-[var(--lp-muted)]">
+                How your data and your residents&rsquo; data are kept — encrypted connections and storage, an extra
+                encryption layer for sensitive records, permission-checked access, and an assistant that drafts but
+                never sends.{" "}
+                <Link href="/security" data-attr="about-security" className="font-semibold text-[var(--lp-blue)]">
+                  Read the security page →
+                </Link>
+              </dd>
+            </div>
+          </dl>
+        </div>
+      </MarketingSection>
+
+      <SiteFinalCta primaryAttr="about-closing-get-started" secondaryAttr="about-closing-book-demo" />
     </MarketingPageShell>
   );
 }

@@ -964,8 +964,11 @@ export function ManagerPromotion({
                 ))}
               </div>
             ) : (
+              // The ungrouped list sits on the same card every other list tab
+              // uses; bare rows on the canvas read as an unfinished page.
               <PromotionAssetStack
                 assets={propertyScopedAssets}
+                variant="card"
                 onView={openViewAsset}
                 onEdit={openEditAsset}
                 selectedIds={selectedIds}

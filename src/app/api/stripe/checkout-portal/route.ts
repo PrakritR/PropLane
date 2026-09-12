@@ -1,5 +1,5 @@
 import { ensureManagerBillingCustomer } from "@/lib/manager-stripe-customer.server";
-import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
+import { requireManagerRouteUser } from "@/lib/manager-route-guard.server";
 import { NextResponse } from "next/server";
 import { resolveAppOrigin } from "@/lib/app-url";
 import { resolveStripePriceIdForPaidTier } from "@/lib/stripe/resolve-manager-price";
@@ -42,6 +42,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
+    const actor = await requireManagerRouteUser();
+    if (!actor || actor.userId !== user.id) {
+      return NextResponse.json({ error: "Manager access required." }, { status: 403 });
+    }
+
     const body = (await req.json().catch(() => null)) as
       (Body & { embedded?: boolean }) | null;
     const tierRaw =
@@ -50,10 +55,6 @@ export async function POST(req: Request) {
       typeof body?.billing === "string"
         ? body.billing.toLowerCase().trim()
         : "";
-    const baseRaw =
-      typeof body?.returnBasePath === "string"
-        ? body.returnBasePath.trim()
-        : "/portal";
     const useEmbedded = body?.embedded !== false;
 
     if (!isPaidTier(tierRaw) || !isBilling(billingRaw)) {
@@ -81,8 +82,6 @@ export async function POST(req: Request) {
 
     const appUrl = resolveAppOrigin(req);
 
-    void baseRaw;
-    const basePath = "/portal";
     const returnUrl = `${appUrl}${MANAGER_PLAN_CHECKOUT_SUCCESS_PATH}`;
 
     const { data: profile, error: profileErr } = await supabaseAuth
@@ -122,7 +121,7 @@ export async function POST(req: Request) {
     if (fn) metadata.full_name = fn;
 
     const customer = await ensureManagerBillingCustomer(
-      createSupabaseServiceRoleClient(),
+      actor.db,
       user.id,
     );
     const sessionBase = {

@@ -10,7 +10,7 @@
  */
 import { Langfuse } from "langfuse";
 import { startObservation } from "@langfuse/tracing";
-import type { AgentObserver } from "@/lib/agent/loop";
+import type { AgentObserver, PendingActionProposal, ToolEvidenceEntry } from "@/lib/agent/loop";
 import { estimateCostUsd } from "@/lib/agent/model";
 import type { AgentPromptMeta } from "@/lib/agent/prompt-metadata";
 
@@ -63,6 +63,34 @@ export type TraceActor = {
   sessionId?: string;
   metadata?: Record<string, unknown>;
 };
+
+/** Pair a hermetic prospect shadow with the incumbent trace without exposing SMS text. */
+export async function traceProspectShadowComparison(args: {
+  managerUserId: string;
+  burstId: string;
+  primaryTraceId: string | null;
+  metadata: Record<string, unknown>;
+}): Promise<void> {
+  const lf = getClient();
+  if (!lf) return;
+  try {
+    const trace = lf.trace({
+      name: "prospect-gpt-shadow",
+      userId: args.managerUserId,
+      sessionId: `prospect-burst:${args.burstId}`,
+      metadata: {
+        landlordId: args.managerUserId,
+        burstId: args.burstId,
+        primaryTraceId: args.primaryTraceId,
+        ...args.metadata,
+      },
+    });
+    trace.update({ output: args.metadata });
+    await lf.flushAsync();
+  } catch {
+    /* shadow observability never affects the incumbent */
+  }
+}
 
 /**
  * Trace a system-initiated notification (cron/job rather than an LLM turn).
@@ -420,16 +448,18 @@ type TurnUsage = { inputTokens: number; outputTokens: number };
 type TracedResult = {
   reply: string;
   toolTrace: { tool: string; ok: boolean }[];
+  toolEvidence?: ToolEvidenceEntry[];
   model?: string;
   tier?: string;
   usage?: TurnUsage;
-  pendingAction?: { toolName: string };
+  pendingAction?: PendingActionProposal;
+  suppression?: { toolName: string; referenceMessageId: string; reason: string };
   provider?: string;
   route?: string;
   fallbackReason?: string;
   latencyMs?: number;
   iterationCount?: number;
-  terminationReason?: "end_turn" | "pending_action" | "max_iterations";
+  terminationReason?: "end_turn" | "pending_action" | "suppressed" | "max_iterations";
   finalStopReason?: string | null;
 };
 

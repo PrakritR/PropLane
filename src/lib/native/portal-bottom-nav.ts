@@ -111,6 +111,8 @@ export function orderNativeBottomNavItems<T extends { section: string }>(
  * Feedback inside Profile/Settings — see portal-settings-extras.tsx and
  * manager-properties.tsx). Keep in sync with `src/lib/platform/parity.ts`.
  */
+// Properties · Residents · Dashboard · Inbox (+ More) — the captain's order
+// (Sep 12): the bar keeps every section where managers learned it is.
 export const NATIVE_BOTTOM_NAV_PRO_MANAGER_PRIMARY = [
   "properties",
   "residents",

@@ -133,3 +133,6 @@ graphify-out/
 # to fail the repo's own lint or typecheck.
 output/
 .main-green-validation/
+
+# Scratch browser probes
+.*.tmp.cjs

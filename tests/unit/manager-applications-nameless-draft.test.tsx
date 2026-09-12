@@ -150,7 +150,7 @@ describe("manager Applications — an applicant with no stored name", () => {
 
     // The header's title line — a blank title is what this covers — and not
     // repeated underneath it as the subtitle.
-    expect(titled[0]!.className).toContain("font-semibold");
+    expect(titled[0]!.className).toMatch(/font-(semi)?bold/);
     expect(titled).toHaveLength(1);
     expect(screen.queryByText("Applicant")).toBeNull();
   });

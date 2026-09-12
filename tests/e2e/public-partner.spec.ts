@@ -7,6 +7,6 @@ test.describe("Public partner", () => {
     await expect(page.getByText(/propLane drafts leases/i)).toBeVisible();
     await expect(page.getByRole("link", { name: /get started free/i })).toBeVisible();
     await expect(page.getByRole("link", { name: /see pricing/i })).toBeVisible();
-    await expect(page.getByText(/built for how managers actually work/i)).toBeVisible();
+    await expect(page.getByText(/built for how managers and landlords actually work/i)).toBeVisible();
   });
 });

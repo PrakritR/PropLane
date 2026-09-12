@@ -26,6 +26,7 @@ vi.mock("@/components/portal/pro-sms-compose-modal", () => ({
 }));
 
 import { ManagerSmsPanel } from "@/components/portal/pro-sms-panel";
+import { setInboxChannelsViaMenu } from "../helpers/inbox-channel-menu";
 
 const ROW_ID = "mgr-1:resident:res-1";
 const PAYLOAD = {
@@ -103,13 +104,9 @@ async function submitReplyOverBothChannels() {
       allowInlineCompose={false}
     />,
   );
-  const picker = await screen.findByLabelText("Send via");
-  fireEvent.click(picker);
-  const emailOption = await screen.findByRole("option", { name: /^Email$/i });
-  // A pick is pointerdown + pointerup at the same point; pointerdown alone is a scroll start.
-  fireEvent.pointerDown(emailOption, { pointerId: 1, clientX: 10, clientY: 10 });
-  fireEvent.pointerUp(emailOption, { pointerId: 1, clientX: 10, clientY: 10 });
-  await waitFor(() => expect(picker.textContent).toContain("Email & Text"));
+  // The channel menu sits in the reply row: tick Email beside the already-on
+  // Text so the reply goes out on both.
+  await setInboxChannelsViaMenu({ email: true, sms: true });
   const input = await screen.findByPlaceholderText("Write a reply…");
   fireEvent.change(input, { target: { value: "Checking in" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));

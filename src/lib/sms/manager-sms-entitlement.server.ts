@@ -1,4 +1,3 @@
-import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isWaiverGrantedManagerPurchase } from "@/lib/manager-access";
@@ -127,15 +126,24 @@ export async function reconcileManagerSmsEntitlement(
     loadStripeSubscription?: (id: string) => Promise<Stripe.Subscription>;
   } = {},
 ): Promise<SmsEntitlement> {
-  if (deps.preferPaid !== true) return resolveNumberPlan(managerUserId);
-  const own = await reconcileManagerSmsEntitlementDirect(db, managerUserId, deps);
+  // A work number is a PAID feature (round 3 plan model): Free has none, and
+  // a signup or Stripe trial is not yet paying. Only the assistant-email path
+  // (`preferPaid`) still honours an enrolled trial grant for its own use.
+  const settle = (e: SmsEntitlement): SmsEntitlement =>
+    deps.preferPaid !== true ? refuseTrialForNumber(e) : e;
+  const own = settle(await reconcileManagerSmsEntitlementDirect(db, managerUserId, deps));
   if (own.eligible && (deps.preferPaid !== true || !own.trial)) return own;
   if (!(await isPureCoManagerWorkspace(db, managerUserId))) return own;
   for (const inviterId of await getAcceptedCoManagerInviterIds(db, managerUserId)) {
-    const inherited = await reconcileManagerSmsEntitlementDirect(db, inviterId, deps);
+    const inherited = settle(await reconcileManagerSmsEntitlementDirect(db, inviterId, deps));
     if (inherited.eligible && (deps.preferPaid !== true || !inherited.trial)) return inherited;
   }
   return own;
+}
+
+/** A trial may be enrolled for email; it never carries a number. */
+function refuseTrialForNumber(entitlement: SmsEntitlement): SmsEntitlement {
+  return entitlement.eligible && entitlement.trial ? { eligible: false, reason: "trialing" } : entitlement;
 }
 
 async function reconcileManagerSmsEntitlementDirect(
@@ -244,12 +252,13 @@ export async function getEffectiveManagerSmsEntitlement(
   managerUserId: string,
   options: { preferPaid?: boolean } = {},
 ): Promise<SmsEntitlement> {
-  if (options.preferPaid !== true) return resolveNumberPlan(managerUserId);
-  const own = await getStoredManagerSmsEntitlement(db, managerUserId);
+  const settle = (e: SmsEntitlement): SmsEntitlement =>
+    options.preferPaid !== true ? refuseTrialForNumber(e) : e;
+  const own = settle(await getStoredManagerSmsEntitlement(db, managerUserId));
   if (own.eligible && (options.preferPaid !== true || !own.trial)) return own;
   if (!(await isPureCoManagerWorkspace(db, managerUserId))) return own;
   for (const inviterId of await getAcceptedCoManagerInviterIds(db, managerUserId)) {
-    const inherited = await getStoredManagerSmsEntitlement(db, inviterId);
+    const inherited = settle(await getStoredManagerSmsEntitlement(db, inviterId));
     if (inherited.eligible && (options.preferPaid !== true || !inherited.trial)) return inherited;
   }
   return own;
@@ -336,9 +345,4 @@ export async function getStoredManagerSmsEntitlement(
 }
 
 /** Work-number access uses the same effective plan as the wallet, including Free. */
-async function resolveNumberPlan(managerUserId: string): Promise<SmsEntitlement> {
-  try {
-    const plan = await getEffectiveManagerSkuTier(managerUserId);
-    return plan.ok ? { eligible: true, tier: plan.tier ?? "free", source: "none" } : { eligible: false, reason: "plan_unreadable" };
-  } catch { return { eligible: false, reason: "plan_unreadable" }; }
-}
+

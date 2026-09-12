@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -27,23 +28,35 @@ export function PortalPropertyRail({
   items,
   activeId,
   backHref,
+  backLabel = "All properties",
   title,
   subtitle,
   className,
+  groups = RAIL_GROUPS,
+  ariaLabel = "Property sections",
+  dataAttrBack = "property-rail-back",
+  leading,
 }: {
   items: PropertyRailItem[];
   activeId?: string;
   backHref: string;
+  backLabel?: string;
   title: string;
   subtitle?: string;
   className?: string;
+  /** Section grouping — the resident record passes its own (Resident · Home · Contact). */
+  groups?: Array<{ label: string; ids: string[] }>;
+  ariaLabel?: string;
+  dataAttrBack?: string;
+  /** An avatar or thumbnail beside the title. */
+  leading?: ReactNode;
 }) {
   const byId = new Map(items.map((item) => [item.id, item]));
-  const grouped = RAIL_GROUPS.map((group) => ({
+  const grouped = groups.map((group) => ({
     label: group.label,
     items: group.ids.map((id) => byId.get(id)).filter((item): item is PropertyRailItem => Boolean(item)),
   })).filter((group) => group.items.length > 0);
-  const known = new Set(RAIL_GROUPS.flatMap((group) => group.ids));
+  const known = new Set(groups.flatMap((group) => group.ids));
   const leftovers = items.filter((item) => !known.has(item.id));
   if (leftovers.length) grouped.push({ label: "More", items: leftovers });
 
@@ -54,19 +67,22 @@ export function PortalPropertyRail({
         className,
       )}
       data-slot="portal-property-rail"
-      aria-label="Property sections"
+      aria-label={ariaLabel}
     >
       <Link
         href={backHref}
         className="inline-flex min-h-11 items-center gap-1.5 px-3 text-sm font-semibold text-primary transition hover:underline"
-        data-attr="property-rail-back"
+        data-attr={dataAttrBack}
       >
         <ArrowLeft className="size-4" aria-hidden />
-        All properties
+        {backLabel}
       </Link>
-      <div className="border-t border-border px-3 py-3">
-        <p className="truncate text-[13px] font-semibold text-foreground">{title}</p>
-        {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
+      <div className="flex items-center gap-2.5 border-t border-border px-3 py-3">
+        {leading ? <span className="shrink-0">{leading}</span> : null}
+        <span className="min-w-0">
+          <p className="truncate text-[13px] font-semibold text-foreground">{title}</p>
+          {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
+        </span>
       </div>
       <nav className="flex flex-col gap-px px-2">
         {grouped.map((group) => (

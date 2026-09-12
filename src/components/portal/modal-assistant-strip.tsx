@@ -55,6 +55,11 @@ export type ModalAssistantStripProps = {
   alwaysExpanded?: boolean;
   /** Let the chat panel grow to fill the modal body (lease edit full-screen mobile). */
   fillHeight?: boolean;
+  /**
+   * Bump to open the rail from a control that lives elsewhere (the inbox
+   * composer's ✦ menu) while `hideTrigger` keeps this strip's own button off.
+   */
+  openSignal?: number;
 };
 
 /** Compact editor CTA and right-side assistant, within the editor’s focus boundary. */
@@ -70,6 +75,7 @@ export function ModalAssistantStrip({
   detached = false,
   defaultExpanded = false,
   alwaysExpanded = false,
+  openSignal = 0,
 }: ModalAssistantStripProps) {
   const config = usePortalAssistantConfig();
   const portalContainer = usePortalContainer();
@@ -97,6 +103,15 @@ export function ModalAssistantStrip({
     // Reset only for a fresh editor visit, not each parent render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationInstance]);
+
+  useEffect(() => {
+    if (!openSignal) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- an external control asked for the rail
+    setExpanded(true);
+    onExpandedChange?.(true);
+    // Only the signal opens it; a parent re-render must not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSignal]);
 
   useEffect(() => {
     const target = anchorRef.current?.closest<HTMLElement>('[role="dialog"]');

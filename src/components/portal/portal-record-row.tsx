@@ -66,12 +66,21 @@ export function PortalPersonRecordRow({
   );
 }
 
-/** Property-style card row — address block without trailing chevron. */
+/**
+ * Property-style card row.
+ *
+ * Title with a chevron, the address, a line of detail; on the right, a status
+ * chip ("1 / 2 occupied") and the money in bold — the two things a manager
+ * scans a list of homes for. On a phone the chip drops under the title and
+ * the money stays on the right, so the row is still two lines and a glance.
+ */
 export function PortalPropertyRecordRow({
   title,
   address,
   summary,
   badge,
+  chip,
+  trailing,
   leading,
   selected = false,
   checked = false,
@@ -83,6 +92,10 @@ export function PortalPropertyRecordRow({
   address: string;
   summary?: string;
   badge?: ReactNode;
+  /** Status chip — occupancy, stage — shown beside the money. */
+  chip?: ReactNode;
+  /** The money, right-aligned and bold. */
+  trailing?: ReactNode;
   /** A thumbnail or glyph before the text — what makes one row recognisable among twenty. */
   leading?: ReactNode;
   selected?: boolean;
@@ -106,9 +119,24 @@ export function PortalPropertyRecordRow({
       </p>
       <p className="truncate text-[13px] leading-relaxed text-muted">{address}</p>
       {summary ? <p className="truncate text-xs text-muted">{summary}</p> : null}
-      {badge ? <div className="mt-0.5">{badge}</div> : null}
+      {badge || chip || trailing ? (
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+          {badge}
+          {/* On a phone the chip and the money sit under the title, so the title
+              keeps its width; on desktop both move to the right edge. */}
+          {chip ? <span className="md:hidden">{chip}</span> : null}
+          {trailing ? <span className="text-[13px] font-bold text-foreground md:hidden">{trailing}</span> : null}
+        </div>
+      ) : null}
     </>
   );
+  const aside =
+    chip || trailing ? (
+      <div className="ml-2 hidden shrink-0 flex-col items-end justify-center gap-1 self-center text-right md:flex">
+        {trailing ? <span className="whitespace-nowrap text-[14px] font-bold text-foreground">{trailing}</span> : null}
+        {chip}
+      </div>
+    ) : null;
   return (
     <div
       className={cn(
@@ -142,7 +170,35 @@ export function PortalPropertyRecordRow({
           {body}
         </div>
       )}
+      {aside}
     </div>
+  );
+}
+
+/** A small status chip for a list row — "1 / 2 occupied", "Vacant". */
+export function PortalRowStatusChip({
+  tone = "neutral",
+  children,
+  dataAttr,
+}: {
+  tone?: "ok" | "warn" | "neutral";
+  children: ReactNode;
+  dataAttr?: string;
+}) {
+  return (
+    <span
+      data-attr={dataAttr}
+      className={cn(
+        "inline-flex items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold",
+        tone === "ok"
+          ? "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
+          : tone === "warn"
+            ? "bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]"
+            : "bg-[var(--secondary)] text-muted",
+      )}
+    >
+      {children}
+    </span>
   );
 }
 

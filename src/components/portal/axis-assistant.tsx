@@ -16,21 +16,16 @@ import {
 } from "react";
 
 import { track } from "@/lib/analytics/track-client";
-import { AxisLogoMark } from "@/components/brand/axis-logo";
 import { ModalShell } from "@/components/ui/modal";
 import { AssistantChatComposer } from "@/components/portal/assistant-chat-composer";
+import { AssistantChatHistoryPanel } from "@/components/portal/assistant-chat-history-panel";
 import {
-  AssistantChatHistoryControls,
-  AssistantChatHistoryPanel,
-} from "@/components/portal/assistant-chat-history-panel";
-import { AssistantMarkdown } from "@/components/portal/assistant-markdown";
-import {
-  AssistantMessageRating,
-  AssistantPendingActionCard,
-  AssistantPinIcon,
-  AssistantSuggestionChips,
-  AxisAssistantSparkleIcon,
-} from "@/components/portal/assistant-shared";
+  AssistantEmptyState,
+  AssistantMessageList,
+  AssistantPanelHeader,
+  MANAGER_ASSISTANT_ENDPOINT,
+} from "@/components/portal/assistant-panel-chrome";
+import { AssistantPendingActionCard, AxisAssistantSparkleIcon } from "@/components/portal/assistant-shared";
 import {
   AssistantConversationProvider,
   useOptionalAssistantConversation,
@@ -151,7 +146,7 @@ const MemoizedLayoutSlot = memo(function MemoizedLayoutSlot({ children }: { chil
  * The panel lives outside the portal layout tree so opening the assistant does not
  * re-render dashboard/sidebar content (keeps INP under budget).
  */
-function AxisAssistantChrome({ managerName, endpoint = "/api/agent/chat" }: { managerName?: string | null; endpoint?: string }) {
+function AxisAssistantChrome({ managerName, endpoint = MANAGER_ASSISTANT_ENDPOINT }: { managerName?: string | null; endpoint?: string }) {
   const isClient = useIsClient();
   const { dockable, mode, setMode } = useAxisAssistantDock();
   const showNativeChrome = useNativeChrome();
@@ -312,79 +307,22 @@ function AxisAssistantChrome({ managerName, endpoint = "/api/agent/chat" }: { ma
         >
           {panelReady ? (
             <>
-          <div className="relative shrink-0 overflow-hidden border-b border-border/70 px-4 py-3.5 [html[data-native]_&]:py-2.5">
-            <div
-              className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--primary)_10%,transparent),transparent_55%)]"
-              aria-hidden
-            />
-            <div className="relative flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
-                  <AxisAssistantSparkleIcon className="h-4 w-4" />
-                </span>
-                <div className="min-w-0">
-                  <p id="axis-assistant-title" className="truncate text-sm font-semibold tracking-[-0.01em] text-foreground">
-                    PropLane Assistant
-                  </p>
-                  <p className="truncate text-xs text-muted [html[data-native]_&]:hidden">
-                    Ask about your portfolio in plain language
-                  </p>
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                {dockable && (
-                  // Desktop-only: below `lg` there is no rail to pin into, so
-                  // offering the control there would be a dead end.
-                  <button
-                    type="button"
-                    onClick={pinToRail}
-                    aria-label="Pin PropLane Assistant to the right side"
-                    title="Pin to the right side"
-                    data-attr="axis-assistant-pin-to-dock"
-                    className="hidden h-8 w-8 items-center justify-center rounded-full text-muted outline-none transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25 lg:flex"
-                  >
-                    <AssistantPinIcon className="h-4 w-4" />
-                  </button>
-                )}
-                {multiThread ? (
-                  <AssistantChatHistoryControls
-                    onOpenHistory={openHistory}
-                    onNewChat={() => {
-                      void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
-                    }}
-                    showNewChat
-                  />
-                ) : hasConversation ? (
-                  <button
-                    type="button"
-                    onClick={resetConversation}
-                    aria-label="Start a new conversation"
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-muted outline-none transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25"
-                  >
-                    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-                      <path
-                        d="M3 12a9 9 0 0 1 15-6.7L21 8M21 3v5h-5M21 12a9 9 0 0 1-15 6.7L3 16M3 21v-5h5"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={closePanel}
-                  aria-label="Close PropLane Assistant"
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-muted outline-none transition-colors hover:bg-foreground/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/25"
-                >
-                  <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" aria-hidden="true">
-                    <path d="M18 6 6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
+          <AssistantPanelHeader
+            titleId="axis-assistant-title"
+            onClose={closePanel}
+            onPinToRail={dockable ? pinToRail : undefined}
+            showHistory={multiThread}
+            onOpenHistory={openHistory}
+            showNew={multiThread || hasConversation}
+            onNew={() => {
+              if (multiThread) {
+                void startNewChat().then(() => requestAnimationFrame(() => inputRef.current?.focus()));
+              } else {
+                resetConversation();
+              }
+            }}
+            className="[html[data-native]_&]:py-1.5"
+          />
 
           {multiThread ? (
             <AssistantChatHistoryPanel
@@ -412,74 +350,32 @@ function AxisAssistantChrome({ managerName, endpoint = "/api/agent/chat" }: { ma
             <div
               ref={scrollRef}
               className={cn(
-                "flex flex-col overflow-y-auto px-4 py-4 [html[data-native]_&]:py-2",
+                "flex flex-col overflow-y-auto px-3 py-3 [html[data-native]_&]:py-2",
                 hasConversation ? "min-h-0 flex-1" : "min-h-0 flex-1 [html[data-native]_&]:flex-none",
               )}
             >
               {!hasConversation ? (
-                <div className="flex flex-1 flex-col items-center justify-center gap-5 text-center [html[data-native]_&]:flex-none [html[data-native]_&]:justify-start [html[data-native]_&]:gap-2.5 [html[data-native]_&]:pt-0">
-                  <AxisLogoMark className="[html[data-native]_&]:hidden" />
-                  <div className="hidden flex-col gap-1 [html[data-native]_&]:flex">
-                    <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">
-                      {firstName ? `Hi ${firstName}, what should we look at?` : "What should we look at?"}
-                    </h3>
-                  </div>
-                  <div className="flex flex-col gap-1.5 [html[data-native]_&]:hidden">
-                    <div className="flex flex-col">
-                      {firstName && (
-                        <h2 className="text-lg font-medium tracking-tight text-muted">Hi {firstName},</h2>
-                      )}
-                      <h3 className="text-[17px] font-semibold tracking-[-0.01em] text-foreground">
-                        What should we look at first?
-                      </h3>
-                    </div>
-                    <p className="max-w-[18rem] text-sm leading-relaxed text-muted">
-                      Rent, leases, reminders. Grounded in your live portfolio data.
-                    </p>
-                  </div>
-                  <AssistantSuggestionChips
-                    onPick={(prompt) => void send(prompt)}
-                    disabled={loading}
-                    className={cn(
-                      "grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-center",
-                      keyboardOpen && "hidden",
-                    )}
-                  />
-                </div>
+                <AssistantEmptyState
+                  firstName={firstName}
+                  showQueue={endpoint === MANAGER_ASSISTANT_ENDPOINT}
+                  onNavigate={closePanel}
+                  onPick={(prompt) => void send(prompt)}
+                  disabled={loading}
+                  hideChips={keyboardOpen}
+                  className="[html[data-native]_&]:flex-none"
+                />
               ) : (
-                <div className="space-y-3 text-sm">
-                  {visibleMessages.map((m, i) => (
-                    <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
-                      <span
-                        className={
-                          "inline-block max-w-[88%] rounded-2xl px-3.5 py-2.5 text-left " +
-                          (m.role === "user"
-                            ? "whitespace-pre-wrap rounded-br-md text-white shadow-[0_8px_20px_-12px_rgba(47,107,255,0.6)]"
-                            : "rounded-bl-md border border-border bg-foreground/[0.04] text-foreground")
-                        }
-                        style={m.role === "user" ? { background: "var(--btn-primary)" } : undefined}
-                      >
-                        {m.role === "user" ? m.content : <AssistantMarkdown text={m.content} />}
-                      </span>
-                      {m.role === "assistant" && m.traceId ? (
-                        <AssistantMessageRating
-                          traceId={m.traceId}
-                          rating={ratings[m.traceId]}
-                          onRate={submitFeedback}
-                        />
-                      ) : null}
-                    </div>
-                  ))}
-                  {loading && (
-                    <div className="flex items-center gap-2 rounded-2xl border border-border/70 bg-foreground/[0.03] px-3 py-2 text-muted w-fit">
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70 [animation-delay:-0.2s]" />
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70 [animation-delay:-0.1s]" />
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary/70" />
-                      <span className="text-xs">Thinking…</span>
-                    </div>
-                  )}
-                  {error && <p className="rounded-xl border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{error}</p>}
-                </div>
+                <AssistantMessageList
+                  messages={visibleMessages}
+                  ratings={ratings}
+                  onRate={submitFeedback}
+                  loading={loading}
+                  trailing={
+                    error ? (
+                      <p className="rounded-xl border border-danger/20 bg-danger/5 px-3 py-2 text-sm text-danger">{error}</p>
+                    ) : null
+                  }
+                />
               )}
             </div>
           )}
@@ -506,7 +402,7 @@ function AxisAssistantChrome({ managerName, endpoint = "/api/agent/chat" }: { ma
               onAttachmentError={(message) => setError(message)}
               loading={loading}
               inputRef={inputRef}
-              placeholder="Ask about your portfolio… Attach images or PDFs with the paperclip."
+              placeholder="Ask about your portfolio…"
               onSend={() => void send()}
             />
           </form>

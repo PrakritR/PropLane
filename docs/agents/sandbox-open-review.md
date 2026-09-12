@@ -1,7 +1,7 @@
 # Sandbox open review (all agents)
 
-After any **user-facing fix**, open the captain's browser to the exact route
-where they can verify it — do not hand off with only "refresh localhost."
+After any **user-facing fix**, open the developer's browser to the exact route
+where they can verify it - do not hand off with only "refresh localhost."
 
 ## Command (mandatory before handoff)
 
@@ -27,7 +27,7 @@ reopen the same route on integration localhost.
 ## When to run
 
 1. **After** the fix is saved and the dev server on this pane's port is up.
-2. **Before** telling the captain the work is ready.
+2. **Before** telling the developer the work is ready.
 3. Include the full **Review URL** in your handoff (the script prints it).
 
 Options:
@@ -39,10 +39,11 @@ Port resolution: `--port` → `PROPPLANE_SANDBOX_PORT` → `.env.local`
 `NEXT_PUBLIC_APP_URL` → optional gitignored `.cursor/rules/local-agent-branch.mdc`
 (per-pane, may be absent) → `3010`.
 
-## Promote sandbox → prakrit (captain / firstmate only)
+## Prakrit promotion: sandbox → prakrit
 
-Agents land on their keeper branch only. After captain approves, integration runs
-**security review + no-mistakes** before pushing `prakrit`:
+For Prakrit's process, agents land on their keeper branch only. After Prakrit
+approves, integration runs **security review + no-mistakes** before pushing
+`prakrit`:
 
 ```bash
 npm run ship:to-prakrit -- --source cursor-1
@@ -57,8 +58,10 @@ or `--path`). Next ladder step (also no-mistakes):
 bin/fm-proplane-promote-prakrit-to-main.sh --push-main
 ```
 
-`npm run ship:integrate` merges to `main` **without** no-mistakes — prefer the
-prakrit ladder above when the captain wants gated promotion.
+Akhil's process defaults to the same keeper handoff. Only an explicit Akhil ship
+request authorizes agents working for him to promote his reviewed keeper →
+`main` → `staging` → `production`. They do not write `prakrit`, run
+no-mistakes, or waive staging and production safety.
 
 ## Firstmate / multi-pane
 
