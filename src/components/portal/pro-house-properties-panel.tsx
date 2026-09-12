@@ -6,7 +6,12 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { ImageOff } from "lucide-react";
-import { propertyRowAddress, propertyRowSummary, propertyRowThumbnail } from "@/lib/property-row-summary";
+import {
+  propertyRowAddress,
+  propertyRowDetail,
+  propertyRowRentLabel,
+  propertyRowThumbnail,
+} from "@/lib/property-row-summary";
 import {
   propertyAttention,
   propertyAttentionParts,
@@ -63,13 +68,10 @@ import {
 } from "@/lib/portal-detail-routes";
 import { ManagerPropertyRequestsPanel } from "@/components/portal/pro-property-requests-panel";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
-import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { LEASE_PIPELINE_EVENT, readLeasePipeline } from "@/lib/lease-pipeline-storage";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -1262,9 +1264,12 @@ export function ManagerHousePropertiesPanel({
     };
     window.addEventListener(PROPERTY_PIPELINE_EVENT, on);
     window.addEventListener("axis-pro-relationships", on);
+    // A lease signed elsewhere changes the occupancy chip on its row.
+    window.addEventListener(LEASE_PIPELINE_EVENT, on);
     return () => {
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
       window.removeEventListener("axis-pro-relationships", on);
+      window.removeEventListener(LEASE_PIPELINE_EVENT, on);
     };
   }, [scopeUserId]);
 
@@ -1333,6 +1338,41 @@ export function ManagerHousePropertiesPanel({
 
   /** Totals for the strip, over every row on this stage before any chip narrows it. */
   const attentionTotals = useMemo(() => summarizeAttention(rows.map((r) => r.attention)), [rows]);
+
+  /**
+   * Signed leases per property, for the row's occupancy chip — the same
+   * Fully Signed rows the dashboard's occupancy figure counts.
+   */
+  const occupiedByProperty = useMemo(() => {
+    void tick;
+    const map = new Map<string, number>();
+    if (!scopeUserId) return map;
+    for (const lease of readLeasePipeline(scopeUserId)) {
+      if (lease.status !== "Fully Signed") continue;
+      const key = lease.propertyId?.trim();
+      if (!key) continue;
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return map;
+  }, [tick, scopeUserId]);
+
+  /** Rows per stage, for the empty state's "n drafts · open Drafts" link. */
+  const stageCounts = useMemo(() => {
+    void tick;
+    const counts: Record<string, number> = {};
+    if (!scopeUserId) return counts;
+    for (const stage of MANAGER_STAGES) {
+      counts[stage.key] = stage.buckets.reduce<number>(
+        (n, bucket) =>
+          n +
+          readAdminPropertyRows(bucket, scopeUserId).filter((row) =>
+            propertyKeyProp || workspaceContainsProperty(row.listingId?.trim() || row.adminRefId.trim()),
+          ).length,
+        0,
+      );
+    }
+    return counts;
+  }, [tick, scopeUserId, propertyKeyProp]);
 
   const propertyRowKey = (row: AdminPropertyRow) => row.adminRefId + (row.listingId ?? "");
   const propertyKeyFromRow = (row: AdminPropertyRow) =>
@@ -1644,21 +1684,40 @@ export function ManagerHousePropertiesPanel({
     );
   }
 
-  const renderAddPropertyRow = () =>
-    onAddProperty ? (
-      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-        <PortalListAddRow
-          label="Add property"
-          ariaLabel="Add property"
-          icon={PORTAL_LIST_ADD_ICONS.property}
-          hint={addPropertyHint}
-          onClick={onAddProperty}
-          disabled={addPropertyDisabled}
-          dataAttr="manager-properties-create"
-          className="portal-list-add-row--property min-h-[11rem] sm:min-h-[12.5rem] sm:py-14 [&>svg]:h-10 [&>svg]:w-10 [&_span_span]:text-xs sm:[&_span_span]:text-sm"
-        />
-      </div>
-    ) : null;
+  /**
+   * The empty state (§15): what this stage holds, the stage that has rows,
+   * and the one action. No bare dashed box.
+   */
+  const renderEmptyState = () => {
+    const sibling = MANAGER_STAGES.filter((s) => s.key !== activeStage && (stageCounts[s.key] ?? 0) > 0)[0];
+    const copy: Record<string, { title: string; description: string }> = {
+      listed: { title: "No listed homes yet", description: "Homes you publish appear here, where renters can find and apply to them." },
+      unlisted: { title: "Nothing unlisted", description: "A home you take off the market waits here until you relist it." },
+      drafts: { title: "No drafts in progress", description: "A home you start and save without publishing waits here." },
+    };
+    const c = copy[activeStage] ?? { title: "Nothing here yet", description: "" };
+    return (
+      <PortalListEmptyCard
+        title={searchQuery.trim() ? "No homes match that search" : c.title}
+        description={searchQuery.trim() ? "Try another name, address or neighborhood." : c.description}
+        sibling={
+          sibling
+            ? {
+                label: `${stageCounts[sibling.key]} ${sibling.label.toLowerCase()} · open ${sibling.label}`,
+                href: propertyListHref(propertiesBase, sibling.key),
+                dataAttr: `manager-properties-empty-sibling-${sibling.key}`,
+              }
+            : null
+        }
+        actions={
+          onAddProperty
+            ? [{ label: "Add property", onClick: onAddProperty, disabled: addPropertyDisabled, dataAttr: "manager-properties-create" }]
+            : []
+        }
+        dataAttr="manager-properties-empty"
+      />
+    );
+  };
 
   /*
    * "Needs you" — the three things a manager loses money by ignoring, as chips
@@ -1720,7 +1779,23 @@ export function ManagerHousePropertiesPanel({
               key={rowKey}
               title={managerPropertyRowTitle(row, sourceBucket)}
               address={propertyRowAddress(row)}
-              summary={propertyRowSummary(row)}
+              summary={propertyRowDetail(row)}
+              trailing={sourceBucket === 5 ? undefined : propertyRowRentLabel(row)}
+              chip={(() => {
+                // Drafts are not let; every other stage says how full the home is.
+                if (sourceBucket === 5) return undefined;
+                const rooms = row.submission?.rooms?.length ?? 0;
+                const spaces = row.submission?.listingPlaceCategoryId === "entire_home" ? 1 : Math.max(rooms, 1);
+                const occupied = Math.min(occupiedByProperty.get(propertyKeyFromRow(row)) ?? 0, spaces);
+                return (
+                  <PortalRowStatusChip
+                    tone={occupied >= spaces ? "ok" : occupied === 0 ? "warn" : "neutral"}
+                    dataAttr="property-row-occupancy"
+                  >
+                    {occupied === 0 && spaces === 1 ? "Vacant" : `${occupied} / ${spaces} occupied`}
+                  </PortalRowStatusChip>
+                );
+              })()}
               leading={
                 thumb ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -1768,10 +1843,10 @@ export function ManagerHousePropertiesPanel({
             />
           );
         })}
-        {renderAddPropertyRow()}
+        {rows.length === 0 ? renderEmptyState() : null}
       </div>
       {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments" onClear={clearSelection}>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             {canBulkEdit ? (
               <Button

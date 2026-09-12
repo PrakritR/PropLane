@@ -22,7 +22,7 @@ Grotesk, `--pl-line` borders, 12px radii). Reuse `PortalRecordListSurface`,
 
 ## Completion checklist
 
-- [ ] **8 · Shell.** One workspace switcher block at the top-left of the sidebar
+- [x] **8 · Shell.** — `ef8b3a5c`. One workspace switcher block at the top-left of the sidebar
   (avatar + workspace name + role/property count + chevron) replaces the
   PropLane logo block, the "PROPERTY" badge and the separate "My workspace" box.
   Menu order: switchable workspaces (current checked) → Workspace settings →
@@ -36,7 +36,7 @@ Grotesk, `--pl-line` borders, 12px radii). Reuse `PortalRecordListSurface`,
   Files: `portal-sidebar.tsx`, `workspace-switcher.tsx`,
   `workspace-provider.tsx`, portal layout, messaging-setup banner,
   `src/lib/portals/*` nav labels.
-- [ ] **9 · Dashboard.** Four KPI cards with a direction: Occupancy % (with
+- [x] **9 · Dashboard.** — `6966d8d2`. Four KPI cards with a direction: Occupancy % (with
   n / N), Rent collected this period vs due, Open requests (with oldest age),
   Applications ready — each with a delta vs the previous period and a small
   8-bar sparkline; a period selector ("This month ▾") sets the baseline.
@@ -48,7 +48,7 @@ Grotesk, `--pl-line` borders, 12px radii). Reuse `PortalRecordListSurface`,
   from tool results (previous-period reads through existing tools), never
   model arithmetic. Files: dashboard section components from slice 3,
   `MANAGER_DASHBOARD_SECTIONS`.
-- [ ] **10 · Record lists.** `PortalRecordListSurface` renders **one toolbar**:
+- [x] **10 · Record lists.** — `468f45ff`. `PortalRecordListSurface` renders **one toolbar**:
   tabs (with counts) · search · active filter chips (removable, e.g. "Seattle ✕")
   · view controls · nothing else. The second icon-only bar is removed. Rows
   carry a status chip (e.g. "1 / 2 occupied", ok/warn tones) and money
@@ -61,14 +61,14 @@ Grotesk, `--pl-line` borders, 12px radii). Reuse `PortalRecordListSurface`,
   Inspections, admin lists). `tests/unit/admin-list-surface-adoption.test.ts`
   stays green. Files: `PortalRecordListSurface`,
   `portal-section-action-row.tsx`, tab count sources.
-- [ ] **11 · Tasks.** Table with columns: status dot · task (title + one-line
+- [x] **11 · Tasks.** — `55bafc5a`. Table with columns: status dot · task (title + one-line
   context) · property · assignee (avatar + name) · due (chip when today/overdue)
   · priority (High / Normal / Low chip). Tabs Open / Overdue / Done. Filter chips
   Assignee / Property / Priority and a **Group by** control (Property default;
   Assignee, Due) persisted in the URL. Mobile: two-line rows with the due chip;
   assignee avatar only when not the viewer. Files: `pro-task-list.tsx`, shared
   task row.
-- [ ] **12 · Team.** Three blocks on `/portal/teams`: (a) members table —
+- [x] **12 · Team.** — `eba7f2ff`. Three blocks on `/portal/teams`: (a) members table —
   member (avatar, name, email) · role pill (Owner / Manager / Co-manager) ·
   properties · last active · Access button; Managers / Vendors tabs; (b)
   **Pending invites** with Resend / Revoke and the invite link with Copy and
@@ -77,7 +77,7 @@ Grotesk, `--pl-line` borders, 12px radii). Reuse `PortalRecordListSurface`,
   No access · View · Edit · Manage, over the existing co-manager permissions.
   Vendors tab reuses the table with the property-scoped link column. Files:
   teams pages, `workspace-settings.tsx`, invite-link card.
-- [ ] **13 · Inbox.** Composer channel is a visible segmented control
+- [x] **13 · Inbox.** — `2e544e79` (composer and list built on `wip/claude-3-inbox-composer` by another session; merged, tests brought to it, verified). Composer channel is a visible segmented control
   (In-app · SMS · Email) with the sending identity inline ("Sending as
   (206) 555-0100"); every message shows its channel and time ("Email · 3:42 PM",
   "You · SMS"). Conversation rows: unread dot, channel chip, context chip
@@ -88,7 +88,7 @@ Grotesk, `--pl-line` borders, 12px radii). Reuse `PortalRecordListSurface`,
   UI; `formatInboxStamp` and authorize-then-append unchanged; residents still
   cannot schedule. Files: manager/vendor inbox panels (copied from the resident
   panel per `docs/agents/communication-inbox.md`), composer, thread header.
-- [ ] **14 · Mobile shell.** Bottom tab bar is five tabs, Home first:
+- [x] **14 · Mobile shell.** — `27defcd0`. Bottom tab bar is five tabs, Home first:
   Home · Properties · Inbox (unread badge) · Tasks · More, filled glyph for the
   active tab (no underline). Resident bottom-nav constants stay **derived**.
   Page heads carry the primary Add; the floating ✦ remains the assistant only;
@@ -98,7 +98,7 @@ Grotesk, `--pl-line` borders, 12px radii). Reuse `PortalRecordListSurface`,
   header. Update `src/lib/platform/parity.ts` and `render-portal-section.tsx`
   per `docs/web-and-native-parity.md`. Files: `portal-mobile-nav-bar.tsx`,
   `RESIDENT_BOTTOM_NAV_PRIMARY` derivation, page-head band, tour dialog.
-- [ ] **15 · Empty states.** The empty-state slot of `PortalRecordListSurface`
+- [x] **15 · Empty states.** — `51b4fa0f`. The empty-state slot of `PortalRecordListSurface`
   renders a titled card: what appears on this tab, a cross-link to a sibling
   tab that has content ("5 upcoming — next today 4:42 PM"), and the one or two
   real actions. No bare dashed "Add" box anywhere.
@@ -127,4 +127,27 @@ Grotesk, `--pl-line` borders, 12px radii). Reuse `PortalRecordListSurface`,
 
 ## Validation evidence
 
-Pending implementation.
+Built on `claude-3` on the night of 2026-09-11 and landed on `prakrit` slice
+by slice (ff-only). Each slice: tsc 0 errors, the full unit suite green on
+the tip (1392 files / 9658 tests at `51b4fa0f`), and a dev/test browser
+pass at 1440 and 390 as the manager (`manager@test.proplane.local`) on
+`:3003`:
+
+- §8 — dashboard with the workspace block, menu open, collapsed rail.
+- §9 — dashboard KPIs (This month), Needs attention (3 rows), Upcoming (6
+  rows), property cards with occupancy bars.
+- §10 — Properties: one toolbar, chips + money on rows, two-row selection
+  pill with Share / Unlist / ✕; phone rows two-line.
+- §11 — Tasks: Open (Group by Property), `?group=due`, Overdue on a phone.
+- §12 — Settings → Team: members table with the owner row, invite-by-link.
+- §13 — Inbox thread: In-app · Email · Text segments with "Sending as", channel chips on messages, All / Unread / Archived.
+- §14 — phone bottom bar Home · Properties · Inbox · Tasks · More.
+- §15 — Properties → Drafts empty card with "20 listed · open Listed".
+
+Also landed ahead of this list: the listing editor's Mobbin polish
+(`7fcfb491` — summary rail, cover tile, status block, edit-mode footer).
+
+Not yet driven: Resident and Vendor portals after §8/§10 (the shared
+sidebar and surface changed under them — a resident-side pass is owed);
+the 0 / 1 / 20 property edges beyond the seeded 20; a workspace at the
+3-cap; no-mistakes on the combined tip.

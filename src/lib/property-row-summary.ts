@@ -51,6 +51,21 @@ export function propertyRowRentLabel(
   return row.monthlyRent > 0 ? `${usd(row.monthlyRent)}/mo` : "Rent not set";
 }
 
+/** "3 rooms · 2 bd / 1 ba · Green Lake" — the summary without the rent, which the row shows on the right. */
+export function propertyRowDetail(
+  row: Pick<AdminPropertyRow, "submission" | "beds" | "baths" | "neighborhood">,
+): string {
+  const rooms = row.submission?.rooms?.length ?? 0;
+  const byRoom = row.submission?.listingPlaceCategoryId !== "entire_home";
+  return [
+    byRoom && rooms > 0 ? `${rooms} ${rooms === 1 ? "room" : "rooms"}` : "",
+    row.beds || row.baths ? `${row.beds} bd / ${row.baths} ba` : "",
+    (row.neighborhood ?? "").trim(),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 /** "From $1,160/mo · 3 rooms · 2 bd / 1 ba · Green Lake" */
 export function propertyRowSummary(
   row: Pick<AdminPropertyRow, "monthlyRent" | "rentRangeLabel" | "submission" | "beds" | "baths" | "neighborhood">,

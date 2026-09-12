@@ -68,7 +68,7 @@ export function Sparkline({
 }) {
   const max = Math.max(1, ...values);
   return (
-    <div className="flex h-7 items-end gap-[3px]" role="img" aria-label={`Last ${values.length} periods`}>
+    <div className="hidden h-7 items-end gap-[3px] sm:flex" role="img" aria-label={`Last ${values.length} periods`}>
       {values.map((v, i) => {
         const last = i === values.length - 1;
         const h = Math.max(2, Math.round((v / max) * 28));

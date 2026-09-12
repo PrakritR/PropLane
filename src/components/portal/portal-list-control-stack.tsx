@@ -115,15 +115,56 @@ export function PortalListControlStack({
     );
 
   if (variant === "command") {
-    // One tool row beneath the tabs: search grows, the compact utilities sit
-    // beside it on every breakpoint (phones included — no stacked rows), and
-    // anything that does not fit scrolls sideways rather than wrapping.
+    /*
+     * ONE toolbar (Mobbin polish §10): tabs with counts · search · the active
+     * filter chips · the view controls, on a single row at desktop width. The
+     * second, icon-only bar that used to sit under the tabs is gone. On a
+     * phone the tabs (and chips) are a horizontally scrolling sticky strip and
+     * the search sits on its own line beneath — the same pieces, stacked.
+     */
     const showToolRow = Boolean(filterRow || search || actions);
+    const chipsNode = activeFilterChips ? (
+      <div className="min-w-0 shrink-0" data-attr="portal-list-active-filter-chips">
+        {activeFilterChips}
+      </div>
+    ) : null;
+    const searchNode = search ? (
+      <div className="relative min-w-[6rem] flex-1">
+        <Search
+          className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted"
+          strokeWidth={1.75}
+          aria-hidden
+        />
+        <Input
+          type="search"
+          value={search.value}
+          onChange={(e) => search.onChange(e.target.value)}
+          placeholder={search.placeholder}
+          aria-label={search.ariaLabel ?? search.placeholder}
+          className="portal-list-search h-10 min-h-10 w-full rounded-lg border-0 bg-transparent py-2 pl-8 pr-2 text-sm shadow-none outline-none focus:bg-[var(--secondary)]/50 focus:ring-0"
+          data-attr={search.dataAttr ?? "portal-list-search"}
+        />
+      </div>
+    ) : (
+      <div className="min-w-0 flex-1" aria-hidden />
+    );
+    const controlsNode = filterRow || actions ? (
+      <div
+        className={cn(
+          "flex shrink-0 flex-nowrap items-center gap-0.5 overflow-x-auto sm:gap-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+          "[&_button]:shrink-0 [&_a]:shrink-0",
+        )}
+        data-attr="portal-list-command-actions"
+      >
+        {filterRow}
+        {actions}
+      </div>
+    ) : null;
     return (
       <div
         ref={stickyDestinations ? destinationRef : undefined}
         className={cn(
-          "shrink-0 space-y-2",
+          "shrink-0",
           // Sticky the whole command chrome (tabs + Settings/actions), not only the
           // destination strip — Settings lived outside the old sticky wrapper (PRP-389).
           stickyDestinations &&
@@ -134,57 +175,32 @@ export function PortalListControlStack({
         data-variant="command"
         data-sticky={stickyDestinations ? "" : undefined}
       >
-        <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card shadow-sm">
+        <div className="flex min-w-0 flex-col rounded-xl border border-border bg-card shadow-sm lg:flex-row lg:items-center lg:gap-2 lg:pr-2">
           {showDestinations ? (
             <HorizontalScrollCapture
-              className={cn("min-w-0 border-border px-1 pt-1", showToolRow && "border-b")}
+              className={cn(
+                "min-w-0 border-border px-1 pt-1 lg:shrink-0 lg:border-b-0 lg:py-1",
+                showToolRow && "max-lg:border-b",
+              )}
             >
-              <div data-portal-list-destination-nav>
+              <div className="flex items-center gap-2" data-portal-list-destination-nav>
                 {destinationContent}
+                {/* Chips ride in the scrolling strip on phones, beside search on desktop. */}
+                <span className="lg:hidden">{chipsNode}</span>
               </div>
             </HorizontalScrollCapture>
           ) : null}
-          {showToolRow ? (
+          {showToolRow || chipsNode ? (
             <div
-              className={cn(
-                "flex min-w-0 flex-nowrap items-center gap-1 px-1.5 py-1 sm:gap-1.5 sm:px-2",
-              )}
+              className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 px-1.5 py-1 sm:gap-1.5 sm:px-2 lg:px-0 lg:py-0"
               data-attr="portal-list-command-utilities"
             >
-              {search ? (
-                <div className="relative min-w-[6rem] flex-1">
-                  <Search
-                    className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted"
-                    strokeWidth={1.75}
-                    aria-hidden
-                  />
-                  <Input
-                    type="search"
-                    value={search.value}
-                    onChange={(e) => search.onChange(e.target.value)}
-                    placeholder={search.placeholder}
-                    aria-label={search.ariaLabel ?? search.placeholder}
-                    className="portal-list-search h-10 min-h-10 w-full rounded-lg border-0 bg-transparent py-2 pl-8 pr-2 text-sm shadow-none outline-none focus:bg-[var(--secondary)]/50 focus:ring-0"
-                    data-attr={search.dataAttr ?? "portal-list-search"}
-                  />
-                </div>
-              ) : (
-                <div className="min-w-0 flex-1" aria-hidden />
-              )}
-              <div
-                className={cn(
-                  "flex shrink-0 flex-nowrap items-center gap-0.5 overflow-x-auto sm:gap-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
-                  "[&_button]:shrink-0 [&_a]:shrink-0",
-                )}
-                data-attr="portal-list-command-actions"
-              >
-                {filterRow}
-                {actions}
-              </div>
+              {searchNode}
+              <span className="hidden lg:contents">{chipsNode}</span>
+              {controlsNode}
             </div>
           ) : null}
         </div>
-        {activeFilterChips ? <div className="min-w-0">{activeFilterChips}</div> : null}
       </div>
     );
   }

@@ -163,14 +163,32 @@ describe("BulkActionBar", () => {
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 
-  it("hides selection count when hideCount is set", () => {
+  it("leads with the count even when hideCount is set — the pill hangs its actions off it", () => {
     render(
       <BulkActionBar count={2} hideCount>
         <button type="button">Message</button>
       </BulkActionBar>,
     );
-    expect(screen.queryByText("2 selected")).toBeNull();
+    expect(screen.getByText("2 selected")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Message" })).toBeTruthy();
+  });
+
+  it("offers a clear ✕ only when told how to clear", () => {
+    const onClear = vi.fn();
+    const { unmount } = render(
+      <BulkActionBar count={2} onClear={onClear}>
+        <button type="button">Message</button>
+      </BulkActionBar>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(onClear).toHaveBeenCalled();
+    unmount();
+    render(
+      <BulkActionBar count={2}>
+        <button type="button">Message</button>
+      </BulkActionBar>,
+    );
+    expect(screen.queryByRole("button", { name: "Clear selection" })).toBeNull();
   });
 
   it("uses a custom count label when provided", () => {

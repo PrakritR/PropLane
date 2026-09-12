@@ -407,9 +407,10 @@ export const VENDOR_TASK_LIST_TAB_LABELS: Record<VendorTaskListTabId, string> = 
 };
 
 export const MANAGER_TASK_LIST_TAB_LABELS: Record<ManagerTaskListTabId, string> = {
-  "in-progress": "In progress",
+  // Open / Overdue / Done — the slugs stay, so every saved link still lands.
+  "in-progress": "Open",
   overdue: "Overdue",
-  completed: "Completed",
+  completed: "Done",
 };
 
 export function parseManagerTaskListTab(raw: string | undefined | null): ManagerTaskListTabId {
