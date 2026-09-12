@@ -299,6 +299,10 @@ export async function confirmTourInquiry(db: Db, opts: ConfirmTourOptions): Prom
     // Consent is a fact captured on the authorized inquiry. Preserve it so
     // later cancel/reschedule notifications can use the same work-number thread.
     smsConsent: row.smsConsent === true,
+    // This is server-owned provenance, not a client consent flag.  A newly
+    // created non-SMS inquiry must not become "legacy" merely by being
+    // confirmed into the planned-event payload.
+    ...(typeof row.smsOrigin === "string" ? { smsOrigin: row.smsOrigin } : {}),
     notes: textField(row, "notes") || undefined,
     instructions: instructions || undefined,
     assignee: assignee ?? undefined,

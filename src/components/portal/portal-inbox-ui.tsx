@@ -1636,7 +1636,7 @@ export function InboxComposer({
             })}
           </div>
         ) : null}
-        <div className="portal-inbox-composer-row flex items-end gap-2">
+        <div className="portal-inbox-composer-row flex items-end gap-2 max-md:flex-wrap">
           {leadingControl}
           {onAttachmentsPick ? (
             <label className="mb-0.5 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-border bg-secondary text-muted hover:bg-accent/40 hover:text-foreground md:h-[42px] md:w-[42px]">

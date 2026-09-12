@@ -179,9 +179,12 @@ export async function hasManagerTourConflict(
  */
 export async function createTourInquiry(
   db: Db,
-  args: { incoming: Record<string, unknown>; notify?: boolean },
+  args: { incoming: Record<string, unknown>; notify?: boolean; smsOrigin?: { senderPhoneE164: string } | null },
 ): Promise<CreateTourInquiryResult> {
-  const incoming = args.incoming;
+  // Strip this internal provenance key before copying public input. It is set
+  // only from the authenticated inbound channel below.
+  const incoming = { ...args.incoming };
+  delete incoming.smsOrigin;
   const notify = args.notify !== false;
 
   const id = typeof incoming.id === "string" && incoming.id.trim() ? incoming.id.trim() : crypto.randomUUID();
@@ -204,6 +207,9 @@ export async function createTourInquiry(
         ? incoming.createdAt
         : new Date().toISOString(),
   };
+  // This marker is server-owned. Public callers can never name an SMS sender
+  // merely by adding fields to `incoming`.
+  row.smsOrigin = args.smsOrigin?.senderPhoneE164 ? "leasing_sms" : "non_sms";
   const propertyId = typeof row["propertyId"] === "string" ? row["propertyId"] : null;
   const isTour = textValue(row.kind) === "tour";
 
