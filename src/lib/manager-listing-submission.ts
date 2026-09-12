@@ -945,15 +945,15 @@ export function syncAirbnbLeaseTermInAllowed(terms: string[], airbnbRentalsAllow
   return sortLeaseTermsCanonical(withAirbnb);
 }
 
-/** The lengths a Long-term let may be offered at, in months. */
-export const LONG_TERM_LENGTH_CHOICES = [3, 6, 9, 12] as const;
+/** The lengths a Long-term let may be offered at, in months (1–12). */
+export const LONG_TERM_LENGTH_CHOICES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] as const;
 
 export function normalizeLongTermLengths(raw: unknown): number[] {
   if (!Array.isArray(raw)) return [];
   const picked = new Set<number>();
   for (const value of raw) {
     const n = typeof value === "number" ? value : Number(value);
-    if ((LONG_TERM_LENGTH_CHOICES as readonly number[]).includes(n)) picked.add(n);
+    if (Number.isInteger(n) && n >= 1 && n <= 12) picked.add(n);
   }
   return [...picked].sort((a, b) => a - b);
 }

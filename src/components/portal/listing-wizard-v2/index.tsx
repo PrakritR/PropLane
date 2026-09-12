@@ -21,7 +21,7 @@
  * reader are unchanged. Nothing here is a second source of truth for a listing.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { PortalAssistantConfigProvider } from "@/lib/axis-assistant/portal-assistant-context";
 import type { AddPropertyResult } from "@/components/portal/listing-wizard-v2/add-property-flow";
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
 import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
@@ -141,15 +141,16 @@ export function ListingWizardV2({
   const saveState = busy ? "Saving…" : dirty ? "Unsaved changes" : editing ? "Saved" : "Not saved yet";
 
   return (
-    <ListingEditorV2
-      title={label}
-      submission={submission}
-      onChange={setSubmission}
-      onClose={onClose}
-      busy={busy}
-      isEdit={editing}
-      saveState={saveState}
-      onSaveExit={async (stepIndex) => {
+    <PortalAssistantConfigProvider endpoint="/api/agent/chat" managerName={null}>
+      <ListingEditorV2
+        title={label}
+        submission={submission}
+        onChange={setSubmission}
+        onClose={onClose}
+        busy={busy}
+        isEdit={editing}
+        saveState={saveState}
+        onSaveExit={async (stepIndex) => {
         if (editListingId?.trim()) {
           // There is no draft behind an edit — "save and exit" writes the
           // listing itself, which is the same write Publish makes.
@@ -185,5 +186,6 @@ export function ListingWizardV2({
         onPublished?.(result.id);
       }}
     />
+    </PortalAssistantConfigProvider>
   );
 }
