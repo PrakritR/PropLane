@@ -132,7 +132,12 @@ export async function tagProspectThreadFromAgent(
   args: {
     landlordId: string;
     prospectPhoneE164: string | null | undefined;
-    channel?: "sms" | "email" | null;
+    /**
+     * A voice call and a text from the same prospect share one thread — the
+     * conversation is keyed on the phone, not the channel — so voice tags the
+     * same thread SMS does. Only email has no phone-keyed thread to tag.
+     */
+    channel?: "sms" | "voice" | "email" | null;
     propertyId: string;
     propertyOwnerUserId: string | null | undefined;
     source: Extract<ConversationHouseSource, "leasing" | "tour" | "application">;

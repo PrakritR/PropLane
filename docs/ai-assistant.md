@@ -347,6 +347,12 @@ Reads: `list_live_listings`, `get_listing_details`, `build_prospect_links`,
 `LEASING_SMS_INLINE_WRITE_TOOLS` because an anonymous texter has no `user_id` to
 claim a pending action on: `escalate_to_manager`, `request_tour`. Both only
 notify the manager; nothing here books, charges, or reads personal data.
+`escalate_to_manager` has one SMS-only opt-in quiet mode for a high-intent
+question with no remaining grounded reply. The leasing runtime suppresses the
+prospect reply only when the existing manager notifier explicitly reports a
+delivered, non-suppressed notice. Tool failure, notifier suppression, and an
+audit-only duplicate retain the normal reply path. Voice and email do not use
+the quiet disposition.
 
 ### Vendor (`src/lib/tools/vendor-index.ts`)
 

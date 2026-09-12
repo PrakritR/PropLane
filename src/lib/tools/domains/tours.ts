@@ -33,6 +33,7 @@ import { cancelPlannedTour, reschedulePlannedTour } from "@/lib/tour-planned-cha
 import { formatTourRangeLabel } from "@/lib/tour-inquiry.server";
 import { slotStartMs, TOUR_CALENDAR_TIME_ZONE } from "@/lib/tour-slot-math";
 import { smsAccessAllowsPropertyRecord } from "@/lib/sms/manager-sms-access";
+import { normalizeE164 } from "@/lib/twilio";
 
 /** Slots are a grid; a page of them is plenty for a chat reply or a text. */
 const SLOT_LIMIT = 40;
@@ -140,7 +141,11 @@ const REQUEST_TOUR_DESCRIPTION =
  * re-derives whether that host may actually host this property and whether the
  * slot is genuinely published and free, so naming a manager here proves nothing.
  */
-function tourInquiryRowFrom(input: RequestTourInput): Record<string, unknown> {
+function tourInquiryRowFrom(input: RequestTourInput, opts?: { trustedSmsPhone?: string | null }): Record<string, unknown> {
+  const trustedSmsPhone = opts?.trustedSmsPhone ? normalizeE164(opts.trustedSmsPhone) : null;
+  if (opts?.trustedSmsPhone && (!trustedSmsPhone || normalizeE164(input.phone) !== trustedSmsPhone)) {
+    throw new Error("Use the phone number that texted us to request this tour.");
+  }
   return {
     kind: "tour",
     propertyId: input.propertyId,
@@ -149,7 +154,7 @@ function tourInquiryRowFrom(input: RequestTourInput): Record<string, unknown> {
     managerUserId: input.hostUserId,
     name: input.name.trim(),
     email: input.email.trim(),
-    phone: input.phone.trim(),
+    phone: trustedSmsPhone ?? input.phone.trim(),
     notes: input.notes?.trim() || undefined,
     tourFormat: normalizeTourFormat(input.tourFormat),
     slotKey: input.slotKey,
@@ -259,7 +264,12 @@ export const leasingRequestTourTool = defineWriteTool<RequestTourInput, { reply:
   },
   handler: async (ctx, input) => {
     await assertSlotStillOpen(ctx.db, input);
-    const created = await createTourInquiry(ctx.db, { incoming: tourInquiryRowFrom(input) });
+    const scope = ctx.leasingScope;
+    const smsOrigin = scope?.channel === "sms" ? { senderPhoneE164: scope.prospectPhoneE164 } : null;
+    const created = await createTourInquiry(ctx.db, {
+      incoming: tourInquiryRowFrom(input, smsOrigin ? { trustedSmsPhone: smsOrigin.senderPhoneE164 } : undefined),
+      smsOrigin,
+    });
     // A tour request names the house outright: tag the prospect's thread.
     if (ctx.leasingScope) {
       const { tagProspectThreadFromAgent } = await import("@/lib/sms/conversation-houses.server");

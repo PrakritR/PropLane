@@ -13,8 +13,14 @@ RLS, tool layer, listing photos). This file is how to work **with him**.
 - Do **not** invoke no-mistakes, including through a wrapper or at the end of
   a task. Use normal reviews, tests, lint, and staging QA. Only a new explicit
   request from Akhil to run that tool overrides this.
-- Do **not** merge to `prakrit`, `main`, `staging`, or `production`. Hand off
-  on the keeper with a Review URL.
+- Absent an explicit Akhil ship request, hand off on the keeper with a Review URL.
+  With that request, agents working for Akhil may promote only his keeper →
+  `main` → `staging` → `production` under the shared staging, review,
+  fast-forward, and production-safety gates. They do not write `prakrit`.
+- Akhil's dated staging exception is defined only by
+  [the temporary direct-production policy](temporary-direct-production-policy.json).
+  It expires at 2026-09-15T04:00:00Z and does not relax review, preflight,
+  fast-forward, production database, deployment, or TestFlight verification gates.
 
 ## Working style
 

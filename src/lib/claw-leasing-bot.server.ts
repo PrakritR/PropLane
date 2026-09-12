@@ -1135,6 +1135,11 @@ export async function handleClawLeasingInbound(args: {
         // just landlordId's. A per-manager Twilio number stays scoped.
         crossCatalog: !scopedManagerId,
       });
+      if (agent?.disposition === "quiet_handoff") {
+        // The tool independently confirmed manager delivery. This inbound is
+        // handled, but deliberately has no prospect outbox or template reply.
+        return { ok: true, intent, replied: false };
+      }
       if (agent?.reply) {
         const prepared = args.onPreparedReply
           ? await args.onPreparedReply({
@@ -1180,7 +1185,13 @@ export async function handleClawLeasingInbound(args: {
         }
       }
     } catch (e) {
-      console.error("leasing SMS agent path failed; falling back to templates", e);
+      // `runLeasingSmsAgentTurn` converts ordinary model unavailability to
+      // null. A thrown error means its paid-turn result or another durable
+      // boundary could not be read or saved, so the inbound receipt must retry
+      // instead of being completed after an untracked template fallback.
+      console.error("leasing SMS agent durable path failed; retrying inbound", e);
+      releaseInboundMessageClaims(claimedMessageIds);
+      throw e;
     }
   }
 

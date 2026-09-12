@@ -46,4 +46,10 @@ describe("tour notification delivery", () => {
     // The hand-rolled check is what missed `@test.proplane.local`; it must not come back.
     expect(SRC).not.toMatch(/endsWith\(["'`]@axis\.local["'`]\)/);
   });
+
+  it("gives guest lifecycle email replies the existing pair-signed inbound route", () => {
+    expect(SRC).toContain("buildReplyAddress(managerUserId, guestEmail)");
+    expect(SRC).toContain("buildReplyAddress(window.managerUserId, guestEmail)");
+    expect(SRC).toContain("reply_to: replyTo");
+  });
 });
