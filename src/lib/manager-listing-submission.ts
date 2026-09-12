@@ -76,6 +76,57 @@ export type ManagerRoomUnavailableRange = {
   end: string;
 };
 
+/** One kind of bed in a room, and how many of it. */
+export type ManagerRoomBed = { type: string; count: number };
+
+/** The bed types a manager can name. `bedSleeps` says how many each holds. */
+export const ROOM_BED_TYPES = ["Twin", "Twin XL", "Full", "Queen", "King", "Bunk bed", "Sofa bed", "Daybed"] as const;
+const BED_SLEEPS: Record<string, number> = {
+  Twin: 1,
+  "Twin XL": 1,
+  Full: 2,
+  Queen: 2,
+  King: 2,
+  "Bunk bed": 2,
+  "Sofa bed": 1,
+  Daybed: 1,
+};
+/** How many people these beds sleep — descriptive, never an occupancy guard. */
+export function bedsSleep(beds: readonly ManagerRoomBed[] | undefined): number {
+  return (beds ?? []).reduce((n, b) => n + (BED_SLEEPS[b.type] ?? 1) * Math.max(0, b.count), 0);
+}
+/** "Twin × 2, Queen × 1" — how the listing and the rooms grid write a bed list. */
+export function bedsLine(beds: readonly ManagerRoomBed[] | undefined): string {
+  return (beds ?? [])
+    .filter((b) => b.type.trim() && b.count > 0)
+    .map((b) => `${b.type.trim()} × ${b.count}`)
+    .join(", ");
+}
+/** The inverse of {@link bedsLine}, tolerant of hand-typed variants. */
+export function parseBedsLine(line: string | undefined | null): ManagerRoomBed[] {
+  return String(line ?? "")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const m = part.match(/^(.+?)\s*[×x]\s*(\d+)$/i);
+      if (!m) return { type: part, count: 1 };
+      return { type: m[1]!.trim(), count: Math.max(1, Number(m[2])) };
+    });
+}
+export function normalizeRoomBeds(raw: unknown): ManagerRoomBed[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: ManagerRoomBed[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const type = String((item as { type?: unknown }).type ?? "").trim();
+    const count = Number((item as { count?: unknown }).count);
+    if (!type || !Number.isFinite(count) || count < 1) continue;
+    out.push({ type, count: Math.min(20, Math.floor(count)) });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 export type ManagerRoomSubmission = {
   id: string;
   name: string;
@@ -199,6 +250,14 @@ export type ManagerRoomSubmission = {
    * a wrong bed count can never let an extra resident in.
    */
   bedCount?: number;
+  /**
+   * The beds by type — "Twin × 2, Queen × 1" — for the listing to describe.
+   *
+   * Descriptive like {@link bedCount}, which normalization keeps equal to the
+   * sum of these counts whenever this is set, so every reader of `bedCount`
+   * keeps working. Absent means the manager named no bed types.
+   */
+  beds?: ManagerRoomBed[];
   /**
    * Headline WEEKLY rate (USD dollars), used when {@link rentBasis} is "weekly".
    *
@@ -539,6 +598,14 @@ export type ManagerListingSubmissionV1 = {
   applicationFee: string;
   /** Optional code applicants enter to waive the application fee for this listing. */
   applicationFeeWaiverCode?: string;
+  /**
+   * The shortest long-term lease this listing offers, in months.
+   *
+   * Long-term is "more than a month", so the floor is 2. Absent reads as 2 —
+   * every listing saved before this field existed offered exactly that. The
+   * wizard stores it; the apply flow reads it when it offers term choices.
+   */
+  longTermMinimumMonths?: number;
   /** Short-term application fee when it differs from {@link applicationFee}. */
   shortTermApplicationFee?: string;
   /**
@@ -1526,7 +1593,10 @@ export function normalizeManagerListingSubmissionV1(
       occupancyCapacity: normalizeRoomOccupancyCapacity(
         (legacyRoom as ManagerRoomSubmission & { occupancyCapacity?: unknown }).occupancyCapacity,
       ),
+      beds: normalizeRoomBeds((legacyRoom as ManagerRoomSubmission & { beds?: unknown }).beds),
       bedCount: (() => {
+        const beds = normalizeRoomBeds((legacyRoom as ManagerRoomSubmission & { beds?: unknown }).beds);
+        if (beds) return beds.reduce((n, b) => n + b.count, 0);
         // Unstated stays unstated: a room that has never been asked how many
         // beds it holds must not start claiming one.
         const v = (legacyRoom as ManagerRoomSubmission & { bedCount?: unknown }).bedCount;
@@ -2092,6 +2162,10 @@ export function normalizeManagerListingSubmissionV1(
       const raw =
         typeof sub.applicationFeeWaiverCode === "string" ? sub.applicationFeeWaiverCode.trim() : "";
       return raw ? raw.toUpperCase().replace(/\s+/g, "") : "";
+    })(),
+    longTermMinimumMonths: (() => {
+      const n = Number((sub as { longTermMinimumMonths?: unknown }).longTermMinimumMonths);
+      return Number.isInteger(n) && n >= 2 && n <= 36 ? n : undefined;
     })(),
     allowMultiplePropertyApplications: sub.allowMultiplePropertyApplications === true,
     applicationFeeOnlyFirstApplication: sub.applicationFeeOnlyFirstApplication === true,

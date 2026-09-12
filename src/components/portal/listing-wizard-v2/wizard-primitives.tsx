@@ -495,6 +495,7 @@ export function Field({
   error,
   children,
   group = false,
+  labelAside,
 }: {
   label: string;
   required?: boolean;
@@ -502,6 +503,8 @@ export function Field({
   hint?: ReactNode;
   error?: string;
   children: ReactNode;
+  /** Sits after the label — the "Follows every room" / "This room · Reset" tag on a room field. */
+  labelAside?: ReactNode;
   /**
    * True when the control is a GROUP of buttons (chips) rather than one input.
    *
@@ -520,6 +523,7 @@ export function Field({
       {label}
       {required ? <span className="ml-0.5 text-red-600">*</span> : null}
       {optional ? <span className="ml-1.5 text-[11px] font-semibold text-muted/75">optional</span> : null}
+      {labelAside ? <span className="ml-2 inline-flex align-middle font-normal">{labelAside}</span> : null}
     </>
   );
   const note = error ? (
