@@ -20,6 +20,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { AddPropertyResult } from "@/components/portal/listing-wizard-v2/add-property-flow";
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
+import { QuickAddProperty } from "@/components/portal/listing-wizard-v2/quick-add-property";
 import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
 import {
   applyListingBedroomSlots,
@@ -94,7 +95,7 @@ export function ListingWizardV2({
   /** The manager's current property count, for the plan pre-check. */
   propertyCount?: number;
 }) {
-  const { saveDraft, publish, busy } = useListingPersistence({
+  const { saveDraft, publish, busy, startFresh } = useListingPersistence({
     userId,
     skuTier,
     propertyCount,
@@ -111,6 +112,17 @@ export function ListingWizardV2({
 
   const label = submission.buildingName.trim() || submission.address.trim() || "New listing";
   const editing = Boolean(editListingId?.trim());
+
+  /*
+   * A BRAND-NEW property starts in Quick Add — four questions, one to a screen,
+   * and the property exists. The full editor is where a manager goes afterwards
+   * for photos, bathrooms, fees and the rest, and it is where an existing
+   * listing or a resumed draft opens directly: those already exist, so there is
+   * nothing for Quick Add to create.
+   */
+  const [mode, setMode] = useState<"quick" | "editor">(() =>
+    editing || initialSubmission || initialDraftId ? "editor" : "quick",
+  );
 
   /*
    * Whether the manager's work is on the server, stated in the header.
@@ -130,11 +142,53 @@ export function ListingWizardV2({
   useEffect(() => {
     setDirty(submission !== savedRef.current);
   }, [submission]);
-  const markSaved = () => {
-    savedRef.current = submission;
+  const markSaved = (sub: ManagerListingSubmissionV1 = submission) => {
+    savedRef.current = sub;
     setDirty(false);
   };
+  /** Bumped by "add another property" so Quick Add remounts with a blank slate. */
+  const [quickRound, setQuickRound] = useState(0);
   const saveState = busy ? "Saving…" : dirty ? "Unsaved changes" : editing ? "Saved" : "Not saved yet";
+
+  if (mode === "quick") {
+    return (
+      <QuickAddProperty
+        onCancel={onClose}
+        saving={busy}
+        save={async (sub) => {
+          // Quick Add creates a DRAFT — the same row the editor keeps updating.
+          const result = await saveDraft(sub, 0);
+          if (!result.ok) return result;
+          setSubmission(sub);
+          markSaved(sub);
+          onSaved?.(sub);
+          return { ok: true as const };
+        }}
+        onOpenEditor={(sub) => {
+          setSubmission(sub);
+          setMode("editor");
+        }}
+        onPublishNow={async (sub) => {
+          const result = await publish(sub);
+          if (!result.ok) {
+            // Say why, then open the editor so the reason can be fixed there.
+            showToast?.(result.message);
+            setSubmission(sub);
+            setMode("editor");
+            return;
+          }
+          onPublished?.(result.id);
+        }}
+        onAddAnother={() => {
+          // A second property must be its own draft, not an overwrite of the first.
+          startFresh();
+          setSubmission(normalizeManagerListingSubmissionV1(createDefaultListingSubmission()));
+          setQuickRound((n) => n + 1);
+        }}
+        key={quickRound}
+      />
+    );
+  }
 
   return (
     <ListingEditorV2

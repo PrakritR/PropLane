@@ -1,7 +1,6 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
 import { InboxAvatar, InboxConversationRow } from "@/components/portal/portal-inbox-ui";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 
@@ -71,6 +70,7 @@ export function PortalPropertyRecordRow({
   address,
   summary,
   badge,
+  leading,
   selected = false,
   checked = false,
   onSelectedChange,
@@ -81,6 +81,8 @@ export function PortalPropertyRecordRow({
   address: string;
   summary?: string;
   badge?: ReactNode;
+  /** A thumbnail or glyph before the text — what makes one row recognisable among twenty. */
+  leading?: ReactNode;
   selected?: boolean;
   checked?: boolean;
   onSelectedChange?: (selected: boolean) => void;
@@ -111,6 +113,7 @@ export function PortalPropertyRecordRow({
           aria-label={`Select ${title}`}
         />
       ) : null}
+      {leading ? <div className="mr-3 shrink-0 self-start">{leading}</div> : null}
       {openable ? (
         <button
           type="button"
