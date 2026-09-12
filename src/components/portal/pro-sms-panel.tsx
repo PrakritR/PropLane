@@ -24,11 +24,11 @@ import {
   buildInboxThreadAssistantContext,
   InboxThreadAssistantStrip,
 } from "@/components/portal/inbox-thread-assistant-strip";
+import { InboxComposerAiMenu, InboxComposerChannelMenu } from "@/components/portal/inbox-composer-tools";
 import {
   INBOX_LIST_SCROLL,
   InboxAvatar,
   InboxComposer,
-  InboxReplyChannelPicker,
   InboxThreadEmpty,
   InboxTwoPane,
   PortalInboxEmptyState,
@@ -248,6 +248,8 @@ export const ManagerSmsPanel = forwardRef<
   const [draft, setDraft] = useState("");
   const [replyViaEmail, setReplyViaEmail] = useState(false);
   const [replyViaSms, setReplyViaSms] = useState(true);
+  // The ✦ menu in the reply row opens the thread assistant rail; the strip's own pill is off.
+  const [askAssistantSignal, setAskAssistantSignal] = useState(0);
   const [replyIssue, setReplyIssue] = useState<string | null>(null);
   const replyAttemptRef = useRef<ManualSmsAttempt | null>(null);
   const [sending, setSending] = useState(false);
@@ -1050,6 +1052,8 @@ export const ManagerSmsPanel = forwardRef<
           email: smsConversationSubtitle(active.resident) || active.resident.phone || undefined,
         })}
         storageScopeKey="Communication SMS thread"
+        hideTrigger
+        openSignal={askAssistantSignal}
       />
 
       {replyIssue ? (
@@ -1071,16 +1075,19 @@ export const ManagerSmsPanel = forwardRef<
         placeholder={replyViaSms && !replyViaEmail ? "Text message" : "Write a reply…"}
         maxLength={replyViaSms && !replyViaEmail ? 1600 : undefined}
         dataAttr="sms-messages-reply"
-        channelControl={
-          <InboxReplyChannelPicker
-            viaEmail={replyViaEmail}
-            viaSms={replyViaSms}
-            onViaEmailChange={setReplyViaEmail}
-            onViaSmsChange={setReplyViaSms}
-            emailAvailable={activeEmailAvailable}
-            smsAvailable
-            onAddEmail={canEditContact ? openContactName : undefined}
-          />
+        trailingControls={
+          <>
+            <InboxComposerAiMenu onAsk={() => setAskAssistantSignal((n) => n + 1)} />
+            <InboxComposerChannelMenu
+              viaEmail={replyViaEmail}
+              viaSms={replyViaSms}
+              onViaEmailChange={setReplyViaEmail}
+              onViaSmsChange={setReplyViaSms}
+              emailAvailable={activeEmailAvailable}
+              smsAvailable
+              onAddEmail={canEditContact ? openContactName : undefined}
+            />
+          </>
         }
       />
       ) : null}

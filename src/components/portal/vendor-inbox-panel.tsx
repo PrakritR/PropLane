@@ -7,7 +7,7 @@ import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/componen
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { appendPortalMessageToAdminInbox } from "@/lib/demo-admin-partner-inbox";
 import { Archive, ArchiveRestore, MailOpen, Trash2 } from "lucide-react";
-import { INBOX_THREAD_ICON_BTN, INBOX_THREAD_ICON_BTN_DANGER, INBOX_TAB_DEFS, InboxBubbleMessage, InboxComposer, InboxReplyChannelPicker, InboxThreadEmpty, InboxThreadView, PortalInboxEmptyState, PortalInboxMessageTable, inboxTabEmptyCopy, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
+import { INBOX_THREAD_ICON_BTN, INBOX_THREAD_ICON_BTN_DANGER, INBOX_TAB_DEFS, InboxBubbleMessage, InboxComposer, InboxThreadEmpty, InboxThreadView, PortalInboxEmptyState, PortalInboxMessageTable, inboxTabEmptyCopy, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
 import {
   PortalInboxSelectionToolbar,
   useInboxRowSelection,
@@ -16,6 +16,7 @@ import { ManagerPortalPageShell, ManagerPortalStatusPills, ManagerPortalFilterRo
 import { PortalListToolbar } from "@/components/portal/portal-list-toolbar";
 import { PORTAL_DETAIL_BTN } from "@/components/portal/portal-data-table";
 import { buildInboxThreadAssistantContext, InboxThreadAssistantStrip } from "@/components/portal/inbox-thread-assistant-strip";
+import { InboxComposerAiMenu, InboxComposerChannelMenu } from "@/components/portal/inbox-composer-tools";
 import { INBOX_MAX_ATTACHMENTS, attachmentMetaFromUrls, createPendingInboxAttachment, uploadInboxAttachment, type InboxComposerAttachment } from "@/lib/inbox-attachments";
 import { markThreadMessageDelivery } from "@/lib/inbox-message-timeline";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
@@ -864,8 +865,10 @@ export const VendorInboxPanel = forwardRef<
     [replyAttachments.length, showToast],
   );
 
-  const replyChannelPicker = (
-    <InboxReplyChannelPicker
+  // The same reply row as the manager's Communication inbox: ✦ AI, then the channel menu.
+  const [askAssistantSignal, setAskAssistantSignal] = useState(0);
+  const replyChannelMenu = (
+    <InboxComposerChannelMenu
       viaEmail={replyViaEmail}
       viaSms={replyViaSms}
       onViaEmailChange={setReplyViaEmail}
@@ -979,6 +982,8 @@ export const VendorInboxPanel = forwardRef<
                         from: activeThread.from,
                         sentSemantics: activeIsSent,
                       })}
+                      hideTrigger
+                      openSignal={askAssistantSignal}
                     />
                     <InboxComposer
                       value={replyDraft}
@@ -995,7 +1000,12 @@ export const VendorInboxPanel = forwardRef<
                         !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
                       }
                       dataAttr="vendor-inbox-reply"
-                      channelControl={replyChannelPicker}
+                      trailingControls={
+                        <>
+                          <InboxComposerAiMenu onAsk={() => setAskAssistantSignal((n) => n + 1)} />
+                          {replyChannelMenu}
+                        </>
+                      }
                       attachments={replyAttachments}
                       onAttachmentsPick={pickReplyAttachments}
                       onAttachmentRemove={(id) => setReplyAttachments((prev) => prev.filter((a) => a.id !== id))}
