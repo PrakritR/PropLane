@@ -171,3 +171,30 @@
   .site-app-phone { right: calc(50% - 190px); width: 190px; }
   .site-app-phone.is-back { right: calc(50% + 10px); width: 170px; }
 }
+
+/* story: composer menus and the sent-bubble entrance */
+.site-story-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  width: 260px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 18px 40px rgba(8, 9, 11, 0.16);
+}
+.site-story-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  text-align: left;
+  transition: background-color 0.15s ease;
+}
+.site-story-menu-item:hover { background: var(--accent); }
+.site-story-menu-item b { display: block; font-size: 12.5px; color: var(--foreground); }
+.site-story-menu-item span { display: block; font-size: 11px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) {
+  .site-story-sent { animation: site-hero-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+}
