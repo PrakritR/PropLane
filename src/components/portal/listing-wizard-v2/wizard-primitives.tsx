@@ -18,7 +18,7 @@
  */
 
 import { useEffect, useId, useRef, type ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
+import { Camera, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /* ─────────────────────────── shell ─────────────────────────── */
@@ -315,12 +315,10 @@ export function RailCover({
           type="button"
           onClick={onAddPhotos}
           data-attr="listing-v2-rail-add-photos"
-          className="grid aspect-[16/10] w-full place-items-center rounded-xl border border-dashed border-[var(--status-pending-fg)]/40 bg-[var(--status-pending-bg)] text-[12.5px] font-semibold text-[var(--status-pending-fg)] hover:brightness-95"
+          className="grid aspect-[16/10] w-full place-items-center rounded-xl border border-dashed border-border bg-white text-[12.5px] font-semibold text-muted transition hover:border-primary/50 hover:text-primary [html[data-theme=dark]_&]:bg-card"
         >
-          <span className="flex flex-col items-center gap-1">
-            <span aria-hidden className="text-[18px] leading-none">
-              +
-            </span>
+          <span className="flex flex-col items-center gap-1.5">
+            <Camera className="h-5 w-5" strokeWidth={1.7} aria-hidden />
             Add photos
           </span>
         </button>
@@ -607,6 +605,89 @@ export function ChoiceCard({
         <span className="mt-0.5 block text-[12px] leading-relaxed text-muted">{description}</span>
       </span>
     </button>
+  );
+}
+
+/**
+ * A choice as a tile: an icon, a name, a line of why.
+ *
+ * The property type used to be a select; Quick Add made it six cards, which
+ * managers liked, so the editor draws it the same way. Compact enough that all
+ * six fit on one row of a wide screen and two rows of a phone.
+ */
+export function KindTile({
+  icon: Icon,
+  label,
+  hint,
+  selected,
+  onSelect,
+  dataAttr,
+}: {
+  icon: LucideIcon;
+  label: string;
+  hint?: string;
+  selected: boolean;
+  onSelect: () => void;
+  dataAttr?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      data-attr={dataAttr}
+      className={cn(
+        "flex min-h-[92px] w-full flex-col items-start justify-between gap-2 rounded-xl border p-3 text-left transition-colors",
+        selected
+          ? "border-primary bg-primary/[0.05] ring-[3px] ring-primary/10"
+          : "border-border bg-card hover:border-foreground/25 hover:bg-accent/30",
+      )}
+    >
+      <Icon className={cn("h-[22px] w-[22px]", selected ? "text-primary" : "text-muted")} strokeWidth={1.7} aria-hidden />
+      <span className="min-w-0">
+        <span className="block text-[13.5px] font-bold leading-tight text-foreground">{label}</span>
+        {hint ? <span className="mt-0.5 block text-[11.5px] leading-snug text-muted">{hint}</span> : null}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * A count with − and + on either side.
+ *
+ * A number of bedrooms is a thing you nudge, not a thing you pick from a list of
+ * twenty; Airbnb and Turo both count this way and a manager never opens a select.
+ */
+export function CountStepper({
+  value,
+  min = 1,
+  max = 20,
+  onChange,
+  label,
+  dataAttr,
+}: {
+  value: number;
+  min?: number;
+  max?: number;
+  onChange: (next: number) => void;
+  /** Read to assistive tech — the visible caption is the surrounding Field. */
+  label: string;
+  dataAttr?: string;
+}) {
+  const btn =
+    "grid h-9 w-9 shrink-0 place-items-center rounded-full border border-border bg-card text-[18px] leading-none text-foreground transition hover:bg-accent/40 disabled:opacity-35 disabled:hover:bg-card";
+  return (
+    <div className="inline-flex items-center gap-3" data-attr={dataAttr}>
+      <button type="button" className={btn} aria-label={`Fewer ${label}`} disabled={value <= min} onClick={() => onChange(Math.max(min, value - 1))}>
+        −
+      </button>
+      <span className="min-w-[2ch] text-center text-[16px] font-bold tabular-nums text-foreground" aria-live="polite">
+        {value}
+      </span>
+      <button type="button" className={btn} aria-label={`More ${label}`} disabled={value >= max} onClick={() => onChange(Math.min(max, value + 1))}>
+        +
+      </button>
+    </div>
   );
 }
 

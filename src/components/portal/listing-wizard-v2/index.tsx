@@ -1,16 +1,20 @@
 "use client";
 
 /**
- * The redesigned create-listing wizard.
+ * The listing editor — one surface for adding a property and for editing it.
  *
- * "Add property" opens the editor itself, at step 1. There used to be three
- * screens in front of it — address, confirm the address, how you rent it — and
- * every one of those questions is asked again on the Home step, so a manager
- * answered the same three things twice before reaching anything new.
+ * There used to be two: a four-screen "Quick Add" that asked what, where, how
+ * and how much before the property existed, and the editor a manager landed in
+ * afterwards. Both asked the same first questions, and both were disliked for
+ * different reasons — the modal for making a manager click through four cards
+ * to reach a form, the editor for opening as a wall of selects. So the two are
+ * ONE editor now: a brand-new property opens straight in it at Basics, where
+ * the property type is a row of tiles, how-you-rent-it is two cards, and the
+ * address and bedroom count sit right under them. Save & exit from anywhere
+ * keeps the draft; Publish is the last section.
  *
  * `AddPropertyFlow` and {@link submissionFromAddProperty} are kept for callers
- * that already collected those answers elsewhere; the wizard itself no longer
- * puts them in front of a manager, so only the result type is imported here.
+ * that already collected those answers elsewhere.
  *
  * It reads and writes the SAME `ManagerListingSubmissionV1` the existing wizard
  * uses, so drafts, normalization, validation, publishing and every downstream
@@ -20,7 +24,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AddPropertyResult } from "@/components/portal/listing-wizard-v2/add-property-flow";
 import { ListingEditorV2 } from "@/components/portal/listing-wizard-v2/listing-editor";
-import { QuickAddProperty } from "@/components/portal/listing-wizard-v2/quick-add-property";
 import { useListingPersistence } from "@/components/portal/listing-wizard-v2/use-listing-persistence";
 import {
   applyListingBedroomSlots,
@@ -95,7 +98,7 @@ export function ListingWizardV2({
   /** The manager's current property count, for the plan pre-check. */
   propertyCount?: number;
 }) {
-  const { saveDraft, publish, busy, startFresh } = useListingPersistence({
+  const { saveDraft, publish, busy } = useListingPersistence({
     userId,
     skuTier,
     propertyCount,
@@ -112,17 +115,6 @@ export function ListingWizardV2({
 
   const label = submission.buildingName.trim() || submission.address.trim() || "New listing";
   const editing = Boolean(editListingId?.trim());
-
-  /*
-   * A BRAND-NEW property starts in Quick Add — four questions, one to a screen,
-   * and the property exists. The full editor is where a manager goes afterwards
-   * for photos, bathrooms, fees and the rest, and it is where an existing
-   * listing or a resumed draft opens directly: those already exist, so there is
-   * nothing for Quick Add to create.
-   */
-  const [mode, setMode] = useState<"quick" | "editor">(() =>
-    editing || initialSubmission || initialDraftId ? "editor" : "quick",
-  );
 
   /*
    * Whether the manager's work is on the server, stated in the header.
@@ -146,49 +138,7 @@ export function ListingWizardV2({
     savedRef.current = sub;
     setDirty(false);
   };
-  /** Bumped by "add another property" so Quick Add remounts with a blank slate. */
-  const [quickRound, setQuickRound] = useState(0);
   const saveState = busy ? "Saving…" : dirty ? "Unsaved changes" : editing ? "Saved" : "Not saved yet";
-
-  if (mode === "quick") {
-    return (
-      <QuickAddProperty
-        onCancel={onClose}
-        saving={busy}
-        save={async (sub) => {
-          // Quick Add creates a DRAFT — the same row the editor keeps updating.
-          const result = await saveDraft(sub, 0);
-          if (!result.ok) return result;
-          setSubmission(sub);
-          markSaved(sub);
-          onSaved?.(sub);
-          return { ok: true as const };
-        }}
-        onOpenEditor={(sub) => {
-          setSubmission(sub);
-          setMode("editor");
-        }}
-        onPublishNow={async (sub) => {
-          const result = await publish(sub);
-          if (!result.ok) {
-            // Say why, then open the editor so the reason can be fixed there.
-            showToast?.(result.message);
-            setSubmission(sub);
-            setMode("editor");
-            return;
-          }
-          onPublished?.(result.id);
-        }}
-        onAddAnother={() => {
-          // A second property must be its own draft, not an overwrite of the first.
-          startFresh();
-          setSubmission(normalizeManagerListingSubmissionV1(createDefaultListingSubmission()));
-          setQuickRound((n) => n + 1);
-        }}
-        key={quickRound}
-      />
-    );
-  }
 
   return (
     <ListingEditorV2

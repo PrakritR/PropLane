@@ -29,7 +29,7 @@ import { uploadListingImageFiles } from "@/lib/listing-media-client";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { buildListingModalAssistantContext } from "@/lib/listing-assistant-context";
-import { DoorOpen, Bath, LayoutGrid } from "lucide-react";
+import { DoorOpen, Bath, Building, Building2, Home, Layers, LayoutGrid, Store, Warehouse, type LucideIcon } from "lucide-react";
 import {
   BATHROOM_EXTRA_AMENITY_PRESETS,
   HOUSE_WIDE_AMENITY_PRESETS,
@@ -97,6 +97,9 @@ import {
   FieldRow,
   AdvancedGroup,
   AdvancedPanel,
+  ChoiceCard,
+  CountStepper,
+  KindTile,
   Row,
   RowBulkBar,
   RowCell,
@@ -407,139 +410,152 @@ function VideoSlot({
 
 /* ─────────────────────────── step 1 · basics ─────────────────────────── */
 
-function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+/**
+ * The six shapes a manager recognises their own property in.
+ *
+ * Worded as things rather than categories — "A house", not "Single-family
+ * residential" — because a manager is matching a picture in their head, not
+ * classifying an asset. The ids are the listing's own property-type ids.
+ */
+const PROPERTY_KIND_TILES: { id: string; label: string; hint: string; icon: LucideIcon }[] = [
+  { id: "house", label: "A house", hint: "Standalone home", icon: Home },
+  { id: "townhouse", label: "A townhouse", hint: "Attached or row home", icon: Layers },
+  { id: "condo", label: "A condo", hint: "Owned unit in a building", icon: Building2 },
+  { id: "duplex", label: "A small building", hint: "2–4 units", icon: Warehouse },
+  { id: "apartment", label: "An apartment", hint: "Unit in a larger building", icon: Building },
+  { id: "other", label: "Something else", hint: "Mixed use, ADU, other", icon: Store },
+];
+
+function StepBasics({ sub, patch, isEdit = false }: { sub: ManagerListingSubmissionV1; patch: Patch; isEdit?: boolean }) {
   const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
   const roomCount = sub.rooms?.length || sub.listingBedroomSlots || 1;
+  const setRentModel = (id: "shared_home" | "entire_home") => patch({ listingPlaceCategoryId: id, rentalModelStamp: id });
+  const setBedrooms = (next: number) => {
+    const applied = applyListingBedroomSlots({ ...sub, listingBedroomSlots: next }, next);
+    // A refusal means the count could not be honoured; keep the rooms the
+    // manager has rather than writing a number they do not match.
+    patch(applied.ok ? { ...applied.sub, listingBedroomSlots: next } : { listingBedroomSlots: next });
+  };
   return (
     <StepColumn>
       <StepHeading
         title="The home itself"
-        subtitle="Where it is, what it is, and how it reads to a renter."
+        subtitle="What it is, where it is, and how it reads to a renter."
       />
 
       {/*
-       * How you rent it comes FIRST because it changes every screen after it —
-       * whether rent is per room or set once, and whether the Rooms step is
-       * about bedrooms or about one household.
+       * What it is and how it is let come FIRST: the type is the picture in the
+       * manager's head, and by-the-room versus whole-place changes every screen
+       * after it — whether rent is per room or set once, and whether Rooms is
+       * about bedrooms or about one household. This is the ground Quick Add
+       * used to cover on four screens of its own.
        */}
-      <SectionGroup first title="Where it is" description="The address renters search by, and how the home is let.">
-      <Field label="How you rent it" required hint="Decides whether rent is set per room or once for the whole place.">
-        <Select
-          value={rentByRoom ? "shared_home" : "entire_home"}
-          data-attr="listing-v2-rent-model"
-          onChange={(e) => {
-            const id = e.target.value === "entire_home" ? "entire_home" : "shared_home";
-            patch({ listingPlaceCategoryId: id, rentalModelStamp: id });
-          }}
-        >
-          <option value="shared_home">By the room</option>
-          <option value="entire_home">The whole place</option>
-        </Select>
-      </Field>
-
-      <Field label="Street address" required hint="Start typing and pick the match to refill city, state and ZIP.">
-        <ListingAddressAutocomplete
-          value={sub.address}
-          onChange={(next) => patch({ address: next })}
-          onSelect={(suggestion) =>
-            patch({
-              address: suggestion.address || suggestion.label,
-              city: suggestion.city || sub.city,
-              state: suggestion.state || sub.state,
-              zip: suggestion.zip || sub.zip,
-              neighborhood: suggestion.neighborhood || sub.neighborhood,
-            })
-          }
-        />
-      </Field>
-      <FieldRow cols={4}>
-        <Field label="City" required>
-          <Input value={sub.city} onChange={(e) => patch({ city: e.target.value })} />
+      <SectionGroup
+        first
+        title={isEdit ? "What it is" : "What are you adding?"}
+        description="The type only changes the words we use. How it is rented decides everything after this."
+      >
+        <Field label="Property type" required group>
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+            {PROPERTY_KIND_TILES.map((k) => (
+              <KindTile
+                key={k.id}
+                icon={k.icon}
+                label={k.label}
+                hint={k.hint}
+                selected={sub.listingPropertyTypeId === k.id}
+                dataAttr={`listing-v2-kind-${k.id}`}
+                onSelect={() => patch({ listingPropertyTypeId: k.id })}
+              />
+            ))}
+          </div>
         </Field>
-        <Field label="State" required>
-          <Input value={sub.state} onChange={(e) => patch({ state: e.target.value })} />
+        <Field label="How you rent it" required group hint="Decides whether rent is set per room or once for the whole place.">
+          <div className="grid gap-2.5 sm:grid-cols-2">
+            <ChoiceCard
+              selected={rentByRoom}
+              title="By the room"
+              description="Each bedroom has its own rent, lease and resident."
+              dataAttr="listing-v2-rent-model-shared"
+              onSelect={() => setRentModel("shared_home")}
+            />
+            <ChoiceCard
+              selected={!rentByRoom}
+              title="The whole place"
+              description="One rent, one lease, one household."
+              dataAttr="listing-v2-rent-model-entire"
+              onSelect={() => setRentModel("entire_home")}
+            />
+          </div>
         </Field>
-        <Field label="ZIP" required>
-          <Input value={sub.zip} onChange={(e) => patch({ zip: e.target.value })} />
-        </Field>
-        <Field label="Neighborhood" optional>
-          <Input value={sub.neighborhood} onChange={(e) => patch({ neighborhood: e.target.value })} />
-        </Field>
-      </FieldRow>
+        <FieldRow cols={3}>
+          <Field label={rentByRoom ? "Bedrooms to rent" : "Bedrooms"} required hint="One row per room next." group>
+            <CountStepper value={roomCount} min={1} max={20} onChange={setBedrooms} label="bedrooms" dataAttr="listing-v2-bedrooms" />
+          </Field>
+          <Field label="Bathrooms" required hint="Including half baths.">
+            <Select
+              value={sub.listingTotalBathroomsId ?? ""}
+              onChange={(e) => patch({ listingTotalBathroomsId: e.target.value })}
+            >
+              <option value="">Select…</option>
+              {LISTING_TOTAL_BATH_OPTIONS.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Floors" required>
+            <Select value={sub.listingStoriesId ?? ""} onChange={(e) => patch({ listingStoriesId: e.target.value })}>
+              <option value="">Select…</option>
+              {LISTING_STORIES_OPTIONS.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </FieldRow>
       </SectionGroup>
 
-      <SectionGroup title="What it is" description="The shape of the home. Rooms and bathrooms each get their own section next.">
-      <Field label="Property name" optional hint="What you call this home internally. The headline is what renters see.">
-        <Input
-          value={sub.buildingName}
-          placeholder={sub.address || "Magnolia House"}
-          onChange={(e) => patch({ buildingName: e.target.value })}
-        />
-      </Field>
-
-      <FieldRow cols={4}>
-        <Field label="Property type" required>
-          <Select
-            value={sub.listingPropertyTypeId ?? ""}
-            onChange={(e) => patch({ listingPropertyTypeId: e.target.value })}
-          >
-            <option value="">Select…</option>
-            {LISTING_PROPERTY_TYPE_OPTIONS.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
+      <SectionGroup title="Where it is" description="The address renters search by. Start typing and pick the match — we fill in the rest.">
+        <Field label="Street address" required>
+          <ListingAddressAutocomplete
+            value={sub.address}
+            placeholder="142 Ash St"
+            onChange={(next) => patch({ address: next })}
+            onSelect={(suggestion) =>
+              patch({
+                address: suggestion.address || suggestion.label,
+                city: suggestion.city || sub.city,
+                state: suggestion.state || sub.state,
+                zip: suggestion.zip || sub.zip,
+                neighborhood: suggestion.neighborhood || sub.neighborhood,
+              })
+            }
+          />
         </Field>
-        <Field label="Floors" required>
-          <Select value={sub.listingStoriesId ?? ""} onChange={(e) => patch({ listingStoriesId: e.target.value })}>
-            <option value="">Select…</option>
-            {LISTING_STORIES_OPTIONS.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
+        <FieldRow cols={4}>
+          <Field label="City" required>
+            <Input value={sub.city} onChange={(e) => patch({ city: e.target.value })} />
+          </Field>
+          <Field label="State" required>
+            <Input value={sub.state} onChange={(e) => patch({ state: e.target.value })} />
+          </Field>
+          <Field label="ZIP" required>
+            <Input value={sub.zip} onChange={(e) => patch({ zip: e.target.value })} />
+          </Field>
+          <Field label="Neighborhood" optional>
+            <Input value={sub.neighborhood} onChange={(e) => patch({ neighborhood: e.target.value })} />
+          </Field>
+        </FieldRow>
+        <Field label="Property name" optional hint="What you call this home internally. The headline is what renters see.">
+          <Input
+            value={sub.buildingName}
+            placeholder={sub.address || "Magnolia House"}
+            onChange={(e) => patch({ buildingName: e.target.value })}
+          />
         </Field>
-        <Field label="Bathrooms" required hint="Including half baths.">
-          <Select
-            value={sub.listingTotalBathroomsId ?? ""}
-            onChange={(e) => patch({ listingTotalBathroomsId: e.target.value })}
-          >
-            <option value="">Select…</option>
-            {LISTING_TOTAL_BATH_OPTIONS.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label={rentByRoom ? "Bedrooms to rent" : "Bedrooms"} required hint="One row per room next.">
-          <Select
-            value={String(roomCount)}
-            onChange={(e) => {
-              const next = Number(e.target.value) || 1;
-              const applied = applyListingBedroomSlots({ ...sub, listingBedroomSlots: next }, next);
-              // A refusal means the count could not be honoured; keep the rooms
-              // the manager has rather than writing a number they do not match.
-              patch(applied.ok ? { ...applied.sub, listingBedroomSlots: next } : { listingBedroomSlots: next });
-            }}
-          >
-            {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </FieldRow>
-
-      {/*
-       * The headline and description come straight after the address, not at
-       * the bottom under a fold. They are what a renter actually reads, and
-       * they used to sit below a "listing name" field that asked the same
-       * question in duller words.
-       */}
       </SectionGroup>
 
       <SectionGroup title="How it reads" description="What a renter actually reads on the listing.">
@@ -3556,7 +3572,7 @@ export function ListingEditorV2({
       case "basics":
         return (
           <>
-            <StepBasics sub={submission} patch={patch} />
+            <StepBasics sub={submission} patch={patch} isEdit={isEdit} />
             <div className="mt-8 max-w-[860px]">
               <AdvancedPanel
                 summary="The building · Move-in · Local compliance"
@@ -3581,7 +3597,7 @@ export function ListingEditorV2({
         return <StepReview sub={submission} onJump={(id) => goTo(LISTING_V2_STEPS.findIndex((s) => s.id === id))} />;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stepId, submission, defaults]);
+  }, [stepId, submission, defaults, isEdit]);
 
   /**
    * The right-hand panel for this step.
@@ -3621,7 +3637,8 @@ export function ListingEditorV2({
       subtitle={
         isEdit
           ? `Editing the public listing for ${[submission.address, submission.city, submission.state].filter(Boolean).join(", ")}`
-          : [submission.address, submission.city, submission.state].filter(Boolean).join(", ") || "New listing"
+          : [submission.address, submission.city, submission.state].filter(Boolean).join(", ") ||
+            "Save & exit any time — the draft keeps your place."
       }
       badge={
         isEdit ? (
@@ -3730,9 +3747,12 @@ export function ListingEditorV2({
               type="button"
               onClick={() => goTo(step + 1)}
               data-attr="listing-v2-next"
+              aria-label={`Continue to ${LISTING_V2_STEPS[step + 1]!.label}`}
               className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white"
             >
-              Continue to {LISTING_V2_STEPS[step + 1]!.label}
+              {/* A phone footer has no room for the step's name beside Back and Save. */}
+              <span className="sm:hidden">Continue</span>
+              <span className="hidden sm:inline">Continue to {LISTING_V2_STEPS[step + 1]!.label}</span>
             </button>
           )}
         </>
