@@ -782,13 +782,13 @@ export function ManagerTours({
         if (preview.action === "decline") {
           for (const row of targetRows) {
             const { subject: rowSubject, body: rowBody } = resolveRowMessage(row);
-            const ok = await deletePartnerInquiryFromServer(row.sourceId, {
+            const result = await deletePartnerInquiryFromServer(row.sourceId, {
               notifyTenant: !skipMessage,
               subject: rowSubject,
               body: rowBody,
             });
-            if (!ok) {
-              showToast("Could not decline tour request.");
+            if (!result.ok) {
+              showToast(result.error ?? "Could not decline tour request.");
               return;
             }
           }

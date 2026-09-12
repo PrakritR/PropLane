@@ -1505,13 +1505,13 @@ export function PortalCalendarPanels({
 
         if (preview.action === "delete") {
           const { meeting } = preview;
-          const ok = await deletePartnerInquiryFromServer(meeting.sourceId, {
+          const result = await deletePartnerInquiryFromServer(meeting.sourceId, {
             notifyTenant: !skipMessage,
             subject: draft?.subject,
             body: draft?.body,
           });
-          if (!ok) {
-            showToast("Could not delete this tour.");
+          if (!result.ok) {
+            showToast(result.error ?? "Could not delete this tour.");
             return;
           }
           setTourGuestNotifyPreview(null);
@@ -1596,7 +1596,7 @@ export function PortalCalendarPanels({
         ok = await deletePlannedEventFromServer(meeting.sourceId);
       }
     } else {
-      ok = await deletePartnerInquiryFromServer(meeting.sourceId, { notifyTenant: false });
+      ok = (await deletePartnerInquiryFromServer(meeting.sourceId, { notifyTenant: false })).ok;
     }
     if (ok) {
       setSelectedBlock(null);
