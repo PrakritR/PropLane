@@ -58,7 +58,7 @@ export const proPortal: PortalDefinition = {
     },
     {
       section: "communication",
-      label: "Communication",
+      label: "Inbox",
       tabs: [],
     },
     {
@@ -107,7 +107,7 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Payments (outgoing)", path: "/portal/payments/outgoing/pending" },
   { label: "Services", path: "/portal/services/requests" },
   { label: "Tasks", path: "/portal/tasks" },
-  { label: "Communication", path: "/portal/communication/active" },
+  { label: "Inbox", path: "/portal/communication/active" },
   { label: "Calendar", path: "/portal/calendar" },
   { label: "Bookings", path: "/portal/bookings/calendar" },
   { label: "Teams (managers)", path: "/portal/teams/managers" },

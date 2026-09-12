@@ -16,7 +16,7 @@ export const adminPortal: PortalDefinition = {
     // the URL. Archived and Scheduled are toggles in the header, where they can
     // carry a count. The legacy `/communication/inbox/<tab>` paths still
     // resolve — a bookmark that lands nowhere is worse than a redundant one.
-    { section: "communication", label: "Communication", tabs: [] },
+    { section: "communication", label: "Inbox", tabs: [] },
     { section: "axis-users", label: "Accounts", tabs: [] },
     // Billing is a LENS on those same accounts - plan, caps, fees and usage - not a second place
     // to administer one. Opening a row opens the Accounts editor.
@@ -30,7 +30,7 @@ export const ADMIN_PORTAL_SMOKE_PATHS = [
   { label: "Dashboard", path: "/admin/dashboard" },
   { label: "Properties", path: "/admin/properties" },
   { label: "Meetings", path: "/admin/events" },
-  { label: "Communication", path: "/admin/communication" },
+  { label: "Inbox", path: "/admin/communication" },
   { label: "Accounts", path: "/admin/axis-users" },
   { label: "Billing", path: "/admin/billing" },
   { label: "Feedback", path: "/admin/bugs-feedback" },

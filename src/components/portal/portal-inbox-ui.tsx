@@ -22,7 +22,6 @@ import { ChevronDown, ChevronLeft, ChevronRight, Check, Clock, FileText, Papercl
 import { PortalEmptyIcon, PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
-import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { MODAL_TALL_PANEL_CLASS, PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
 import { DEMO_INBOX_REPLY_PREFILL_EVENT } from "@/lib/demo/demo-playback";
@@ -816,10 +815,13 @@ export const PORTAL_INBOX_LIST_TOOLBAR_CLASS =
 export function InboxListSegmentRail({
   commBase,
   listSegment,
+  counts,
   className = "",
 }: {
   commBase: string;
   listSegment: InboxListSegment;
+  /** Row counts per segment, when the panel can compute them; omitted → no badge. */
+  counts?: Partial<Record<InboxListSegment, number>>;
   className?: string;
 }) {
   return (
@@ -833,18 +835,29 @@ export function InboxListSegmentRail({
         items={[
           {
             id: "active",
-            label: "Conversations",
+            label: "All",
             href: `${commBase}/active`,
+            count: counts?.active,
             dataAttr: "communication-segment-active",
+          },
+          {
+            // A view of the one list (is this thread unread), not a folder —
+            // the same rows, scoped, with the open thread still deep-linked.
+            id: "unread",
+            label: "Unread",
+            href: `${commBase}/unread`,
+            count: counts?.unread,
+            dataAttr: "communication-segment-unread",
           },
           {
             id: "archived",
             label: "Archived",
             href: `${commBase}/archived`,
+            count: counts?.archived,
             dataAttr: "communication-segment-archived",
           },
         ]}
-        activeId={listSegment === "unread" ? "active" : listSegment}
+        activeId={listSegment}
       />
     </div>
   );
@@ -1272,10 +1285,17 @@ export function inboxReplyModeToChannels(mode: InboxReplyChannelMode): { viaEmai
   }
 }
 
-const INBOX_REPLY_CHANNEL_COMPACT_TRIGGER_CLASS =
-  "min-h-9 w-[min(7.5rem,28vw)] rounded-xl px-2 py-1 text-[11px] font-medium sm:text-xs";
-
-/** Email / SMS / PropLane channel multi-select for thread replies — compact control beside the reply field. */
+/**
+ * Which channels a reply goes out on, as a VISIBLE segmented control above the
+ * reply field — In-app · Email · Text — with the sending identity beside it
+ * ("Sending as (206) 555-0100"). It used to be a "Send via · PropLane"
+ * dropdown squeezed beside the field: the channel a message would leave on was
+ * one click away from being seen, and nothing said which number or address it
+ * would come from.
+ *
+ * Segments toggle. More than one may be on (a reply can go by email AND text),
+ * and the last one on cannot be switched off — a reply always has a channel.
+ */
 export function InboxReplyChannelPicker({
   viaEmail,
   viaSms,
@@ -1288,6 +1308,7 @@ export function InboxReplyChannelPicker({
   proplaneAvailable = false,
   onAddEmail,
   onAddPhone,
+  sendingAs,
 }: {
   viaEmail: boolean;
   viaSms: boolean;
@@ -1302,50 +1323,60 @@ export function InboxReplyChannelPicker({
   onAddEmail?: () => void;
   /** Offered when the thread has no number — opens the contact editor. */
   onAddPhone?: () => void;
+  /** The identity each channel sends from, shown beside the segments. */
+  sendingAs?: { proplane?: string; email?: string; sms?: string };
 }) {
-  const options = [
-    ...(proplaneAvailable
-      ? [{ value: "proplane", label: "PropLane", disabled: false }]
-      : []),
+  type ChannelId = "proplane" | "email" | "sms";
+  const options: { id: ChannelId; label: string; disabled: boolean; reason?: string }[] = [
+    ...(proplaneAvailable ? [{ id: "proplane" as const, label: "In-app", disabled: false }] : []),
     {
-      value: "email",
-      label: emailAvailable ? "Email" : "Email (no address)",
+      id: "email",
+      label: "Email",
       disabled: !emailAvailable,
+      reason: emailAvailable ? undefined : "No email address on this conversation",
     },
     {
-      value: "sms",
       // "Text", not "SMS" — the rest of the surface says text ("Text us" on the
       // contact card, "Residents and prospects text this number"). The disabled
       // reason names the deployment switch rather than the channel, because
       // texting being off is a deployment state, not a missing phone number.
-      label: smsAvailable ? "Text" : "Text (texting is off)",
+      id: "sms",
+      label: "Text",
       disabled: !smsAvailable,
+      reason: smsAvailable ? undefined : "Texting is off for this conversation",
     },
   ];
 
-  const selected = [
-    ...(viaProplane && proplaneAvailable ? ["proplane"] : []),
-    ...(viaEmail && emailAvailable ? ["email"] : []),
-    ...(viaSms && smsAvailable ? ["sms"] : []),
-  ];
-  const fallback = proplaneAvailable
-    ? ["proplane"]
-    : emailAvailable
-      ? ["email"]
-      : smsAvailable
-        ? ["sms"]
-        : [];
-  const effectiveSelected = selected.length > 0 ? selected : fallback;
+  const selected = new Set<ChannelId>([
+    ...(viaProplane && proplaneAvailable ? (["proplane"] as const) : []),
+    ...(viaEmail && emailAvailable ? (["email"] as const) : []),
+    ...(viaSms && smsAvailable ? (["sms"] as const) : []),
+  ]);
+  if (selected.size === 0) {
+    const fallback = options.find((o) => !o.disabled);
+    if (fallback) selected.add(fallback.id);
+  }
 
-  const labels: string[] = [];
-  if (effectiveSelected.includes("proplane")) labels.push("PropLane");
-  if (effectiveSelected.includes("email")) labels.push("Email");
-  if (effectiveSelected.includes("sms")) labels.push("Text");
-  // Name the CONTROL, not just its value. A bare "PropLane" on a pill beside
-  // the reply box reads as a brand stamp rather than as the channel this reply
-  // will go out on.
-  const selection_ = labels.length > 1 ? labels.join(" & ") : labels[0];
-  const selectionTriggerLabel = selection_ ? `Send via · ${selection_}` : undefined;
+  const toggle = (id: ChannelId) => {
+    const next = new Set(selected);
+    if (next.has(id)) {
+      if (next.size === 1) return; // a reply always has a channel
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    onViaProplaneChange?.(next.has("proplane"));
+    onViaEmailChange(next.has("email"));
+    onViaSmsChange(next.has("sms"));
+  };
+
+  const identity = (() => {
+    const parts: string[] = [];
+    if (selected.has("sms") && sendingAs?.sms) parts.push(sendingAs.sms);
+    if (selected.has("email") && sendingAs?.email) parts.push(sendingAs.email);
+    if (selected.has("proplane") && !parts.length && sendingAs?.proplane) parts.push(sendingAs.proplane);
+    return parts.length ? `Sending as ${parts.join(" · ")}` : null;
+  })();
 
   const addAction = !emailAvailable && onAddEmail
     ? { label: "Add an email address", onClick: onAddEmail, dataAttr: "inbox-reply-add-email" }
@@ -1354,48 +1385,52 @@ export function InboxReplyChannelPicker({
       : null;
 
   return (
-    <div className="flex shrink-0 flex-col gap-0.5" data-attr="inbox-reply-channel-picker">
-      <CheckboxMultiSelect
-        label="Send via"
-        labelClassName="px-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-muted"
-        className={`w-auto max-w-[13.5rem] shrink-0 ${INBOX_REPLY_CHANNEL_COMPACT_TRIGGER_CLASS} !w-auto`}
-        variant="pill"
-        options={options}
-        selected={effectiveSelected}
-        selectionTriggerLabel={selectionTriggerLabel}
-        emptyLabel="Choose channels…"
-        onChange={(next) => {
-          const enabled = next.filter(
-            (value) =>
-              (value !== "sms" || smsAvailable) &&
-              (value !== "email" || emailAvailable) &&
-              (value !== "proplane" || proplaneAvailable),
-          );
-          if (enabled.length === 0) {
-            if (proplaneAvailable) onViaProplaneChange?.(true);
-            else if (emailAvailable) onViaEmailChange(true);
-            else if (smsAvailable) onViaSmsChange(true);
-            return;
-          }
-          onViaProplaneChange?.(enabled.includes("proplane"));
-          onViaEmailChange(enabled.includes("email"));
-          onViaSmsChange(enabled.includes("sms"));
-        }}
-        menuFooter={
-          addAction ? (
+    <div
+      className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"
+      data-attr="inbox-reply-channel-picker"
+    >
+      <div
+        role="group"
+        aria-label="Send via"
+        className="inline-flex shrink-0 rounded-lg bg-foreground/[0.05] p-0.5"
+        data-attr="inbox-reply-send-via"
+      >
+        {options.map((option) => {
+          const on = selected.has(option.id);
+          return (
             <button
+              key={option.id}
               type="button"
-              className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-primary transition-colors hover:bg-primary/10"
-              data-attr={addAction.dataAttr}
-              onClick={addAction.onClick}
+              aria-pressed={on}
+              disabled={option.disabled}
+              title={option.reason}
+              data-attr={`inbox-reply-channel-${option.id}`}
+              onClick={() => toggle(option.id)}
+              className={`min-h-7 rounded-md px-2.5 text-[12px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                on ? "bg-card text-primary shadow-sm" : "text-muted hover:text-foreground"
+              }`}
             >
-              <Plus className="h-3.5 w-3.5" aria-hidden />
-              {addAction.label}
+              {option.label}
             </button>
-          ) : undefined
-        }
-        dataAttr="inbox-reply-send-via"
-      />
+          );
+        })}
+      </div>
+      {identity ? (
+        <span className="min-w-0 truncate text-[11px] text-muted" data-attr="inbox-reply-sending-as">
+          {identity}
+        </span>
+      ) : null}
+      {addAction ? (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+          data-attr={addAction.dataAttr}
+          onClick={addAction.onClick}
+        >
+          <Plus className="h-3 w-3" aria-hidden />
+          {addAction.label}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -1561,6 +1596,10 @@ export function InboxComposer({
           if (canSend) onSubmit();
         }}
       >
+        {/* The channel sits ABOVE the field, full width: a segment beside the
+            field pushed the reply box to a few words wide on a phone, and its
+            menu, anchored to the trigger, overflowed the viewport by ~80px. */}
+        {resolvedChannel ? <div className="mb-1.5 px-1">{resolvedChannel}</div> : null}
         {attachments?.length ? (
           <div className="mb-2 flex flex-wrap gap-2 px-1">
             {attachments.map((att) => {
@@ -1616,10 +1655,6 @@ export function InboxComposer({
               />
             </label>
           ) : null}
-          {/* Send via sits BEFORE the field, not after it. After the field it
-              lands hard against the right edge and its menu, which is anchored
-              to the trigger, overflowed the viewport by ~80px. */}
-          {resolvedChannel}
           <div className="relative flex min-w-0 flex-1 items-end">
             <textarea
               ref={inputRef}
