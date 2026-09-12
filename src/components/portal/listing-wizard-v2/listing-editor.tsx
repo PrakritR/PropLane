@@ -103,6 +103,10 @@ import {
   RowList,
   RowSelectCell,
   rowTemplate,
+  RailCover,
+  RailNotice,
+  RailStatus,
+  SectionGroup,
   SideBelow,
   StepColumn,
   StepHeading,
@@ -418,6 +422,7 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
        * whether rent is per room or set once, and whether the Rooms step is
        * about bedrooms or about one household.
        */}
+      <SectionGroup first title="Where it is" description="The address renters search by, and how the home is let.">
       <Field label="How you rent it" required hint="Decides whether rent is set per room or once for the whole place.">
         <Select
           value={rentByRoom ? "shared_home" : "entire_home"}
@@ -461,6 +466,9 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
           <Input value={sub.neighborhood} onChange={(e) => patch({ neighborhood: e.target.value })} />
         </Field>
       </FieldRow>
+      </SectionGroup>
+
+      <SectionGroup title="What it is" description="The shape of the home. Rooms and bathrooms each get their own section next.">
       <Field label="Property name" optional hint="What you call this home internally. The headline is what renters see.">
         <Input
           value={sub.buildingName}
@@ -532,6 +540,9 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
        * they used to sit below a "listing name" field that asked the same
        * question in duller words.
        */}
+      </SectionGroup>
+
+      <SectionGroup title="How it reads" description="What a renter actually reads on the listing.">
       <Field label="Headline" optional hint="The title renters see. Leave blank to use the address.">
         <Input
           value={sub.tagline}
@@ -548,7 +559,9 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
         />
       </Field>
 
-      <p className="mb-3 mt-6 text-[13px] font-bold text-foreground">Media</p>
+      </SectionGroup>
+
+      <SectionGroup title="Photos and video" description="Whole-house shots. Rooms and bathrooms carry their own.">
       <FieldRow cols={2}>
         <Field label="Photos of the whole house" optional hint="Up to 12. Rooms and bathrooms have their own.">
           <PhotoStrip
@@ -563,7 +576,9 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
         </Field>
       </FieldRow>
 
-      <p className="mb-3 mt-6 text-[13px] font-bold text-foreground">Amenities</p>
+      </SectionGroup>
+
+      <SectionGroup title="Amenities and pets" description="What everyone in the house shares.">
       <Field label="What the whole house has" hint="Rooms have their own list; this is what everyone shares.">
         <AmenityChips
           presets={HOUSE_WIDE_AMENITY_PRESETS}
@@ -580,7 +595,7 @@ function StepBasics({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Pa
           <option value="yes">Pets allowed, subject to approval</option>
         </Select>
       </Field>
-
+      </SectionGroup>
     </StepColumn>
   );
 }
@@ -3444,7 +3459,7 @@ export function ListingEditorV2({
     setVisited((prev) => (prev.has(target.id) ? prev : new Set(prev).add(target.id)));
   };
 
-  const rooms = submission.rooms ?? [];
+  const rooms = useMemo(() => submission.rooms ?? [], [submission.rooms]);
   const leaseTerms = useMemo(() => listingLeaseTypeScopeOptions(submission), [submission]);
   const receiptTerm = quoteTerm && leaseTerms.includes(quoteTerm) ? quoteTerm : leaseTerms[0] ?? DEFAULT_QUOTE_TERM;
   const receiptRoomId = quoteRoomId && rooms.some((r) => r.id === quoteRoomId) ? quoteRoomId : rooms[0]?.id ?? null;
@@ -3482,21 +3497,59 @@ export function ListingEditorV2({
     } as Record<string, number>;
   }, [submission]);
 
+  /**
+   * One line per section, of what it currently says.
+   *
+   * The rail is the listing's table of contents: a manager who opened it to
+   * change the rent finds "From $1,160 a month" under Pricing before clicking
+   * anything, and a section that still reads "Not set yet" says so.
+   */
+  const summaries = useMemo(() => {
+    const open = listingReadiness(submission).filter((c) => c.state !== "done").length;
+    const withPhotos = rooms.filter((r) => (r.photoDataUrls ?? []).length > 0).length;
+    const priced = rooms.map((r) => r.monthlyRent).filter((n) => n > 0);
+    const from = priced.length > 0 ? Math.min(...priced) : 0;
+    const typeLabel = LISTING_PROPERTY_TYPE_OPTIONS.find((o) => o.id === submission.listingPropertyTypeId)?.label;
+    const baths = (submission.bathrooms ?? []).length;
+    const spaces = (submission.sharedSpaces ?? []).length;
+    const plural = (n: number, one: string) => `${n} ${n === 1 ? one : `${one}s`}`;
+    return {
+      basics:
+        [
+          // The street alone — the city and state are the header's to say.
+          submission.address.split(",")[0]!.trim(),
+          submission.listingPlaceCategoryId === "entire_home" ? "Whole place" : "By the room",
+          typeLabel,
+        ]
+          .filter(Boolean)
+          .join(" · ") || "Address and type",
+      rooms:
+        rooms.length === 0
+          ? "Add the first room"
+          : `${plural(rooms.length, "room")} · ${withPhotos === rooms.length ? "all with photos" : `${withPhotos} with photos`}`,
+      bathrooms: baths === 0 ? "None yet" : plural(baths, "bathroom"),
+      spaces: spaces === 0 ? "None listed" : plural(spaces, "shared space"),
+      pricing:
+        from > 0
+          ? `From $${Math.round(from).toLocaleString("en-US")} a month · ${plural(leaseTerms.length, "lease type")}`
+          : "Rent not set",
+      review: open === 0 ? "Ready to publish" : `${open} to finish`,
+      open,
+    };
+  }, [submission, rooms, leaseTerms]);
+
   const railSteps = LISTING_V2_STEPS.map((s) => ({
     id: s.id,
     label: s.label,
-    count:
-      s.id === "rooms"
-        ? rooms.length
-        : s.id === "bathrooms"
-          ? (submission.bathrooms ?? []).length
-          : s.id === "spaces"
-            ? (submission.sharedSpaces ?? []).length
-            : s.id === "pricing"
-              ? leaseTerms.length
-              : undefined,
     attention: attention[s.id] ?? 0,
+    summary: summaries[s.id],
   }));
+
+  const coverUrl = (submission.housePhotoDataUrls ?? [])[0] ?? rooms.flatMap((r) => r.photoDataUrls ?? [])[0] ?? null;
+  const photoCount =
+    (submission.housePhotoDataUrls ?? []).length +
+    rooms.reduce((n, r) => n + (r.photoDataUrls ?? []).length, 0) +
+    (submission.bathrooms ?? []).reduce((n, b) => n + (b.photoDataUrls ?? []).length, 0);
 
   const body = useMemo(() => {
     switch (stepId) {
@@ -3581,6 +3634,13 @@ export function ListingEditorV2({
       onClose={onClose}
       headerAside={<ModalAssistantStrip contextHint={assistantContext} storageScopeKey="listing-wizard-v2" />}
       rail={<StepRail steps={railSteps} current={step} onJump={goTo} visited={visited} />}
+      railHeader={
+        <>
+          <RailCover photoUrl={coverUrl} photoCount={photoCount} onAddPhotos={() => goTo(0)} />
+          <RailNotice count={summaries.open} onOpen={() => goTo(last)} />
+        </>
+      }
+      railFooter={<RailStatus listed={isEdit} />}
       sidePanel={sidePanel}
       footer={
         <>
@@ -3598,20 +3658,52 @@ export function ListingEditorV2({
             >
               Back
             </button>
-            <button
-              type="button"
-              onClick={() => onSaveExit(step)}
-              disabled={busy}
-              data-attr="listing-v2-save-exit"
-              className="min-h-[44px] rounded-full px-4 text-[13.5px] font-bold text-muted hover:text-foreground disabled:opacity-60"
-            >
-              {isEdit ? "Save & close" : "Save & exit"}
-            </button>
+            {isEdit ? null : (
+              <button
+                type="button"
+                onClick={() => onSaveExit(step)}
+                disabled={busy}
+                data-attr="listing-v2-save-exit"
+                className="min-h-[44px] rounded-full px-4 text-[13.5px] font-bold text-muted hover:text-foreground disabled:opacity-60"
+              >
+                Save & exit
+              </button>
+            )}
           </div>
           <span className="hidden text-[12.5px] text-muted sm:inline">
             Step {step + 1} of {LISTING_V2_STEPS.length}
           </span>
-          {step === last ? (
+          {isEdit ? (
+            /*
+             * An edit is not a march to the end. The manager came to change one
+             * thing, so saving is the primary action on EVERY section — the way
+             * Turo and Airbnb save each section where it is edited — and the
+             * next section is an offer, not the only way forward.
+             */
+            <div className="flex gap-2.5">
+              {step === last ? null : (
+                <button
+                  type="button"
+                  onClick={() => goTo(step + 1)}
+                  data-attr="listing-v2-next"
+                  // A phone footer holds Back and Save; the next section is a
+                  // tap away in the strip above.
+                  className="hidden min-h-[44px] rounded-full border border-border bg-card px-5 text-[14px] font-bold text-foreground sm:inline-flex sm:items-center"
+                >
+                  Next: {LISTING_V2_STEPS[step + 1]!.label}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => (step === last ? onPublish() : onSaveExit(step))}
+                disabled={busy}
+                data-attr={step === last ? "listing-v2-publish" : "listing-v2-save-exit"}
+                className="min-h-[44px] rounded-full bg-primary px-7 text-[14px] font-bold text-white disabled:opacity-60"
+              >
+                {busy ? "Saving…" : step === last ? "Publish changes" : "Save changes"}
+              </button>
+            </div>
+          ) : step === last ? (
             <div className="flex gap-2.5">
               {isEdit ? null : (
                 <button

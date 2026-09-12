@@ -17,7 +17,7 @@
  *   belongs to; nothing is announced only at the end.
  */
 
-import { useId, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -90,6 +90,8 @@ export function ListingWorkspace({
   saveState,
   onClose,
   rail,
+  railHeader,
+  railFooter,
   children,
   sidePanel,
   footer,
@@ -103,6 +105,14 @@ export function ListingWorkspace({
   saveState?: ReactNode;
   onClose?: () => void;
   rail: ReactNode;
+  /**
+   * What sits ABOVE the sections in the rail — the cover photo and, while
+   * something still needs doing, the "finish these" card. Desktop only: on a
+   * phone the rail is a strip of chips and has no room for it.
+   */
+  railHeader?: ReactNode;
+  /** Pinned to the foot of the rail — the listing's live/draft status. Desktop only. */
+  railFooter?: ReactNode;
   children: ReactNode;
   sidePanel?: ReactNode;
   footer: ReactNode;
@@ -136,12 +146,14 @@ export function ListingWorkspace({
           ) : null}
         </div>
       </div>
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[212px_minmax(0,1fr)] xl:grid-cols-[212px_minmax(0,1fr)_340px]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[252px_minmax(0,1fr)] xl:grid-cols-[252px_minmax(0,1fr)_340px]">
         <nav
           aria-label="Listing sections"
           className="flex shrink-0 flex-col overflow-x-auto border-b border-border/60 bg-[var(--pl-surface-muted)] p-2 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-3 [html[data-theme=dark]_&]:bg-black/20"
         >
+          {railHeader ? <div className="hidden lg:block">{railHeader}</div> : null}
           {rail}
+          {railFooter ? <div className="mt-auto hidden pt-4 lg:block">{railFooter}</div> : null}
         </nav>
         <main className="min-w-0 overflow-y-auto px-5 py-6 lg:px-8">{children}</main>
         {sidePanel ? (
@@ -178,6 +190,12 @@ export type StepRailItem = {
   count?: number;
   /** Things the manager should look at before publishing. */
   attention?: number;
+  /**
+   * One line of what the section currently says — "2 rooms · 1 with photos",
+   * "From $1,160 a month". The rail then reads as the listing's table of
+   * contents rather than a list of chapter titles.
+   */
+  summary?: ReactNode;
 };
 
 /**
@@ -187,6 +205,13 @@ export type StepRailItem = {
  * step past the one you were on, which is wrong for an EDIT: a manager opening a
  * live listing to change one room's rent should not have to walk four screens to
  * reach it.
+ *
+ * Each row is a summary card, the way Airbnb's listing editor lists "Title ·
+ * House room in Jakarta" and "Pricing · Rp169,499 per night": the section's name
+ * and, under it, what it currently says. A section that still needs something
+ * carries a red dot before its name — no numbered circles, no ticks, because on
+ * an edit those were claiming Rooms was "done" for having been earlier in the
+ * list. The footer still counts the steps.
  */
 export function StepRail({
   steps,
@@ -197,54 +222,162 @@ export function StepRail({
   steps: readonly StepRailItem[];
   current: number;
   onJump: (index: number) => void;
-  /** Steps the manager has already opened, so "done" means seen, not merely earlier. */
+  /** Steps the manager has already opened. Kept for callers; the rail no longer draws it. */
   visited?: ReadonlySet<string>;
 }) {
+  void visited;
+  // On a phone the rail is a strip of chips; the one the manager is on must be
+  // in view, or jumping to Pricing leaves the strip showing "Basics · Rooms".
+  const currentRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    // jsdom has no scrollIntoView; a test that jumps steps must not blow up on it.
+    currentRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [current]);
   return (
-    <ol className="flex gap-1 lg:flex-col">
+    <ol className="flex gap-1 lg:flex-col lg:gap-1.5">
       {steps.map((step, i) => {
         const on = i === current;
         const warn = (step.attention ?? 0) > 0;
-        const seen = visited ? visited.has(step.id) : i < current;
         return (
           <li key={step.id}>
             <button
+              ref={on ? currentRef : undefined}
               type="button"
               onClick={() => onJump(i)}
               aria-current={on ? "step" : undefined}
               data-attr={`listing-v2-rail-${step.id}`}
               className={cn(
-                "flex w-full shrink-0 items-center gap-2.5 whitespace-nowrap rounded-xl px-2.5 py-2 text-left text-[13.5px] transition",
+                "flex w-full shrink-0 items-start gap-2.5 whitespace-nowrap rounded-xl px-3 py-2 text-left transition lg:py-2.5",
                 on
-                  ? "bg-white font-bold text-foreground shadow-[0_0_0_1px_var(--pl-line-strong)] [html[data-theme=dark]_&]:bg-card"
-                  : "text-muted hover:bg-foreground/[0.045] hover:text-foreground",
+                  ? "bg-white shadow-[0_0_0_1px_var(--pl-line-strong)] [html[data-theme=dark]_&]:bg-card"
+                  : "hover:bg-foreground/[0.045]",
               )}
             >
-              <span
-                className={cn(
-                  "grid h-[23px] w-[23px] shrink-0 place-items-center rounded-full text-[11px] font-extrabold",
-                  on
-                    ? "bg-primary text-white"
-                    : warn
-                      ? "bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]"
-                      : seen
-                        ? "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]"
-                        : "border border-border text-muted/70",
-                )}
-                aria-hidden
-              >
-                {on ? i + 1 : warn ? "!" : seen ? "✓" : i + 1}
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5">
+                  {warn ? (
+                    <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden />
+                  ) : null}
+                  <span
+                    className={cn(
+                      "min-w-0 truncate text-[13.5px]",
+                      on ? "font-bold text-foreground" : "font-semibold text-foreground/80",
+                    )}
+                  >
+                    {step.label}
+                  </span>
+                  {step.count != null ? (
+                    <span className="hidden shrink-0 text-[12px] tabular-nums text-muted lg:inline">{step.count}</span>
+                  ) : null}
+                </span>
+                {step.summary ? (
+                  <span className="mt-0.5 hidden truncate text-[12px] leading-snug text-muted lg:block">{step.summary}</span>
+                ) : null}
               </span>
-              <span className="min-w-0 flex-1 truncate">{step.label}</span>
-              {step.count != null ? (
-                <span className="hidden shrink-0 text-[12px] tabular-nums text-muted lg:inline">{step.count}</span>
-              ) : null}
               {warn ? <span className="sr-only">{step.attention} to look at</span> : null}
             </button>
           </li>
         );
       })}
     </ol>
+  );
+}
+
+/**
+ * The cover tile at the top of the rail.
+ *
+ * Turo's vehicle editor opens with the car's photo above the section list, and
+ * it does the same job here: the manager can see at a glance which home they
+ * have open, and a listing with no photo says so where it will be noticed.
+ */
+export function RailCover({
+  photoUrl,
+  photoCount,
+  onAddPhotos,
+}: {
+  photoUrl: string | null;
+  photoCount: number;
+  /** Takes the manager to where photos are added. */
+  onAddPhotos: () => void;
+}) {
+  return (
+    <div className="mb-3">
+      {photoUrl ? (
+        <div className="relative overflow-hidden rounded-xl border border-border bg-accent/40">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={photoUrl} alt="" className="block aspect-[16/10] w-full object-cover" />
+          <span className="absolute bottom-2 left-2 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-bold text-white">
+            {photoCount} {photoCount === 1 ? "photo" : "photos"}
+          </span>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onAddPhotos}
+          data-attr="listing-v2-rail-add-photos"
+          className="grid aspect-[16/10] w-full place-items-center rounded-xl border border-dashed border-[var(--status-pending-fg)]/40 bg-[var(--status-pending-bg)] text-[12.5px] font-semibold text-[var(--status-pending-fg)] hover:brightness-95"
+        >
+          <span className="flex flex-col items-center gap-1">
+            <span aria-hidden className="text-[18px] leading-none">
+              +
+            </span>
+            Add photos
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * "Complete required steps" — the card Airbnb puts above the section list while
+ * a listing still has gaps. One line, one action: it takes the manager to the
+ * review, where every gap has its own Fix button.
+ */
+export function RailNotice({ count, onOpen }: { count: number; onOpen: () => void }) {
+  if (count <= 0) return null;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      data-attr="listing-v2-rail-finish"
+      className="mb-3 flex w-full items-center gap-2.5 rounded-xl border border-border bg-white px-3 py-2.5 text-left hover:bg-accent/30 [html[data-theme=dark]_&]:bg-card"
+    >
+      <span className="h-[7px] w-[7px] shrink-0 rounded-full bg-[var(--status-overdue-fg)]" aria-hidden />
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] font-bold text-foreground">
+          {count} {count === 1 ? "thing" : "things"} to finish
+        </span>
+        <span className="block text-[11.5px] leading-snug text-muted">Stronger listings fill these in.</span>
+      </span>
+      <span aria-hidden className="text-muted">
+        ›
+      </span>
+    </button>
+  );
+}
+
+/**
+ * The listing's status, at the foot of the rail.
+ *
+ * Turo states it under the section list — "Listed · Your car appears in search
+ * results and can be booked" — and a manager editing a live home should never
+ * have to wonder whether renters can see what they are changing.
+ */
+export function RailStatus({ listed }: { listed: boolean }) {
+  return (
+    <div className="rounded-xl border border-border bg-white px-3 py-2.5 [html[data-theme=dark]_&]:bg-card">
+      <span className="flex items-center gap-2 text-[13px] font-bold text-foreground">
+        <span
+          className={cn("h-2 w-2 rounded-full", listed ? "bg-[var(--status-confirmed-fg)]" : "border border-muted/60")}
+          aria-hidden
+        />
+        {listed ? "Listed" : "Draft"}
+      </span>
+      <p className="mt-0.5 text-[11.5px] leading-snug text-muted">
+        {listed ? "Renters can see this home and apply." : "Not visible to renters until you publish."}
+      </p>
+    </div>
   );
 }
 
@@ -304,6 +437,38 @@ export function StepHeading({ title, subtitle }: { title: string; subtitle?: str
       <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">{title}</h2>
       {subtitle ? <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{subtitle}</p> : null}
     </div>
+  );
+}
+
+/**
+ * A titled group of fields inside a step.
+ *
+ * Turo's editor breaks "Details" into "Your car", "Basic car details", "Vehicle
+ * features": a bold subheading, a line of why, then the fields. It is what lets
+ * a long form read as three short ones. Use it instead of a lone bold `<p>`.
+ */
+export function SectionGroup({
+  title,
+  description,
+  children,
+  first = false,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+  /** The first group sits directly under the step heading, without the top rule. */
+  first?: boolean;
+}) {
+  return (
+    <section className={cn(first ? "" : "mt-8 border-t border-border/60 pt-6")}>
+      <h3 className="text-[15.5px] font-bold tracking-tight text-foreground">{title}</h3>
+      {description ? (
+        <p className="mb-4 mt-0.5 text-[13px] leading-relaxed text-muted">{description}</p>
+      ) : (
+        <div className="mb-4" />
+      )}
+      {children}
+    </section>
   );
 }
 
