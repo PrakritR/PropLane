@@ -440,8 +440,16 @@ export function Modal({
   assistantStorageScopeKey,
   assistantDefaultExpanded = false,
   assistantEditHint,
-  /** Drawer fills the viewport below portal `lg` (no partial sheet). */
-  fullScreenMobile = true,
+  /**
+   * Drawer fills the viewport below portal `lg`.
+   *
+   * Off by default (Sep 12): a sheet that always took the whole phone left a
+   * settings form floating over a screen of empty white. The default sheet
+   * now hugs its content — grab handle, rounded top, scroll inside, the
+   * footer pinned — and grows to 96dvh at most. A flow that is a page in its
+   * own right (the listing editor) opts in.
+   */
+  fullScreenMobile = false,
   /** Fill the viewport on every breakpoint (not only mobile drawer). */
   fullPage = false,
   /** When false, modal body does not scroll — children own internal overflow. */
@@ -530,6 +538,10 @@ export function Modal({
 
   if (showAssistantStrip) {
     const workspaceFullScreen = fullPage || (presentation === "drawer" && fullScreenMobile);
+    // Below `lg` the editor is a bottom sheet: anchored to the bottom edge,
+    // rounded top, grab handle, hugging its content (Mobbin-style), never a
+    // card floating in the middle of the phone over empty canvas.
+    const workspaceSheet = presentation === "drawer" && !workspaceFullScreen;
     const closeEditor = () => {
       if (dismissBlocked) return;
       if (!assistantExpanded) { onClose(); return; }
@@ -562,8 +574,8 @@ export function Modal({
           data-modal-assistant-workspace=""
           data-full-screen={workspaceFullScreen ? "true" : "false"}
           className={cn(
-            "pointer-events-none flex min-h-0 min-w-0 flex-1 items-center justify-center",
-            workspaceFullScreen ? "p-0" : "p-4",
+            "pointer-events-none flex min-h-0 min-w-0 flex-1 justify-center",
+            workspaceFullScreen ? "items-center p-0" : workspaceSheet ? "items-end p-0" : "items-center p-4",
           )}
         >
           {!editorDismissed ? (
@@ -571,8 +583,13 @@ export function Modal({
               MODAL_PANEL_CLASS,
               "pointer-events-auto min-h-0 @container max-lg:max-h-[calc(100dvh-2rem)]",
               resolvedPanelClassName,
+              workspaceSheet &&
+                "!w-screen !max-w-none !rounded-b-none rounded-t-2xl border-x-0 border-b-0 !max-h-[min(92dvh,calc(100dvh-var(--portal-native-bottom-nav-inset,0px)))] pt-2 pb-[max(1.25rem,env(safe-area-inset-bottom,0px))] [html[data-native]_&]:pb-[max(1.25rem,var(--native-safe-bottom,0px))]",
               workspaceFullScreen && cn(MODAL_FULL_PAGE_PANEL_CLASS, "!relative !inset-auto !h-full !max-h-full", dense ? "px-4" : "px-5"),
             )}>
+              {workspaceSheet ? (
+                <div aria-hidden className="mx-auto mb-2 h-1 w-10 shrink-0 rounded-full bg-border" />
+              ) : null}
               <ModalPanelInner
                 {...panelInnerProps}
                 onClose={closeEditor}

@@ -241,13 +241,13 @@ function AttentionGroup<T>({
   const open = override ?? !isEmpty;
 
   return (
+    // A quiet card whatever the tone: the status is a dot before the title and
+    // the count chip, not a tinted panel with a coloured rail — the old wash
+    // made every group on the page shout at once.
     <div
-      className="pl-attn-enter overflow-hidden rounded-xl border border-border bg-card"
+      className="pl-attn-enter overflow-hidden rounded-2xl border border-border bg-card"
       style={{
         animationDelay: `${Math.min(order, 8) * 55}ms`,
-        borderLeftWidth: isEmpty ? undefined : 3,
-        borderLeftColor: isEmpty ? undefined : accent.fg,
-        background: isEmpty ? undefined : `color-mix(in srgb, ${accent.bg} 32%, var(--card))`,
         ["--attn-section-bg" as string]: accent.bg,
         ["--attn-section-fg" as string]: accent.fg,
       }}
@@ -258,14 +258,17 @@ function AttentionGroup<T>({
           aria-expanded={open}
           data-attr={`resident-dashboard-attention-toggle-${sectionId}`}
           onClick={() => setOverride(!open)}
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--attn-section-bg)_45%,transparent)] [html[data-native]_&]:gap-2"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 text-left [html[data-native]_&]:gap-2"
         >
           <span className="flex shrink-0 items-center self-center">
             <PortalTableExpandChevron expanded={open} />
           </span>
+          {isEmpty ? null : (
+            <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: accent.fg }} />
+          )}
           <h3
-            className="min-w-0 flex-1 self-center text-sm font-semibold leading-none tracking-[-0.01em] [html[data-native]_&]:text-[13px]"
-            style={{ color: isEmpty ? "var(--muted)" : accent.fg }}
+            className="min-w-0 flex-1 self-center text-[14px] font-bold leading-none tracking-[-0.01em] [html[data-native]_&]:text-[13px]"
+            style={{ color: isEmpty ? "var(--muted)" : "var(--foreground)" }}
           >
             {title}
           </h3>
@@ -278,8 +281,7 @@ function AttentionGroup<T>({
           href={href}
           aria-label={`Open ${title}`}
           data-attr="resident-dashboard-attention-link"
-          className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center self-center whitespace-nowrap px-2 text-xs font-semibold leading-none hover:underline underline-offset-2 [html[data-native]_&]:text-sm"
-          style={{ color: isEmpty ? "var(--muted)" : accent.fg }}
+          className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center self-center whitespace-nowrap px-2 text-xs font-semibold leading-none text-muted hover:text-primary [html[data-native]_&]:text-sm"
         >
           →
         </Link>

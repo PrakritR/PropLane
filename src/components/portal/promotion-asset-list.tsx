@@ -129,7 +129,7 @@ export function PromotionAssetStack({
     return <>{rows}</>;
   }
 
-  return <div className="divide-y divide-border rounded-xl border border-border bg-card">{rows}</div>;
+  return <div className="divide-y divide-border/50 overflow-hidden rounded-2xl border border-border/80 bg-card shadow-sm">{rows}</div>;
 }
 
 export { promotionAssetCanEdit };

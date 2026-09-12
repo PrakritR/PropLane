@@ -47,7 +47,9 @@ export function CashflowRangeToggle({
 }) {
   return (
     <div
-      className={cn("flex gap-1", className)}
+      // The same light segmented control the rest of the portal uses — a dark
+      // selected pill was the one black element on an otherwise blue page.
+      className={cn("flex gap-0.5 rounded-full border border-border bg-[var(--pl-surface-muted)] p-0.5 [html[data-theme=dark]_&]:bg-white/[0.04]", className)}
       role="tablist"
       aria-label={ariaLabel}
       onClick={(e) => e.stopPropagation()}
@@ -61,10 +63,10 @@ export function CashflowRangeToggle({
           data-attr={`${dataAttrPrefix}-${months}`}
           className={cn(
             // PRP-350: 44px in BOTH directions — "1Y"/"2Y" are narrow enough to fail on width alone.
-            "portal-pressable min-h-11 min-w-11 rounded-full px-3 py-2 text-[11px] font-semibold tabular-nums transition-colors sm:px-3.5 sm:text-xs",
+            "portal-pressable min-h-11 min-w-11 rounded-full px-3 py-2 text-[11px] font-bold tabular-nums transition-colors sm:px-3.5 sm:text-xs",
             value === months
-              ? "bg-foreground text-background"
-              : "text-muted hover:bg-accent/40 hover:text-foreground",
+              ? "bg-card text-foreground shadow-[var(--shadow-sm)]"
+              : "text-muted hover:text-foreground",
           )}
           onClick={() => onChange(months)}
         >

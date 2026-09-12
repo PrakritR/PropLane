@@ -364,15 +364,23 @@ export function ManagerTaskList({
       : []),
   ];
 
-  const clusters = useMemo(
-    () =>
-      clusterPortalListRows(
-        visibleRows.map((row) => taskListRowClusterFields(row, propertyLabelForId)),
-        groupMode,
-        (row) => row.propertyLabel,
-      ),
-    [groupMode, propertyLabelForId, visibleRows],
-  );
+  const clusters = useMemo(() => {
+    const raw = clusterPortalListRows(
+      visibleRows.map((row) => taskListRowClusterFields(row, propertyLabelForId)),
+      groupMode,
+      (row) => row.propertyLabel,
+    );
+    if (!isPropertyClusterList(groupMode, raw)) return raw;
+    // The shared clustering keeps every property-less row in its own group
+    // (right for residents, who must not be merged with strangers). A task
+    // with no house is just a task with no house: one "No property" group,
+    // not a stack of headers reading "—".
+    const homeless = raw.filter((c) => !c.rows.some((r) => r.propertyId?.trim()));
+    if (homeless.length < 2) return raw;
+    const merged = { key: "property:none", propertyLabel: "", rows: homeless.flatMap((c) => c.rows) };
+    const kept = raw.filter((c) => !homeless.includes(c));
+    return [...kept, merged];
+  }, [groupMode, propertyLabelForId, visibleRows]);
 
   const taskFilterActiveCount =
     portalFilterActiveCount([

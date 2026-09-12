@@ -1,10 +1,28 @@
 "use client";
 
 import { AxisLogoLink } from "@/components/brand/axis-logo";
+import { AppStoreBadge } from "@/components/marketing/app-store-badge";
+import {
+  BookOpen,
+  Building2,
+  ClipboardList,
+  CreditCard,
+  KeyRound,
+  LifeBuoy,
+  MessageSquareText,
+  Plug,
+  ShieldCheck,
+  Sparkles,
+  Star,
+  Users,
+  Wrench,
+} from "lucide-react";
+import Link from "next/link";
 import { Navbar1, type NavbarMenuItem } from "@/components/ui/navbar1";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { portalDashboardPath, normalizePortalRoles, parseAuthRole, type AuthRole } from "@/lib/auth/portal-roles";
 import {
+  BOOK_DEMO_HREF,
   MANAGER_GET_STARTED_HREF,
   VENDOR_GET_STARTED_HREF,
 } from "@/lib/marketing/public-contact";
@@ -30,6 +48,23 @@ function persistSignedIn(value: boolean) {
     if (value) localStorage.setItem(AUTH_STORAGE_KEY, "1");
     else localStorage.removeItem(AUTH_STORAGE_KEY);
   } catch {}
+}
+
+/** The Product menu's featured panel: the iPhone app, with the badge. */
+function NavFeaturedApp() {
+  return (
+    <div className="flex h-full flex-col gap-1.5 rounded-xl bg-primary/[0.06] p-4 text-[12.5px]">
+      <p className="text-[10.5px] font-extrabold uppercase tracking-[0.12em] text-primary">iPhone app</p>
+      <p className="text-[14px] font-bold text-foreground">The same queue, with push and camera.</p>
+      <p className="text-muted">Free. Sign in with the same account.</p>
+      <div className="mt-2">
+        <AppStoreBadge dataAttr="nav-product-app-store" />
+      </div>
+      <Link href="/app" data-attr="nav-product-app" className="mt-1 text-[12.5px] font-bold text-primary hover:underline">
+        About the app →
+      </Link>
+    </div>
+  );
 }
 
 // One consistent label for every logged-in role — clicking it takes the user
@@ -86,14 +121,13 @@ export function PublicNavbar() {
     [pathname],
   );
   const contactActive = useMemo(() => pathname === "/contact" || pathname === "/support", [pathname]);
+  const pricingActive = useMemo(() => pathname.startsWith("/pricing"), [pathname]);
+  const whyActive = useMemo(() => pathname.startsWith("/why-proplane"), [pathname]);
   const docsActive = useMemo(
     () =>
       pathname.startsWith("/docs") ||
-      pathname.startsWith("/why-proplane") ||
-      // /pricing is deliberately still highlighted here even though it is no
-      // longer a Resources dropdown entry — the page stays live and is linked
-      // from elsewhere, so the tab should light up when a visitor lands on it.
-      pathname.startsWith("/pricing") ||
+      pathname.startsWith("/security") ||
+      pathname.startsWith("/reviews") ||
       pathname.startsWith("/about"),
     [pathname],
   );
@@ -102,77 +136,166 @@ export function PublicNavbar() {
       residentActive ||
       pathname.startsWith("/partner") ||
       pathname.startsWith("/vendors") ||
+      pathname.startsWith("/app") ||
       pathname === "/",
     [pathname, residentActive],
   );
 
   const menu: NavbarMenuItem[] = useMemo(
     () => {
-      // Product · Resources · Contact — Product is role entry only (manager /
-      // resident / vendor), each with a short description.
+      // Product ▾ · Pricing · Why PropLane · Resources ▾ · Contact.
+      //
+      // Pricing is the second thing every buyer looks for, so it is a tab, not
+      // a dropdown entry; Product is the audience switch; Resources carries the
+      // reading. Routes are unchanged — /partner is "For managers", /rent is
+      // "For residents" — only the words moved.
       const items: NavbarMenuItem[] = [
         {
           title: "Product",
           url: "/#product",
-          active: productActive && !docsActive && !contactActive,
+          active: productActive && !docsActive && !contactActive && !pricingActive && !whyActive,
           dataAttr: "nav-product",
-          items: [
+          groups: [
             {
-              title: "For managers & landlords",
-              url: "/partner",
-              description: "AI leasing, rent, vendors, and approvals",
-              active: pathname.startsWith("/partner"),
-              dataAttr: "nav-product-managers",
+              heading: "Who it's for",
+              items: [
+                {
+                  title: "Managers & landlords",
+                  url: "/partner",
+                  description: "List, screen, lease and collect — approval-first",
+                  icon: <Building2 strokeWidth={2} aria-hidden />,
+                  active: pathname.startsWith("/partner"),
+                  dataAttr: "nav-product-managers",
+                },
+                {
+                  title: "Residents",
+                  url: RESIDENT_BROWSE_PATH,
+                  description: "Browse homes, apply, pay rent, ask for help",
+                  icon: <KeyRound strokeWidth={2} aria-hidden />,
+                  active: residentActive,
+                  dataAttr: "nav-product-residents",
+                },
+                {
+                  title: "Vendors",
+                  url: "/vendors",
+                  description: "Get matched, bid from your phone, get paid",
+                  icon: <Wrench strokeWidth={2} aria-hidden />,
+                  active: pathname.startsWith("/vendors"),
+                  dataAttr: "nav-product-vendors",
+                },
+              ],
             },
             {
-              title: "For residents",
-              url: RESIDENT_BROWSE_PATH,
-              description: "Browse homes, apply, pay rent, and message",
-              active: residentActive,
-              dataAttr: "nav-product-residents",
-            },
-            {
-              title: "For vendors",
-              url: "/vendors",
-              description: "Jobs, bids, and payouts",
-              active: pathname.startsWith("/vendors"),
-              dataAttr: "nav-product-vendors",
+              heading: "What's inside",
+              items: [
+                {
+                  title: "Leasing",
+                  url: "/partner#partner-rows-title",
+                  description: "Listings, tours, applications, e-sign",
+                  icon: <ClipboardList strokeWidth={2} aria-hidden />,
+                  dataAttr: "nav-product-leasing",
+                },
+                {
+                  title: "Payments & ledger",
+                  url: "/partner#partner-rows-title",
+                  description: "Charges, reminders, deposits, books",
+                  icon: <CreditCard strokeWidth={2} aria-hidden />,
+                  dataAttr: "nav-product-payments",
+                },
+                {
+                  title: "Inbox & work number",
+                  url: "/#product",
+                  description: "Email, SMS, in-app — one thread",
+                  icon: <MessageSquareText strokeWidth={2} aria-hidden />,
+                  dataAttr: "nav-product-inbox",
+                },
+                {
+                  title: "Ask PropLane",
+                  url: "/why-proplane",
+                  description: "The assistant that asks before it writes",
+                  icon: <Sparkles strokeWidth={2} aria-hidden />,
+                  dataAttr: "nav-product-assistant",
+                },
+              ],
             },
           ],
+          featured: <NavFeaturedApp />,
+        },
+        {
+          title: "Pricing",
+          url: "/pricing",
+          active: pricingActive,
+          dataAttr: "nav-pricing",
+        },
+        {
+          title: "Why PropLane",
+          url: "/why-proplane",
+          active: whyActive,
+          dataAttr: "nav-why",
         },
         {
           title: "Resources",
-          url: "/why-proplane",
+          url: "/docs",
           active: docsActive,
           dataAttr: "nav-resources",
-          items: [
+          groups: [
             {
-              title: "Why PropLane",
-              url: "/why-proplane",
-              description: "AI, portals, and books · what makes it different",
-              active: pathname.startsWith("/why-proplane"),
-              dataAttr: "nav-resources-why",
+              heading: "Learn",
+              items: [
+                {
+                  title: "Documentation",
+                  url: "/docs",
+                  description: "Guides for managers, residents, and vendors",
+                  icon: <BookOpen strokeWidth={2} aria-hidden />,
+                  active: pathname.startsWith("/docs") && !pathname.startsWith("/docs/mcp"),
+                  dataAttr: "nav-resources-docs",
+                },
+                {
+                  title: "MCP & API",
+                  url: "/docs/mcp",
+                  description: "Connect your own AI agent to PropLane",
+                  icon: <Plug strokeWidth={2} aria-hidden />,
+                  active: pathname.startsWith("/docs/mcp"),
+                  dataAttr: "nav-resources-mcp",
+                },
+                {
+                  title: "Security",
+                  url: "/security",
+                  description: "How your data and your residents' data are kept",
+                  icon: <ShieldCheck strokeWidth={2} aria-hidden />,
+                  active: pathname.startsWith("/security"),
+                  dataAttr: "nav-resources-security",
+                },
+              ],
             },
             {
-              title: "Documentation",
-              url: "/docs",
-              description: "Guides for managers, residents, and vendors",
-              active: pathname.startsWith("/docs"),
-              dataAttr: "nav-resources-docs",
-            },
-            {
-              title: "MCP & API",
-              url: "/docs/mcp",
-              description: "Connect your own AI agent to PropLane",
-              active: pathname.startsWith("/docs/mcp"),
-              dataAttr: "nav-resources-mcp",
-            },
-            {
-              title: "About us",
-              url: "/about",
-              description: "Built by managers who use PropLane daily",
-              active: pathname.startsWith("/about"),
-              dataAttr: "nav-resources-about",
+              heading: "Company",
+              items: [
+                {
+                  title: "Reviews",
+                  url: "/reviews",
+                  description: "What managers and residents say",
+                  icon: <Star strokeWidth={2} aria-hidden />,
+                  active: pathname.startsWith("/reviews"),
+                  dataAttr: "nav-resources-reviews",
+                },
+                {
+                  title: "About us",
+                  url: "/about",
+                  description: "Built by managers who use PropLane daily",
+                  icon: <Users strokeWidth={2} aria-hidden />,
+                  active: pathname.startsWith("/about"),
+                  dataAttr: "nav-resources-about",
+                },
+                {
+                  title: "Contact & support",
+                  url: "/contact",
+                  description: "Talk to a person — email or phone",
+                  icon: <LifeBuoy strokeWidth={2} aria-hidden />,
+                  active: contactActive,
+                  dataAttr: "nav-resources-contact",
+                },
+              ],
             },
           ],
         },
@@ -185,7 +308,7 @@ export function PublicNavbar() {
       ];
       return items;
     },
-    [contactActive, docsActive, pathname, productActive, residentActive],
+    [contactActive, docsActive, pathname, pricingActive, productActive, residentActive, whyActive],
   );
 
   const portalLink = useMemo(() => {
@@ -232,9 +355,12 @@ export function PublicNavbar() {
         menu={menu}
         auth={{
           login: { text: "Log in", url: "/auth/sign-in" },
-          signup: { text: "Get started", url: signupHref },
+          // "Start free" says what the button does — it is a $0 plan, not a form.
+          signup: { text: "Start free", url: signupHref },
+          secondary: { text: "Book a demo", url: BOOK_DEMO_HREF, dataAttr: "nav-book-demo" },
         }}
         portalLink={portalLink}
+        mobileFooter={<AppStoreBadge dataAttr="nav-mobile-app-store" />}
       />
     </div>
   );

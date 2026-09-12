@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { PortalTitleActionsHost } from "@/components/portal/portal-title-actions-slot";
 import { cn } from "@/lib/utils";
 import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
 import { PAGE_HEADER_TITLE_CLASS } from "@/components/ui/page-header";
@@ -108,6 +109,7 @@ export function PortalPageTitleBand({
           {headerActions}
         </div>
       ) : null}
+      <PortalTitleActionsHost className="flex shrink-0 items-center gap-1 sm:gap-1.5" />
     </div>
   );
 }
@@ -185,8 +187,10 @@ export function PortalPageFooterActions({
       ) : null}
       <div
         className={cn(
-          "fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background shadow-[var(--shadow-lg)]",
-          pinned ? "bg-background/98 backdrop-blur-sm" : "bg-background/95 backdrop-blur-md",
+          // A hairline over the canvas, not a shadowed white slab: the dock should
+          // read as the page's own foot, the way Mobbin record pages pin actions.
+          "fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-background",
+          pinned ? "bg-background/95 backdrop-blur-sm" : "bg-background/95 backdrop-blur-md shadow-[var(--shadow-lg)]",
           rowVariant === "header" ? "px-2 py-2 max-md:pb-2" : "px-4 py-3",
           "pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]",
           "max-lg:bottom-[var(--portal-native-bottom-nav-inset,0px)]",

@@ -9,7 +9,7 @@ import { isAppNavHiddenInNativeShell } from "@/lib/portals/nav-groups";
 
 describe("ios-app-download", () => {
   it("defaults to the canonical App Store URL", () => {
-    expect(iosAppDownloadUrl()).toBe(`https://apps.apple.com/app/id${IOS_APP_STORE_APP_ID}`);
+    expect(iosAppDownloadUrl()).toBe(`https://apps.apple.com/us/app/proplane/id${IOS_APP_STORE_APP_ID}`);
   });
 
   it("honors NEXT_PUBLIC_IOS_APP_DOWNLOAD_URL override", () => {

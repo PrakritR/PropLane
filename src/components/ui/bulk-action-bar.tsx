@@ -1,16 +1,26 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { createContext, useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+/** How many actions the floating pill shows before folding the rest into "…". */
+export const BULK_BAR_VISIBLE_ACTIONS = 5;
+
 /**
- * The floating bulk bar — a dark pill that appears above the list while rows
- * are selected: "2 selected · Unlist · Share · Delete · ✕", the way Linear and
- * Notion surface bulk actions. It used to be a full-width light dock; the pill
- * reads as a temporary tool rather than a second footer, and the count is the
- * anchor the actions hang off, so it is shown here regardless of `hideCount`
- * (kept for the call sites that pass it).
+ * Read by {@link PortalAdaptiveActionRow}: inside the pill, show up to this
+ * many actions by count rather than by measured width (the pill sizes itself
+ * to its content, so a width measurement there is circular).
+ */
+export const BulkBarActionLimitContext = createContext<number | null>(null);
+
+/**
+ * The floating bulk bar — a pill that appears above the list while rows are
+ * selected: "Unlist · Share · Delete · ✕", the way Linear and Notion surface
+ * bulk actions. It used to be a full-width light dock. The count label is
+ * gone (round 3): the checked rows already say what is selected, and the
+ * count made the pill read as a status line rather than a set of buttons.
+ * The count still feeds the accessible name and `data-count`.
  *
  * `placement="list-pane"` keeps the older in-flow footer for Communication's
  * left column, which has its own scroll container.
@@ -21,9 +31,9 @@ export function BulkActionBar({
   className,
   /** Kept for callers; the pill no longer differs by variant. */
   variant = "default",
-  /** Accepted for callers; the pill always leads with the count. */
+  /** Accepted for callers; the pill no longer shows a count at all. */
   hideCount = false,
-  /** Override the default "{count} selected" label. */
+  /** Accepted for callers; used only for the accessible name. */
   countLabel,
   /**
    * `viewport` — floating pill above the portal bottom (default).
@@ -98,26 +108,29 @@ export function BulkActionBar({
     >
       <div
         className={cn(
-          "pointer-events-auto flex max-w-full min-w-0 items-center gap-1 rounded-full bg-foreground py-1.5 pl-4 pr-1.5 text-background shadow-[0_12px_32px_-8px_rgba(11,27,58,0.45)]",
-          // The actions are ordinary outline Buttons; on the dark pill they wear
-          // a light hairline and light text, and a danger action reads rose.
-          "[&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!border-background/25 [&_button]:!bg-transparent [&_button]:!px-3 [&_button]:!text-[13px] [&_button]:!text-background [&_button]:!shadow-none [&_button:hover]:!bg-background/15",
-          "[&_.portal-danger-outline]:!border-rose-300/50 [&_.portal-danger-outline]:!text-rose-200 [&_.portal-danger-outline:hover]:!bg-rose-400/20",
+          // A floating white pill in the site's own palette: hairline border, a
+          // soft lift. (Started life as a dark pill; the captain asked for the
+          // theme's colours instead.)
+          "pointer-events-auto flex max-w-full min-w-0 items-center gap-1 rounded-full border border-border bg-card p-1.5 text-foreground shadow-[0_16px_40px_-12px_rgba(11,27,58,0.35)] [html[data-theme=dark]_&]:shadow-[0_16px_40px_-12px_rgba(0,0,0,0.7)]",
+          "[&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!px-3 [&_button]:!text-[13px] [&_button]:!shadow-none",
         )}
+        data-count={count}
+        title={label}
       >
-        <p className="mr-2 shrink-0 whitespace-nowrap text-[13px] font-semibold tabular-nums">{label}</p>
-        <div
-          className="flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        >
-          {children}
-        </div>
+        <BulkBarActionLimitContext.Provider value={BULK_BAR_VISIBLE_ACTIONS}>
+          <div
+            className="flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {children}
+          </div>
+        </BulkBarActionLimitContext.Provider>
         {onClear ? (
           <button
             type="button"
             onClick={onClear}
             aria-label="Clear selection"
             data-attr="bulk-bar-clear"
-            className="ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-background/80 hover:bg-background/15 hover:text-background"
+            className="ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted hover:bg-accent/60 hover:text-foreground"
           >
             <X className="h-4 w-4" aria-hidden />
           </button>

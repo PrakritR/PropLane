@@ -36,9 +36,10 @@ describe("plan communication allowance copy (PRP-282)", () => {
     expect(msg).toMatch(/does not enable automatic charges/i);
   });
 
-  it("the public pricing FAQ answers the allowance question with the same three amounts", () => {
+  it("the public pricing page explains the allowance with the same three amounts", () => {
     const src = readFileSync("src/app/(public)/pricing/page.tsx", "utf8");
-    expect(src).toContain("How much texting, calling and AI assistant use is included?");
+    // Its own block on the page, not a 90-word FAQ answer.
+    expect(src).toContain("Texting, calling and AI use");
     for (const tier of ["free", "pro", "business"]) expect(src).toContain(`COMMS_INCLUDED_ALLOWANCE_CENTS.${tier}`);
   });
 });

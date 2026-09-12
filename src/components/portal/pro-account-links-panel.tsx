@@ -23,7 +23,7 @@ import {
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
-import { TeamInviteLinkBlock, TeamMembersBlock, TeamPendingInvitesBlock, type TeamMemberRow } from "@/components/portal/pro-team-blocks";
+import { TeamMembersBlock, TeamPendingInvitesBlock, type TeamMemberRow } from "@/components/portal/pro-team-blocks";
 import { cn } from "@/lib/utils";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -2518,14 +2518,6 @@ export function ProAccountLinksPanel({
               <div className="flex justify-end gap-2">
                 <Button
                   type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  onClick={() => setPropertyPermissionsModal(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
                   className="rounded-full"
                   data-attr="co-manager-save-permissions"
                   onClick={() => {
@@ -2749,6 +2741,8 @@ export function ProAccountLinksPanel({
         propertiesLabel: entry.preview || "No houses yet",
         joinedAt: entry.kind === "remote" ? entry.invite.respondedAt : null,
         onAccess: () => openTeamDetail(entry.id),
+        checked: selectedIds.has(entry.id),
+        onSelectedChange: () => toggleSelected(entry.id),
       })),
   ];
   const pendingInvites = [...visibleIncomingPending, ...visibleOutgoingPending];
@@ -2759,7 +2753,7 @@ export function ProAccountLinksPanel({
     />
   ) : (
     <div className={cn(PORTAL_LIST_PAGE_BODY, "space-y-3")} data-attr="co-manager-unified-view">
-      <TeamMembersBlock members={memberRows} onInvite={openLinkModal} inviteDisabled={linkAccountBlocked} />
+      <TeamMembersBlock members={memberRows} />
       <TeamPendingInvitesBlock
         invites={pendingInvites}
         propertiesLabel={(inv) => teamPropertyPreview(inv.assignedPropertyIds, teamPropertyLabel) || "No houses yet"}
@@ -2770,7 +2764,6 @@ export function ProAccountLinksPanel({
         onDecline={(inv) => void respondInvite(inv.id, "reject")}
         onOpen={(inv) => openTeamDetail(inv.id)}
       />
-      <TeamInviteLinkBlock onCreate={openInviteLinkModal} disabled={inviteLinkBlocked} />
     </div>
   );
 
@@ -2857,6 +2850,22 @@ export function ProAccountLinksPanel({
     </Button>
   );
 
+  // One door each: email invite is the primary, the shareable link is the
+  // secondary beside it. Neither is repeated inside the members block or as
+  // its own card below the list.
+  const inviteLinkAction = (
+    <Button
+      type="button"
+      variant="outline"
+      className="rounded-full"
+      data-attr="team-invite-link-create"
+      disabled={inviteLinkBlocked}
+      onClick={openInviteLinkModal}
+    >
+      Copy invite link
+    </Button>
+  );
+
   const teamBody = (
     <>
       <PortalListControlStack
@@ -2866,6 +2875,7 @@ export function ProAccountLinksPanel({
         actions={
           <>
             {teamFilterSheet}
+            {inviteLinkAction}
             {bare ? inviteAction : null}
           </>
         }

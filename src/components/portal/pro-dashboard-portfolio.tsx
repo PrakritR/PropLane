@@ -8,7 +8,6 @@
  */
 
 import Link from "next/link";
-import { ArrowUpRight, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { propertyDetailHref, propertyListHref } from "@/lib/portal-detail-routes";
 import {
@@ -92,68 +91,6 @@ export function readPortfolioSnapshot(userId: string | null): {
     }
   }
   return { cards, propertyCount: cards.length, rentableSpaces, draftCount };
-}
-
-export function PortfolioMetricCard({
-  label,
-  value,
-  detail,
-  href,
-  dataAttr,
-}: {
-  label: string;
-  value: string;
-  detail: string;
-  href: string;
-  dataAttr?: string;
-}) {
-  return (
-    <Link
-      href={href}
-      data-attr={dataAttr}
-      className="flex min-w-0 flex-col gap-1 rounded-2xl border border-border bg-card px-4 py-4 shadow-sm transition hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
-    >
-      <span className="text-[13px] text-muted">{label}</span>
-      <span className="text-[1.75rem] font-semibold leading-none tracking-[-0.02em] tabular-nums text-foreground">{value}</span>
-      <span className="text-xs text-muted">{detail}</span>
-    </Link>
-  );
-}
-
-export function PortfolioNextStep({
-  title,
-  detail,
-  actionLabel,
-  href,
-  dataAttr,
-}: {
-  title: string;
-  detail: string;
-  actionLabel: string;
-  href: string;
-  dataAttr?: string;
-}) {
-  return (
-    <div
-      className="flex flex-wrap items-center gap-3 rounded-2xl border border-primary/20 bg-accent px-4 py-3.5 sm:gap-4 sm:px-5"
-      data-attr={dataAttr}
-    >
-      <span className="grid size-11 shrink-0 place-items-center rounded-xl bg-card text-primary shadow-sm" aria-hidden>
-        <Sparkles className="size-5" strokeWidth={1.75} />
-      </span>
-      <div className="min-w-0 flex-1 basis-[12rem]">
-        <p className="text-[15px] font-semibold text-foreground">{title}</p>
-        <p className="text-sm text-muted">{detail}</p>
-      </div>
-      <Link
-        href={href}
-        className="inline-flex min-h-10 shrink-0 items-center justify-center gap-1 rounded-lg bg-card px-3.5 text-sm font-semibold text-primary shadow-sm transition hover:bg-card/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 max-sm:w-full"
-      >
-        {actionLabel}
-        <ArrowUpRight className="size-4" aria-hidden />
-      </Link>
-    </div>
-  );
 }
 
 /**
