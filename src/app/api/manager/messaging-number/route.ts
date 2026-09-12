@@ -15,7 +15,10 @@ import {
   getEffectiveManagerSmsEntitlement,
   reconcileManagerSmsEntitlement,
 } from "@/lib/sms/manager-sms-entitlement.server";
-import { isPureCoManagerWorkspace, resolveWorkspaceOwnerForWorkNumber } from "@/lib/sms/manager-workspace-role.server";
+import {
+  isPureCoManagerWorkspace,
+  resolveWorkspaceWorkNumbers,
+} from "@/lib/sms/manager-workspace-role.server";
 import { loadManagerAutomationSettings } from "@/lib/payment-automation-settings";
 import { provisionManagerNumber } from "@/lib/sms/manager-number-provisioning.server";
 import {
@@ -158,20 +161,21 @@ async function buildStatus(
   const commsBillingAllowed = billing.allowed;
   const canRequestBilling = entitlementCanBeReconciled;
 
-  // The workspace's front door for a co-manager without a line of their own.
-  let workspaceNumber: { phoneNumber: string; ownerUserId: string } | null = null;
-  if (pureCoManager && !number) {
-    const workspace = await resolveWorkspaceOwnerForWorkNumber(db, userId).catch(() => null);
-    if (workspace?.sharedFromCoManager) {
-      const ownerNumber = await db
-        .from("manager_sms_numbers")
-        .select("phone_number, provision_state")
-        .eq("manager_user_id", workspace.ownerUserId)
-        .maybeSingle();
-      const phone = typeof ownerNumber.data?.phone_number === "string" ? ownerNumber.data.phone_number.trim() : "";
-      if (phone && normalizeProvisionState(ownerNumber.data?.provision_state) === "active") {
-        workspaceNumber = { phoneNumber: phone, ownerUserId: workspace.ownerUserId };
-      }
+  // One work number per workspace: a co-manager reads the owner's line and
+  // never gets a Request button. Their own legacy row (bought before numbers
+  // were workspace-owned) still shows under `number` so Settings can say it is
+  // being retired, but it is never the number the UI leads with.
+  let workspaceNumber: ManagerMessagingNumberStatus["workspaceNumber"] = null;
+  if (pureCoManager) {
+    const workspace = await resolveWorkspaceWorkNumbers(db, userId).catch(() => null);
+    const primary = workspace?.numbers[0];
+    if (primary) {
+      workspaceNumber = {
+        phoneNumber:
+          normalizeProvisionState(primary.provisionState) === "active" ? primary.phoneNumber : null,
+        ownerUserId: primary.ownerUserId,
+        ownerName: primary.ownerName,
+      };
     }
   }
 
@@ -188,6 +192,7 @@ async function buildStatus(
     // manager: POST performs the authoritative Stripe/Apple reconciliation.
     requestedAtSignup: automationSettings?.workNumberRequestedAtSignup === true,
     canRequest:
+      !pureCoManager &&
       canRequestBilling &&
       provisioningEnvEnabled &&
       modeAllowsManager &&
@@ -222,6 +227,7 @@ function publicStatus(
   return {
     mode: status.mode,
     workspaceRole: status.workspaceRole,
+    workspaceNumber: status.workspaceNumber ?? null,
     provisioningAvailable: status.provisioningAvailable,
     sendingAvailable: status.sendingAvailable,
     planTier: status.planTier,
@@ -337,6 +343,26 @@ export async function POST(req: Request) {
       {
         headers: { "Cache-Control": "private, no-store" },
       },
+    );
+  }
+
+  // A work number belongs to the workspace. A co-manager who owns no houses
+  // sends from the owner's line and may not buy a second one for the same
+  // workspace — refused before any billing or provider work.
+  let pureCoManager: boolean;
+  try {
+    pureCoManager = await isPureCoManagerWorkspace(actor.db, actor.userId, { throwOnError: true });
+  } catch {
+    return NextResponse.json({ error: "Workspace unavailable. Try again." }, { status: 503 });
+  }
+  if (pureCoManager) {
+    return NextResponse.json(
+      {
+        error:
+          "Your workspace already has a work number. Texts go out from the number your workspace owner set up.",
+        code: "workspace_number_shared",
+      },
+      { status: 409, headers: { "Cache-Control": "private, no-store" } },
     );
   }
 

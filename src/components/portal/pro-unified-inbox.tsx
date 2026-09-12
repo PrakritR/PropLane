@@ -7,7 +7,7 @@ import {
 } from "@/lib/portal-communication-nav";
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
 import { ManagerWorkNumberCard } from "@/components/portal/pro-work-number-card";
-import { ManagerSmsPanel, type ManagerSmsPanelHandle } from "@/components/portal/pro-sms-panel";
+import { ManagerSmsPanel, smsOutboundPreviewPrefix, type ManagerSmsPanelHandle } from "@/components/portal/pro-sms-panel";
 import {
   CommunicationListBulkBar,
 } from "@/components/portal/communication-list-bulk-bar";
@@ -545,8 +545,8 @@ export function ManagerUnifiedInbox({
           ),
           previewPrefix: isVoiceCallNoteSid(lastMessage?.messageSid)
             ? voiceCallListPreviewPrefix()
-            : lastOutbound
-              ? "You: "
+            : lastOutbound && lastMessage
+              ? smsOutboundPreviewPrefix(lastMessage)
               : undefined,
           time: lastMessage ? iosListTimestamp(lastMessage.createdAt) : "",
           unread,

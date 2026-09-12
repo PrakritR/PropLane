@@ -3,6 +3,10 @@
 
 # Co-manager access (module scoping + granular levels)
 
+**A co-manager never has a work number of their own.** The workspace's one
+number is the owner's; a co-manager sends and reads on it within their inbox
+grant. See `docs/agents/sms-system.md` "One work number per WORKSPACE".
+
 **A co-manager link grants nothing until a module is granted.** Assignment is
 NOT the grant: an accepted `account_link_invites` row whose per-property
 permissions entry is absent or `{}` confers **no access**. Grants are

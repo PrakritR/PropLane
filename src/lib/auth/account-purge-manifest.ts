@@ -378,6 +378,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     resident: { ids: ["resident_user_id"] },
   },
   {
+    // Which house(s) a Communication thread is about. Owned by the workspace's
+    // manager; the co-manager who tagged it is recorded, not an owner.
+    table: "manager_sms_conversation_houses",
+    phase: 2,
+    manager: { ids: ["manager_user_id", "tagged_by_user_id"] },
+  },
+  {
     table: "manager_purchases",
     phase: 2,
     // The email match is the load-bearing half: `user_id` is `on delete set null`, so a

@@ -59,11 +59,17 @@ export type ManagerMessagingNumberStatus = {
   entitlement: ManagerMessagingEntitlement;
   number: ManagerMessagingNumber | null;
   /**
-   * The workspace's shared line when this account has none of its own — a
-   * co-manager reads the owner's number here. Display only: the number stays
-   * the owner's row; sends and inbound routing already answer for the workspace.
+   * The workspace's shared line, for a co-manager. A work number belongs to the
+   * workspace, so a pure co-manager reads the owner's number here and never
+   * requests one of their own. `phoneNumber` is null while the owner has not
+   * set one up; `ownerName` tells the co-manager whose job that is. Absent for
+   * an owner (their own `number` is the workspace's).
    */
-  workspaceNumber?: { phoneNumber: string; ownerUserId: string } | null;
+  workspaceNumber?: {
+    phoneNumber: string | null;
+    ownerUserId: string;
+    ownerName: string | null;
+  } | null;
   canRequest: boolean;
   /**
    * They ticked "set up a PropLane number" while creating the account. Carried

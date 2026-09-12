@@ -313,6 +313,18 @@ async function persistSubmittedConversationLog(
   // Legacy rows without an explicit key may only use logger derivation from
   // this already trusted, owner-scoped outbox identity. Explicit bad keys never
   // take this path.
+  // A send that names a house (from a resident's row, a listing's leads) is
+  // the one outbound signal with a real property id: tag the thread with it.
+  if (outboxNamesHouse(row) && key.conversationKey) {
+    const { tagConversationHouse } = await import("@/lib/sms/conversation-houses.server");
+    await tagConversationHouse(db, {
+      managerUserId: row.manager_user_id,
+      conversationKey: key.conversationKey,
+      propertyId: String(row.property_id),
+      source: "outbound",
+      taggedByUserId: row.actor_user_id ?? null,
+    }).catch(() => false);
+  }
   const logged = await logManagerSmsMessage(db, {
     managerUserId: row.manager_user_id,
     residentPhone: row.recipient_phone,
@@ -797,4 +809,8 @@ export async function loadUnknownSmsInventory(
     .map((row) => String(row.id ?? "").trim())
     .filter(Boolean);
   return { ok: true, count: count ?? outboxIds.length, outboxIds };
+}
+
+function outboxNamesHouse(row: { property_id?: unknown }): boolean {
+  return typeof row.property_id === "string" && row.property_id.trim().length > 0;
 }

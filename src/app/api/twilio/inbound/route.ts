@@ -165,8 +165,8 @@ export async function POST(req: Request) {
   }
 
   // Pooled proxy lines are retired. Only owned work numbers route replies.
-  const managerId = ownedNumber?.managerId ?? "";
-  if (!managerId) {
+  const numberOwnerId = ownedNumber?.managerId ?? "";
+  if (!numberOwnerId) {
     const limit = await rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000);
     if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
     if (!limit.ok) {
@@ -185,6 +185,18 @@ export async function POST(req: Request) {
     return twimlOk();
   }
 
+  // A work number is the WORKSPACE's front door, not the row it was bought
+  // under. A line still held by a pure co-manager (bought before numbers became
+  // workspace-owned) answers for the owner whose houses they manage: residents
+  // resolve against the owner's rows, prospects reach the owner's leasing
+  // agent, and every thread lands in the owner's inbox — where the co-manager
+  // already reads it. The texter never learns which teammate set the line up.
+  let managerId: string;
+  try {
+    managerId = (await resolveWorkspaceOwnerForWorkNumber(db, numberOwnerId, { throwOnError: true })).ownerUserId;
+  } catch {
+    return NextResponse.json({ error: "Workspace unavailable." }, { status: 503 });
+  }
 
   if (!messageSid) {
     return NextResponse.json({ error: "MessageSid is required." }, { status: 400 });

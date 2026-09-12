@@ -1011,6 +1011,26 @@ export async function handleClawLeasingInbound(args: {
   const landlordId =
     hinted?.managerUserId || managers[0]?.userId || scopedManagerId || null;
 
+  // The prospect named a house (id or address fragment) and it resolved to one
+  // of this workspace's listings: that is an explicit match, so the thread is
+  // tagged to it. The `defaultPropertyId` fallback below is a guess for
+  // wording only and is deliberately NOT a tag — a wrong tag would put this
+  // prospect in front of the wrong teammate.
+  if (hinted?.propertyId && landlordId && (!hinted.managerUserId || hinted.managerUserId === landlordId)) {
+    const { tagConversationHouse } = await import("@/lib/sms/conversation-houses.server");
+    await tagConversationHouse(createSupabaseServiceRoleClient(), {
+      managerUserId: landlordId,
+      conversationKey: buildConversationKey({
+        ownerManagerUserId: landlordId,
+        role: "prospect",
+        counterpartyUserId: null,
+        counterpartyPhone: from,
+      }),
+      propertyId: hinted.propertyId,
+      source: "leasing",
+    }).catch(() => false);
+  }
+
   // Persist prospect inbound so Communication → SMS shows both sides of the
   // Claw thread (outbound already logs via sendFromManagerWorkNumber).
   if (landlordId) {

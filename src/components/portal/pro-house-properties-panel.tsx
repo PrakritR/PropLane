@@ -5,6 +5,8 @@ import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { ImageOff } from "lucide-react";
+import { propertyRowAddress, propertyRowSummary, propertyRowThumbnail } from "@/lib/property-row-summary";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenuItem,
@@ -64,7 +66,6 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import {
-  adminPropertyRentDisplayLabel,
   compareAdminPropertyRowsForDisplay,
   deleteManagerPropertyDraft,
   deleteUnlistedManagerProperty,
@@ -1617,14 +1618,30 @@ export function ManagerHousePropertiesPanel({
       <div className={PORTAL_LIST_PAGE_BODY}>
         {rows.map(({ sourceBucket, row, linked }) => {
           const rowKey = row.adminRefId + (row.listingId ?? "");
-          const address = `${row.address}${row.zip ? `, ${row.zip}` : ""}`;
-          const summary = `${adminPropertyRentDisplayLabel(row)} · ${row.beds} bd / ${row.baths} ba · ${row.neighborhood}`;
+          const thumb = propertyRowThumbnail(row);
           return (
             <PortalPropertyRecordRow
               key={rowKey}
               title={managerPropertyRowTitle(row, sourceBucket)}
-              address={address}
-              summary={summary}
+              address={propertyRowAddress(row)}
+              summary={propertyRowSummary(row)}
+              leading={
+                thumb ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={thumb}
+                    alt=""
+                    className="h-14 w-[4.5rem] rounded-lg object-cover"
+                  />
+                ) : (
+                  <div
+                    aria-hidden
+                    className="grid h-14 w-[4.5rem] place-items-center rounded-lg bg-accent/60 text-muted"
+                  >
+                    <ImageOff className="h-4 w-4" />
+                  </div>
+                )
+              }
               checked={selectedIds.has(rowKey)}
               onSelectedChange={() => toggleSelected(rowKey)}
               badge={

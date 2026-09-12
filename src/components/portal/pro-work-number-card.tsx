@@ -49,28 +49,55 @@ export function ManagerWorkNumberCard({
     return () => window.clearTimeout(timer);
   }, [copied]);
 
-  const ownPhone = status?.number?.phoneNumber?.trim() || null;
-  const sharedPhone = status?.workspaceNumber?.phoneNumber?.trim() || null;
-  const phone = ownPhone ?? sharedPhone;
+  if (isDemoModeActive()) return null;
+
+  // One work number per workspace. A co-manager leads with the owner's line —
+  // the number their replies actually go out from — never a line of their own.
+  const coManager = status?.workspaceRole === "co_manager";
+  const workspace = status?.workspaceNumber ?? null;
+  if (coManager && workspace && !workspace.phoneNumber) {
+    // The owner has not set one up. Unlike an owner, the co-manager has no
+    // setup button to fall back to, so the card has to say whose job it is.
+    const owner = workspace.ownerName?.trim() || "your workspace owner";
+    return (
+      <PortalInboxContactCard
+        dataAttr="manager-work-number-card"
+        value="No work number yet"
+        label="Workspace number"
+        note={`Ask ${owner} to set one up in Settings → Messaging`}
+        noteTone="warn"
+        leading={
+          <span className={PORTAL_INBOX_CONTACT_CARD_GLYPH_CLASS}>
+            <Phone className="h-[18px] w-[18px]" strokeWidth={1.9} />
+          </span>
+        }
+        actions={[]}
+      />
+    );
+  }
+
+  const phone = (coManager ? workspace?.phoneNumber?.trim() : status?.number?.phoneNumber?.trim()) || null;
   // No number is not an empty state here — the header's setup button is the
   // surface for that, so this card is simply absent.
-  if (!phone || isDemoModeActive()) return null;
+  if (!phone) return null;
 
   const label = formatSmsPhoneLabel(phone) || phone;
   const ready = Boolean(status?.canSend) && Boolean(status?.sendingAvailable);
-  const caption = ownPhone
-    ? workNumberReadinessCaption({
+  const caption = coManager
+    ? `${workspace?.ownerName?.trim() ? `${workspace.ownerName.trim()}'s workspace` : "Shared by your workspace"} · ${
+        ready ? "Ready to send" : "Finishing setup"
+      }`
+    : workNumberReadinessCaption({
         canSend: Boolean(status?.canSend),
         sendingAvailable: Boolean(status?.sendingAvailable),
         carrierRegistered: status?.number?.carrierRegistrationState === "registered",
-      })
-    : "Shared by everyone in this workspace";
+      });
 
   return (
     <PortalInboxContactCard
       dataAttr="manager-work-number-card"
       value={label}
-      label="Workspace work number"
+      label={coManager ? "Workspace number" : "Your work number"}
       note={caption}
       noteTone={ready ? "muted" : "warn"}
       leading={

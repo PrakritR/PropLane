@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isPlaceholderManagerWorkNumber } from "@/lib/claw-leasing-links";
 import { ensureManagerSmsNumber } from "@/lib/twilio-provisioning";
+import { isPureCoManagerWorkspace } from "@/lib/sms/manager-workspace-role.server";
 
 export function managerNeedsWorkNumber(smsFromNumber: string | null | undefined): boolean {
   const current = String(smsFromNumber ?? "").trim();
@@ -49,9 +50,11 @@ export async function listManagersNeedingWorkNumbers(
   const out: Array<{ userId: string; smsFromNumber: string | null }> = [];
   for (const userId of managerIds) {
     const smsFromNumber = byId.get(userId) ?? null;
-    if (managerNeedsWorkNumber(smsFromNumber)) {
-      out.push({ userId, smsFromNumber });
-    }
+    if (!managerNeedsWorkNumber(smsFromNumber)) continue;
+    // One number per workspace: a co-manager with no houses of their own
+    // shares the owner's line and is never a backfill candidate.
+    if (await isPureCoManagerWorkspace(db, userId)) continue;
+    out.push({ userId, smsFromNumber });
   }
   return out;
 }
