@@ -35,6 +35,18 @@ beforeEach(() => {
 });
 
 describe("sendPropLaneSms consent gate on the Claw path (campaign-rejection fix)", () => {
+  it("rejects a durable retired-rail reply before consent or any provider call", async () => {
+    const res = await sendPropLaneSms({
+      to: "+12065552222",
+      text: "hi",
+      prospectBurst: { burstId: "burst-retired", revision: 1, workerId: "worker", transport: "claw" },
+    });
+    expect(res).toEqual({ ok: false, channel: "claw", error: "retired_transport_unsupported" });
+    expect(optedOutMock).not.toHaveBeenCalled();
+    expect(sendClawMock).not.toHaveBeenCalled();
+    expect(sendSmsMock).not.toHaveBeenCalled();
+  });
+
   it("blocks an opted-out recipient BEFORE the Claw send", async () => {
     optedOutMock.mockResolvedValue(true);
     const res = await sendPropLaneSms({ to: "+12065552222", text: "hi", sendClass: "automated" });

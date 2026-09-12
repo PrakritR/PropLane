@@ -43,7 +43,10 @@ function makeDb() {
           return builder;
         },
         eq: () => builder,
-        gte: async () => ({ count: 0 }),
+        in: () => builder,
+        gte: () => table === "agent_messages"
+          ? Promise.resolve({ count: 0 })
+          : builder,
         order: () => builder,
         limit: async () => ({ data: [] }),
         insert(values: Record<string, unknown>) {
@@ -198,7 +201,7 @@ describe("leasing SMS quiet handoff runtime", () => {
   it("replays a stored quiet disposition without rerunning the model or tool", async () => {
     mocks.reserveCredit.mockResolvedValue({ allowed: true, duplicate: true });
     mocks.readTurn.mockResolvedValue({
-      reply: "", disposition: "quiet_handoff", sessionId: "session-1", inboundMessageId: "inbound-1", assistantMessageId: null, traceId: "trace-quiet",
+      reply: "", suppressed: false, disposition: "quiet_handoff", sessionId: "session-1", inboundMessageId: "inbound-1", assistantMessageId: null, traceId: "trace-quiet",
     });
     const { runLeasingSmsAgentTurn } = await import("@/lib/agent/leasing-sms-agent.server");
 
@@ -209,5 +212,37 @@ describe("leasing SMS quiet handoff runtime", () => {
     expect(turn).toMatchObject({ reply: "", disposition: "quiet_handoff" });
     expect(mocks.runAgentTurn).not.toHaveBeenCalled();
     expect(mocks.agentMessageInserts).toHaveLength(1);
+  });
+
+  it("replays a stored burst suppression with its revision context without rerunning the model", async () => {
+    mocks.reserveCredit.mockResolvedValue({ allowed: true, duplicate: true });
+    mocks.readTurn.mockResolvedValue({
+      reply: "",
+      suppressed: true,
+      suppression: { toolName: "suppress_redundant_reply", referenceMessageId: "out-1", reason: "repeated_question" },
+      sessionId: "session-1",
+      inboundMessageId: "inbound-1",
+      assistantMessageId: null,
+      traceId: "trace-suppressed",
+      candidateContext: [{ tool: "get_listing_details", output: { found: true } }],
+      shadowInput: { burstId: "burst-1", burstRevision: 4 },
+    });
+    const { runLeasingSmsAgentTurn } = await import("@/lib/agent/leasing-sms-agent.server");
+
+    const turn = await runLeasingSmsAgentTurn(makeDb() as never, {
+      landlordId: "manager-1",
+      prospectPhoneE164: "+12065550123",
+      inboundText: "Can you repeat that?",
+      inboundMessageSid: "SM-suppressed-replay",
+      prospectBurst: { burstId: "burst-1", revision: 4, workerId: "worker-1" },
+    });
+
+    expect(turn).toMatchObject({
+      reply: "",
+      suppressed: true,
+      suppression: { referenceMessageId: "out-1" },
+      shadowInput: { burstId: "burst-1", burstRevision: 4 },
+    });
+    expect(mocks.runAgentTurn).not.toHaveBeenCalled();
   });
 });

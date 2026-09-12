@@ -275,7 +275,7 @@ function houseKeyFromParts(buildingName: string | null | undefined, address: str
 export type PropertyTourSlotHosts = Record<string, PropertyManagerEntry[]>;
 
 export type ListOpenTourSlotsResult =
-  | { ok: true; slotHosts: PropertyTourSlotHosts }
+  | { ok: true; slotHosts: PropertyTourSlotHosts; resolution: "resolved" | "unavailable" }
   | { ok: false; error: string };
 
 /**
@@ -346,7 +346,7 @@ export async function listOpenTourSlots(
       // An unresolved property offers nothing. The route deliberately serves
       // this `no-store`: it is often a property that just went live, and a
       // cached empty grid keeps it dead.
-      return { ok: true, slotHosts: {} };
+      return { ok: true, slotHosts: {}, resolution: "unavailable" };
     }
 
     const directMatches = propertyRecords.filter(({ property }) => {
@@ -369,7 +369,9 @@ export async function listOpenTourSlots(
       .filter(({ status }) => status === PUBLICLY_BOOKABLE_PROPERTY_STATUS);
 
     if (matchingPropertyRecords.length === 0) {
-      return { ok: true, slotHosts: {} };
+      // Unknown and nonpublic are intentionally indistinguishable to this
+      // public-capability caller: status must not become an existence oracle.
+      return { ok: true, slotHosts: {}, resolution: "unavailable" };
     }
 
     const managerIds = [
@@ -597,10 +599,9 @@ export async function listOpenTourSlots(
       }
     }
 
-    return { ok: true, slotHosts };
+    return { ok: true, slotHosts, resolution: "resolved" };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to load property tour availability.";
     return { ok: false, error: message };
   }
 }
-

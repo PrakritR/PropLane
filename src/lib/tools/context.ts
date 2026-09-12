@@ -80,6 +80,12 @@ export type LeasingSmsAgentScope = {
    * False/undefined on a per-manager work number (scoped to that manager only).
    */
   crossCatalog?: boolean;
+  /** Confirmed submitted/delivered replies eligible for semantic repeat suppression. */
+  recentDeliveredReplies?: readonly {
+    messageId: string;
+    text: string;
+    submittedAt: string;
+  }[];
 };
 
 /**

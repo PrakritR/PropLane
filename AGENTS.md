@@ -50,7 +50,11 @@ or `docs/agents/*`. Do not invent a second source of truth for the same concern.
 
 ## Hard stops
 
-- **Never write production data.** Dev/test only (`emstjswhotsnyksqhqyf`). Staging DB is the only other write target. See `.cursor/rules/no-production-data-writes.mdc`.
+- **Production changes require explicit user authorization.** Default routine work to
+  dev/test (`emstjswhotsnyksqhqyf`) and use staging for release QA. Before any
+  production schema or data change, resolve the exact target, preserve a backup,
+  use a reviewed fail-closed apply path, and verify the result. Authorization for
+  one bounded change does not authorize unrelated production mutations.
 - **Never write the locked live listings** (5257 / 5259 Brooklyn, 4709A 8th Ave). See `.cursor/rules/no-production-live-listings.mdc`.
 - **Never skip `staging` outside the dated exception.** Live ships from
   `production` only after QA by default. Until 2026-09-15T04:00:00Z, an

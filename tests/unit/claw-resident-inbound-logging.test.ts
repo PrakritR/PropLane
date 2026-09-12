@@ -14,6 +14,10 @@ const logManagerSmsMessage = vi.fn(async (): Promise<boolean> => true);
 const findResidentProfileByPhone = vi.fn();
 const findThreadByResidentPhone = vi.fn();
 const openClawResidentThread = vi.fn();
+const resolveRegisteredClawManagers = vi.fn(async () => [] as unknown[]);
+const resolveMappedManagerContacts = vi.fn(async () => [] as unknown[]);
+const durableProspectSmsEnabled = vi.fn(() => false);
+const enqueueProspectSmsBurst = vi.fn();
 const runResidentSmsAction = vi.fn(async () => ({
   classification: {
     intent: "balance",
@@ -33,6 +37,11 @@ const runResidentSmsAction = vi.fn(async () => ({
 vi.mock("@/lib/proplane-sms-transport.server", () => ({
   sendPropLaneSms: vi.fn(async () => ({ ok: true })),
   sendFromManagerWorkNumber: (...args: unknown[]) => sendFromManager(...(args as [unknown])),
+}));
+
+vi.mock("@/lib/sms/prospect-sms-burst.server", () => ({
+  durableProspectSmsEnabled: () => durableProspectSmsEnabled(),
+  enqueueProspectSmsBurst: (...args: unknown[]) => enqueueProspectSmsBurst(...args),
 }));
 
 vi.mock("@/lib/manager-sms-messages.server", () => ({
@@ -60,8 +69,8 @@ vi.mock("@/lib/claw-relay.server", () => ({
 
 vi.mock("@/lib/claw-resident-messaging.server", () => ({
   clawMappedManagerEmails: () => [],
-  resolveMappedManagerContacts: vi.fn(async () => []),
-  resolveRegisteredClawManagers: vi.fn(async () => []),
+  resolveMappedManagerContacts: (...args: unknown[]) => resolveMappedManagerContacts(...args),
+  resolveRegisteredClawManagers: (...args: unknown[]) => resolveRegisteredClawManagers(...args),
   findResidentProfileByPhone: (...args: unknown[]) => findResidentProfileByPhone(...args),
   findThreadByResidentPhone: (...args: unknown[]) => findThreadByResidentPhone(...args),
   forwardResidentMessageToManagers: vi.fn(async () => ({ forwardedTo: [] })),
@@ -122,6 +131,10 @@ describe("handleClawLeasingInbound — known resident thread", () => {
       lastMessageAt: new Date(0).toISOString(),
     });
     openClawResidentThread.mockResolvedValue(null);
+    resolveRegisteredClawManagers.mockResolvedValue([]);
+    resolveMappedManagerContacts.mockResolvedValue([]);
+    durableProspectSmsEnabled.mockReturnValue(false);
+    enqueueProspectSmsBurst.mockReset();
   }, 30000);
 
   it("persists the resident's raw inbound text (direction=inbound) for the two-way portal thread", async () => {
@@ -402,5 +415,28 @@ describe("handleClawLeasingInbound — known resident thread", () => {
     expect(redelivered.replied).toBe(true);
     expect(sendFromManager).toHaveBeenCalledTimes(1);
     expect(sendFromManager).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries the same prospect source after durable queue failure in one warm process", async () => {
+    findResidentProfileByPhone.mockResolvedValue(null);
+    findThreadByResidentPhone.mockResolvedValue(null);
+    resolveRegisteredClawManagers.mockResolvedValue([{ userId: "mgr-1", defaultPropertyId: null, defaultPropertyLabel: null }]);
+    resolveMappedManagerContacts.mockResolvedValue([{ userId: "mgr-1", email: "manager@example.com", fullName: "Manager", personalPhone: null }]);
+    durableProspectSmsEnabled.mockReturnValue(true);
+    enqueueProspectSmsBurst.mockClear();
+    const { handleClawLeasingInbound } = await import("@/lib/claw-leasing-bot.server");
+    const input = {
+      from: "+15105794001",
+      text: "Is JainHome available?",
+      messageId: "claw-durable-retry-1",
+    };
+
+    await expect(handleClawLeasingInbound(input)).resolves.toMatchObject({
+      ok: false, replied: false, error: "retired_transport_unsupported",
+    });
+    await expect(handleClawLeasingInbound(input)).resolves.toMatchObject({
+      ok: false, replied: false, error: "retired_transport_unsupported",
+    });
+    expect(enqueueProspectSmsBurst).not.toHaveBeenCalled();
   });
 });
