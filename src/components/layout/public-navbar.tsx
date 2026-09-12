@@ -5,6 +5,7 @@ import { Navbar1, type NavbarMenuItem } from "@/components/ui/navbar1";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { portalDashboardPath, normalizePortalRoles, parseAuthRole, type AuthRole } from "@/lib/auth/portal-roles";
 import {
+  BOOK_DEMO_HREF,
   MANAGER_GET_STARTED_HREF,
   VENDOR_GET_STARTED_HREF,
 } from "@/lib/marketing/public-contact";
@@ -86,14 +87,14 @@ export function PublicNavbar() {
     [pathname],
   );
   const contactActive = useMemo(() => pathname === "/contact" || pathname === "/support", [pathname]);
+  const pricingActive = useMemo(() => pathname.startsWith("/pricing"), [pathname]);
+  const whyActive = useMemo(() => pathname.startsWith("/why-proplane"), [pathname]);
   const docsActive = useMemo(
     () =>
       pathname.startsWith("/docs") ||
-      pathname.startsWith("/why-proplane") ||
-      // /pricing is deliberately still highlighted here even though it is no
-      // longer a Resources dropdown entry — the page stays live and is linked
-      // from elsewhere, so the tab should light up when a visitor lands on it.
-      pathname.startsWith("/pricing") ||
+      pathname.startsWith("/app") ||
+      pathname.startsWith("/security") ||
+      pathname.startsWith("/reviews") ||
       pathname.startsWith("/about"),
     [pathname],
   );
@@ -108,56 +109,65 @@ export function PublicNavbar() {
 
   const menu: NavbarMenuItem[] = useMemo(
     () => {
-      // Product · Resources · Contact — Product is role entry only (manager /
-      // resident / vendor), each with a short description.
+      // Product ▾ · Pricing · Why PropLane · Resources ▾ · Contact.
+      //
+      // Pricing is the second thing every buyer looks for, so it is a tab, not
+      // a dropdown entry; Product is the audience switch; Resources carries the
+      // reading. Routes are unchanged — /partner is "For managers", /rent is
+      // "For residents" — only the words moved.
       const items: NavbarMenuItem[] = [
         {
           title: "Product",
           url: "/#product",
-          active: productActive && !docsActive && !contactActive,
+          active: productActive && !docsActive && !contactActive && !pricingActive && !whyActive,
           dataAttr: "nav-product",
           items: [
             {
               title: "For managers & landlords",
               url: "/partner",
-              description: "AI leasing, rent, vendors, and approvals",
+              description: "List, screen, lease and collect — approval-first",
               active: pathname.startsWith("/partner"),
               dataAttr: "nav-product-managers",
             },
             {
               title: "For residents",
               url: RESIDENT_BROWSE_PATH,
-              description: "Browse homes, apply, pay rent, and message",
+              description: "Browse homes, apply, pay rent and ask",
               active: residentActive,
               dataAttr: "nav-product-residents",
             },
             {
               title: "For vendors",
               url: "/vendors",
-              description: "Jobs, bids, and payouts",
+              description: "Get matched, bid from your phone, get paid",
               active: pathname.startsWith("/vendors"),
               dataAttr: "nav-product-vendors",
             },
           ],
         },
         {
-          title: "Resources",
+          title: "Pricing",
+          url: "/pricing",
+          active: pricingActive,
+          dataAttr: "nav-pricing",
+        },
+        {
+          title: "Why PropLane",
           url: "/why-proplane",
+          active: whyActive,
+          dataAttr: "nav-why",
+        },
+        {
+          title: "Resources",
+          url: "/docs",
           active: docsActive,
           dataAttr: "nav-resources",
           items: [
             {
-              title: "Why PropLane",
-              url: "/why-proplane",
-              description: "AI, portals, and books · what makes it different",
-              active: pathname.startsWith("/why-proplane"),
-              dataAttr: "nav-resources-why",
-            },
-            {
               title: "Documentation",
               url: "/docs",
               description: "Guides for managers, residents, and vendors",
-              active: pathname.startsWith("/docs"),
+              active: pathname.startsWith("/docs") && !pathname.startsWith("/docs/mcp"),
               dataAttr: "nav-resources-docs",
             },
             {
@@ -166,6 +176,27 @@ export function PublicNavbar() {
               description: "Connect your own AI agent to PropLane",
               active: pathname.startsWith("/docs/mcp"),
               dataAttr: "nav-resources-mcp",
+            },
+            {
+              title: "Mobile app",
+              url: "/app",
+              description: "The same queue on iPhone, with push and camera",
+              active: pathname.startsWith("/app"),
+              dataAttr: "nav-resources-app",
+            },
+            {
+              title: "Security",
+              url: "/security",
+              description: "How your data and your residents' data are kept",
+              active: pathname.startsWith("/security"),
+              dataAttr: "nav-resources-security",
+            },
+            {
+              title: "Reviews",
+              url: "/reviews",
+              description: "What managers and residents say",
+              active: pathname.startsWith("/reviews"),
+              dataAttr: "nav-resources-reviews",
             },
             {
               title: "About us",
@@ -185,7 +216,7 @@ export function PublicNavbar() {
       ];
       return items;
     },
-    [contactActive, docsActive, pathname, productActive, residentActive],
+    [contactActive, docsActive, pathname, pricingActive, productActive, residentActive, whyActive],
   );
 
   const portalLink = useMemo(() => {
@@ -232,7 +263,9 @@ export function PublicNavbar() {
         menu={menu}
         auth={{
           login: { text: "Log in", url: "/auth/sign-in" },
-          signup: { text: "Get started", url: signupHref },
+          // "Start free" says what the button does — it is a $0 plan, not a form.
+          signup: { text: "Start free", url: signupHref },
+          secondary: { text: "Book a demo", url: BOOK_DEMO_HREF, dataAttr: "nav-book-demo" },
         }}
         portalLink={portalLink}
       />

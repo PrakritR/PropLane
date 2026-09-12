@@ -1,6 +1,7 @@
 import { AxisLogoLink } from "@/components/brand/axis-logo";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { iosAppDownloadIsTestFlight, iosAppDownloadUrl } from "@/lib/ios-app-download";
 import { RESIDENT_BROWSE_PATH } from "@/lib/resident-public-nav";
 import {
   PUBLIC_SOCIAL_LINKS,
@@ -23,6 +24,7 @@ const FOOTER_COLUMNS: { heading: string; links: { href: string; label: string }[
       { href: "/docs/mcp", label: "MCP & API" },
       { href: "/app", label: "Mobile app" },
       { href: "/security", label: "Security" },
+      { href: "/reviews", label: "Reviews" },
       { href: "/about", label: "About us" },
     ],
   },
@@ -176,7 +178,25 @@ export function PublicFooter({ compact = false }: { compact?: boolean }) {
     <footer className="border-t border-border bg-[var(--pl-surface)]">
       <div className={`${footerShell} pb-8 pt-10`}>
         <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-4 border-b border-border pb-7">
-          <AxisLogoLink href="/" size="compact" />
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+            <AxisLogoLink href="/" size="compact" />
+            {/* The iPhone app is a real differentiator; the badge belongs beside the mark on every page. */}
+            <a
+              href={iosAppDownloadUrl()}
+              target="_blank"
+              rel="noreferrer noopener"
+              data-attr="footer-app-store"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-foreground/80 bg-foreground px-3 text-background transition hover:opacity-90 [html[data-theme=dark]_&]:border-border [html[data-theme=dark]_&]:bg-card [html[data-theme=dark]_&]:text-foreground"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
+                <path d="M16.4 12.6c0-2.5 2-3.7 2.1-3.8-1.2-1.7-3-1.9-3.6-2-1.5-.2-3 .9-3.8.9-.8 0-2-.9-3.3-.9-1.7 0-3.3 1-4.2 2.5-1.8 3.1-.5 7.8 1.3 10.3.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8s2 .8 3.3.8c1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.7-1-2.8-4.2ZM14 5.2c.7-.8 1.2-2 1-3.2-1 0-2.2.7-2.9 1.5-.6.7-1.2 1.9-1 3 1.1.1 2.2-.5 2.9-1.3Z" />
+              </svg>
+              <span className="leading-none">
+                <span className="block text-[9px] font-medium uppercase tracking-wide opacity-80">{iosAppDownloadIsTestFlight() ? "Join the beta on" : "Download on the"}</span>
+                <span className="block text-[13px] font-bold">{iosAppDownloadIsTestFlight() ? "TestFlight" : "App Store"}</span>
+              </span>
+            </a>
+          </div>
           <SocialRow />
         </div>
 

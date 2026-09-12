@@ -44,6 +44,8 @@ export interface Navbar1Props {
   auth?: {
     login: { text: string; url: string };
     signup: { text: string; url: string };
+    /** A quieter second door beside the primary (Book a demo). Desktop only. */
+    secondary?: { text: string; url: string; dataAttr?: string };
   };
   portalLink?: { text: string; url: string };
   actionsSlot?: ReactNode;
@@ -85,7 +87,7 @@ export function Navbar1({
   return (
     <div className="mx-auto flex min-h-[56px] w-full max-w-6xl items-center px-4 sm:px-5">
       {/* Desktop — logo left, links centered, actions right (3-col grid). */}
-      <nav className="hidden w-full grid-cols-[1fr_auto_1fr] items-center lg:grid">
+      <nav className="hidden w-full grid-cols-[auto_1fr_auto] items-center gap-4 lg:grid">
         <div className="justify-self-start">{logoSlot}</div>
         <div className="justify-self-center">
           <NavigationMenu>
@@ -96,7 +98,7 @@ export function Navbar1({
             </NavigationMenuList>
           </NavigationMenu>
         </div>
-        <div className="flex items-center gap-2 justify-self-end">
+        <div className="flex items-center gap-2 justify-self-end whitespace-nowrap">
           {actionsSlot && <div className="hidden items-center lg:flex">{actionsSlot}</div>}
           {portalLink ? (
             <Button
@@ -109,14 +111,25 @@ export function Navbar1({
             <>
               <Link
                 href={auth.login.url}
-                className="mr-2 inline-flex items-center gap-1.5 px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:text-primary"
+                className="mr-1 inline-flex items-center gap-1.5 whitespace-nowrap px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:text-primary"
               >
                 {auth.login.text}
                 <ArrowRightIcon className="size-4" />
               </Link>
+              {auth.secondary ? (
+                <Button
+                  asChild
+                  variant="outline"
+                  className="h-9 min-h-0 whitespace-nowrap rounded-full border-border bg-card px-4 text-[13px] shadow-none"
+                >
+                  <Link href={auth.secondary.url} data-attr={auth.secondary.dataAttr}>
+                    {auth.secondary.text}
+                  </Link>
+                </Button>
+              ) : null}
               <Button
                 asChild
-                className="btn-brand-cta h-9 min-h-0 px-4 text-[13px] text-white hover:brightness-110"
+                className="btn-brand-cta h-9 min-h-0 whitespace-nowrap px-4 text-[13px] text-white hover:brightness-110"
               >
                 <Link href={auth.signup.url}>{auth.signup.text}</Link>
               </Button>

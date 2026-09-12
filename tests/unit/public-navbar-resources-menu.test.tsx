@@ -48,27 +48,34 @@ describe("public navbar Resources dropdown", () => {
     mockPathname = "/";
   });
 
-  it("lists only Why PropLane, Documentation, and About us — no Pricing entry", async () => {
+  it("carries the reading — Docs, MCP, Mobile app, Security, Reviews, About — while Pricing and Why are tabs", async () => {
     await openResourcesMenu();
 
-    expect(screen.getAllByRole("link", { name: /why proplane/i })[0]).toHaveAttribute(
-      "href",
-      "/why-proplane",
-    );
     expect(screen.getAllByRole("link", { name: /documentation/i })[0]).toHaveAttribute("href", "/docs");
+    expect(screen.getAllByRole("link", { name: /mobile app/i })[0]).toHaveAttribute("href", "/app");
+    expect(screen.getAllByRole("link", { name: /security/i })[0]).toHaveAttribute("href", "/security");
+    expect(screen.getAllByRole("link", { name: /reviews/i })[0]).toHaveAttribute("href", "/reviews");
     expect(screen.getAllByRole("link", { name: /about us/i })[0]).toHaveAttribute("href", "/about");
 
-    // The Pricing page stays live; it is only the dropdown entry that is gone.
-    expect(document.querySelectorAll('a[href="/pricing"]')).toHaveLength(0);
+    // Pricing is the second thing every buyer looks for: a top-level tab, not a
+    // dropdown entry. Why PropLane sits beside it.
+    expect(screen.getAllByRole("link", { name: /^pricing$/i })[0]).toHaveAttribute("href", "/pricing");
+    expect(screen.getAllByRole("link", { name: /^why proplane$/i })[0]).toHaveAttribute("href", "/why-proplane");
   });
 
-  it("still highlights the Resources tab while on the still-live /pricing page", async () => {
+  it("highlights the Pricing tab on /pricing, not Resources", async () => {
     mockPathname = "/pricing";
     render(<PublicNavbar />);
 
+    const pricing = (await screen.findAllByRole("link", { name: /^pricing$/i }))[0];
+    expect(pricing.className).toContain("text-primary");
     const trigger = (await screen.findAllByRole("button", { name: /resources/i }))[0];
-    // `docsActive` keeps the /pricing prefix on purpose — active-state
-    // highlighting outlives the removed dropdown entry.
-    expect(trigger.className).toContain("text-primary");
+    expect(trigger.className).not.toContain("text-primary");
+  });
+
+  it("offers Start free and Book a demo on every page", async () => {
+    render(<PublicNavbar />);
+    expect((await screen.findAllByRole("link", { name: /start free/i })).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("link", { name: /book a demo/i })[0]).toHaveAttribute("href", "/contact?tab=schedule");
   });
 });
