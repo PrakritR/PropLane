@@ -95,8 +95,8 @@ export function buildManagerAttentionRows(input: ManagerAttentionInput): Manager
   if (messagingNeedsSetup) {
     rows.push({
       id: "messaging",
-      title: "Renters can't text you yet",
-      detail: "Set up messaging to open the SMS channel on your listings",
+      title: "Phone number not set up",
+      detail: "Set up messaging in Settings",
       actionLabel: "Set up",
       href: messagingSettingsHref,
       tone: "info",
