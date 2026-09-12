@@ -36,14 +36,17 @@ describe("public support email", () => {
   it("legal + reviews pages link and display the current support address", () => {
     for (const page of HARDCODED_PAGES) {
       const source = read(page);
-      expect(source, page).toContain(`mailto:${PUBLIC_SUPPORT_EMAIL}`);
+      // Either the literal address or the shared constant interpolated into
+      // the mailto — the reviews page reads it from public-contact.
+      const linksIt =
+        source.includes(`mailto:${PUBLIC_SUPPORT_EMAIL}`) || source.includes("mailto:${PUBLIC_SUPPORT_EMAIL}");
+      expect(linksIt, page).toBe(true);
     }
   });
 
   it("keeps the reviews feedback mailto subject param", () => {
-    expect(read("src/app/(public)/reviews/page.tsx")).toContain(
-      `mailto:${PUBLIC_SUPPORT_EMAIL}?subject=PropLane%20feedback`,
-    );
+    const source = read("src/app/(public)/reviews/page.tsx");
+    expect(source).toMatch(/mailto:(\$\{PUBLIC_SUPPORT_EMAIL\}|support@prop-lane\.space)\?subject=PropLane%20feedback/);
   });
 
   it("keeps the admin account identity separate from the public support address", () => {

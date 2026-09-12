@@ -2118,7 +2118,7 @@
 }
 
 .lp-page-hero {
-  padding: 56px 0 28px;
+  padding: 72px 0 32px;
   text-align: center;
 }
 
@@ -2126,20 +2126,17 @@
   text-align: left;
 }
 
+/* The same eyebrow the redesigned site sections use: bold, blue, no pill. */
 .lp-page-eyebrow {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   margin: 0 0 16px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--lp-line);
-  background: var(--lp-card);
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--lp-muted);
+  color: var(--lp-blue);
 }
 
 .lp-page-eyebrow-dot {
@@ -2153,8 +2150,8 @@
 .lp-page-title {
   margin: 0 auto;
   max-width: 16ch;
-  font-size: clamp(2.15rem, 4.8vw, 3.35rem);
-  font-weight: 600;
+  font-size: clamp(2.4rem, 5.4vw, 3.9rem);
+  font-weight: 700;
   line-height: 1.06;
   letter-spacing: -0.035em;
   color: var(--lp-ink);
