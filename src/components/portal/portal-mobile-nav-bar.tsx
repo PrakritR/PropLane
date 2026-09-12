@@ -8,6 +8,7 @@ import { useNativeChrome } from "@/hooks/use-is-native-app";
 import { PortalSignOutButton } from "@/components/portal/portal-sign-out-button";
 import { PortalRoleSwitcher } from "@/components/portal/portal-role-switcher";
 import { AxisLogoMark } from "@/components/brand/axis-logo";
+import { WorkspaceSwitcher } from "@/components/portal/workspace-switcher";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -109,7 +110,9 @@ export function PortalMobileNavBar({
       >
         <AxisLogoMark size="compact" />
       </Link>
-      {showBack ? (
+      {(definition.kind === "pro" || definition.kind === "manager") && !showBack ? (
+        <div className="min-w-0 flex-1"><WorkspaceSwitcher /></div>
+      ) : showBack ? (
         <button
           type="button"
           data-attr="portal-mobile-back"

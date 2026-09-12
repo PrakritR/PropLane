@@ -21,6 +21,7 @@ import { PortalChangePasswordPanel } from "@/components/portal/portal-change-pas
 import { PortalBugFeedbackPanel } from "@/components/portal/portal-bug-feedback-panel";
 import { PortalDetailHeader } from "@/components/portal/portal-list-detail-shell";
 import { PortalSettingsExtras } from "@/components/portal/portal-settings-extras";
+import { WorkspaceSettings } from "@/components/portal/workspace-settings";
 import {
   PortalSettingsField,
   PortalSettingsFormBody,
@@ -78,6 +79,7 @@ function emptyToDash(v: unknown) {
 const SETTINGS_TAB_PARAM = "tab";
 
 type SettingsGroupId =
+  | "workspaces"
   | "profile"
   | "billing"
   | "messaging"
@@ -282,6 +284,7 @@ export function PortalProfileClient({
       },
     ];
     if (!demo && variant === "manager") {
+      list.push({ id: "workspaces", label: "Workspaces", description: "Properties, managers, vendors, permissions, sharing, and limits.", icon: Settings2, group: "Workspace" });
       list.push({
         id: "billing",
         label: "Billing & plan",
@@ -431,6 +434,8 @@ export function PortalProfileClient({
 
   const renderPane = (id: SettingsGroupId): ReactNode => {
     switch (id) {
+      case "workspaces":
+        return <WorkspaceSettings />;
       case "profile":
         return personalInfoSection;
       case "billing":

@@ -1,5 +1,7 @@
 "use client";
 
+import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -270,7 +272,7 @@ export function ManagerTaskList({
   const doneTasks = useMemo(() => tasks.filter((task) => task.completed), [tasks]);
 
   const matchesProperty = useCallback(
-    (propertyId?: string) => !propertyFilterId || propertyId === propertyFilterId,
+    (propertyId?: string) => workspaceContainsProperty(propertyId) && (!propertyFilterId || propertyId === propertyFilterId),
     [propertyFilterId],
   );
 

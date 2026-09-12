@@ -1,5 +1,7 @@
 "use client";
 
+import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -1255,8 +1257,8 @@ export function ManagerHousePropertiesPanel({
         };
       }),
     );
-    return [...mapped].sort((a, b) => compareAdminPropertyRowsForDisplay(a.row, b.row));
-  }, [tick, scopeUserId, activeStage]);
+    return mapped.filter(({ row }) => propertyKeyProp || workspaceContainsProperty(row.listingId?.trim() || row.adminRefId.trim())).sort((a, b) => compareAdminPropertyRowsForDisplay(a.row, b.row));
+  }, [tick, scopeUserId, activeStage, propertyKeyProp]);
 
   const propertyRowKey = (row: AdminPropertyRow) => row.adminRefId + (row.listingId ?? "");
   const propertyKeyFromRow = (row: AdminPropertyRow) =>

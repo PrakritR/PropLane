@@ -1,5 +1,7 @@
 "use client";
 
+import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
@@ -253,7 +255,7 @@ export function ManagerLeasesPipelinePanel({
 
   const hasLeaseDocument = leasePipelineRowHasDocument;
   void refreshKey;
-  const bucketRows = useMemo(() => rows.filter((r) => leaseRowMatchesManagerTab(r, tab)), [rows, tab]);
+  const bucketRows = useMemo(() => rows.filter((r) => leaseRowMatchesManagerTab(r, tab) && workspaceContainsProperty(r.propertyId || r.application?.propertyId)), [rows, tab]);
 
   const leaseClusters = useMemo(
     () => sortManagerLeaseClustersForBucket(clusterManagerLeaseListRows(bucketRows), tab),

@@ -1,5 +1,7 @@
 "use client";
 
+import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { tourFormatLabel } from "@/lib/tour-format";
 import { PORTAL_LIST_ADD_ICONS } from "@/components/portal/portal-list-add-row";
@@ -381,7 +383,7 @@ export function ManagerTours({
     return buildManagerTourRows({
       viewerUserId: userId,
       propertyIds: scopedPropertyIds,
-    });
+    }).filter((row) => workspaceContainsProperty(row.propertyId));
   }, [tick, userId, scopedPropertyIds]);
 
   const counts = useMemo(() => countManagerTourRowsByBucket(allRows), [allRows]);

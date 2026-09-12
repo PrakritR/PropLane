@@ -1,5 +1,7 @@
 import { clearHousingAccessForDeletedProperty } from "@/lib/auth/clear-property-housing-access";
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { WORKSPACE_COOKIE } from "@/lib/workspaces/types";
 import { track } from "@/lib/analytics/posthog";
 import { isAdminUser } from "@/lib/auth/admin-preview";
 import { assertCoManagerModuleAccess } from "@/lib/auth/co-manager-access";
@@ -312,9 +314,20 @@ export async function POST(req: Request) {
     const propertyDataForWrite =
       body.propertyData !== undefined ? body.propertyData : (existing?.property_data ?? null);
 
+    let newWorkspaceId: string | undefined;
+    if (!existing && managerUserIdForWrite === user.id) {
+      const selected = (await cookies()).get(WORKSPACE_COOKIE)?.value;
+      if (selected) {
+        const workspace = await db.from("portal_workspaces").select("id").eq("id", selected).eq("owner_user_id", user.id).maybeSingle();
+        if (workspace.error) return NextResponse.json({ error: "Could not verify workspace." }, { status: 503 });
+        if (!workspace.data) return NextResponse.json({ error: "Select an owned workspace before adding a property." }, { status: 403 });
+        newWorkspaceId = workspace.data.id;
+      }
+    }
     const { error } = await db.from("manager_property_records").upsert(
       {
         id,
+        ...(newWorkspaceId ? { workspace_id: newWorkspaceId } : {}),
         manager_user_id: managerUserIdForWrite,
         status: body.status,
         row_data: rowDataForWrite,
