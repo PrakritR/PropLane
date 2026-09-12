@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { MANAGER_PLAN_TIERS, type ManagerPlanTierDefinition, type PlanTierId } from "@/data/manager-plan-tiers";
+import { PLAN_ADDONS, formatAddonPrice } from "@/lib/plan-addons";
 import { COMMS_INCLUDED_ALLOWANCE_CENTS } from "@/lib/comms-billing/allowances";
 import { COMMS_CREDIT_PACKS_CENTS } from "@/lib/comms-billing/credit-packs";
 import { COMMS_BILLING_RATES_CENTS, formatCentsRate, formatUsdFromCents } from "@/lib/comms-billing/rates";
@@ -54,8 +55,8 @@ function tierIncludes(id: PlanTierId): { heading: string; items: { text: string;
         { text: `${FREE_MAX_PROPERTIES} property listing`, included: true },
         { text: "Applications & tour scheduling", included: true },
         { text: "Rent collection & charges", included: true },
-        { text: "Inbox · dedicated phone number & texting", included: true },
-        { text: `${credit("free")}/mo communication credit`, included: true },
+        { text: "In-app inbox & email", included: true },
+        { text: "Work number, texting & calls", included: false },
         { text: "Residents, leases & services", included: false },
         { text: "Co-managers", included: false },
       ],
@@ -69,6 +70,7 @@ function tierIncludes(id: PlanTierId): { heading: string; items: { text: string;
         { text: "Residents, leases & services", included: true },
         { text: "AI drafts in the inbox", included: true },
         { text: "Up to 2 co-managers", included: true },
+        { text: "1 work number — texting & calls", included: true },
         { text: `${credit("pro")}/mo communication credit`, included: true },
         { text: "Manager may cover processing fees", included: true },
       ],
@@ -79,6 +81,7 @@ function tierIncludes(id: PlanTierId): { heading: string; items: { text: string;
     items: [
       { text: `Up to ${BUSINESS_MAX_PROPERTIES} property listings`, included: true },
       { text: "Up to 20 co-managers, per-module access", included: true },
+      { text: "3 workspaces, a work number in each", included: true },
       { text: `${credit("business")}/mo communication credit`, included: true },
       { text: "Priority admin support", included: true },
     ],
@@ -93,7 +96,7 @@ const CREDIT_PACKS_TEXT = (() => {
 const FAQ: SiteFaqItem[] = [
   {
     q: "Is the free tier actually free?",
-    a: "Yes. $0, no card, one listing, applications, tours and rent collection. A dedicated phone number, inbox and a monthly communication credit are included.",
+    a: "Yes. $0, no card, one listing, applications, tours and rent collection, with the in-app inbox and email. A work number for texting and calls, and the monthly communication credit, start on Pro.",
   },
   {
     q: "Do I need a credit card to try Pro or Business?",
@@ -102,6 +105,14 @@ const FAQ: SiteFaqItem[] = [
   {
     q: "What happens at the end of the trial?",
     a: "Nothing sends and nothing is charged. Your data stays; add a card to keep Pro, or drop to Free.",
+  },
+  {
+    q: "Can I get a work number during the trial?",
+    a: "No — a work number is provisioned once a plan is paid (a promo-code plan counts). During the trial the inbox and email work as normal.",
+  },
+  {
+    q: "What if I need more than my plan includes?",
+    a: "Add it one at a time from Settings → Billing & plan: an extra listing is $8/mo on Pro and $6/mo on Business, an extra work number $5/mo, an extra workspace $15/mo on Pro (up to three) or $30/mo on Business, and an extra co-manager seat $5/mo. Free upgrades to Pro instead.",
   },
   {
     q: "Can I change plans later?",
@@ -186,6 +197,7 @@ const COMPARE: { group: string; rows: { label: string; cells: [Cell, Cell, Cell]
     rows: [
       { label: "Property listings", cells: [String(FREE_MAX_PROPERTIES), String(PRO_MAX_PROPERTIES), String(BUSINESS_MAX_PROPERTIES)] },
       { label: "Co-managers", cells: [NO, "2", "20"] },
+      { label: "Workspaces", cells: ["1", "1", "3"] },
       { label: "Per-module access for co-managers", cells: [NO, YES, YES] },
     ],
   },
@@ -209,7 +221,7 @@ const COMPARE: { group: string; rows: { label: string; cells: [Cell, Cell, Cell]
   {
     group: "Communication",
     rows: [
-      { label: "Dedicated work number & texting", cells: [YES, YES, YES] },
+      { label: "Work number, texting & calls", cells: [NO, "1 included", "1 per workspace"] },
       {
         label: "Included credit / month",
         cells: [
@@ -218,7 +230,7 @@ const COMPARE: { group: string; rows: { label: string; cells: [Cell, Cell, Cell]
           formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.business!),
         ],
       },
-      { label: "AI assistant", cells: [YES, YES, YES] },
+      { label: "AI assistant in the portal", cells: [YES, YES, YES] },
       { label: "AI drafts in the inbox", cells: [NO, YES, YES] },
     ],
   },
@@ -362,8 +374,8 @@ export default async function PricingPage({
           <div className="rounded-2xl border border-border bg-card p-6 sm:p-7">
             <h2 className="text-[18px] font-bold tracking-tight text-foreground">Texting, calling and AI use — what the credit covers</h2>
             <p className="mt-3 text-[14.5px] leading-relaxed text-muted">
-              Every plan includes a monthly communication credit ({formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.free!)} /{" "}
-              {formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.pro!)} / {formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.business!)}).
+              Pro includes {formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.pro!)} and Business{" "}
+              {formatUsdFromCents(COMMS_INCLUDED_ALLOWANCE_CENTS.business!)} of communication credit a month; Free includes none.
               Outgoing texts cost {formatCentsRate(rates.sms_outbound_segment)} a segment, incoming{" "}
               {formatCentsRate(rates.sms_inbound_segment)}, calls {formatCentsRate(rates.voice_minute)} a minute, and an AI turn on
               your work number {formatCentsRate(rates.ai_agent_turn)}. Included credit resets monthly; credit you buy (
@@ -377,6 +389,48 @@ export default async function PricingPage({
               No plan includes card or bank processing fees. Residents pay them by default. On Pro and Business a manager may choose
               to cover them instead; PropLane covers fees only for individually approved accounts.
             </p>
+          </div>
+        </div>
+      </SiteSection>
+
+      <SiteSection ariaLabel="Add-ons">
+        <div className="rounded-2xl border border-border bg-card p-6 sm:p-7">
+          <h2 className="text-[18px] font-bold tracking-tight text-foreground">Add-ons — a price for everything past the bundle</h2>
+          <p className="mt-2 text-[14.5px] leading-relaxed text-muted">
+            One at a time, from Settings → Billing & plan, billed with your subscription. Free upgrades to Pro instead.
+          </p>
+          <div className="mt-5 overflow-x-auto">
+            <table className="w-full min-w-[32rem] text-[14px]">
+              <thead>
+                <tr className="text-left text-[12px] font-bold uppercase tracking-[0.08em] text-muted">
+                  <th className="py-2 pr-4 font-bold">Add-on</th>
+                  <th className="py-2 pr-4 font-bold">Pro</th>
+                  <th className="py-2 pr-4 font-bold">Business</th>
+                </tr>
+              </thead>
+              <tbody>
+                {PLAN_ADDONS.map((a) => (
+                  <tr key={a.id} className="border-t border-border/60">
+                    <td className="py-2.5 pr-4">
+                      <span className="font-semibold text-foreground">{a.label}</span>
+                      <span className="block text-[12.5px] text-muted">{a.description}</span>
+                    </td>
+                    <td className="py-2.5 pr-4 tabular-nums text-foreground">
+                      {formatAddonPrice(a.monthlyCents.pro)}/mo{a.maxQuantity.pro !== null ? ` · up to ${a.maxQuantity.pro}` : ""}
+                    </td>
+                    <td className="py-2.5 pr-4 tabular-nums text-foreground">{formatAddonPrice(a.monthlyCents.business)}/mo</td>
+                  </tr>
+                ))}
+                <tr className="border-t border-border/60">
+                  <td className="py-2.5 pr-4">
+                    <span className="font-semibold text-foreground">Communication credit packs</span>
+                    <span className="block text-[12.5px] text-muted">Carry forward; spent after included credit.</span>
+                  </td>
+                  <td className="py-2.5 pr-4 tabular-nums text-foreground">{CREDIT_PACKS_TEXT}</td>
+                  <td className="py-2.5 pr-4 tabular-nums text-foreground">{CREDIT_PACKS_TEXT}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </SiteSection>

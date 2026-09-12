@@ -1,9 +1,9 @@
 /**
- * The phone number is free; what it DOES is limited per plan.
+ * The phone number carries no rental charge; what it DOES is limited per plan.
  *
- * Every manager account, Free included, can provision a work number at no
- * charge — a manager cannot evaluate PropLane without one. Messaging, calling
- * and AI are then metered against a per-plan allowance, and a card buys more.
+ * Round 3 plan model: Free has no work number and no credit. Pro and Business
+ * include a number; messaging, calling and AI are then metered against a
+ * per-plan allowance, and a pack buys more.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -30,20 +30,22 @@ describe("the work number itself is free on every plan", () => {
   });
 
   it("so the number never consumes a manager's messaging allowance", () => {
-    // The regression this pins: at $3/mo the number ate most of Free's
-    // allowance, and the number was "free" in name only.
-    const free = includedAllowanceCents("free")!;
-    expect(COMMS_BILLING_RATES_CENTS.work_number_monthly).toBeLessThan(free / 10);
+    // The regression this pins: at $3/mo the number ate most of the smallest
+    // paid allowance, and the number was "included" in name only.
+    const pro = includedAllowanceCents("pro")!;
+    expect(COMMS_BILLING_RATES_CENTS.work_number_monthly).toBeLessThan(pro / 10);
   });
 });
 
 describe("per-tier messaging and calling limits", () => {
-  it("gives every tier a real, finite allowance", () => {
+  it("gives every tier a finite allowance; only the paid ones are above zero", () => {
     for (const tier of TIERS) {
       const cents = includedAllowanceCents(tier);
       expect(cents, `${tier} must have a limit`).not.toBeNull();
-      expect(cents!).toBeGreaterThan(0);
     }
+    expect(includedAllowanceCents("free")).toBe(0);
+    expect(includedAllowanceCents("pro")!).toBeGreaterThan(0);
+    expect(includedAllowanceCents("business")!).toBeGreaterThan(0);
   });
 
   it("scales strictly with price — Free < Pro < Business", () => {
@@ -63,9 +65,9 @@ describe("per-tier messaging and calling limits", () => {
     }
   });
 
-  it("buys a usable amount of real work on Free", () => {
-    const free = includedAllowanceCents("free")!;
-    const texts = Math.floor(free / COMMS_BILLING_RATES_CENTS.sms_outbound_segment);
+  it("buys a usable amount of real work on Pro", () => {
+    const pro = includedAllowanceCents("pro")!;
+    const texts = Math.floor(pro / COMMS_BILLING_RATES_CENTS.sms_outbound_segment);
     expect(texts).toBeGreaterThanOrEqual(50);
   });
 });
@@ -75,15 +77,17 @@ describe("running out requires purchased credit", () => {
     evaluateCommsAllowance({ tier, usedCents, hasPaymentMethod });
 
   it("allows everything inside the allowance with no card at all", () => {
-    const state = usage("free", includedAllowanceCents("free")! - 1, false);
+    const state = usage("pro", includedAllowanceCents("pro")! - 1, false);
     expect(state.exhausted).toBe(false);
     expect(state.blocked).toBe(false);
   });
 
   it("blocks when allowance is spent even with a card", () => {
-    const spent = includedAllowanceCents("free")!;
-    expect(usage("free", spent, false).blocked).toBe(true);
-    expect(usage("free", spent, true).blocked).toBe(true);
+    const spent = includedAllowanceCents("pro")!;
+    expect(usage("pro", spent, false).blocked).toBe(true);
+    expect(usage("pro", spent, true).blocked).toBe(true);
+    // Free starts spent: no included credit at all.
+    expect(usage("free", 0, true).blocked).toBe(true);
   });
 
   it("a saved card does not enable automatic usage charges", () => {

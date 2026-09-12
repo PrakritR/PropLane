@@ -311,6 +311,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   { table: "manager_comms_credit_adjustments", phase: 2, manager: { ids: ["manager_user_id"] } },
+  { table: "manager_plan_addons", phase: 2, manager: { ids: ["manager_user_id"] } },
   { table: "manager_comms_credit_purchases", phase: 2, manager: { ids: ["manager_user_id"] } },
   {
     table: "manager_comms_billing_accounts",

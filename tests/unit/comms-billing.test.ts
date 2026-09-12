@@ -28,7 +28,8 @@ describe("prepaid communication boundary",()=>{
  });
  it("GET explicitly requests a read-only snapshot",async()=>{
   const db=database();await loadCommsWallet(db as never,"owner");
-  expect(db.rpc).toHaveBeenCalledWith("comms_wallet_snapshot",{p_owner:"owner",p_allowance:200,p_legacy_allowance:250,p_apply:false});
+  // Round 3 plan model: Free carries no included credit; the legacy (migration-month) grant still applies.
+  expect(db.rpc).toHaveBeenCalledWith("comms_wallet_snapshot",{p_owner:"owner",p_allowance:0,p_legacy_allowance:250,p_apply:false});
  });
  it("staff bulk totals read every owner in one read-only round trip and omit unreadable wallets",async()=>{
   const db={rpc:vi.fn().mockResolvedValue({data:[
@@ -39,7 +40,7 @@ describe("prepaid communication boundary",()=>{
   expect(db.rpc).toHaveBeenCalledTimes(1);
   expect(db.rpc).toHaveBeenCalledWith("comms_wallet_snapshots",{p_requests:[
    {owner:"biz",allowance:10000,legacy_allowance:15000},
-   {owner:"broken",allowance:200,legacy_allowance:250},
+   {owner:"broken",allowance:0,legacy_allowance:250},
   ]});
   expect(totals.get("biz")).toEqual({allowanceCents:15000,includedRemainingCents:13000,purchasedRemainingCents:2500,paused:false});
   expect(totals.has("broken")).toBe(false);

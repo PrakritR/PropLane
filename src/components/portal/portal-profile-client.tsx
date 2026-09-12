@@ -40,6 +40,7 @@ import {
 } from "@/components/portal/portal-settings-ui";
 import { ManagerPaymentMethodsPanel } from "@/components/portal/manager-payment-methods-panel";
 import { ManagerCommsBillingPanel } from "@/components/portal/manager-comms-billing-panel";
+import { ManagerPlanAddonsPanel } from "@/components/portal/manager-plan-addons-panel";
 import { ManagerPlan } from "@/components/portal/pro-plan";
 import { ManagerApiKeysPanel } from "@/components/portal/pro-api-keys-panel";
 import { ManagerMessagingSettingsPanel } from "@/components/portal/pro-messaging-settings-panel";
@@ -467,6 +468,7 @@ export function PortalProfileClient({
         return (
           <div className="min-w-0 space-y-8">
             <ManagerPlan embedded showCurrentPlan={false} />
+            <ManagerPlanAddonsPanel />
             <ManagerPaymentMethodsPanel />
             <ManagerCommsBillingPanel />
           </div>

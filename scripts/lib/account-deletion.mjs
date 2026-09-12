@@ -125,6 +125,7 @@ export const DELETE_ORDER = [
   "manager_bank_accounts",
   "manager_budgets",
   "manager_comms_credit_adjustments",
+  "manager_plan_addons",
   "manager_comms_credit_purchases",
   "manager_comms_billing_accounts",
   "manager_comms_usage_events",

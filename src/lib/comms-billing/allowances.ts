@@ -7,7 +7,10 @@ export type CommsPlanTier = "free" | "pro" | "business";
  * deliberate uncapped plan stays expressible without reworking every reader.
  */
 export const COMMS_INCLUDED_ALLOWANCE_CENTS: Record<CommsPlanTier, number | null> = {
-  free: 200,
+  // Round 3 plan model: Free carries no communication credit and no work
+  // number — texting, calling and the assistant on a number are what Pro
+  // buys. Purchased packs still spend on a Free account that holds one.
+  free: 0,
   pro: 1000,
   business: 10000,
 };
@@ -91,12 +94,16 @@ export function billableCentsAboveAllowance(input: {
 export function commsAllowanceFeatureText(tier: CommsPlanTier): string {
   const allowance = includedAllowanceCents(tier);
   if (allowance === null) return "Unlimited texting, calls & AI assistant";
+  if (allowance === 0) return "No communication credit — texting and calling start on Pro";
   const dollars = allowance % 100 === 0 ? `$${allowance / 100}` : `$${(allowance / 100).toFixed(2)}`;
   return `${dollars}/mo of communication credit included; buy more anytime`;
 }
 
 export function commsAllowanceBlockedMessage(tier: CommsPlanTier): string {
   const allowance = includedAllowanceCents(tier);
+  if (allowance === 0) {
+    return "Your plan includes no communication credit. Upgrade to Pro for a work number and $10 of credit each month, or buy usage in Settings → Billing & plan.";
+  }
   const label = allowance === null ? "" : `$${(allowance / 100).toFixed(2)}`;
   return `You've used the ${label} of communication credit included with your plan this month. Buy more usage in Settings → Billing & plan to resume texting, calls and AI. A saved card does not enable automatic charges.`;
 }

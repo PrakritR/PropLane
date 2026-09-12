@@ -10,6 +10,8 @@ import {
 } from "@/lib/co-manager-permissions";
 import { getEffectiveManagerSkuTier } from "@/lib/manager-access-server";
 import { maxAccountLinksForTier, maxPropertiesForManagerTier } from "@/lib/manager-access";
+import { EMPTY_PLAN_ADDON_QUANTITIES } from "@/lib/plan-addons";
+import { addonUnitsForCap, loadManagerPlanAddonQuantities } from "@/lib/plan-addons.server";
 import {
   WORKSPACE_LIMIT,
   WORKSPACE_PLAN_ENTITLEMENTS,
@@ -132,18 +134,26 @@ export async function loadWorkspacePlan(
   const unknown = !tierResult.ok;
   const entitlements = tier ? WORKSPACE_PLAN_ENTITLEMENTS[tier] : null;
   const owned = workspaces.filter((w) => w.owned);
-  const [links, vendors] = await Promise.all([
+  const [links, vendors, addons] = await Promise.all([
     db.from("account_link_invites").select("id", { count: "exact", head: true }).eq("inviter_user_id", userId).eq("status", "accepted"),
     db.from("manager_vendor_records").select("id", { count: "exact", head: true }).eq("manager_user_id", userId),
+    loadManagerPlanAddonQuantities(db, userId),
   ]);
+  // Paid add-ons sit on top of the plan bundle. An unread add-on row counts as
+  // none here (this is a display + create-time cap, never a removal).
+  const extra = addons.ok ? addons.quantities : EMPTY_PLAN_ADDON_QUANTITIES;
+  const planPropertyLimit = unknown ? null : maxPropertiesForManagerTier(tier);
+  const planTeamLimit = unknown ? null : maxAccountLinksForTier(tier);
   return {
     tier,
     unknown,
     // A legacy account with no committed plan keeps the database ceiling.
-    workspaceLimit: entitlements ? Math.min(entitlements.workspaces, WORKSPACE_LIMIT) : WORKSPACE_LIMIT,
-    propertyLimit: unknown ? null : maxPropertiesForManagerTier(tier),
+    workspaceLimit: entitlements
+      ? Math.min(entitlements.workspaces + addonUnitsForCap(extra, "extra_workspace", tier), WORKSPACE_LIMIT)
+      : WORKSPACE_LIMIT,
+    propertyLimit: planPropertyLimit === null ? null : planPropertyLimit + addonUnitsForCap(extra, "extra_listing", tier),
     recordsPerWorkspace: WORKSPACE_PROPERTY_LIMIT,
-    teamLimit: unknown ? null : maxAccountLinksForTier(tier),
+    teamLimit: planTeamLimit === null ? null : planTeamLimit + addonUnitsForCap(extra, "extra_seat", tier),
     usage: {
       workspaces: owned.length,
       properties: owned.reduce((sum, w) => sum + w.propertyIds.length, 0),

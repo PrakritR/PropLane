@@ -111,7 +111,20 @@ function messagingUpsellMessage(
   status: ManagerMessagingNumberStatus,
 ): string | null {
   if (status.entitlement.eligible || entitlementIsUnverified(status)) return null;
-  return "Work-number access is included on every plan. Refresh eligibility to verify your account.";
+  // Round 3 plan model: a work number is a paid feature. Free upgrades; a
+  // trial waits for its first payment (a promo-code plan counts as paid).
+  switch (status.entitlement.reason) {
+    case "free":
+      return "A work number for texting and calls comes with Pro ($10/mo of credit) and Business ($100/mo). Upgrade to set one up.";
+    case "trialing":
+      return "A work number is provisioned once your plan is paid. Add a card to keep Pro or Business and your number is ready the same day.";
+    case "past_due":
+      return "Your subscription payment is past due. Update your card to keep your work number.";
+    case "canceled":
+      return "Your paid plan has ended. Choose Pro or Business to set up a work number again.";
+    default:
+      return "Refresh eligibility to verify your plan.";
+  }
 }
 
 /**
