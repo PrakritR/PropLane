@@ -9,7 +9,7 @@ import { isClawSharedLineBridgeEnabled } from "@/lib/claw-leasing-links";
 import { forwardResidentInboundToManagerCell } from "@/lib/sms/manager-relay.server";
 import { resolveManagerSmsInboundIdentity } from "@/lib/sms/manager-sms-access.server";
 import { ensureManagerInboundReplyConsent } from "@/lib/sms/manager-conversation-consent.server";
-import { isPureCoManagerWorkspace } from "@/lib/sms/manager-workspace-role.server";
+import { resolveWorkspaceOwnerForWorkNumber } from "@/lib/sms/manager-workspace-role.server";
 import { resolveManagerSmsAgentContext } from "@/lib/tools/manager-sms-context";
 import {
   deliverManagerSmsReply,
@@ -165,8 +165,8 @@ export async function POST(req: Request) {
   }
 
   // Pooled proxy lines are retired. Only owned work numbers route replies.
-  const managerId = ownedNumber?.managerId ?? "";
-  if (!managerId) {
+  const numberOwnerId = ownedNumber?.managerId ?? "";
+  if (!numberOwnerId) {
     const limit = await rateLimit(`twilio-inbound:${fromPhone}`, 20, 60_000);
     if (limit.unavailable) return NextResponse.json({ error: "Rate limit store unavailable." }, { status: 503 });
     if (!limit.ok) {
@@ -185,6 +185,18 @@ export async function POST(req: Request) {
     return twimlOk();
   }
 
+  // A work number is the WORKSPACE's front door, not the row it was bought
+  // under. A line still held by a pure co-manager (bought before numbers became
+  // workspace-owned) answers for the owner whose houses they manage: residents
+  // resolve against the owner's rows, prospects reach the owner's leasing
+  // agent, and every thread lands in the owner's inbox — where the co-manager
+  // already reads it. The texter never learns which teammate set the line up.
+  let managerId: string;
+  try {
+    managerId = (await resolveWorkspaceOwnerForWorkNumber(db, numberOwnerId, { throwOnError: true })).ownerUserId;
+  } catch {
+    return NextResponse.json({ error: "Workspace unavailable." }, { status: 503 });
+  }
 
   if (!messageSid) {
     return NextResponse.json({ error: "MessageSid is required." }, { status: 400 });
@@ -617,11 +629,6 @@ export async function POST(req: Request) {
       workNumber,
       service: "SMS",
       durablyClaimed: true,
-      // Tenant records remain with the property owner. Do not guess an owner
-      // or start leasing someone else's property through a teammate's line.
-      routingReply: await isPureCoManagerWorkspace(db, managerId, { throwOnError: true })
-        ? "This is a co-manager's PropLane assistant number. For your rental or application, please message your property manager through PropLane or use the contact number on your listing."
-        : undefined,
       onPreparedReply: (prepared) =>
         prepareInboundReply(db, {
           messageSid,

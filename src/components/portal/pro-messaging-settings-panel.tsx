@@ -460,8 +460,8 @@ export function ManagerMessagingSettingsPanel({
     workEmail,
   ]);
 
-  const copyNumber = useCallback(async () => {
-    const phone = statusPhoneNumber;
+  const copyNumber = useCallback(async (override?: string) => {
+    const phone = override || statusPhoneNumber;
     if (!phone) return;
     const copied = await copyTextToClipboard(phone);
     showToast(copied ? "Work number copied." : "Could not copy work number.");
@@ -600,15 +600,72 @@ export function ManagerMessagingSettingsPanel({
   );
   const requestPending = numberInProgress;
 
+  // One work number per workspace. A co-manager reads the owner's line here —
+  // nothing to request, no plan upsell, no area code. A legacy line of their
+  // own (bought before numbers were workspace-owned) is named so they know it
+  // is being retired, but it is never the number this panel leads with.
+  if (isCoManager) {
+    const workspace = status.workspaceNumber ?? null;
+    const workspacePhone = workspace?.phoneNumber?.trim() || "";
+    const owner = workspace?.ownerName?.trim() || "your workspace owner";
+    const legacyOwnPhone = statusPhoneNumber && statusPhoneNumber !== workspacePhone ? statusPhoneNumber : "";
+    return (
+      <PortalSettingsSection
+        title="Work number"
+        description={`Your workspace's number for resident and prospect texts. It is managed by ${owner}; you send and reply from it on the houses assigned to you.`}
+      >
+        <PortalSettingsGroup>
+          <PortalSettingsField
+            label="Workspace number"
+            value={workspacePhone ? formatManagerMessagingPhone(workspacePhone) : "Not set up yet"}
+            action={
+              workspacePhone ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="min-h-10 px-3 text-xs"
+                  onClick={() => copyNumber(workspacePhone)}
+                  data-attr="messaging-number-copy"
+                >
+                  Copy
+                </Button>
+              ) : undefined
+            }
+          />
+          <PortalSettingsField label="Status" value={workspacePhone ? "Active" : "Waiting on setup"} />
+          <PortalSettingsField label="Managed by" value={owner} />
+          <div className="space-y-4 px-4 py-4">
+            {workspacePhone ? (
+              <div className="flex items-start gap-2 text-sm text-foreground">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+                <p>Ready. Replies you send in Communication go out from this number.</p>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 text-sm text-muted" data-attr="messaging-workspace-number-missing">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                <p>
+                  {owner} hasn&apos;t set up a work number for this workspace. Once they do in Settings → Messaging, it
+                  appears here — there is nothing for you to request.
+                </p>
+              </div>
+            )}
+            {legacyOwnPhone ? (
+              <p className="text-xs text-muted" data-attr="messaging-legacy-own-number">
+                {formatManagerMessagingPhone(legacyOwnPhone)} was set up for you before numbers became shared per
+                workspace. Texts to it now reach this workspace&apos;s inbox, and it will be retired.
+              </p>
+            ) : null}
+          </div>
+        </PortalSettingsGroup>
+      </PortalSettingsSection>
+    );
+  }
+
   return (
     <>
     <PortalSettingsSection
       title="Work number"
-      description={
-        isCoManager
-          ? "Your dedicated PropLane number for resident and prospect texts on properties you help manage."
-          : "Request and manage the dedicated number residents and prospects use to reach your workspace."
-      }
+      description="Request and manage the one number residents and prospects use to reach your workspace. Everyone on your team sends and replies from it."
     >
       <PortalSettingsGroup>
         <PortalSettingsField

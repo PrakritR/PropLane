@@ -275,29 +275,47 @@ describe("ManagerMessagingSettingsPanel", () => {
     expect(await screen.findByText("Request received")).toBeTruthy();
   });
 
-  it("lets co-managers request their own work number like any manager account", async () => {
-    const readyToRequest: ManagerMessagingNumberStatus = {
+  it("shows a co-manager the workspace's number, who manages it, and no Request button", async () => {
+    const sharedLine: ManagerMessagingNumberStatus = {
       ...pausedStatus,
       mode: "automatic",
       workspaceRole: "co_manager",
       provisioningAvailable: true,
-      canRequest: true,
+      canRequest: false,
+      workspaceNumber: {
+        phoneNumber: "+12065550199",
+        ownerUserId: "owner-1",
+        ownerName: "Prakrit Ramachandran",
+      },
     };
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json(readyToRequest)),
+      vi.fn(async () => Response.json(sharedLine)),
     );
     render(<ManagerMessagingSettingsPanel />);
 
-    expect(
-      await screen.findByRole("button", { name: "Request work number" }),
-    ).toBeTruthy();
-    expect(
-      screen.getByText(/your dedicated PropLane number/i),
-    ).toBeTruthy();
-    expect(
-      screen.queryByText("The primary property manager manages messaging."),
-    ).toBeNull();
+    expect(await screen.findByText("Workspace number")).toBeTruthy();
+    expect(screen.getByText("+1 (206) 555-0199")).toBeTruthy();
+    expect(screen.getByText("Prakrit Ramachandran")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Request work number" })).toBeNull();
+    expect(screen.queryByText(/preferred area code/i)).toBeNull();
+  });
+
+  it("tells a co-manager whose job the missing workspace number is", async () => {
+    const noLineYet: ManagerMessagingNumberStatus = {
+      ...pausedStatus,
+      mode: "automatic",
+      workspaceRole: "co_manager",
+      provisioningAvailable: true,
+      canRequest: false,
+      workspaceNumber: { phoneNumber: null, ownerUserId: "owner-1", ownerName: "Prakrit Ramachandran" },
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(noLineYet)));
+    render(<ManagerMessagingSettingsPanel />);
+
+    expect(await screen.findByText("Not set up yet")).toBeTruthy();
+    expect(screen.getByText(/Prakrit Ramachandran hasn.t set up a work number/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Request work number" })).toBeNull();
   });
 
   it("opens a resident-announce dialog after a number is assigned", async () => {

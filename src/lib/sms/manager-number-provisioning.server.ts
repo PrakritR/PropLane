@@ -6,6 +6,7 @@ import {
   isPlaceholderManagerWorkNumber,
 } from "@/lib/claw-leasing-links";
 import { managerCarrierRegistrationNeedsAttention } from "@/lib/sms/manager-messaging-number";
+import { isPureCoManagerWorkspace } from "@/lib/sms/manager-workspace-role.server";
 import {
   isProvisioningEnabled,
   managerCanSendFromOwnNumber,
@@ -131,6 +132,20 @@ export async function provisionManagerNumber(
 ): Promise<ProvisionResult> {
   const id = managerUserId.trim();
   if (!id) return { ok: false, error: "Missing manager id.", state: "failed" };
+
+  // One work number per workspace. A co-manager with no houses of their own
+  // sends from the owner's line; buying them a second number for the same
+  // workspace is refused here so no caller — route, signup backfill, or a
+  // display-time "ensure" — can spend money on one by accident. An unreadable
+  // ownership answer is treated as a co-manager: the purchase is the
+  // irreversible side, so it waits.
+  let pureCoManager = true;
+  try {
+    pureCoManager = await isPureCoManagerWorkspace(db, id, { throwOnError: true });
+  } catch {
+    return { ok: false, error: "workspace_unavailable", state: "failed" };
+  }
+  if (pureCoManager) return { ok: false, error: "workspace_number_shared", state: "pending_registration" };
 
   const record = await ensureManagerNumberRecord(db, id);
   if (!record) return { ok: false, error: "Could not initialize work-number state.", state: "failed" };

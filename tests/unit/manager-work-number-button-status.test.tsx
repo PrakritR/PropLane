@@ -109,7 +109,7 @@ describe("ManagerWorkNumberButton", () => {
     );
   });
 
-  it("links co-managers to messaging setup when no number is assigned", async () => {
+  it("never offers setup to a co-manager — the workspace's line is the owner's to request", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -120,10 +120,10 @@ describe("ManagerWorkNumberButton", () => {
         }),
       ),
     );
-    render(<ManagerWorkNumberButton />);
+    const { container } = render(<ManagerWorkNumberButton />);
 
-    const link = await screen.findByRole("link", { name: "Set up messaging" });
-    expect(link.getAttribute("href")).toBe("/portal/profile?tab=messaging");
+    await waitFor(() => expect(screen.queryByLabelText("Set up messaging")).toBeNull());
+    expect(container.textContent).toBe("");
   });
 
   it("shows an actionable error and retries when status cannot be loaded", async () => {

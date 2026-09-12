@@ -28,6 +28,30 @@ context so the model uses the already-scoped row for intent narrowing and can
 pass the opaque id to existing tools. The primary key remains unchanged and is
 never exposed as the conversational handle.
 
+## One work number per WORKSPACE (a co-manager never gets a line of their own)
+
+A work number belongs to the workspace — the owner plus every co-manager
+with an accepted `account_link_invites` row — not to whoever's row it was
+bought under. The owner's `manager_sms_numbers` row IS the workspace's number.
+`resolveWorkspaceOwnerForWorkNumber` / `resolveWorkspaceWorkNumbers`
+(`src/lib/sms/manager-workspace-role.server.ts`) are the one answer to "whose
+line is this"; every reader below goes through them.
+
+- A pure co-manager (accepted link, no owned houses) reads and sends from the
+  owner's line. `GET /api/manager/messaging-number` returns it as
+  `workspaceNumber` with `ownerName`; `canRequest` is false and `POST
+  request_number` is a 409 (`workspace_number_shared`). `provisionManagerNumber`,
+  the signup backfill and `resolveManagerWorkNumber` all refuse to buy one.
+- Inbound on a line still held by a pure co-manager (bought before this rule)
+  collapses to the workspace owner BEFORE resident identity, leasing, and
+  logging, so the texter reaches the owner's residents and listings and the
+  thread lands in the owner's inbox. The old "This is a co-manager's PropLane
+  assistant number…" bounce is gone and must not come back. Retire such lines
+  with `scripts/release-co-manager-work-numbers.ts` (dry-run by default).
+- "Sent by <teammate>" inside Communication is a read-time join from
+  `manager_sms_messages.message_sid` to `sms_outbox.actor_user_id`; never shown
+  to the texter. Coverage: `tests/unit/workspace-work-number-routing.test.ts`.
+
 ## Conversation identity is per-counterparty, NOT the phone pair (read this first)
 
 A conversation used to be derived from the phone-number pair on the wire

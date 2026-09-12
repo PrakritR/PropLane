@@ -894,7 +894,7 @@ export const ManagerSmsPanel = forwardRef<
               subtitle={smsConversationSubtitle(row.resident)}
               preview={
                 row.lastMessage
-                  ? `${row.lastMessage.direction === "outbound" ? "You: " : ""}${row.lastMessage.body}`
+                  ? `${smsOutboundPreviewPrefix(row.lastMessage)}${row.lastMessage.body}`
                   : ""
               }
               time={iosListTimestamp(row.lastMessage?.createdAt)}
@@ -1171,10 +1171,23 @@ function Bubble({
           <span className={`mt-1 block px-1 text-[11px] italic text-muted ${outbound ? "text-right" : ""}`}>
             Sending…
           </span>
+        ) : outbound && message.sentBy ? (
+          // One workspace number is shared by the whole team; this is the only
+          // place the owner can tell a co-manager's reply from their own.
+          <span className="mt-1 block px-1 text-right text-[11px] text-muted" data-attr="sms-sent-by">
+            Sent by {message.sentBy.name}
+          </span>
         ) : null}
       </div>
     </div>
   );
+}
+
+/** "You: " for the viewer's own sends, "Akhil: " for a teammate's. */
+export function smsOutboundPreviewPrefix(message: Pick<ManagerSmsMessageRow, "direction" | "sentBy">): string {
+  if (message.direction !== "outbound") return "";
+  const name = message.sentBy?.name?.trim();
+  return name ? `${name.split(/\s+/)[0]}: ` : "You: ";
 }
 
 function ConversationRow({

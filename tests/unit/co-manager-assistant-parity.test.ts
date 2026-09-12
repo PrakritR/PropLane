@@ -97,34 +97,39 @@ describe("the portal assistant reaches a co-manager's assigned houses", () => {
 });
 
 /**
- * The provisioning half. Both capabilities were once gated on being the PRIMARY manager; the
- * refusals are gone, and these read the source so a gate cannot quietly come back — a returned
- * `canRequest: false` is invisible in a diff but removes the button entirely.
+ * The provisioning half — and it is deliberately ASYMMETRIC now.
+ *
+ * Work EMAIL stays per manager: a co-manager gets their own address. Work
+ * NUMBER is per WORKSPACE: a co-manager sends from the owner's line and never
+ * gets a Request button, because a prospect texting the workspace must not be
+ * able to tell (and should never be bounced by) which teammate set the line
+ * up. These read the source so neither rule can quietly flip.
  */
-describe("work number and work email are open to co-managers", () => {
+describe("work email is open to co-managers; the work number belongs to the workspace", () => {
   const messaging = readFileSync("src/app/api/manager/messaging-number/route.ts", "utf8");
   const assistantEmail = readFileSync("src/app/api/manager/assistant-email/route.ts", "utf8");
 
-  it("neither route's canRequest depends on being the primary manager", () => {
-    for (const [name, source] of [["messaging-number", messaging], ["assistant-email", assistantEmail]] as const) {
-      const start = source.indexOf("canRequest:");
-      expect(start, `${name} has no canRequest`).toBeGreaterThan(-1);
-      const clause = source.slice(start, start + 400);
-      expect(clause, name).not.toContain('workspaceRole === "primary"');
-      expect(clause, name).not.toContain("!pureCoManager");
-    }
+  it("assistant-email's canRequest does not depend on being the primary manager", () => {
+    const start = assistantEmail.indexOf("canRequest:");
+    expect(start).toBeGreaterThan(-1);
+    const clause = assistantEmail.slice(start, start + 400);
+    expect(clause).not.toContain('workspaceRole === "primary"');
+    expect(clause).not.toContain("!pureCoManager");
   });
 
-  it("the UI panels use the co-manager flag for wording only, never to hide the control", () => {
-    for (const path of [
-      "src/components/portal/pro-messaging-settings-panel.tsx",
-      "src/components/portal/pro-assistant-email-settings-panel.tsx",
-    ]) {
-      const source = readFileSync(path, "utf8");
-      // A gate would read `isCoManager ? null :` or `!isCoManager &&` around the request action.
-      expect(source, path).not.toMatch(/isCoManager\s*\?\s*null/);
-      expect(source, path).not.toMatch(/!isCoManager\s*&&\s*</);
-    }
+  it("messaging-number's canRequest is off for a pure co-manager, and POST refuses before billing", () => {
+    const start = messaging.indexOf("canRequest:");
+    expect(start).toBeGreaterThan(-1);
+    expect(messaging.slice(start, start + 200)).toContain("!pureCoManager");
+    const post = messaging.slice(messaging.indexOf("export async function POST"));
+    expect(post.indexOf("workspace_number_shared")).toBeGreaterThan(-1);
+    expect(post.indexOf("workspace_number_shared")).toBeLessThan(post.indexOf("const entitlement = await reconcileManagerSmsEntitlement("));
+  });
+
+  it("the assistant-email panel uses the co-manager flag for wording only, never to hide the control", () => {
+    const source = readFileSync("src/components/portal/pro-assistant-email-settings-panel.tsx", "utf8");
+    expect(source).not.toMatch(/isCoManager\s*\?\s*null/);
+    expect(source).not.toMatch(/!isCoManager\s*&&\s*</);
   });
 });
 

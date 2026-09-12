@@ -41,6 +41,13 @@ export type ManagerSmsMessageRow = {
   createdAt: string;
   /** Which table this row lives in — set for manager-thread deletes. */
   storageTable?: ManagerSmsMessageStorageTable;
+  /**
+   * The teammate who sent this outbound text, when it was NOT the viewer.
+   * One workspace number is shared by the owner and every co-manager, so
+   * without this the owner cannot tell their own replies from a co-manager's.
+   * Never shown to the texter; only inside Communication.
+   */
+  sentBy?: { userId: string; name: string } | null;
 };
 
 export type ManagerSmsResidentConversation = {

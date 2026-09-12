@@ -25,6 +25,7 @@ import {
   loadManagerSmsContactMap,
   managerSmsContactKey,
 } from "@/lib/sms/manager-sms-contacts.server";
+import { resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
 
 export type { ManagerSmsConversationsPayload, ManagerSmsMessageRow, ManagerSmsResidentConversation };
 
@@ -497,6 +498,42 @@ async function listResidentsForOwners(
   );
 }
 
+async function loadSentByForOutbound(
+  db: SupabaseClient,
+  scopeManagerIds: string[],
+  viewerUserId: string,
+  messageSids: string[],
+): Promise<Map<string, { userId: string; name: string }>> {
+  const out = new Map<string, { userId: string; name: string }>();
+  if (messageSids.length === 0) return out;
+  const { data: outboxRows } = await db
+    .from("sms_outbox")
+    .select("provider_message_sid, actor_user_id")
+    .in("manager_user_id", scopeManagerIds)
+    .in("provider_message_sid", messageSids.slice(0, 2000))
+    .neq("actor_user_id", viewerUserId)
+    .not("actor_user_id", "is", null);
+  const actorBySid = new Map<string, string>();
+  for (const row of outboxRows ?? []) {
+    const sid = String(row.provider_message_sid ?? "").trim();
+    const actor = String(row.actor_user_id ?? "").trim();
+    if (sid && actor) actorBySid.set(sid, actor);
+  }
+  if (actorBySid.size === 0) return out;
+  const actorIds = [...new Set(actorBySid.values())];
+  const { data: profiles } = await db.from("profiles").select("id, full_name, email").in("id", actorIds);
+  const nameById = new Map(
+    (profiles ?? []).map((p) => [
+      String(p.id ?? "").trim(),
+      String(p.full_name ?? "").trim() || String(p.email ?? "").trim().split("@")[0] || "Teammate",
+    ]),
+  );
+  for (const [sid, actor] of actorBySid) {
+    out.set(sid, { userId: actor, name: nameById.get(actor) ?? "Teammate" });
+  }
+  return out;
+}
+
 export async function fetchManagerSmsConversations(
   db: SupabaseClient,
   managerUserId: string,
@@ -540,9 +577,17 @@ export async function fetchManagerSmsConversations(
     }
     return null;
   };
+  // One work number per workspace. A co-manager leads with the owner's line —
+  // that is the number their replies go out from — even when a legacy line of
+  // their own is still on file. Owners read their own row as before.
+  const workspaceNumber = isClawSharedLineBridgeEnabled()
+    ? null
+    : await resolveWorkspaceWorkNumbers(db, managerUserId)
+        .then((w) => (w.role === "co_manager" ? w.numbers.find((n) => n.phoneNumber)?.phoneNumber ?? null : null))
+        .catch(() => null);
   const ownNumber = isClawSharedLineBridgeEnabled()
     ? clawLeasingAgentPhoneE164()
-    : await readNumbersOnFile([managerUserId]);
+    : workspaceNumber || (await readNumbersOnFile([managerUserId]));
   const workNumber =
     ownNumber || (await readNumbersOnFile(scopeManagerIds.filter((id) => id !== managerUserId)));
 
@@ -633,6 +678,19 @@ export async function fetchManagerSmsConversations(
     .order("created_at", { ascending: false })
     .limit(2000);
 
+  // Who on the team sent each outbound text. The message log has no actor
+  // column; the outbox does, keyed by the provider sid the log also stores.
+  // Only sends by someone OTHER than the viewer are resolved — "You" needs no
+  // label — and a missing outbox row simply means no label, never a wrong one.
+  const sentByBySid = await loadSentByForOutbound(
+    db,
+    scopeManagerIds,
+    managerUserId,
+    (outbound ?? [])
+      .filter((r) => r.direction === "outbound" && r.message_sid)
+      .map((r) => String(r.message_sid)),
+  );
+
   for (const row of outbound ?? []) {
     const phone = String(row.resident_phone ?? "").trim();
     if (!phone) continue;
@@ -657,6 +715,7 @@ export async function fetchManagerSmsConversations(
         source: (row.source as ManagerSmsMessageRow["source"]) ?? "work_number",
         createdAt: String(row.created_at),
         storageTable: "manager_sms_messages",
+        sentBy: row.message_sid ? sentByBySid.get(String(row.message_sid)) ?? null : null,
       },
     );
   }
