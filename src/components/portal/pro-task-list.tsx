@@ -12,11 +12,6 @@ import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useShallowTabId } from "@/components/ui/tabs";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
 import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
 import { Settings2 } from "lucide-react";
@@ -28,6 +23,7 @@ import { ManagerTaskFormModal } from "@/components/portal/pro-task-form-modal";
 import { ManagerTaskFilterFields } from "@/components/portal/pro-task-filter-fields";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { TaskTableHeader, TaskTableRow, taskDueState, type TaskDueState } from "@/components/portal/pro-task-row";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { ManagerCommunicationComposeModal } from "@/components/portal/pro-communication-compose-modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import {
@@ -752,19 +748,6 @@ export function ManagerTaskList({
     setAddOpen(true);
   }
 
-  const renderAddTaskRow = (className?: string) =>
-    tabId === "in-progress" ? (
-      <div className={className ?? PORTAL_LIST_ADD_ROW_WRAP_CLASS} data-testid="tasks-list-add">
-        <PortalListAddRow
-          label="Add"
-          ariaLabel="Add task"
-          icon={PORTAL_LIST_ADD_ICONS.request}
-          onClick={openAddTask}
-          dataAttr="manager-task-list-add"
-        />
-      </div>
-    ) : null;
-
   return (
     <ManagerPortalPageShell
       title="Tasks"
@@ -818,9 +801,53 @@ export function ManagerTaskList({
           </>
         ) : null}
 
-        {!loading && visibleRows.length === 0
-          ? renderAddTaskRow(`${PORTAL_LIST_ADD_ROW_WRAP_CLASS} pt-5 sm:pt-6`)
-          : null}
+        {!loading && visibleRows.length === 0 ? (
+          <PortalListEmptyCard
+            title={
+              activeFilterChips.length > 0
+                ? "No tasks match these filters"
+                : tabId === "overdue"
+                  ? "Nothing overdue"
+                  : tabId === "completed"
+                    ? "Nothing done yet"
+                    : "No open tasks"
+            }
+            description={
+              activeFilterChips.length > 0
+                ? "Clear a filter to see the rest."
+                : tabId === "overdue"
+                  ? "A task whose due date has passed lands here until it is done."
+                  : tabId === "completed"
+                    ? "Tasks you mark done move here, so nothing is lost."
+                    : "What needs doing, who owns it and when it is due — add the first one."
+            }
+            sibling={(() => {
+              const other = tabItems.find((t) => t.id !== tabId && t.count > 0);
+              return other
+                ? { label: `${other.count} ${other.label.toLowerCase()} · open ${other.label}`, href: other.href, dataAttr: `manager-task-empty-sibling-${other.id}` }
+                : null;
+            })()}
+            actions={
+              activeFilterChips.length > 0
+                ? [
+                    {
+                      label: "Clear filters",
+                      onClick: () => {
+                        setListFilter("all");
+                        setPropertyFilterId("");
+                        setAssigneeFilterId("");
+                        setPriorityFilter("");
+                      },
+                      dataAttr: "manager-task-empty-clear-filters",
+                    },
+                  ]
+                : tabId === "in-progress"
+                  ? [{ label: "Add task", onClick: openAddTask, dataAttr: "manager-task-list-add" }]
+                  : []
+            }
+            dataAttr="manager-task-empty"
+          />
+        ) : null}
       </div>
 
       {userId ? (

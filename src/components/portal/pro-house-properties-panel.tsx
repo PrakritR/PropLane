@@ -57,13 +57,9 @@ import {
 import { ManagerPropertyRequestsPanel } from "@/components/portal/pro-property-requests-panel";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
 import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { LEASE_PIPELINE_EVENT, readLeasePipeline } from "@/lib/lease-pipeline-storage";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -1313,6 +1309,24 @@ export function ManagerHousePropertiesPanel({
     return map;
   }, [tick, scopeUserId]);
 
+  /** Rows per stage, for the empty state's "n drafts · open Drafts" link. */
+  const stageCounts = useMemo(() => {
+    void tick;
+    const counts: Record<string, number> = {};
+    if (!scopeUserId) return counts;
+    for (const stage of MANAGER_STAGES) {
+      counts[stage.key] = stage.buckets.reduce<number>(
+        (n, bucket) =>
+          n +
+          readAdminPropertyRows(bucket, scopeUserId).filter((row) =>
+            propertyKeyProp || workspaceContainsProperty(row.listingId?.trim() || row.adminRefId.trim()),
+          ).length,
+        0,
+      );
+    }
+    return counts;
+  }, [tick, scopeUserId, propertyKeyProp]);
+
   const propertyRowKey = (row: AdminPropertyRow) => row.adminRefId + (row.listingId ?? "");
   const propertyKeyFromRow = (row: AdminPropertyRow) =>
     row.listingId?.trim() || row.adminRefId.trim();
@@ -1623,21 +1637,40 @@ export function ManagerHousePropertiesPanel({
     );
   }
 
-  const renderAddPropertyRow = () =>
-    onAddProperty ? (
-      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-        <PortalListAddRow
-          label="Add property"
-          ariaLabel="Add property"
-          icon={PORTAL_LIST_ADD_ICONS.property}
-          hint={addPropertyHint}
-          onClick={onAddProperty}
-          disabled={addPropertyDisabled}
-          dataAttr="manager-properties-create"
-          className="portal-list-add-row--property min-h-[11rem] sm:min-h-[12.5rem] sm:py-14 [&>svg]:h-10 [&>svg]:w-10 [&_span_span]:text-xs sm:[&_span_span]:text-sm"
-        />
-      </div>
-    ) : null;
+  /**
+   * The empty state (§15): what this stage holds, the stage that has rows,
+   * and the one action. No bare dashed box.
+   */
+  const renderEmptyState = () => {
+    const sibling = MANAGER_STAGES.filter((s) => s.key !== activeStage && (stageCounts[s.key] ?? 0) > 0)[0];
+    const copy: Record<string, { title: string; description: string }> = {
+      listed: { title: "No listed homes yet", description: "Homes you publish appear here, where renters can find and apply to them." },
+      unlisted: { title: "Nothing unlisted", description: "A home you take off the market waits here until you relist it." },
+      drafts: { title: "No drafts in progress", description: "A home you start and save without publishing waits here." },
+    };
+    const c = copy[activeStage] ?? { title: "Nothing here yet", description: "" };
+    return (
+      <PortalListEmptyCard
+        title={searchQuery.trim() ? "No homes match that search" : c.title}
+        description={searchQuery.trim() ? "Try another name, address or neighborhood." : c.description}
+        sibling={
+          sibling
+            ? {
+                label: `${stageCounts[sibling.key]} ${sibling.label.toLowerCase()} · open ${sibling.label}`,
+                href: propertyListHref(propertiesBase, sibling.key),
+                dataAttr: `manager-properties-empty-sibling-${sibling.key}`,
+              }
+            : null
+        }
+        actions={
+          onAddProperty
+            ? [{ label: "Add property", onClick: onAddProperty, disabled: addPropertyDisabled, dataAttr: "manager-properties-create" }]
+            : []
+        }
+        dataAttr="manager-properties-empty"
+      />
+    );
+  };
 
   return (
     <>
@@ -1709,8 +1742,7 @@ export function ManagerHousePropertiesPanel({
             />
           );
         })}
-        {/* The dashed ADD row is the empty state's; a populated list adds from the page head. */}
-        {rows.length === 0 ? renderAddPropertyRow() : null}
+        {rows.length === 0 ? renderEmptyState() : null}
       </div>
       {selectedIds.size > 0 ? (
         <BulkActionBar count={selectedIds.size} hideCount variant="payments" onClear={clearSelection}>
