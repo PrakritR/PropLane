@@ -4,6 +4,7 @@ import { ChevronLeft } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ManagerPortalFilterRow, ManagerPortalPageShell } from "@/components/portal/portal-metrics";
 import { InboxAvatar, InboxThreadEmpty, InboxTwoPane } from "@/components/portal/portal-inbox-ui";
+import { PortalTitleActionsHost, useTitleActionsPublished } from "@/components/portal/portal-title-actions-slot";
 import { cn } from "@/lib/utils";
 
 /** Desktop shows list + detail together; phones use list-then-detail navigation. */
@@ -98,6 +99,12 @@ export function PortalDetailHeader({
   inlineActionsClassName?: string;
   dataAttrBack?: string;
 }) {
+  // The record's own actions (Approve · Download, Edit listing · Unlist) are
+  // published into this header by the tab that owns them — see
+  // portal-title-actions-slot. They used to sit in a bar pinned to the foot of
+  // the page, which covered the last card and read as the page being cut off.
+  const slotPublished = useTitleActionsPublished();
+  const hasActions = Boolean(actions) || slotPublished;
   return (
     <header
       className={`portal-detail-header flex shrink-0 flex-col max-md:gap-2 md:gap-0 ${
@@ -127,24 +134,30 @@ export function PortalDetailHeader({
             {subtitle ? <p className="truncate text-[12.5px] text-muted">{subtitle}</p> : null}
           </div>
         </div>
-        {actions ? (
-          <div
-            className={cn(
-              inlineActions
-                ? "flex max-w-[min(70%,24rem)] shrink-0 items-center gap-1 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] md:max-w-none [&::-webkit-scrollbar]:hidden"
-                : "hidden shrink-0 items-center gap-1.5 md:flex",
-              inlineActionsClassName,
-            )}
-          >
-            {actions}
-          </div>
-        ) : null}
-      </div>
-      {actions && !suppressMobileActions && !inlineActions ? (
-        <div className="flex w-full min-w-0 flex-col gap-2 border-t border-border/60 px-2 pb-2 pt-2 md:hidden">
+        {/* The host stays mounted even while empty — a publisher only claims
+            a slot it can see, so an unmounted host would never receive one. */}
+        <div
+          className={cn(
+            inlineActions
+              ? "flex max-w-[min(70%,24rem)] shrink-0 items-center gap-1 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] md:max-w-none [&::-webkit-scrollbar]:hidden"
+              : "hidden shrink-0 items-center gap-1.5 md:flex",
+            !hasActions && "!hidden",
+            inlineActionsClassName,
+          )}
+        >
           {actions}
+          <PortalTitleActionsHost className="flex items-center gap-1.5 [&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!px-3.5 [&_button]:!text-[13px]" />
         </div>
-      ) : null}
+      </div>
+      <div
+        className={cn(
+          "w-full min-w-0 flex-col gap-2 border-t border-border/60 px-2 pb-2 pt-2 md:hidden",
+          (actions && !suppressMobileActions && !inlineActions) || (slotPublished && !inlineActions) ? "flex" : "hidden",
+        )}
+      >
+        {actions && !suppressMobileActions ? actions : null}
+        <PortalTitleActionsHost className="flex flex-wrap items-center gap-1.5 [&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!px-3.5 [&_button]:!text-[13px]" />
+      </div>
     </header>
   );
 }

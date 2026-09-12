@@ -48,11 +48,10 @@ import { ModalShell } from "@/components/ui/modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { cn } from "@/lib/utils";
 import { PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS } from "@/components/portal/portal-property-detail-section";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import {
   PROPERTY_DETAIL_TOP_TAB_LABELS,
   PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS,
@@ -947,8 +946,7 @@ function ManagerPropertyInlineDetails({
       <PortalPageScrollBody
         className={cn(
           "min-w-0 max-w-full pt-3",
-          hasPinnedPropertyFooter &&
-            "pb-[calc(2.75rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))] lg:pb-3",
+          hasPinnedPropertyFooter && "pb-3",
         )}
       >
       {isListingPreview ? (
@@ -1073,9 +1071,7 @@ function ManagerPropertyInlineDetails({
       </PortalPageScrollBody>
 
       {propertyTabFooterActions ? (
-        <PortalPageFooterActions pinned rowVariant="header" omitSpacer>
-          {propertyTabFooterActions}
-        </PortalPageFooterActions>
+        <PortalRecordActions omitSpacer>{propertyTabFooterActions}</PortalRecordActions>
       ) : null}
 
       {listingId || stablePropertyId ? (
