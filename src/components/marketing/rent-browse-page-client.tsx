@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
 import { ResidentHousingBrowse } from "@/components/marketing/resident-housing-browse";
+import { SignedOutOnly } from "@/components/marketing/signed-out-only";
 import { Button } from "@/components/ui/button";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
 import { portalNavClick } from "@/lib/portal-nav-client";
@@ -53,11 +54,37 @@ export function RentBrowsePageClient() {
           </Link>
         )}
 
-        <header className={`text-center ${isNative === true ? "mt-4" : "mt-2"}`}>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-            Browse homes
-          </h1>
-        </header>
+        {isNative === true || fromApplication ? (
+          <header className={`text-center ${isNative === true ? "mt-4" : "mt-2"}`}>
+            <h1 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+              Browse homes
+            </h1>
+          </header>
+        ) : (
+          /*
+           * The signed-out landing hero. /rent is the live browse app and stays
+           * one: the hero sits on top (Airbnb/Zillow's shape) and is kept short
+           * so the first listing is never pushed below the fold on a phone.
+           */
+          <SignedOutOnly>
+            <header className="mx-auto mt-2 max-w-[760px] text-center sm:mt-4">
+              <p className="text-[12.5px] font-bold uppercase tracking-[0.08em] text-primary">For residents</p>
+              <h1 className="mt-3 text-[clamp(1.9rem,4.4vw,3rem)] font-bold leading-[1.05] tracking-[-0.03em] text-foreground">
+                Find a room or a home. Apply from your phone.
+              </h1>
+              <p className="mx-auto mt-3 max-w-[52ch] text-[15.5px] leading-relaxed text-muted sm:text-[16.5px]">
+                Tours book in a minute. One application, an e-signed lease, rent by card or bank.
+              </p>
+              <ul className="mt-5 flex flex-wrap items-center justify-center gap-2 text-[12.5px] font-semibold text-foreground/85">
+                {["Tour in a minute", "One application, e-signed lease", "Rent by card or bank, reminders first"].map((p) => (
+                  <li key={p} className="rounded-full border border-border bg-card px-3 py-1.5">
+                    {p}
+                  </li>
+                ))}
+              </ul>
+            </header>
+          </SignedOutOnly>
+        )}
 
         <div className="mb-10 mt-6 sm:mb-12 sm:mt-8">
           <ResidentHousingBrowse propertyIds={browseIds} />
