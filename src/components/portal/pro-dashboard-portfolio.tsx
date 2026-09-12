@@ -7,6 +7,7 @@
  * stores the list pages read; nothing is a new data source.
  */
 
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { propertyDetailHref, propertyListHref } from "@/lib/portal-detail-routes";
@@ -177,24 +178,30 @@ export function PortfolioPropertiesSection({
   cards,
   basePath,
   occupiedByProperty,
+  addPropertyAction,
 }: {
   cards: PortfolioPropertyCardData[];
   basePath: string;
   /** Signed leases per property key, for the occupancy bar. */
   occupiedByProperty?: ReadonlyMap<string, number>;
+  /** Primary add-home control (dashboard moved it off the page hero). */
+  addPropertyAction?: ReactNode;
 }) {
   const shown = cards.slice(0, 3);
   return (
     <section className="space-y-3" data-attr="dashboard-your-properties">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold tracking-[-0.01em] text-foreground">Your properties</h2>
-        <Link
-          href={propertyListHref(basePath, "listed")}
-          className="inline-flex min-h-10 items-center rounded-lg bg-accent px-3 text-sm font-semibold text-primary transition hover:bg-accent/70"
-          data-attr="dashboard-manage-properties"
-        >
-          Manage properties →
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          {addPropertyAction}
+          <Link
+            href={propertyListHref(basePath, "listed")}
+            className="inline-flex min-h-10 items-center rounded-lg bg-accent px-3 text-sm font-semibold text-primary transition hover:bg-accent/70"
+            data-attr="dashboard-manage-properties"
+          >
+            Manage properties →
+          </Link>
+        </div>
       </div>
       {shown.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-border bg-card px-4 py-6 text-center text-sm text-muted">

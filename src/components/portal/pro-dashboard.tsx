@@ -10,7 +10,6 @@ import {
 } from "@/components/portal/pro-dashboard-portfolio";
 import {
   AttentionPanel,
-  DashboardPeriodSelect,
   KpiCard,
   UpcomingPanel,
   type AttentionRow,
@@ -577,7 +576,7 @@ function formatUsd(amount: number): string {
   });
 }
 
-export function ManagerDashboard({ displayName = "there" }: { displayName?: string }) {
+export function ManagerDashboard({ displayName: _displayName = "there" }: { displayName?: string }) {
   const router = useRouter();
   const { userId, email, ready: authReady } = useManagerUserId();
   const [tick, setTick] = useState(0);
@@ -615,14 +614,6 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
       /* private mode */
     }
   }, []);
-  const choosePeriod = (next: DashboardPeriodKind) => {
-    setPeriodKind(next);
-    try {
-      window.localStorage.setItem("proplane.dashboard.period", next);
-    } catch {
-      /* private mode */
-    }
-  };
   // Move-ins and move-outs in the next fortnight, for the Upcoming panel.
   const [residencies, setResidencies] = useState<InspectionResidency[]>([]);
   useEffect(() => {
@@ -1148,22 +1139,7 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
   ];
 
   return (
-    <ManagerPortalPageShell
-      title="Your portfolio, in focus."
-      subtitle={`Welcome back, ${displayName}. Keep homes organized. Keep the next step clear.`}
-      hideTitleOnNative
-      hideTitleOnMobileNav
-      primaryAction={
-        <Button
-          type="button"
-          className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
-          data-attr="dashboard-add-property"
-          onClick={() => router.push(`${propertyListHref(BASE, "drafts")}?wizard=v2`)}
-        >
-          + Add property
-        </Button>
-      }
-    >
+    <ManagerPortalPageShell title="Dashboard" navigationProvidesTitle>
       {/* Full width: Ask PropLane opens a popup by default, and a
           manager who pins it gets the portal-wide rail from the shell layout
           (`PortalAssistantDockRail`) rather than a dashboard-only column.
@@ -1200,11 +1176,6 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
           </Link>
         ) : null}
 
-        {/* Portfolio at a glance — four figures with a direction, on the baseline the manager picks. */}
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">At a glance</h2>
-          <DashboardPeriodSelect value={periodKind} onChange={choosePeriod} />
-        </div>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiCard
             label="Occupancy"
@@ -1263,7 +1234,21 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
           <UpcomingPanel rows={upcomingRows} nowMs={nowTick} calendarHref={`${BASE}/calendar`} />
         </div>
 
-        <PortfolioPropertiesSection cards={portfolio.cards} basePath={BASE} occupiedByProperty={occupiedByProperty} />
+        <PortfolioPropertiesSection
+          cards={portfolio.cards}
+          basePath={BASE}
+          occupiedByProperty={occupiedByProperty}
+          addPropertyAction={
+            <Button
+              type="button"
+              className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+              data-attr="dashboard-add-property"
+              onClick={() => router.push(`${propertyListHref(BASE, "drafts")}?wizard=v2`)}
+            >
+              + Add property
+            </Button>
+          }
+        />
 
         {/* Financial trend graphs — payments collected vs. expenses, last 6 months. */}
         {visibility.cashflow ? (
