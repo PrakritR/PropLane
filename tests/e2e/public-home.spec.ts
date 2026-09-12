@@ -11,7 +11,7 @@ test.describe("Public home", () => {
   test("header carries Pricing and Why PropLane as tabs", async ({ page }) => {
     await page.goto("/");
     const nav = page.locator("#axis-public-navbar");
-    await expect(nav.getByRole("link", { name: /^pricing$/i }).first()).toHaveAttribute("href", "/pricing");
+    await expect(nav.getByRole("link", { name: /^pricing$/i }).first()).toHaveAttribute("href", "/pricing#compare");
     await expect(nav.getByRole("link", { name: /^why proplane$/i }).first()).toHaveAttribute("href", "/why-proplane");
   });
 
@@ -55,7 +55,7 @@ test.describe("Public home", () => {
     await expect(pricing.getByText("$0", { exact: true })).toBeVisible();
     await expect(pricing.getByText("$20", { exact: true })).toBeVisible();
     await expect(pricing.getByText("$200", { exact: true })).toBeVisible();
-    await expect(pricing.getByRole("link", { name: /compare every feature/i })).toHaveAttribute("href", "/pricing");
+    await expect(pricing.getByRole("link", { name: /compare every feature/i })).toHaveAttribute("href", "/pricing#compare");
   });
 
   test("the audience switch changes the screen beside it", async ({ page }) => {
