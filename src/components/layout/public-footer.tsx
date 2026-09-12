@@ -100,26 +100,16 @@ const SOCIAL_GLYPHS: Record<PublicSocialId, ReactNode> = {
 };
 
 function SocialRow({ className = "" }: { className?: string }) {
-  if (PUBLIC_SOCIAL_LINKS.length === 0) return null;
+  // Only confirmed profiles render (site round 2 §5): an icon that goes nowhere
+  // reads as broken. A profile becomes visible the moment NEXT_PUBLIC_SOCIAL_*
+  // carries its URL — no code change.
+  const links = PUBLIC_SOCIAL_LINKS.filter(({ href }) => !isPlaceholderSocialHref(href));
+  if (links.length === 0) return null;
   return (
     <ul className={`flex items-center gap-2 ${className}`}>
-      {PUBLIC_SOCIAL_LINKS.map(({ id, label, href }) => {
-        // A confirmed profile URL is a real new-tab link. An unconfirmed
-        // placeholder renders the branded icon as a NON-interactive <span> — an
-        // <a href="#"> actually navigates (scrolls to top, dirties the URL) and
-        // announces as a link to nowhere, so the icon must not be an anchor
-        // until a real destination exists (set via NEXT_PUBLIC_SOCIAL_*).
+      {links.map(({ id, label, href }) => {
         const base =
           "flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted";
-        if (isPlaceholderSocialHref(href)) {
-          return (
-            <li key={id}>
-              <span role="img" aria-label={label} title={label} data-attr={`footer-social-${id}`} className={base}>
-                {SOCIAL_GLYPHS[id]}
-              </span>
-            </li>
-          );
-        }
         return (
           <li key={id}>
             <a

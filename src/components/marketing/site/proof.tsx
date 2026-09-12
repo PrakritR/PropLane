@@ -22,7 +22,7 @@ export function SiteProof() {
           <p className="mt-4 max-w-[40ch] text-[17px] font-semibold leading-snug text-foreground">
             of outbound messages, charges and leases wait for a manager&rsquo;s OK. Zero sent on their own.
           </p>
-          <p className="mt-2 text-[13.5px] text-muted">True by construction — the assistant can draft, and only a person can send.</p>
+          <p className="mt-2 text-[14px] text-foreground/80">The assistant can draft. Only a person can send.</p>
         </div>
         <Link
           href={BOOK_DEMO_HREF}
