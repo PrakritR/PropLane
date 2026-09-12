@@ -256,6 +256,13 @@ export type DemoManagerWorkOrderRow = {
   vendorAssignedAt?: string;
   /** Manager handles the work themselves — no vendor assigned, no vendor email sent. */
   selfAssigned?: boolean;
+  /**
+   * Who the visit is assigned to, in the one shape services, tours and tasks share
+   * (`WorkAssignee`): a team member (the manager or a co-manager) or a vendor. The
+   * legacy `vendorId` / `selfAssigned` pair is still written beside it so the vendor
+   * portal's scoping and dispatch keep reading what they always read.
+   */
+  assignee?: { type: "team" | "vendor"; id: string; name: string };
   category?: "cleaning" | "plumbing" | "mold" | "electrical" | "hvac" | "general" | "appliance" | "access";
   vendorCostCents?: number;
   /** ISO timestamp when the vendor set labor cost via set-vendor-price (locks manager edits). */
