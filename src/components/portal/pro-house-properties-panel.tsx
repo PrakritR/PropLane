@@ -6,7 +6,12 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { ImageOff } from "lucide-react";
-import { propertyRowAddress, propertyRowSummary, propertyRowThumbnail } from "@/lib/property-row-summary";
+import {
+  propertyRowAddress,
+  propertyRowDetail,
+  propertyRowRentLabel,
+  propertyRowThumbnail,
+} from "@/lib/property-row-summary";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenuItem,
@@ -51,7 +56,8 @@ import {
 } from "@/lib/portal-detail-routes";
 import { ManagerPropertyRequestsPanel } from "@/components/portal/pro-property-requests-panel";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
-import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
+import { LEASE_PIPELINE_EVENT, readLeasePipeline } from "@/lib/lease-pipeline-storage";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import {
   PortalListAddRow,
@@ -1250,9 +1256,12 @@ export function ManagerHousePropertiesPanel({
     };
     window.addEventListener(PROPERTY_PIPELINE_EVENT, on);
     window.addEventListener("axis-pro-relationships", on);
+    // A lease signed elsewhere changes the occupancy chip on its row.
+    window.addEventListener(LEASE_PIPELINE_EVENT, on);
     return () => {
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
       window.removeEventListener("axis-pro-relationships", on);
+      window.removeEventListener(LEASE_PIPELINE_EVENT, on);
     };
   }, [scopeUserId]);
 
@@ -1286,6 +1295,23 @@ export function ManagerHousePropertiesPanel({
       })
       .sort((a, b) => compareAdminPropertyRowsForDisplay(a.row, b.row));
   }, [tick, scopeUserId, activeStage, propertyKeyProp, searchQuery]);
+
+  /**
+   * Signed leases per property, for the row's occupancy chip — the same
+   * Fully Signed rows the dashboard's occupancy figure counts.
+   */
+  const occupiedByProperty = useMemo(() => {
+    void tick;
+    const map = new Map<string, number>();
+    if (!scopeUserId) return map;
+    for (const lease of readLeasePipeline(scopeUserId)) {
+      if (lease.status !== "Fully Signed") continue;
+      const key = lease.propertyId?.trim();
+      if (!key) continue;
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return map;
+  }, [tick, scopeUserId]);
 
   const propertyRowKey = (row: AdminPropertyRow) => row.adminRefId + (row.listingId ?? "");
   const propertyKeyFromRow = (row: AdminPropertyRow) =>
@@ -1624,7 +1650,23 @@ export function ManagerHousePropertiesPanel({
               key={rowKey}
               title={managerPropertyRowTitle(row, sourceBucket)}
               address={propertyRowAddress(row)}
-              summary={propertyRowSummary(row)}
+              summary={propertyRowDetail(row)}
+              trailing={sourceBucket === 5 ? undefined : propertyRowRentLabel(row)}
+              chip={(() => {
+                // Drafts are not let; every other stage says how full the home is.
+                if (sourceBucket === 5) return undefined;
+                const rooms = row.submission?.rooms?.length ?? 0;
+                const spaces = row.submission?.listingPlaceCategoryId === "entire_home" ? 1 : Math.max(rooms, 1);
+                const occupied = Math.min(occupiedByProperty.get(propertyKeyFromRow(row)) ?? 0, spaces);
+                return (
+                  <PortalRowStatusChip
+                    tone={occupied >= spaces ? "ok" : occupied === 0 ? "warn" : "neutral"}
+                    dataAttr="property-row-occupancy"
+                  >
+                    {occupied === 0 && spaces === 1 ? "Vacant" : `${occupied} / ${spaces} occupied`}
+                  </PortalRowStatusChip>
+                );
+              })()}
               leading={
                 thumb ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -1667,10 +1709,11 @@ export function ManagerHousePropertiesPanel({
             />
           );
         })}
-        {renderAddPropertyRow()}
+        {/* The dashed ADD row is the empty state's; a populated list adds from the page head. */}
+        {rows.length === 0 ? renderAddPropertyRow() : null}
       </div>
       {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments" onClear={clearSelection}>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             {canBulkEdit ? (
               <Button

@@ -51,6 +51,7 @@ export function PortalRecordListSurface({
   add,
   bulkCount = 0,
   bulkActions,
+  onBulkClear,
   empty,
   isEmpty = false,
   className,
@@ -58,10 +59,18 @@ export function PortalRecordListSurface({
 }: {
   /** The record rows. Rendered as-is so each tab keeps its own row variant. */
   children?: ReactNode;
-  /** Dashed footer. Omit for a list that cannot be added to from this surface. */
+  /**
+   * The dashed ADD row. It renders only while the list is EMPTY — a populated
+   * list adds from the page head, and the dashed box under twenty rows was a
+   * second Add nobody needed (Mobbin polish §10). A call site that sets
+   * `inline` explicitly (either way) has no page-head Add — a ledger embedded
+   * in a resident record — and keeps the row.
+   */
   add?: PortalListAddConfig;
   bulkCount?: number;
   bulkActions?: ReactNode;
+  /** Clears the selection — the ✕ at the end of the floating bulk bar. */
+  onBulkClear?: () => void;
   /** Shown instead of `children` when `isEmpty`. The ADD row still renders. */
   empty?: ReactNode;
   isEmpty?: boolean;
@@ -72,7 +81,7 @@ export function PortalRecordListSurface({
     <>
       <div className={cn(PORTAL_LIST_PAGE_BODY, className)} data-attr={dataAttr}>
         {isEmpty ? empty : children}
-        {add ? (
+        {add && (isEmpty || add.inline != null) ? (
           <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
             <PortalListAddRow
               // Every list footer reads "+ Add"; the per-list glyph and long label
@@ -91,8 +100,8 @@ export function PortalRecordListSurface({
         ) : null}
       </div>
       {bulkCount > 0 && bulkActions ? (
-        <BulkActionBar count={bulkCount} hideCount variant="payments">
-          <div className="flex min-w-0 flex-nowrap items-center justify-start gap-2" data-bulk-action-actions>
+        <BulkActionBar count={bulkCount} hideCount variant="payments" onClear={onBulkClear}>
+          <div className="flex min-w-0 flex-nowrap items-center justify-start gap-2">
             {bulkActions}
           </div>
         </BulkActionBar>

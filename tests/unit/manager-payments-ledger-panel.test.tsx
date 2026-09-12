@@ -208,8 +208,8 @@ describe("ManagerPaymentsLedgerPanel", () => {
     expect(container.querySelector('[data-attr="payment-list-row"]')).toBeNull();
   });
 
-  it("renders a dashed list add row on the main ledger list when onAddPayment is set", () => {
-    render(
+  it("keeps the dashed add row for the EMPTY ledger only — a populated list adds from the page head", () => {
+    const { unmount } = render(
       <ManagerPaymentsLedgerPanel
         rows={[sampleRow()]}
         managerUserId="mgr-test"
@@ -218,7 +218,17 @@ describe("ManagerPaymentsLedgerPanel", () => {
         onAddPayment={() => undefined}
       />,
     );
-
+    expect(screen.queryByRole("button", { name: /Add charge/i })).toBeNull();
+    unmount();
+    render(
+      <ManagerPaymentsLedgerPanel
+        rows={[]}
+        managerUserId="mgr-test"
+        activeBucket="pending"
+        direction="incoming"
+        onAddPayment={() => undefined}
+      />,
+    );
     expect(screen.getByRole("button", { name: /Add charge/i })).toBeTruthy();
   });
 
