@@ -1,5 +1,7 @@
 import { isDemoModeActive } from "@/lib/demo/demo-session";
+import type { VendorCheckIn } from "@/lib/vendor-check-ins";
 import type { VendorDocumentRecord } from "@/lib/vendor-documents";
+import type { VendorChannel, VendorMessaging } from "@/lib/vendor-messaging";
 
 export type ManagerVendorRow = {
   id: string;
@@ -38,6 +40,16 @@ export type ManagerVendorRow = {
   vendorUserId?: string | null;
   /** Preferred language ("en" | "es") — pre-signup fallback; profiles.preferred_language is canonical once linked. */
   preferredLanguage?: string;
+  /** What to call them in a message: "Jorge", not "Apex Plumbing LLC". */
+  preferredName?: string;
+  /** Where automatic messages go first; falls back sms → email → inapp (`resolveVendorChannel`). */
+  preferredChannel?: VendorChannel;
+  /** Per-event message templates and free-text instructions (`vendor-messaging.ts`). */
+  messaging?: VendorMessaging;
+  /** Recurring questions on a cadence, with their reply log (`vendor-check-ins.ts`). */
+  checkIns?: VendorCheckIn[];
+  /** Sent-invite bookkeeping for the Invited pill: when the portal invite last went out. */
+  invitedAt?: string;
   /** Synthetic settings row only — default vendor id per trade category. */
   categoryDefaults?: Record<string, string>;
   createdAt?: string;

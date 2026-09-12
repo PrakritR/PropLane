@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
-import { INBOX_TAB_DEFS, INBOX_LIST_SCROLL, AiDraftReplyCard, InboxBubbleMessage, InboxComposer, InboxConversationRow, InboxReplyChannelPicker, InboxScheduledCard, InboxScheduledThreadList, InboxThreadEmpty, InboxThreadView, InboxTwoPane, PortalInboxEmptyState, PortalInboxMessageTable, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
+import { INBOX_TAB_DEFS, INBOX_LIST_SCROLL, AiDraftReplyCard, InboxBubbleMessage, InboxComposer, InboxConversationRow, InboxScheduledCard, InboxScheduledThreadList, InboxThreadEmpty, InboxThreadView, InboxTwoPane, PortalInboxEmptyState, PortalInboxMessageTable, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
 import { InboxComposerAiMenu, InboxComposerChannelMenu } from "@/components/portal/inbox-composer-tools";
 import {
   buildInboxThreadAssistantContext,
@@ -1376,19 +1376,9 @@ export const ResidentInboxPanel = forwardRef<
     [replyAttachments.length, showToast],
   );
 
-  const replyChannelPicker = (
-    <InboxReplyChannelPicker
-      viaEmail={replyViaEmail}
-      viaSms={replyViaSms}
-      viaProplane={replyViaProplane}
-      onViaProplaneChange={setReplyViaProplane}
-      onViaEmailChange={setReplyViaEmail}
-      onViaSmsChange={setReplyViaSms}
-      emailAvailable
-      smsAvailable={activeSmsAvailable}
-      proplaneAvailable={activeProplaneAvailable}
-    />
-  );
+  // One channel control per decision: the reply row's menu. The AI draft card
+  // above it used to carry the legacy segmented picker bound to the same state,
+  // so while a draft was in flight the resident saw two controls for one choice.
   // The reply row is the manager's: ✦ AI (draft · ask), then the channel menu.
   const [askAssistantSignal, setAskAssistantSignal] = useState(0);
   const replyChannelMenu = (
@@ -1583,7 +1573,6 @@ export const ResidentInboxPanel = forwardRef<
                     discardResidentAiDraft();
                   }
             }
-            channelControl={showReplyChannelPicker ? replyChannelPicker : undefined}
             autoSend={autoSend}
             /*
               Communication offers no auto-send control, matching the manager's
@@ -1671,7 +1660,6 @@ export const ResidentInboxPanel = forwardRef<
     approveResidentAiDraft,
     pickReplyAttachments,
     replyAttachments,
-    replyChannelPicker,
     replyChannelMenu,
     replyDraft,
     replySending,

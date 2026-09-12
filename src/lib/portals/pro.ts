@@ -32,7 +32,15 @@ export const proPortal: PortalDefinition = {
       label: "Services",
       // One list. Add-on services and maintenance work orders remain SEPARATE data models — see
       // AGENTS.md — but a manager thinks of them as one queue of work, so they are presented as
-      // one. Vendors moved to Team, where the people are.
+      // one. Vendors are their own section, right after: the people the work goes to.
+      tabs: [],
+    },
+    {
+      // Who does the work, how to reach them, what they get told. Status pills
+      // (active / invited / inactive) live in the page; the URL carries a vendor id
+      // for the detail page.
+      section: "vendors",
+      label: "Vendors",
       tabs: [],
     },
     {
@@ -64,12 +72,11 @@ export const proPortal: PortalDefinition = {
       tabs: [],
     },
     {
+      // Co-managers. Vendors used to be a second tab here; they are a section now
+      // and /teams/vendors redirects there.
       section: "teams",
       label: "Teams",
-      tabs: [
-        { id: "managers", label: "Managers" },
-        { id: "vendors", label: "Vendors" },
-      ],
+      tabs: [{ id: "managers", label: "Managers" }],
     },
     { section: "promotion", label: "Promotion", tabs: [] },
     {
@@ -108,12 +115,12 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Payments (incoming)", path: "/portal/payments/incoming/pending" },
   { label: "Payments (outgoing)", path: "/portal/payments/outgoing/pending" },
   { label: "Services", path: "/portal/services/requests" },
+  { label: "Vendors", path: "/portal/vendors" },
   { label: "Tasks", path: "/portal/tasks" },
   { label: "Communication", path: "/portal/communication/active" },
   { label: "Calendar", path: "/portal/calendar" },
   { label: "Bookings", path: "/portal/bookings/calendar" },
   { label: "Teams (managers)", path: "/portal/teams/managers" },
-  { label: "Teams (vendors)", path: "/portal/teams/vendors" },
   { label: "Promotion", path: "/portal/promotion" },
   { label: "Finances", path: "/portal/financials/overview" },
   { label: "Documents", path: "/portal/documents/applications" },

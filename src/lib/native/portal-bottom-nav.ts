@@ -28,6 +28,7 @@ export const NATIVE_BOTTOM_NAV_PRO_MANAGER_ORDER = [
   "inspections",
   "payments",
   "services",
+  "vendors",
   "tasks",
   "calendar",
   "bookings",

@@ -8,14 +8,17 @@
  * Two kinds of assignee, and the distinction is load-bearing:
  *
  *   - a **team member** (co-manager) can take anything — a service, a work order, a tour, a task;
- *   - a **vendor** can take staff TASK work only — not tours (they do not show prospects around)
- *     and not add-on services (those stay with the manager team).
+ *   - a **vendor** can take staff TASK work and MAINTENANCE work orders only — not tours (they do
+ *     not show prospects around) and not add-on services (those stay with the manager team).
  *     `assignableKindsFor` is the one place that rule lives, so a new surface cannot quietly
  *     offer a vendor a tour.
  */
 
-/** What can be assigned. Services covers both add-on requests and maintenance work orders. */
-export type AssignableWorkKind = "service" | "tour" | "task";
+/**
+ * What can be assigned. `service` is an add-on request (manager team only);
+ * `maintenance` is a work order — the one kind of service a vendor is dispatched to.
+ */
+export type AssignableWorkKind = "service" | "maintenance" | "tour" | "task";
 
 export type AssigneeType = "team" | "vendor";
 
@@ -45,7 +48,7 @@ export type AssignmentCandidate = {
  * what stops a future surface from offering a vendor a tour by omission.
  */
 export function assignableKindsFor(type: AssigneeType): AssignableWorkKind[] {
-  return type === "vendor" ? ["task"] : ["service", "tour", "task"];
+  return type === "vendor" ? ["task", "maintenance"] : ["service", "maintenance", "tour", "task"];
 }
 
 export function canAssign(type: AssigneeType, kind: AssignableWorkKind): boolean {

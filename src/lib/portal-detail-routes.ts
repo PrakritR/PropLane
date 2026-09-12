@@ -862,15 +862,15 @@ export function workOrderDetailHref(
   return `${basePath}/services/work-orders/${bucket}/${encodeURIComponent(workOrderId)}`;
 }
 
-// Vendors live under Team now. These builders point at the new home directly rather than leaning
-// on the compatibility redirect from /services/vendors — a link that redirects on every click
-// costs a round trip and briefly shows the wrong section as active.
+// Vendors is its own section. These builders point at it directly rather than leaning on the
+// compatibility redirects from /teams/vendors and /services/vendors — a link that redirects on
+// every click costs a round trip and briefly shows the wrong section as active.
 export function vendorListHref(basePath: string): string {
-  return `${basePath}/teams/vendors`;
+  return `${basePath}/vendors`;
 }
 
 export function vendorDetailHref(basePath: string, vendorId: string): string {
-  return `${basePath}/teams/vendors/${encodeURIComponent(vendorId)}`;
+  return `${basePath}/vendors/${encodeURIComponent(vendorId)}`;
 }
 
 /** Legacy promotion content filters — routes now redirect to the unified list. */
