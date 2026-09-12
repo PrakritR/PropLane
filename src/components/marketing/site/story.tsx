@@ -154,7 +154,7 @@ function Avatar({ initials, vendor, className }: { initials: string; vendor?: bo
     <span
       className={cn(
         "grid h-7 w-7 shrink-0 place-items-center rounded-full text-[10px] font-extrabold",
-        vendor ? "bg-[#e5e7eb] text-[#374151]" : "bg-[#dbe4ff] text-primary",
+        vendor ? "bg-[#e5e7eb] text-[#374151]" : "bg-[#dbe4ff] text-[#1e4fd6]",
         className,
       )}
       aria-hidden
@@ -166,7 +166,7 @@ function Avatar({ initials, vendor, className }: { initials: string; vendor?: bo
 
 function ChannelChip({ children }: { children: ReactNode }) {
   return (
-    <span className="rounded-full bg-primary/10 px-1.5 py-px text-[9px] font-extrabold tracking-[0.06em] text-primary">
+    <span className="rounded-full bg-primary/10 px-1.5 py-px text-[9px] font-extrabold tracking-[0.06em] text-[#1e4fd6]">
       {children}
     </span>
   );
@@ -374,7 +374,7 @@ export function SiteStory() {
               onClick={() => setActive(s.id)}
             >
               <p className="mb-1.5 text-[12.5px] font-bold uppercase tracking-[0.08em] text-primary">{s.kicker}</p>
-              <h3 className="text-[22px] font-bold leading-tight tracking-tight text-foreground">{s.title}</h3>
+              <h3 className="text-[22px] font-bold leading-tight tracking-tight">{s.title}</h3>
               <p className="mt-2.5 text-[15px] leading-relaxed text-muted">{s.body}</p>
               {s.id === "approve" ? (
                 <div className="mt-5 flex flex-wrap items-center gap-3">

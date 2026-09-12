@@ -26,7 +26,6 @@ export function AppStoreBadge({
       target="_blank"
       rel="noreferrer noopener"
       data-attr={dataAttr}
-      aria-label={beta ? "Join the PropLane beta on TestFlight" : "Download PropLane on the App Store"}
       className={cn(
         "inline-flex items-center gap-2 rounded-lg border transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
         size === "lg" ? "h-12 px-4" : "h-9 px-3",

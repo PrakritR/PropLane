@@ -30,7 +30,7 @@ export function SiteHero() {
       <div aria-hidden className="site-hero-glow site-hero-glow-b" />
       <div aria-hidden className="site-hero-grain" />
 
-      <div className={cn(SITE_MEASURE, "relative pt-16 sm:pt-20 lg:pt-24")}>
+      <div className={cn(SITE_MEASURE, "relative z-[1] pt-16 sm:pt-20 lg:pt-24")}>
         <div className="mx-auto flex max-w-[60rem] flex-col items-center text-center">
           <p className="mb-4 flex items-center gap-1.5 text-[12.5px] font-bold uppercase tracking-[0.08em] text-[#8fb3ff]">
             <span aria-hidden>✦</span> Approval-first property management
@@ -101,7 +101,7 @@ export function SiteHero() {
           {/* The dashboard's AI-drafts row, as it ships: title, "ready to approve", Approve / Discard. */}
           <div className="site-hero-draft" aria-hidden>
             <p className="mb-1.5 flex items-center gap-2 text-[11px] font-bold text-primary">
-              <span>✦</span> AI drafts <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold">Pending approval</span>
+              <span>✦</span> AI drafts <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-[#1e4fd6]">Pending approval</span>
             </p>
             <p className="text-[12.5px] font-semibold leading-snug text-[#17181a]">PropLane · Dispatch Pacific Plumbing to Maple 2A</p>
             <p className="text-[11px] text-[#4a4e56]">Service request #1042 · Thu 10–12 · ready to approve</p>
