@@ -25,8 +25,8 @@ export function PortalSettingsSection({
     <section className="space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground">{title}</h2>
-          {description ? <p className="mt-0.5 text-sm leading-relaxed text-muted">{description}</p> : null}
+          <h2 className="text-[15px] font-bold tracking-[-0.01em] text-foreground">{title}</h2>
+          {description ? <p className="mt-0.5 text-[13.5px] leading-relaxed text-muted">{description}</p> : null}
         </div>
         {action ? <div className="shrink-0">{action}</div> : null}
       </div>
@@ -37,7 +37,7 @@ export function PortalSettingsSection({
 
 export function PortalSettingsGroup({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("overflow-hidden rounded-lg border border-border bg-card shadow-sm", className)}>{children}</div>
+    <div className={cn("overflow-hidden rounded-2xl border border-border bg-card", className)}>{children}</div>
   );
 }
 
@@ -80,12 +80,12 @@ export function PortalSettingsField({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-border px-4 py-3.5 last:border-0">
-      <span className="w-[7.5rem] shrink-0 pt-0.5 text-sm text-muted sm:w-32">{label}</span>
+    <div className="flex items-start justify-between gap-4 border-b border-border/70 px-4 py-3 last:border-0">
+      <span className="w-[7.5rem] shrink-0 pt-0.5 text-[13px] text-muted sm:w-36">{label}</span>
       <div className="flex min-w-0 flex-1 items-start justify-end gap-3 sm:justify-between">
         <span
           className={cn(
-            "min-w-0 text-sm font-medium text-foreground sm:text-left",
+            "min-w-0 text-[13.5px] font-semibold text-foreground sm:text-left",
             mono ? "break-all font-mono text-xs leading-relaxed" : "text-right sm:text-left",
           )}
         >
