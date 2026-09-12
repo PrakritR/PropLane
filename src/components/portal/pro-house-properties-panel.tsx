@@ -947,7 +947,6 @@ function ManagerPropertyInlineDetails({
       <PortalPageScrollBody
         className={cn(
           "min-w-0 max-w-full pt-3",
-          activeDetailTab === "bookings" && "flex flex-col overflow-hidden",
           hasPinnedPropertyFooter &&
             "pb-[calc(2.75rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))] lg:pb-3",
         )}
