@@ -15,6 +15,7 @@ import { isEntireHomeListing, resolveAllowedLeaseTerms, type ManagerListingSubmi
 import type { ManagerSkuTier } from "@/lib/manager-access";
 import {
   LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED,
+  listingPaymentWaiverCodeMatches,
   managerCanSelectProplaneServiceFee,
 } from "@/lib/payment-policy";
 import { SHORT_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
@@ -155,9 +156,11 @@ export function validateListingWizardStep(
 
     if (sub.serviceFeePayer === "proplane") {
       const tier = opts.managerSkuTier ?? "free";
-      const granted = opts.accountPaymentWaiverGranted === true;
+      // Either promo source satisfies it: the account's grant, or this listing's own code.
+      const granted =
+        opts.accountPaymentWaiverGranted === true || listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode);
       if (!managerCanSelectProplaneServiceFee(tier, granted)) {
-        // Prefer the payer field over a hidden FREE100 box (PRP-421).
+        // The error sits on the payer field: that is the control the manager changed.
         errs.serviceFeePayer = LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED;
       }
     }

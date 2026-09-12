@@ -24,6 +24,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { listingPaymentWaiverCodeMatches } from "@/lib/payment-policy";
 import { InlineCheckboxGroup } from "@/components/ui/inline-checkbox-group";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { uploadListingImageFiles } from "@/lib/listing-media-client";
@@ -2087,41 +2088,12 @@ function LeaseDocumentGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
  * with. What is left here is not a cost: whose bill the processing fee lands
  * on, and which rails you accept money over.
  */
-function HousePaymentsGroup({
-  sub,
-  patch,
-  hideProcessingPayer = false,
-}: {
-  sub: ManagerListingSubmissionV1;
-  patch: Patch;
-  /** The Pricing step asks this in its "Before move-in" group; never ask twice. */
-  hideProcessingPayer?: boolean;
-}) {
+function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
-  const payer = sub.serviceFeePayer ?? "resident";
+  // Who pays card processing (and the promo code that lets PropLane cover it) is
+  // asked once, in the Pricing step's "Before move-in" group — never twice.
   return (
     <>
-      {hideProcessingPayer ? null : (
-      <Field
-        label="Who pays the card processing fee"
-        hint="The only money question that is not part of a lease type."
-      >
-        {/*
-         * No promo-code field: PropLane coverage comes only from the staff-owned
-         * account override (`resolveServiceFeePayerFor`); a typed code is never
-         * stored (`serviceFeeWaiverCode` is stripped on save).
-         */}
-        <Select
-          value={payer}
-          onChange={(e) => patch({ serviceFeePayer: e.target.value as ManagerListingSubmissionV1["serviceFeePayer"], serviceFeeWaiverCode: undefined })}
-        >
-          <option value="resident">The resident pays it</option>
-          <option value="manager">I pay it</option>
-          <option value="proplane">PropLane absorbs it</option>
-        </Select>
-      </Field>
-      )}
-
       {wholePlace ? (
         <>
           {/*
@@ -2545,7 +2517,7 @@ function StepPricing({
             ) : null}
           </div>
         }
-        payments={<HousePaymentsGroup sub={sub} patch={patch} hideProcessingPayer />}
+        payments={<HousePaymentsGroup sub={sub} patch={patch} />}
         applications={<HouseApplicationsGroup sub={sub} patch={patch} />}
         leaseDocument={
           <AdvancedPanel
@@ -2642,6 +2614,19 @@ export function listingReadiness(sub: ManagerListingSubmissionV1): ListingReadin
       state: rooms.length > 0 && withPhotos.length === rooms.length ? "done" : "warn",
     },
     { id: "description", label: "Description written", state: sub.houseOverview.trim() ? "done" : "todo" },
+    // "PropLane pays" without a code is stored, but checkout bills the resident
+    // unless the account itself carries a grant — say so rather than let the
+    // manager believe the fee is covered. A warning, not a blocker: an account
+    // grant (staff approval or signup promo) satisfies it without any code.
+    ...(sub.serviceFeePayer === "proplane" && !listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
+      ? [
+          {
+            id: "processing",
+            label: "PropLane pays needs a promo code — until then the resident is billed",
+            state: "warn" as const,
+          },
+        ]
+      : []),
   ];
 }
 
@@ -2653,6 +2638,7 @@ const READINESS_STEP: Record<string, (typeof LISTING_V2_STEPS)[number]["id"]> = 
   photos: "rooms",
   terms: "pricing",
   deposit: "pricing",
+  processing: "pricing",
 };
 
 function StepReview({

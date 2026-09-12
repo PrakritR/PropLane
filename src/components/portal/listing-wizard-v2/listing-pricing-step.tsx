@@ -5,6 +5,9 @@
  *
  * 1. **Before move-in** — the application fee, its waiver code, and who pays
  *    card processing. Three things a resident meets before a lease exists.
+ *    "PropLane pays" asks for the promo code PropLane shared (unless the
+ *    account already carries a grant); the code is stored on the listing so
+ *    checkout re-validates it (`resolveAccountOrListingWaiverGranted`).
  * 2. **Each room** — one editable table, a tab per lease type. The top row is
  *    **Every room**: same columns, same inputs; rooms follow it until changed
  *    (grey and dashed = following, ink with a dot = the room's own). Long-term
@@ -21,7 +24,7 @@
  * view over all of it.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Input, Select } from "@/components/ui/input";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Field } from "@/components/portal/listing-wizard-v2/wizard-primitives";
@@ -45,6 +48,15 @@ import {
 import { SEATTLE_RENT_RULE_NOTE, listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { isStayLeaseTerm } from "@/lib/listing-quote";
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
+import {
+  LISTING_PROCESSING_FEE_WAIVER_CODE_HELP,
+  LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
+  listingPaymentWaiverCodeMatches,
+  listingProplaneAbsorbNeedsWaiverCode,
+  normalizeListingPaymentWaiverCode,
+} from "@/lib/payment-policy";
 import {
   applyHouseDefaultsToRooms,
   roomInheritsDefault,
@@ -473,6 +485,26 @@ export function ListingPricingSections({
   // The deposit is a column of the table, never a chip beside it.
   const fees = useMemo(() => listingFeesForWizard(sub).filter((f) => f.presetId !== "security_deposit"), [sub]);
   const payer = sub.serviceFeePayer ?? "resident";
+  /*
+   * Whether the account already carries PropLane coverage (staff approval or a
+   * signup promo grant). `null` while unknown, which is treated as "ask for the
+   * code": asking once too often costs a keystroke, assuming a grant that is
+   * not there would store a PropLane choice checkout then bills to the resident.
+   */
+  const [accountGranted, setAccountGranted] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (isDemoModeActive()) return;
+    let live = true;
+    void loadManagerPaymentWaiverGrantedClient().then((granted) => {
+      if (live) setAccountGranted(granted);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  const needsPromoCode = listingProplaneAbsorbNeedsWaiverCode("free", payer, accountGranted === true);
+  const promoCodeTyped = (sub.serviceFeeWaiverCode ?? "").length > 0;
+  const promoCodeValid = listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode);
 
   const onRoom = (id: string, next: ManagerRoomSubmission) => patch({ rooms: rooms.map((r) => (r.id === id ? next : r)) });
   /** Every room row: write the default and move every room still following it. */
@@ -508,18 +540,36 @@ export function ListingPricingSections({
             label="Card processing fee"
             hint={
               payer === "proplane"
-                ? "PropLane covers it only on accounts staff have approved. Until then this listing bills the resident."
+                ? accountGranted
+                  ? "Your account already has PropLane coverage — no code needed."
+                  : "Needs the promo code PropLane gave you."
                 : payer === "manager"
                   ? "Taken out of your payout."
                   : "Added to the resident's payment."
             }
           >
-            <Select value={payer} onChange={(e) => patch({ serviceFeePayer: e.target.value as ManagerListingSubmissionV1["serviceFeePayer"], serviceFeeWaiverCode: undefined })}>
+            <Select value={payer} data-attr="listing-v2-service-fee-payer" onChange={(e) => patch({ serviceFeePayer: e.target.value as ManagerListingSubmissionV1["serviceFeePayer"], serviceFeeWaiverCode: undefined })}>
               <option value="resident">Resident pays</option>
               <option value="manager">I pay</option>
               <option value="proplane">PropLane pays</option>
             </Select>
           </Field>
+          {needsPromoCode ? (
+            <Field
+              label="Promo code"
+              hint={LISTING_PROCESSING_FEE_WAIVER_CODE_HELP}
+              error={promoCodeTyped && !promoCodeValid ? LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID : undefined}
+            >
+              <Input
+                style={{ textTransform: "uppercase" }}
+                autoComplete="off"
+                value={sub.serviceFeeWaiverCode ?? ""}
+                placeholder="Promo code"
+                data-attr="listing-v2-service-fee-code"
+                onChange={(e) => patch({ serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value) || undefined })}
+              />
+            </Field>
+          ) : null}
         </div>
       </section>
 

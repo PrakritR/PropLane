@@ -1,7 +1,7 @@
 import { parseMoneyAmount } from "@/lib/parse-money";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { platformFeeCents } from "@/lib/platform-fees";
-import { type ManagerSkuTier } from "@/lib/manager-access";
+import { isWaiverGrantedManagerPurchase, type ManagerSkuTier } from "@/lib/manager-access";
 
 export type RentDueDayMode = "first_of_month" | "last_of_month";
 
@@ -63,7 +63,10 @@ export function normalizeProServiceFeeChoice(raw: unknown): ProServiceFeeChoice 
 /**
  * The plan rule, in one place:
  * - Free → the resident always pays (no choice).
- * - Pro / Business → resident or manager pays. Staff approval is resolved separately.
+ * - Pro / Business → resident or manager pays.
+ * - `proplane` is never a plan capability: without a promo grant it reads as
+ *   `resident` on every tier. {@link resolveServiceFeePayerFor} is where a grant
+ *   (or staff) turns it on.
  *
  * `tier` is already normalized by callers (`normalizeManagerSkuTier(...) ?? "free"`),
  * so a legacy/unknown tier arrives here as `"free"` — resident pays, matching the
@@ -89,17 +92,23 @@ export type ServiceFeePayerInputs = {
   /** The manager's account-wide default. */
   managerChoice?: ServiceFeePayer | null;
   /**
-   * @deprecated Ignored. Only the staff-owned account override grants coverage.
+   * Server-validated promo grant: the account's `manager_purchases.promo_code`
+   * (`isWaiverGrantedManagerPurchase`) or the listing's own valid
+   * `serviceFeeWaiverCode`. Combine them with {@link resolveAccountOrListingWaiverGranted}.
+   * It is the one thing besides staff that lets `proplane` actually be `proplane`.
    */
   waiverGranted?: boolean;
 };
 
-/** Whether PropLane absorb is selectable in Pricing / payment setup for this account. */
+/**
+ * Whether PropLane absorb is selectable in Pricing / payment setup for this account.
+ * `granted` is a promo grant or staff approval — a plan alone never unlocks it.
+ */
 export function managerCanSelectProplaneServiceFee(
   _tier: ManagerSkuTier,
-  accountApproved: boolean,
+  granted: boolean,
 ): boolean {
-  return accountApproved;
+  return granted;
 }
 
 /** Whether the manager-absorb option is selectable (paid capability). */
@@ -107,66 +116,100 @@ export function managerCanSelectManagerAbsorbServiceFee(tier: ManagerSkuTier): b
   return tier !== "free";
 }
 
-/** UI value when a listing has no explicit per-property choice yet. */
+/** UI value for the listing's payer select: what is stored, if the account may select it. */
 export function listingServiceFeePayerUiValue(
   stored: ServiceFeePayer | null | undefined,
-  _tier: ManagerSkuTier,
-  accountApproved = false,
+  tier: ManagerSkuTier,
+  granted = false,
 ): ServiceFeePayer {
-  if (accountApproved) return "proplane";
-  if (stored === "resident" || (stored === "manager" && _tier !== "free")) return stored;
+  if (stored === "resident") return stored;
+  if (stored === "manager" && tier !== "free") return stored;
+  if (stored === "proplane" && granted) return stored;
   return "resident";
 }
 
-/** Preserve legacy data on reads; only a verified staff approval authorizes a new selection. */
+/**
+ * Per-listing storage of who pays the processing fee.
+ *
+ * `proplane` is kept with a valid promo code (the code travels with the listing so
+ * checkout can re-validate it), or without one when the account grant is KNOWN to be
+ * present. A non-empty code that does not match is a typo, not a grant, and falls back
+ * to `resident`. When grant status is unknown (normalize/read paths) a codeless
+ * `proplane` is preserved rather than downgraded: checkout resolves the real payer
+ * against the account, so preserving it never spends PropLane's money by itself.
+ */
 export function persistListingServiceFeePayer(
   payer: ServiceFeePayer | null | undefined,
-  _waiverCode: string | null | undefined,
-  accountApproved?: boolean,
+  waiverCode: string | null | undefined,
+  accountWaiverGranted?: boolean,
 ): { serviceFeePayer: ServiceFeePayer | null; serviceFeeWaiverCode?: string } {
-  if (payer === "resident" || payer === "manager") return { serviceFeePayer: payer };
-  if (payer === "proplane") return { serviceFeePayer: accountApproved === false ? "resident" : "proplane" };
-  return { serviceFeePayer: null };
+  if (payer === "resident" || payer === "manager") {
+    return { serviceFeePayer: payer, serviceFeeWaiverCode: undefined };
+  }
+  if (payer === "proplane") {
+    if (listingPaymentWaiverCodeMatches(waiverCode)) {
+      return {
+        serviceFeePayer: "proplane",
+        serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(waiverCode ?? ""),
+      };
+    }
+    const hasNonemptyCode = typeof waiverCode === "string" && waiverCode.trim().length > 0;
+    if (hasNonemptyCode) {
+      return { serviceFeePayer: "resident", serviceFeeWaiverCode: undefined };
+    }
+    if (accountWaiverGranted === true) {
+      return { serviceFeePayer: "proplane", serviceFeeWaiverCode: undefined };
+    }
+    if (accountWaiverGranted === false) {
+      return { serviceFeePayer: "resident", serviceFeeWaiverCode: undefined };
+    }
+    return { serviceFeePayer: "proplane", serviceFeeWaiverCode: undefined };
+  }
+  return { serviceFeePayer: null, serviceFeeWaiverCode: undefined };
 }
 
-/** @deprecated Subscription promotions never authorize payment-processing coverage. */
-export function waiverGrantedFromPromoCode(_promoCode: string | null | undefined): boolean {
-  void _promoCode;
-  return false;
-}
-
-/** @deprecated Processing coverage comes only from the manager's staff-owned override. */
-export function resolveAccountOrListingWaiverGranted(
-  _accountPromoCode: string | null | undefined,
-  _listingWaiverCode?: string | null,
-): boolean {
-  void _accountPromoCode; void _listingWaiverCode;
-  return false;
-}
-
-/** @deprecated Retained for reading legacy records, never accepted as authorization. */
-export const LISTING_PAYMENT_WAIVER_CODE = "FREE100";
-export function normalizeListingPaymentWaiverCode(code: string): string {
-  return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
-/** @deprecated A shared code cannot authorize spending PropLane's money. */
-export function listingPaymentWaiverCodeMatches(_code: string | null | undefined): boolean {
-  void _code;
-  return false;
+/** The account's own promo grant (`manager_purchases.promo_code`, written only by server flows). */
+export function waiverGrantedFromPromoCode(promoCode: string | null | undefined): boolean {
+  return isWaiverGrantedManagerPurchase(promoCode);
 }
 
 /**
- * Whether the listing Pricing step should show a waiver-code field.
- *
- * Always false: processing coverage requires staff account approval, never a code.
+ * The two independent promo sources that let PropLane cover the fee (captain
+ * decision September 12, 2026, reversing the staff-only rule of September 10):
+ * the account's grant, or the listing's own valid code.
+ */
+export function resolveAccountOrListingWaiverGranted(
+  accountPromoCode: string | null | undefined,
+  listingWaiverCode?: string | null,
+): boolean {
+  return waiverGrantedFromPromoCode(accountPromoCode) || listingPaymentWaiverCodeMatches(listingWaiverCode);
+}
+
+/**
+ * The promo code PropLane shares out-of-band that has it cover the processing fee.
+ * Never printed in product copy — the field asks for it, it does not show it.
+ */
+export const LISTING_PAYMENT_WAIVER_CODE = "FREE100";
+
+export function normalizeListingPaymentWaiverCode(code: string): string {
+  return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+export function listingPaymentWaiverCodeMatches(code: string | null | undefined): boolean {
+  const normalized = normalizeListingPaymentWaiverCode(code ?? "");
+  return normalized.length > 0 && normalized === LISTING_PAYMENT_WAIVER_CODE;
+}
+
+/**
+ * Whether the listing Pricing step should ask for the promo code: the manager chose
+ * PropLane and nothing on the account already backs it.
  */
 export function listingProplaneAbsorbNeedsWaiverCode(
   _tier: ManagerSkuTier,
-  _serviceFeePayer: ServiceFeePayer | null | undefined,
-  _accountWaiverGranted: boolean,
+  serviceFeePayer: ServiceFeePayer | null | undefined,
+  accountWaiverGranted: boolean,
 ): boolean {
-  void _tier; void _serviceFeePayer; void _accountWaiverGranted;
-  return false;
+  return serviceFeePayer === "proplane" && !accountWaiverGranted;
 }
 
 /** Short labels for the Pricing / Payment setup selects (who pays Stripe's fee). */
@@ -178,28 +221,46 @@ export const SERVICE_FEE_PAYER_OPTION_LABELS: Record<ServiceFeePayer, string> = 
 
 /** Helper under the listing Pricing select. */
 export const LISTING_PROCESSING_FEE_PAYER_HELP =
-  "Processing fees are not included in Free, Pro, or Business. PropLane coverage requires approval for your account.";
+  "This is Stripe's card/ACH processing cost on each resident payment — not PropLane's subscription. PropLane covers it with a promo code; otherwise the resident pays, or on Pro and Business you can pay it yourself.";
 
-/** @deprecated Prefer Payment-setup waiver prompt help — never show FREE100 in product copy. */
+/** Under the promo-code field. Never print the code itself in product copy. */
 export const LISTING_PROCESSING_FEE_WAIVER_CODE_HELP =
-  "PropLane manages processing-fee coverage for approved accounts.";
+  "Enter the promo code PropLane gave you. Without a valid code this listing bills the resident.";
 
-/** Shown when a typed waiver code does not match (Payment setup). Never print FREE100. */
+/** Shown when a typed promo code does not match. Never print the code itself. */
 export const LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID =
-  "Processing-fee coverage requires approval for your account. Contact PropLane.";
+  "That promo code is not valid. Check with PropLane if you were given one.";
 
 export const LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED =
-  "PropLane processing-fee coverage requires an explicit approval for this manager.";
+  "PropLane pays needs a promo code, or a grant on your account.";
 
 /**
- * Staff override → property choice → account choice → resident default.
- * Only the staff-owned override can make PropLane pay. Subscription tier,
- * promo codes, legacy values and a caller-supplied waiver flag are not grants.
+ * Who pays the processing fee on one payment.
+ *
+ * Precedence, most specific first:
+ *
+ *   1. **The staff override**, which ignores everything below: staff choosing to
+ *      absorb any manager's fees is the whole point of that control.
+ *   2. **The property's own Pricing setting**, so a manager running one building where
+ *      they absorb fees and another where residents pay is expressible.
+ *   3. **The manager's account default**, which is what a new property inherits.
+ *   4. **Resident** — no plan includes coverage.
+ *
+ * `proplane` from a property or account field is honoured only with a promo grant
+ * (`waiverGranted`: the account's `manager_purchases.promo_code` or the listing's own
+ * valid code). Without one it reads as `resident` on every tier, because otherwise a
+ * manager could stop paying fees by writing one word into their own record. A plan
+ * never unlocks it (captain decision September 10, 2026); a promo code does
+ * (September 12, 2026).
+ *
+ * `manager` stays a paid capability: Free reads it as `resident`.
  */
 export function resolveServiceFeePayerFor(input: ServiceFeePayerInputs): ServiceFeePayer {
   if (input.adminOverride) return normalizeServiceFeeChoice(input.adminOverride);
   const stored = input.propertyChoice ?? input.managerChoice ?? "resident";
-  return resolveServiceFeePayer(input.tier, stored === "proplane" ? "resident" : normalizeServiceFeeChoice(stored));
+  const choice = normalizeServiceFeeChoice(stored);
+  if (choice === "proplane") return input.waiverGranted === true ? "proplane" : "resident";
+  return resolveServiceFeePayer(input.tier, choice);
 }
 
 /**
