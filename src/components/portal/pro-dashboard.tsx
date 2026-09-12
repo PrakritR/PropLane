@@ -989,7 +989,8 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
       labels,
       occupancy: {
         value: `${occupancyPct[occupancyPct.length - 1] ?? 0}%`,
-        unit: `${data.activeResidents.length} / ${spaces}`,
+        // A portfolio with nothing rentable yet says so, rather than "0 / 1".
+        unit: data.portfolio.rentableSpaces > 0 ? `${data.activeResidents.length} / ${spaces}` : "No spaces yet",
         series: occupancyPct,
         delta: kpiDelta(occupancyPct, (n) => `${n} pts`, previous),
       },
