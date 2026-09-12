@@ -86,7 +86,7 @@ Prototype screenshots and simulator checks are references, not product evidence.
   "Available from", never stay dates.
 - [x] Bookings calendar open by default, reservations from dated bookings,
   signed leases/application holds, reversible explicit date blocks with reasons,
-  overlap/capacity enforcement and exclusive check-out. — this commit: the
+  overlap/capacity enforcement and exclusive check-out. — `5941c1ba`: the
   Calendar tab is first and the default (`/portal/bookings` → `/calendar`, the
   property Bookings tab too); the grid draws Airbnb imports, signed PropLane
   stays, approved-application **holds** (until the lease is signed) and manager
