@@ -1114,7 +1114,7 @@ export async function renderPortalSection(
         "@/lib/portal-detail-routes"
       );
       if (!tabParts?.length) {
-        redirect(`${def.basePath}/bookings/upcoming`);
+        redirect(`${def.basePath}/bookings/calendar`);
       }
       const segmentRaw = tabParts[0]!;
       if (!MANAGER_BOOKING_BUCKETS.includes(segmentRaw as (typeof MANAGER_BOOKING_BUCKETS)[number])) {

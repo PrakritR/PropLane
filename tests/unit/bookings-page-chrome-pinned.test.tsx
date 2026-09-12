@@ -27,6 +27,8 @@ vi.mock("@/lib/demo-property-pipeline", () => ({
 vi.mock("@/lib/rental-application/data", () => ({
   getPropertyById: () => null,
   isEntireHomeProperty: () => false,
+  parseRoomChoiceValue: () => ({ listingRoomId: null }),
+  getRoomOptionsForProperty: () => [],
 }));
 vi.mock("@/lib/portal-nav-client", () => ({
   usePortalNavigate: () => () => {},

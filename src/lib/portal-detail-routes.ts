@@ -302,23 +302,28 @@ export function parseCalendarViewTab(raw: string | undefined | null): CalendarVi
 }
 
 export function calendarViewHref(basePath: string, tab: CalendarViewTabId): string {
-  if (tab === "bookings") return managerBookingListHref(basePath, "upcoming");
+  if (tab === "bookings") return managerBookingListHref(basePath, DEFAULT_MANAGER_BOOKING_BUCKET);
   return `${basePath}/calendar`;
 }
 
 export function bookingsHref(basePath: string): string {
-  return managerBookingListHref(basePath, "upcoming");
+  return managerBookingListHref(basePath, DEFAULT_MANAGER_BOOKING_BUCKET);
 }
 
-/** Manager portfolio booking list buckets (table + calendar tab). */
-export const MANAGER_BOOKING_BUCKETS = ["upcoming", "inhouse", "past", "calendar"] as const;
+/**
+ * Manager portfolio booking buckets. The calendar is first and the default:
+ * "is this room free on the 14th" is the question the screen answers, and a
+ * list cannot answer it at a glance.
+ */
+export const MANAGER_BOOKING_BUCKETS = ["calendar", "upcoming", "inhouse", "past"] as const;
 export type ManagerBookingBucketId = (typeof MANAGER_BOOKING_BUCKETS)[number];
+export const DEFAULT_MANAGER_BOOKING_BUCKET: ManagerBookingBucketId = "calendar";
 
 export const MANAGER_BOOKING_BUCKET_LABELS: Record<ManagerBookingBucketId, string> = {
+  calendar: "Calendar",
   upcoming: "Upcoming",
   inhouse: "In-house",
   past: "Past",
-  calendar: "Calendar",
 };
 
 export function parseManagerBookingBucket(
@@ -327,12 +332,12 @@ export function parseManagerBookingBucket(
   if (raw && (MANAGER_BOOKING_BUCKETS as readonly string[]).includes(raw)) {
     return raw as ManagerBookingBucketId;
   }
-  return "upcoming";
+  return DEFAULT_MANAGER_BOOKING_BUCKET;
 }
 
 export function managerBookingListHref(
   basePath: string,
-  bucket: ManagerBookingBucketId = "upcoming",
+  bucket: ManagerBookingBucketId = DEFAULT_MANAGER_BOOKING_BUCKET,
 ): string {
   return `${basePath}/bookings/${bucket}`;
 }

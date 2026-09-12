@@ -84,9 +84,22 @@ Prototype screenshots and simulator checks are references, not product evidence.
   Daily/weekly (short-term), month-to-month, custom with automatic proration
   and the optional per-day rate were already in place; setup asks only
   "Available from", never stay dates.
-- [ ] Bookings calendar open by default, reservations from dated bookings,
+- [x] Bookings calendar open by default, reservations from dated bookings,
   signed leases/application holds, reversible explicit date blocks with reasons,
-  overlap/capacity enforcement and exclusive check-out.
+  overlap/capacity enforcement and exclusive check-out. — this commit: the
+  Calendar tab is first and the default (`/portal/bookings` → `/calendar`, the
+  property Bookings tab too); the grid draws Airbnb imports, signed PropLane
+  stays, approved-application **holds** (until the lease is signed) and manager
+  **blocks** (`room_date_block` rows in `portal_schedule_records`, id-scoped to
+  the manager) with a legend for all four. "Block dates" (toolbar icon, or
+  "Block dates from here" in the day detail) takes property, room / whole
+  home, check-in, exclusive check-out and a reason; it refuses a range that
+  collides with a stay, hold or block on the same room (whole home collides
+  with every room; an open-ended lease has no last night) and names what it
+  hit. Blocks are removed from the day detail. Fixes the calendar showing only
+  Airbnb (lease entries were never passed to the grid) and a page-load race
+  where the sidebar's null-scoped lease sync wiped the manager's rows
+  (`lease-pipeline-sync-scope-crossing.test.ts`).
 - [ ] Communication: existing one-list/two-pane pattern, phone conversation,
   compact editable contact, work-number strip, full-width composer above nav,
   visible Send via selector in tools row, AI/attachments/emoji/draft recovery,

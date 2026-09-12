@@ -121,8 +121,8 @@ describe("portal-detail-routes", () => {
       "/portal/residents/current/res-1/tours/pending/tour-1",
     );
     expect(calendarViewHref("/portal", "availability")).toBe("/portal/calendar");
-    expect(calendarViewHref("/portal", "bookings")).toBe("/portal/bookings/upcoming");
-    expect(bookingsHref("/portal")).toBe("/portal/bookings/upcoming");
+    expect(calendarViewHref("/portal", "bookings")).toBe("/portal/bookings/calendar");
+    expect(bookingsHref("/portal")).toBe("/portal/bookings/calendar");
     expect(teamLinkHref("/portal", "linked")).toBe("/portal/teams/managers");
     expect(teamMemberDetailHref("/portal", "invite-abc")).toBe("/portal/teams/managers/invite-abc");
   });

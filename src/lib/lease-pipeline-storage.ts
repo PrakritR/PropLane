@@ -96,6 +96,8 @@ let activeLeasePipelineScopeUserId: string | undefined;
 const LEASE_PIPELINE_SYNC_TTL_MS = 15_000;
 let leasePipelineLastSyncedAt = 0;
 let leasePipelineSyncPromise: Promise<LeasePipelineRow[]> | null = null;
+/** Scope the in-flight sync was started for; a call for another scope must not adopt it. */
+let leasePipelineSyncPromiseScope: string | undefined;
 let leasePipelineLastServerIds: Set<string> | null = null;
 let approvalSeedSyncInFlight = new Set<string>();
 let approvalSeedSyncAttempted = new Set<string>();
@@ -1970,15 +1972,24 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
   // Signed out: stop the interval-driven refetch instead of 401ing forever.
   if (portalSessionEnded()) return readLeasePipeline(managerUserId);
   const force = opts?.force === true;
-  if (!force && leasePipelineSyncPromise) return leasePipelineSyncPromise;
+  // The sidebar prefetch fires before the session resolves (scope null) and the
+  // page's own hook fires right after (scope = the manager). Sharing one
+  // in-flight promise across those two scopes let the null-scoped completion
+  // run `readLeasePipeline(null)`, which flipped the active scope back and
+  // WIPED the rows the manager-scoped caller had just been handed — Bookings
+  // drew zero stays on a fresh route load and every stay after a tab click.
+  const scope = activeLeasePipelineScopeUserId;
+  if (!force && leasePipelineSyncPromise && leasePipelineSyncPromiseScope === scope) return leasePipelineSyncPromise;
   if (!force && leasePipelineLastSyncedAt > 0 && Date.now() - leasePipelineLastSyncedAt < LEASE_PIPELINE_SYNC_TTL_MS) {
     return readLeasePipeline(managerUserId);
   }
-  try {
-    leasePipelineSyncPromise = (async () => {
+  const ownPromise: Promise<LeasePipelineRow[]> = (async () => {
       const localSnapshot = readLeasePipeline(managerUserId);
       const res = await fetch("/api/portal-lease-pipeline", { credentials: "include", cache: "no-store" });
       notePortalResponse(res.status);
+      // Another scope took over while this request was out: its own sync owns
+      // the store now. Touching it here would reset the scope under that caller.
+      if (activeLeasePipelineScopeUserId !== scope) return [];
       if (!res.ok) {
         // Still notify listeners: Residents classifies Current vs Potential off
         // this cache, and a failed GET must not leave the UI stuck on a
@@ -2004,9 +2015,12 @@ export async function syncLeasePipelineFromServer(managerUserId?: string | null,
       emit();
       return readLeasePipeline(managerUserId);
     })();
-    return await leasePipelineSyncPromise;
+  leasePipelineSyncPromise = ownPromise;
+  leasePipelineSyncPromiseScope = scope;
+  try {
+    return await ownPromise;
   } finally {
-    leasePipelineSyncPromise = null;
+    if (leasePipelineSyncPromise === ownPromise) leasePipelineSyncPromise = null;
   }
 }
 

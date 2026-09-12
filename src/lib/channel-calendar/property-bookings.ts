@@ -12,7 +12,12 @@ import { normalizeIsoDateInput } from "@/lib/rental-application/lease-dates";
  * PropLane itself appeared free. Both sources now land in one shape so a day
  * cell can answer "is this room taken" regardless of which channel took it.
  */
-export type BookingSource = "airbnb" | "proplane";
+/**
+ * `hold` — an approved application with dates but no executed lease yet: the
+ * room is spoken for, not let. `block` — a manager's explicit "not available"
+ * range with a reason, reversible from the day detail.
+ */
+export type BookingSource = "airbnb" | "proplane" | "hold" | "block";
 
 export type PropertyBookingEntry = {
   source: BookingSource;
@@ -30,7 +35,137 @@ export type PropertyBookingEntry = {
   statusLabel?: string;
   /** PropLane stays only — the lease has no end date, so `end` is the horizon. */
   openEnded?: boolean;
+  /** Blocks only — the stored record id, so the block can be removed. */
+  blockId?: string;
+  /** Blocks only — why the dates are closed. */
+  reason?: string;
 };
+
+/** A manager's explicit closed range. `checkOut` is exclusive: the day is free again. */
+export type RoomDateBlock = {
+  id: string;
+  propertyId: string;
+  /** "" = every room / the whole home. */
+  roomId: string;
+  checkIn: string;
+  checkOut: string;
+  reason: string;
+  createdAt: string;
+};
+
+/** Exclusive check-out → inclusive last night, so a block joins the same day math as a stay. */
+export function lastNightBeforeCheckout(checkOut: string): string {
+  const [y, m, d] = checkOut.split("-").map(Number);
+  if (!y || !m || !d) return checkOut;
+  const night = new Date(y, m - 1, d - 1);
+  return `${night.getFullYear()}-${String(night.getMonth() + 1).padStart(2, "0")}-${String(night.getDate()).padStart(2, "0")}`;
+}
+
+export function roomBlockEntries(
+  blocks: readonly RoomDateBlock[],
+  opts: { propertyLabelForId: (propertyId: string) => string; roomLabelForId: (propertyId: string, roomId: string) => string },
+): PropertyBookingEntry[] {
+  const out: PropertyBookingEntry[] = [];
+  for (const block of blocks) {
+    const start = normalizeBookingDateKey(block.checkIn);
+    const end = normalizeBookingDateKey(lastNightBeforeCheckout(block.checkOut));
+    if (!start || !end || end < start) continue;
+    out.push({
+      source: "block",
+      propertyId: block.propertyId,
+      propertyLabel: opts.propertyLabelForId(block.propertyId),
+      roomId: block.roomId,
+      roomLabel: block.roomId ? opts.roomLabelForId(block.propertyId, block.roomId) : "Whole home",
+      summary: block.reason.trim() || "Blocked",
+      start,
+      end,
+      statusLabel: "Blocked",
+      blockId: block.id,
+      reason: block.reason,
+    });
+  }
+  return out;
+}
+
+/**
+ * Two ranges of nights collide when they share a night. Because `end` is the
+ * last NIGHT (check-out is exclusive), a stay ending on the 5th and a stay
+ * starting on the 5th do not collide — the room turns over that day.
+ */
+export function bookingRangesOverlap(a: { start: string; end: string }, b: { start: string; end: string }): boolean {
+  return a.start <= b.end && b.start <= a.end;
+}
+
+/** Entries a new range would collide with on the same room (or the whole home on either side). */
+export function bookingConflictsFor(
+  entries: readonly PropertyBookingEntry[],
+  candidate: { propertyId: string; roomId: string; start: string; end: string },
+): PropertyBookingEntry[] {
+  return entries.filter(
+    (entry) =>
+      entry.propertyId === candidate.propertyId &&
+      (!entry.roomId || !candidate.roomId || entry.roomId === candidate.roomId) &&
+      // An open-ended stay has no last night: it takes every night from its start.
+      (entry.openEnded ? candidate.end >= entry.start : bookingRangesOverlap(entry, candidate)),
+  );
+}
+
+/**
+ * Approved applications that hold a room for dates but have no executed lease
+ * yet. Drawn so the calendar never reports a spoken-for room as free; the hold
+ * disappears the moment the lease is signed (the lease entry replaces it).
+ */
+export type ApplicationHoldRow = {
+  id: string;
+  bucket: string;
+  name?: string;
+  email?: string;
+  propertyId?: string;
+  assignedPropertyId?: string;
+  assignedRoomChoice?: string;
+  application?: { leaseStart?: string; leaseEnd?: string; roomChoice1?: string } | null;
+};
+
+export function applicationHoldEntries(
+  rows: readonly ApplicationHoldRow[],
+  opts: {
+    properties: readonly { id: string; label: string; entireHomeListing?: boolean }[];
+    roomLabelForId: (propertyId: string, roomId: string) => string;
+    /** True when the application already has an executed lease — that is a stay, not a hold. */
+    isLeased: (row: ApplicationHoldRow) => boolean;
+    openEndedHorizonKey: string;
+  },
+): PropertyBookingEntry[] {
+  const properties = new Map(opts.properties.map((p) => [p.id, p]));
+  const out: PropertyBookingEntry[] = [];
+  for (const row of rows) {
+    if (row.bucket !== "approved") continue;
+    if (opts.isLeased(row)) continue;
+    const propertyId = (row.assignedPropertyId ?? row.propertyId ?? "").trim();
+    const property = properties.get(propertyId);
+    if (!property) continue;
+    const start = normalizeBookingDateKey(row.application?.leaseStart);
+    if (!start) continue;
+    const parsedEnd = normalizeBookingDateKey(row.application?.leaseEnd);
+    const end = parsedEnd || opts.openEndedHorizonKey;
+    const roomId = parseRoomChoiceValue(row.assignedRoomChoice ?? row.application?.roomChoice1 ?? "").listingRoomId ?? "";
+    // Same rule as a lease: without a room, only a whole-home listing is held.
+    if (!roomId && !property.entireHomeListing) continue;
+    out.push({
+      source: "hold",
+      propertyId,
+      propertyLabel: property.label,
+      roomId,
+      roomLabel: roomId ? opts.roomLabelForId(propertyId, roomId) : "Whole home",
+      summary: row.name?.trim() || "Approved applicant",
+      start,
+      end: end >= start ? end : start,
+      statusLabel: "Approved · lease pending",
+      ...(parsedEnd ? {} : { openEnded: true }),
+    });
+  }
+  return out;
+}
 
 /** How far out an open-ended (month-to-month) stay is drawn. */
 export const OPEN_ENDED_BOOKING_HORIZON_DAYS = 365 * 2;

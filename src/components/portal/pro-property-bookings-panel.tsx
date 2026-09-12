@@ -20,7 +20,7 @@ export function ManagerPropertyBookingsPanel({
   managerUserId: string | null;
   showToast: (message: string) => void;
 }) {
-  const [bucket, setBucket] = useState<ManagerBookingBucketId>("upcoming");
+  const [bucket, setBucket] = useState<ManagerBookingBucketId>("calendar");
   const [refreshSignal, setRefreshSignal] = useState(0);
   const [roomFilterId, setRoomFilterId] = useState("");
 
