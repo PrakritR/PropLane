@@ -146,7 +146,10 @@ export function PortalDetailHeader({
           )}
         >
           {actions}
-          <PortalTitleActionsHost className="flex items-center gap-1.5 [&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!px-3.5 [&_button]:!text-[13px]" />
+          <PortalTitleActionsHost
+            breakpoint={inlineActions ? undefined : "md-up"}
+            className="flex items-center gap-1.5 [&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!px-3.5 [&_button]:!text-[13px]"
+          />
         </div>
       </div>
       <div
@@ -155,8 +158,13 @@ export function PortalDetailHeader({
           (actions && !suppressMobileActions && !inlineActions) || (slotPublished && !inlineActions) ? "flex" : "hidden",
         )}
       >
-        {actions && !suppressMobileActions ? actions : null}
-        <PortalTitleActionsHost className="flex flex-wrap items-center gap-1.5 [&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!px-3.5 [&_button]:!text-[13px]" />
+        {actions && !suppressMobileActions && !inlineActions ? actions : null}
+        {inlineActions ? null : (
+          <PortalTitleActionsHost
+            breakpoint="below-md"
+            className="flex flex-wrap items-center gap-1.5 [&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!px-3.5 [&_button]:!text-[13px]"
+          />
+        )}
       </div>
     </header>
   );

@@ -57,15 +57,49 @@ export function PortalTitleActionsProvider({ children }: { children: ReactNode }
 }
 
 /** Where the published controls appear — the title row's right edge. */
-export function PortalTitleActionsHost({ className }: { className?: string }) {
+const MEDIA_NOOP = () => () => {};
+
+/** Tailwind's `md` — the one breakpoint a detail header splits its actions on. */
+const MD_UP = "(min-width: 768px)";
+
+/**
+ * True when the viewport is `md` or wider. A header that mounts one host in
+ * its title row and another beneath it (desktop vs phone) gives them the two
+ * halves of this one query, so the published node is in the DOM exactly once
+ * — hiding the other copy with CSS would leave two "Download" buttons for a
+ * screen reader and a test. Without matchMedia (SSR) it counts as wide.
+ */
+function useMdUp(): boolean {
+  return useSyncExternalStore(
+    (onChange) => {
+      if (typeof window === "undefined" || !window.matchMedia) return MEDIA_NOOP();
+      const list = window.matchMedia(MD_UP);
+      list.addEventListener("change", onChange);
+      return () => list.removeEventListener("change", onChange);
+    },
+    () => (typeof window === "undefined" || !window.matchMedia ? true : window.matchMedia(MD_UP).matches),
+    () => true,
+  );
+}
+
+export function PortalTitleActionsHost({
+  className,
+  breakpoint,
+}: {
+  className?: string;
+  /** Render only on one side of `md`; omit to render at every width. */
+  breakpoint?: "md-up" | "below-md";
+}) {
   const store = useContext(SlotContext);
   const node = useSlotValue(store, (s) => s.node, null);
+  const mdUp = useMdUp();
+  const matches = breakpoint === "md-up" ? mdUp : breakpoint === "below-md" ? !mdUp : true;
   useLayoutEffect(() => {
     if (!store) return;
     store.addHost(1);
     return () => store.addHost(-1);
   }, [store]);
-  if (!node) return null;
+  if (!node || !matches) return null;
   return (
     <div className={className} data-slot="portal-title-actions">
       {node}

@@ -13,6 +13,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
+import { PortalPropertyRail } from "@/components/portal/portal-property-rail";
+import {
+  ResidentOverviewPanel,
+  type ResidentOverviewServiceItem,
+} from "@/components/portal/pro-resident-overview-panel";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import {Input, Textarea, Select, NativeSelect} from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -327,6 +332,13 @@ function residentUnifiedServiceBucketForWorkOrder(
   if (row.bucket === "scheduled") return "scheduled";
   return "completed";
 }
+
+/** Desktop rail grouping for one resident: who they are, where they live, how to reach them. */
+const RESIDENT_RAIL_GROUPS: Array<{ label: string; ids: ResidentDetailTabId[] }> = [
+  { label: "Resident", ids: ["overview", "application", "background-check"] },
+  { label: "Home", ids: ["lease", "payments", "services", "inspections", "tours"] },
+  { label: "Contact", ids: ["communication"] },
+];
 
 /**
  * Routed resident detail tab panel — flat content (no collapsible chevron stack).
@@ -3296,32 +3308,83 @@ export function ManagerResidents({
   const residentDetailScrollBodyPadding =
     "pb-[calc(3.5rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))]";
 
+  // One item list feeds both the desktop rail and the phone tab strip, so a
+  // section can never appear in one and not the other.
+  const residentDetailNavItems = useMemo(
+    () =>
+      selected
+        ? residentDetailTabsAvailable.map((tab) => ({
+            id: tab,
+            label: RESIDENT_DETAIL_TAB_LABELS[tab],
+            shortLabel: RESIDENT_DETAIL_TAB_SHORT_LABELS[tab],
+            href:
+              tab === "tours"
+                ? managerResidentTourListHref(portalBase, residentsTab, selected.id, tourBucketProp)
+                : residentDetailHref(portalBase, residentsTab, selected.id, tab),
+            dataAttr: `resident-detail-tab-${tab}`,
+          }))
+        : [],
+    [portalBase, residentDetailTabsAvailable, residentsTab, selected, tourBucketProp],
+  );
+
+  const residentOverviewServices = useMemo((): ResidentOverviewServiceItem[] => {
+    if (!selected) return [];
+    const requests: ResidentOverviewServiceItem[] = residentServiceRequests.map((req) => ({
+      id: `request-${req.id}`,
+      title: req.offerName,
+      detail: managerServiceRequestPricingSummary(req),
+      bucket: residentUnifiedServiceBucketForRequest(req),
+      href: managerResidentItemDetailHref(portalBase, residentsTab, selected.id, "services", `request-${req.id}`),
+    }));
+    const workOrders: ResidentOverviewServiceItem[] = residentWorkOrders.map((row) => ({
+      id: `work-order-${row.id}`,
+      title: row.title,
+      detail: [row.scheduled?.trim(), row.status?.trim()].filter(Boolean).join(" · ") || "Maintenance",
+      bucket: residentUnifiedServiceBucketForWorkOrder(row),
+      href: managerResidentItemDetailHref(portalBase, residentsTab, selected.id, "services", `work-order-${row.id}`),
+    }));
+    const order = { pending: 0, scheduled: 1, completed: 2 } as const;
+    return [...requests, ...workOrders].sort((a, b) => order[a.bucket] - order[b.bucket]);
+  }, [portalBase, residentServiceRequests, residentWorkOrders, residentsTab, selected]);
+
+  const residentOverviewLinks = useMemo(() => {
+    if (!selected) return {};
+    const has = (tab: ResidentDetailTabId) => residentDetailTabsAvailable.includes(tab);
+    const href = (tab: ResidentDetailTabId) => residentDetailHref(portalBase, residentsTab, selected.id, tab);
+    return {
+      payments: has("payments") ? href("payments") : undefined,
+      lease: has("lease") ? href("lease") : undefined,
+      application: has("application") ? href("application") : undefined,
+      services: has("services") ? href("services") : undefined,
+      communication: has("communication") ? href("communication") : undefined,
+      tours: has("tours") ? managerResidentTourListHref(portalBase, residentsTab, selected.id, tourBucketProp) : undefined,
+    };
+  }, [portalBase, residentDetailTabsAvailable, residentsTab, selected, tourBucketProp]);
+
   const residentDetailPanel =
     selected ? (
-                          <div className="flex min-h-0 flex-1 flex-col gap-0">
+                          <div className="flex min-h-0 flex-1 lg:flex-row">
+                          <PortalPropertyRail
+                            items={residentDetailNavItems}
+                            activeId={resolvedDetailTab}
+                            backHref={residentListHref(portalBase, residentsTab)}
+                            backLabel="All residents"
+                            title={selected.name || "Resident"}
+                            subtitle={[selected.propertyLabel, selected.roomLabel].filter(Boolean).join(" · ") || selected.email}
+                            groups={RESIDENT_RAIL_GROUPS}
+                            ariaLabel="Resident profile sections"
+                            dataAttrBack="resident-rail-back"
+                            className="lg:mr-5 lg:rounded-xl lg:border lg:bg-card"
+                          />
+                          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
                             <PortalPageChrome>
                               <div
-                                className="border-b border-border/40 bg-background"
+                                className="border-b border-border/40 bg-background lg:hidden"
                                 data-portal-property-detail-chrome
                               >
                                 <PortalDetailDestinationNav
                                   denseEqualRow
-                                  items={residentDetailTabsAvailable
-                                    .map((tab) => ({
-                                      id: tab,
-                                      label: RESIDENT_DETAIL_TAB_LABELS[tab],
-                                      shortLabel: RESIDENT_DETAIL_TAB_SHORT_LABELS[tab],
-                                      href:
-                                        tab === "tours" && selected
-                                          ? managerResidentTourListHref(
-                                              portalBase,
-                                              residentsTab,
-                                              selected.id,
-                                              tourBucketProp,
-                                            )
-                                          : residentDetailHref(portalBase, residentsTab, selected.id, tab),
-                                      dataAttr: `resident-detail-tab-${tab}`,
-                                    }))}
+                                  items={residentDetailNavItems}
                                   activeId={resolvedDetailTab}
                                   ariaLabel="Resident profile sections"
                                   appearance="command"
@@ -3329,7 +3392,33 @@ export function ManagerResidents({
                               </div>
                             </PortalPageChrome>
 
-                            {resolvedDetailTab === "inspections" ? (
+                            {resolvedDetailTab === "overview" ? (
+                              <ResidentDetailTabPanel>
+                                <ResidentOverviewPanel
+                                  resident={{
+                                    name: selected.name,
+                                    email: selected.email,
+                                    phone:
+                                      selected.manualResidentDetails?.phone?.trim() ||
+                                      selectedApplicationRow?.application?.phone?.trim() ||
+                                      undefined,
+                                    propertyLabel: selected.propertyLabel,
+                                    roomLabel: selected.roomLabel,
+                                    signedMonthlyRent: selected.signedMonthlyRent,
+                                    leaseStart: selected.leaseStart,
+                                    leaseEnd: selected.leaseEnd,
+                                    stage: selected.stage,
+                                    statusLabel: selected.statusLabel,
+                                    axisId: selected.axisId,
+                                    moveInInstructions: selected.moveInInstructions,
+                                  }}
+                                  ledgerRows={residentLedgerRows}
+                                  leaseRows={residentLeaseRows}
+                                  services={residentOverviewServices}
+                                  links={residentOverviewLinks}
+                                />
+                              </ResidentDetailTabPanel>
+                            ) : resolvedDetailTab === "inspections" ? (
                               <ResidentDetailTabPanel fill>
                                 <InspectionsPanel
                                   role="manager"
@@ -3770,6 +3859,7 @@ export function ManagerResidents({
                                 {residentDetailBottomBarActions}
                               </PortalRecordActions>
                             ) : null}
+                          </div>
                           </div>
     ) : null;
 
