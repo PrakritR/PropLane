@@ -15,7 +15,6 @@ import {
 import {
   propertyAttention,
   propertyAttentionParts,
-  summarizeAttention,
   type PropertyAttention,
 } from "@/lib/property-attention";
 import {
@@ -1292,7 +1291,6 @@ export function ManagerHousePropertiesPanel({
   }, [appTick, scopeUserId]);
 
   /** Which "needs you" chip is narrowing the list, if any. */
-  const [attentionFilter, setAttentionFilter] = useState<"open" | "waiting" | "ending" | null>(null);
 
   const rows = useMemo(() => {
     void tick;
@@ -1322,19 +1320,11 @@ export function ManagerHousePropertiesPanel({
           .toLowerCase();
         return haystack.includes(needle);
       })
-      .filter(({ attention }) => {
-        if (!attentionFilter) return true;
-        if (attentionFilter === "open") return attention.open > 0;
-        if (attentionFilter === "waiting") return attention.waiting > 0;
-        return Boolean(attention.endingSoon);
-      })
       // The property that needs the manager most comes first; ties keep the
       // stable name order every other list uses.
       .sort((a, b) => b.attention.score - a.attention.score || compareAdminPropertyRowsForDisplay(a.row, b.row));
-  }, [tick, scopeUserId, activeStage, propertyKeyProp, searchQuery, applications, attentionFilter]);
+  }, [tick, scopeUserId, activeStage, propertyKeyProp, searchQuery, applications]);
 
-  /** Totals for the strip, over every row on this stage before any chip narrows it. */
-  const attentionTotals = useMemo(() => summarizeAttention(rows.map((r) => r.attention)), [rows]);
 
   /**
    * Signed leases per property, for the row's occupancy chip — the same
@@ -1716,57 +1706,9 @@ export function ManagerHousePropertiesPanel({
     );
   };
 
-  /*
-   * "Needs you" — the three things a manager loses money by ignoring, as chips
-   * that narrow the list. Only on Listed: a draft has no applicants and an
-   * unlisted home has nothing open.
-   */
-  const needsYouStrip =
-    activeStage === "listed" &&
-    !propertyKeyProp &&
-    (attentionTotals.open > 0 || attentionTotals.waiting > 0 || attentionTotals.ending > 0 || attentionFilter) ? (
-      <div className="mb-3 flex flex-wrap items-center gap-2 px-1" data-attr="properties-needs-you">
-        <span className="text-[12px] font-bold uppercase tracking-wide text-muted">Needs you</span>
-        {(
-          [
-            ["waiting", attentionTotals.waiting, attentionTotals.waiting === 1 ? "application waiting" : "applications waiting"],
-            ["open", attentionTotals.open, attentionTotals.open === 1 ? "open room" : "open rooms"],
-            ["ending", attentionTotals.ending, attentionTotals.ending === 1 ? "lease ending soon" : "leases ending soon"],
-          ] as const
-        )
-          .filter(([, n]) => n > 0)
-          .map(([key, n, label]) => (
-            <button
-              key={key}
-              type="button"
-              aria-pressed={attentionFilter === key}
-              data-attr={`properties-needs-you-${key}`}
-              onClick={() => setAttentionFilter((prev) => (prev === key ? null : key))}
-              className={
-                attentionFilter === key
-                  ? "rounded-full border border-primary bg-primary px-3 py-1 text-[12.5px] font-bold text-white"
-                  : "rounded-full border border-border bg-card px-3 py-1 text-[12.5px] font-bold text-foreground hover:bg-accent/40"
-              }
-            >
-              {n} {label}
-            </button>
-          ))}
-        {attentionFilter ? (
-          <button
-            type="button"
-            onClick={() => setAttentionFilter(null)}
-            className="text-[12.5px] font-bold text-primary hover:underline"
-          >
-            Show all
-          </button>
-        ) : null}
-      </div>
-    ) : null;
-
   return (
     <>
       <div className={PORTAL_LIST_PAGE_BODY}>
-        {needsYouStrip}
         {rows.map(({ sourceBucket, row, linked, attention }) => {
           const rowKey = row.adminRefId + (row.listingId ?? "");
           const thumb = propertyRowThumbnail(row);
