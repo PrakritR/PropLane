@@ -115,7 +115,7 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Teams (managers)", path: "/portal/teams/managers" },
   { label: "Teams (vendors)", path: "/portal/teams/vendors" },
   { label: "Promotion", path: "/portal/promotion" },
-  { label: "Finances", path: "/portal/financials/income" },
+  { label: "Finances", path: "/portal/financials/overview" },
   { label: "Documents", path: "/portal/documents/applications" },
   { label: "Feedback", path: "/portal/bugs-feedback" },
   { label: "App", path: "/portal/app" },

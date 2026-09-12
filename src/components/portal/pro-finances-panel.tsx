@@ -20,7 +20,6 @@ import {
   ManagerPortalPageShell,
   MANAGER_TABLE_TH,
   PORTAL_COMMAND_ACTION_BTN,
-  PORTAL_HEADER_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import {
   ManagerBankReconciliationPanel,
@@ -36,13 +35,16 @@ import { ManagerSecurityDepositsPanel } from "@/components/portal/pro-security-d
 import {
   PORTAL_LIST_ADD_ICONS,
 } from "@/components/portal/portal-list-add-row";
+import { type ReportFilterState } from "@/components/portal/reports/report-filter-bar";
+import { FinancesExportMenu, type FinancesExportItem } from "@/components/portal/finances/finances-export-menu";
 import {
-  ReportExportButtons,
-  type ReportFilterState,
-} from "@/components/portal/reports/report-filter-bar";
+  FinancesPeriodSelect,
+  FinancesPropertySelect,
+  ManagerFinancesOverview,
+  type FinancesPeriodKind,
+} from "@/components/portal/finances/finances-overview";
+import { FINANCES_REPORT_TAB_IDS, ManagerFinancesReports } from "@/components/portal/finances/finances-reports";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
-import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
-import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import {
   PORTAL_DATA_TABLE,
   PORTAL_DATA_TABLE_WRAP,
@@ -356,9 +358,13 @@ function FinancesDataTable({
   );
 }
 
+// The four doors (round 3): Overview lands first; Reports is the hub every
+// statement tab hangs off, so a report tab lights the Reports door.
 const FINANCE_TAB_DESTINATIONS = [
+  { id: "overview", label: "Overview" },
   { id: "income", label: "Income" },
   { id: "expenses", label: "Expenses" },
+  { id: "reports", label: "Reports" },
 ] as const;
 
 const FINANCE_TABS = [
@@ -576,6 +582,7 @@ export function ManagerFinancesPanel({
     setCashflowNowMs(Date.now());
   }, [cashflowChartTick]);
   const [filters, setFilters] = useState(defaultFilters);
+  const [overviewPeriod, setOverviewPeriod] = useState<FinancesPeriodKind>("year");
   const [report, setReport] = useState<ReportResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [rowFilters, setRowFilters] = useState(emptyRowFilters);
@@ -595,7 +602,8 @@ export function ManagerFinancesPanel({
     propertyId: "",
   });
 
-  const reportId = TAB_TO_REPORT[tabId] ?? "rent-receipts";
+  const reportId: string | null =
+    tabId === "overview" || tabId === "reports" ? null : (TAB_TO_REPORT[tabId] ?? "rent-receipts");
   const [sortKey, setSortKey] = useState(DEFAULT_SORT[tabId]?.key ?? "date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">(DEFAULT_SORT[tabId]?.dir ?? "desc");
 
@@ -669,6 +677,12 @@ export function ManagerFinancesPanel({
 
   const loadTable = useCallback(async () => {
     if (!ready) return;
+    // Overview and the Reports hub read the client stores directly; no table.
+    if (reportId === null) {
+      setReport(null);
+      setLoading(false);
+      return;
+    }
     if (isDemoModeActive()) {
       // No authenticated reports API in the sandbox — build the same report
       // shapes from the browser-local demo stores instead.
@@ -854,10 +868,16 @@ export function ManagerFinancesPanel({
     [basePath],
   );
 
+  const isOverviewTab = tabId === "overview";
+  const isReportsHubTab = tabId === "reports";
   const activeFinanceDestinationId =
-    tabId === "income" || tabId === "expenses" ? tabId : "income";
+    tabId === "income" || tabId === "expenses" || isOverviewTab || isReportsHubTab
+      ? tabId
+      : FINANCES_REPORT_TAB_IDS.has(tabId)
+        ? "reports"
+        : "income";
 
-  const specialFinancePanels = new Set(["bills", "bank-reconciliation", "security-deposits", "owner-distributions"]);
+  const specialFinancePanels = new Set(["bills", "bank-reconciliation", "security-deposits", "owner-distributions", "overview", "reports"]);
   const showScopedReportFilters = !specialFinancePanels.has(tabId);
   const isTransactionTab = tabId === "income" || tabId === "expenses";
   const activeDefaultSort = DEFAULT_SORT[tabId] ?? { key: "date", dir: "desc" as const };
@@ -998,32 +1018,29 @@ export function ManagerFinancesPanel({
     setExpenseModal(true);
   }
 
-  const financesFormalPdfLink =
-    tabId === "owner-statement" ? (
-      <a
-        href={`/api/reports/owner-statement/formal-export?${query}`}
-        className={`inline-flex items-center justify-center ${PORTAL_HEADER_ACTION_BTN}`}
-        data-attr="owner-statement-formal-pdf"
-      >
-        Formal PDF
-      </a>
-    ) : null;
-
-  const financesExportButtons =
-    !isTransactionTab && report && report.rows.length > 0 ? (
-      <ReportExportButtons
-        reportId={reportId}
-        query={query}
-        formats={tabId === "general-ledger" ? ["csv", "pdf", "quickbooks"] : ["csv"]}
-      />
-    ) : !isTransactionTab && tabId === "general-ledger" ? (
-      <ReportExportButtons reportId={reportId} query={query} formats={["quickbooks"]} />
-    ) : null;
-
-  const financesCsvExportHref =
-    isTransactionTab && report && report.rows.length > 0
-      ? `/api/reports/${reportId}/export?${query}&format=csv`
-      : null;
+  // One Export menu in the title row. Its rows are the formats this tab can
+  // produce; a tab with nothing to export shows no menu.
+  const financesExportItems: FinancesExportItem[] = (() => {
+    if (!reportId) return [];
+    const base = `/api/reports/${reportId}/export?${query}`;
+    const hasRows = Boolean(report && report.rows.length > 0);
+    const items: FinancesExportItem[] = [];
+    if (hasRows) items.push({ id: "csv", label: "Export CSV", href: `${base}&format=csv`, dataAttr: "finances-export-csv" });
+    if (tabId === "general-ledger") {
+      if (hasRows) items.push({ id: "pdf", label: "Export PDF", href: `${base}&format=pdf`, dataAttr: "finances-export-pdf" });
+      items.push({ id: "quickbooks", label: "Export QuickBooks", href: `${base}&format=quickbooks`, dataAttr: "export-quickbooks" });
+    }
+    if (tabId === "owner-statement") {
+      items.push({
+        id: "formal-pdf",
+        label: "Formal PDF",
+        href: `/api/reports/owner-statement/formal-export?${query}`,
+        dataAttr: "owner-statement-formal-pdf",
+      });
+    }
+    return items;
+  })();
+  const financesExportMenu = <FinancesExportMenu items={financesExportItems} />;
 
   const financesBankStatementButton =
     tabId === "bank-reconciliation" ? (
@@ -1050,15 +1067,35 @@ export function ManagerFinancesPanel({
         }
       : undefined;
 
+  const financesOverviewControls = isOverviewTab ? (
+    <>
+      <FinancesPeriodSelect value={overviewPeriod} onChange={setOverviewPeriod} />
+      <FinancesPropertySelect
+        value={filters.propertyId}
+        options={propertyOptions}
+        onChange={(propertyId) => setFilters((current) => ({ ...current, propertyId }))}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        className={PORTAL_COMMAND_ACTION_BTN}
+        onClick={openAddExpense}
+        data-attr="finances-overview-add-expense"
+      >
+        + Add expense
+      </Button>
+    </>
+  ) : null;
+
   const financesCommandActions =
+    financesOverviewControls ||
     financesFilterControl ||
-    financesFormalPdfLink ||
-    financesExportButtons ||
+    financesExportItems.length > 0 ||
     financesBankStatementButton ? (
       <>
+        {financesOverviewControls}
         {financesFilterControl}
-        {financesFormalPdfLink}
-        {financesExportButtons}
+        {financesExportMenu}
         {financesBankStatementButton}
       </>
     ) : null;
@@ -1089,7 +1126,18 @@ export function ManagerFinancesPanel({
           ) : null
         }
       />
-      {tabId === "bills" ? (
+      {isOverviewTab ? (
+        <ManagerFinancesOverview
+          userId={userId ?? null}
+          ready={ready}
+          propertyId={filters.propertyId}
+          period={overviewPeriod}
+          basePath={basePath}
+          propertyOptions={propertyOptions}
+        />
+      ) : isReportsHubTab ? (
+        <ManagerFinancesReports basePath={basePath} />
+      ) : tabId === "bills" ? (
         <ManagerBillsPanel ref={billsRef} />
       ) : tabId === "bank-reconciliation" ? (
         <ManagerBankReconciliationPanel
@@ -1351,20 +1399,6 @@ export function ManagerFinancesPanel({
         </div>
       </Modal>
 
-      {financesCsvExportHref ? (
-        <ResidentPortalListBottomBar
-          showDefaultBar
-          selectionCount={0}
-          selectionBarVariant="payments"
-          defaultActions={
-            <Button asChild variant="outline" className={PORTAL_BULK_BAR_BTN}>
-              <a href={financesCsvExportHref} data-attr="finances-export-csv">
-                Export CSV
-              </a>
-            </Button>
-          }
-        />
-      ) : null}
     </ManagerPortalPageShell>
   );
 }
