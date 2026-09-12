@@ -3,6 +3,9 @@ export const IOS_APP_STORE_APP_ID = "6795707576";
 
 export const IOS_APP_BUNDLE_ID = "space.proplane.app";
 
+/** Minimum iOS the listing declares (App Store Connect record). */
+export const IOS_APP_MINIMUM_OS = "15";
+
 /**
  * Canonical storefront URL. The short `apps.apple.com/app/id…` form redirects by
  * the visitor's storefront and lands on "not available" where the app is not

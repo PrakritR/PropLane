@@ -148,3 +148,24 @@
   .site-story-pane[hidden] { display: block !important; border-top: 1px solid var(--border); }
   .site-story-caret { animation: none; }
 }
+
+/* ───────────── /app phone frames (site/app-page.tsx) ───────────── */
+.site-app-shots { position: relative; height: 480px; }
+.site-app-phone {
+  position: absolute;
+  right: 24px;
+  top: 0;
+  z-index: 2;
+  width: 220px;
+  overflow: hidden;
+  border: 7px solid #111;
+  border-radius: 32px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(8, 9, 11, 0.22);
+}
+.site-app-phone.is-back { right: 210px; top: 56px; z-index: 1; width: 200px; opacity: 0.92; }
+@media (max-width: 1023px) {
+  .site-app-shots { height: 420px; }
+  .site-app-phone { right: calc(50% - 190px); width: 190px; }
+  .site-app-phone.is-back { right: calc(50% + 10px); width: 170px; }
+}

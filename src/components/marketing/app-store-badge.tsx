@@ -30,9 +30,8 @@ export function AppStoreBadge({
       className={cn(
         "inline-flex items-center gap-2 rounded-lg border transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
         size === "lg" ? "h-12 px-4" : "h-9 px-3",
-        tone === "dark"
-          ? "border-foreground/80 bg-foreground text-background [html[data-theme=dark]_&]:border-border [html[data-theme=dark]_&]:bg-card [html[data-theme=dark]_&]:text-foreground"
-          : "border-white/90 bg-white text-[#0b1120]",
+        // Explicit colours: the badge is the same object on every page, light or dark theme.
+        tone === "dark" ? "border-[#0b1120] bg-[#0b1120] !text-white" : "border-white bg-white !text-[#0b1120]",
         className,
       )}
     >
