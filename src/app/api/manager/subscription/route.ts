@@ -12,6 +12,7 @@ import {
   resolveEffectiveManagerSkuTier,
 } from "@/lib/manager-access";
 import { getManagerPurchaseSku } from "@/lib/manager-access-server";
+import { waiverGrantedFromPromoCode } from "@/lib/payment-policy";
 import { isAppleBilledManagerPurchase } from "@/lib/manager-apple-purchase";
 import { getStripe } from "@/lib/stripe";
 import {
@@ -95,7 +96,7 @@ export async function GET() {
       /* Stripe not configured or transient error — serve last known DB state */
     }
 
-    const { tier, billing, stripeSubscriptionId, appleOriginalTransactionId, paidAt, readFailed } =
+    const { tier, billing, stripeSubscriptionId, appleOriginalTransactionId, paidAt, promoCode, readFailed } =
       await getManagerPurchaseSku(user.id);
     let stripeManaged = false;
     try {
@@ -140,8 +141,13 @@ export async function GET() {
     return NextResponse.json({
       ...base,
       isFree,
-      paymentWaiverGranted: paymentSettings ? paymentSettings.adminServiceFeeOverride === "proplane" : null,
-      paymentCoverageUnknown: paymentSettings === null,
+      // What already lets PropLane cover this account's processing fees: staff approval or
+      // the account's promo grant. A listing can still add its own promo code on top.
+      paymentWaiverGranted:
+        paymentSettings && !readFailed
+          ? paymentSettings.adminServiceFeeOverride === "proplane" || waiverGrantedFromPromoCode(promoCode)
+          : null,
+      paymentCoverageUnknown: paymentSettings === null || readFailed,
       stripeManaged,
       appleManaged,
       cancelAtPeriodEnd,

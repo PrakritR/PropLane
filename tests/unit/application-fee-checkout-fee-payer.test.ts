@@ -303,4 +303,59 @@ describe("resolveApplicationFeeItemization — plan-based service fee resolver",
     expect(result.serviceFeeCents).toBe(0);
     expect(result.totalCents).toBe(5000);
   });
+
+  it("A Free listing carrying the promo code has PropLane cover the applicant's processing fee", async () => {
+    vi.mocked(getManagerPurchaseSku).mockResolvedValue({
+      tier: "free",
+      billing: null,
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      appleOriginalTransactionId: null,
+    });
+    vi.mocked(loadManagerManualPaymentSettings).mockResolvedValue({
+      zellePaymentsEnabled: false,
+      zelleContact: "",
+      venmoPaymentsEnabled: false,
+      venmoContact: "",
+      receiptAutoMarkEnabled: true,
+      serviceFeePayer: "resident",
+    });
+
+    const listing = { serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" } as never;
+    const covered = await resolveApplicationFeeItemization(db, "mgr_A", 5000, "card", listing);
+    expect(covered.feePayer).toBe("proplane");
+    expect(covered.serviceFeeCents).toBe(0);
+    expect(covered.totalCents).toBe(5000);
+
+    // The same choice with no code (or a typo) is not a grant: the applicant pays.
+    const uncovered = await resolveApplicationFeeItemization(db, "mgr_A", 5000, "card", {
+      serviceFeePayer: "proplane",
+      serviceFeeWaiverCode: "NOPE",
+    } as never);
+    expect(uncovered.feePayer).toBe("resident");
+    expect(uncovered.serviceFeeCents).toBeGreaterThan(0);
+  });
+
+  it("A signup promo grant on the account covers the fee without a listing code", async () => {
+    vi.mocked(getManagerPurchaseSku).mockResolvedValue({
+      tier: "free",
+      billing: null,
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      appleOriginalTransactionId: null,
+      promoCode: "FREE100",
+    } as never);
+    vi.mocked(loadManagerManualPaymentSettings).mockResolvedValue({
+      zellePaymentsEnabled: false,
+      zelleContact: "",
+      venmoPaymentsEnabled: false,
+      venmoContact: "",
+      receiptAutoMarkEnabled: true,
+      serviceFeePayer: "proplane",
+    });
+
+    const result = await resolveApplicationFeeItemization(db, "mgr_A", 5000);
+    expect(result.feePayer).toBe("proplane");
+    expect(result.serviceFeeCents).toBe(0);
+  });
 });
