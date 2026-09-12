@@ -399,7 +399,10 @@ export function DataList<T>({
         variant === "resident" ? (
           residentListBody
         ) : (
-          <div className="space-y-2">{mobileRows}</div>
+          // Headerless lists sit on the same card every list tab uses. Each
+          // row is wrapped (for its expanded content), which defeated the
+          // row's own `last:border-0` divider, so the card draws the dividers.
+          <div className="divide-y divide-border/80 overflow-hidden rounded-2xl border border-border bg-card">{mobileRows}</div>
         )
       ) : (
         <PortalResponsiveDataView mobile={mobileRows} desktop={desktopTable} />
