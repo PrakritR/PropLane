@@ -1,0 +1,79 @@
+/* Public site — section styles that Tailwind utilities cannot express (positioned art, keyframes). Imported by the components that use them. */
+
+/* ───────────── home hero — "Night blue" (site/hero.tsx) ───────────── */
+.site-hero-glow {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  pointer-events: none;
+}
+.site-hero-glow-a {
+  width: 640px;
+  height: 640px;
+  left: -180px;
+  top: -280px;
+  background: #2863f0;
+  opacity: 0.55;
+}
+.site-hero-glow-b {
+  width: 560px;
+  height: 560px;
+  right: -160px;
+  top: 40px;
+  background: #5a8cff;
+  opacity: 0.3;
+}
+.site-hero-grain {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 22px 22px;
+  pointer-events: none;
+}
+.site-hero-browser {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  background: #fff;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  /* Bleed: the page below hides the bottom of the frame. */
+  margin-bottom: -1px;
+  max-height: 440px;
+}
+.site-hero-phone {
+  position: absolute;
+  right: -12px;
+  bottom: -24px;
+  z-index: 3;
+  width: 168px;
+  overflow: hidden;
+  border: 6px solid #111;
+  border-radius: 28px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+.site-hero-draft {
+  position: absolute;
+  left: -18px;
+  top: 34%;
+  z-index: 3;
+  width: 250px;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 12px;
+  box-shadow: 0 14px 34px rgba(8, 9, 11, 0.28);
+}
+@media (max-width: 767px) {
+  .site-hero-browser { max-height: 260px; }
+  .site-hero-phone { width: 118px; right: -6px; bottom: -14px; border-width: 4px; border-radius: 20px; }
+  .site-hero-draft { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .site-hero-phone, .site-hero-draft { animation: site-hero-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .site-hero-draft { animation-delay: 0.15s; }
+}
+@keyframes site-hero-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
