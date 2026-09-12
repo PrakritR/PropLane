@@ -8,7 +8,7 @@ import "@/components/marketing/site/site.css";
 
 /**
  * The home hero — "Night blue". One argument, centered, on navy: the AI does
- * the busywork, you approve. The product is the picture: the real manager
+ * the busywork, automatically. The product is the picture: the real manager
  * dashboard in a browser frame bleeding off the fold, the iPhone dashboard
  * over it, and one drafted reply floating out — the object the whole site is
  * about. Colours are explicit (not theme tokens) because the public pages are
@@ -33,7 +33,7 @@ export function SiteHero() {
       <div className={cn(SITE_MEASURE, "relative z-[1] pt-16 sm:pt-20 lg:pt-24")}>
         <div className="mx-auto flex max-w-[60rem] flex-col items-center text-center">
           <p className="mb-4 flex items-center gap-1.5 text-[12.5px] font-bold uppercase tracking-[0.08em] text-[#8fb3ff]">
-            <span aria-hidden>✦</span> Approval-first property management
+            <span aria-hidden>✦</span> AI-automated property management
           </p>
           <h1
             id="site-hero-title"
@@ -41,11 +41,11 @@ export function SiteHero() {
           >
             The AI does the busywork.
             <br />
-            <span className="text-[#5a8cff]">You approve.</span>
+            <span className="text-[#5a8cff]">Automatically.</span>
           </h1>
           <p className="mt-5 max-w-[46ch] text-[16.5px] leading-relaxed text-[#b8c4dc] sm:text-[17.5px]">
-            One place to list a home, take applications, draft the lease, collect rent and handle repairs — every message
-            and charge waits for your OK.
+            One place to list a home, take applications, draft the lease, collect rent and handle repairs — with the
+            replies, bookings and dispatches run for you.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Link
@@ -98,17 +98,14 @@ export function SiteHero() {
             />
           </div>
 
-          {/* The dashboard's AI-drafts row, as it ships: title, "ready to approve", Approve / Discard. */}
+          {/* Two rows from the dashboard's queue — what the AI already did today. */}
           <div className="site-hero-draft" aria-hidden>
             <p className="mb-1.5 flex items-center gap-2 text-[11px] font-bold text-primary">
-              <span>✦</span> AI drafts <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-[#1e4fd6]">Pending approval</span>
+              <span>✦</span> Everything open <span className="rounded-full bg-[#e8f7ee] px-2 py-0.5 text-[10px] font-bold text-[#15803d]">Done</span>
             </p>
-            <p className="text-[12.5px] font-semibold leading-snug text-[#17181a]">PropLane · Dispatch Pacific Plumbing to Maple 2A</p>
-            <p className="text-[11px] text-[#4a4e56]">Service request #1042 · Thu 10–12 · ready to approve</p>
-            <p className="mt-2 flex items-center gap-2">
-              <span className="rounded-full bg-primary px-3 py-1 text-[11.5px] font-bold text-white">Approve</span>
-              <span className="rounded-full border border-black/15 px-3 py-1 text-[11.5px] font-bold text-[#17181a]">Discard</span>
-            </p>
+            <p className="text-[12.5px] font-semibold leading-snug text-[#17181a]">PropLane · Pacific Plumbing dispatched to Maple 2A</p>
+            <p className="text-[11px] text-[#4a4e56]">Service request #1042 · Thu 10–12 · resident notified</p>
+            <p className="mt-2 text-[11px] text-[#4a4e56]">Tour booked with Jamie P. · Sat 2:00 PM · <span className="font-bold text-[#15803d]">Done</span></p>
           </div>
         </div>
       </div>

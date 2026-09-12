@@ -10,53 +10,59 @@ import "@/components/marketing/site/site.css";
 
 /**
  * The home page's one feature, told as a scroll story: four steps on the left,
- * a sticky product frame on the right that follows the step in view. Steps 1–3
- * are the portal inbox as it ships; step 4 is the dashboard's AI-drafts group.
+ * a sticky product frame on the right that follows the step in view — and that
+ * the visitor can play with. Steps 1–3 are the portal's Communication inbox as
+ * it ships (one composer row: attach · reply · ✦ AI · 🕒 schedule · channel
+ * menu · Send); step 4 is the dashboard's one queue.
  *
- * The frame is drawn with the portal's own vocabulary — the same control labels
- * (`Draft with AI`, `Ask PropLane`, `Schedule for later`, `In-app · Email · Text`,
- * `Sending as …`, `AI drafts · Pending approval`, `Approve · Discard`) and the
- * same tones — so a visitor who signs up meets the screen they just saw.
- * `tests/unit/site-story-labels.test.ts` pins those labels to the portal's.
+ * Interactive, not a video: ✦ opens the AI menu and "Draft with AI" types the
+ * reply into the field; 🕒 toggles a scheduled send; the channel menu switches
+ * In-app / Email / Text; Send posts the reply into the thread; a conversation
+ * in the list switches the step; Approve / Discard on the queue resolve a row.
+ * Nothing here is a live read — every action is local to the page.
  *
- * Every behaviour shown exists today: the leasing text responder answers
- * availability and offers tour slots; a resident email becomes a service
- * request with a vendor proposal; the vendor text agent answers job facts and
- * escalates money; approvals land under AI drafts. Nothing here is a live read.
+ * The frame uses the portal's own control labels so a visitor who signs up
+ * meets the screen they just saw; `tests/unit/site-story-labels.test.ts` pins
+ * them. Every behaviour shown exists today: the leasing text responder answers
+ * availability and books tours; a resident email becomes a service request
+ * with a vendor dispatched; the vendor text agent answers job facts and routes
+ * a change order; everything the AI does lands in one queue.
  */
 
 /* ── the four steps ─────────────────────────────────────────────── */
 
-type StepId = "prospect" | "resident" | "vendor" | "approve";
+type StepId = "prospect" | "resident" | "vendor" | "queue";
 
 const STEPS: { id: StepId; kicker: string; title: string; body: string }[] = [
   {
     id: "prospect",
     kicker: "01 · A prospect texts",
-    title: "Answered in seconds, from your listing.",
-    body: "Availability, price and open tour slots come straight from the listing. The reply goes out as a text under your work number. When they pick a time, the booking waits in your composer — you send it.",
+    title: "Answered in seconds. Tour booked.",
+    body: "Availability, price and open slots come straight from the listing. PropLane replies as a text under your work number, offers times, and books the tour when they pick one. Try it — press ✦, then Send.",
   },
   {
     id: "resident",
     kicker: "02 · A resident reports a repair",
-    title: "A service request, a vendor, a reply — drafted.",
-    body: "The email becomes a service request. PropLane ranks your approved vendors, proposes one, and drafts the reply into the composer. Nothing is sent and nobody is dispatched until you do.",
+    title: "Request logged. Vendor dispatched. Resident told.",
+    body: "The email becomes a service request. PropLane ranks your approved vendors, books the first open slot with the best one, and writes back to the resident with the window.",
   },
   {
     id: "vendor",
     kicker: "03 · A vendor asks a question",
-    title: "Job facts answered. Money escalated.",
-    body: "Gate codes, access windows, who is home — answered from the job. A change to an accepted bid is never guessed: it goes to your dashboard as a draft with the amount spelled out.",
+    title: "Job facts answered. Change orders routed.",
+    body: "Gate codes, access windows, who is home — answered from the job. A change to an accepted bid is priced against the job and routed to your queue with the amount spelled out.",
   },
   {
-    id: "approve",
-    kicker: "04 · You approve",
-    title: "One list. Approve or discard.",
-    body: "Every proposed action — a tour, a dispatch, a change order — lands under AI drafts on your dashboard. Approve runs it; Discard sends nothing. The same list is on your phone.",
+    id: "queue",
+    kicker: "04 · One queue",
+    title: "Everything the AI did, in one list.",
+    body: "Tours booked, vendors dispatched, replies sent — every automated action lands on your dashboard, with the handful that need a decision flagged. The same list is on your phone.",
   },
 ];
 
 /* ── the frame: inbox panes ──────────────────────────────────────── */
+
+type Channel = "In-app" | "Email" | "Text";
 
 type Msg =
   | { kind: "in"; text: string; when: string; channel: "TEXT" | "EMAIL" }
@@ -64,18 +70,19 @@ type Msg =
   | { kind: "sys"; text: string };
 
 type InboxPane = {
-  id: StepId;
+  id: Exclude<StepId, "queue">;
   contact: { initials: string; name: string; sub: string; vendor?: boolean };
-  channel: "In-app" | "Email" | "Text";
-  sendingAs: string;
+  channel: Channel;
   messages: Msg[];
   draft: string;
+  /** What "Ask PropLane" answers about this thread. */
+  asked: string;
 };
 
-const CONVERSATIONS = [
-  { initials: "JP", name: "Jamie P.", sub: "Ash Flats 6 · Tour", id: "prospect" as StepId },
-  { initials: "DR", name: "Dana Reyes", sub: "Maple 2A · Repair", id: "resident" as StepId },
-  { initials: "PP", name: "Pacific Plumbing", sub: "Job #1042", id: "vendor" as StepId, vendor: true },
+const CONVERSATIONS: { initials: string; name: string; sub: string; id: StepId | null; vendor?: boolean }[] = [
+  { initials: "JP", name: "Jamie P.", sub: "Ash Flats 6 · Tour", id: "prospect" },
+  { initials: "DR", name: "Dana Reyes", sub: "Maple 2A · Repair", id: "resident" },
+  { initials: "PP", name: "Pacific Plumbing", sub: "Job #1042", id: "vendor", vendor: true },
   { initials: "EW", name: "Ethan Wright", sub: "Application fee", id: null },
 ];
 
@@ -84,7 +91,6 @@ const INBOX_PANES: InboxPane[] = [
     id: "prospect",
     contact: { initials: "JP", name: "Jamie P.", sub: "+1 (206) 555-0147 · prospect · Ash Flats 6" },
     channel: "Text",
-    sendingAs: "(206) 555-0100",
     messages: [
       { kind: "in", text: "Hi! Is the room at 142 Ash St still available? Could I see it Saturday afternoon?", when: "Sat 10:02 AM", channel: "TEXT" },
       {
@@ -97,23 +103,23 @@ const INBOX_PANES: InboxPane[] = [
       { kind: "in", text: "2 PM please!", when: "10:05 AM", channel: "TEXT" },
     ],
     draft: "Booked: Saturday 2:00 PM at 142 Ash St, Room 6A. You'll get a reminder Friday — reply here if anything changes.",
+    asked: "Room 6A is open from Oct 1 · Saturday has 3 free slots · no other tours that day.",
   },
   {
     id: "resident",
     contact: { initials: "DR", name: "Dana Reyes", sub: "dana.reyes@… · resident · Maple 2A" },
     channel: "Email",
-    sendingAs: "PropLane",
     messages: [
       { kind: "in", text: "Hi, the kitchen faucet in Maple 2A has been dripping for two days. Can someone take a look?", when: "Tue 8:41 AM", channel: "EMAIL" },
-      { kind: "sys", text: "Service request #1042 created · Plumbing · Maple 2A · Pacific Plumbing suggested (approved vendor · 4.9 · $140 typical)" },
+      { kind: "sys", text: "Service request #1042 created · Plumbing · Maple 2A · Pacific Plumbing booked Thu 10–12 (approved vendor · 4.9 · $140 typical)" },
     ],
-    draft: "Thanks Dana — I've asked Pacific Plumbing to come Thursday between 10 and 12. They'll text you before they arrive. If that window doesn't work, reply here.",
+    draft: "Thanks Dana — Pacific Plumbing is booked for Thursday between 10 and 12. They'll text you before they arrive. If that window doesn't work, reply here.",
+    asked: "Pacific Plumbing has done 4 jobs at Maple — all rated 5 · next open slot Thu 10–12.",
   },
   {
     id: "vendor",
     contact: { initials: "PP", name: "Pacific Plumbing", sub: "+1 (206) 555-0188 · vendor · job #1042", vendor: true },
     channel: "Text",
-    sendingAs: "(206) 555-0100",
     messages: [
       { kind: "in", text: "Running 20 min late for Maple 2A. Is there a gate code? Is the resident home?", when: "Thu 9:48 AM", channel: "TEXT" },
       {
@@ -124,30 +130,33 @@ const INBOX_PANES: InboxPane[] = [
         auto: "answered from the job",
       },
       { kind: "in", text: "The shut-off valve is corroded — another $90. OK to proceed?", when: "10:30 AM", channel: "TEXT" },
-      { kind: "sys", text: "Needs a manager: a change to the accepted $140 bid. Escalated to your dashboard → AI drafts." },
+      { kind: "sys", text: "Change order · $140 → $230 · routed to your queue with the valve priced against the job." },
     ],
-    draft: "Go ahead with the valve — approved for $90, so $230 total. Send me a photo of the old one for the file.",
+    draft: "Go ahead with the valve — $90 added, $230 total. Send a photo of the old one for the file.",
+    asked: "Bid on job #1042 was $140 · a valve typically adds $80–110 · resident is home until noon.",
   },
 ];
 
-const AI_DRAFTS = [
-  { title: "PropLane · Confirm tour with Jamie P.", sub: "Jamie P. · Sat 2:00 PM · Room 6A · ready to approve" },
-  { title: "PropLane · Dispatch Pacific Plumbing to Maple 2A", sub: "Service request #1042 · Thu 10–12 · ready to approve" },
-  { title: "PropLane · Approve $90 change on job #1042", sub: "Pacific Plumbing · bid $140 → $230 · ready to approve" },
+const QUEUE_ROWS = [
+  { title: "PropLane · Tour booked with Jamie P.", sub: "Sat 2:00 PM · Room 6A · reminder set for Friday", done: true },
+  { title: "PropLane · Pacific Plumbing dispatched to Maple 2A", sub: "Service request #1042 · Thu 10–12 · resident notified", done: true },
+  { title: "PropLane · $90 change order on job #1042", sub: "Pacific Plumbing · bid $140 → $230 · needs a decision", done: false },
 ];
 
 /** The portal's control labels, exported so the unit test can pin them. */
 export const STORY_PORTAL_LABELS = {
   generate: "Draft with AI",
   ask: "Ask PropLane",
-  schedule: "Schedule for later",
   channels: ["In-app", "Email", "Text"] as const,
-  sendingAs: "Sending as",
-  aiDrafts: "AI drafts",
-  pending: "Pending approval",
+  send: "Send",
+  schedule: "Schedule",
+  queue: "Everything open",
   approve: "Approve",
   discard: "Discard",
 };
+
+const CHANNEL_CHIP: Record<Channel, string> = { "In-app": "IN-APP", Email: "EMAIL", Text: "TEXT" };
+const SENDING_AS: Record<Channel, string> = { "In-app": "Sending as PropLane", Email: "Sending as you@prop-lane.space", Text: "Sending as (206) 555-0100" };
 
 function Avatar({ initials, vendor, className }: { initials: string; vendor?: boolean; className?: string }) {
   return (
@@ -172,7 +181,51 @@ function ChannelChip({ children }: { children: ReactNode }) {
   );
 }
 
-function InboxFrame({ pane }: { pane: InboxPane }) {
+const TOOL_BTN =
+  "grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-border bg-card text-[13px] text-foreground transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30";
+
+/** One playable inbox. State is local; nothing leaves the page. */
+function InboxFrame({ pane, onPick }: { pane: InboxPane; onPick: (id: StepId) => void }) {
+  const [sent, setSent] = useState<{ text: string; channel: Channel; scheduled: boolean }[]>([]);
+  const [typed, setTyped] = useState("");
+  const [typing, setTyping] = useState(false);
+  const [menu, setMenu] = useState<"ai" | "channel" | null>(null);
+  const [channel, setChannel] = useState<Channel>(pane.channel);
+  const [scheduled, setScheduled] = useState(false);
+  const [asked, setAsked] = useState(false);
+  const timer = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timer.current) window.clearInterval(timer.current);
+    },
+    [],
+  );
+
+  function draftWithAi() {
+    setMenu(null);
+    if (typing || typed) return;
+    setTyping(true);
+    let i = 0;
+    timer.current = window.setInterval(() => {
+      i += 3;
+      setTyped(pane.draft.slice(0, i));
+      if (i >= pane.draft.length) {
+        setTyped(pane.draft);
+        setTyping(false);
+        if (timer.current) window.clearInterval(timer.current);
+      }
+    }, 18);
+  }
+
+  function send() {
+    if (!typed || typing) return;
+    setSent((s) => [...s, { text: typed, channel, scheduled }]);
+    setTyped("");
+    setScheduled(false);
+    setMenu(null);
+  }
+
   return (
     <div className="site-story-inbox" data-story-pane={pane.id}>
       <div className="site-story-list">
@@ -187,10 +240,13 @@ function InboxFrame({ pane }: { pane: InboxPane }) {
         </div>
         <div className="m-2 rounded-lg border border-border px-2 py-1.5 text-[11px] text-muted">Search contacts or messages</div>
         {CONVERSATIONS.map((c) => (
-          <div
+          <button
+            type="button"
             key={c.name}
+            onClick={() => c.id && onPick(c.id)}
+            disabled={!c.id}
             className={cn(
-              "flex gap-2 border-b border-border px-2.5 py-2",
+              "flex w-full gap-2 border-b border-border px-2.5 py-2 text-left transition hover:bg-accent/60 disabled:cursor-default disabled:hover:bg-transparent",
               c.id === pane.id && "border-l-[3px] border-l-primary bg-primary/[0.06] pl-[7px]",
             )}
           >
@@ -199,7 +255,7 @@ function InboxFrame({ pane }: { pane: InboxPane }) {
               <span className="block truncate text-[12px] font-bold text-foreground">{c.name}</span>
               <span className="block truncate text-[10.5px] text-muted">{c.sub}</span>
             </span>
-          </div>
+          </button>
         ))}
       </div>
 
@@ -216,7 +272,7 @@ function InboxFrame({ pane }: { pane: InboxPane }) {
           </span>
         </div>
 
-        <div className="flex flex-1 flex-col gap-2.5 overflow-hidden bg-[var(--pl-surface)] px-3.5 py-3">
+        <div className="flex flex-1 flex-col gap-2.5 overflow-y-auto bg-[var(--pl-surface)] px-3.5 py-3">
           {pane.messages.map((m, i) => {
             if (m.kind === "sys") {
               return (
@@ -230,92 +286,204 @@ function InboxFrame({ pane }: { pane: InboxPane }) {
               <div key={i} className={cn("flex max-w-[88%] gap-2", out && "ml-auto justify-end")}>
                 {!out ? <Avatar initials="•" className="h-[22px] w-[22px] self-end text-[8px]" /> : null}
                 <div>
-                  <p
-                    className={cn(
-                      "rounded-2xl px-3 py-2 text-[12px] leading-snug",
-                      out ? "rounded-br-sm bg-primary text-white" : "rounded-tl-sm bg-[#eef2ff] text-foreground",
-                    )}
-                  >
+                  <p className={cn("rounded-2xl px-3 py-2 text-[12px] leading-snug", out ? "rounded-br-sm bg-primary text-white" : "rounded-tl-sm bg-[#eef2ff] text-foreground")}>
                     {m.text}
                   </p>
                   <p className={cn("mt-1 flex items-center gap-1.5 text-[10px] text-muted", out && "justify-end")}>
                     {!out ? <ChannelChip>{m.channel}</ChannelChip> : null}
                     <span>{m.when}</span>
                     {out ? <ChannelChip>{m.channel}</ChannelChip> : null}
-                    {out && m.auto ? <span className="font-bold text-primary">✦ {m.auto}</span> : null}
+                    {out && m.auto ? <span className="font-bold text-[#1e4fd6]">✦ {m.auto}</span> : null}
                   </p>
                 </div>
               </div>
             );
           })}
+          {sent.map((m, i) => (
+            <div key={`sent-${i}`} className="site-story-sent ml-auto flex max-w-[88%] justify-end gap-2">
+              <div>
+                <p className="rounded-2xl rounded-br-sm bg-primary px-3 py-2 text-[12px] leading-snug text-white">{m.text}</p>
+                <p className="mt-1 flex items-center justify-end gap-1.5 text-[10px] text-muted">
+                  <span>{m.scheduled ? "Scheduled · tomorrow 9:00 AM" : "Just now"}</span>
+                  <ChannelChip>{CHANNEL_CHIP[m.channel]}</ChannelChip>
+                </p>
+              </div>
+            </div>
+          ))}
+          {asked ? (
+            <p className="mx-auto max-w-[90%] rounded-lg border border-primary/20 bg-primary/[0.04] px-2.5 py-1.5 text-center text-[11px] text-foreground">
+              ✦ {pane.asked}
+            </p>
+          ) : null}
         </div>
 
-        {/* The assist row, channel picker and composer — the portal's, verbatim. */}
-        <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-[11.5px]">
-          <span className="rounded-full border border-primary/15 bg-primary/[0.06] px-2.5 py-1.5 font-bold text-primary">
-            ✦ {STORY_PORTAL_LABELS.generate}
-          </span>
-          <span className="rounded-full border border-primary/15 bg-primary/[0.04] px-2.5 py-1.5 font-bold text-foreground">
-            ✦ {STORY_PORTAL_LABELS.ask}
-          </span>
-          <span className="flex items-center gap-1.5 font-semibold text-foreground">
-            <i className="inline-block h-3.5 w-3.5 rounded border border-border bg-card" aria-hidden /> {STORY_PORTAL_LABELS.schedule}
-          </span>
-        </div>
-        <div className="flex items-center gap-2.5 px-3 pt-1.5">
-          <span className="inline-flex overflow-hidden rounded-lg border border-border text-[11.5px] font-semibold text-muted">
-            {STORY_PORTAL_LABELS.channels.map((c) => (
-              <span key={c} className={cn("px-2.5 py-1", c === pane.channel && "bg-primary/[0.08] font-bold text-primary")}>
-                {c}
-              </span>
-            ))}
-          </span>
-          <span className="text-[11px] text-muted">
-            {STORY_PORTAL_LABELS.sendingAs} {pane.sendingAs}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 px-3 pb-3 pt-2">
-          <i className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-border text-[12px] not-italic text-muted" aria-hidden>
+        {scheduled ? (
+          <p className="flex items-center gap-2 border-t border-border bg-card px-3 py-1.5 text-[11px] text-muted">
+            <span aria-hidden>🕒</span> Sends tomorrow at 9:00 AM — the button now schedules.
+          </p>
+        ) : null}
+
+        {/* One composer row — attach · reply · ✦ AI · 🕒 schedule · channel menu · Send. */}
+        <div className="relative flex items-center gap-2 border-t border-border bg-card px-3 py-2.5">
+          <i className={cn(TOOL_BTN, "text-muted")} aria-hidden>
             ⊕
           </i>
-          <p className="min-h-[44px] flex-1 rounded-2xl border border-border px-3 py-2 text-[12px] leading-snug text-foreground">
-            {pane.draft}
-            <span className="site-story-caret" aria-hidden />
-          </p>
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary text-[11px] text-white" aria-hidden>
+          <div className={cn("min-h-[40px] flex-1 rounded-2xl border border-border px-3 py-2 text-[12px] leading-snug", typed ? "text-foreground" : "text-muted")}>
+            {typed || "Write a reply…"}
+            {typing ? <span className="site-story-caret" aria-hidden /> : null}
+          </div>
+          <button
+            type="button"
+            onClick={() => setMenu(menu === "ai" ? null : "ai")}
+            className={cn(TOOL_BTN, "text-primary", menu === "ai" && "border-primary bg-primary/10")}
+            aria-label="AI"
+            aria-expanded={menu === "ai"}
+            data-attr="story-ai"
+          >
+            ✦
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setScheduled((s) => !s);
+              setMenu(null);
+            }}
+            className={cn(TOOL_BTN, scheduled && "border-primary bg-primary/10 text-primary")}
+            aria-label={STORY_PORTAL_LABELS.schedule}
+            aria-pressed={scheduled}
+            data-attr="story-schedule"
+          >
+            🕒
+          </button>
+          <button
+            type="button"
+            onClick={() => setMenu(menu === "channel" ? null : "channel")}
+            className="hidden h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-[12px] font-semibold text-foreground transition hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:inline-flex"
+            aria-label={`Channel: ${channel}`}
+            aria-expanded={menu === "channel"}
+            data-attr="story-channel"
+          >
+            <span aria-hidden>▭</span> {channel}{" "}
+            <span aria-hidden className="text-[10px] text-muted">
+              ▾
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={send}
+            disabled={!typed || typing}
+            className={cn(
+              "grid h-9 w-9 shrink-0 place-items-center rounded-full text-[12px] text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+              typed && !typing ? "bg-primary hover:brightness-110" : "bg-primary/40",
+            )}
+            aria-label={scheduled ? STORY_PORTAL_LABELS.schedule : STORY_PORTAL_LABELS.send}
+            data-attr="story-send"
+          >
             ➤
-          </span>
+          </button>
+
+          {menu === "ai" ? (
+            <div className="site-story-menu" style={{ right: 96 }}>
+              <button type="button" onClick={draftWithAi} className="site-story-menu-item" data-attr="story-draft">
+                <b>✦ {STORY_PORTAL_LABELS.generate}</b>
+                <span>Reply from this conversation and the record</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAsked(true);
+                  setMenu(null);
+                }}
+                className="site-story-menu-item"
+                data-attr="story-ask"
+              >
+                <b>✦ {STORY_PORTAL_LABELS.ask}</b>
+                <span>Ask about this thread — nothing is sent</span>
+              </button>
+            </div>
+          ) : null}
+          {menu === "channel" ? (
+            <div className="site-story-menu" style={{ right: 52 }} role="menu">
+              {STORY_PORTAL_LABELS.channels.map((c) => (
+                <button
+                  type="button"
+                  key={c}
+                  onClick={() => {
+                    setChannel(c);
+                    setMenu(null);
+                  }}
+                  className="site-story-menu-item"
+                  role="menuitemradio"
+                  aria-checked={c === channel}
+                >
+                  <b>
+                    {c === channel ? "✓ " : ""}
+                    {c}
+                  </b>
+                  <span>{SENDING_AS[c]}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
+        <p className="border-t border-border bg-[var(--pl-surface)] px-3 py-1 text-[10px] text-muted">
+          Try it: ✦ → {STORY_PORTAL_LABELS.generate}, pick a channel, then {STORY_PORTAL_LABELS.send}.
+        </p>
       </div>
     </div>
   );
 }
 
-function DashboardFrame() {
+function QueueFrame() {
+  const [rows, setRows] = useState(QUEUE_ROWS.map((r) => ({ ...r, resolved: null as null | "approved" | "discarded" })));
+  const open = rows.filter((r) => !r.done && !r.resolved).length;
   return (
-    <div className="site-story-dash" data-story-pane="approve">
+    <div className="site-story-dash" data-story-pane="queue">
       <div className="mb-3 flex items-center gap-2.5">
-        <span className="text-[16px] font-bold text-foreground">✦ Everything open</span>
-        <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted">● 113 open</span>
+        <span className="text-[16px] font-bold text-foreground">✦ {STORY_PORTAL_LABELS.queue}</span>
+        <span className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted">● {open} open</span>
       </div>
       <div className="overflow-hidden rounded-lg border border-border border-l-[3px] border-l-primary bg-card">
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
           <span className="text-muted" aria-hidden>
             ⌄
           </span>
-          <span className="text-[13px] font-bold text-primary">{STORY_PORTAL_LABELS.aiDrafts}</span>
-          <span className="ml-auto rounded-full bg-primary/10 px-1.5 text-[11px] font-bold text-primary">{AI_DRAFTS.length}</span>
-          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">{STORY_PORTAL_LABELS.pending}</span>
+          <span className="text-[13px] font-bold text-primary">Today</span>
+          <span className="ml-auto rounded-full bg-primary/10 px-1.5 text-[11px] font-bold text-primary">{rows.length}</span>
         </div>
-        {AI_DRAFTS.map((d) => (
-          <div key={d.title} className="flex items-center gap-2.5 border-b border-border px-3 py-2.5 last:border-b-0">
-            <i className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden />
+        {rows.map((d, i) => (
+          <div key={d.title} className={cn("flex items-center gap-2.5 border-b border-border px-3 py-2.5 last:border-b-0", d.resolved && "opacity-70")}>
+            <i className={cn("h-1.5 w-1.5 shrink-0 rounded-full", d.done || d.resolved === "approved" ? "bg-[#15803d]" : d.resolved ? "bg-[#c3c7cf]" : "bg-[#f59e0b]")} aria-hidden />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[12.5px] font-semibold text-foreground">{d.title}</span>
-              <span className="block truncate text-[11px] text-muted">{d.sub}</span>
+              <span className="block truncate text-[11px] text-muted">
+                {d.resolved === "approved" ? "Approved — vendor told, ledger updated" : d.resolved === "discarded" ? "Discarded — nothing sent" : d.sub}
+              </span>
             </span>
-            <span className="rounded-full bg-primary px-3 py-1.5 text-[11.5px] font-bold text-white">{STORY_PORTAL_LABELS.approve}</span>
-            <span className="rounded-full border border-border px-3 py-1.5 text-[11.5px] font-bold text-foreground">{STORY_PORTAL_LABELS.discard}</span>
+            {d.done ? (
+              <span className="rounded-full bg-[#e8f7ee] px-2.5 py-1 text-[11px] font-bold text-[#15803d]">Done</span>
+            ) : d.resolved ? (
+              <span className="rounded-full border border-border px-2.5 py-1 text-[11px] font-bold text-muted">{d.resolved === "approved" ? "Approved" : "Discarded"}</span>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setRows((r) => r.map((x, j) => (j === i ? { ...x, resolved: "approved" } : x)))}
+                  className="rounded-full bg-primary px-3 py-1.5 text-[11.5px] font-bold text-white hover:brightness-110"
+                  data-attr="story-approve"
+                >
+                  {STORY_PORTAL_LABELS.approve}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRows((r) => r.map((x, j) => (j === i ? { ...x, resolved: "discarded" } : x)))}
+                  className="rounded-full border border-border px-3 py-1.5 text-[11.5px] font-bold text-foreground hover:bg-accent"
+                  data-attr="story-discard"
+                >
+                  {STORY_PORTAL_LABELS.discard}
+                </button>
+              </>
+            )}
           </div>
         ))}
       </div>
@@ -337,8 +505,6 @@ export function SiteStory() {
   const stepRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
-    // Reduced motion: the CSS stacks the frame between steps and every pane
-    // shows, so there is nothing to observe.
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const io = new IntersectionObserver(
       (entries) => {
@@ -352,13 +518,18 @@ export function SiteStory() {
     return () => io.disconnect();
   }, []);
 
+  function pick(id: StepId) {
+    setActive(id);
+    stepRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+
   return (
     <SiteSection id="product" tone="muted" ariaLabelledBy="site-story-title" className="site-story-band">
       <SiteIntro
-        eyebrow="The feature"
+        eyebrow="The feature · try it"
         id="site-story-title"
-        title="Every message answered. Nothing sent without you."
-        lede="Prospects, residents and vendors all write to one inbox. PropLane answers what it can from your listings, leases and jobs, drafts the rest, and waits for your OK on anything that books, dispatches or costs money."
+        title="Every message answered. Every workflow run."
+        lede="Prospects, residents and vendors all write to one inbox. PropLane answers from your listings, leases and jobs, books the tour, dispatches the vendor, writes back — and lands it all in one queue. The frame on the right is live: press ✦."
       />
 
       <div className="site-story" data-active={active}>
@@ -376,7 +547,7 @@ export function SiteStory() {
               <p className="mb-1.5 text-[12.5px] font-bold uppercase tracking-[0.08em] text-primary">{s.kicker}</p>
               <h3 className="text-[22px] font-bold leading-tight tracking-tight">{s.title}</h3>
               <p className="mt-2.5 text-[15px] leading-relaxed text-muted">{s.body}</p>
-              {s.id === "approve" ? (
+              {s.id === "queue" ? (
                 <div className="mt-5 flex flex-wrap items-center gap-3">
                   <Link href={GET_STARTED_HREF} data-attr="home-story-get-started" className={SITE_BTN_PRIMARY}>
                     Start free — no card
@@ -388,35 +559,31 @@ export function SiteStory() {
           ))}
         </div>
 
-        <div className="site-story-frame" aria-hidden>
+        <div className="site-story-frame">
           <div className="flex items-center gap-1.5 border-b border-border bg-[#f1f3f7] px-3 py-2 text-[11px] text-muted">
-            <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" />
-            <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" />
-            <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" />
-            <span className="ml-2 rounded-md bg-card px-2.5 py-0.5">
-              prop-lane.space/portal/{active === "approve" ? "dashboard" : "inbox"}
-            </span>
+            <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" aria-hidden />
+            <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" aria-hidden />
+            <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" aria-hidden />
+            <span className="ml-2 rounded-md bg-card px-2.5 py-0.5">prop-lane.space/portal/{active === "queue" ? "dashboard" : "communication"}</span>
           </div>
           {INBOX_PANES.map((p) => (
             <div key={p.id} className="site-story-pane" hidden={active !== p.id}>
-              <InboxFrame pane={p} />
+              <InboxFrame pane={p} onPick={pick} />
             </div>
           ))}
-          <div className="site-story-pane" hidden={active !== "approve"}>
-            <DashboardFrame />
+          <div className="site-story-pane" hidden={active !== "queue"}>
+            <QueueFrame />
           </div>
         </div>
       </div>
 
       <p className="mt-10 flex flex-wrap items-center gap-2 text-[13px] text-muted">
         <span className="mr-1 text-[11px] font-extrabold uppercase tracking-[0.12em] text-muted">Also inside</span>
-        {["Listings", "Tours", "Applications", "Leases & e-sign", "Payments & ledger", "Services", "Inspections", "Tasks", "Calendar"].map(
-          (label) => (
-            <span key={label} className="rounded-full border border-border bg-card px-2.5 py-1 text-foreground">
-              {label}
-            </span>
-          ),
-        )}
+        {["Listings", "Tours", "Applications", "Leases & e-sign", "Payments & ledger", "Services", "Inspections", "Tasks", "Calendar"].map((label) => (
+          <span key={label} className="rounded-full border border-border bg-card px-2.5 py-1 text-foreground">
+            {label}
+          </span>
+        ))}
         <Link href="/partner" data-attr="home-story-see-everything" className="font-bold text-primary hover:underline">
           See everything →
         </Link>

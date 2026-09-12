@@ -162,7 +162,7 @@ export function PublicNavbar() {
                 {
                   title: "Managers & landlords",
                   url: "/partner",
-                  description: "List, screen, lease and collect — approval-first",
+                  description: "List, screen, lease and collect — the AI runs the busywork",
                   icon: <Building2 strokeWidth={2} aria-hidden />,
                   active: pathname.startsWith("/partner"),
                   dataAttr: "nav-product-managers",
@@ -212,7 +212,7 @@ export function PublicNavbar() {
                 {
                   title: "Ask PropLane",
                   url: "/why-proplane",
-                  description: "The assistant that asks before it writes",
+                  description: "Ask anything about your portfolio; it acts through the same tools you do",
                   icon: <Sparkles strokeWidth={2} aria-hidden />,
                   dataAttr: "nav-product-assistant",
                 },

@@ -23,7 +23,7 @@ const AUDIENCES: {
     tab: "Managers & landlords",
     title: "Run one home or twenty from one queue.",
     points: [
-      "List, screen, lease and collect — approval-first",
+      "List, screen, lease and collect — the AI runs the busywork",
       "Co-managers with per-module access",
       "Ledger, deposits and reports your accountant will take",
     ],
