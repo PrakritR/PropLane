@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -13,6 +13,8 @@ import {
   PORTAL_MODAL_FORM_GRID_CLASS,
 } from "@/components/ui/modal";
 import { PORTAL_MODAL_BODY_SCROLL_CLASS } from "@/components/ui/modal-styles";
+import { SaveStatus } from "@/components/ui/save-status";
+import { useAutosaveDraft } from "@/hooks/use-autosave-draft";
 import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import {
   ManagerLegacyServiceIntakeForm,
@@ -182,8 +184,13 @@ export function ManagerTaskFormModal({
 }) {
   const { showToast } = useAppUi();
   const { teamMembers, vendors } = useWorkAssignmentDirectory({ managerUserId });
-  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  /** Autosave arms only once the form reflects the record (or the empty draft for Add). */
+  const [hydrated, setHydrated] = useState(false);
+  /** The row Add created on its first valid write; later writes patch it. */
+  const createdIdRef = useRef<string | null>(null);
+  const composePrefillRef = useRef<ManagerComposePrefill | null>(null);
+  const changedRef = useRef(false);
   const [assignee, setAssignee] = useState<WorkAssignee | null>(null);
   const [existingChecklist, setExistingChecklist] = useState<ManagerTaskChecklistItem[]>([]);
   const [comments, setComments] = useState<ManagerTaskComment[]>([]);
@@ -249,6 +256,10 @@ export function ManagerTaskFormModal({
       setForm(EMPTY_FORM);
       setAssignee(null);
       setSelectedRoomValue("");
+      setHydrated(false);
+      createdIdRef.current = null;
+      composePrefillRef.current = null;
+      changedRef.current = false;
       return;
     }
     void ensureManagerTaskResidentDirectory().then(() => setResidentTick((n) => n + 1));
@@ -276,7 +287,10 @@ export function ManagerTaskFormModal({
         );
       }
     }
-    if (!editingId) return;
+    if (!editingId) {
+      setHydrated(true);
+      return;
+    }
     let cancelled = false;
     void fetchManagerTasks(managerUserId).then((tasks) => {
       if (cancelled) return;
@@ -310,6 +324,10 @@ export function ManagerTaskFormModal({
           (task.roomLabel?.split(" · ")[0]?.trim() ?? task.roomLabel),
       );
       setSelectedRoomValue(match?.value ?? "");
+      // Arm autosave on the next tick so the hydrated draft is the baseline, not a write.
+      setTimeout(() => {
+        if (!cancelled) setHydrated(true);
+      }, 0);
     });
     return () => {
       cancelled = true;
@@ -330,147 +348,169 @@ export function ManagerTaskFormModal({
     });
   }
 
-  async function handleSave() {
-    if (useServiceIntakeForm) return;
-    if (!assignee) {
-      showToast("Choose who this task is assigned to.");
-      return;
-    }
-    if (propertyRequired && !form.propertyId) {
-      showToast("Choose a property.");
-      return;
-    }
+  /** Why the draft cannot be written yet, or null. Mirrors the old button gate, in words. */
+  const invalidReason = useCallback((): string | null => {
+    if (useServiceIntakeForm) return "Fill in the service";
+    if (!assignee) return "Needs an assignee";
+    if (propertyRequired && !form.propertyId) return "Needs a property";
     if (isTour) {
-      if (!form.guestName.trim()) {
-        showToast("Guest name is required for a tour.");
-        return;
-      }
-      if (!form.scheduleDate || !form.startTime) {
-        showToast("Pick a schedule date and start time for the tour.");
-        return;
-      }
+      if (!form.guestName.trim()) return "Needs a guest name";
+      if (!form.scheduleDate || !form.startTime) return "Needs a date and time";
     }
-    if (isWorkOrder && workOrderNeedsResident && !form.residentEmail) {
-      showToast("Choose a resident for the service request.");
-      return;
-    }
+    if (isWorkOrder && workOrderNeedsResident && !form.residentEmail) return "Needs a resident";
+    const hasTitle = Boolean(form.title.trim() || (isTour && form.guestName.trim()) || isTurnover);
+    if (!hasTitle) return isTour ? "Needs a guest name" : "Needs a title";
+    return null;
+  }, [
+    assignee,
+    form.guestName,
+    form.propertyId,
+    form.residentEmail,
+    form.scheduleDate,
+    form.startTime,
+    form.title,
+    isTour,
+    isTurnover,
+    isWorkOrder,
+    propertyRequired,
+    useServiceIntakeForm,
+    workOrderNeedsResident,
+  ]);
 
-    setSaving(true);
-    try {
+  /**
+   * The write. Add creates the row on its first valid draft and patches it after
+   * that; Edit always patches. The tour side effect (booking the slot) runs once,
+   * on the create, keyed by the id it produced — an autosave that re-ran it would
+   * book the same tour twice.
+   */
+  const persist = useCallback(
+    async (draft: { form: typeof EMPTY_FORM; assignee: WorkAssignee | null; roomValue: string }) => {
+      const f = draft.form;
+      const who = draft.assignee;
+      if (!who) throw new Error("Choose who this task is assigned to.");
+      const targetId = editingId ?? createdIdRef.current;
       const start =
-        form.scheduleDate && form.startTime
-          ? combineLocalDateTime(form.scheduleDate, form.startTime)
-          : undefined;
-      let end =
-        form.scheduleDate && form.endTime
-          ? combineLocalDateTime(form.scheduleDate, form.endTime)
-          : undefined;
+        f.scheduleDate && f.startTime ? combineLocalDateTime(f.scheduleDate, f.startTime) : undefined;
+      let end = f.scheduleDate && f.endTime ? combineLocalDateTime(f.scheduleDate, f.endTime) : undefined;
       if (isTour && start && !end) {
-        const durationMs = Math.max(15, Number(form.durationMinutes) || 60) * 60 * 1000;
+        const durationMs = Math.max(15, Number(f.durationMinutes) || 60) * 60 * 1000;
         end = new Date(Date.parse(start) + durationMs).toISOString();
       }
-      const dueDate =
-        !start && !end && form.dueDate ? combineLocalDateTime(form.dueDate, "23:59") : undefined;
-      const property = propertyOptions.find((option) => option.id === form.propertyId);
-      const roomOption = roomOptions.find((option) => option.value === selectedRoomValue);
-      const roomLabel = roomOption
-        ? roomNameFromOptionLabel(roomOption.label)
-        : form.roomLabel.trim() || undefined;
-      const cleared = editingId ? "" : undefined;
+      const dueDate = !start && !end && f.dueDate ? combineLocalDateTime(f.dueDate, "23:59") : undefined;
+      const property = propertyOptions.find((option) => option.id === f.propertyId);
+      const roomOption = roomOptions.find((option) => option.value === draft.roomValue);
+      const roomLabel = roomOption ? roomNameFromOptionLabel(roomOption.label) : f.roomLabel.trim() || undefined;
+      const cleared = targetId ? "" : undefined;
 
       const taskTitle = isTour
-        ? scheduledTaskTitleForTour(form.guestName.trim() || form.title.trim())
-        : form.title.trim() ||
-          (isCheckIn ? "Check in" : isCheckOut ? "Check out" : "");
+        ? scheduledTaskTitleForTour(f.guestName.trim() || f.title.trim())
+        : f.title.trim() || (isCheckIn ? "Check in" : isCheckOut ? "Check out" : "");
+      if (!taskTitle) throw new Error(isTour ? "Add a guest name or title." : "Add a task title.");
 
-      if (!taskTitle) {
-        showToast(isTour ? "Add a guest name or title." : "Add a task title.");
-        return;
-      }
-
-      let composePrefill: ManagerComposePrefill | null = null;
       const scheduleLabel =
         start && end ? formatRangeLabel(start, end) : start ? formatRangeLabel(start, start) : undefined;
 
-      if (!editingId && isTour) {
+      if (!targetId && isTour) {
         const tourResult = await createManagerTourFromTaskForm({
           managerUserId,
-          propertyId: form.propertyId,
+          propertyId: f.propertyId,
           propertyLabel: selectedProperty?.label,
           roomLabel,
-          guestName: form.guestName.trim(),
-          guestEmail: form.guestEmail.trim() || undefined,
-          guestPhone: form.guestPhone.trim() || undefined,
+          guestName: f.guestName.trim(),
+          guestEmail: f.guestEmail.trim() || undefined,
+          guestPhone: f.guestPhone.trim() || undefined,
           start: start!,
           end: end!,
-          notes: form.notes.trim() || undefined,
-          assignee,
+          notes: f.notes.trim() || undefined,
+          assignee: who,
         });
-        if (!tourResult.ok) {
-          showToast(tourResult.error);
-          return;
-        }
-        composePrefill = buildManagerTaskComposePrefill({
+        if (!tourResult.ok) throw new Error(tourResult.error);
+        composePrefillRef.current = buildManagerTaskComposePrefill({
           kind: "tour",
           title: taskTitle,
-          notes: form.notes,
+          notes: f.notes,
           propertyLabel: selectedProperty?.label,
           scheduleLabel,
-          recipientEmail: form.guestEmail.trim() || undefined,
-          recipientName: form.guestName.trim(),
+          recipientEmail: f.guestEmail.trim() || undefined,
+          recipientName: f.guestName.trim(),
         });
       }
 
       const input = {
         title: taskTitle,
-        notes: form.notes,
-        propertyId: form.propertyId || cleared,
-        propertyTitle: form.propertyId
-          ? compactTaskPropertyLabel(form.propertyId, property?.label) ?? property?.label
+        notes: f.notes,
+        propertyId: f.propertyId || cleared,
+        propertyTitle: f.propertyId
+          ? compactTaskPropertyLabel(f.propertyId, property?.label) ?? property?.label
           : cleared,
         roomLabel: roomLabel || cleared,
         start: start ?? cleared,
         end: end ?? cleared,
-        dueDate: dueDate ?? (editingId && !start && !end ? cleared : undefined),
-        assignee,
-        urgency: form.urgency,
-        priority: form.priority,
-        taskType: managerTaskTypeFromFormKind(form.taskKind),
-        recurrence: form.recurrence,
-        checklist: checklistFromText(form.checklistText, existingChecklist),
-        attachments: attachmentsFromText(form.attachmentsText),
+        dueDate: dueDate ?? (targetId && !start && !end ? cleared : undefined),
+        assignee: who,
+        urgency: f.urgency,
+        priority: f.priority,
+        taskType: managerTaskTypeFromFormKind(f.taskKind),
+        recurrence: f.recurrence,
+        checklist: checklistFromText(f.checklistText, existingChecklist),
+        attachments: attachmentsFromText(f.attachmentsText),
       };
 
-      if (editingId) {
-        await updateManagerTask(managerUserId, editingId, input);
+      if (targetId) {
+        await updateManagerTask(managerUserId, targetId, input);
       } else {
-        await createManagerTask(managerUserId, input);
+        const created = await createManagerTask(managerUserId, input);
+        createdIdRef.current = created.id;
       }
-
+      changedRef.current = true;
       reapplyManagerTasksToCalendar(managerUserId);
-      onClose();
-      onSaved?.(composePrefill);
-    } catch (e) {
-      showToast(e instanceof Error ? e.message : "Could not save task.");
-    } finally {
-      setSaving(false);
-    }
-  }
+    },
+    [
+      editingId,
+      existingChecklist,
+      isCheckIn,
+      isCheckOut,
+      isTour,
+      managerUserId,
+      propertyOptions,
+      roomOptions,
+      selectedProperty?.label,
+    ],
+  );
 
-  const canSave =
-    Boolean(assignee) &&
-    Boolean(form.title.trim() || (isTour && form.guestName.trim()) || isTurnover) &&
-    (!propertyRequired || Boolean(form.propertyId)) &&
-    (!isTour || Boolean(form.scheduleDate && form.startTime)) &&
-    (!isWorkOrder || !workOrderNeedsResident || Boolean(form.residentEmail));
+  const draft = useMemo(
+    () => ({ form, assignee, roomValue: selectedRoomValue }),
+    [form, assignee, selectedRoomValue],
+  );
+  const autosave = useAutosaveDraft({
+    draft,
+    enabled: open && hydrated && !useServiceIntakeForm,
+    validate: () => invalidReason(),
+    save: persist,
+  });
+
+  /** × / backdrop / Escape: send the last keystroke, then tell the list something changed. */
+  const handleClose = useCallback(() => {
+    const finish = () => {
+      onClose();
+      if (changedRef.current) onSaved?.(composePrefillRef.current);
+    };
+    if (autosave.state === "error" && autosave.dirty) {
+      if (!window.confirm("Your last change could not be saved. Close anyway?")) return;
+      finish();
+      return;
+    }
+    void autosave.flush().finally(finish);
+  }, [autosave, onClose, onSaved]);
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       title={editingId ? "Edit task" : "Add task"}
       dense
       assistantContext={editingId ? "Edit task" : "Add task"}
+      status={useServiceIntakeForm ? undefined : <SaveStatus status={autosave} />}
       footer={
         useServiceIntakeForm && serviceFooter ? (
           <ModalFooter>
@@ -483,18 +523,7 @@ export function ManagerTaskFormModal({
               {serviceFooter.saving ? "Saving…" : "Add task"}
             </Button>
           </ModalFooter>
-        ) : (
-          <ModalFooter>
-            <Button
-              type="button"
-              onClick={() => void handleSave()}
-              disabled={saving || !canSave}
-              data-attr="manager-task-save"
-            >
-              {saving ? "Saving…" : editingId ? "Save task" : "Add task"}
-            </Button>
-          </ModalFooter>
-        )
+        ) : undefined
       }
     >
       <div className="shrink-0 pb-4">
@@ -599,7 +628,6 @@ export function ManagerTaskFormModal({
             value={assignee}
             teamMembers={teamMembers}
             vendors={vendors}
-            disabled={saving}
             label="Assignee"
             dataAttr="manager-task-assignee"
             onChange={setAssignee}

@@ -43,12 +43,11 @@ describe("pro portal documents section", () => {
     expect(sections).not.toContain("plan");
   });
 
-  it("services is one list, with vendors its own section under Team", () => {
-    // The Requests / Work orders split became the `kind` on each row, and Vendors moved to Team.
+  it("services is one list, with vendors its own section", () => {
+    // The Requests / Work orders split became the `kind` on each row, and Vendors is a section.
     const services = proPortal.sections.find((s) => s.section === "services");
     expect(services?.tabs.map((t) => t.id)).toEqual([]);
-    const teams = proPortal.sections.find((s) => s.section === "teams");
-    expect(teams?.tabs.find((tab) => tab.id === "vendors")?.label).toBe("Vendors");
+    expect(proPortal.sections.find((s) => s.section === "vendors")?.label).toBe("Vendors");
   });
 
   it("locks documents and financials for free tier", () => {

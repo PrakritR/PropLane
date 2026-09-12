@@ -1,7 +1,7 @@
 /**
- * Teams groups Managers and Vendors under one sidebar entry (like Payments
- * incoming/outgoing). Vendors used to live under Services; the retired paths must
- * still resolve so bookmarks and sent links keep working.
+ * Vendors is its own section under Operations. It used to live under Services,
+ * then as a Teams tab; both retired paths must still resolve so bookmarks and
+ * sent links keep working. Teams keeps Managers (co-managers) only.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -10,12 +10,28 @@ import { vendorDetailHref, vendorListHref } from "@/lib/portal-detail-routes";
 import { PORTAL_NAV_GROUPS } from "@/lib/portals/nav-groups";
 import { proPortal } from "@/lib/portals/pro";
 
-describe("Teams sidebar dropdown (Managers + Vendors)", () => {
-  it("lists Managers and Vendors as tabs on the Teams section", () => {
+describe("Vendors section + Teams (Managers)", () => {
+  it("Vendors is a section of its own, next to Services, with no sub-tabs", () => {
+    const vendors = proPortal.sections.find((s) => s.section === "vendors");
+    expect(vendors?.label).toBe("Vendors");
+    expect(vendors?.tabs ?? []).toEqual([]);
+    const ids = proPortal.sections.map((s) => s.section);
+    expect(ids.indexOf("vendors")).toBe(ids.indexOf("services") + 1);
+    const ops = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "operations");
+    expect(ops?.sections[0]).toBe("vendors");
+  });
+
+  it("Teams keeps Managers only", () => {
     const teams = proPortal.sections.find((s) => s.section === "teams");
     expect(teams?.label).toBe("Teams");
-    expect(teams?.tabs.map((tab) => tab.id)).toEqual(["managers", "vendors"]);
-    expect(teams?.tabs.map((tab) => tab.label)).toEqual(["Managers", "Vendors"]);
+    expect(teams?.tabs.map((tab) => tab.id)).toEqual(["managers"]);
+  });
+
+  it("renders the vendors section and redirects the retired Teams tab to it", () => {
+    const src = readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8");
+    expect(src).toContain('section === "vendors"');
+    expect(src).toContain("redirect(`${def.basePath}/vendors${vendorId}`)");
+    expect(src).not.toContain("redirect(`${def.basePath}/teams/vendors");
   });
 
   it("keeps Teams out of the sidebar — team management lives in Settings", () => {
@@ -29,7 +45,7 @@ describe("Teams sidebar dropdown (Managers + Vendors)", () => {
 describe("Calendar and Bookings are separate sidebar entries", () => {
   it("lists Calendar and Bookings under Operations", () => {
     const group = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "operations");
-    expect(group?.sections).toEqual(["tasks", "calendar", "bookings", "communication"]);
+    expect(group?.sections).toEqual(["vendors", "tasks", "calendar", "bookings", "communication"]);
   });
 
   it("Calendar is schedule-only — no in-page tabs", () => {
@@ -67,27 +83,25 @@ describe("Services no longer carries Vendors", () => {
 });
 
 describe("vendor links", () => {
-  it("point at the Teams vendors tab, not the old Services path", () => {
-    expect(vendorListHref("/portal")).toBe("/portal/teams/vendors");
-    expect(vendorDetailHref("/portal", "vend-1")).toBe("/portal/teams/vendors/vend-1");
+  it("point at the Vendors section, not the retired Teams tab or Services path", () => {
+    expect(vendorListHref("/portal")).toBe("/portal/vendors");
+    expect(vendorDetailHref("/portal", "vend-1")).toBe("/portal/vendors/vend-1");
   });
 
   it("encodes a vendor id with awkward characters", () => {
-    expect(vendorDetailHref("/portal", "a b/c")).toBe("/portal/teams/vendors/a%20b%2Fc");
+    expect(vendorDetailHref("/portal", "a b/c")).toBe("/portal/vendors/a%20b%2Fc");
   });
 
-  it("still resolves the retired /services/vendors path", () => {
+  it("still resolves the retired /services/vendors and /teams/vendors paths", () => {
     const src = readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8");
     expect(src).toContain('if (servicesTab === "vendors")');
-    expect(src).toContain("/teams/vendors");
+    expect(src).toContain('if (teamTab === "vendors")');
     expect(src).not.toContain('!["requests", "work-orders", "vendors"].includes(servicesTab)');
   });
 
-  it("redirects legacy /vendors and /relationships paths", () => {
+  it("redirects the legacy /relationships path", () => {
     const src = readFileSync(join(process.cwd(), "src/lib/render-portal-section.tsx"), "utf8");
-    expect(src).toContain('section === "vendors"');
     expect(src).toContain('section === "relationships"');
-    expect(src).toContain("/teams/vendors");
     expect(src).toContain("/teams/managers");
   });
 });

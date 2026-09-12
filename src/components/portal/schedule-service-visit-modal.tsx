@@ -4,18 +4,16 @@ import { useEffect, useMemo, useState } from "react";
 import { Modal, ModalFooter } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
+import { WorkAssignmentPicker } from "@/components/portal/work-assignment-picker";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import {
-  MANAGER_VENDORS_EVENT,
-  readActiveManagerVendorRows,
-  syncManagerVendorsFromServer,
-} from "@/lib/manager-vendors-storage";
+import { useWorkAssignmentDirectory } from "@/hooks/use-work-assignment-directory";
 import {
   scheduleServiceVisit,
   type ScheduleVisitAssigneeChoice,
 } from "@/lib/schedule-service-visit";
+import { normalizeAssignee, type WorkAssignee } from "@/lib/work-assignment";
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
@@ -35,12 +33,33 @@ function fromDatetimeLocalValue(s: string): string | null {
   return d.toISOString();
 }
 
-function defaultAssigneeChoice(row: DemoManagerWorkOrderRow): string {
-  if (row.selfAssigned) return "self";
-  if (row.vendorId?.trim()) return row.vendorId.trim();
-  return "self";
+const DURATIONS = [
+  { value: 30, label: "30 minutes" },
+  { value: 60, label: "1 hour" },
+  { value: 90, label: "1½ hours" },
+  { value: 120, label: "2 hours" },
+  { value: 180, label: "3 hours" },
+  { value: 240, label: "Half a day" },
+] as const;
+
+/** The row's current assignee, or the signed-in manager when it has none yet. */
+function initialAssignee(
+  row: DemoManagerWorkOrderRow,
+  self: WorkAssignee | null,
+): WorkAssignee | null {
+  const stored = normalizeAssignee(row.assignee);
+  if (stored) return stored;
+  if (row.vendorId?.trim()) {
+    return { type: "vendor", id: row.vendorId.trim(), name: row.vendorName?.trim() || "Vendor" };
+  }
+  return self;
 }
 
+/**
+ * Schedule visit — who takes it and when. The picker is the same one Tasks
+ * uses: the manager team first, then vendors (a vendor can take maintenance,
+ * never an add-on service — `assignableKindsFor` decides, not this popup).
+ */
 export function ScheduleServiceVisitModal({
   open,
   row,
@@ -54,33 +73,37 @@ export function ScheduleServiceVisitModal({
 }) {
   const { showToast } = useAppUi();
   const { userId: managerUserId, email, ready: authReady } = useManagerUserId();
-  const [vendorTick, setVendorTick] = useState(0);
-  const [assigneeKey, setAssigneeKey] = useState("self");
+  const { teamMembers, vendors } = useWorkAssignmentDirectory({
+    managerUserId,
+    managerName: email,
+    enabled: open,
+  });
+  const [assignee, setAssignee] = useState<WorkAssignee | null>(null);
   const [visitLocal, setVisitLocal] = useState("");
+  const [durationMinutes, setDurationMinutes] = useState<number>(60);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (!open) return;
-    void syncManagerVendorsFromServer().catch(() => undefined);
-  }, [open]);
-
-  useEffect(() => {
-    const onVendors = () => setVendorTick((n) => n + 1);
-    window.addEventListener(MANAGER_VENDORS_EVENT, onVendors);
-    return () => window.removeEventListener(MANAGER_VENDORS_EVENT, onVendors);
-  }, []);
+  const self = useMemo<WorkAssignee | null>(() => {
+    if (!managerUserId) return null;
+    const me = teamMembers.find((m) => m.userId === managerUserId);
+    return { type: "team", id: managerUserId, name: me?.name?.trim() || email?.trim() || "You" };
+  }, [email, managerUserId, teamMembers]);
 
   useEffect(() => {
     if (!open || !row) return;
-    setAssigneeKey(defaultAssigneeChoice(row));
+    setAssignee(initialAssignee(row, self));
     setVisitLocal(toDatetimeLocalValue(row.scheduledAtIso) || toDatetimeLocalValue(row.preferredArrival));
+    setDurationMinutes(60);
     setBusy(false);
+    // `self` resolves once the directory loads; re-running on it would clobber a
+    // pick the manager already made.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, row]);
 
-  const vendors = useMemo(() => {
-    void vendorTick;
-    return readActiveManagerVendorRows();
-  }, [vendorTick]);
+  useEffect(() => {
+    if (!open || assignee || !self) return;
+    setAssignee(self);
+  }, [open, assignee, self]);
 
   const propertyLine = useMemo(() => {
     if (!row) return "";
@@ -95,11 +118,17 @@ export function ScheduleServiceVisitModal({
       showToast("Choose a visit date and time to schedule.");
       return;
     }
-    let assignee: ScheduleVisitAssigneeChoice;
-    if (assigneeKey === "self") {
-      assignee = { kind: "self" };
+    if (!assignee) {
+      showToast("Choose who takes this visit.");
+      return;
+    }
+    let choice: ScheduleVisitAssigneeChoice;
+    if (assignee.type === "vendor") {
+      choice = { kind: "vendor", vendorId: assignee.id };
+    } else if (assignee.id === managerUserId) {
+      choice = { kind: "self" };
     } else {
-      assignee = { kind: "vendor", vendorId: assigneeKey };
+      choice = { kind: "team", userId: assignee.id, name: assignee.name };
     }
     setBusy(true);
     try {
@@ -108,14 +137,15 @@ export function ScheduleServiceVisitModal({
         managerName: email,
         row,
         visitAtIso: iso,
-        assignee,
+        durationMinutes,
+        assignee: choice,
       });
       if (!result.ok) {
         showToast(result.error ?? "Could not schedule visit.");
         return;
       }
       showToast(
-        `Service scheduled.${result.vendorEmailed ? " Vendor emailed with the visit details." : ""}`,
+        `Service scheduled.${result.vendorNotified ? ` ${result.vendorNotified}` : ""}`,
       );
       onScheduled?.();
       onClose();
@@ -157,39 +187,44 @@ export function ScheduleServiceVisitModal({
             ) : null}
           </div>
 
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-muted">Assign to</span>
-            <Select
-              value={assigneeKey}
-              onChange={(e) => setAssigneeKey(e.target.value)}
-              disabled={busy}
-              data-attr="schedule-service-visit-assignee"
-            >
-              <option value="self">You (manager)</option>
-              {vendors.map((vendor) => (
-                <option key={vendor.id} value={vendor.id}>
-                  {vendor.name}
-                  {vendor.trade?.trim() ? ` · ${vendor.trade.trim()}` : ""}
-                </option>
-              ))}
-            </Select>
-          </label>
+          <WorkAssignmentPicker
+            kind="maintenance"
+            value={assignee}
+            teamMembers={teamMembers}
+            vendors={vendors}
+            disabled={busy}
+            label="Assign to"
+            dataAttr="schedule-service-visit-assignee"
+            onChange={setAssignee}
+          />
 
-          <label className="block space-y-1.5">
-            <span className="text-xs font-medium text-muted">Visit arrival</span>
-            <Input
-              type="datetime-local"
-              value={visitLocal}
-              onChange={(e) => setVisitLocal(e.target.value)}
-              disabled={busy}
-              data-attr="schedule-service-visit-datetime"
-            />
-          </label>
-
-          <p className="text-xs text-muted">
-            On confirm we create a task for the assignee, notify the resident, email the vendor when
-            one is assigned, and leave a note in your inbox.
-          </p>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium text-muted">Visit arrival</span>
+              <Input
+                type="datetime-local"
+                value={visitLocal}
+                onChange={(e) => setVisitLocal(e.target.value)}
+                disabled={busy}
+                data-attr="schedule-service-visit-datetime"
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium text-muted">Duration</span>
+              <Select
+                value={String(durationMinutes)}
+                onChange={(e) => setDurationMinutes(Number(e.target.value) || 60)}
+                disabled={busy}
+                data-attr="schedule-service-visit-duration"
+              >
+                {DURATIONS.map((d) => (
+                  <option key={d.value} value={d.value}>
+                    {d.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          </div>
         </div>
       ) : null}
     </Modal>
