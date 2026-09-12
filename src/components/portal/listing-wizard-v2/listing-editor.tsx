@@ -2740,39 +2740,6 @@ function LeaseDocumentGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
               placeholder="Minimum nights, ID, no parties…"
             />
           </Field>
-          <FieldRow cols={3}>
-            <Field label="Holding deposit" optional>
-              <Input value={money(sub.shortTermHoldingDeposit)} onChange={(e) => patch({ shortTermHoldingDeposit: e.target.value })} />
-            </Field>
-            <Field label="Application fee" optional>
-              <Input value={money(sub.shortTermApplicationFee)} onChange={(e) => patch({ shortTermApplicationFee: e.target.value })} />
-            </Field>
-            <Field label="Month-to-month surcharge" optional>
-              <Input value={money(sub.shortTermMonthToMonthSurcharge)} onChange={(e) => patch({ shortTermMonthToMonthSurcharge: e.target.value })} />
-            </Field>
-          </FieldRow>
-          <FieldRow cols={3}>
-            <Field label="Rent / night" optional>
-              <Input value={money(sub.shortTermDailyCost)} onChange={(e) => patch({ shortTermDailyCost: e.target.value })} />
-            </Field>
-            <Field label="Deposit" optional>
-              <Input value={money(sub.shortTermDeposit)} onChange={(e) => patch({ shortTermDeposit: e.target.value })} />
-            </Field>
-            <Field label="Move-in fee" optional>
-              <Input value={money(sub.shortTermMoveInFee)} onChange={(e) => patch({ shortTermMoveInFee: e.target.value })} />
-            </Field>
-          </FieldRow>
-          <FieldRow cols={3}>
-            <Field label="Parking / month" optional>
-              <Input value={money(sub.shortTermParkingMonthly)} onChange={(e) => patch({ shortTermParkingMonthly: e.target.value })} />
-            </Field>
-            <Field label="HOA / month" optional>
-              <Input value={money(sub.shortTermHoaMonthly)} onChange={(e) => patch({ shortTermHoaMonthly: e.target.value })} />
-            </Field>
-            <Field label="Other monthly fees" optional>
-              <Input value={money(sub.shortTermOtherMonthlyFees)} onChange={(e) => patch({ shortTermOtherMonthlyFees: e.target.value })} />
-            </Field>
-          </FieldRow>
         </>
       ) : (
         <p className="mt-5 rounded-xl border border-border bg-card px-4 py-3 text-[12px] leading-relaxed text-muted">

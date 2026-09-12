@@ -26,18 +26,24 @@ import { Field } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import {
   expandFeeScope,
+  listingFeeRowIdForPresetId,
   listingLeaseTypeScopeOptions,
+  listingPricingLeaseTabs,
+  listingPricingTabToLeaseTerm,
   narrowFeeScope,
   paymentAtSigningRows,
   paymentAtSigningMatrix,
 } from "@/lib/listing-fee-scope";
 import {
   applyListingFeesToSubmission,
+  ensureSubmissionListingFees,
   isListingFeeAmountFilled,
   applyPaymentAtSigningCell,
   listingFeeCadence,
   listingFeesForWizard,
+  parseRemovedStandardListingFeeRows,
   type ListingFeeRow,
+  type RemovedStandardListingFeeRowId,
 } from "@/lib/listing-fees";
 import { SEATTLE_RENT_RULE_NOTE, listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
@@ -287,17 +293,18 @@ function RoomPriceRow({
 }
 
 function RentAndDeposits({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  const terms = useMemo(() => listingLeaseTypeScopeOptions(sub), [sub]);
-  const [term, setTerm] = useState<string | null>(null);
+  const tabs = useMemo(() => listingPricingLeaseTabs(sub), [sub]);
+  const [termTab, setTermTab] = useState<string | null>(null);
   const [openRoomId, setOpenRoomId] = useState<string | null>(null);
-  const active = term && terms.includes(term) ? term : terms[0] ?? LONG_TERM_LEASE_TERM;
+  const activeTab = termTab && tabs.includes(termTab) ? termTab : tabs[0] ?? LONG_TERM_LEASE_TERM;
+  const active = listingPricingTabToLeaseTerm(activeTab);
   const rooms = sub.rooms ?? [];
   const stay = isStayLeaseTerm(active);
 
   const writeRoom = (next: ManagerRoomSubmission) =>
     patch({ rooms: rooms.map((r) => (r.id === next.id ? next : r)) });
 
-  if (terms.length === 0) {
+  if (tabs.length === 0) {
     return (
       <p className="rounded-xl border border-border bg-card px-4 py-3 text-[12.5px] text-muted">
         Choose at least one lease type above, and its prices appear here.
@@ -308,21 +315,24 @@ function RentAndDeposits({ sub, patch }: { sub: ManagerListingSubmissionV1; patc
   return (
     <>
       <div className="mb-4 flex gap-1 overflow-x-auto border-b border-border" role="tablist">
-        {terms.map((t) => {
+        {tabs.map((t) => {
+          const pricingTerm = listingPricingTabToLeaseTerm(t);
           const missing = (sub.rooms ?? []).some((room) =>
-            isStayLeaseTerm(t) ? !(room.shortTermRent ?? "").trim() : rentForTerm(room, t).value <= 0,
+            isStayLeaseTerm(pricingTerm)
+              ? !(room.shortTermRent ?? "").trim()
+              : rentForTerm(room, pricingTerm).value <= 0,
           );
           return (
             <button
               key={t}
               type="button"
               role="tab"
-              aria-selected={t === active}
+              aria-selected={t === activeTab}
               data-attr={`listing-v2-price-tab-${t}`}
-              onClick={() => setTerm(t)}
+              onClick={() => setTermTab(t)}
               className={cn(
                 "-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2 text-[13.5px] font-bold transition",
-                t === active
+                t === activeTab
                   ? "border-primary text-primary"
                   : "border-transparent text-muted hover:text-foreground",
               )}
@@ -369,7 +379,9 @@ function RentAndDeposits({ sub, patch }: { sub: ManagerListingSubmissionV1; patc
       <p className="mt-2 text-[12px] text-muted">
         {isBaseTerm(active)
           ? "Type rent straight into the table. Open a room for its deposit and utilities."
-          : `Grey means this room charges its long-term price on ${active}. Type a number to change it here only.`}
+          : activeTab === "12-Month"
+            ? "Every fixed monthly length uses this rent. Open a room for deposit and utilities."
+            : `Grey means this room charges its long-term price on ${activeTab}. Type a number to change it here only.`}
       </p>
     </>
   );
@@ -424,6 +436,23 @@ function FeesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: P
   const write = (id: string, next: Partial<ListingFeeRow>) =>
     writeRows(rows.map((f) => (f.id === id ? { ...f, ...next } : f)));
 
+  const removeStandardFee = (fee: ListingFeeRow) => {
+    const rowId = listingFeeRowIdForPresetId(fee.presetId);
+    if (!rowId) return;
+    const removed = new Set(parseRemovedStandardListingFeeRows(sub));
+    removed.add(rowId as RemovedStandardListingFeeRowId);
+    const held = listingFeesForWizard(sub).filter((f) => f.presetId === "security_deposit");
+    const nextRows = rows.filter((f) => f.id !== fee.id);
+    const nextSub = applyListingFeesToSubmission(sub, [...nextRows, ...held]);
+    patch(
+      ensureSubmissionListingFees({
+        ...nextSub,
+        removedStandardListingFeeRows: [...removed],
+      }),
+    );
+    setRevealed((prev) => prev.filter((id) => id !== fee.id));
+  };
+
   const scopeControls = (fee: ListingFeeRow) => (
     <div className="mt-2.5 grid items-center gap-2.5 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)]">
       <span className="text-[11.5px] font-bold text-muted">Applies to</span>
@@ -463,7 +492,7 @@ function FeesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: P
       <div className="overflow-hidden rounded-2xl border border-border">
         {standard.map((fee) => (
           <div key={fee.id} className="border-b border-border px-3.5 py-3 last:border-b-0">
-            <div className="grid grid-cols-[minmax(0,1fr)_110px_140px] items-center gap-2.5">
+            <div className="grid grid-cols-[minmax(0,1fr)_110px_140px_36px] items-center gap-2.5">
               <span className="min-w-0">
                 <b className="block truncate text-[13.5px] font-bold text-foreground">{fee.label}</b>
                 <span className="block text-[11.5px] text-muted">
@@ -479,6 +508,14 @@ function FeesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: P
               <span className="text-[12px] text-muted">
                 {listingFeeCadence(fee) === "monthly" ? "Every month" : "One-time"}
               </span>
+              <button
+                type="button"
+                aria-label={`Remove ${fee.label}`}
+                onClick={() => removeStandardFee(fee)}
+                className="justify-self-center text-[13px] text-muted hover:text-foreground"
+              >
+                ✕
+              </button>
             </div>
             {scopeControls(fee)}
           </div>
@@ -562,12 +599,13 @@ function FeesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: P
 /* ─────────────────────── due at signing ─────────────────────── */
 
 function DueAtSigning({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  const terms = useMemo(() => listingLeaseTypeScopeOptions(sub), [sub]);
+  const tabs = useMemo(() => listingPricingLeaseTabs(sub), [sub]);
   const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
   const rows = useMemo(() => paymentAtSigningRows(sub, { includeRoomRent: rentByRoom }), [sub, rentByRoom]);
   const matrix = useMemo(() => paymentAtSigningMatrix(sub), [sub]);
 
-  const setCell = (term: string, key: string, on: boolean) => {
+  const setCell = (tab: string, key: string, on: boolean) => {
+    const term = listingPricingTabToLeaseTerm(tab);
     const next = applyPaymentAtSigningCell(sub, term, key, on);
     patch({
       paymentAtSigningByLeaseType: next.paymentAtSigningByLeaseType,
@@ -576,27 +614,28 @@ function DueAtSigning({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: 
     });
   };
 
-  if (terms.length === 0) return null;
+  if (tabs.length === 0) return null;
   return (
     <div className="overflow-hidden rounded-2xl border border-border">
-      {terms.map((term) => {
+      {tabs.map((tab) => {
+        const term = listingPricingTabToLeaseTerm(tab);
         const selected = (matrix[term] ?? []).filter((key) => rows.some((r) => r.key === key));
         return (
           <div
-            key={term}
+            key={tab}
             className="grid items-center gap-3 border-b border-border px-3.5 py-3 last:border-b-0 sm:grid-cols-[150px_minmax(0,1fr)]"
           >
-            <b className="text-[13px] font-bold text-foreground">{term}</b>
+            <b className="text-[13px] font-bold text-foreground">{tab}</b>
             <CheckboxMultiSelect
               hideLabel
-              label={`Collected at signing on ${term}`}
+              label={`Collected at signing on ${tab}`}
               options={rows.map((r) => ({ value: r.key, label: r.label }))}
               selected={selected}
               emptyLabel="Nothing due at signing"
               onChange={(next) => {
                 for (const row of rows) {
                   const shouldBeOn = next.includes(row.key);
-                  if (shouldBeOn !== selected.includes(row.key)) setCell(term, row.key, shouldBeOn);
+                  if (shouldBeOn !== selected.includes(row.key)) setCell(tab, row.key, shouldBeOn);
                 }
               }}
             />
