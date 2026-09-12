@@ -52,6 +52,27 @@ line is this"; every reader below goes through them.
   `manager_sms_messages.message_sid` to `sms_outbox.actor_user_id`; never shown
   to the texter. Coverage: `tests/unit/workspace-work-number-routing.test.ts`.
 
+## Conversation houses (which house a thread is about)
+
+`manager_sms_conversation_houses` — `(conversation_key, property_id, source)`,
+service-role only (`20260911190000_sms_conversation_houses.sql`). One workspace
+number is shared by the whole team, so the houses on a thread decide which
+members see it. Library: `src/lib/sms/conversation-houses.server.ts`.
+
+- **A tag is never a guess.** Sources: `residency` (derived at read time from
+  the resident's application `property`, matched against the owner's house
+  labels/aliases — not persisted, so a move updates it for free), `leasing`
+  (the keyword bot's EXPLICIT `hinted` match or `build_prospect_links` on an
+  owned listing — never the `defaultPropertyId` fallback), `tour`
+  (`request_tour`), `outbound` (a send carrying `sms_outbox.property_id`), and
+  `manual` (the house chip in the thread header, `PATCH
+  /api/manager/sms-conversations/houses`, owner-verified ids, `inbox` at edit).
+- Automatic tags are additive and never overwrite an existing tag; `manual`
+  replaces everything and is the only way to clear a thread to untagged.
+- The read path stamps `houses[]` on every conversation
+  (`attachConversationHouses`); `smsConversationSubtitle` shows the first one.
+  Coverage: `tests/unit/sms-conversation-houses.test.ts`.
+
 ## Conversation identity is per-counterparty, NOT the phone pair (read this first)
 
 A conversation used to be derived from the phone-number pair on the wire

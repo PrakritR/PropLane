@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { viewerAndLinkedOwnerIdsForModule } from "@/lib/auth/co-manager-module-scope";
 import type {
+  ConversationHouse,
   ManagerSmsConversationsPayload,
   ManagerSmsMessageRow,
   ManagerSmsMessageStorageTable,
@@ -26,6 +27,8 @@ import {
   managerSmsContactKey,
 } from "@/lib/sms/manager-sms-contacts.server";
 import { resolveWorkspaceWorkNumbers } from "@/lib/sms/manager-workspace-role.server";
+import { loadConversationHouses } from "@/lib/sms/conversation-houses.server";
+import { labelFromManagerPropertyRecordRow } from "@/lib/co-manager-property-label";
 
 export type { ManagerSmsConversationsPayload, ManagerSmsMessageRow, ManagerSmsResidentConversation };
 
@@ -534,6 +537,90 @@ async function loadSentByForOutbound(
   return out;
 }
 
+/** Every house of these owners, id → label, for tagging and the filter chips. */
+export async function loadWorkspaceHouseLabels(
+  db: SupabaseClient,
+  ownerIds: string[],
+): Promise<Map<string, { label: string; ownerUserId: string; aliases: string[] }>> {
+  const out = new Map<string, { label: string; ownerUserId: string; aliases: string[] }>();
+  const owners = [...new Set(ownerIds.map((id) => id.trim()).filter(Boolean))];
+  if (owners.length === 0) return out;
+  const { data, error } = await db
+    .from("manager_property_records")
+    .select("id, manager_user_id, property_data, row_data")
+    .in("manager_user_id", owners)
+    .limit(2000);
+  if (error) {
+    console.error("loadWorkspaceHouseLabels failed", error.message);
+    return out;
+  }
+  for (const row of data ?? []) {
+    const id = String(row.id ?? "").trim();
+    if (!id) continue;
+    const pd = ((row.property_data ?? row.row_data ?? {}) as Record<string, unknown>) ?? {};
+    // An application's `property` field is whichever of these the form showed
+    // at the time, so every one of them is a valid residency match.
+    const aliases = [pd.buildingName, pd.title, pd.address, pd.name]
+      .map((v) => String(v ?? "").trim().toLowerCase())
+      .filter(Boolean);
+    out.set(id, {
+      label: labelFromManagerPropertyRecordRow(row as { id?: string; property_data?: unknown; row_data?: unknown }),
+      ownerUserId: String(row.manager_user_id ?? "").trim(),
+      aliases,
+    });
+  }
+  return out;
+}
+
+/**
+ * Stamp each thread with its house(s): stored tags first, then — for a
+ * directory resident with no stored tag — the house their residency names,
+ * matched by label against the owner's properties. Residency is derived at
+ * read time rather than persisted so a move updates it for free.
+ */
+async function attachConversationHouses(
+  db: SupabaseClient,
+  scopeManagerIds: string[],
+  conversations: ManagerSmsResidentConversation[],
+): Promise<void> {
+  const [tags, houses] = await Promise.all([
+    loadConversationHouses(db, scopeManagerIds),
+    loadWorkspaceHouseLabels(db, scopeManagerIds),
+  ]);
+  const idByOwnerAndLabel = new Map<string, string>();
+  for (const [id, house] of houses) {
+    for (const alias of [house.label.trim().toLowerCase(), ...house.aliases]) {
+      const k = `${house.ownerUserId}\u0000${alias}`;
+      // First house wins on a duplicate alias — two houses at one address is
+      // ambiguous, and an ambiguous residency match is worse than none.
+      if (!idByOwnerAndLabel.has(k)) idByOwnerAndLabel.set(k, id);
+      else idByOwnerAndLabel.set(k, "");
+    }
+  }
+  for (const conversation of conversations) {
+    const seen = new Set<string>();
+    const list: ConversationHouse[] = [];
+    for (const key of conversation.memberKeys ?? [conversation.conversationKey ?? ""]) {
+      for (const tag of tags.get(key) ?? []) {
+        if (seen.has(tag.propertyId)) continue;
+        seen.add(tag.propertyId);
+        list.push({
+          propertyId: tag.propertyId,
+          label: houses.get(tag.propertyId)?.label ?? tag.propertyId,
+          source: tag.source,
+        });
+      }
+    }
+    const residencyLabel = String(conversation.propertyLabel ?? "").trim().toLowerCase();
+    if (list.length === 0 && residencyLabel) {
+      const ownerId = String(conversation.ownerManagerUserId ?? "").trim();
+      const id = idByOwnerAndLabel.get(`${ownerId}\u0000${residencyLabel}`);
+      if (id) list.push({ propertyId: id, label: houses.get(id)?.label ?? conversation.propertyLabel ?? id, source: "residency" });
+    }
+    conversation.houses = list;
+  }
+}
+
 export async function fetchManagerSmsConversations(
   db: SupabaseClient,
   managerUserId: string,
@@ -908,6 +995,8 @@ export async function fetchManagerSmsConversations(
       messages: [],
     });
   }
+
+  await attachConversationHouses(db, scopeManagerIds, conversations);
 
   conversations.sort((a, b) => {
     const aLast = a.messages[a.messages.length - 1]?.createdAt ?? "";

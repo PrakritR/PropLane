@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { ManagerSmsComposeModal } from "@/components/portal/pro-sms-compose-modal";
+import { SmsConversationHouseChip } from "@/components/portal/sms-conversation-house-chip";
 import {
   PortalContactDetailsModal,
   type PortalContactDetailsValues,
@@ -936,6 +937,15 @@ export const ManagerSmsPanel = forwardRef<
             {smsConversationSubtitle(active.resident) || " "}
           </p>
         </div>
+        {active.resident.conversationKey ? (
+          <SmsConversationHouseChip
+            conversationKey={active.resident.conversationKey}
+            ownerManagerUserId={active.resident.ownerManagerUserId}
+            houses={active.resident.houses ?? []}
+            canEdit={canEditContact}
+            onChanged={() => void load({ quiet: true })}
+          />
+        ) : null}
         {canEditContact ? (
           <button
             type="button"

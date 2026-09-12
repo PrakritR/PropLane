@@ -576,6 +576,20 @@ export const buildProspectLinksTool = defineTool({
   handler: async (ctx, input) => {
     const rec = await loadResolvableListing(ctx, input.propertyId);
     if (!rec) return { ok: false, error: "listing_not_found" };
+    // Minting links for a house is the agent committing to it: tag the thread
+    // so the teammates who hold that house can see it. Owned listings only —
+    // `loadOwnedListing` is what resolved, or it is another manager's catalog.
+    if (ctx.leasingScope && (await loadOwnedListing(ctx, input.propertyId))) {
+      const { tagProspectThreadFromAgent } = await import("@/lib/sms/conversation-houses.server");
+      await tagProspectThreadFromAgent(ctx.db, {
+        landlordId: ctx.landlordId,
+        prospectPhoneE164: ctx.leasingScope.prospectPhoneE164,
+        channel: ctx.leasingScope.channel ?? "sms",
+        propertyId: input.propertyId,
+        propertyOwnerUserId: ctx.landlordId,
+        source: "leasing",
+      });
+    }
     const src = propertySource(rec);
     const rooms = summarizeRooms(src);
     let listingRoomId = input.listingRoomId?.trim() || "";

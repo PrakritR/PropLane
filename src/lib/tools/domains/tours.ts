@@ -260,6 +260,18 @@ export const leasingRequestTourTool = defineWriteTool<RequestTourInput, { reply:
   handler: async (ctx, input) => {
     await assertSlotStillOpen(ctx.db, input);
     const created = await createTourInquiry(ctx.db, { incoming: tourInquiryRowFrom(input) });
+    // A tour request names the house outright: tag the prospect's thread.
+    if (ctx.leasingScope) {
+      const { tagProspectThreadFromAgent } = await import("@/lib/sms/conversation-houses.server");
+      await tagProspectThreadFromAgent(ctx.db, {
+        landlordId: ctx.landlordId,
+        prospectPhoneE164: ctx.leasingScope.prospectPhoneE164,
+        channel: ctx.leasingScope.channel ?? "sms",
+        propertyId: input.propertyId,
+        propertyOwnerUserId: input.hostUserId ?? ctx.landlordId,
+        source: "tour",
+      });
+    }
     if (!created.ok) throw new Error(created.error);
     return {
       reply: `Tour requested for ${formatTourRangeLabel(input.start, input.end)}. ${input.name.trim()} will hear back once the manager confirms.`,
