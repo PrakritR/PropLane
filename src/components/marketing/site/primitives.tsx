@@ -234,7 +234,8 @@ const TONE_CLASS: Record<MockTone, string> = {
   info: "bg-[var(--status-approved-bg)] text-[var(--status-approved-fg)]",
   good: "bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]",
   warn: "bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]",
-  bad: "bg-[var(--status-overdue-bg)] text-[var(--status-overdue-fg)]",
+  // The overdue token on its tint measures 3.99:1 at chip size; a deeper red clears AA.
+  bad: "bg-[var(--status-overdue-bg)] text-[#b91c1c] [html[data-theme=dark]_&]:text-[var(--status-overdue-fg)]",
 };
 
 export function MockChip({ tone = "neutral", children }: { tone?: MockTone; children: ReactNode }) {

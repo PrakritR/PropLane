@@ -114,7 +114,7 @@ function SocialRow({ className = "" }: { className?: string }) {
         if (isPlaceholderSocialHref(href)) {
           return (
             <li key={id}>
-              <span aria-label={label} title={label} data-attr={`footer-social-${id}`} className={base}>
+              <span role="img" aria-label={label} title={label} data-attr={`footer-social-${id}`} className={base}>
                 {SOCIAL_GLYPHS[id]}
               </span>
             </li>

@@ -13,19 +13,19 @@ export function SiteFaq({ items, id = "faq", title = "Questions, answered", lede
     <SiteSection id={id} tone="muted" ariaLabel={title}>
       <div className="mx-auto max-w-[760px]">
         <SiteIntro id={`${id}-title`} title={title} lede={lede} align="center" />
-        <dl className="divide-y divide-border rounded-2xl border border-border bg-card">
+        <div className="divide-y divide-border rounded-2xl border border-border bg-card">
           {items.map((item) => (
             <details key={item.q} className="group px-5 sm:px-6">
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4 py-4 text-[15.5px] font-bold text-foreground [&::-webkit-details-marker]:hidden">
-                <dt>{item.q}</dt>
+                <span>{item.q}</span>
                 <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-border text-muted transition-transform group-open:rotate-45">
                   +
                 </span>
               </summary>
-              <dd className="pb-5 text-[14.5px] leading-relaxed text-muted">{item.a}</dd>
+              <div className="pb-5 text-[14.5px] leading-relaxed text-muted">{item.a}</div>
             </details>
           ))}
-        </dl>
+        </div>
       </div>
     </SiteSection>
   );
