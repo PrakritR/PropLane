@@ -343,10 +343,13 @@ const CALENDAR_WEEK_DAY_STRIP =
 const CALENDAR_TIME_CELL =
   "whitespace-nowrap text-[10px] font-semibold tabular-nums text-muted sm:text-[11px] [html[data-theme=dark]_&]:portal-calendar-time-cell";
 const CALENDAR_GRID_GAP = "gap-px bg-accent/40 [html[data-theme=dark]_&]:portal-calendar-grid";
+// Open availability is the quiet layer of the week — a faint tint with a soft
+// ring, the way Google Calendar draws free time — so the booked tours on top
+// of it are what the eye lands on. Forty solid green blocks were a wall.
 const CALENDAR_OPEN_SLOT =
-  "bg-emerald-100 text-emerald-950 ring-1 ring-inset ring-emerald-300 [html[data-theme=dark]_&]:portal-calendar-open-slot";
+  "bg-emerald-50 text-emerald-700/80 ring-1 ring-inset ring-emerald-200/80 hover:bg-emerald-100/80 [html[data-theme=dark]_&]:portal-calendar-open-slot";
 const CALENDAR_OPEN_SLOT_SOFT =
-  "border-emerald-300 bg-emerald-100 text-emerald-900 [html[data-theme=dark]_&]:portal-calendar-open-slot";
+  "border-emerald-200 bg-emerald-50 text-emerald-800 [html[data-theme=dark]_&]:portal-calendar-open-slot";
 /**
  * Bookable by the 9-5 default, not by anything the manager painted. Deliberately
  * a dashed, lower-contrast cousin of the painted-open style: it IS live to
@@ -354,7 +357,7 @@ const CALENDAR_OPEN_SLOT_SOFT =
  * the manager made (so it must not read the same as painted availability).
  */
 const CALENDAR_DEFAULT_OPEN_SLOT =
-  "bg-emerald-50 text-emerald-800 ring-1 ring-inset ring-dashed ring-emerald-300/70 hover:bg-emerald-100 [html[data-theme=dark]_&]:portal-calendar-open-slot";
+  "bg-emerald-50/60 text-emerald-700/70 ring-1 ring-inset ring-dashed ring-emerald-200/80 hover:bg-emerald-100/80 [html[data-theme=dark]_&]:portal-calendar-open-slot";
 const CALENDAR_BADGE_SUCCESS =
   "rounded-full portal-badge-success";
 const CALENDAR_BADGE_INFO =
