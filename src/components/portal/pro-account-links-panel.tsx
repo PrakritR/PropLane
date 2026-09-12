@@ -2518,14 +2518,6 @@ export function ProAccountLinksPanel({
               <div className="flex justify-end gap-2">
                 <Button
                   type="button"
-                  variant="outline"
-                  className="rounded-full"
-                  onClick={() => setPropertyPermissionsModal(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
                   className="rounded-full"
                   data-attr="co-manager-save-permissions"
                   onClick={() => {
