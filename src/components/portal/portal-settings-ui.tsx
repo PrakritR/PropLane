@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 
+import { PortalTitleActionsHost, PortalTitleActionsProvider } from "@/components/portal/portal-title-actions-slot";
 import { cn } from "@/lib/utils";
 
 export function PortalSettingsSections({ children, className }: { children: ReactNode; className?: string }) {
@@ -22,16 +23,21 @@ export function PortalSettingsSection({
   children: ReactNode;
 }) {
   return (
-    <section className="space-y-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-[15px] font-bold tracking-[-0.01em] text-foreground">{title}</h2>
-          {description ? <p className="mt-0.5 text-[13.5px] leading-relaxed text-muted">{description}</p> : null}
+    <PortalTitleActionsProvider>
+      <section className="space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-bold tracking-[-0.01em] text-foreground">{title}</h2>
+            {description ? <p className="mt-0.5 text-[13.5px] leading-relaxed text-muted">{description}</p> : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <PortalTitleActionsHost className="flex items-center gap-1 sm:gap-1.5" />
+            {action}
+          </div>
         </div>
-        {action ? <div className="shrink-0">{action}</div> : null}
-      </div>
-      {children}
-    </section>
+        {children}
+      </section>
+    </PortalTitleActionsProvider>
   );
 }
 

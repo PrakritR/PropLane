@@ -5,6 +5,7 @@ import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { DestinationNav, type DestinationNavItem } from "@/components/ui/destination-nav";
 import { HorizontalScrollCapture, HORIZONTAL_SCROLL_ATTR } from "@/components/portal/portal-horizontal-scroll";
+import { usePublishTitleActions } from "@/components/portal/portal-title-actions-slot";
 import { syncPortalMobileTopChrome } from "@/lib/portal-mobile-top-chrome";
 import { cn } from "@/lib/utils";
 
@@ -88,7 +89,38 @@ export function PortalListControlStack({
     };
   }, [showDestinations, stickyDestinations]);
 
+  /*
+   * A tab with no status pills and no search has nothing for a toolbar to
+   * hold but its controls. Those go beside the page title (the shell owns a
+   * slot for them) instead of into a white bar of their own; where no title
+   * slot exists they render as a bare right-aligned row, never a card.
+   */
+  const controlsOnly = variant === "command" && !showDestinations && !search && Boolean(filterRow || actions);
+  const controlsOnlyNode = controlsOnly ? (
+    <div className="flex items-center gap-1 sm:gap-1.5 [&_button]:shrink-0 [&_a]:shrink-0" data-attr="portal-list-command-actions">
+      {filterRow}
+      {actions}
+    </div>
+  ) : null;
+  const publishedToTitle = usePublishTitleActions(controlsOnlyNode, controlsOnly);
+
   if (!showDestinations && !showFindRow && !activeFilterChips && !actions) return null;
+
+  if (controlsOnly) {
+    if (publishedToTitle) {
+      return activeFilterChips ? (
+        <div className={cn("shrink-0", className)} data-slot="portal-list-control-stack" data-variant="command">
+          <div className="min-w-0" data-attr="portal-list-active-filter-chips">{activeFilterChips}</div>
+        </div>
+      ) : null;
+    }
+    return (
+      <div className={cn("shrink-0 space-y-2", className)} data-slot="portal-list-control-stack" data-variant="command">
+        <div className="flex justify-end">{controlsOnlyNode}</div>
+        {activeFilterChips ? <div className="min-w-0" data-attr="portal-list-active-filter-chips">{activeFilterChips}</div> : null}
+      </div>
+    );
+  }
 
   const destinationContent =
     destinationRow ?? (
