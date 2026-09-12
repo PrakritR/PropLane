@@ -66,7 +66,7 @@ export function SitePricingTeaser() {
         })}
       </div>
       <p className="mt-8 text-center">
-        <Link href="/pricing" data-attr="home-pricing-compare" className="text-[15px] font-bold text-primary hover:underline">
+        <Link href="/pricing#compare" data-attr="home-pricing-compare" className="text-[15px] font-bold text-primary hover:underline">
           Compare every feature →
         </Link>
       </p>

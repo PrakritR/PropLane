@@ -48,14 +48,17 @@ describe("public navbar Resources dropdown", () => {
     mockPathname = "/";
   });
 
-  it("carries the reading — Docs, MCP, Mobile app, Security, Reviews, About — while Pricing and Why are tabs", async () => {
+  it("carries the reading — Docs, MCP, Security under Learn; Reviews, About, Contact under Company — while Pricing and Why are tabs", async () => {
     await openResourcesMenu();
 
     expect(screen.getAllByRole("link", { name: /documentation/i })[0]).toHaveAttribute("href", "/docs");
-    expect(screen.getAllByRole("link", { name: /mobile app/i })[0]).toHaveAttribute("href", "/app");
+    expect(screen.getAllByRole("link", { name: /mcp & api/i })[0]).toHaveAttribute("href", "/docs/mcp");
     expect(screen.getAllByRole("link", { name: /security/i })[0]).toHaveAttribute("href", "/security");
     expect(screen.getAllByRole("link", { name: /reviews/i })[0]).toHaveAttribute("href", "/reviews");
     expect(screen.getAllByRole("link", { name: /about us/i })[0]).toHaveAttribute("href", "/about");
+    expect(screen.getAllByRole("link", { name: /contact & support/i })[0]).toHaveAttribute("href", "/contact");
+    // The iPhone app moved to the Product menu's featured panel (site round 2 §4).
+    expect(screen.queryByRole("link", { name: /^mobile app$/i })).toBeNull();
 
     // Pricing is the second thing every buyer looks for: a top-level tab, not a
     // dropdown entry. Why PropLane sits beside it.

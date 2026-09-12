@@ -4,7 +4,8 @@ import Link from "next/link";
 import { Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MobileAppPreview } from "@/components/marketing/mobile-app-preview";
-import { iosAppDownloadIsTestFlight, iosAppDownloadLabel, iosAppDownloadUrl } from "@/lib/ios-app-download";
+import { AppStoreBadge } from "@/components/marketing/app-store-badge";
+import { iosAppDownloadIsTestFlight, iosAppDownloadUrl } from "@/lib/ios-app-download";
 import { isNativeRuntimeSync } from "@/lib/native/detect-native";
 import { cn } from "@/lib/utils";
 
@@ -62,20 +63,11 @@ export function MobileAppDownloadPanel({
 
   const heading = testFlight ? "Install the PropLane mobile beta" : "Get PropLane on your phone";
   const renderDownloadCta = (fullWidthOnMobile: boolean, prominent = false) => (
-    <Button
-      asChild
-      variant="primary"
-      className={cn(
-        "min-h-0 rounded-full font-semibold",
-        prominent ? "h-12 px-7 text-[15px] shadow-md" : "h-11 px-6 text-sm",
-        fullWidthOnMobile && "w-full justify-center",
-      )}
-      data-attr="mobile-app-download-cta"
-    >
-      <a href={downloadUrl} target="_blank" rel="noopener noreferrer">
-        {iosAppDownloadLabel(downloadUrl)}
-      </a>
-    </Button>
+    <AppStoreBadge
+      size={prominent ? "lg" : "md"}
+      dataAttr="mobile-app-download-cta"
+      className={cn(fullWidthOnMobile && "w-full justify-center")}
+    />
   );
 
   if (dockCtaOnMobile) {

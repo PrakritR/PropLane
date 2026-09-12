@@ -90,6 +90,7 @@ import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscriptio
 import {
   SERVICE_FEE_PAYER_OPTION_LABELS,
   LISTING_PROCESSING_FEE_PAYER_HELP,
+  listingPaymentWaiverCodeMatches,
   managerCanSelectProplaneServiceFee,
   listingServiceFeePayerUiValue,
   managerCanSelectManagerAbsorbServiceFee,
@@ -1850,7 +1851,7 @@ export function ManagerAddListingForm({
   const serviceFeePayerUi = listingServiceFeePayerUiValue(
     sub.serviceFeePayer,
     managerSkuTier,
-    paymentWaiverGranted === true,
+    paymentWaiverGranted === true || listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode),
   );
 
   useEffect(() => {
@@ -1859,7 +1860,12 @@ export function ManagerAddListingForm({
   }, []);
   useEffect(() => {
     if (paymentWaiverGranted !== false) return;
-    setSub((current) => current.serviceFeePayer === "proplane" ? { ...current, serviceFeePayer: "resident", serviceFeeWaiverCode: undefined } : current);
+    // A listing carrying its own valid promo code is backed without an account grant.
+    setSub((current) =>
+      current.serviceFeePayer === "proplane" && !listingPaymentWaiverCodeMatches(current.serviceFeeWaiverCode)
+        ? { ...current, serviceFeePayer: "resident", serviceFeeWaiverCode: undefined }
+        : current,
+    );
   }, [paymentWaiverGranted]);
   const [assistantTriggerTarget, setAssistantTriggerTarget] = useState<HTMLSpanElement | null>(null);
   const resumedStepIndex = clampWizardStep(initialStepIndex);

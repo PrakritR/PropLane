@@ -139,6 +139,7 @@ import {
 } from "@/lib/manager-first-listing-onboarding";
 import { syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
 import { propertyListHref } from "@/lib/portal-detail-routes";
+import { MANAGER_ATTENTION_MAX_ROWS, buildManagerAttentionRows } from "@/lib/manager-attention-queue";
 
 const BASE = "/portal";
 
@@ -1093,78 +1094,22 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
    * rows so it stays a list of next actions rather than a second inbox.
    */
   const applicationProperties = new Set(pendingApps.map((a) => a.propertyId || a.property));
-  const attentionRows: AttentionRow[] = [];
-  if (overdueChargeCount > 0) {
-    attentionRows.push({
-      id: "overdue",
-      title: `${overdueChargeCount} overdue ${overdueChargeCount === 1 ? "charge" : "charges"}`,
-      detail: `${overdueBalanceLabel} past due across your residents`,
-      actionLabel: "Remind",
-      href: `${BASE}/payments/incoming/overdue`,
-      tone: "danger",
-    });
-  }
-  if (pendingApps.length > 0) {
-    attentionRows.push({
-      id: "applications",
-      title: `${pendingApps.length} ${pendingApps.length === 1 ? "application" : "applications"} ready for review`,
-      detail: pendingApps[0]?.property ? `Latest for ${pendingApps[0].property}` : "Waiting for your decision",
-      actionLabel: "Review",
-      href: `${BASE}/applications/pending`,
-      tone: "pending",
-    });
-  }
-  if (managerSignatureLeaseCount > 0) {
-    attentionRows.push({
-      id: "leases",
-      title: `${managerSignatureLeaseCount} ${managerSignatureLeaseCount === 1 ? "lease waits" : "leases wait"} for your signature`,
-      detail: "Residents have signed; countersign to make them official",
-      actionLabel: "Sign",
-      href: `${BASE}/leases/manager`,
-      tone: "pending",
-    });
-  }
-  if (pendingTours.length > 0) {
-    attentionRows.push({
-      id: "tours",
-      title: `${pendingTours.length} tour ${pendingTours.length === 1 ? "request" : "requests"} to confirm`,
-      detail: "Confirm a time so the guest gets their reminder",
-      actionLabel: "Confirm",
-      href: `${BASE}/tours/pending`,
-      tone: "pending",
-    });
-  }
-  if (messagingNeedsSetup) {
-    attentionRows.push({
-      id: "messaging",
-      title: "Renters can't text you yet",
-      detail: "Set up messaging to open the SMS channel on your listings",
-      actionLabel: "Set up",
-      href: MANAGER_MESSAGING_SETTINGS_HREF,
-      tone: "info",
-    });
-  }
-  if (portfolio.draftCount > 0) {
-    attentionRows.push({
-      id: "drafts",
-      title: `${portfolio.draftCount} ${portfolio.draftCount === 1 ? "property" : "properties"} still in setup`,
-      detail: "Pick up where you left off",
-      actionLabel: "Continue",
-      href: propertyListHref(BASE, "drafts"),
-      tone: "info",
-    });
-  }
-  if (inboxCount > 0) {
-    attentionRows.push({
-      id: "inbox",
-      title: `${inboxCount} unread ${inboxCount === 1 ? "conversation" : "conversations"}`,
-      detail: inboxThreads[0]?.subject ? `Latest: ${inboxThreads[0].subject}` : "Waiting for a reply",
-      actionLabel: "Reply",
-      href: `${BASE}/communication/active`,
-      tone: "info",
-    });
-  }
-  const attentionShown = attentionRows.slice(0, 6);
+  const attentionRows: AttentionRow[] = buildManagerAttentionRows({
+    basePath: BASE,
+    overdueChargeCount,
+    overdueBalanceLabel,
+    pendingApplicationCount: pendingApps.length,
+    latestPendingApplicationProperty: pendingApps[0]?.property,
+    managerSignatureLeaseCount,
+    pendingTourCount: pendingTours.length,
+    messagingNeedsSetup,
+    messagingSettingsHref: MANAGER_MESSAGING_SETTINGS_HREF,
+    draftPropertyCount: portfolio.draftCount,
+    draftsHref: propertyListHref(BASE, "drafts"),
+    unreadConversationCount: inboxCount,
+    latestUnreadSubject: inboxThreads[0]?.subject,
+  });
+  const attentionShown = attentionRows.slice(0, MANAGER_ATTENTION_MAX_ROWS);
 
   // Signed leases per property, for the occupancy bar on each card.
   const occupiedByProperty = new Map<string, number>();

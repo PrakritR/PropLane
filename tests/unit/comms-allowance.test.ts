@@ -9,8 +9,10 @@ import {
 } from "@/lib/comms-billing/allowances";
 
 describe("included allowance by plan", () => {
-  it("gives every plan a real allowance, rising with price", () => {
-    expect(includedAllowanceCents("free")).toBeGreaterThan(0);
+  it("gives every paid plan a real allowance, rising with price; Free has none", () => {
+    // Round 3 plan model: Free carries $0 of communication credit and no
+    // work number — texting and calling start on Pro.
+    expect(includedAllowanceCents("free")).toBe(0);
     expect(includedAllowanceCents("pro")).toBeGreaterThan(includedAllowanceCents("free")!);
     // Business is CAPPED, not uncapped. "No limit" is not a price, it is an
     // unbounded liability on a fixed fee — and it removes the only signal that
@@ -28,10 +30,17 @@ describe("included allowance by plan", () => {
 
 describe("evaluateCommsAllowance", () => {
   it("lets a manager with NO card send inside the allowance", () => {
-    const state = evaluateCommsAllowance({ tier: "free", usedCents: 100, hasPaymentMethod: false });
+    const state = evaluateCommsAllowance({ tier: "pro", usedCents: 100, hasPaymentMethod: false });
     expect(state.blocked).toBe(false);
     expect(state.exhausted).toBe(false);
-    expect(state.remainingCents).toBe(COMMS_INCLUDED_ALLOWANCE_CENTS.free! - 100);
+    expect(state.remainingCents).toBe(COMMS_INCLUDED_ALLOWANCE_CENTS.pro! - 100);
+  });
+
+  it("blocks Free from the first cent unless a pack was bought", () => {
+    expect(evaluateCommsAllowance({ tier: "free", usedCents: 0, hasPaymentMethod: true }).blocked).toBe(true);
+    const withPack = evaluateCommsAllowance({ tier: "free", usedCents: 100, hasPaymentMethod: false, purchasedRemainingCents: 500 });
+    expect(withPack.blocked).toBe(false);
+    expect(withPack.remainingCents).toBe(400);
   });
 
   it("BLOCKS once the allowance is spent and there is no card", () => {
@@ -91,12 +100,12 @@ describe("evaluateCommsAllowance", () => {
 
 describe("billableCentsAboveAllowance", () => {
   it("bills nothing inside the allowance", () => {
-    expect(billableCentsAboveAllowance({ tier: "free", totalUsedCents: 100 })).toBe(0);
+    expect(billableCentsAboveAllowance({ tier: "pro", totalUsedCents: 100 })).toBe(0);
   });
 
   it("bills only the excess, not the whole month", () => {
-    const free = COMMS_INCLUDED_ALLOWANCE_CENTS.free!;
-    expect(billableCentsAboveAllowance({ tier: "free", totalUsedCents: free + 250 })).toBe(250);
+    const pro = COMMS_INCLUDED_ALLOWANCE_CENTS.pro!;
+    expect(billableCentsAboveAllowance({ tier: "pro", totalUsedCents: pro + 250 })).toBe(250);
   });
 
   it("bills Business only above its cap", () => {
@@ -108,8 +117,12 @@ describe("billableCentsAboveAllowance", () => {
 
 describe("the blocked message", () => {
   it("names the amount and the fix, not just a refusal", () => {
-    const msg = commsAllowanceBlockedMessage("free");
+    const msg = commsAllowanceBlockedMessage("pro");
     expect(msg).toMatch(/\$\d/);
     expect(msg).toMatch(/buy more usage/i);
+  });
+
+  it("tells a Free account the fix is Pro, not a pack alone", () => {
+    expect(commsAllowanceBlockedMessage("free")).toMatch(/upgrade to pro/i);
   });
 });

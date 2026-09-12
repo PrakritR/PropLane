@@ -80,17 +80,20 @@ function BlockShell({
 
 const MEMBER_GRID = "md:grid md:grid-cols-[16px_minmax(0,1.4fr)_110px_minmax(0,1fr)_120px_92px] md:items-center md:gap-x-3";
 
-export function TeamMembersBlock({ members, onInvite, inviteDisabled }: { members: TeamMemberRow[]; onInvite: () => void; inviteDisabled?: boolean }) {
+export function TeamMembersBlock({ members, onInvite, inviteDisabled }: { members: TeamMemberRow[]; onInvite?: () => void; inviteDisabled?: boolean }) {
   return (
     <BlockShell
       title="Members"
       count={members.length}
       dataAttr="team-members-block"
       aside={
-        <Button type="button" variant="outline" onClick={onInvite} disabled={inviteDisabled} className="h-8 min-h-0 rounded-full px-3 text-[12.5px]" data-attr="team-members-invite">
-          <UserPlus className="size-4" aria-hidden />
-          Invite a manager
-        </Button>
+        // The page header carries Invite; a second button here was the same door twice.
+        onInvite ? (
+          <Button type="button" variant="outline" onClick={onInvite} disabled={inviteDisabled} className="h-8 min-h-0 rounded-full px-3 text-[12.5px]" data-attr="team-members-invite">
+            <UserPlus className="size-4" aria-hidden />
+            Invite a manager
+          </Button>
+        ) : null
       }
     >
       <div className={cn("hidden px-4 pb-1.5 pt-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted/70", MEMBER_GRID)} aria-hidden>

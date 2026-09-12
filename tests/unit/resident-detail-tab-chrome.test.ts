@@ -11,8 +11,9 @@ import {
 } from "@/lib/resident-detail-subsection-tabs";
 
 describe("resident detail tab chrome", () => {
-  it("lists tours first in the canonical resident detail tab order", () => {
-    expect(RESIDENT_DETAIL_TABS[0]).toBe("tours");
+  it("lands on Overview, with tours immediately after (round 3)", () => {
+    expect(RESIDENT_DETAIL_TABS[0]).toBe("overview");
+    expect(RESIDENT_DETAIL_TABS[1]).toBe("tours");
   });
 
   it("application subsection pills match the Applications hub buckets", () => {
@@ -40,12 +41,14 @@ describe("resident detail tab chrome", () => {
     ]);
   });
 
-  it("puts tours first on every directory stage (PRP-394)", () => {
+  it("keeps tours right after Overview on every directory stage (PRP-394)", () => {
     // Current/Past used to drop Tours ("tenant is past touring"). The ticket
     // asks for the same strip on Current so tour history stays on the profile.
-    expect(residentDetailTabsForStage("potential")[0]).toBe("tours");
-    expect(residentDetailTabsForStage("current")[0]).toBe("tours");
-    expect(residentDetailTabsForStage("past")[0]).toBe("tours");
+    // Overview now lands first; Tours is the first section after it.
+    for (const stage of ["potential", "current", "past"] as const) {
+      expect(residentDetailTabsForStage(stage)[0]).toBe("overview");
+      expect(residentDetailTabsForStage(stage)[1]).toBe("tours");
+    }
     expect(residentDetailTabsForStage("potential")).not.toContain("services");
     expect(residentDetailTabsForStage("current")).toContain("services");
 

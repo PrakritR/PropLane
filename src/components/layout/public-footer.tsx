@@ -1,7 +1,7 @@
 import { AxisLogoLink } from "@/components/brand/axis-logo";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { iosAppDownloadIsTestFlight, iosAppDownloadUrl } from "@/lib/ios-app-download";
+import { AppStoreBadge } from "@/components/marketing/app-store-badge";
 import { RESIDENT_BROWSE_PATH } from "@/lib/resident-public-nav";
 import {
   PUBLIC_SOCIAL_LINKS,
@@ -100,26 +100,16 @@ const SOCIAL_GLYPHS: Record<PublicSocialId, ReactNode> = {
 };
 
 function SocialRow({ className = "" }: { className?: string }) {
-  if (PUBLIC_SOCIAL_LINKS.length === 0) return null;
+  // Only confirmed profiles render (site round 2 §5): an icon that goes nowhere
+  // reads as broken. A profile becomes visible the moment NEXT_PUBLIC_SOCIAL_*
+  // carries its URL — no code change.
+  const links = PUBLIC_SOCIAL_LINKS.filter(({ href }) => !isPlaceholderSocialHref(href));
+  if (links.length === 0) return null;
   return (
     <ul className={`flex items-center gap-2 ${className}`}>
-      {PUBLIC_SOCIAL_LINKS.map(({ id, label, href }) => {
-        // A confirmed profile URL is a real new-tab link. An unconfirmed
-        // placeholder renders the branded icon as a NON-interactive <span> — an
-        // <a href="#"> actually navigates (scrolls to top, dirties the URL) and
-        // announces as a link to nowhere, so the icon must not be an anchor
-        // until a real destination exists (set via NEXT_PUBLIC_SOCIAL_*).
+      {links.map(({ id, label, href }) => {
         const base =
           "flex h-9 w-9 items-center justify-center rounded-full border border-border text-muted";
-        if (isPlaceholderSocialHref(href)) {
-          return (
-            <li key={id}>
-              <span role="img" aria-label={label} title={label} data-attr={`footer-social-${id}`} className={base}>
-                {SOCIAL_GLYPHS[id]}
-              </span>
-            </li>
-          );
-        }
         return (
           <li key={id}>
             <a
@@ -181,21 +171,7 @@ export function PublicFooter({ compact = false }: { compact?: boolean }) {
           <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
             <AxisLogoLink href="/" size="compact" />
             {/* The iPhone app is a real differentiator; the badge belongs beside the mark on every page. */}
-            <a
-              href={iosAppDownloadUrl()}
-              target="_blank"
-              rel="noreferrer noopener"
-              data-attr="footer-app-store"
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-foreground/80 bg-foreground px-3 text-background transition hover:opacity-90 [html[data-theme=dark]_&]:border-border [html[data-theme=dark]_&]:bg-card [html[data-theme=dark]_&]:text-foreground"
-            >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
-                <path d="M16.4 12.6c0-2.5 2-3.7 2.1-3.8-1.2-1.7-3-1.9-3.6-2-1.5-.2-3 .9-3.8.9-.8 0-2-.9-3.3-.9-1.7 0-3.3 1-4.2 2.5-1.8 3.1-.5 7.8 1.3 10.3.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8s2 .8 3.3.8c1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.7-1-2.8-4.2ZM14 5.2c.7-.8 1.2-2 1-3.2-1 0-2.2.7-2.9 1.5-.6.7-1.2 1.9-1 3 1.1.1 2.2-.5 2.9-1.3Z" />
-              </svg>
-              <span className="leading-none">
-                <span className="block text-[9px] font-medium uppercase tracking-wide opacity-80">{iosAppDownloadIsTestFlight() ? "Join the beta on" : "Download on the"}</span>
-                <span className="block text-[13px] font-bold">{iosAppDownloadIsTestFlight() ? "TestFlight" : "App Store"}</span>
-              </span>
-            </a>
+            <AppStoreBadge dataAttr="footer-app-store" />
           </div>
           <SocialRow />
         </div>

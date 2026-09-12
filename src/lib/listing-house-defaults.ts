@@ -23,6 +23,7 @@
  * billed. Inheritance carries the monthly figure and nothing else about billing.
  */
 import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
+import { bedsLine, parseBedsLine } from "@/lib/manager-listing-submission";
 import type { UtilitiesPaymentModel } from "@/lib/listing-utilities-payment";
 
 /** The fields a manager can set once for the whole house. */
@@ -36,6 +37,8 @@ export type ListingHouseDefaults = {
   furnishing: string;
   roomAmenitiesText: string;
   occupancyCapacity: number;
+  /** "Twin × 2, Queen × 1" — the beds most rooms have. See `bedsLine` / `parseBedsLine`. */
+  bedsLine: string;
   moveInInspectionRequired: boolean;
   moveOutInspectionRequired: boolean;
   /** Square footage most rooms share, when they are near enough alike. */
@@ -70,6 +73,7 @@ export const LISTING_HOUSE_DEFAULT_FIELDS: readonly ListingHouseDefaultField[] =
   "furnishing",
   "roomAmenitiesText",
   "occupancyCapacity",
+  "bedsLine",
   "moveInInspectionRequired",
   "moveOutInspectionRequired",
   "sizeSqft",
@@ -94,6 +98,7 @@ export function emptyListingHouseDefaults(): ListingHouseDefaults {
     furnishing: "",
     roomAmenitiesText: "",
     occupancyCapacity: 1,
+    bedsLine: "",
     moveInInspectionRequired: false,
     moveOutInspectionRequired: false,
     sizeSqft: 0,
@@ -132,6 +137,8 @@ export function roomDefaultFieldValue(
       return (room.roomAmenitiesText ?? "").trim();
     case "occupancyCapacity":
       return room.occupancyCapacity ?? 1;
+    case "bedsLine":
+      return bedsLine(room.beds);
     case "moveInInspectionRequired":
       return room.moveInInspectionRequired === true;
     case "moveOutInspectionRequired":
@@ -183,6 +190,11 @@ function writeRoomDefaultField(
       return { ...room, roomAmenitiesText: defaults.roomAmenitiesText };
     case "occupancyCapacity":
       return { ...room, occupancyCapacity: defaults.occupancyCapacity };
+    case "bedsLine": {
+      if (!defaults.bedsLine.trim()) return room;
+      const beds = parseBedsLine(defaults.bedsLine);
+      return { ...room, beds, bedCount: beds.reduce((n, b) => n + b.count, 0) };
+    }
     case "moveInInspectionRequired":
       return { ...room, moveInInspectionRequired: defaults.moveInInspectionRequired };
     case "moveOutInspectionRequired":

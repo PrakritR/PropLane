@@ -79,6 +79,9 @@ export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetail
 
 /** Routed detail tabs for manager resident profile (Appendix C2). */
 export const RESIDENT_DETAIL_TABS = [
+  // Overview lands first (round 3): who they are, where they live, what is
+  // due and what is waiting — the property page's Preview, for a person.
+  "overview",
   "tours",
   "application",
   "background-check",
@@ -92,6 +95,7 @@ export const RESIDENT_DETAIL_TABS = [
 export type ResidentDetailTabId = (typeof RESIDENT_DETAIL_TABS)[number];
 
 export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
+  overview: "Overview",
   "background-check": "Background check",
   application: "Application",
   lease: "Lease",
@@ -104,6 +108,7 @@ export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
 
 /** Compact labels for resident detail tabs on phone-width layouts. */
 export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, string> = {
+  overview: "Home",
   "background-check": "Screen",
   application: "Apply",
   lease: "Lease",
@@ -161,7 +166,7 @@ export function parseResidentDetailTab(raw: string | undefined | null): Resident
   if (raw && (RESIDENT_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as ResidentDetailTabId;
   }
-  return "application";
+  return "overview";
 }
 
 export function propertyDetailHref(

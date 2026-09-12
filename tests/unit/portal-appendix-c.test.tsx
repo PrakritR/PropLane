@@ -77,12 +77,13 @@ describe("portal-detail-routes", () => {
     expect(PROPERTY_DETAIL_SCOPE_LABELS.preview).toBe("Listing");
   });
 
-  it("parses resident detail tabs with application fallback", () => {
+  it("parses resident detail tabs with overview fallback", () => {
     expect(parseResidentDetailTab("payments")).toBe("payments");
     expect(parseResidentDetailTab("background-check")).toBe("background-check");
     expect(parseResidentDetailTab("application")).toBe("application");
     expect(parseResidentDetailTab("applicant")).toBe("application");
-    expect(parseResidentDetailTab("")).toBe("application");
+    expect(parseResidentDetailTab("overview")).toBe("overview");
+    expect(parseResidentDetailTab("")).toBe("overview");
   });
 
   it("builds background check list hrefs", () => {

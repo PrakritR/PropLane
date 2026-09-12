@@ -17,10 +17,11 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 describe("PRP-125: marketing copy addresses managers AND landlords", () => {
   it("names both audiences in the Product dropdown", () => {
     const navbar = read("src/components/layout/public-navbar.tsx");
-    expect(navbar).toContain('title: "For managers & landlords"');
-    // The residents/vendors entries are unchanged — this is not a blanket rename.
-    expect(navbar).toContain('title: "For residents"');
-    expect(navbar).toContain('title: "For vendors"');
+    // The mega menu's "Who it's for" column names both audiences (site round 2 §4).
+    expect(navbar).toContain('title: "Managers & landlords"');
+    // The residents/vendors entries sit beside it in the same column — this is not a blanket rename.
+    expect(navbar).toContain('title: "Residents"');
+    expect(navbar).toContain('title: "Vendors"');
   });
 
   it("names both on the /partner page it links to", () => {

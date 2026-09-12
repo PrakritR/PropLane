@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { PortalPreviewOverflowLink, usePortalPreviewSlice } from "@/components/portal/portal-data-table";
 import { formatCompactChargeLine, formatCompactPlacementLine } from "@/lib/portal-mobile-preview";
 import { PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
+import { PortalTitleActionsHost, PortalTitleActionsProvider } from "@/components/portal/portal-title-actions-slot";
 import { cn } from "@/lib/utils";
 import { renderPortalStickyBody } from "@/lib/portal-page-chrome-layout";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
@@ -587,11 +588,10 @@ export function PortalPageHeadline({
         </div>
         {subtitle ? <p className="mt-0.5 line-clamp-2 text-sm text-muted max-md:hidden">{subtitle}</p> : null}
       </div>
-      {primaryAction ? (
-        <div className="flex shrink-0 items-center gap-2 pt-0.5" data-portal-action-slot="">
-          {primaryAction}
-        </div>
-      ) : null}
+      <div className="flex shrink-0 items-center gap-1.5 pt-0.5 sm:gap-2" data-portal-action-slot="">
+        <PortalTitleActionsHost className="flex items-center gap-1 sm:gap-1.5" />
+        {primaryAction}
+      </div>
     </div>
   );
 }
@@ -689,6 +689,7 @@ export function ManagerPortalPageShell({
   const chromeShrink = viewportFillBody || pinChrome ? "shrink-0" : "";
   const bodyChildren = pinChrome ? renderPortalStickyBody(children) : children;
   return (
+    <PortalTitleActionsProvider>
     <div
       data-slot="portal-page-shell"
       {...(viewportFillBody ? { "data-viewport-fill-body": "" } : {})}
@@ -804,6 +805,7 @@ export function ManagerPortalPageShell({
         <PortalPageFooterActions className="md:hidden">{titleAside}</PortalPageFooterActions>
       ) : null}
     </div>
+    </PortalTitleActionsProvider>
   );
 }
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { PenSquare } from "lucide-react";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
@@ -291,14 +293,13 @@ export function ManagerCommunication({
     <Button
       type="button"
       variant="primary"
-      className={PORTAL_HEADER_PRIMARY_ACTION_BTN}
+      className={`${PORTAL_HEADER_PRIMARY_ACTION_BTN} gap-1.5 max-sm:w-9 max-sm:px-0`}
       data-attr="communication-new-message"
       aria-label="New message"
+      title="New message"
       onClick={() => openCompose("email")}
     >
-      <span className="sm:hidden" aria-hidden="true">
-        Message
-      </span>
+      <PenSquare className="h-4 w-4 shrink-0" strokeWidth={2.25} aria-hidden />
       <span className="hidden sm:inline">New message</span>
     </Button>
   );
@@ -328,7 +329,7 @@ export function ManagerCommunication({
 
   return (
     <PortalCommunicationShell
-      title="Inbox"
+      title="Communication"
       subtitle="Residents, applicants and vendors, in one place."
       titleAside={communicationCommandActions}
       hideTitleOnMobileNav
@@ -374,7 +375,7 @@ export function ManagerCommunication({
         open={communicationSettingsOpen}
         onClose={() => setCommunicationSettingsOpen(false)}
         initialTab="communication"
-        scopedTitle="Inbox"
+        scopedTitle="Communication"
       />
     </PortalCommunicationShell>
   );

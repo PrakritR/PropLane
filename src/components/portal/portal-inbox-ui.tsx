@@ -1457,10 +1457,12 @@ function InboxEmojiButton({
   onPick,
   disabled,
   dataAttr,
+  className,
 }: {
   onPick: (emoji: string) => void;
   disabled?: boolean;
   dataAttr?: string;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -1482,7 +1484,7 @@ function InboxEmojiButton({
   }, [open]);
 
   return (
-    <div ref={wrapRef} className="absolute bottom-1.5 right-1.5">
+    <div ref={wrapRef} className={cn("absolute bottom-1.5 right-1.5", className)}>
       {open ? (
         <div
           className="absolute bottom-[calc(100%+0.5rem)] right-0 z-30 grid w-[15.5rem] grid-cols-8 gap-0.5 rounded-2xl border border-border bg-popover p-2 shadow-[var(--shadow-card-hover)]"
@@ -1535,6 +1537,8 @@ export function InboxComposer({
   channelControl,
   /** Optional control before the channel picker (e.g. dismiss draft). */
   leadingControl,
+  /** Tools between the field and Send — ✦ AI, 🕒 schedule, the channel menu. */
+  trailingControls,
   /** @deprecated Prefer `channelControl` inline beside the reply field. */
   channelBar,
   attachments,
@@ -1556,6 +1560,7 @@ export function InboxComposer({
   dataAttr?: string;
   channelControl?: ReactNode;
   leadingControl?: ReactNode;
+  trailingControls?: ReactNode;
   /** Channel picker or other controls above the reply field. */
   channelBar?: ReactNode;
   attachments?: { id: string; fileName: string; previewUrl: string; uploading?: boolean; error?: string; isImage?: boolean }[];
@@ -1636,10 +1641,15 @@ export function InboxComposer({
             })}
           </div>
         ) : null}
-        <div className="portal-inbox-composer-row flex items-end gap-2 max-md:flex-wrap">
+        <div className={cn("portal-inbox-composer-row flex items-end gap-2 max-md:flex-wrap", trailingControls && "max-md:gap-1.5 max-md:flex-nowrap")}>
           {leadingControl}
           {onAttachmentsPick ? (
-            <label className="mb-0.5 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-border bg-secondary text-muted hover:bg-accent/40 hover:text-foreground md:h-[42px] md:w-[42px]">
+            <label
+              className={cn(
+                "mb-0.5 flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-border bg-secondary text-muted hover:bg-accent/40 hover:text-foreground md:h-[42px] md:w-[42px]",
+                trailingControls && "max-md:h-9 max-md:w-9",
+              )}
+            >
               <Paperclip className="h-4 w-4" strokeWidth={2} />
               <input
                 type="file"
@@ -1666,7 +1676,9 @@ export function InboxComposer({
               disabled={disabled}
               enterKeyHint="send"
               data-attr={dataAttr}
-              className={`${PORTAL_INBOX_COMPOSER_INPUT_CLASS} pr-11`}
+              // With tools in the row, a phone has no width to spare for the
+              // emoji picker; the keyboard has one.
+              className={`${PORTAL_INBOX_COMPOSER_INPUT_CLASS} ${trailingControls ? "md:pr-11" : "pr-11"}`}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -1681,8 +1693,14 @@ export function InboxComposer({
                 inputRef.current?.focus();
               }}
               dataAttr={dataAttr ? `${dataAttr}-emoji` : undefined}
+              className={trailingControls ? "max-md:hidden" : undefined}
             />
           </div>
+          {trailingControls ? (
+            <div className="mb-0.5 flex shrink-0 items-center gap-1 md:gap-1.5" data-attr="inbox-composer-tools">
+              {trailingControls}
+            </div>
+          ) : null}
           <button
             type="submit"
             disabled={!canSend}
@@ -1921,6 +1939,7 @@ export function AiDraftReplyCard({
   maxLength,
   generateLabel = "Draft with AI",
   onAdopt,
+  hideGenerateButton = false,
 }: {
   /** True while a draft is being generated. */
   drafting?: boolean;
@@ -1953,6 +1972,11 @@ export function AiDraftReplyCard({
    * Omit it and the legacy two-composer shape is kept for back-compat.
    */
   onAdopt?: (draft: string) => void;
+  /**
+   * The surface offers "Draft with AI" elsewhere (the composer's ✦ menu);
+   * render nothing while idle instead of a second entry point.
+   */
+  hideGenerateButton?: boolean;
 }) {
   if (drafting) {
     return (
@@ -1998,7 +2022,7 @@ export function AiDraftReplyCard({
         </div>
       );
     }
-    if (onGenerate) {
+    if (onGenerate && !hideGenerateButton) {
       return (
         <div className="portal-inbox-ai-draft shrink-0 border-t border-border bg-card px-3.5 pb-1 pt-2.5">
           <button

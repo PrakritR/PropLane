@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { PortalTitleActionsHost } from "@/components/portal/portal-title-actions-slot";
 import { cn } from "@/lib/utils";
 import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
 import { PAGE_HEADER_TITLE_CLASS } from "@/components/ui/page-header";
@@ -108,6 +109,7 @@ export function PortalPageTitleBand({
           {headerActions}
         </div>
       ) : null}
+      <PortalTitleActionsHost className="flex shrink-0 items-center gap-1 sm:gap-1.5" />
     </div>
   );
 }
