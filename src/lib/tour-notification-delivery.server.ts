@@ -347,6 +347,26 @@ export async function recordResidentProspectInboxMessage(
   });
 }
 
+/**
+ * The guest's in-app inbox copy is a courtesy, never a gate. A guest whose
+ * portal is on deletion hold has frozen inbox rows (the account-recovery
+ * write guard refuses the insert), and a guest with no account has no inbox
+ * at all — the email and SMS are the notification and must still go out.
+ */
+async function recordGuestInboxCopy(
+  db: Db,
+  input: Parameters<typeof recordResidentProspectInboxMessage>[1],
+): Promise<{ sent: boolean; error?: string }> {
+  try {
+    await recordResidentProspectInboxMessage(db, input);
+    return { sent: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not record the guest inbox copy.";
+    console.warn("[tour-notification] guest inbox copy skipped", { email: input.participantEmail, error: message });
+    return { sent: false, error: message };
+  }
+}
+
 export type TourInquiryPayload = {
   name?: unknown;
   email?: unknown;
@@ -604,7 +624,7 @@ export async function notifyTenantTourRequestReceived(
   const text = buildTourRequestTenantBody(ctx);
   const email = await deliverEmail([guestEmail], subject, text);
 
-  await recordResidentProspectInboxMessage(db, {
+  await recordGuestInboxCopy(db, {
     participantEmail: guestEmail,
     subject,
     body: text,
@@ -645,7 +665,7 @@ export async function notifyTenantTourRequestRemoved(
   inquiry: TourInquiryPayload,
   window?: { start: string; end: string },
   opts?: { subject?: string; body?: string },
-): Promise<{ ok: boolean; skipped?: boolean; error?: string }> {
+): Promise<{ ok: boolean; skipped?: boolean; error?: string; inbox?: { sent: boolean; error?: string } }> {
   const row = inquiry as Record<string, unknown>;
   const guestEmail = textField(row, "email");
   if (!guestEmail || !guestEmail.includes("@")) {
@@ -678,7 +698,7 @@ export async function notifyTenantTourRequestRemoved(
   const text = opts?.body?.trim() || buildTourRequestRemovedTenantBody(ctx);
   const managerUserId = textField(row, "managerUserId");
 
-  await recordResidentProspectInboxMessage(db, {
+  const inbox = await recordGuestInboxCopy(db, {
     participantEmail: guestEmail,
     subject,
     body: text,
@@ -705,8 +725,8 @@ export async function notifyTenantTourRequestRemoved(
     } was removed by the property team. Request another time: ${listingLink}. Reply STOP to opt out, HELP for help.`,
   });
 
-  if (email.error) return { ok: false, skipped: false, error: email.error };
-  return { ok: true, skipped: email.skipped };
+  if (email.error) return { ok: false, skipped: false, error: email.error, inbox };
+  return { ok: true, skipped: email.skipped, inbox };
 }
 
 /**
