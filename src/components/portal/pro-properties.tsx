@@ -405,11 +405,6 @@ export function ManagerProperties({
         the sidebar's `upsell` nav lock in AGENTS.md.
       */
       addPropertyDisabled={!skuLoaded}
-      addPropertyHint={
-        atPropertyLimit && limitMax != null
-          ? `Plan limit (${limitMax}) reached — upgrade to add more`
-          : undefined
-      }
     />
   );
 

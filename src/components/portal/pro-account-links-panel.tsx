@@ -2749,6 +2749,8 @@ export function ProAccountLinksPanel({
         propertiesLabel: entry.preview || "No houses yet",
         joinedAt: entry.kind === "remote" ? entry.invite.respondedAt : null,
         onAccess: () => openTeamDetail(entry.id),
+        checked: selectedIds.has(entry.id),
+        onSelectedChange: () => toggleSelected(entry.id),
       })),
   ];
   const pendingInvites = [...visibleIncomingPending, ...visibleOutgoingPending];

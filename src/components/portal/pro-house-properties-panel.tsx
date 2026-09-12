@@ -1167,7 +1167,6 @@ export function ManagerHousePropertiesPanel({
   propertyTourId,
   onAddProperty,
   addPropertyDisabled = false,
-  addPropertyHint,
   searchQuery = "",
 }: {
   showToast: (m: string) => void;
@@ -1185,8 +1184,6 @@ export function ManagerHousePropertiesPanel({
   addPropertyDisabled?: boolean;
   /** Free-text match against the row title, address, and neighborhood (list view only). */
   searchQuery?: string;
-  /** Shown under the ADD label when the row is disabled at plan cap. */
-  addPropertyHint?: string;
 }) {
   const router = useRouter();
   const { userId: managerUserId, ready: authReady } = useManagerUserId();
