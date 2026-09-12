@@ -71,7 +71,15 @@ const DEFAULT_SYSTEM = "You are a silent evaluation shadow for a prospect SMS re
 let activeRuns = 0;
 
 function enabled(): boolean {
-  return process.env.AXIS_PROSPECT_GPT_SHADOW_ENABLED?.trim().toLowerCase() === "true";
+  if (process.env.AXIS_PROSPECT_GPT_SHADOW_ENABLED?.trim().toLowerCase() !== "true") return false;
+  const configuredDeadline = process.env.AXIS_PROSPECT_GPT_SHADOW_UNTIL?.trim();
+  if (!configuredDeadline) return true;
+  const match = configuredDeadline.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,3}))?Z$/);
+  if (!match) return false;
+  const deadline = Date.parse(configuredDeadline);
+  if (!Number.isFinite(deadline)) return false;
+  const canonicalDeadline = `${match[1]}.${(match[2] ?? "").padEnd(3, "0")}Z`;
+  return new Date(deadline).toISOString() === canonicalDeadline && Date.now() < deadline;
 }
 
 function limit(name: string, fallback: number, min: number, max: number): number {
@@ -141,6 +149,7 @@ export async function runProspectGptShadow(burst: ProspectShadowBurst): Promise<
         ...result.continuationState,
         outputItems: [...result.continuationState.outputItems, ...calls.map((call, index) => ({ type: "function_call_output", call_id: call.id, output: JSON.stringify(outputs[index]!.output) }))],
       };
+      if (!enabled()) return { status: "disabled", reason: "shadow_not_enabled", burstId: burst.burstId };
       if (Date.now() >= deadline) return { status: "unknown", reason: "shadow_timeout", burstId: burst.burstId };
       result = await completeOpenAIResponses({ model, system: burst.system?.trim() || DEFAULT_SYSTEM, tools: [...(burst.tools ?? [])], messages: conversation, continuationState, maxOutputTokens: limit("AXIS_PROSPECT_GPT_SHADOW_MAX_OUTPUT_TOKENS", 512, 32, 2048), timeoutMs: remaining() });
       totalUsage.inputTokens += result.usage.inputTokens; totalUsage.outputTokens += result.usage.outputTokens;

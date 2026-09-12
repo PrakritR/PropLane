@@ -17,7 +17,7 @@ import { traceAgentTurn, traceProspectShadowComparison, type TraceActor } from "
 import { buildLeasingSmsAgentContext } from "@/lib/tools/context";
 import { leasingSmsAgentRegistry, LEASING_SMS_INLINE_WRITE_TOOLS } from "@/lib/tools";
 import { toAnthropicTools } from "@/lib/tools/registry";
-import type { ProspectShadowBurst } from "@/lib/agent/prospect-gpt-shadow";
+import { isProspectGptShadowEnabled, type ProspectShadowBurst } from "@/lib/agent/prospect-gpt-shadow";
 import { projectProspectShadowPrimaryEvidence, prospectRepetitionEvidence } from "@/lib/agent/prospect-shadow-comparison";
 import { sendFromManagerWorkNumber } from "@/lib/proplane-sms-transport.server";
 import { buildConversationKey } from "@/lib/sms-conversation-identity";
@@ -555,6 +555,11 @@ export async function runLeasingSmsAgentTurn(
       tools: toolTrace.length,
     });
   }
+  const shadowTools = args.prospectBurst && result && isProspectGptShadowEnabled()
+    ? toAnthropicTools(leasingSmsAgentRegistry, { readOnly: true })
+    : [];
+  const shadowToolNames = new Set(shadowTools.map((tool) => tool.name));
+  const shadowToolEvidence = (result?.toolEvidence ?? []).filter((item) => shadowToolNames.has(item.tool));
 
   return {
     reply,
@@ -569,7 +574,7 @@ export async function runLeasingSmsAgentTurn(
       (result?.toolEvidence ?? []).filter((item) => item.tool !== "suppress_redundant_reply"),
       nowIso,
     ),
-    shadowInput: args.prospectBurst && result ? {
+    shadowInput: shadowTools.length > 0 && args.prospectBurst && result ? {
       burstId: args.prospectBurst.burstId,
       burstRevision: args.prospectBurst.revision,
       promptId: turnPromptMeta?.promptId,
@@ -579,12 +584,12 @@ export async function runLeasingSmsAgentTurn(
       primaryModel: result.model ?? TIER_MODELS.standard,
       primaryOutput: reply,
       primaryEvidence: {
-        ...projectProspectShadowPrimaryEvidence(result.toolEvidence.map((item) => ({
+        ...projectProspectShadowPrimaryEvidence(shadowToolEvidence.map((item) => ({
           name: item.tool,
           arguments: item.input,
           output: item.output,
         }))),
-        toolCalls: result.toolEvidence.map((item) => ({ name: item.tool, arguments: item.input })),
+        toolCalls: shadowToolEvidence.map((item) => ({ name: item.tool, arguments: item.input })),
       },
       repetitionEvidence: prospectRepetitionEvidence(
         text,
@@ -593,11 +598,8 @@ export async function runLeasingSmsAgentTurn(
       conversation: shadowPreTurnConversation,
       preTurnConversation: shadowPreTurnConversation,
       system: shadowSystem,
-      tools: toAnthropicTools(leasingSmsAgentRegistry, {
-        allowWrite: LEASING_SMS_INLINE_WRITE_TOOLS,
-        readOnly: true,
-      }),
-      toolEvidence: result.toolEvidence.map((item) => ({
+      tools: shadowTools,
+      toolEvidence: shadowToolEvidence.map((item) => ({
         name: item.tool,
         arguments: item.input,
         output: item.output,

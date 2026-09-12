@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import { completeOpenAIResponses } from "@/lib/agent/provider";
-import { runProspectGptShadow, scheduleProspectGptShadow } from "@/lib/agent/prospect-gpt-shadow";
+import {
+  isProspectGptShadowEnabled,
+  runProspectGptShadow,
+  scheduleProspectGptShadow,
+} from "@/lib/agent/prospect-gpt-shadow";
 
 const base = { model: "gpt-5.4-mini", system: "reply", tools: [], messages: [{ role: "user", content: "hello" }] as Anthropic.MessageParam[] };
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -61,6 +66,50 @@ describe("OpenAI Responses provider", () => {
 
 describe("prospect GPT shadow isolation", () => {
   const listingTool = [{ name: "list_listings", description: "list", input_schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } }];
+
+  it("enables only before a valid configured UTC deadline", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T12:00:00.000Z"));
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_ENABLED", "true");
+
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_UNTIL", "2026-09-12T12:00:00.001Z");
+    expect(isProspectGptShadowEnabled()).toBe(true);
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_UNTIL", "2026-09-12T12:00:00.000Z");
+    expect(isProspectGptShadowEnabled()).toBe(false);
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_UNTIL", "not-a-deadline");
+    expect(isProspectGptShadowEnabled()).toBe(false);
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_UNTIL", "2026-02-30T12:00:00Z");
+    expect(isProspectGptShadowEnabled()).toBe(false);
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_UNTIL", "2026-09-13T12:00:00-04:00");
+    expect(isProspectGptShadowEnabled()).toBe(false);
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_UNTIL", "2026-09-13T12:00:00.000Z");
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_ENABLED", "false");
+    expect(isProspectGptShadowEnabled()).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("keeps the existing enabled behavior when the deadline is unset", () => {
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_ENABLED", "true");
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_UNTIL", "");
+    expect(isProspectGptShadowEnabled()).toBe(true);
+  });
+
+  it("does not call the provider after the shadow deadline expires", async () => {
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_ENABLED", "true");
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_UNTIL", "2026-09-12T11:59:59.999Z");
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T12:00:00.000Z"));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(runProspectGptShadow({ conversation: [{ role: "user", content: "hello" }] }))
+      .resolves.toMatchObject({ status: "disabled", reason: "shadow_not_enabled" });
+    await expect(scheduleProspectGptShadow({ conversation: [{ role: "user", content: "hello" }] }))
+      .resolves.toMatchObject({ status: "disabled", reason: "shadow_not_enabled" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
 
   it("replays matching validated arguments, preserves item/call ids, and sums replay usage", async () => {
     vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_ENABLED", "true");

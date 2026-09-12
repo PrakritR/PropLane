@@ -92,6 +92,7 @@ beforeEach(() => {
     return {
       reply: "The manager has been notified and will follow up.",
       toolTrace: [{ tool: "escalate_to_manager", ok: true }],
+      toolEvidence: [],
       model: "sealed-model",
       tier: "standard",
       provider: "anthropic",
@@ -135,6 +136,7 @@ describe("leasing SMS quiet handoff runtime", () => {
       return {
         reply: "The manager has been notified and will follow up.",
         toolTrace: [{ tool: "escalate_to_manager", ok: true }],
+        toolEvidence: [],
         model: "sealed-model", tier: "standard", provider: "anthropic", route: "anthropic", latencyMs: 1,
         usage: { inputTokens: 1, outputTokens: 1 }, iterationCount: 1, terminationReason: "end_turn", finalStopReason: "end_turn",
       };

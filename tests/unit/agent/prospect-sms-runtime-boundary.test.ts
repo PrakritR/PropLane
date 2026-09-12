@@ -139,7 +139,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.unstubAllEnvs(); vi.unstubAllGlobals();
+  vi.useRealTimers(); vi.unstubAllEnvs(); vi.unstubAllGlobals();
 });
 
 describe("prospect SMS runtime incident boundary", () => {
@@ -160,6 +160,7 @@ describe("prospect SMS runtime incident boundary", () => {
   });
 
   it("seals JainHome fragments into a serializable shadow snapshot with paired trace identity and canonical facts", async () => {
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_ENABLED", "true");
     mocks.completions.push(
       tool("get_listing_details", { propertyId: "property-jain-home" }),
       text("Jain Home is available Now."),
@@ -176,9 +177,12 @@ describe("prospect SMS runtime incident boundary", () => {
       supportedFacts: expect.arrayContaining(["Jain Home", "Jain Home is available Now"]),
       supportedFactGroups: [["Jain Home", "Jain Home is available Now", "Jain Home rent is $1,200", "Jain Home address is 12 Cedar Street"]],
     });
+    expect(turn?.shadowInput?.tools?.map((item) => item.name)).not.toContain("request_tour");
+    expect(turn?.shadowInput?.tools?.map((item) => item.name)).not.toContain("escalate_to_manager");
+    expect(turn?.shadowInput?.toolEvidence?.map((item) => item.name)).toEqual(["get_listing_details"]);
     const snapshot = JSON.parse(JSON.stringify(turn?.shadowInput));
 
-    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_ENABLED", "true"); vi.stubEnv("OPENAI_API_KEY", "shadow-key");
+    vi.stubEnv("OPENAI_API_KEY", "shadow-key");
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: "shadow-jain-tool", output: [{ type: "function_call", id: "item-jain", call_id: "call-jain", name: "get_listing_details", arguments: '{"propertyId":"property-jain-home"}' }], usage: { input_tokens: 4, output_tokens: 2 } }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ id: "shadow-jain", output: [{ type: "message", content: [{ type: "output_text", text: "Jain Home is available Now." }] }], usage: { input_tokens: 4, output_tokens: 2 } }), { status: 200 }));
@@ -194,6 +198,21 @@ describe("prospect SMS runtime incident boundary", () => {
       identity: expect.objectContaining({ burstId: "burst-jain", burstRevision: 4, promptId: "leasing-sms-agent", release: "runtime-fixture" }),
       grounding: "grounded",
     } });
+  });
+
+  it("does not create a durable shadow snapshot after the trial expires", async () => {
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_ENABLED", "true");
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_UNTIL", "2000-01-01T00:00:00.000Z");
+    mocks.completions.push(text("Jain Home is available Now."));
+
+    const turn = await runLeasingSmsAgentTurn(dbFixture({}), {
+      landlordId: "manager-jain", prospectPhoneE164: "+15550001111",
+      inboundText: "Is Jain Home available?", crossCatalog: true,
+      inboundMessageSid: "jain-expired", prospectBurst: burst(),
+    });
+
+    expect(turn).toMatchObject({ reply: "Jain Home is available Now." });
+    expect(turn?.shadowInput).toBeUndefined();
   });
 
   it("fences a pending generation after a correction revision and carries the merged correction into the next real loop", async () => {

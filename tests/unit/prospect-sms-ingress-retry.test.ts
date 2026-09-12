@@ -36,6 +36,7 @@ describe("durable prospect ingress publication retry", () => {
     vi.stubEnv("PROSPECT_SMS_BURST_CALLBACK_SECRET", "secret");
     vi.stubEnv("QSTASH_CURRENT_SIGNING_KEY", "current");
     vi.stubEnv("QSTASH_NEXT_SIGNING_KEY", "next");
+    vi.stubEnv("AXIS_PROSPECT_GPT_SHADOW_ENABLED", "false");
   });
 
   it("rejects the retired Claw rail before health, database, or queue work", async () => {
@@ -86,6 +87,63 @@ describe("durable prospect ingress publication retry", () => {
       p_channel: "twilio",
     }));
     expect(publish).toHaveBeenCalledTimes(2);
+    expect(publish.mock.calls[0]![0]).toBe("https://qstash.test/v2/publish/https://prop-lane.test/api/internal/prospect-sms-burst");
+    const firstHeaders = publish.mock.calls[0]![1].headers as Record<string, string>;
+    const secondHeaders = publish.mock.calls[1]![1].headers as Record<string, string>;
+    expect(firstHeaders["Upstash-Deduplication-Id"]).toMatch(/^[a-f0-9]{64}$/);
+    expect(secondHeaders["Upstash-Deduplication-Id"]).toBe(firstHeaders["Upstash-Deduplication-Id"]);
+    expect(firstHeaders["Upstash-Deduplication-Id"]).not.toContain(":");
     expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["/api/internal/prospect-sms-burst", "ftp://prop-lane.test/callback", "not a url"])(
+    "fails closed before database or queue work for invalid callback %s",
+    async (callback) => {
+      vi.stubEnv("PROSPECT_SMS_BURST_CALLBACK_URL", callback);
+      const publish = vi.fn();
+      vi.stubGlobal("fetch", publish);
+      const { db } = durableDb();
+      const { enqueueProspectSmsBurst } = await import("@/lib/sms/prospect-sms-burst.server");
+
+      await expect(enqueueProspectSmsBurst(db, {
+        sourceMessageId: "source-invalid-callback",
+        managerUserId: "00000000-0000-0000-0000-000000000001",
+        counterpartyPhoneE164: "+15550001111",
+        channel: "twilio",
+        body: "Is Jain Home available?",
+      })).resolves.toEqual({ ok: false, error: "durable_bursts_misconfigured" });
+      expect(db.rpc).not.toHaveBeenCalled();
+      expect(publish).not.toHaveBeenCalled();
+    },
+  );
+
+  it("uses a fresh colon-free deduplication id for each recovery publication", async () => {
+    const publish = vi.fn().mockResolvedValue(new Response(JSON.stringify({ messageId: "queue-recovery" }), { status: 200 }));
+    vi.stubGlobal("fetch", publish);
+    const chain = {
+      or: () => ({ limit: async () => ({
+        data: [
+          { id: "burst-1", revision: 1, due_at: "2026-09-12T12:00:00.000Z" },
+          { id: "burst-2", revision: 2, due_at: "2026-09-12T12:00:00.000Z" },
+        ],
+        error: null,
+      }) }),
+    };
+    const updateChain: Record<string, unknown> = {};
+    updateChain.eq = () => updateChain;
+    const db = {
+      from: vi.fn((table: string) => {
+        if (table !== "prospect_sms_bursts") throw new Error(`unexpected table ${table}`);
+        return { select: () => chain, update: () => updateChain };
+      }),
+    } as never;
+    const { recoverProspectSmsBursts } = await import("@/lib/sms/prospect-sms-burst.server");
+
+    await expect(recoverProspectSmsBursts(db, new Date("2026-09-12T12:00:00.000Z")))
+      .resolves.toMatchObject({ scanned: 2, published: 2, failed: 0 });
+    const deduplicationIds = publish.mock.calls.map((call) => (call[1].headers as Record<string, string>)["Upstash-Deduplication-Id"]);
+    expect(new Set(deduplicationIds).size).toBe(2);
+    expect(deduplicationIds).toEqual(deduplicationIds.map(() => expect.stringMatching(/^[a-f0-9]{64}$/)));
+    expect(deduplicationIds.every((id) => !id.includes(":"))).toBe(true);
   });
 });

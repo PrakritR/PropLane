@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isProspectGptShadowEnabled, runProspectGptShadow, type ProspectShadowBurst } from "@/lib/agent/prospect-gpt-shadow";
 import { traceProspectShadowComparison } from "@/lib/observability/langfuse";
@@ -16,7 +16,20 @@ function qstashConfig(): { url: string; token: string; callback: string; callbac
   const token = process.env.QSTASH_TOKEN?.trim();
   const callback = process.env.PROSPECT_SMS_BURST_CALLBACK_URL?.trim();
   const callbackSecret = process.env.PROSPECT_SMS_BURST_CALLBACK_SECRET?.trim();
-  return url && token && callback && callbackSecret ? { url, token, callback, callbackSecret } : null;
+  if (!url || !token || !callback || !callbackSecret) return null;
+  try {
+    const callbackUrl = new URL(callback);
+    if (callbackUrl.protocol !== "https:" && callbackUrl.protocol !== "http:") return null;
+  } catch {
+    return null;
+  }
+  return { url, token, callback, callbackSecret };
+}
+
+function qstashDeduplicationId(args: { burstId: string; revision: number; attemptId: string }): string {
+  return createHash("sha256")
+    .update(JSON.stringify([args.burstId, args.revision, args.attemptId]))
+    .digest("hex");
 }
 
 export function durableProspectSmsHealth(): { ok: true } | { ok: false; error: string } {
@@ -36,13 +49,13 @@ async function publishBurstJob(args: {
 }): Promise<{ ok: true; jobId: string | null } | { ok: false }> {
   const config = qstashConfig();
   if (!config) return { ok: false };
-  const publish = await fetch(`${config.url.replace(/\/$/, "")}/v2/publish/${encodeURIComponent(config.callback)}`, {
+  const publish = await fetch(`${config.url.replace(/\/$/, "")}/v2/publish/${config.callback}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${config.token}`,
       "Content-Type": "application/json",
       "Upstash-Delay": `${Math.max(0, Math.ceil(args.delaySeconds))}s`,
-      "Upstash-Deduplication-Id": `prospect-burst:${args.burstId}:${args.revision}:${args.attemptId}`,
+      "Upstash-Deduplication-Id": qstashDeduplicationId(args),
       "Upstash-Forward-X-Prospect-Sms-Burst-Secret": config.callbackSecret,
     },
     body: JSON.stringify({ burstId: args.burstId, revision: args.revision }),

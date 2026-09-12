@@ -159,34 +159,127 @@ function sameValue(left: unknown, right: unknown): boolean {
   return keys.length === Object.keys(b).length && keys.every((key) => key in b && sameValue(a[key], b[key]));
 }
 
+/**
+ * Grounding is literal proof, not a bag-of-words similarity score. In
+ * particular, retain every non-whitespace character: `-$1,200`, `>$1,200`,
+ * and `$1,200` are different assertions, as are URLs with different paths.
+ */
+function normalizedAssertion(value: string): string {
+  return value.trim().replace(/\s+/g, " ")
+    .split(/(https?:\/\/[^\s]+)/gi)
+    .map((part) => /^https?:\/\//i.test(part) ? part : part.toLocaleLowerCase())
+    .join("");
+}
+
+function fullySupportedByAssertions(reply: string, facts: readonly string[]): boolean {
+  const assertions = [...new Set(facts.map(normalizedAssertion).filter(Boolean))]
+    .sort((left, right) => right.length - left.length);
+  const source = normalizedAssertion(reply);
+  if (!source || !assertions.length) return false;
+
+  const consume = (remaining: string): boolean => {
+    for (const assertion of assertions) {
+      if (!remaining.startsWith(assertion)) continue;
+      const rest = remaining.slice(assertion.length);
+      if (!rest || rest === ".") return true;
+      // A whole supported assertion may follow a normal sentence boundary.
+      // Do not accept conjunctions, commas, semicolons, or arbitrary filler.
+      const separator = rest.match(/^[.!?]\s+/);
+      if (separator && consume(rest.slice(separator[0].length))) return true;
+    }
+    return false;
+  };
+
+  return consume(source);
+}
+
+function containsFactAssertion(reply: string, facts: readonly string[]): boolean {
+  const source = normalizedAssertion(reply);
+  return facts.some((fact) => source.includes(normalizedAssertion(fact)));
+}
+
+const numericToken = /\$?\d(?:[\d,]*\d)?(?:\.\d+)?%?/g;
+
+/** Treat only conventional thousands grouping and insignificant decimal zeros
+ * as the same literal amount. Signs, operators, currency, percentages, and
+ * malformed number spellings deliberately remain distinct. */
+function normalizedStandardNumber(value: string): string | null {
+  const match = /^(\$)?(0|[1-9]\d*|[1-9]\d{0,2}(?:,\d{3})+)(\.\d+)?(%)?$/.exec(value);
+  if (!match) return null;
+  const [, currency = "", integer, fraction = "", percent = ""] = match;
+  const normalizedFraction = fraction.replace(/0+$/, "");
+  return `${currency}${integer.replaceAll(",", "")}${normalizedFraction === "." ? "" : normalizedFraction}${percent}`;
+}
+
+function sameStandardNumber(left: string, right: string): boolean {
+  const normalizedLeft = normalizedStandardNumber(left);
+  const normalizedRight = normalizedStandardNumber(right);
+  return Boolean(normalizedLeft && normalizedRight && normalizedLeft === normalizedRight);
+}
+
+/** Keep the prior narrow numeric-mismatch signal, but only for otherwise
+ * literal assertions. Prefixes such as minus signs and comparison operators
+ * intentionally fail this check so unsupported syntax remains unknown. */
+function hasExactNumericMismatch(reply: string, facts: readonly string[]): boolean {
+  const source = normalizedAssertion(reply).replace(/\.$/, "");
+  for (const fact of facts) {
+    const assertion = normalizedAssertion(fact).replace(/\.$/, "");
+    const sourceNumbers = source.match(numericToken);
+    const factNumbers = assertion.match(numericToken);
+    if (!sourceNumbers?.length || sourceNumbers.length !== factNumbers?.length) continue;
+    if (source.replace(numericToken, "#") !== assertion.replace(numericToken, "#")) continue;
+    if (sourceNumbers.some((value, index) => value.startsWith("$") !== factNumbers[index]?.startsWith("$"))) continue;
+    if (sourceNumbers.some((value, index) => value !== factNumbers[index] && !sameStandardNumber(value, factNumbers[index] ?? ""))) return true;
+  }
+  return false;
+}
+
+function hasAddedNumericClaim(reply: string, facts: readonly string[]): boolean {
+  if (!containsFactAssertion(reply, facts)) return false;
+  const source = normalizedAssertion(reply);
+  const modifiedNumber = /(?:[-+−<>≤≥]=?\s*[$€£¥]?|[$€£¥]\s*[-+−<>≤≥]=?)\s*\d/u;
+  const negatedNumber = /\b(?:no|not|never)\b[^.!?]*[$€£¥]?\s*\d/u;
+  const unsupportedCurrency = /[€£¥]\s*\d/u;
+  if (modifiedNumber.test(source) || negatedNumber.test(source) || unsupportedCurrency.test(source)) return false;
+  const supported = facts.flatMap((fact) => normalizedAssertion(fact).match(numericToken) ?? []);
+  return (source.match(numericToken) ?? []).some((value) => !supported.some((factValue) => value === factValue || sameStandardNumber(value, factValue)));
+}
+
 function grounding(input: ProspectShadowComparisonInput): ShadowEvidenceStatus {
   const output = input.shadow.output?.trim();
   if (!output) return "unknown";
   const evidence = input.primary.evidence;
   if (!evidence) return "unknown";
+  const hasPropertyGroups = Boolean(evidence.supportedFactGroups?.length);
   const groups = evidence.supportedFactGroups?.map((group) => [...group])
     ?? (evidence.supportedFacts?.length ? [[...evidence.supportedFacts]] : []);
   if (!groups.length) return "unknown";
-  const reply = normalized(output);
-  const factualTokens = output.match(/https?:\/\/\S+|\$?\d[\d,.]*(?:%|\b)/g) ?? [];
-  const stopwords = new Set(["a", "an", "and", "are", "at", "for", "in", "is", "it", "of", "on", "the", "to"]);
-  let mentionsSupportedFact = false;
-  let hasUnsupportedNumber = false;
-  for (const group of groups) {
-    const facts = group.map(normalized).filter(Boolean);
-    if (!facts.some((fact) => reply.includes(fact))) continue;
-    mentionsSupportedFact = true;
-    const evidenceText = facts.join(" ");
-    if (factualTokens.some((token) => !evidenceText.includes(normalized(token)))) {
-      hasUnsupportedNumber = true;
-      continue;
-    }
-    const evidenceWords = new Set(evidenceText.split(/[^\p{L}\p{N}$]+/u).filter(Boolean));
-    const unsupportedWords = reply.split(/[^\p{L}\p{N}$]+/u)
-      .filter((word) => word.length > 1 && !stopwords.has(word) && !evidenceWords.has(word));
-    if (unsupportedWords.length === 0) return "grounded";
+  if (!hasPropertyGroups) {
+    const facts = groups[0] ?? [];
+    if (fullySupportedByAssertions(output, facts)) return "grounded";
+    return (hasExactNumericMismatch(output, facts) || hasAddedNumericClaim(output, facts))
+      ? "ungrounded"
+      : "unknown";
   }
-  return hasUnsupportedNumber && mentionsSupportedFact ? "ungrounded" : "unknown";
+  const groupAssertionMatches = groups.map((group) => {
+    const assertions = group.length > 1 ? group.slice(1) : group;
+    return containsFactAssertion(output, assertions);
+  });
+  // Combining independently supported properties is outside this deterministic
+  // scorer's proof boundary. Do not let one listing substantiate another.
+  if (groupAssertionMatches.filter(Boolean).length > 1) return "unknown";
+
+  for (const [index, group] of groups.entries()) {
+    const anchor = group[0];
+    const assertionMatched = groupAssertionMatches[index];
+    const anchorMatched = Boolean(anchor && containsFactAssertion(output, [anchor]));
+    if (!assertionMatched && !anchorMatched) continue;
+    const assertions = group.length > 1 ? group.slice(1) : group;
+    if (fullySupportedByAssertions(output, assertions)) return "grounded";
+    if (hasExactNumericMismatch(output, assertions) || hasAddedNumericClaim(output, assertions)) return "ungrounded";
+  }
+
+  return "unknown";
 }
 
 function repetition(input: ProspectShadowComparisonInput): ShadowRepetitionStatus {
