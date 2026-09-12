@@ -4203,11 +4203,13 @@ export function ManagerResidents({
               onClick={() => void copyResidentInviteLink()}
               disabled={arInviteBusy}
               data-attr="residents-copy-invite-link"
-              className="flex min-h-[10rem] w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-primary/50 bg-primary/[0.05] px-3 py-6 text-center transition hover:border-primary hover:bg-primary/10 disabled:opacity-60"
+              className="flex w-full items-center gap-3 rounded-2xl border-2 border-primary/50 bg-primary/[0.05] px-4 py-3 text-left transition hover:border-primary hover:bg-primary/10 disabled:opacity-60 sm:min-h-[10rem] sm:flex-col sm:items-center sm:justify-center sm:gap-2 sm:px-3 sm:py-6 sm:text-center"
             >
-              <Link2 className="h-7 w-7 text-primary" aria-hidden />
-              <span className="text-sm font-semibold text-foreground">Copy invite link</span>
-              <span className="text-xs text-muted">Post or text it — no email needed</span>
+              <Link2 className="h-6 w-6 shrink-0 text-primary sm:h-7 sm:w-7" aria-hidden />
+              <span className="min-w-0 sm:contents">
+                <span className="block text-sm font-semibold text-foreground">Copy invite link</span>
+                <span className="block text-xs text-muted">Post or text it — no email needed</span>
+              </span>
             </button>
           </div>
           {arInviteUrl ? (
