@@ -30,7 +30,8 @@ import {
   type DemoPropertiesStage,
 } from "@/lib/demo/demo-playback";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
-import { adminKpiCounts, readAdminPropertyRows } from "@/lib/demo-admin-property-inventory";
+import { readAdminPropertyRows } from "@/lib/demo-admin-property-inventory";
+import { workspaceContainsProperty } from "@/lib/workspaces/selection";
 import {
   countManagerManagedPropertiesForUser,
   mirrorLocalPropertyPipelineToServer,
@@ -295,12 +296,17 @@ export function ManagerProperties({
 
   const stageCounts = useMemo(() => {
     void portfolioTick;
-    const kpiValues = adminKpiCounts(scopeUserId);
+    // The same rows the list renders, counted under the same workspace filter —
+    // a badge that says "20" over an empty list was reading the whole account.
     // Index 5 is the drafts side bucket (see AdminPropertyBucketIndex).
+    const inWorkspace = (bucket: 2 | 3 | 5) =>
+      readAdminPropertyRows(bucket, scopeUserId).filter((row) =>
+        workspaceContainsProperty(row.listingId?.trim() || row.adminRefId.trim()),
+      ).length;
     return {
-      listed: kpiValues[2],
-      unlisted: kpiValues[3],
-      drafts: kpiValues[5],
+      listed: inWorkspace(2),
+      unlisted: inWorkspace(3),
+      drafts: inWorkspace(5),
     } satisfies Record<ManagerStageKey, number>;
   }, [portfolioTick, scopeUserId]);
 

@@ -18,3 +18,23 @@ export function workspaceContainsProperty(propertyId: string | null | undefined)
   const known = selection.workspaces.some((w) => w.propertyIds.includes(propertyId));
   return !known && active.owned && active.isDefault;
 }
+
+/**
+ * The active workspace as copy needs it: its name, and whether it is narrowing
+ * the account at all. `null` until the selection has loaded or when there is no
+ * active workspace — callers then read the whole account, as the filter does.
+ */
+export function activeWorkspaceScope(): { name: string; isDefault: boolean; propertyCount: number } | null {
+  if (!selection || !selection.activeWorkspaceId) return null;
+  const active = selection.workspaces.find((w) => w.id === selection!.activeWorkspaceId);
+  if (!active) return null;
+  return { name: active.name, isDefault: active.isDefault, propertyCount: active.propertyIds.length };
+}
+
+/** Houses the account holds outside the active workspace — what an empty workspace is missing. */
+export function propertiesOutsideActiveWorkspace(): number {
+  if (!selection || !selection.activeWorkspaceId) return 0;
+  return selection.workspaces
+    .filter((w) => w.id !== selection!.activeWorkspaceId)
+    .reduce((n, w) => n + w.propertyIds.length, 0);
+}

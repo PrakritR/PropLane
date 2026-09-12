@@ -13,7 +13,7 @@ import "@/components/marketing/site/site.css";
  */
 
 const FEATURES = [
-  { title: "Push for approvals", body: "A drafted reply, a lease to countersign, a late-rent reminder — one tap to approve, from wherever you are." },
+  { title: "Push when it matters", body: "A lease to countersign, a change order, a tour that moved — one tap, from wherever you are." },
   { title: "Camera for inspections", body: "Room-by-room photos straight into the move-in / move-out report, with the room already picked." },
   { title: "Work number, on the go", body: "Texts and calls under your PropLane number, not your cell — the same thread as the web inbox." },
   { title: "Three portals, one app", body: "Manager, resident and vendor sign-ins all live here. Same account as the web." },
@@ -31,8 +31,8 @@ export async function SiteAppPage() {
           <SiteEyebrow className="mb-4">{beta ? "iPhone app · beta" : "iPhone app · free"}</SiteEyebrow>
           <SiteHeading as="h1">The same queue, in your pocket.</SiteHeading>
           <p className="mt-5 max-w-[46ch] text-[16.5px] leading-relaxed text-muted sm:text-[17.5px]">
-            Approve applications, sign leases, answer residents and photograph an inspection — from the phone, with push for
-            anything that needs your OK.
+            Applications, leases, residents and inspections — from the phone, with push for anything that needs a
+            decision.
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <AppStoreBadge size="lg" dataAttr="app-page-app-store" />

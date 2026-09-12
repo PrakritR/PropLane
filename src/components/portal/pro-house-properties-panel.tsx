@@ -1,6 +1,6 @@
 "use client";
 
-import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+import { activeWorkspaceScope, propertiesOutsideActiveWorkspace, workspaceContainsProperty } from "@/lib/workspaces/selection";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -1678,18 +1678,39 @@ export function ManagerHousePropertiesPanel({
       drafts: { title: "No drafts in progress", description: "A home you start and save without publishing waits here." },
     };
     const c = copy[activeStage] ?? { title: "Nothing here yet", description: "" };
+    /*
+     * A workspace that holds nothing while the account holds homes elsewhere is
+     * not "no homes yet" — the homes are one switch away. Name the workspace and
+     * point at where they are, rather than inviting the manager to add a home
+     * the plan meter may already refuse (which is exactly how this read before).
+     */
+    const scope = activeWorkspaceScope();
+    const elsewhere = propertiesOutsideActiveWorkspace();
+    const emptyWorkspace = scope && !searchQuery.trim() && scope.propertyCount === 0 && elsewhere > 0;
     return (
       <PortalListEmptyCard
-        title={searchQuery.trim() ? "No homes match that search" : c.title}
-        description={searchQuery.trim() ? "Try another name, address or neighborhood." : c.description}
+        title={searchQuery.trim() ? "No homes match that search" : emptyWorkspace ? `Nothing in ${scope.name} yet` : c.title}
+        description={
+          searchQuery.trim()
+            ? "Try another name, address or neighborhood."
+            : emptyWorkspace
+              ? `Your ${elsewhere} ${elsewhere === 1 ? "home lives" : "homes live"} in another workspace. Switch workspaces from the menu at the top of the sidebar, or move homes here from Settings.`
+              : c.description
+        }
         sibling={
-          sibling
+          emptyWorkspace
             ? {
-                label: `${stageCounts[sibling.key]} ${sibling.label.toLowerCase()} · open ${sibling.label}`,
-                href: propertyListHref(propertiesBase, sibling.key),
-                dataAttr: `manager-properties-empty-sibling-${sibling.key}`,
+                label: "Manage workspaces · move homes here",
+                href: "/portal/profile?tab=workspaces",
+                dataAttr: "manager-properties-empty-workspaces",
               }
-            : null
+            : sibling
+              ? {
+                  label: `${stageCounts[sibling.key]} ${sibling.label.toLowerCase()} · open ${sibling.label}`,
+                  href: propertyListHref(propertiesBase, sibling.key),
+                  dataAttr: `manager-properties-empty-sibling-${sibling.key}`,
+                }
+              : null
         }
         actions={
           onAddProperty
