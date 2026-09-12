@@ -74,7 +74,7 @@ export function ManagerCosignerReadonlyReview({
     .join(", ");
 
   return (
-    <div className="grid gap-2 xl:grid-cols-2" data-attr="cosigner-readonly-review">
+    <div className="xl:columns-2 xl:gap-3 [&>*]:mb-3 [&>*]:break-inside-avoid" data-attr="cosigner-readonly-review">
       <ReviewSection title="Household" data-attr="cosigner-household-inline-panels">
         <ReviewRow
           k="Signer"

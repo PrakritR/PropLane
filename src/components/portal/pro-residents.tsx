@@ -3896,7 +3896,15 @@ export function ManagerResidents({
         <PortalRecordDetailPage
           pageTitle="Residents"
           title={selected.name || "Resident"}
-          subtitle={selected.email || undefined}
+          subtitle={
+            [
+              [selected.propertyLabel, selected.roomLabel].filter(Boolean).join(" · "),
+              selected.email,
+            ]
+              .filter(Boolean)
+              .join("  ·  ") || undefined
+          }
+          avatarName={selected.name || undefined}
           backHref={residentDetailItemBackHref}
           backLabel={residentDetailItemBackLabel}
           hideBackText

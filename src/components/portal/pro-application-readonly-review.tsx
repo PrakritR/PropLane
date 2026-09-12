@@ -33,23 +33,25 @@ export function ReviewSection({
   "data-attr"?: string;
 }) {
   return (
+    // A detail card: bold title on the card itself, then label/value rows. The
+    // grey header band and the tinted dl made every card read as a table.
     <section
-      className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+      className="overflow-hidden rounded-2xl border border-border bg-card"
       data-attr={dataAttr}
     >
-      <div className="border-b border-border bg-accent/30 px-3 py-2 sm:px-4">
-        <h3 className="text-xs font-semibold text-muted">{title}</h3>
+      <div className="px-4 pb-1 pt-3.5">
+        <h3 className="text-[13.5px] font-bold tracking-tight text-foreground">{title}</h3>
       </div>
-      <dl className="divide-y divide-border text-sm">{children}</dl>
+      <dl className="divide-y divide-border/60 px-4 pb-1.5 text-sm">{children}</dl>
     </section>
   );
 }
 
 export function ReviewRow({ k, v }: { k: string; v: ReactNode }) {
   return (
-    <div className="flex flex-col gap-0.5 px-3 py-2 sm:flex-row sm:items-start sm:gap-4 sm:px-4">
-      <dt className="w-full shrink-0 text-xs font-medium leading-5 text-muted sm:w-32">{k}</dt>
-      <dd className="min-w-0 flex-1 break-words text-sm leading-snug text-foreground">{v}</dd>
+    <div className="flex items-start justify-between gap-4 py-2.5">
+      <dt className="shrink-0 text-[13px] leading-5 text-muted sm:w-40">{k}</dt>
+      <dd className="min-w-0 flex-1 break-words text-right text-[13.5px] font-semibold leading-5 text-foreground sm:text-left">{v}</dd>
     </div>
   );
 }
@@ -260,5 +262,5 @@ export function ManagerApplicationReadonlyReview({
   );
 
   if (embedded) return sections;
-  return <div className="grid gap-2 xl:grid-cols-2">{sections}</div>;
+  return <div className="xl:columns-2 xl:gap-3 [&>*]:mb-3 [&>*]:break-inside-avoid">{sections}</div>;
 }

@@ -119,11 +119,12 @@ export function PortalDetailHeader({
         ) : null}
         <div className="flex min-w-0 flex-1 items-center gap-2 px-0.5 md:gap-2.5 md:px-1">
           {avatarName ? (
-            <InboxAvatar name={avatarName} className="h-8 w-8 text-[10px] md:h-9 md:w-9 md:text-[11px]" />
+            <InboxAvatar name={avatarName} className="h-9 w-9 text-[11px] md:h-10 md:w-10 md:text-[12px]" />
           ) : null}
+          {/* The record's name is the page's title: it reads as one, not as a list row. */}
           <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-foreground">{title}</p>
-            {subtitle ? <p className="truncate text-xs text-muted">{subtitle}</p> : null}
+            <p className="truncate text-[15px] font-bold tracking-tight text-foreground md:text-[17px]">{title}</p>
+            {subtitle ? <p className="truncate text-[12.5px] text-muted">{subtitle}</p> : null}
           </div>
         </div>
         {actions ? (

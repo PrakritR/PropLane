@@ -82,9 +82,11 @@ describe("resident detail tab chrome", () => {
       `${process.cwd()}/src/components/portal/resident-detail-subsection-chrome.tsx`,
       "utf8",
     );
-    expect(chrome).toContain('data-attr="resident-detail-filter"');
-    expect(chrome).toContain('data-attr="resident-detail-settings"');
-    expect(chrome).toContain('data-attr="resident-detail-edit"');
+    // The strip's three actions keep their stable data-attrs, however the
+    // buttons are drawn (they are icon buttons with a label from md up).
+    expect(chrome).toContain('"resident-detail-filter"');
+    expect(chrome).toContain('"resident-detail-settings"');
+    expect(chrome).toContain('"resident-detail-edit"');
     expect(chrome).toContain("Status filters live in the pills above");
 
     const residents = readFileSync(
