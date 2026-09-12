@@ -407,10 +407,10 @@ export const PORTAL_DASHBOARD_SECTION_CARD =
 export const PORTAL_DASHBOARD_STACK =
   "space-y-5 max-lg:space-y-3 [html[data-native]_&]:space-y-3 pb-[calc(var(--portal-floating-bottom-gap)+3.5rem)] max-lg:pb-[calc(var(--portal-native-bottom-nav-inset,0px)+var(--portal-floating-bottom-gap)+3.5rem)]";
 
-/** KPI row: 2×3 grid on all breakpoints (six manager stats). */
+/** KPI row: two up on a phone, three from `sm` — the same rhythm as the manager dashboard. */
 export function PortalDashboardKpiRow({ children }: { children: ReactNode }) {
   return (
-    <div className="grid grid-cols-2 gap-2 sm:gap-2.5 [&>*]:min-w-0">
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 [&>*]:min-w-0">
       {children}
     </div>
   );
@@ -419,43 +419,21 @@ export function PortalDashboardKpiRow({ children }: { children: ReactNode }) {
 /** Small palette for dashboard stat tiles — uses portal status tokens (light + dark safe). */
 export type PortalDashboardKpiTone = "brand" | "success" | "warning" | "danger" | "neutral";
 
-const KPI_TONE_STYLES: Record<
-  PortalDashboardKpiTone,
-  { accent: string; shell: string; value: string; label: string }
-> = {
-  brand: {
-    accent: "border-l-[var(--status-approved-fg)]",
-    shell: "bg-[color-mix(in_srgb,var(--status-approved-bg)_42%,var(--card))]",
-    value: "text-[var(--status-approved-fg)]",
-    label: "text-[color-mix(in_srgb,var(--status-approved-fg)_70%,var(--muted))]",
-  },
-  success: {
-    accent: "border-l-[var(--status-confirmed-fg)]",
-    shell: "bg-[color-mix(in_srgb,var(--status-confirmed-bg)_45%,var(--card))]",
-    value: "text-[var(--status-confirmed-fg)]",
-    label: "text-[color-mix(in_srgb,var(--status-confirmed-fg)_68%,var(--muted))]",
-  },
-  warning: {
-    accent: "border-l-[var(--status-pending-fg)]",
-    shell: "bg-[color-mix(in_srgb,var(--status-pending-bg)_50%,var(--card))]",
-    value: "text-[var(--status-pending-fg)]",
-    label: "text-[color-mix(in_srgb,var(--status-pending-fg)_72%,var(--muted))]",
-  },
-  danger: {
-    accent: "border-l-[var(--status-overdue-fg)]",
-    shell: "bg-[color-mix(in_srgb,var(--status-overdue-bg)_48%,var(--card))]",
-    value: "text-[var(--status-overdue-fg)]",
-    label: "text-[color-mix(in_srgb,var(--status-overdue-fg)_70%,var(--muted))]",
-  },
-  neutral: {
-    accent: "border-l-primary/55",
-    shell: "bg-[color-mix(in_srgb,var(--primary)_6%,var(--card))]",
-    value: "text-foreground",
-    label: "text-muted",
-  },
+/**
+ * A tone is a DOT beside the label, not a wash over the card. The tiles used
+ * to be tinted amber/green/blue panels, which made the resident and vendor
+ * dashboards read as a wall of warnings; now every tile is the same quiet
+ * card the manager dashboard uses, and the tone marks the one that matters.
+ */
+const KPI_TONE_DOT: Record<PortalDashboardKpiTone, string | null> = {
+  brand: "bg-[var(--status-approved-fg)]",
+  success: "bg-[var(--status-confirmed-fg)]",
+  warning: "bg-[var(--status-pending-fg)]",
+  danger: "bg-[var(--status-overdue-fg)]",
+  neutral: null,
 };
 
-/** Restrained KPI tile: centered value on top, label beneath (no subtext). */
+/** Restrained KPI tile: label on top, value beneath, a status dot when it matters. */
 export function PortalDashboardKpiTile({
   label,
   value,
@@ -472,37 +450,30 @@ export function PortalDashboardKpiTile({
   emphasis?: boolean;
   dataAttr?: string;
 }) {
-  const styles = KPI_TONE_STYLES[tone];
+  const dot = KPI_TONE_DOT[tone];
   return (
     <Link
       href={href}
       data-attr={dataAttr}
       className={cn(
-        "flex min-h-[5.25rem] min-w-0 w-full flex-col items-center justify-between gap-0.5 rounded-xl border border-border border-l-[3px] px-2.5 py-2 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[border-color,box-shadow,transform] duration-150",
+        "flex min-h-[5.25rem] min-w-0 w-full flex-col justify-between gap-2 rounded-2xl border border-border bg-card px-4 py-3.5 shadow-sm transition-[border-color,box-shadow,transform] duration-150",
         "hover:-translate-y-px hover:border-primary/35 hover:shadow-[0_4px_14px_rgba(15,23,42,0.07)]",
-        "sm:min-h-[5.5rem] sm:px-3 sm:py-3 [html[data-native]_&]:min-h-[4.75rem] [html[data-native]_&]:rounded-lg [html[data-native]_&]:px-2 [html[data-native]_&]:py-2",
-        styles.accent,
-        styles.shell,
+        "[html[data-native]_&]:min-h-[4.75rem] [html[data-native]_&]:rounded-xl [html[data-native]_&]:px-3 [html[data-native]_&]:py-2.5",
       )}
     >
-      <span
-        className={cn(
-          "flex w-full flex-1 items-center justify-center whitespace-nowrap tabular-nums tracking-[-0.02em]",
-          "text-[1.5rem] sm:text-[1.65rem] [html[data-native]_&]:text-[1.35rem]",
-          emphasis ? "font-bold" : "font-semibold",
-          styles.value,
-        )}
-      >
-        {value}
+      <span className="flex items-center gap-1.5 text-[12.5px] font-medium leading-tight text-muted">
+        {dot ? <span aria-hidden className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dot)} /> : null}
+        <span className="line-clamp-2">{label}</span>
       </span>
       <span
         className={cn(
-          "w-full shrink-0 px-0.5 text-center text-[10px] font-medium leading-tight tracking-[-0.01em]",
-          "line-clamp-2 sm:text-[11px] [html[data-native]_&]:text-[9px]",
-          styles.label,
+          "block whitespace-nowrap tabular-nums leading-none tracking-[-0.02em]",
+          "text-[1.6rem] [html[data-native]_&]:text-[1.35rem]",
+          emphasis ? "font-bold" : "font-semibold",
+          tone === "danger" ? "text-[var(--status-overdue-fg)]" : "text-foreground",
         )}
       >
-        {label}
+        {value}
       </span>
     </Link>
   );
