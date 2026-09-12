@@ -53,10 +53,10 @@ const PRO_GROUPS: NavGroupConfig[] = [
   { id: "workspace", label: "Workspace", sections: ["dashboard", "properties"] },
   { id: "leasing", label: "Leasing", sections: ["tours", "applications", "leases"] },
   { id: "tenancy", label: "Tenancy", sections: ["residents", "inspections", "payments", "services"] },
-  { id: "operations", label: "Operations", sections: ["tasks", "calendar", "bookings", "communication"] },
+  { id: "operations", label: "Operations", sections: ["vendors", "tasks", "calendar", "bookings", "communication"] },
   { id: "marketing", label: "Marketing", sections: ["promotion"] },
-  // Team (managers, vendors) is managed under Settings → Workspaces / Team / Vendors;
-  // the /teams routes stay reachable for deep links and detail pages.
+  // Team (co-managers) is managed under Settings → Workspaces / Team; the /teams
+  // routes stay reachable for deep links and detail pages. Vendors is a section.
   { id: "finances", label: "Finances", sections: ["financials", "documents"] },
 ];
 
