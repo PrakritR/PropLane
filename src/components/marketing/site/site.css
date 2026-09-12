@@ -44,7 +44,7 @@
 .site-hero-phone {
   position: absolute;
   right: -12px;
-  bottom: -24px;
+  bottom: 14px; /* sits fully inside the hero — the section edge must not clip it */
   z-index: 3;
   width: 168px;
   overflow: hidden;
@@ -66,7 +66,7 @@
 }
 @media (max-width: 767px) {
   .site-hero-browser { max-height: 260px; }
-  .site-hero-phone { width: 118px; right: -6px; bottom: -14px; border-width: 4px; border-radius: 20px; }
+  .site-hero-phone { width: 118px; right: -6px; bottom: 10px; border-width: 4px; border-radius: 20px; }
   .site-hero-draft { display: none; }
 }
 @media (prefers-reduced-motion: no-preference) {
