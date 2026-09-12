@@ -14,6 +14,7 @@
 import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, ChevronDown, Minus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { ManagerAttentionRow } from "@/lib/manager-attention-queue";
 import { DASHBOARD_PERIOD_LABELS, type DashboardPeriodKind, type KpiDelta } from "@/lib/dashboard-kpis";
 
 /* ───────────────────────── period selector ───────────────────────── */
@@ -68,7 +69,13 @@ export function Sparkline({
 }) {
   const max = Math.max(1, ...values);
   return (
-    <div className="hidden h-7 items-end gap-[3px] sm:flex" role="img" aria-label={`Last ${values.length} periods`}>
+    // A fixed footprint, whatever the period count: the bars share the width
+    // so twelve months never push the unit beside them into an ellipsis.
+    <div
+      className="hidden h-7 w-14 shrink-0 items-end gap-[2px] sm:flex"
+      role="img"
+      aria-label={`Last ${values.length} periods`}
+    >
       {values.map((v, i) => {
         const last = i === values.length - 1;
         const h = Math.max(2, Math.round((v / max) * 28));
@@ -76,7 +83,7 @@ export function Sparkline({
           <span
             key={i}
             title={`${labels[i] ?? ""}: ${format(v)}`}
-            className={cn("block w-[7px] rounded-t-[3px]", last ? "bg-primary" : "bg-primary/25")}
+            className={cn("block min-w-0 flex-1 rounded-t-[2px]", last ? "bg-primary" : "bg-primary/25")}
             style={{ height: `${h}px` }}
           />
         );
@@ -156,14 +163,7 @@ export function KpiCard({
 
 /* ───────────────────────── panels ───────────────────────── */
 
-export type AttentionRow = {
-  id: string;
-  title: string;
-  detail: string;
-  actionLabel: "Review" | "Approve" | "Remind" | "Set up" | "Sign" | "Confirm" | "Continue" | "Reply";
-  href: string;
-  tone: "danger" | "pending" | "info";
-};
+export type AttentionRow = ManagerAttentionRow;
 
 const ROW_DOT: Record<AttentionRow["tone"], string> = {
   danger: "bg-[var(--status-overdue-fg)]",

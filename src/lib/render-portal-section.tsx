@@ -95,7 +95,7 @@ const LEGACY_DOCUMENTS_TAB_MAP: Record<string, string> = {
   "rental-days": "income-documents",
   library: "other",
 };
-const FINANCIALS_TABS = ["income", "expenses", "trial-balance", "balance-sheet", "general-ledger", "cash-flow-statement", "payout-history", "trust-account-balance", "security-deposits", "financial-diagnostics", "ap-aging", "bills", "budget-vs-actual", "bank-reconciliation", "owner-statement", "owner-distributions"] as const;
+const FINANCIALS_TABS = ["overview", "reports", "income", "expenses", "trial-balance", "balance-sheet", "general-ledger", "cash-flow-statement", "payout-history", "trust-account-balance", "security-deposits", "financial-diagnostics", "ap-aging", "bills", "budget-vs-actual", "bank-reconciliation", "owner-statement", "owner-distributions"] as const;
 
 const MANAGER_INBOX_TABS = ["unopened", "opened", "schedule", "sent", "trash"] as const;
 
@@ -129,7 +129,7 @@ async function renderManagerFinancesSection(
 ) {
   if (section !== "financials") return null;
   if (!tabParts?.length) {
-    redirect(`${basePath}/financials/income`);
+    redirect(`${basePath}/financials/overview`);
   }
   if (tabParts.length > 1) {
     if (tabParts.length === 2 && tabParts[1] === "pending") {

@@ -66,9 +66,24 @@ describe("the plan floor", () => {
 });
 
 describe("what a manager cannot do to themselves", () => {
-  it.each(["free", "pro", "business"] as const)("ignores stored PropLane values and generic waiver grants on %s", (tier) => {
-    expect(resolveServiceFeePayerFor({ tier, propertyChoice: "proplane", waiverGranted: true })).toBe("resident");
-    expect(resolveServiceFeePayerFor({ tier, managerChoice: "proplane", waiverGranted: true })).toBe("resident");
+  it.each(["free", "pro", "business"] as const)("ignores a stored PropLane value on %s without a promo grant", (tier) => {
+    // Honouring it would let a manager stop paying fees by writing one word into
+    // their own record, with PropLane picking up the bill. A paid plan is not a grant.
+    expect(resolveServiceFeePayerFor({ tier, propertyChoice: "proplane" })).toBe("resident");
+    expect(resolveServiceFeePayerFor({ tier, managerChoice: "proplane" })).toBe("resident");
+    expect(resolveServiceFeePayerFor({ tier, managerChoice: "proplane", waiverGranted: false })).toBe("resident");
+  });
+
+  it.each(["free", "pro", "business"] as const)("honours PropLane on %s when a promo grant backs it", (tier) => {
+    // The account's promo code or the listing's own valid code — the server
+    // validated either before setting `waiverGranted`.
+    expect(resolveServiceFeePayerFor({ tier, propertyChoice: "proplane", waiverGranted: true })).toBe("proplane");
+    expect(resolveServiceFeePayerFor({ tier, managerChoice: "proplane", waiverGranted: true })).toBe("proplane");
+  });
+
+  it("a promo grant unlocks PropLane only — it does not turn Free into a paid plan", () => {
+    expect(resolveServiceFeePayerFor({ tier: "free", managerChoice: "manager", waiverGranted: true })).toBe("resident");
+    expect(resolveServiceFeePayerFor({ tier: "free", waiverGranted: true })).toBe("resident");
   });
 
   it("still honours proplane from staff, who are the ones spending PropLane's money", () => {

@@ -23,13 +23,15 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Input, Select, Textarea } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import { listingPaymentWaiverCodeMatches } from "@/lib/payment-policy";
 import { InlineCheckboxGroup } from "@/components/ui/inline-checkbox-group";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { uploadListingImageFiles } from "@/lib/listing-media-client";
 import { ListingAddressAutocomplete } from "@/components/portal/listing-address-autocomplete";
 import { ModalAssistantStrip } from "@/components/portal/modal-assistant-strip";
 import { buildListingModalAssistantContext } from "@/lib/listing-assistant-context";
-import { DoorOpen, Bath, Building, Building2, Home, Layers, LayoutGrid, Store, Warehouse, type LucideIcon } from "lucide-react";
+import { DoorOpen, Bath, Building, Building2, Home, Layers, LayoutGrid, Store, Warehouse, ChevronRight, Link2, type LucideIcon } from "lucide-react";
 import {
   BATHROOM_EXTRA_AMENITY_PRESETS,
   HOUSE_WIDE_AMENITY_PRESETS,
@@ -43,7 +45,6 @@ import {
   listingAmenityLinesFromValue,
 } from "@/data/manager-listing-presets";
 import {
-  emptyCustomFeeRow,
   emptyQuickFactRow,
   formatLeaseTermsBodyFromAllowed,
   resolveAllowedLeaseTerms,
@@ -52,11 +53,17 @@ import {
   type ManagerListingSubmissionV1,
   type ManagerBathroomRoomAccessKind,
   type ManagerBathroomSubmission,
-  type ManagerCustomFeeRow,
   type ManagerRoomSubmission,
+  type ManagerRoomBed,
   type ManagerSharedSpaceSubmission,
   LONG_TERM_LENGTH_CHOICES,
   normalizeLongTermLengths,
+  ROOM_BED_TYPES,
+  bedsLine,
+  bedsSleep,
+  parseBedsLine,
+  duplicateRoomEntry,
+  isRoomSlotRemovable,
 } from "@/lib/manager-listing-submission";
 import {
   AIRBNB_LEASE_TERM,
@@ -67,8 +74,6 @@ import {
 } from "@/lib/rental-application/lease-terms";
 import { LONG_TERM_UTILITIES_PAYMENT_OPTIONS } from "@/lib/listing-utilities-payment";
 import {
-  derivedRoomCharges,
-  suggestionPlaceholder,
 } from "@/lib/listing-room-derived-pricing";
 import { applyListingBedroomSlots } from "@/lib/manager-listing-submission";
 import { listingLeaseTypeScopeOptions } from "@/lib/listing-fee-scope";
@@ -85,13 +90,12 @@ import {
   applyHouseDefaultsToRooms,
   houseDefaultsForSubmission,
   roomInheritsDefault,
-  roomOverriddenDefaults,
   roomsFollowingDefaults,
   type ListingHouseDefaults,
+  type ListingHouseDefaultField,
 } from "@/lib/listing-house-defaults";
 import {
   AddRowButton,
-  BulkButton,
   CheckboxOption,
   Field,
   FieldRow,
@@ -101,7 +105,6 @@ import {
   CountStepper,
   KindTile,
   Row,
-  RowBulkBar,
   RowCell,
   RowList,
   RowSelectCell,
@@ -179,17 +182,6 @@ function money(value: string | undefined): string {
   return (value ?? "").replace(/^\$/, "");
 }
 
-/**
- * A money field's value, where zero shows as EMPTY against a "0" placeholder.
- *
- * A charge a manager has not filled in yet reads as blank; "0" typed into the
- * box by the form itself looks like a decision they made. The stored value is
- * untouched — this only decides what the box displays.
- */
-function moneyBlankIfZero(value: string | undefined): string {
-  const text = money(value).trim();
-  return text === "" || Number(text.replace(/[^0-9.]/g, "")) === 0 ? "" : text;
-}
 
 /**
  * Amenities as one searchable multi-select rather than forty chips.
@@ -732,841 +724,335 @@ function FurnishingField({ value, onChange }: { value: string; onChange: (next: 
  * Rows have column headings rather than a "Charge 1" label on every field: it
  * is a table, and numbering each one read as if the order mattered.
  */
-function LeaseTypeCharges({
-  leaseType,
-  sub,
-  patch,
+/**
+ * One grid for the rooms.
+ *
+ * The top row is **Every room** — the house defaults — and it has exactly the
+ * columns and inputs a room row has. That is the whole design: a manager could
+ * not tell what "Most rooms are…" governed because it was a different shape
+ * from the rows under it, ending in a Details button that opened a separate
+ * pane and a "3 custom" badge that counted something without naming it.
+ *
+ * Now a room that follows the house shows the value dashed and grey; a room
+ * that was changed shows it in ink with a blue dot. Opening a row — the chevron,
+ * or the beds cell — expands it in place into the full editor, and the same
+ * editor, with the same fields in the same order, opens under the defaults row.
+ * Every field in it says which it is: *Follows every room* or *This room ·
+ * Reset*. Nothing is counted; the changed fields mark themselves.
+ *
+ * Rent is not typed here. It is read from Pricing and shown, so a room's price
+ * is entered in exactly one place.
+ */
+
+const ROOM_GRID_COLUMNS =
+  "22px minmax(104px,1fr) minmax(84px,0.75fr) minmax(88px,0.75fr) minmax(112px,1.05fr) 66px minmax(116px,1.05fr) 82px 26px";
+
+/** The fields the inline editor and the grid both know how to mark. */
+type RoomInheritField = Extract<
+  ListingHouseDefaultField,
+  "floor" | "bedsLine" | "occupancyCapacity" | "furnishing" | "roomAmenitiesText" | "sizeSqft"
+>;
+
+function InheritTag({
+  room,
+  defaults,
+  field,
+  onReset,
 }: {
-  leaseType: string;
-  sub: ManagerListingSubmissionV1;
-  patch: Patch;
+  room: ManagerRoomSubmission | null;
+  defaults: ListingHouseDefaults;
+  field: RoomInheritField;
+  onReset: () => void;
 }) {
-  const all = sub.customFees ?? [];
-  const appliesHere = (fee: ManagerCustomFeeRow) => !fee.leaseTypes?.length || fee.leaseTypes.includes(leaseType);
-  const rows = all.filter(appliesHere);
-  const write = (id: string, patchRow: Partial<ManagerCustomFeeRow>) =>
-    patch({ customFees: all.map((f) => (f.id === id ? { ...f, ...patchRow } : f)) });
+  if (!room) return null;
+  const follows = roomInheritsDefault(room, defaults, field);
+  return follows ? (
+    <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-muted">
+      <Link2 className="h-3 w-3" aria-hidden />
+      Follows every room
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--status-approved-fg)]">
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
+      This room
+      <button type="button" onClick={onReset} className="font-bold hover:underline">
+        Reset
+      </button>
+    </span>
+  );
+}
+
+/** A cell in the grid, marked when the room has its own value for it. */
+function GridCell({ own, children }: { own: boolean | null; children: ReactNode }) {
   return (
-    <div className="mt-4">
-      <p className="mb-2 text-[12.5px] font-bold text-foreground">Other charges on this lease</p>
-      <div className="overflow-hidden rounded-xl border border-border">
-        <div className="grid grid-cols-[1fr_130px_140px_36px] items-center gap-2 border-b border-border bg-accent/25 px-3 py-2">
-          <span className="text-[10.5px] font-extrabold uppercase tracking-wide text-muted">Charge</span>
-          <span className="text-[10.5px] font-extrabold uppercase tracking-wide text-muted">Amount</span>
-          <span className="text-[10.5px] font-extrabold uppercase tracking-wide text-muted">How often</span>
-          <span />
-        </div>
-        <div className="grid grid-cols-[1fr_130px_140px_36px] items-center gap-2 border-b border-border px-3 py-2">
-          <button
-            type="button"
-            data-attr={`listing-v2-add-charge-${leaseType}`}
-            onClick={() =>
-              patch({ customFees: [...all, { ...emptyCustomFeeRow(), leaseTypes: [leaseType] }] })
-            }
-            className="justify-self-start text-[12.5px] font-bold text-primary"
+    <span className="relative min-w-0">
+      {children}
+      {own ? <span aria-hidden className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full border-2 border-white bg-primary" /> : null}
+    </span>
+  );
+}
+
+const cellSelect = (inherited: boolean) =>
+  cn(
+    "min-h-[36px] w-full rounded-lg border bg-card px-2 py-1 text-[13px] text-foreground outline-none focus:border-primary",
+    inherited ? "border-dashed border-border text-muted" : "border-border",
+  );
+
+/** The bed list: one line per bed type, with a count. */
+function BedsEditor({
+  beds,
+  inherited,
+  onChange,
+}: {
+  beds: ManagerRoomBed[];
+  inherited: boolean;
+  onChange: (next: ManagerRoomBed[]) => void;
+}) {
+  const rows = beds.length > 0 ? beds : [{ type: "Full", count: 1 }];
+  return (
+    <div className="flex flex-col gap-1.5">
+      {rows.map((bed, i) => (
+        <div key={i} className="grid grid-cols-[minmax(0,1.4fr)_110px_30px] items-center gap-1.5">
+          <Select
+            aria-label={`Bed ${i + 1} type`}
+            value={bed.type}
+            className={inherited ? "border-dashed text-muted" : undefined}
+            onChange={(e) => onChange(rows.map((b, j) => (j === i ? { ...b, type: e.target.value } : b)))}
           >
-            + Add a charge
-          </button>
-          <span />
-          <span />
-          <span />
-        </div>
-        {rows.length === 0 ? (
-          <p className="px-3 py-3 text-[12px] text-muted">Nothing extra on this lease type.</p>
-        ) : null}
-        {rows.map((fee) => (
-          <div
-            key={fee.id}
-            className="grid grid-cols-[1fr_130px_140px_36px] items-center gap-2 border-b border-border/60 px-3 py-2 last:border-b-0"
+            {ROOM_BED_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+            {ROOM_BED_TYPES.includes(bed.type as (typeof ROOM_BED_TYPES)[number]) ? null : (
+              <option value={bed.type}>{bed.type}</option>
+            )}
+          </Select>
+          <Select
+            aria-label={`Number of ${bed.type} beds`}
+            value={String(bed.count)}
+            className={inherited ? "border-dashed text-muted" : undefined}
+            onChange={(e) => onChange(rows.map((b, j) => (j === i ? { ...b, count: Number(e.target.value) || 1 } : b)))}
           >
-            <Input
-              aria-label="Charge name"
-              value={fee.label}
-              placeholder="Parking space"
-              onChange={(e) => write(fee.id, { label: e.target.value })}
-            />
-            <Input
-              aria-label="Charge amount"
-              value={moneyBlankIfZero(fee.amount)}
-              placeholder="0"
-              onChange={(e) => write(fee.id, { amount: e.target.value })}
-            />
-            <Select
-              aria-label="How often the charge is billed"
-              value={fee.frequency ?? "monthly"}
-              onChange={(e) => write(fee.id, { frequency: e.target.value as ManagerCustomFeeRow["frequency"] })}
-            >
-              <option value="monthly">Monthly</option>
-              <option value="one-time">One-time</option>
-            </Select>
+            {[1, 2, 3, 4].map((n) => (
+              <option key={n} value={n}>
+                × {n}
+              </option>
+            ))}
+          </Select>
+          {rows.length > 1 ? (
             <button
               type="button"
-              aria-label={`Remove ${fee.label || "charge"}`}
-              onClick={() => patch({ customFees: all.filter((f) => f.id !== fee.id) })}
-              className="justify-self-center text-[13px] text-muted hover:text-foreground"
+              aria-label={`Remove ${bed.type}`}
+              onClick={() => onChange(rows.filter((_, j) => j !== i))}
+              className="grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-foreground/[0.06] hover:text-foreground"
             >
               ✕
             </button>
-          </div>
-        ))}
-      </div>
+          ) : (
+            <span />
+          )}
+        </div>
+      ))}
+      <button
+        type="button"
+        data-attr="listing-v2-bed-add"
+        onClick={() => {
+          const used = rows.map((b) => b.type);
+          const next = ROOM_BED_TYPES.find((t) => !used.includes(t)) ?? "Twin";
+          onChange([...rows, { type: next, count: 1 }]);
+        }}
+        className="self-start text-[12.5px] font-bold text-primary hover:underline"
+      >
+        + Add another bed type
+      </button>
     </div>
   );
 }
 
-/** Utilities and the application fee, asked inside each lease type's card. */
-function LeaseTypeSharedFields({
+/**
+ * The editor that opens under a row. `room` null means the defaults row.
+ *
+ * Same fields, same order, for both — that is what makes the top row readable
+ * as "a room, applied to every room" rather than a second kind of thing.
+ */
+function RoomInlineEditor({
   room,
-  set,
   defaults,
-  sub,
-  patch,
-  byNight = false,
+  onRoom,
+  onDefault,
+  onResetField,
+  onDuplicate,
+  onRemove,
+  onGoToPricing,
 }: {
-  room: ManagerRoomSubmission;
-  set: (patch: Partial<ManagerRoomSubmission>) => void;
+  room: ManagerRoomSubmission | null;
   defaults: ListingHouseDefaults;
-  sub: ManagerListingSubmissionV1;
-  patch: Patch;
-  /** A short stay is counted in nights, so its utilities are quoted per day. */
-  byNight?: boolean;
+  onRoom: (patch: Partial<ManagerRoomSubmission>) => void;
+  onDefault: <K extends ListingHouseDefaultField>(field: K, value: ListingHouseDefaults[K]) => void;
+  onResetField: (field: RoomInheritField) => void;
+  onDuplicate?: () => void;
+  onRemove?: () => void;
+  onGoToPricing: () => void;
 }) {
+  const isDef = room === null;
+  const inherits = (field: RoomInheritField) => (room ? roomInheritsDefault(room, defaults, field) : false);
+  const beds: ManagerRoomBed[] = room ? room.beds ?? parseBedsLine(defaults.bedsLine) : parseBedsLine(defaults.bedsLine);
+  const sleeps = bedsSleep(beds.length > 0 ? beds : [{ type: "Full", count: 1 }]);
+  const residents = room ? room.occupancyCapacity ?? defaults.occupancyCapacity : defaults.occupancyCapacity;
+  const furnishing = room ? room.furnishing || defaults.furnishing : defaults.furnishing;
+  const amenities = room ? room.roomAmenitiesText || defaults.roomAmenitiesText : defaults.roomAmenitiesText;
+  const size = room ? room.sizeSqft ?? defaults.sizeSqft : defaults.sizeSqft;
+
+  const tag = (field: RoomInheritField) => (
+    <InheritTag room={room} defaults={defaults} field={field} onReset={() => onResetField(field)} />
+  );
+
   return (
-    <FieldRow cols={3}>
-      {/*
-       * How utilities are handled is asked BEFORE the amount, because it
-       * decides what the amount means: a figure billed to the resident, or an
-       * estimate shown to them, or nothing at all if it is folded into rent.
-       */}
-      <Field label="How utilities are handled">
+    <div
+      className="grid gap-x-6 gap-y-4 border-t border-border bg-white px-5 py-5 pl-12 sm:grid-cols-2 [html[data-theme=dark]_&]:bg-card"
+      data-attr={isDef ? "listing-v2-defaults-editor" : "listing-v2-room-editor"}
+    >
+      {room ? (
+        <Field label="Photos of this room" optional>
+          <PhotoStrip label="room" urls={room.photoDataUrls ?? []} onChange={(next) => onRoom({ photoDataUrls: next })} />
+        </Field>
+      ) : null}
+      {room ? (
+        <Field label="Video of this room" optional>
+          <VideoSlot label="room" url={room.videoDataUrl} onChange={(next) => onRoom({ videoDataUrl: next })} />
+        </Field>
+      ) : null}
+
+      <Field label="Beds" labelAside={tag("bedsLine")}>
+        <BedsEditor
+          beds={beds}
+          inherited={inherits("bedsLine")}
+          onChange={(next) => {
+            if (room) onRoom({ beds: next, bedCount: next.reduce((n, b) => n + b.count, 0) });
+            else onDefault("bedsLine", bedsLine(next));
+          }}
+        />
+      </Field>
+      <Field
+        label="Residents per room"
+        labelAside={tag("occupancyCapacity")}
+        hint={`Each holds their own lease. These beds sleep ${sleeps}.${residents > sleeps && sleeps > 0 ? " Add a bed or lower the number." : ""}`}
+      >
         <Select
-          value={room.utilitiesPaymentModel ?? ""}
-          onChange={(e) => set({ utilitiesPaymentModel: e.target.value as ManagerRoomSubmission["utilitiesPaymentModel"] })}
+          value={String(residents)}
+          className={inherits("occupancyCapacity") ? "border-dashed text-muted" : undefined}
+          onChange={(e) => {
+            const n = Number(e.target.value) || 1;
+            if (room) onRoom({ occupancyCapacity: n });
+            else onDefault("occupancyCapacity", n);
+          }}
         >
-          <option value="">Select…</option>
-          {LONG_TERM_UTILITIES_PAYMENT_OPTIONS.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.label}
+          {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
+            <option key={n} value={n}>
+              {n} {n === 1 ? "resident" : "residents"}
             </option>
           ))}
         </Select>
       </Field>
-      {byNight ? (
-        <Field label="Utilities / day" optional hint="A stay under a month is counted in nights.">
-          <Input
-            value={room.dailyUtilitiesRate ? String(room.dailyUtilitiesRate) : ""}
-            inputMode="numeric"
-            placeholder="5"
-            onChange={(e) => set({ dailyUtilitiesRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-          />
-        </Field>
-      ) : (
-        <Field label="Utilities / month" optional>
-          <Input
-            value={moneyBlankIfZero(room.utilitiesEstimate)}
-            placeholder={defaults.utilitiesEstimate || "80"}
-            onChange={(e) => set({ utilitiesEstimate: e.target.value })}
-          />
-        </Field>
-      )}
-      <Field label="Application fee">
-        <Input value={moneyBlankIfZero(sub.applicationFee)} onChange={(e) => patch({ applicationFee: e.target.value })} />
+
+      <Field label="Size" optional labelAside={tag("sizeSqft")}>
+        <Input
+          inputMode="numeric"
+          placeholder="140 sq ft"
+          value={size > 0 ? String(size) : ""}
+          className={inherits("sizeSqft") ? "border-dashed text-muted" : undefined}
+          onChange={(e) => {
+            const n = Number(e.target.value.replace(/[^0-9]/g, "")) || 0;
+            if (room) onRoom({ sizeSqft: n > 0 ? n : undefined });
+            else onDefault("sizeSqft", n);
+          }}
+        />
       </Field>
-    </FieldRow>
-  );
-}
+      <Field group label="Furnishing" labelAside={tag("furnishing")}>
+        <FurnishingField
+          value={furnishing}
+          onChange={(next) => (room ? onRoom({ furnishing: next }) : onDefault("furnishing", next))}
+        />
+      </Field>
 
-function RoomDetail({
-  room,
-  sub,
-  patch,
-  defaults,
-  onChange,
-  onBack,
-}: {
-  room: ManagerRoomSubmission;
-  sub: ManagerListingSubmissionV1;
-  /** Writes to the LISTING — the lease types a room is let on live there. */
-  patch: Patch;
-  defaults: ListingHouseDefaults;
-  onChange: (next: ManagerRoomSubmission) => void;
-  onBack: () => void;
-}) {
-  const [openGroup, setOpenGroup] = useState<string | null>("room");
-  const toggleGroup = (id: string) => setOpenGroup((prev) => (prev === id ? null : id));
-  const set = (patch: Partial<ManagerRoomSubmission>) => onChange({ ...room, ...patch });
-  const inheritsRent = roomInheritsDefault(room, defaults, "monthlyRent");
-  const effectiveRent = room.monthlyRent > 0 ? room.monthlyRent : defaults.monthlyRent;
-  const suggested = derivedRoomCharges(effectiveRent);
-  const rates = roomRateVisibility(sub);
+      <div className="sm:col-span-2">
+        <Field label="Room amenities" labelAside={tag("roomAmenitiesText")}>
+          <AmenityChips
+            presets={ROOM_AMENITY_PRESETS}
+            value={amenities}
+            onChange={(next) => (room ? onRoom({ roomAmenitiesText: next }) : onDefault("roomAmenitiesText", next))}
+          />
+        </Field>
+      </div>
 
-  return (
-    <StepColumn>
-      <p className="mb-2 text-[12px] font-bold text-muted">Room</p>
-      <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">
-        {room.name.trim() || "Room"}
-      </h2>
-      <p className="mb-5 mt-1.5 text-[13.5px] leading-relaxed text-muted">
-        The room itself, how it is let, what it costs, and moving in.
-      </p>
-
-      <AdvancedPanel
-        summary="The room · Leasing · Pricing · Move-in"
-        open
-        onToggle={() => undefined}
-        dataAttr="listing-v2-room-advanced"
-      >
-        <AdvancedGroup
-          title="The room"
-          description="Beds · size · furnishing · amenities · photos and video · description"
-          open={openGroup === "room"}
-          onToggle={() => toggleGroup("room")}
-          dataAttr="listing-v2-room-basics"
-        >
-          <FieldRow cols={2}>
-            <Field label="Beds in the room" optional hint="What is physically in there. Shown on the listing.">
-              <Select
-                value={room.bedCount ? String(room.bedCount) : ""}
-                onChange={(e) => set({ bedCount: Number(e.target.value) || undefined })}
-              >
-                <option value="">Not stated</option>
-                {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field
-              label="Residents allowed"
-              hint="How many people may hold a lease here at once. This is the figure occupancy is enforced against."
-            >
-              <Select
-                value={String(room.occupancyCapacity ?? 1)}
-                onChange={(e) => set({ occupancyCapacity: Number(e.target.value) || 1 })}
-              >
-                {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Size" optional>
-              <Input
-                value={room.sizeSqft ? String(room.sizeSqft) : ""}
-                inputMode="numeric"
-                placeholder="sq ft"
-                onChange={(e) => set({ sizeSqft: Number(e.target.value.replace(/[^0-9]/g, "")) || undefined })}
-              />
-            </Field>
-          </FieldRow>
-          <Field group label="Furnishing">
-            <FurnishingField value={room.furnishing ?? ""} onChange={(next) => set({ furnishing: next })} />
-          </Field>
-          <Field label="Room amenities">
-            <AmenityChips
-              presets={ROOM_AMENITY_PRESETS}
-              value={room.roomAmenitiesText ?? ""}
-              onChange={(next) => set({ roomAmenitiesText: next })}
-            />
-          </Field>
-          <FieldRow cols={2}>
-            <Field label="Photos of this room" optional>
-              <PhotoStrip label="room" urls={room.photoDataUrls ?? []} onChange={(next) => set({ photoDataUrls: next })} />
-            </Field>
-            <Field label="Video of this room" optional>
-              <VideoSlot label="room" url={room.videoDataUrl} onChange={(next) => set({ videoDataUrl: next })} />
-            </Field>
-          </FieldRow>
+      {room ? (
+        <div className="sm:col-span-2">
           <Field label="Room description" optional hint="Shown on the public listing under this room.">
-            <Textarea
-              rows={3}
-              value={room.detail ?? ""}
-              onChange={(e) => set({ detail: e.target.value })}
-              placeholder="Corner room, two windows facing the garden…"
-            />
+            <Textarea rows={3} value={room.detail} onChange={(e) => onRoom({ detail: e.target.value })} />
           </Field>
-        </AdvancedGroup>
+        </div>
+      ) : null}
 
-        <AdvancedGroup
-          title="Leasing"
-          description="Which lease types this room is let on — and therefore which prices it needs"
-          open={openGroup === "lease"}
-          onToggle={() => toggleGroup("lease")}
-          dataAttr="listing-v2-room-lease"
-        >
-          <Field
-            label="Lease types offered"
-            hint="Set for the whole listing — the application flow reads this list, so a room cannot offer a type the listing does not. Pricing below follows what you pick."
-          >
-            <LeaseTypesField sub={sub} patch={patch} />
-          </Field>
-        </AdvancedGroup>
-
-        <AdvancedGroup
-          title="Pricing"
-          description="Rent and rates · deposit · move-in fee · utilities · prorated rent · flexible or fixed · extra charges"
-          open={openGroup === "payments"}
-          onToggle={() => toggleGroup("payments")}
-          dataAttr="listing-v2-room-payments"
-        >
-          {/*
-           * Pricing follows the lease types on offer: a card per type, each
-           * holding the prices that type actually needs. A room let long-term
-           * has no nightly rate to fill in, and a nightly stay has no partial
-           * month to split — showing both to everyone is what made this screen
-           * a wall of fields nobody could read.
-           */}
-          <Field
-            label="Fixed or flexible"
-            hint="Flexible advertises the same price and tells a renter it can be discussed — the assistant may negotiate."
-          >
-            <Select
-              value={room.pricingMode ?? "fixed"}
-              onChange={(e) => set({ pricingMode: e.target.value as ManagerRoomSubmission["pricingMode"] })}
-            >
-              <option value="fixed">Fixed — this is the price</option>
-              <option value="flexible">Flexible — open to an offer</option>
-            </Select>
-          </Field>
-
-
-          {!rates.monthly && !rates.shortTerm && !rates.airbnb ? (
-            <p className="rounded-xl border border-dashed border-border bg-card px-4 py-3 text-[12.5px] leading-relaxed text-muted">
-              No lease types are offered yet, so there is nothing to price. Choose them under
-              <span className="font-bold text-foreground"> Leasing</span> above and the matching prices appear here.
-            </p>
-          ) : null}
-
-          {/*
-           * A card per lease type on offer, in the order a manager thinks of
-           * them. The three monthly terms share ONE monthly rent — that is how
-           * the record works — so the first card on screen carries it and the
-           * others say plainly that they use it, with only the surcharge that
-           * makes them different. Two rent boxes would be two numbers that
-           * could disagree, and only one of them is ever billed.
-           */}
-          {rates.longTerm ? (
-            <div className="rounded-xl border border-border bg-card p-4">
-              <p className="text-[13px] font-bold text-foreground">Long-term</p>
-              <p className="mb-3 mt-0.5 text-[12px] text-muted">
-                A month or more from the 1st. The monthly figure here is the one every monthly term uses.
-              </p>
-              <FieldRow cols={3}>
-                <Field
-                  label="Rent / month"
-                  hint={inheritsRent && defaults.monthlyRent > 0 ? `Following the top row: $${defaults.monthlyRent}.` : undefined}
-                >
-                  <Input
-                    value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
-                    inputMode="numeric"
-                    placeholder={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "1,050"}
-                    onChange={(e) => set({ monthlyRent: Number(e.target.value.replace(/[^0-9.]/g, "")) || 0 })}
-                  />
-                </Field>
-                <Field
-                  label="Security deposit"
-                  optional
-                  hint={suggested ? `Suggested ${suggested.securityDeposit} — check your local cap.` : undefined}
-                >
-                  <Input
-                    value={money(room.securityDeposit)}
-                    placeholder={defaults.securityDeposit || suggestionPlaceholder(suggested?.securityDeposit)}
-                    onChange={(e) => set({ securityDeposit: e.target.value })}
-                  />
-                </Field>
-                <Field label="Move-in fee" optional>
-                  <Input
-                    value={money(room.moveInFee)}
-                    placeholder={defaults.moveInFee || suggestionPlaceholder(suggested?.moveInFee)}
-                    onChange={(e) => set({ moveInFee: e.target.value })}
-                  />
-                </Field>
-              </FieldRow>
-              <LeaseTypeSharedFields room={room} set={set} defaults={defaults} sub={sub} patch={patch} />
-              <LeaseTypeCharges leaseType={LONG_TERM_LEASE_TERM} sub={sub} patch={patch} />
-            </div>
-          ) : null}
-
-          {rates.custom ? (
-            <div className="mt-3 rounded-xl border border-border bg-card p-4">
-              <p className="text-[13px] font-bold text-foreground">Custom</p>
-              <p className="mb-3 mt-0.5 text-[12px] text-muted">
-                A month or more starting on some other day, so it is the monthly rent plus a partial first month.
-              </p>
-              {!rates.longTerm ? (
-                <FieldRow cols={3}>
-                  <Field label="Rent / month">
-                    <Input
-                      value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
-                      inputMode="numeric"
-                      placeholder={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "1,050"}
-                      onChange={(e) => set({ monthlyRent: Number(e.target.value.replace(/[^0-9.]/g, "")) || 0 })}
-                    />
-                  </Field>
-                  <Field label="Security deposit" optional>
-                    <Input
-                      value={money(room.securityDeposit)}
-                      placeholder={defaults.securityDeposit || suggestionPlaceholder(suggested?.securityDeposit)}
-                      onChange={(e) => set({ securityDeposit: e.target.value })}
-                    />
-                  </Field>
-                  <Field label="Move-in fee" optional>
-                    <Input
-                      value={money(room.moveInFee)}
-                      placeholder={defaults.moveInFee || suggestionPlaceholder(suggested?.moveInFee)}
-                      onChange={(e) => set({ moveInFee: e.target.value })}
-                    />
-                  </Field>
-                </FieldRow>
-              ) : null}
-              <FieldRow cols={3}>
-                <Field
-                  label="Custom-term surcharge / month"
-                  optional
-                  hint="Set for the whole listing. Extra rent on a term that does not start on the 1st."
-                >
-                  <Input
-                    value={money(sub.customLeaseSurcharge)}
-                    onChange={(e) => patch({ customLeaseSurcharge: e.target.value })}
-                  />
-                </Field>
-                <Field label="Prorate the partial month">
-                  <Select
-                    value={room.prorateMethod ?? "auto"}
-                    onChange={(e) => set({ prorateMethod: e.target.value as ManagerRoomSubmission["prorateMethod"] })}
-                  >
-                    <option value="auto">Work it out automatically</option>
-                    <option value="daily_rate">Set a per-day rate</option>
-                  </Select>
-                </Field>
-                <Field label="Prorated rent / day" optional>
-                  <Input
-                    value={room.dailyRentRate ? String(room.dailyRentRate) : ""}
-                    inputMode="numeric"
-                    placeholder={suggestionPlaceholder(suggested?.dailyRent)}
-                    onChange={(e) => set({ dailyRentRate: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-                  />
-                </Field>
-              </FieldRow>
-              <LeaseTypeSharedFields room={room} set={set} defaults={defaults} sub={sub} patch={patch} />
-              <LeaseTypeCharges leaseType={CUSTOM_LEASE_TERM} sub={sub} patch={patch} />
-            </div>
-          ) : null}
-
-          {rates.monthToMonth ? (
-            <div className="mt-3 rounded-xl border border-border bg-card p-4">
-              <p className="text-[13px] font-bold text-foreground">Month to month</p>
-              <p className="mb-3 mt-0.5 text-[12px] text-muted">
-                Rolls on until either side ends it. Priced off the same monthly rent, plus a surcharge if you charge one.
-              </p>
-              {!rates.longTerm && !rates.custom ? (
-                <FieldRow cols={3}>
-                  <Field label="Rent / month">
-                    <Input
-                      value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
-                      inputMode="numeric"
-                      placeholder={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "1,050"}
-                      onChange={(e) => set({ monthlyRent: Number(e.target.value.replace(/[^0-9.]/g, "")) || 0 })}
-                    />
-                  </Field>
-                  <Field label="Security deposit" optional>
-                    <Input
-                      value={money(room.securityDeposit)}
-                      placeholder={defaults.securityDeposit || suggestionPlaceholder(suggested?.securityDeposit)}
-                      onChange={(e) => set({ securityDeposit: e.target.value })}
-                    />
-                  </Field>
-                  <Field label="Move-in fee" optional>
-                    <Input
-                      value={money(room.moveInFee)}
-                      placeholder={defaults.moveInFee || suggestionPlaceholder(suggested?.moveInFee)}
-                      onChange={(e) => set({ moveInFee: e.target.value })}
-                    />
-                  </Field>
-                </FieldRow>
-              ) : null}
-              <Field
-                label="Month-to-month surcharge / month"
-                optional
-                hint="Set for the whole listing. Extra rent for the flexibility of no fixed end date."
-              >
-                <Input
-                  value={money(sub.monthToMonthSurcharge)}
-                  onChange={(e) => patch({ monthToMonthSurcharge: e.target.value })}
-                />
-              </Field>
-              <LeaseTypeSharedFields room={room} set={set} defaults={defaults} sub={sub} patch={patch} />
-              <LeaseTypeCharges leaseType="Month-to-Month" sub={sub} patch={patch} />
-            </div>
-          ) : null}
-
-          {rates.shortTerm ? (
-            <div className="mt-3 rounded-xl border border-border bg-card p-4">
-              <p className="text-[13px] font-bold text-foreground">Short-term</p>
-              <p className="mb-3 mt-0.5 text-[12px] text-muted">Under a month, so it is priced by the week or night.</p>
-              <FieldRow cols={2}>
-                <Field label="Rent / week" optional hint={suggested ? `Suggested ${suggested.weeklyRent}.` : undefined}>
-                  <Input
-                    value={room.weeklyRentPrice ? String(room.weeklyRentPrice) : ""}
-                    placeholder={suggestionPlaceholder(suggested?.weeklyRent)}
-                    inputMode="numeric"
-                    onChange={(e) => set({ weeklyRentPrice: Number(e.target.value.replace(/[^0-9.]/g, "")) || undefined })}
-                  />
-                </Field>
-                <Field label="Rent / night" optional hint={suggested ? `Suggested ${suggested.dailyRent}.` : undefined}>
-                  <Input
-                    value={money(room.shortTermRent)}
-                    placeholder={suggestionPlaceholder(suggested?.dailyRent)}
-                    onChange={(e) => set({ shortTermRent: e.target.value })}
-                  />
-                </Field>
-              </FieldRow>
-              <FieldRow cols={2}>
-                <Field label="Deposit" optional>
-                  <Input value={money(room.shortTermDeposit)} onChange={(e) => set({ shortTermDeposit: e.target.value })} />
-                </Field>
-                <Field label="Move-in fee" optional>
-                  <Input
-                    value={money(room.shortTermMoveInFee)}
-                    onChange={(e) => set({ shortTermMoveInFee: e.target.value })}
-                  />
-                </Field>
-              </FieldRow>
-              <LeaseTypeSharedFields room={room} set={set} defaults={defaults} sub={sub} patch={patch} byNight />
-              <LeaseTypeCharges leaseType={SHORT_TERM_LEASE_TERM} sub={sub} patch={patch} />
-            </div>
-          ) : null}
-
-          {rates.airbnb ? (
-            <div className="mt-3 rounded-xl border border-dashed border-border bg-card p-4">
-              <p className="text-[13px] font-bold text-foreground">Airbnb</p>
-              <p className="mt-0.5 text-[12px] leading-relaxed text-muted">
-                Nothing to price. An Airbnb stay is booked and paid for on Airbnb, so PropLane raises no rent charge —
-                it is here only so the resident is tracked through your listing like any other.
-              </p>
-            </div>
-          ) : null}
-
-        </AdvancedGroup>
-
-        <AdvancedGroup
-          title="Move-in"
-          description="When it is free · instructions · entry photos · arrival clip · move-in and move-out checklists"
-          open={openGroup === "movein"}
-          onToggle={() => toggleGroup("movein")}
-          dataAttr="listing-v2-room-movein"
-        >
+      {room ? (
+        <>
           <Field label="Available from" optional hint="Leave blank if it is free now.">
-            <Input
-              value={room.moveInAvailableDate ?? ""}
-              placeholder="1 Oct 2026"
-              onChange={(e) => set({ moveInAvailableDate: e.target.value })}
-            />
+            <Input type="date" value={room.moveInAvailableDate} onChange={(e) => onRoom({ moveInAvailableDate: e.target.value })} />
           </Field>
-          <Field label="Move-in instructions" optional>
-            <Textarea
-              rows={3}
-              value={room.moveInInstructions ?? ""}
-              onChange={(e) => set({ moveInInstructions: e.target.value })}
-              placeholder="Door code, key box, which entrance to use…"
-            />
+          <Field label="Move-in instructions" optional hint="Which key opens it, where to park on move-in day.">
+            <Textarea rows={2} value={room.moveInInstructions} onChange={(e) => onRoom({ moveInInstructions: e.target.value })} />
           </Field>
-          <FieldRow cols={2}>
-            <Field label="Entry photos" optional hint="The key box, the bins, which door.">
-              <PhotoStrip
-                label="entry"
-                urls={room.moveInPhotoDataUrls ?? []}
-                onChange={(next) => set({ moveInPhotoDataUrls: next })}
-              />
-            </Field>
-            <Field label="Arrival clip" optional>
-              <VideoSlot label="arrival" url={room.moveInVideoDataUrl} onChange={(next) => set({ moveInVideoDataUrl: next })} />
-            </Field>
-          </FieldRow>
-          <Field group label="Checklists">
-            <CheckboxOption
-              label="Move-in checklist required"
-              description="Completed and photographed before the resident takes the room."
-              checked={room.moveInInspectionRequired === true}
-              onChange={(next) => set({ moveInInspectionRequired: next })}
-            />
-            <CheckboxOption
-              label="Move-out checklist required"
-              description="Completed before the deposit is settled."
-              checked={room.moveOutInspectionRequired === true}
-              onChange={(next) => set({ moveOutInspectionRequired: next })}
-            />
+          <Field label="Entry photos" optional hint="The key box, the bins, which door.">
+            <PhotoStrip label="entry" urls={room.moveInPhotoDataUrls ?? []} onChange={(next) => onRoom({ moveInPhotoDataUrls: next })} />
           </Field>
-        </AdvancedGroup>
-      </AdvancedPanel>
+          <Field label="Arrival clip" optional>
+            <VideoSlot label="arrival" url={room.moveInVideoDataUrl} onChange={(next) => onRoom({ moveInVideoDataUrl: next })} />
+          </Field>
+        </>
+      ) : null}
 
-      <button
-        type="button"
-        onClick={onBack}
-        data-attr="listing-v2-room-back"
-        className="mt-5 min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground"
-      >
-        Back to rooms
-      </button>
-    </StepColumn>
-  );
-}
+      <Field group label="Checklists">
+        <CheckboxOption
+          label="Move-in checklist required"
+          checked={room ? Boolean(room.moveInInspectionRequired) : defaults.moveInInspectionRequired}
+          onChange={(next) => (room ? onRoom({ moveInInspectionRequired: next }) : onDefault("moveInInspectionRequired", next))}
+        />
+        <CheckboxOption
+          label="Move-out checklist required"
+          checked={room ? Boolean(room.moveOutInspectionRequired) : defaults.moveOutInspectionRequired}
+          onChange={(next) => (room ? onRoom({ moveOutInspectionRequired: next }) : onDefault("moveOutInspectionRequired", next))}
+        />
+      </Field>
 
-/**
- * The "most rooms are…" row's Details, in the same sectioned panel a room gets.
- *
- * It was a flat card of six fields while a room had five named sections, so the
- * two screens that answer the same questions looked like different features.
- * Only the sections a DEFAULT can carry are here: a default has no photos, no
- * availability and no description, because those are what makes one room
- * different from the next.
- */
-function DefaultsDetail({
-  sub,
-  patch,
-  defaults,
-  editDefault,
-}: {
-  sub: ManagerListingSubmissionV1;
-  patch: Patch;
-  defaults: ListingHouseDefaults;
-  editDefault: (field: keyof ListingHouseDefaults, value: ListingHouseDefaults[keyof ListingHouseDefaults]) => void;
-}) {
-  const [openGroup, setOpenGroup] = useState<string | null>("room");
-  const toggle = (id: string) => setOpenGroup((prev) => (prev === id ? null : id));
-  const rates = roomRateVisibility(sub);
-  return (
-    <AdvancedPanel
-      summary="The room · Leasing · Pricing · Move-in"
-      open
-      onToggle={() => undefined}
-      dataAttr="listing-v2-defaults-advanced"
-    >
-      <AdvancedGroup
-        title="The room"
-        description="What most rooms come with"
-        open={openGroup === "room"}
-        onToggle={() => toggle("room")}
-        dataAttr="listing-v2-defaults-basics"
-      >
-        <FieldRow cols={2}>
-          <Field label="Residents allowed in most rooms" hint="What occupancy is enforced against.">
-            <Select
-              value={String(defaults.occupancyCapacity)}
-              onChange={(e) => editDefault("occupancyCapacity", Number(e.target.value) || 1)}
-            >
-              {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field group label="Furnishing">
-            <FurnishingField value={defaults.furnishing} onChange={(next) => editDefault("furnishing", next)} />
-          </Field>
-        </FieldRow>
-        <FieldRow cols={2}>
-          <Field label="Size" optional hint="Square feet, when most rooms are near enough alike.">
-            <Input
-              value={defaults.sizeSqft > 0 ? String(defaults.sizeSqft) : ""}
-              inputMode="numeric"
-              placeholder="sq ft"
-              onChange={(e) => editDefault("sizeSqft", Number(e.target.value.replace(/[^0-9]/g, "")) || 0)}
-            />
-          </Field>
-          <Field label="Amenities in most rooms" optional>
-            <AmenityChips
-              presets={ROOM_AMENITY_PRESETS}
-              value={defaults.roomAmenitiesText}
-              onChange={(next) => editDefault("roomAmenitiesText", next)}
-            />
-          </Field>
-        </FieldRow>
-      </AdvancedGroup>
-
-      <AdvancedGroup
-        title="Leasing"
-        description="Which lease types this listing is let on — and therefore which prices a room needs"
-        open={openGroup === "leasing"}
-        onToggle={() => toggle("leasing")}
-        dataAttr="listing-v2-defaults-leasing"
-      >
-        <Field label="Lease types offered" hint="Set for the whole listing. Pricing follows what you pick.">
-          <LeaseTypesField sub={sub} patch={patch} />
-        </Field>
-      </AdvancedGroup>
-
-      <AdvancedGroup
-        title="Pricing"
-        description="Fixed or flexible · a rate per lease type · deposit · move-in fee · utilities · prorating"
-        open={openGroup === "payments"}
-        onToggle={() => toggle("payments")}
-        dataAttr="listing-v2-defaults-payments"
-      >
-        {/*
-         * The same cards a room gets, so the top row can answer every pricing
-         * question rather than a subset — a manager who sets short-stay rates
-         * for one room expects to set them for most rooms in one place.
-         */}
-        <FieldRow cols={2}>
-          <Field label="Fixed or flexible" hint="Flexible shows the same price and invites an offer.">
-            <Select
-              value={defaults.pricingMode}
-              onChange={(e) => editDefault("pricingMode", e.target.value as ListingHouseDefaults["pricingMode"])}
-            >
-              <option value="">Leave to each room</option>
-              <option value="fixed">Fixed</option>
-              <option value="flexible">Flexible</option>
-            </Select>
-          </Field>
-          <Field label="How utilities are handled">
-            <Select
-              value={defaults.utilitiesPaymentModel}
-              onChange={(e) => editDefault("utilitiesPaymentModel", e.target.value as ListingHouseDefaults["utilitiesPaymentModel"])}
-            >
-              <option value="">Select…</option>
-              {LONG_TERM_UTILITIES_PAYMENT_OPTIONS.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </FieldRow>
-
-        {rates.monthly ? (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <p className="text-[13px] font-bold text-foreground">
-              {[rates.longTerm ? "Long-term" : null, rates.custom ? "custom" : null, rates.monthToMonth ? "month-to-month" : null]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
-            <p className="mb-3 mt-0.5 text-[12px] text-muted">One monthly figure covers all of these.</p>
-            <FieldRow cols={3}>
-              <Field label="Rent / month" optional>
-                <Input
-                  value={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : ""}
-                  inputMode="numeric"
-                  placeholder="1,050"
-                  onChange={(e) => editDefault("monthlyRent", Number(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
-                />
-              </Field>
-              <Field label="Deposit" optional>
-                <Input
-                  value={defaults.securityDeposit}
-                  placeholder="500"
-                  onChange={(e) => editDefault("securityDeposit", e.target.value)}
-                />
-              </Field>
-              <Field label="Move-in fee" optional>
-                <Input
-                  value={defaults.moveInFee}
-                  placeholder="0"
-                  onChange={(e) => editDefault("moveInFee", e.target.value)}
-                />
-              </Field>
-            </FieldRow>
-            <FieldRow cols={3}>
-              <Field label="Utilities / month" optional>
-                <Input
-                  value={defaults.utilitiesEstimate}
-                  placeholder="80"
-                  onChange={(e) => editDefault("utilitiesEstimate", e.target.value)}
-                />
-              </Field>
-              {rates.prorate ? (
-                <>
-                  <Field label="Prorate a partial month">
-                    <Select
-                      value={defaults.prorateMethod}
-                      onChange={(e) => editDefault("prorateMethod", e.target.value as ListingHouseDefaults["prorateMethod"])}
-                    >
-                      <option value="">Leave to each room</option>
-                      <option value="auto">Work it out automatically</option>
-                      <option value="daily_rate">Set a per-day rate</option>
-                    </Select>
-                  </Field>
-                  <Field label="Prorated rent / day" optional>
-                    <Input
-                      value={defaults.dailyRentRate > 0 ? String(defaults.dailyRentRate) : ""}
-                      inputMode="numeric"
-                      onChange={(e) => editDefault("dailyRentRate", Number(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
-                    />
-                  </Field>
-                </>
-              ) : null}
-            </FieldRow>
+      <div className="flex items-center justify-between gap-3 border-t border-border pt-4 sm:col-span-2">
+        <p className="text-[12.5px] text-muted">
+          {isDef ? (
+            "Changing anything here moves every room that still follows it. Rooms you have changed keep their own value."
+          ) : (
+            <>
+              Rent for this room is set in Pricing.{" "}
+              <button type="button" onClick={onGoToPricing} className="font-bold text-primary hover:underline">
+                Go to Pricing
+              </button>
+            </>
+          )}
+        </p>
+        {room ? (
+          <div className="flex shrink-0 gap-1">
+            {onDuplicate ? (
+              <button type="button" onClick={onDuplicate} className="rounded-full px-3 py-1.5 text-[12.5px] font-bold text-muted hover:bg-foreground/[0.05] hover:text-foreground">
+                Duplicate
+              </button>
+            ) : null}
+            {onRemove ? (
+              <button type="button" onClick={onRemove} data-attr="listing-v2-room-remove" className="rounded-full px-3 py-1.5 text-[12.5px] font-bold text-[var(--status-overdue-fg)] hover:bg-[var(--status-overdue-bg)]">
+                Remove
+              </button>
+            ) : null}
           </div>
         ) : null}
-
-        {rates.shortTerm ? (
-          <div className="mt-3 rounded-xl border border-border bg-card p-4">
-            <p className="text-[13px] font-bold text-foreground">Short-term</p>
-            <p className="mb-3 mt-0.5 text-[12px] text-muted">Under a month, so it is priced by the week or night.</p>
-            <FieldRow cols={2}>
-              <Field label="Rent / week" optional>
-                <Input
-                  value={defaults.weeklyRentPrice > 0 ? String(defaults.weeklyRentPrice) : ""}
-                  inputMode="numeric"
-                  onChange={(e) => editDefault("weeklyRentPrice", Number(e.target.value.replace(/[^0-9.]/g, "")) || 0)}
-                />
-              </Field>
-              <Field label="Rent / night" optional>
-                <Input
-                  value={defaults.shortTermRent}
-                  onChange={(e) => editDefault("shortTermRent", e.target.value)}
-                />
-              </Field>
-            </FieldRow>
-            <FieldRow cols={2}>
-              <Field label="Deposit" optional>
-                <Input
-                  value={defaults.shortTermDeposit}
-                  onChange={(e) => editDefault("shortTermDeposit", e.target.value)}
-                />
-              </Field>
-              <Field label="Move-in fee" optional>
-                <Input
-                  value={defaults.shortTermMoveInFee}
-                  onChange={(e) => editDefault("shortTermMoveInFee", e.target.value)}
-                />
-              </Field>
-            </FieldRow>
-          </div>
-        ) : null}
-
-        {!rates.monthly && !rates.shortTerm && !rates.airbnb ? (
-          <p className="rounded-xl border border-dashed border-border bg-card px-4 py-3 text-[12.5px] leading-relaxed text-muted">
-            No lease types are offered yet, so there is nothing to price. Choose them under
-            <span className="font-bold text-foreground"> Leasing</span> above.
-          </p>
-        ) : null}
-      </AdvancedGroup>
-
-      <AdvancedGroup
-        title="Move-in"
-        description="Checklists most rooms require"
-        open={openGroup === "movein"}
-        onToggle={() => toggle("movein")}
-        dataAttr="listing-v2-defaults-movein"
-      >
-        <Field group label="Checklists for most rooms">
-          <CheckboxOption
-            label="Move-in checklist required"
-            checked={defaults.moveInInspectionRequired}
-            onChange={(next) => editDefault("moveInInspectionRequired", next)}
-          />
-          <CheckboxOption
-            label="Move-out checklist required"
-            checked={defaults.moveOutInspectionRequired}
-            onChange={(next) => editDefault("moveOutInspectionRequired", next)}
-          />
-        </Field>
-      </AdvancedGroup>
-    </AdvancedPanel>
+      </div>
+    </div>
   );
 }
 
@@ -1575,147 +1061,76 @@ function StepRooms({
   patch,
   defaults,
   setDefaults,
+  onGoToPricing,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: Patch;
   defaults: ListingHouseDefaults;
   setDefaults: (next: ListingHouseDefaults) => void;
+  onGoToPricing: () => void;
 }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [openRoomId, setOpenRoomId] = useState<string | null>(null);
-  const [copyOpen, setCopyOpen] = useState(false);
-  const [openDefaults, setOpenDefaults] = useState(false);
+  /** Which row is open: a room id, "defaults", or nothing. */
+  const [open, setOpen] = useState<string | null>(null);
   /**
    * Rooms the manager has edited by hand in this session.
    *
    * Value comparison alone is not enough to answer "has this room been
-   * edited". While the house default for a field is still unset, EVERY room
-   * reads as following it — a room cannot diverge from a blank — so a room
-   * given its own rent before the top row had one was still swept up the first
-   * time that top row was filled in. This set remembers the act, not the value.
+   * edited": while a house default is blank, every room reads as following it,
+   * so a room given its own value before the top row was filled in was still
+   * swept up the first time the top row changed. This remembers the act.
    */
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const markTouched = (id: string) => setTouched((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
-  const [copyTargets, setCopyTargets] = useState<Set<string>>(new Set());
   const rooms = sub.rooms ?? [];
-  const openRoom = rooms.find((r) => r.id === openRoomId) ?? null;
-  useDetailBack(Boolean(openRoom), () => setOpenRoomId(null));
+  const baths = sub.bathrooms ?? [];
 
-  function writeRooms(next: ManagerRoomSubmission[]) {
-    patch({ rooms: next });
-  }
-
-  /**
-   * Rooms that have never been edited — the only ones the "most rooms are…"
-   * row is allowed to change.
-   *
-   * The rule is per ROOM, not per field: once a manager has touched a room at
-   * all, that room stops following the defaults for everything, including the
-   * fields they left alone. A manager who set Room 3's rent by hand does not
-   * expect its beds to move underneath them later, and the old per-field rule
-   * did exactly that. "Copy to all rooms" is the way to overwrite an edited
-   * room, and it is a deliberate click rather than a side effect of typing.
-   */
+  const writeRooms = (next: ManagerRoomSubmission[]) => patch({ rooms: next });
+  const writeRoom = (id: string, roomPatch: Partial<ManagerRoomSubmission>) => {
+    markTouched(id);
+    writeRooms(rooms.map((r) => (r.id === id ? { ...r, ...roomPatch } : r)));
+  };
   const untouchedRoomIds = (against: ListingHouseDefaults) =>
     roomsFollowingDefaults(rooms, against).filter((id) => !touched.has(id));
 
-  function editDefault(field: keyof ListingHouseDefaults, value: ListingHouseDefaults[keyof ListingHouseDefaults]) {
+  function editDefault<K extends ListingHouseDefaultField>(field: K, value: ListingHouseDefaults[K]) {
     const previous = defaults;
     const next = { ...defaults, [field]: value } as ListingHouseDefaults;
     setDefaults(next);
     // Inheritance is judged against the PREVIOUS default — see
     // applyHouseDefaultsToRooms. Judging against the new one freezes every room.
-    writeRooms(
-      applyHouseDefaultsToRooms(rooms, next, {
-        onlyFields: [field],
-        previousDefaults: previous,
-        roomIds: untouchedRoomIds(previous),
-      }),
-    );
+    writeRooms(applyHouseDefaultsToRooms(rooms, next, { onlyFields: [field], previousDefaults: previous, roomIds: untouchedRoomIds(previous) }));
   }
+  /** Put one field back on the house — an explicit copy-down of that column to this room. */
+  const resetField = (id: string, field: RoomInheritField) =>
+    writeRooms(applyHouseDefaultsToRooms(rooms, defaults, { onlyFields: [field], roomIds: [id] }));
 
-
-  if (openRoom) {
-    return (
-      <RoomDetail
-        room={openRoom}
-        sub={sub}
-        patch={patch}
-        defaults={defaults}
-        onBack={() => setOpenRoomId(null)}
-        onChange={(next) => {
-          markTouched(next.id);
-          writeRooms(rooms.map((r) => (r.id === next.id ? next : r)));
-        }}
-      />
-    );
-  }
-
-  const columns = [
-    { key: "name", label: "Room" },
-    { key: "floor", label: "Floor" },
-    { key: "access", label: "Bathroom" },
-    { key: "rent", label: "Rent" },
-    { key: "beds", label: "Beds" },
-    { key: "details", label: "" },
-  ];
   const floorOptions = floorLevelSelectOptions(sub.listingStoriesId, "").map((l) => ({ value: l, label: l }));
-  const baths = sub.bathrooms ?? [];
 
-  /**
-   * Which bathroom a room uses is stored on the BATHROOM (`assignedRoomIds`),
-   * because one bathroom serves many rooms. The row shows it from the room's
-   * side, so writing it means moving the room's id between bathrooms rather
-   * than setting a field on the room.
-   */
-  /**
-   * Attach a room to a bathroom if it is not on one yet, so an access kind has
-   * somewhere to live. The manager is no longer asked WHICH bathroom — what a
-   * renter needs to know is whether it is en-suite, shared, or down the hall —
-   * so the first bathroom carries the mapping, and which physical bathroom
-   * serves which room stays adjustable on the Bathrooms step.
-   */
+  /* Bathroom access lives on the BATHROOM (`assignedRoomIds`), shown from the room's side. */
   const withRoomAttached = (roomId: string): ManagerBathroomSubmission[] => {
     if (baths.length === 0) return baths;
     if (baths.some((b) => (b.assignedRoomIds ?? []).includes(roomId))) return baths;
-    return baths.map((b, idx) =>
-      idx === 0 ? { ...b, assignedRoomIds: [...(b.assignedRoomIds ?? []), roomId] } : b,
-    );
+    return baths.map((b, idx) => (idx === 0 ? { ...b, assignedRoomIds: [...(b.assignedRoomIds ?? []), roomId] } : b));
   };
-  const accessForRoom = (roomId: string): string => {
-    const bath = baths.find((b) => (b.assignedRoomIds ?? []).includes(roomId));
-    return bath?.accessKindByRoomId?.[roomId] ?? "";
-  };
+  const accessForRoom = (roomId: string): string =>
+    baths.find((b) => (b.assignedRoomIds ?? []).includes(roomId))?.accessKindByRoomId?.[roomId] ?? "";
   const setAccessForRoom = (roomId: string, kind: string) => {
-    // Only a value the model actually defines reaches storage; anything else
-    // clears the field rather than writing a string the readers do not know.
-    const next = BATHROOM_ACCESS_OPTIONS.some((o) => o.value === kind)
-      ? (kind as ManagerBathroomRoomAccessKind)
-      : undefined;
-    const attached = withRoomAttached(roomId);
+    const next = BATHROOM_ACCESS_OPTIONS.some((o) => o.value === kind) ? (kind as ManagerBathroomRoomAccessKind) : undefined;
+    markTouched(roomId);
     patch({
-      bathrooms: attached.map((b) =>
-        (b.assignedRoomIds ?? []).includes(roomId)
-          ? { ...b, accessKindByRoomId: { ...(b.accessKindByRoomId ?? {}), [roomId]: next } }
-          : b,
+      bathrooms: withRoomAttached(roomId).map((b) =>
+        (b.assignedRoomIds ?? []).includes(roomId) ? { ...b, accessKindByRoomId: { ...(b.accessKindByRoomId ?? {}), [roomId]: next } } : b,
       ),
     });
   };
-  /**
-   * The same access on every room that has not been edited — the "most rooms
-   * are…" version. An edited room keeps whatever its manager chose.
-   */
   const setAccessForAllRooms = (kind: string) => {
-    const next = BATHROOM_ACCESS_OPTIONS.some((o) => o.value === kind)
-      ? (kind as ManagerBathroomRoomAccessKind)
-      : undefined;
+    const next = BATHROOM_ACCESS_OPTIONS.some((o) => o.value === kind) ? (kind as ManagerBathroomRoomAccessKind) : undefined;
     if (baths.length === 0) return;
     const ids = untouchedRoomIds(defaults);
     if (ids.length === 0) return;
     patch({
       bathrooms: baths.map((b, idx) => {
-        const assigned =
-          idx === 0 ? Array.from(new Set([...(b.assignedRoomIds ?? []), ...ids])) : b.assignedRoomIds ?? [];
+        const assigned = idx === 0 ? Array.from(new Set([...(b.assignedRoomIds ?? []), ...ids])) : b.assignedRoomIds ?? [];
         const kinds = { ...(b.accessKindByRoomId ?? {}) };
         for (const id of assigned) if (ids.includes(id)) kinds[id] = next;
         return { ...b, assignedRoomIds: assigned, accessKindByRoomId: kinds };
@@ -1723,277 +1138,146 @@ function StepRooms({
     });
   };
 
+  const accessSelect = (value: string, onChange: (v: string) => void, label: string, inherited: boolean) => (
+    <select value={value} onChange={(e) => onChange(e.target.value)} disabled={baths.length === 0} aria-label={label} className={cn(cellSelect(inherited), "disabled:opacity-60")}>
+      <option value="">{baths.length === 0 ? "Add a bathroom" : "Select…"}</option>
+      {BATHROOM_ACCESS_OPTIONS.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+
+  const furnishingSummary = (text: string) => {
+    const items = text.split(",").map((s) => s.trim()).filter(Boolean);
+    if (items.length === 0) return "Unfurnished";
+    return `Furnished · ${items.length} ${items.length === 1 ? "item" : "items"}`;
+  };
+
+  const toggle = (id: string) => setOpen((prev) => (prev === id ? null : id));
+  const chevron = (id: string, label: string) => (
+    <button
+      type="button"
+      onClick={() => toggle(id)}
+      aria-expanded={open === id}
+      aria-label={`${open === id ? "Close" : "Open"} ${label}`}
+      data-attr={id === "defaults" ? "listing-v2-defaults-open" : "listing-v2-room-open"}
+      className={cn("grid h-6 w-6 place-items-center rounded-md text-muted hover:bg-foreground/[0.06] hover:text-foreground", open === id && "text-primary")}
+    >
+      <ChevronRight className={cn("h-4 w-4 transition-transform", open === id && "rotate-90")} aria-hidden />
+    </button>
+  );
+
   return (
     <StepColumn wide>
       <StepHeading
         title={`Your ${rooms.length} ${rooms.length === 1 ? "room" : "rooms"}`}
-        subtitle="Set what is true for most rooms once. Change only the rooms that differ."
+        subtitle="Set what is true for every room once, at the top. Change only the rooms that differ — grey follows the top row, ink with a dot is the room's own."
       />
 
-      {/*
-       * The house defaults are the FIRST ROW of the same table, not a separate
-       * card above it. They answer the same questions in the same columns, so
-       * two differently-shaped panels asking "rent?" twice was the confusing
-       * part. Its checkbox selects every room; its Details opens the settings
-       * that apply to most rooms.
-       */}
-      <RowList columns={columns}>
-        <div
-          className="grid items-center gap-2 border-b-2 border-primary/25 bg-primary/[0.05] px-3 py-2"
-          style={{ gridTemplateColumns: rowTemplate(columns.length) }}
-        >
-          {/*
-           * No checkbox here. This row is not a room, so selecting it selected
-           * every room and then offered to duplicate or delete them — an
-           * alarming thing to find under a row that only sets defaults.
-           */}
-          <span aria-hidden className="h-10 w-6" />
-          <span className="px-1 text-[13px] font-bold text-foreground">Most rooms are…</span>
-          <RowSelectCell
-            ariaLabel="Floor for most rooms"
-            value={defaults.floor}
-            options={floorOptions}
-            placeholder="Floor…"
-            onChange={(v) => editDefault("floor", v)}
-          />
-          <select
-            value={rooms.length > 0 ? accessForRoom(rooms[0]!.id) : ""}
-            onChange={(e) => setAccessForAllRooms(e.target.value)}
-            disabled={baths.length === 0}
-            aria-label="Bathroom access for most rooms"
-            className="min-h-[38px] w-full rounded-lg border border-border bg-card px-2 py-1.5 text-[13px] text-foreground outline-none focus:border-primary disabled:opacity-60"
-          >
-            <option value="">{baths.length === 0 ? "Add a bathroom" : "Select…"}</option>
-            {BATHROOM_ACCESS_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-          <RowCell
-            ariaLabel="Rent for most rooms"
-            inputMode="numeric"
-            value={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : ""}
-            placeholder="1,050"
-            onChange={(v) => editDefault("monthlyRent", Number(v.replace(/[^0-9.]/g, "")) || 0)}
-          />
-          <RowSelectCell
-            ariaLabel="Beds in most rooms"
-            value={String(defaults.occupancyCapacity)}
-            options={[1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }))}
-            onChange={(v) => editDefault("occupancyCapacity", Number(v) || 1)}
-          />
-          <button
-            type="button"
-            onClick={() => setOpenDefaults((v) => !v)}
-            data-attr="listing-v2-more-defaults"
-            aria-expanded={openDefaults}
-            className="justify-self-start rounded-full border border-primary/30 bg-card px-3 py-1.5 text-[12px] font-bold text-primary hover:bg-accent/40"
-          >
-            Details
-          </button>
-          <span />
+      <div className="overflow-x-auto rounded-2xl border border-border">
+      <div className="min-w-[780px]">
+        <div className="grid items-center gap-2 border-b border-border bg-accent/25 px-3 py-2 text-[10.5px] font-extrabold uppercase tracking-wide text-muted" style={{ gridTemplateColumns: ROOM_GRID_COLUMNS }}>
+          <span /><span>Room</span><span>Floor</span><span>Bathroom</span><span>Beds</span><span>People</span><span>Furnishing</span><span className="text-right">Rent</span><span />
         </div>
 
-        {/*
-         * Directly under the row it belongs to, and above the rooms it
-         * governs. Below the table it read as a panel about the whole step
-         * rather than about the "most rooms are…" row.
-         */}
-        {openDefaults ? (
-          <div className="border-b border-border bg-primary/[0.03] px-3 py-3">
-            <DefaultsDetail sub={sub} patch={patch} defaults={defaults} editDefault={editDefault} />
+        {/* Every room — the defaults, in a room's clothes. */}
+        <div className={cn(open === "defaults" && "shadow-[inset_3px_0_0_var(--pl-blue)]")}>
+          <div className="grid items-center gap-2 border-b-2 border-primary/25 bg-primary/[0.05] px-3 py-2" style={{ gridTemplateColumns: ROOM_GRID_COLUMNS }}>
+            {chevron("defaults", "every room")}
+            <span className="min-w-0 leading-tight">
+              <b className="block text-[13.5px] font-bold text-foreground">Every room</b>
+              <span className="block text-[11.5px] text-muted">Rooms follow this until you change them</span>
+            </span>
+            <RowSelectCell ariaLabel="Floor for every room" value={defaults.floor} options={floorOptions} placeholder="Floor…" onChange={(v) => editDefault("floor", v)} />
+            {accessSelect(rooms[0] ? accessForRoom(rooms[0].id) : "", setAccessForAllRooms, "Bathroom access for every room", false)}
+            <button type="button" onClick={() => toggle("defaults")} className={cn(cellSelect(false), "truncate text-left")} aria-label="Beds for every room">
+              {defaults.bedsLine || "Choose beds…"}
+            </button>
+            <select value={String(defaults.occupancyCapacity)} onChange={(e) => editDefault("occupancyCapacity", Number(e.target.value) || 1)} aria-label="Residents per room for every room" className={cellSelect(false)}>
+              {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+            <button type="button" onClick={() => toggle("defaults")} className={cn(cellSelect(false), "truncate text-left")} aria-label="Furnishing for every room">
+              {furnishingSummary(defaults.furnishing)}
+            </button>
+            <span className="text-right text-[11.5px] text-muted">Per room</span>
+            <span />
           </div>
-        ) : null}
+          {open === "defaults" ? (
+            <RoomInlineEditor room={null} defaults={defaults} onRoom={() => {}} onDefault={editDefault} onResetField={() => {}} onGoToPricing={onGoToPricing} />
+          ) : null}
+        </div>
 
         {rooms.map((room, i) => {
-          const overrides = roomOverriddenDefaults(room, defaults);
-          const rentInherited = roomInheritsDefault(room, defaults, "monthlyRent");
-          const bedsInherited = roomInheritsDefault(room, defaults, "occupancyCapacity");
+          const isOpen = open === room.id;
+          const inh = (f: RoomInheritField) => roomInheritsDefault(room, defaults, f);
+          const label = room.name.trim() || `Room ${i + 1}`;
           return (
-            <Row
-              key={room.id}
-              columnCount={columns.length}
-              selected={selected.has(room.id)}
-              onSelectChange={(on) =>
-                setSelected((prev) => {
-                  const next = new Set(prev);
-                  if (on) next.add(room.id);
-                  else next.delete(room.id);
-                  return next;
-                })
-              }
-              removeLabel={`Remove ${room.name || `room ${i + 1}`}`}
-              onRemove={rooms.length > 1 ? () => writeRooms(rooms.filter((r) => r.id !== room.id)) : undefined}
-            >
-              <RowCell
-                ariaLabel={`Name for room ${i + 1}`}
-                value={room.name}
-                placeholder={`Room ${i + 1}`}
-                onChange={(v) => {
-                  markTouched(room.id);
-                  writeRooms(rooms.map((r) => (r.id === room.id ? { ...r, name: v } : r)));
-                }}
-              />
-              <RowSelectCell
-                ariaLabel={`Floor for ${room.name || `room ${i + 1}`}`}
-                value={room.floor}
-                options={floorOptions}
-                placeholder="Floor…"
-                onChange={(v) => {
-                  markTouched(room.id);
-                  writeRooms(rooms.map((r) => (r.id === room.id ? { ...r, floor: v } : r)));
-                }}
-              />
-              <RowSelectCell
-                ariaLabel={`Bathroom access for ${room.name || `room ${i + 1}`}`}
-                value={accessForRoom(room.id)}
-                options={BATHROOM_ACCESS_OPTIONS}
-                placeholder="Shared"
-                onChange={(v) => {
-                  markTouched(room.id);
-                  setAccessForRoom(room.id, v);
-                }}
-              />
-              <RowCell
-                ariaLabel={`Rent for ${room.name || `room ${i + 1}`}`}
-                inputMode="numeric"
-                inherited={rentInherited}
-                value={room.monthlyRent > 0 ? String(room.monthlyRent) : ""}
-                placeholder={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "1,050"}
-                onChange={(v) => {
-                  markTouched(room.id);
-                  writeRooms(
-                    rooms.map((r) =>
-                      r.id === room.id ? { ...r, monthlyRent: Number(v.replace(/[^0-9.]/g, "")) || 0 } : r,
-                    ),
-                  );
-                }}
-              />
-              <RowCell
-                ariaLabel={`Beds in ${room.name || `room ${i + 1}`}`}
-                inputMode="numeric"
-                inherited={bedsInherited}
-                value={room.occupancyCapacity ? String(room.occupancyCapacity) : ""}
-                placeholder={String(defaults.occupancyCapacity)}
-                onChange={(v) => {
-                  markTouched(room.id);
-                  writeRooms(
-                    rooms.map((r) =>
-                      r.id === room.id ? { ...r, occupancyCapacity: Number(v.replace(/[^0-9]/g, "")) || 1 } : r,
-                    ),
-                  );
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => setOpenRoomId(room.id)}
-                data-attr="listing-v2-room-details"
-                className="justify-self-start rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-bold text-primary hover:bg-accent/40"
-              >
-                Details
-                {overrides.length > 0 ? (
-                  <span className="ml-1.5 text-[10px] font-extrabold uppercase tracking-wide text-amber-700">
-                    {overrides.length} custom
-                  </span>
-                ) : null}
-              </button>
-            </Row>
+            <div key={room.id} className={cn("border-b border-border last:border-b-0", isOpen && "shadow-[inset_3px_0_0_var(--pl-blue)]")}>
+              <div className={cn("grid items-center gap-2 px-3 py-2", isOpen && "bg-accent/20")} style={{ gridTemplateColumns: ROOM_GRID_COLUMNS }} data-attr="listing-v2-room-row">
+                {chevron(room.id, label)}
+                <input
+                  aria-label={`Name for room ${i + 1}`}
+                  value={room.name}
+                  placeholder={`Room ${i + 1}`}
+                  onChange={(e) => writeRoom(room.id, { name: e.target.value })}
+                  className="min-h-[36px] w-full rounded-lg border border-border bg-card px-2 text-[13px] font-semibold text-foreground outline-none focus:border-primary"
+                />
+                <GridCell own={!inh("floor")}>
+                  <RowSelectCell ariaLabel={`Floor for ${label}`} value={room.floor} options={floorOptions} placeholder="Floor…" inherited={inh("floor")} onChange={(v) => writeRoom(room.id, { floor: v })} />
+                </GridCell>
+                {accessSelect(accessForRoom(room.id), (v) => setAccessForRoom(room.id, v), `Bathroom access for ${label}`, false)}
+                <GridCell own={!inh("bedsLine")}>
+                  <button type="button" onClick={() => toggle(room.id)} className={cn(cellSelect(inh("bedsLine")), "truncate text-left")} aria-label={`Beds for ${label}`}>
+                    {bedsLine(room.beds) || defaults.bedsLine || "Choose beds…"}
+                  </button>
+                </GridCell>
+                <GridCell own={!inh("occupancyCapacity")}>
+                  <select value={String(room.occupancyCapacity ?? defaults.occupancyCapacity)} onChange={(e) => writeRoom(room.id, { occupancyCapacity: Number(e.target.value) || 1 })} aria-label={`Residents per room for ${label}`} className={cellSelect(inh("occupancyCapacity"))}>
+                    {Array.from({ length: 8 }, (_, i2) => i2 + 1).map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </GridCell>
+                <GridCell own={!inh("furnishing")}>
+                  <button type="button" onClick={() => toggle(room.id)} className={cn(cellSelect(inh("furnishing")), "truncate text-left")} aria-label={`Furnishing for ${label}`}>
+                    {furnishingSummary(room.furnishing || defaults.furnishing)}
+                  </button>
+                </GridCell>
+                <span className="text-right leading-tight">
+                  <span className="block text-[13px] font-semibold tabular-nums text-foreground">{room.monthlyRent > 0 ? `$${room.monthlyRent.toLocaleString("en-US")}` : <span className="text-[var(--status-pending-fg)]">Not set</span>}</span>
+                  <button type="button" onClick={onGoToPricing} className="text-[11px] font-bold text-primary hover:underline">Set in Pricing</button>
+                </span>
+                {rooms.length > 1 && isRoomSlotRemovable(room) ? (
+                  <button type="button" aria-label={`Remove ${label}`} onClick={() => writeRooms(rooms.filter((r) => r.id !== room.id))} className="grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-foreground/[0.06] hover:text-foreground">✕</button>
+                ) : (
+                  <span />
+                )}
+              </div>
+              {isOpen ? (
+                <RoomInlineEditor
+                  room={room}
+                  defaults={defaults}
+                  onRoom={(p) => writeRoom(room.id, p)}
+                  onDefault={editDefault}
+                  onResetField={(f) => resetField(room.id, f)}
+                  onGoToPricing={onGoToPricing}
+                  onDuplicate={() => {
+                    const copy = duplicateRoomEntry(room);
+                    writeRooms([...rooms.slice(0, i + 1), copy, ...rooms.slice(i + 1)]);
+                    setOpen(copy.id);
+                  }}
+                  onRemove={rooms.length > 1 && isRoomSlotRemovable(room) ? () => writeRooms(rooms.filter((r) => r.id !== room.id)) : undefined}
+                />
+              ) : null}
+            </div>
           );
         })}
-      </RowList>
-
-
-      <div className="flex flex-wrap items-center gap-3">
-        <RowBulkBar count={selected.size}>
-          {selected.size === 1 ? (
-            <BulkButton tone="primary" onClick={() => setCopyOpen((v) => !v)}>Copy to another room</BulkButton>
-          ) : null}
-          <BulkButton
-            onClick={() => {
-              const copies = rooms
-                .filter((r) => selected.has(r.id))
-                .map((r, i) => ({ ...r, id: `${r.id}-copy-${i}-${Date.now()}`, name: `${r.name} (copy)` }));
-              writeRooms([...rooms, ...copies]);
-              setSelected(new Set());
-            }}
-          >
-            Duplicate
-          </BulkButton>
-          <BulkButton
-            tone="danger"
-            onClick={() => {
-              writeRooms(rooms.filter((r) => !selected.has(r.id)));
-              setSelected(new Set());
-            }}
-          >
-            Remove
-          </BulkButton>
-        </RowBulkBar>
-
       </div>
-
-      {copyOpen && selected.size === 1 ? (
-        <div className="mt-3 rounded-xl border border-border bg-card p-4">
-          <p className="text-[13px] font-bold text-foreground">Copy this room to…</p>
-          <p className="mb-3 mt-0.5 text-[12px] leading-relaxed text-muted">
-            Copies everything except the room&apos;s name, its photos and its video. Those stay unique to each room.
-          </p>
-          <CheckboxMultiSelect
-            hideLabel
-            label="Rooms to copy to"
-            options={rooms
-              .filter((r) => !selected.has(r.id))
-              .map((r, i) => ({ value: r.id, label: r.name.trim() || `Room ${i + 1}` }))}
-            selected={[...copyTargets]}
-            emptyLabel="Choose rooms…"
-            onChange={(next) => setCopyTargets(new Set(next))}
-          />
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              type="button"
-              disabled={copyTargets.size === 0}
-              data-attr="listing-v2-copy-apply"
-              onClick={() => {
-                const source = rooms.find((r) => selected.has(r.id));
-                if (!source) return;
-                writeRooms(
-                  rooms.map((r) => {
-                    if (!copyTargets.has(r.id)) return r;
-                    // Everything the source says about the room EXCEPT the three
-                    // things that identify it. Copying a name would give two
-                    // rooms the same label; copying media would show a renter
-                    // one room's photos on another.
-                    return {
-                      ...source,
-                      id: r.id,
-                      name: r.name,
-                      photoDataUrls: r.photoDataUrls,
-                      videoDataUrl: r.videoDataUrl,
-                    };
-                  }),
-                );
-                setCopyOpen(false);
-                setCopyTargets(new Set());
-                setSelected(new Set());
-              }}
-              className="min-h-[38px] rounded-full bg-primary px-5 text-[13px] font-bold text-white disabled:opacity-50"
-            >
-              Copy to {copyTargets.size || "…"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setCopyOpen(false);
-                setCopyTargets(new Set());
-              }}
-              className="min-h-[38px] rounded-full px-4 text-[13px] font-bold text-muted"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : null}
+      </div>
 
       <AddRowButton
         label="Add room"
@@ -2002,19 +1286,15 @@ function StepRooms({
         onClick={() => {
           const base = rooms[0];
           const id = `room-${Date.now()}`;
-          const blank = base
-            ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null }
-            : ({ id, name: "" } as ManagerRoomSubmission);
+          const blank = base ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null } : ({ id, name: "" } as ManagerRoomSubmission);
           writeRooms([...rooms, applyHouseDefaultsToRooms([blank], defaults)[0]!]);
+          setOpen(id);
         }}
       />
-      <p className="mt-3 text-[12px] leading-relaxed text-muted">
-        Dashed grey means the room is following the top row. Edit a room and it stops following, so changing the top
-        row will not touch it again.
-      </p>
     </StepColumn>
   );
 }
+
 
 /* ─────────────────────────── step 3 · spaces ─────────────────────────── */
 
@@ -2589,9 +1869,8 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
 function LongTermLengthsField({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const lengths = normalizeLongTermLengths(sub.longTermLengthsOffered);
   return (
-    <InlineCheckboxGroup
+    <CheckboxMultiSelect
       label="Long-term lengths offered"
-      columns={2}
       dataAttr="long-term-length"
       options={LONG_TERM_LENGTH_CHOICES.map((months) => ({
         value: String(months),
@@ -2599,6 +1878,7 @@ function LongTermLengthsField({ sub, patch }: { sub: ManagerListingSubmissionV1;
         hint: months === 12 ? "One year, then the rollover rule applies." : undefined,
       }))}
       selected={lengths.map(String)}
+      emptyLabel="Any length — the applicant's dates decide"
       onChange={(next) => patch({ longTermLengthsOffered: normalizeLongTermLengths(next.map(Number)) })}
     />
   );
@@ -2614,10 +1894,10 @@ function LeaseTypesField({ sub, patch }: { sub: ManagerListingSubmissionV1; patc
     ...(allowed.includes(CUSTOM_LEASE_TERM) ? [CUSTOM_LEASE_TERM] : []),
   ];
   return (
-    <InlineCheckboxGroup
-      label={`Lease options offered · ${selected.length} selected`}
-      columns={2}
+    <CheckboxMultiSelect
+      label="Lease types you offer"
       dataAttr="lease-type"
+      emptyLabel="Choose lease types…"
       options={[
         {
           value: SHORT_TERM_LEASE_TERM,
@@ -2810,28 +2090,10 @@ function LeaseDocumentGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
  */
 function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const wholePlace = sub.listingPlaceCategoryId === "entire_home";
-  const payer = sub.serviceFeePayer ?? "resident";
+  // Who pays card processing (and the promo code that lets PropLane cover it) is
+  // asked once, in the Pricing step's "Before move-in" group — never twice.
   return (
     <>
-      <Field
-        label="Who pays the card processing fee"
-        hint="The only money question that is not part of a lease type."
-      >
-        {/*
-         * No promo-code field: PropLane coverage comes only from the staff-owned
-         * account override (`resolveServiceFeePayerFor`); a typed code is never
-         * stored (`serviceFeeWaiverCode` is stripped on save).
-         */}
-        <Select
-          value={payer}
-          onChange={(e) => patch({ serviceFeePayer: e.target.value as ManagerListingSubmissionV1["serviceFeePayer"], serviceFeeWaiverCode: undefined })}
-        >
-          <option value="resident">The resident pays it</option>
-          <option value="manager">I pay it</option>
-          <option value="proplane">PropLane absorbs it</option>
-        </Select>
-      </Field>
-
       {wholePlace ? (
         <>
           {/*
@@ -3221,17 +2483,29 @@ function HouseComplianceGroup({ sub, patch }: { sub: ManagerListingSubmissionV1;
  * and next to the receipt. A manager setting a deposit can now see what it does
  * to the move-in total without leaving the field.
  */
-function StepPricing({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+function StepPricing({
+  sub,
+  patch,
+  defaults,
+  setDefaults,
+}: {
+  sub: ManagerListingSubmissionV1;
+  patch: Patch;
+  defaults: ListingHouseDefaults;
+  setDefaults: (next: ListingHouseDefaults) => void;
+}) {
   const [leaseDocOpen, setLeaseDocOpen] = useState(false);
   return (
     <StepColumn wide>
       <StepHeading
         title="Rent, deposits and fees"
-        subtitle="Every lease type you offer, what it collects before move-in, and how rent reaches you. What a resident pays is worked out beside you as you type."
+        subtitle="In the order a resident meets them: before they apply, each month, at signing. What a resident pays is worked out beside you as you type."
       />
       <ListingPricingSections
         sub={sub}
         patch={patch}
+        defaults={defaults}
+        setDefaults={setDefaults}
         leaseTypesField={
           <div className="space-y-4">
             <LeaseTypesField sub={sub} patch={patch} />
@@ -3340,6 +2614,19 @@ export function listingReadiness(sub: ManagerListingSubmissionV1): ListingReadin
       state: rooms.length > 0 && withPhotos.length === rooms.length ? "done" : "warn",
     },
     { id: "description", label: "Description written", state: sub.houseOverview.trim() ? "done" : "todo" },
+    // "PropLane pays" without a code is stored, but checkout bills the resident
+    // unless the account itself carries a grant — say so rather than let the
+    // manager believe the fee is covered. A warning, not a blocker: an account
+    // grant (staff approval or signup promo) satisfies it without any code.
+    ...(sub.serviceFeePayer === "proplane" && !listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode)
+      ? [
+          {
+            id: "processing",
+            label: "PropLane pays needs a promo code — until then the resident is billed",
+            state: "warn" as const,
+          },
+        ]
+      : []),
   ];
 }
 
@@ -3351,6 +2638,7 @@ const READINESS_STEP: Record<string, (typeof LISTING_V2_STEPS)[number]["id"]> = 
   photos: "rooms",
   terms: "pricing",
   deposit: "pricing",
+  processing: "pricing",
 };
 
 function StepReview({
@@ -3586,13 +2874,13 @@ export function ListingEditorV2({
           </>
         );
       case "rooms":
-        return <StepRooms sub={submission} patch={patch} defaults={defaults} setDefaults={setDefaults} />;
+        return <StepRooms sub={submission} patch={patch} defaults={defaults} setDefaults={setDefaults} onGoToPricing={() => goTo(LISTING_V2_STEPS.findIndex((s) => s.id === "pricing"))} />;
       case "bathrooms":
         return <StepBathrooms sub={submission} patch={patch} />;
       case "spaces":
         return <StepSharedSpaces sub={submission} patch={patch} />;
       case "pricing":
-        return <StepPricing sub={submission} patch={patch} />;
+        return <StepPricing sub={submission} patch={patch} defaults={defaults} setDefaults={setDefaults} />;
       default:
         return <StepReview sub={submission} onJump={(id) => goTo(LISTING_V2_STEPS.findIndex((s) => s.id === id))} />;
     }
