@@ -22,13 +22,8 @@ import {
   PORTAL_DETAIL_BTN,
   PortalTableDetailActions,
 } from "@/components/portal/portal-data-table";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
-import { PORTAL_LIST_PAGE_BODY, INBOX_LIST_SCROLL } from "@/components/portal/portal-inbox-ui";
-import { PortalPersonRecordRow } from "@/components/portal/portal-record-row";
+import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
+import { TeamInviteLinkBlock, TeamMembersBlock, TeamPendingInvitesBlock, type TeamMemberRow } from "@/components/portal/pro-team-blocks";
 import { cn } from "@/lib/utils";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -2255,17 +2250,6 @@ export function ProAccountLinksPanel({
     openTransferForCoManager(propertyId, row.linkedAxisId, row.linkedUserId ?? "");
   };
 
-  const teamListAddRow = (
-    <PortalListAddRow
-      label="Add"
-      ariaLabel="Link account"
-      icon={PORTAL_LIST_ADD_ICONS.team}
-      onClick={openLinkModal}
-      disabled={linkAccountBlocked}
-      dataAttr="co-manager-list-add"
-    />
-  );
-
   const renderInviteDetail = (inv: AccountLinkInviteDto, entry: TeamListEntry) => {
     const draft = getInviteDraft(inv);
     const readOnly = inv.direction === "incoming";
@@ -2740,33 +2724,53 @@ export function ProAccountLinksPanel({
     </>
   );
 
-  const teamListBody = !hasVisibleTeamRows ? (
-    hasCoManagerLinks ? (
-      <PortalDataTableEmpty
-        icon="team"
-        message="No team members match this property filter. Try All properties or pick another listing."
-      />
-    ) : (
-      // An empty list still belongs in the house body, or this tab's gutters
-      // differ from every other one the moment it has nothing in it.
-      <div className={cn(PORTAL_LIST_PAGE_BODY, PORTAL_LIST_ADD_ROW_WRAP_CLASS)}>{teamListAddRow}</div>
-    )
+  /*
+   * The Team tab as three blocks (Mobbin polish §12): the members table with
+   * the owner on top, the pending invites with their two actions, and the
+   * invite-by-link card. The flat person rows and the dashed Add box are gone;
+   * every row's Access button opens the same per-member editor as before.
+   */
+  const memberRows: TeamMemberRow[] = [
+    {
+      id: "owner",
+      name: managerDisplayName === "Your property manager" ? (managerEmail ?? "You") : managerDisplayName,
+      detail: managerEmail ?? "You",
+      role: "owner",
+      propertiesLabel: "All houses",
+      joinedAt: null,
+    },
+    ...teamEntries
+      .filter((entry) => entry.kind === "local" || entry.invite.status === "accepted")
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        detail: (entry.kind === "remote" ? entry.invite.linkedEmail?.trim() : "") || entry.axisId,
+        role: "co_manager" as const,
+        propertiesLabel: entry.preview || "No houses yet",
+        joinedAt: entry.kind === "remote" ? entry.invite.respondedAt : null,
+        onAccess: () => openTeamDetail(entry.id),
+      })),
+  ];
+  const pendingInvites = [...visibleIncomingPending, ...visibleOutgoingPending];
+  const teamListBody = !hasVisibleTeamRows && hasCoManagerLinks ? (
+    <PortalDataTableEmpty
+      icon="team"
+      message="No team members match this property filter. Try All properties or pick another listing."
+    />
   ) : (
-    <div className={PORTAL_LIST_PAGE_BODY} data-attr="co-manager-unified-view">
-      <div className={INBOX_LIST_SCROLL}>
-        {teamEntries.map((entry) => (
-          <PortalPersonRecordRow
-            key={entry.id}
-            name={entry.name}
-            subtitle={`${entry.axisId} · ${entry.preview}`}
-            checked={selectedIds.has(entry.id)}
-            onSelectedChange={() => toggleSelected(entry.id)}
-            onOpen={() => openTeamDetail(entry.id)}
-            dataAttr="team-list-row"
-          />
-        ))}
-      </div>
-      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{teamListAddRow}</div>
+    <div className={cn(PORTAL_LIST_PAGE_BODY, "space-y-3")} data-attr="co-manager-unified-view">
+      <TeamMembersBlock members={memberRows} onInvite={openLinkModal} inviteDisabled={linkAccountBlocked} />
+      <TeamPendingInvitesBlock
+        invites={pendingInvites}
+        propertiesLabel={(inv) => teamPropertyPreview(inv.assignedPropertyIds, teamPropertyLabel) || "No houses yet"}
+        expiryLabel={teamInvitePendingExpiryLabel}
+        onCopyLink={(inv) => void copyInviteAcceptLink(inv.id, { openInvite: inv.openInvite })}
+        onRevoke={(inv) => void cancelInvite(inv.id)}
+        onAccept={(inv) => void respondInvite(inv.id, "accept")}
+        onDecline={(inv) => void respondInvite(inv.id, "reject")}
+        onOpen={(inv) => openTeamDetail(inv.id)}
+      />
+      <TeamInviteLinkBlock onCreate={openInviteLinkModal} disabled={inviteLinkBlocked} />
     </div>
   );
 
