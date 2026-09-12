@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 
 /**
  * A page's tool controls (Filter · Settings · Share) belong beside its title,
@@ -17,35 +17,43 @@ import { createContext, useContext, useLayoutEffect, useRef, useSyncExternalStor
  * effect cannot feed itself (a state-based slot looped on "maximum update
  * depth" the first time it was tried).
  */
-type SlotStore = {
-  node: ReactNode;
+class SlotStore {
+  node: ReactNode = null;
   /** Mounted hosts — a publisher only claims the slot when there is somewhere to render. */
-  hosts: number;
-  listeners: Set<() => void>;
-};
-
-function emit(store: SlotStore) {
-  for (const l of store.listeners) l();
+  hosts = 0;
+  private listeners = new Set<() => void>();
+  subscribe = (onChange: () => void) => {
+    this.listeners.add(onChange);
+    return () => {
+      this.listeners.delete(onChange);
+    };
+  };
+  private emit() {
+    for (const l of this.listeners) l();
+  }
+  publish(node: ReactNode) {
+    this.node = node;
+    this.emit();
+  }
+  addHost(delta: 1 | -1) {
+    this.hosts += delta;
+    this.emit();
+  }
 }
+
+const SlotContext = createContext<SlotStore | null>(null);
 
 function useSlotValue<T>(store: SlotStore | null, read: (s: SlotStore) => T, fallback: T): T {
   return useSyncExternalStore(
-    (onChange) => {
-      if (!store) return () => {};
-      store.listeners.add(onChange);
-      return () => store.listeners.delete(onChange);
-    },
+    (onChange) => (store ? store.subscribe(onChange) : () => {}),
     () => (store ? read(store) : fallback),
     () => fallback,
   );
 }
 
-const SlotContext = createContext<SlotStore | null>(null);
-
 export function PortalTitleActionsProvider({ children }: { children: ReactNode }) {
-  const store = useRef<SlotStore | null>(null);
-  if (!store.current) store.current = { node: null, hosts: 0, listeners: new Set() };
-  return <SlotContext.Provider value={store.current}>{children}</SlotContext.Provider>;
+  const [store] = useState(() => new SlotStore());
+  return <SlotContext.Provider value={store}>{children}</SlotContext.Provider>;
 }
 
 /** Where the published controls appear — the title row's right edge. */
@@ -54,12 +62,8 @@ export function PortalTitleActionsHost({ className }: { className?: string }) {
   const node = useSlotValue(store, (s) => s.node, null);
   useLayoutEffect(() => {
     if (!store) return;
-    store.hosts += 1;
-    emit(store);
-    return () => {
-      store.hosts -= 1;
-      emit(store);
-    };
+    store.addHost(1);
+    return () => store.addHost(-1);
   }, [store]);
   if (!node) return null;
   return (
@@ -86,12 +90,8 @@ export function usePublishTitleActions(node: ReactNode, enabled: boolean): boole
   const active = Boolean(store) && enabled && hosts > 0;
   useLayoutEffect(() => {
     if (!active || !store) return;
-    store.node = node;
-    emit(store);
-    return () => {
-      store.node = null;
-      emit(store);
-    };
+    store.publish(node);
+    return () => store.publish(null);
   });
   return active;
 }
