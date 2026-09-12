@@ -77,7 +77,7 @@ Grotesk, `--pl-line` borders, 12px radii). Reuse `PortalRecordListSurface`,
   No access · View · Edit · Manage, over the existing co-manager permissions.
   Vendors tab reuses the table with the property-scoped link column. Files:
   teams pages, `workspace-settings.tsx`, invite-link card.
-- [ ] **13 · Inbox.** — in progress on `wip/claude-3-inbox-composer` (another session's work, parked unverified: 9 inbox unit tests red on it). Composer channel is a visible segmented control
+- [x] **13 · Inbox.** — `2e544e79` (composer and list built on `wip/claude-3-inbox-composer` by another session; merged, tests brought to it, verified). Composer channel is a visible segmented control
   (In-app · SMS · Email) with the sending identity inline ("Sending as
   (206) 555-0100"); every message shows its channel and time ("Email · 3:42 PM",
   "You · SMS"). Conversation rows: unread dot, channel chip, context chip
@@ -140,7 +140,8 @@ pass at 1440 and 390 as the manager (`manager@test.proplane.local`) on
   pill with Share / Unlist / ✕; phone rows two-line.
 - §11 — Tasks: Open (Group by Property), `?group=due`, Overdue on a phone.
 - §12 — Settings → Team: members table with the owner row, invite-by-link.
-- §14 — phone bottom bar Home · Properties · Communication · Tasks · More.
+- §13 — Inbox thread: In-app · Email · Text segments with "Sending as", channel chips on messages, All / Unread / Archived.
+- §14 — phone bottom bar Home · Properties · Inbox · Tasks · More.
 - §15 — Properties → Drafts empty card with "20 listed · open Listed".
 
 Also landed ahead of this list: the listing editor's Mobbin polish
