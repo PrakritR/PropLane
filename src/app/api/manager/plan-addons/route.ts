@@ -23,10 +23,9 @@ const NO_STORE = { "Cache-Control": "private, no-store" };
  * Plan add-ons for the signed-in manager (Settings → Billing & plan).
  *
  * GET: the catalogue with this account's quantities and monthly add-on total.
- * POST `{ addonId, quantity }`: set one add-on's quantity. The plan, the cap
- * and the Stripe subscription item are validated server-side; the body never
- * carries a price. A co-manager has no spending authority on the owner's
- * plan: add-ons follow the authenticated manager's own purchase row only.
+ * POST `{ addonId, quantity }`: purchase changes currently return a stable
+ * unavailable response. A co-manager has no spending authority on the
+ * owner's plan: add-ons follow the authenticated manager's own purchase row.
  */
 export async function GET() {
   const auth = await requireManagerRouteUser();

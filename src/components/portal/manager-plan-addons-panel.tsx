@@ -153,7 +153,8 @@ export function ManagerPlanAddonsPanel() {
                       <button
                         type="button"
                         aria-label={`Remove one ${row.unit}`}
-                        disabled={busy !== null || row.quantity === 0}
+                        disabled={busy !== null || row.quantity === 0 || !row.purchasable}
+                        title={!row.purchasable ? "Not available for purchase yet" : undefined}
                         onClick={() => void setQuantity(row, row.quantity - 1)}
                         className={cn(
                           "grid size-9 place-items-center rounded-full border border-border bg-card text-foreground transition hover:border-primary/40 disabled:opacity-40",

@@ -1,22 +1,16 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type Stripe from "stripe";
 
-import { getEffectiveManagerSkuTier, getManagerPurchaseSku } from "@/lib/manager-access-server";
 import {
   EMPTY_PLAN_ADDON_QUANTITIES,
   PLAN_ADDONS,
   isPlanAddonId,
-  planAddonMaxQuantity,
   planTierCanHoldAddons,
-  stripePriceIdForPlanAddon,
   type PaidPlanTier,
   type PlanAddonId,
   type PlanAddonQuantities,
 } from "@/lib/plan-addons";
-import { getStripe } from "@/lib/stripe";
-import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
 
 export type PlanAddonQuantitiesRead =
   | { ok: true; quantities: PlanAddonQuantities }
@@ -36,11 +30,6 @@ export async function loadManagerPlanAddonQuantities(
     .select("addon_id, quantity")
     .eq("manager_user_id", managerUserId);
   if (error) {
-    // Before the migration lands the table does not exist; that is "no
-    // add-ons", not an outage — the plan bundle still applies.
-    if (/manager_plan_addons/i.test(error.message) && /does not exist|schema cache/i.test(error.message)) {
-      return { ok: true, quantities: { ...EMPTY_PLAN_ADDON_QUANTITIES } };
-    }
     return { ok: false, error: error.message };
   }
   const quantities: PlanAddonQuantities = { ...EMPTY_PLAN_ADDON_QUANTITIES };
@@ -64,23 +53,13 @@ export type SetPlanAddonResult =
   | { ok: false; status: 400 | 402 | 403 | 409 | 500 | 503; error: string; code?: string };
 
 /**
- * Set how many units of one add-on the account holds.
- *
- * Order matters: the plan is checked first (Free cannot buy add-ons — it
- * upgrades), then the cap, then Stripe — the subscription item is created,
- * updated or removed with proration BEFORE the quantity is written, so a
- * Stripe refusal never leaves a quantity the customer is not being billed
- * for. A comp or admin grant has no subscription to bill; its quantities are
- * recorded as part of the grant.
+ * Add-on purchase changes are temporarily unavailable. Existing quantities
+ * remain readable for the quotas that already honor them.
  */
 export async function setManagerPlanAddonQuantity(input: {
   managerUserId: string;
   addonId: PlanAddonId;
   quantity: number;
-  deps?: {
-    loadStripeSubscription?: (id: string) => Promise<Stripe.Subscription>;
-    stripe?: Pick<Stripe, "subscriptionItems">;
-  };
 }): Promise<SetPlanAddonResult> {
   const managerUserId = input.managerUserId.trim();
   const quantity = Math.round(input.quantity);
@@ -89,99 +68,13 @@ export async function setManagerPlanAddonQuantity(input: {
     return { ok: false, status: 400, error: "Choose a quantity between 0 and 100." };
   }
 
-  const tierResult = await getEffectiveManagerSkuTier(managerUserId);
-  if (!tierResult.ok) return { ok: false, status: 503, error: tierResult.error };
-  const tier = tierResult.tier;
-  if (!planTierCanHoldAddons(tier)) {
-    return {
-      ok: false,
-      status: 403,
-      code: "upgrade_required",
-      error: "Add-ons are for Pro and Business. Upgrade your plan to add listings, numbers, workspaces or seats.",
-    };
-  }
-  const paidTier: PaidPlanTier = tier;
-  const cap = planAddonMaxQuantity(input.addonId, paidTier);
-  if (cap !== null && quantity > cap) {
-    return { ok: false, status: 400, error: `Your plan can hold up to ${cap} of this add-on.` };
-  }
-
-  const svc = createSupabaseServiceRoleClient();
-  const current = await loadManagerPlanAddonQuantities(svc, managerUserId);
-  if (!current.ok) return { ok: false, status: 503, error: "Could not read your add-ons. Try again." };
-
-  const purchase = await getManagerPurchaseSku(managerUserId);
-  if (purchase.readFailed) return { ok: false, status: 503, error: "Could not read your plan. Try again." };
-  const subscriptionId = purchase.stripeSubscriptionId?.trim() || null;
-
-  let stripeSynced = false;
-  let itemId: string | null = null;
-  if (subscriptionId) {
-    const priceId = stripePriceIdForPlanAddon(input.addonId, paidTier);
-    if (!priceId) {
-      return {
-        ok: false,
-        status: 503,
-        code: "price_not_configured",
-        error: "This add-on is not available for purchase yet. Contact PropLane support.",
-      };
-    }
-    const stripe = input.deps?.stripe ?? getStripe();
-    const { data: existing } = await svc
-      .from("manager_plan_addons")
-      .select("stripe_subscription_item_id")
-      .eq("manager_user_id", managerUserId)
-      .eq("addon_id", input.addonId)
-      .maybeSingle();
-    const existingItemId = (existing?.stripe_subscription_item_id as string | null) ?? null;
-    try {
-      if (quantity === 0) {
-        if (existingItemId) await stripe.subscriptionItems.del(existingItemId, { proration_behavior: "create_prorations" });
-        itemId = null;
-      } else if (existingItemId) {
-        const item = await stripe.subscriptionItems.update(existingItemId, {
-          quantity,
-          price: priceId,
-          proration_behavior: "create_prorations",
-        });
-        itemId = item.id;
-      } else {
-        const item = await stripe.subscriptionItems.create({
-          subscription: subscriptionId,
-          price: priceId,
-          quantity,
-          proration_behavior: "create_prorations",
-        });
-        itemId = item.id;
-      }
-      stripeSynced = true;
-    } catch (error) {
-      return {
-        ok: false,
-        status: 402,
-        code: "stripe_refused",
-        error: error instanceof Error ? error.message : "Stripe could not update your subscription.",
-      };
-    }
-  }
-
-  const now = new Date().toISOString();
-  const { error } = await svc.from("manager_plan_addons").upsert(
-    {
-      manager_user_id: managerUserId,
-      addon_id: input.addonId,
-      quantity,
-      stripe_subscription_item_id: itemId,
-      updated_at: now,
-    },
-    { onConflict: "manager_user_id,addon_id" },
-  );
-  if (error) return { ok: false, status: 500, error: error.message };
-
+  // Keep identity and request-shape errors stable, then stop before every plan,
+  // service-role, Stripe, or entitlement read/write boundary.
   return {
-    ok: true,
-    quantities: { ...current.quantities, [input.addonId]: quantity },
-    stripeSynced,
+    ok: false,
+    status: 503,
+    code: "add_on_purchases_unavailable",
+    error: "Add-on purchases are not available yet. Your current plan and existing add-ons remain unchanged.",
   };
 }
 
@@ -195,6 +88,8 @@ export function describePlanAddons(tier: PaidPlanTier, quantities: PlanAddonQuan
     monthlyCents: addon.monthlyCents[tier],
     maxQuantity: addon.maxQuantity[tier],
     quantity: Math.max(0, quantities[addon.id] ?? 0),
-    purchasable: Boolean(stripePriceIdForPlanAddon(addon.id, tier)),
+    // Purchase writes are intentionally closed until their billing workflow is
+    // independently safe to release. Existing quantities remain readable.
+    purchasable: false,
   }));
 }

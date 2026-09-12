@@ -131,7 +131,6 @@ export async function loadWorkspacePlan(
 ): Promise<WorkspacePlan> {
   const tierResult = await getEffectiveManagerSkuTier(userId);
   const tier = tierResult.ok ? tierResult.tier : null;
-  const unknown = !tierResult.ok;
   const entitlements = tier ? WORKSPACE_PLAN_ENTITLEMENTS[tier] : null;
   const owned = workspaces.filter((w) => w.owned);
   const [links, vendors, addons] = await Promise.all([
@@ -139,8 +138,9 @@ export async function loadWorkspacePlan(
     db.from("manager_vendor_records").select("id", { count: "exact", head: true }).eq("manager_user_id", userId),
     loadManagerPlanAddonQuantities(db, userId),
   ]);
-  // Paid add-ons sit on top of the plan bundle. An unread add-on row counts as
-  // none here (this is a display + create-time cap, never a removal).
+  // A failed add-on read is an unknown plan. Treating it as zero would reject
+  // a manager who already pays for capacity, so callers must fail closed.
+  const unknown = !tierResult.ok || !addons.ok;
   const extra = addons.ok ? addons.quantities : EMPTY_PLAN_ADDON_QUANTITIES;
   const planPropertyLimit = unknown ? null : maxPropertiesForManagerTier(tier);
   const planTeamLimit = unknown ? null : maxAccountLinksForTier(tier);

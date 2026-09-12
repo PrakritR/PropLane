@@ -65,25 +65,29 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Use a workspace name of 1–80 characters." }, { status: 400 });
     }
     if (action === "create") {
-      // Reserve the default workspace first, even for a manager with no houses.
-      const initial = await db.rpc("ensure_default_portal_workspace", { p_owner: user.id });
-      if (initial.error) throw initial.error;
       // The plan's cap sits under the database ceiling; an unknown plan refuses
-      // rather than guessing Free or Business.
+      // rather than guessing Free or Business. The RPC repeats the owner count
+      // under the same advisory lock as the database trigger.
       const current = await loadWorkspaces(db, user.id);
       const plan = await loadWorkspacePlan(db, user.id, current);
       if (plan.unknown) return NextResponse.json({ error: "We could not verify your plan. Try again in a moment." }, { status: 503 });
+      const limitError = `Your ${plan.tier ? plan.tier[0].toUpperCase() + plan.tier.slice(1) : "current"} plan includes ${plan.workspaceLimit} ${plan.workspaceLimit === 1 ? "workspace" : "workspaces"}. Upgrade to add another.`;
       if (plan.usage.workspaces >= plan.workspaceLimit) {
         return NextResponse.json(
-          {
-            error: `Your ${plan.tier ? plan.tier[0].toUpperCase() + plan.tier.slice(1) : "current"} plan includes ${plan.workspaceLimit} ${plan.workspaceLimit === 1 ? "workspace" : "workspaces"}. Upgrade to add another.`,
-          },
+          { error: limitError },
           { status: 403 },
         );
       }
-      const result = await db.from("portal_workspaces").insert({ owner_user_id: user.id, name }).select("id").single();
+      const result = await db.rpc("create_portal_workspace_with_limit", {
+        p_owner: user.id,
+        p_name: name,
+        p_limit: plan.workspaceLimit,
+      });
       if (result.error) throw result.error;
-      return NextResponse.json({ id: result.data.id }, { status: 201 });
+      // The pre-check is only courtesy. A null RPC result means another
+      // request consumed the last slot while this request was in flight.
+      if (!result.data) return NextResponse.json({ error: limitError }, { status: 409 });
+      return NextResponse.json({ id: result.data }, { status: 201 });
     }
     if (typeof body.id !== "string" || !/^[0-9a-f-]{36}$/i.test(body.id)) {
       return NextResponse.json({ error: "A valid workspace is required." }, { status: 400 });
