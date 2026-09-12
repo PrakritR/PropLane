@@ -591,9 +591,8 @@ export function PortalSidebar({
     const count = navCounts[s.section] ?? 0;
 
     if (variant === "bottom") {
-      // The manager bar's first tab is Home, as on every phone; the sidebar
-      // keeps "Dashboard", and so do the other portals' bars.
-      const bottomLabel = isWorkspacePortal && s.section === "dashboard" ? "Home" : s.label;
+      // The bar says what the sidebar says — Dashboard stays Dashboard.
+      const bottomLabel = s.label;
       return (
         <Link
           key={`${s.section}-${s.sectionTabId ?? "default"}`}

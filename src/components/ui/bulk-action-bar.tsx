@@ -98,14 +98,14 @@ export function BulkActionBar({
     >
       <div
         className={cn(
-          "pointer-events-auto flex max-w-full min-w-0 items-center gap-1 rounded-full bg-foreground py-1.5 pl-4 pr-1.5 text-background shadow-[0_12px_32px_-8px_rgba(11,27,58,0.45)]",
-          // The actions are ordinary outline Buttons; on the dark pill they wear
-          // a light hairline and light text, and a danger action reads rose.
-          "[&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!border-background/25 [&_button]:!bg-transparent [&_button]:!px-3 [&_button]:!text-[13px] [&_button]:!text-background [&_button]:!shadow-none [&_button:hover]:!bg-background/15",
-          "[&_.portal-danger-outline]:!border-rose-300/50 [&_.portal-danger-outline]:!text-rose-200 [&_.portal-danger-outline:hover]:!bg-rose-400/20",
+          // A floating white pill in the site's own palette: hairline border, a
+          // soft lift, the count in blue. (Started life as a dark pill; the
+          // captain asked for the theme's colours instead.)
+          "pointer-events-auto flex max-w-full min-w-0 items-center gap-1 rounded-full border border-border bg-card py-1.5 pl-4 pr-1.5 text-foreground shadow-[0_16px_40px_-12px_rgba(11,27,58,0.35)] [html[data-theme=dark]_&]:shadow-[0_16px_40px_-12px_rgba(0,0,0,0.7)]",
+          "[&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!px-3 [&_button]:!text-[13px] [&_button]:!shadow-none",
         )}
       >
-        <p className="mr-2 shrink-0 whitespace-nowrap text-[13px] font-semibold tabular-nums">{label}</p>
+        <p className="mr-2 shrink-0 whitespace-nowrap text-[13px] font-bold text-primary">{label}</p>
         <div
           className="flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
@@ -117,7 +117,7 @@ export function BulkActionBar({
             onClick={onClear}
             aria-label="Clear selection"
             data-attr="bulk-bar-clear"
-            className="ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-background/80 hover:bg-background/15 hover:text-background"
+            className="ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted hover:bg-accent/60 hover:text-foreground"
           >
             <X className="h-4 w-4" aria-hidden />
           </button>
