@@ -71,6 +71,8 @@ vi.mock("@/lib/household-charges", () => ({
     c.status === "paid" ? "paid" : c.__overdue ? "overdue" : "pending",
   isManagerAddedOneOffCharge: () => false,
   chargeDueLabel: (c: { __overdue?: boolean }) => (c.__overdue ? "Due May 1, 2026" : "Due Jul 20, 2026"),
+  // The KPI row asks each charge for its due date to total "due this period".
+  householdChargeDueDate: (c: { __overdue?: boolean }) => (c.__overdue ? new Date(2026, 4, 1) : new Date(2026, 6, 20)),
 }));
 
 vi.mock("@/lib/manager-applications-storage", () => ({

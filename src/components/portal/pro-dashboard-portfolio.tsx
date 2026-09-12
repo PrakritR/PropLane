@@ -9,7 +9,6 @@
 
 import Link from "next/link";
 import { ArrowUpRight, Sparkles } from "lucide-react";
-import { NoImagePlaceholder } from "@/components/ui/no-image-placeholder";
 import { cn } from "@/lib/utils";
 import { propertyDetailHref, propertyListHref } from "@/lib/portal-detail-routes";
 import {
@@ -26,6 +25,8 @@ export type PortfolioPropertyCardData = {
   title: string;
   address: string;
   spacesLabel: string;
+  /** Rentable spaces — rooms, or one for a whole-home let. */
+  spaces: number;
   rentLabel: string;
   coverUrl: string | null;
 };
@@ -84,6 +85,7 @@ export function readPortfolioSnapshot(userId: string | null): {
         title: rowTitle(row),
         address: row.address?.trim() || "",
         spacesLabel: stage === "drafts" ? "Setup in progress" : `${spaces} ${spaces === 1 ? "space" : "spaces"}`,
+        spaces,
         rentLabel: adminPropertyRentDisplayLabel(row),
         coverUrl: rowCover(row),
       });
@@ -154,27 +156,43 @@ export function PortfolioNextStep({
   );
 }
 
+/**
+ * One property on the dashboard.
+ *
+ * The photo band is short — the card is a row in a portfolio, not a listing
+ * hero — and a home with no photo says "Add a photo" rather than showing a
+ * grey box, because the missing photo is the one thing worth doing about it.
+ * Under the name, an occupancy bar: filled spaces over rentable ones, which is
+ * the question a manager glancing at a property is actually asking.
+ */
 export function PortfolioPropertyCard({
   card,
   basePath,
+  occupied = 0,
 }: {
   card: PortfolioPropertyCardData;
   basePath: string;
+  /** Signed leases on this property right now. */
+  occupied?: number;
 }) {
   const href = propertyDetailHref(basePath, card.stage, card.key, "preview");
+  const spaces = Math.max(card.spaces, occupied, 1);
+  const filled = Math.min(occupied, spaces);
   return (
     <Link
       href={href}
       data-attr="dashboard-property-card"
       className="group flex min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
     >
-      <div className="relative aspect-[16/9] w-full bg-[var(--secondary)]">
+      <div className="relative h-[96px] w-full bg-[var(--secondary)]">
         {card.coverUrl ? (
           // Manager-uploaded photo (data or storage URL) — never a stock stand-in.
           // eslint-disable-next-line @next/next/no-img-element
           <img src={card.coverUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
         ) : (
-          <NoImagePlaceholder label="No property photo" />
+          <span className="absolute inset-0 grid place-items-center text-[12.5px] font-semibold text-primary">
+            + Add a photo
+          </span>
         )}
         <span
           className={cn(
@@ -188,10 +206,31 @@ export function PortfolioPropertyCard({
       <div className="flex flex-col gap-0.5 px-4 py-3">
         <p className="truncate text-[15px] font-semibold text-foreground">{card.title}</p>
         <p className="truncate text-sm text-muted">{card.address || "Address to come"}</p>
-        <div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-xs text-muted">
-          <span>{card.spacesLabel}</span>
-          <span className="font-semibold text-foreground">{card.rentLabel}</span>
-        </div>
+        {card.stage === "drafts" ? (
+          <p className="mt-2 border-t border-border pt-2 text-xs text-muted">{card.spacesLabel}</p>
+        ) : (
+          <div className="mt-2 border-t border-border pt-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted">
+                <span className="font-semibold tabular-nums text-foreground">{filled}</span> / {spaces} occupied
+              </span>
+              <span className="font-semibold text-foreground">{card.rentLabel}</span>
+            </div>
+            <div
+              className="mt-1.5 flex h-1.5 gap-[2px]"
+              role="img"
+              aria-label={`${filled} of ${spaces} spaces occupied`}
+              data-attr="dashboard-property-occupancy"
+            >
+              {Array.from({ length: spaces }, (_, i) => (
+                <span
+                  key={i}
+                  className={cn("h-full flex-1 rounded-full", i < filled ? "bg-primary" : "bg-border")}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </Link>
   );
@@ -200,9 +239,12 @@ export function PortfolioPropertyCard({
 export function PortfolioPropertiesSection({
   cards,
   basePath,
+  occupiedByProperty,
 }: {
   cards: PortfolioPropertyCardData[];
   basePath: string;
+  /** Signed leases per property key, for the occupancy bar. */
+  occupiedByProperty?: ReadonlyMap<string, number>;
 }) {
   const shown = cards.slice(0, 3);
   return (
@@ -224,7 +266,12 @@ export function PortfolioPropertiesSection({
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {shown.map((card) => (
-            <PortfolioPropertyCard key={card.key} card={card} basePath={basePath} />
+            <PortfolioPropertyCard
+              key={card.key}
+              card={card}
+              basePath={basePath}
+              occupied={occupiedByProperty?.get(card.key) ?? 0}
+            />
           ))}
         </div>
       )}
