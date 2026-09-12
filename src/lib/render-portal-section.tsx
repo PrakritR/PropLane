@@ -1,4 +1,4 @@
-import { ManagerInspectionsPage } from "@/components/portal/inspections-panel";
+import { ManagerInspectionsPage, ResidentInspectionsPage } from "@/components/portal/inspections-panel";
 import { isSmsCommUiEnabled } from "@/lib/sms-comm-ui-flag.server";
 import { AdminDashboard } from "@/components/portal/admin-dashboard";
 import { ManagerDashboard } from "@/components/portal/pro-dashboard";
@@ -95,7 +95,7 @@ const LEGACY_DOCUMENTS_TAB_MAP: Record<string, string> = {
   "rental-days": "income-documents",
   library: "other",
 };
-const FINANCIALS_TABS = ["income", "expenses", "trial-balance", "balance-sheet", "general-ledger", "cash-flow-statement", "payout-history", "trust-account-balance", "security-deposits", "financial-diagnostics", "ap-aging", "bills", "budget-vs-actual", "bank-reconciliation", "owner-statement", "owner-distributions"] as const;
+const FINANCIALS_TABS = ["overview", "reports", "income", "expenses", "trial-balance", "balance-sheet", "general-ledger", "cash-flow-statement", "payout-history", "trust-account-balance", "security-deposits", "financial-diagnostics", "ap-aging", "bills", "budget-vs-actual", "bank-reconciliation", "owner-statement", "owner-distributions"] as const;
 
 const MANAGER_INBOX_TABS = ["unopened", "opened", "schedule", "sent", "trash"] as const;
 
@@ -129,7 +129,7 @@ async function renderManagerFinancesSection(
 ) {
   if (section !== "financials") return null;
   if (!tabParts?.length) {
-    redirect(`${basePath}/financials/income`);
+    redirect(`${basePath}/financials/overview`);
   }
   if (tabParts.length > 1) {
     if (tabParts.length === 2 && tabParts[1] === "pending") {
@@ -1114,7 +1114,7 @@ export async function renderPortalSection(
         "@/lib/portal-detail-routes"
       );
       if (!tabParts?.length) {
-        redirect(`${def.basePath}/bookings/upcoming`);
+        redirect(`${def.basePath}/bookings/calendar`);
       }
       const segmentRaw = tabParts[0]!;
       if (!MANAGER_BOOKING_BUCKETS.includes(segmentRaw as (typeof MANAGER_BOOKING_BUCKETS)[number])) {
@@ -1322,7 +1322,19 @@ export async function renderPortalSection(
     );
   }
 
+  if (kind === "resident" && section === "inspections") {
+    // Locked until the lease is signed, like My home — there is no room to inspect before then.
+    if (!residentAccess?.leaseAccessUnlocked) redirect(`${def.basePath}/dashboard`);
+    if (!tabParts?.length) redirect(`${def.basePath}/inspections/move-in`);
+    const inspectionKind = tabParts[0];
+    if ((inspectionKind !== "move-in" && inspectionKind !== "move-out") || tabParts.length > 2) notFound();
+    if (tabParts[1] && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(tabParts[1])) notFound();
+    return <ResidentInspectionsPage kind={inspectionKind} reportId={tabParts[1]} basePath={def.basePath} />;
+  }
+
   if (kind === "resident" && section === "move-in") {
+    // The old My home → Inspections sub-tab is its own section now; keep the URL alive.
+    if (tabParts?.[0] === "inspections") redirect(`${def.basePath}/inspections/move-in`);
     const moveInEmail = residentCtx?.profile?.email ?? residentCtx?.user?.email ?? null;
     const allowedTabs = meta.tabs.map((t) => t.id);
     // Use the same entitlement as navigation, including attested off-platform tenancies.

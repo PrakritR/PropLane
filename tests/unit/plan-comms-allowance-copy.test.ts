@@ -18,15 +18,17 @@ describe("plan communication allowance copy (PRP-282)", () => {
       const expected = commsAllowanceFeatureText(tier.id);
       const line = tier.features.find((f) => f.text === expected);
       expect(line, `${tier.id} card should say "${expected}"`).toBeTruthy();
-      expect(line?.included).toBe(true);
+      // Round 3 plan model: Free includes no credit, and its card says so as a
+      // dash, not a check.
+      expect(line?.included).toBe(tier.id !== "free");
     }
   });
 
   it("states the dollar value that the allowance table enforces", () => {
-    expect(commsAllowanceFeatureText("free")).toContain("$2");
+    expect(commsAllowanceFeatureText("free")).toMatch(/no communication credit/i);
     expect(commsAllowanceFeatureText("pro")).toContain("$10");
     expect(commsAllowanceFeatureText("business")).toContain("$100");
-    expect(COMMS_INCLUDED_ALLOWANCE_CENTS).toEqual({ free: 200, pro: 1000, business: 10000 });
+    expect(COMMS_INCLUDED_ALLOWANCE_CENTS).toEqual({ free: 0, pro: 1000, business: 10000 });
   });
 
   it("the paywall copy names the amount and the way out (buy prepaid credit)", () => {
@@ -36,9 +38,10 @@ describe("plan communication allowance copy (PRP-282)", () => {
     expect(msg).toMatch(/does not enable automatic charges/i);
   });
 
-  it("the public pricing FAQ answers the allowance question with the same three amounts", () => {
+  it("the public pricing page explains the allowance with the same three amounts", () => {
     const src = readFileSync("src/app/(public)/pricing/page.tsx", "utf8");
-    expect(src).toContain("How much texting, calling and AI assistant use is included?");
+    // Its own block on the page, not a 90-word FAQ answer.
+    expect(src).toContain("Texting, calling and AI use");
     for (const tier of ["free", "pro", "business"]) expect(src).toContain(`COMMS_INCLUDED_ALLOWANCE_CENTS.${tier}`);
   });
 });

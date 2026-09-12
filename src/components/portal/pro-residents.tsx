@@ -1,6 +1,9 @@
 "use client";
 
-import { Link2 } from "lucide-react";
+import { workspaceContainsProperty } from "@/lib/workspaces/selection";
+
+import { Link2, Settings2 } from "lucide-react";
+import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
 import { InspectionsPanel } from "@/components/portal/inspections-panel";
 import { isDemoModeActive } from "@/lib/demo/demo-session";
 import { cn } from "@/lib/utils";
@@ -10,6 +13,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
+import { PortalPropertyRail } from "@/components/portal/portal-property-rail";
+import {
+  ResidentOverviewPanel,
+  type ResidentOverviewServiceItem,
+} from "@/components/portal/pro-resident-overview-panel";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import {Input, Textarea, Select, NativeSelect} from "@/components/ui/input";
 import { PhoneNumberField } from "@/components/ui/phone-number-field";
@@ -28,7 +36,6 @@ import {
 import {
   PortalDataTableEmpty,
   PORTAL_DETAIL_BTN,
-  ResidentDocumentsDetailFooter,
 } from "@/components/portal/portal-data-table";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
 import { useScheduledPaymentMessages } from "@/components/portal/payment-schedule-ui";
@@ -40,7 +47,7 @@ import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import type { ManagerPaymentBucket } from "@/data/demo-portal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalPageFooterActions, PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
+import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import {
   RESIDENT_DETAIL_TAB_LABELS,
   RESIDENT_DETAIL_TAB_SHORT_LABELS,
@@ -75,7 +82,7 @@ import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { ResidentInviteClaimsPanel } from "@/components/portal/resident-invite-claims-panel";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
 import { buildResidentListClustersByMode } from "@/lib/manager-resident-list-grouping";
@@ -325,6 +332,13 @@ function residentUnifiedServiceBucketForWorkOrder(
   if (row.bucket === "scheduled") return "scheduled";
   return "completed";
 }
+
+/** Desktop rail grouping for one resident: who they are, where they live, how to reach them. */
+const RESIDENT_RAIL_GROUPS: Array<{ label: string; ids: ResidentDetailTabId[] }> = [
+  { label: "Resident", ids: ["overview", "application", "background-check"] },
+  { label: "Home", ids: ["lease", "payments", "services", "inspections", "tours"] },
+  { label: "Contact", ids: ["communication"] },
+];
 
 /**
  * Routed resident detail tab panel — flat content (no collapsible chevron stack).
@@ -755,7 +769,7 @@ export function ManagerResidents({
       return [];
     }
     const built = readManagerApplicationRows()
-      .filter((row) => isResidentDirectoryRow(row) && applicationVisibleToPortalUser(row, userId, "residents"))
+      .filter((row) => isResidentDirectoryRow(row) && applicationVisibleToPortalUser(row, userId, "residents") && workspaceContainsProperty(row.assignedPropertyId || row.propertyId || row.application?.propertyId))
       .map((row) => {
         const propId = row.assignedPropertyId?.trim() || row.propertyId?.trim() || "";
         const prop = propId ? getPropertyById(propId) : null;
@@ -3294,32 +3308,83 @@ export function ManagerResidents({
   const residentDetailScrollBodyPadding =
     "pb-[calc(3.5rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))]";
 
+  // One item list feeds both the desktop rail and the phone tab strip, so a
+  // section can never appear in one and not the other.
+  const residentDetailNavItems = useMemo(
+    () =>
+      selected
+        ? residentDetailTabsAvailable.map((tab) => ({
+            id: tab,
+            label: RESIDENT_DETAIL_TAB_LABELS[tab],
+            shortLabel: RESIDENT_DETAIL_TAB_SHORT_LABELS[tab],
+            href:
+              tab === "tours"
+                ? managerResidentTourListHref(portalBase, residentsTab, selected.id, tourBucketProp)
+                : residentDetailHref(portalBase, residentsTab, selected.id, tab),
+            dataAttr: `resident-detail-tab-${tab}`,
+          }))
+        : [],
+    [portalBase, residentDetailTabsAvailable, residentsTab, selected, tourBucketProp],
+  );
+
+  const residentOverviewServices = useMemo((): ResidentOverviewServiceItem[] => {
+    if (!selected) return [];
+    const requests: ResidentOverviewServiceItem[] = residentServiceRequests.map((req) => ({
+      id: `request-${req.id}`,
+      title: req.offerName,
+      detail: managerServiceRequestPricingSummary(req),
+      bucket: residentUnifiedServiceBucketForRequest(req),
+      href: managerResidentItemDetailHref(portalBase, residentsTab, selected.id, "services", `request-${req.id}`),
+    }));
+    const workOrders: ResidentOverviewServiceItem[] = residentWorkOrders.map((row) => ({
+      id: `work-order-${row.id}`,
+      title: row.title,
+      detail: [row.scheduled?.trim(), row.status?.trim()].filter(Boolean).join(" · ") || "Maintenance",
+      bucket: residentUnifiedServiceBucketForWorkOrder(row),
+      href: managerResidentItemDetailHref(portalBase, residentsTab, selected.id, "services", `work-order-${row.id}`),
+    }));
+    const order = { pending: 0, scheduled: 1, completed: 2 } as const;
+    return [...requests, ...workOrders].sort((a, b) => order[a.bucket] - order[b.bucket]);
+  }, [portalBase, residentServiceRequests, residentWorkOrders, residentsTab, selected]);
+
+  const residentOverviewLinks = useMemo(() => {
+    if (!selected) return {};
+    const has = (tab: ResidentDetailTabId) => residentDetailTabsAvailable.includes(tab);
+    const href = (tab: ResidentDetailTabId) => residentDetailHref(portalBase, residentsTab, selected.id, tab);
+    return {
+      payments: has("payments") ? href("payments") : undefined,
+      lease: has("lease") ? href("lease") : undefined,
+      application: has("application") ? href("application") : undefined,
+      services: has("services") ? href("services") : undefined,
+      communication: has("communication") ? href("communication") : undefined,
+      tours: has("tours") ? managerResidentTourListHref(portalBase, residentsTab, selected.id, tourBucketProp) : undefined,
+    };
+  }, [portalBase, residentDetailTabsAvailable, residentsTab, selected, tourBucketProp]);
+
   const residentDetailPanel =
     selected ? (
-                          <div className="flex min-h-0 flex-1 flex-col gap-0">
+                          <div className="flex min-h-0 flex-1 lg:flex-row">
+                          <PortalPropertyRail
+                            items={residentDetailNavItems}
+                            activeId={resolvedDetailTab}
+                            backHref={residentListHref(portalBase, residentsTab)}
+                            backLabel="All residents"
+                            title={selected.name || "Resident"}
+                            subtitle={[selected.propertyLabel, selected.roomLabel].filter(Boolean).join(" · ") || selected.email}
+                            groups={RESIDENT_RAIL_GROUPS}
+                            ariaLabel="Resident profile sections"
+                            dataAttrBack="resident-rail-back"
+                            className="lg:mr-5 lg:rounded-xl lg:border lg:bg-card"
+                          />
+                          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-0">
                             <PortalPageChrome>
                               <div
-                                className="border-b border-border/40 bg-background"
+                                className="border-b border-border/40 bg-background lg:hidden"
                                 data-portal-property-detail-chrome
                               >
                                 <PortalDetailDestinationNav
                                   denseEqualRow
-                                  items={residentDetailTabsAvailable
-                                    .map((tab) => ({
-                                      id: tab,
-                                      label: RESIDENT_DETAIL_TAB_LABELS[tab],
-                                      shortLabel: RESIDENT_DETAIL_TAB_SHORT_LABELS[tab],
-                                      href:
-                                        tab === "tours" && selected
-                                          ? managerResidentTourListHref(
-                                              portalBase,
-                                              residentsTab,
-                                              selected.id,
-                                              tourBucketProp,
-                                            )
-                                          : residentDetailHref(portalBase, residentsTab, selected.id, tab),
-                                      dataAttr: `resident-detail-tab-${tab}`,
-                                    }))}
+                                  items={residentDetailNavItems}
                                   activeId={resolvedDetailTab}
                                   ariaLabel="Resident profile sections"
                                   appearance="command"
@@ -3327,7 +3392,33 @@ export function ManagerResidents({
                               </div>
                             </PortalPageChrome>
 
-                            {resolvedDetailTab === "inspections" ? (
+                            {resolvedDetailTab === "overview" ? (
+                              <ResidentDetailTabPanel>
+                                <ResidentOverviewPanel
+                                  resident={{
+                                    name: selected.name,
+                                    email: selected.email,
+                                    phone:
+                                      selected.manualResidentDetails?.phone?.trim() ||
+                                      selectedApplicationRow?.application?.phone?.trim() ||
+                                      undefined,
+                                    propertyLabel: selected.propertyLabel,
+                                    roomLabel: selected.roomLabel,
+                                    signedMonthlyRent: selected.signedMonthlyRent,
+                                    leaseStart: selected.leaseStart,
+                                    leaseEnd: selected.leaseEnd,
+                                    stage: selected.stage,
+                                    statusLabel: selected.statusLabel,
+                                    axisId: selected.axisId,
+                                    moveInInstructions: selected.moveInInstructions,
+                                  }}
+                                  ledgerRows={residentLedgerRows}
+                                  leaseRows={residentLeaseRows}
+                                  services={residentOverviewServices}
+                                  links={residentOverviewLinks}
+                                />
+                              </ResidentDetailTabPanel>
+                            ) : resolvedDetailTab === "inspections" ? (
                               <ResidentDetailTabPanel fill>
                                 <InspectionsPanel
                                   role="manager"
@@ -3764,16 +3855,11 @@ export function ManagerResidents({
                             )}
 
                             {residentDetailBottomBarActions ? (
-                              <PortalPageFooterActions
-                                pinned
-                                rowVariant="header"
-                                omitSpacer={residentDetailPaymentsScroll}
-                              >
-                                <ResidentDocumentsDetailFooter>
-                                  {residentDetailBottomBarActions}
-                                </ResidentDocumentsDetailFooter>
-                              </PortalPageFooterActions>
+                              <PortalRecordActions omitSpacer={residentDetailPaymentsScroll}>
+                                {residentDetailBottomBarActions}
+                              </PortalRecordActions>
                             ) : null}
+                          </div>
                           </div>
     ) : null;
 
@@ -3893,7 +3979,15 @@ export function ManagerResidents({
         <PortalRecordDetailPage
           pageTitle="Residents"
           title={selected.name || "Resident"}
-          subtitle={selected.email || undefined}
+          subtitle={
+            [
+              [selected.propertyLabel, selected.roomLabel].filter(Boolean).join(" · "),
+              selected.email,
+            ]
+              .filter(Boolean)
+              .join("  ·  ") || undefined
+          }
+          avatarName={selected.name || undefined}
           backHref={residentDetailItemBackHref}
           backLabel={residentDetailItemBackLabel}
           hideBackText
@@ -3911,9 +4005,20 @@ export function ManagerResidents({
       ) : (
       <ManagerPortalPageShell
         title="Residents"
+        subtitle="People connected to their home, agreement, and next step."
         hideTitleOnMobileNav
         titleInlineFilter={null}
         compactFilterRow
+        primaryAction={
+          <Button
+            type="button"
+            className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+            data-attr="residents-add-top"
+            onClick={() => setAddResidentOpen(true)}
+          >
+            + Add resident
+          </Button>
+        }
       >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
@@ -3927,7 +4032,17 @@ export function ManagerResidents({
         }))}
         activeDestinationId={residentsTab}
         destinationAriaLabel="Resident directory stage"
-        actions={residentsFilterSheet}
+        actions={
+          <>
+            {residentsFilterSheet}
+            <PortalIconAction
+              icon={Settings2}
+              label="Resident settings"
+              data-attr="residents-settings-open"
+              onClick={() => openResidentDetailSettings("resident")}
+            />
+          </>
+        }
         activeFilterChips={
           propertyFilters.length > 0 || groupMode !== RESIDENT_LIST_DEFAULT_GROUP_MODE ? (
             <PortalActiveFilterChips
@@ -4171,11 +4286,13 @@ export function ManagerResidents({
               onClick={() => void copyResidentInviteLink()}
               disabled={arInviteBusy}
               data-attr="residents-copy-invite-link"
-              className="flex min-h-[10rem] w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-primary/50 bg-primary/[0.05] px-3 py-6 text-center transition hover:border-primary hover:bg-primary/10 disabled:opacity-60"
+              className="flex w-full items-center gap-3 rounded-2xl border-2 border-primary/50 bg-primary/[0.05] px-4 py-3 text-left transition hover:border-primary hover:bg-primary/10 disabled:opacity-60 sm:min-h-[10rem] sm:flex-col sm:items-center sm:justify-center sm:gap-2 sm:px-3 sm:py-6 sm:text-center"
             >
-              <Link2 className="h-7 w-7 text-primary" aria-hidden />
-              <span className="text-sm font-semibold text-foreground">Copy invite link</span>
-              <span className="text-xs text-muted">Post or text it — no email needed</span>
+              <Link2 className="h-6 w-6 shrink-0 text-primary sm:h-7 sm:w-7" aria-hidden />
+              <span className="min-w-0 sm:contents">
+                <span className="block text-sm font-semibold text-foreground">Copy invite link</span>
+                <span className="block text-xs text-muted">Post or text it — no email needed</span>
+              </span>
             </button>
           </div>
           {arInviteUrl ? (

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo } from "react";
 import { ResidentHousemateSharing } from "@/components/portal/resident-housemate-sharing";
-import { InspectionsPanel } from "@/components/portal/inspections-panel";
 import { ResidentMoveInMediaGallery } from "@/components/portal/move-in-media-fields";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -246,8 +245,6 @@ function ResidentMoveInTabContent({
       );
     case "amenities":
       return <AmenitiesTabContent resolved={resolved} />;
-    case "inspections":
-      return <InspectionsPanel role="resident" />;
     default:
       return <PlacementTabContent resolved={resolved} />;
   }

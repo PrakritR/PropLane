@@ -41,6 +41,13 @@ export type ManagerSmsMessageRow = {
   createdAt: string;
   /** Which table this row lives in — set for manager-thread deletes. */
   storageTable?: ManagerSmsMessageStorageTable;
+  /**
+   * The teammate who sent this outbound text, when it was NOT the viewer.
+   * One workspace number is shared by the owner and every co-manager, so
+   * without this the owner cannot tell their own replies from a co-manager's.
+   * Never shown to the texter; only inside Communication.
+   */
+  sentBy?: { userId: string; name: string } | null;
 };
 
 export type ManagerSmsResidentConversation = {
@@ -78,8 +85,34 @@ export type ManagerSmsResidentConversation = {
    * viewer is a co-manager with Communication (inbox) access.
    */
   ownerManagerUserId?: string | null;
+  /**
+   * The house(s) this thread is about. One workspace number is shared by the
+   * whole team, so the houses decide which members see the thread. Empty means
+   * untagged — nobody has said which house yet — never "every house".
+   */
+  houses?: ConversationHouse[];
   messages: ManagerSmsMessageRow[];
 };
+
+export type ConversationHouseSource = "residency" | "leasing" | "tour" | "application" | "outbound" | "manual";
+
+export type ConversationHouse = {
+  propertyId: string;
+  label: string;
+  source: ConversationHouseSource;
+};
+
+/** One short line for the thread header chip: the house, and where the tag came from. */
+export function conversationHouseSourceLabel(source: ConversationHouseSource): string {
+  switch (source) {
+    case "residency": return "from their residency";
+    case "leasing": return "from the leasing agent";
+    case "tour": return "from a tour request";
+    case "application": return "from an application";
+    case "outbound": return "from a sent message";
+    case "manual": return "set by your team";
+  }
+}
 
 /**
  * True when a label is really just a phone number (an unknown texter whose
@@ -99,7 +132,7 @@ export type SmsConversationLabelSource = Pick<
   ManagerSmsResidentConversation,
   "name" | "directoryName" | "savedContactName" | "propertyLabel" | "residentEmail"
 > &
-  Partial<Pick<ManagerSmsResidentConversation, "phone">>;
+  Partial<Pick<ManagerSmsResidentConversation, "phone" | "houses">>;
 
 /**
  * A display name for an SMS conversation in the manager Communication UI.
@@ -131,7 +164,9 @@ export function smsConversationDisplayName(resident: SmsConversationLabelSource)
  */
 export function smsConversationSubtitle(resident: SmsConversationLabelSource): string {
   const name = smsConversationDisplayName(resident);
-  const property = trimmedText(resident.propertyLabel);
+  // The house the thread is about: a resident's from their residency, anyone
+  // else's from the tag (leasing agent match, tour, a teammate's pick).
+  const property = trimmedText(resident.propertyLabel) || trimmedText(resident.houses?.[0]?.label);
   if (property && property !== name) return property;
   const email = trimmedText(resident.residentEmail);
   if (email && email !== name) return email;

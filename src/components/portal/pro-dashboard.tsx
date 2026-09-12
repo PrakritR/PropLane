@@ -2,6 +2,36 @@
 
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import {
+  PortfolioPropertiesSection,
+  readPortfolioSnapshot,
+} from "@/components/portal/pro-dashboard-portfolio";
+import {
+  AttentionPanel,
+  DashboardPeriodSelect,
+  KpiCard,
+  UpcomingPanel,
+  type AttentionRow,
+  type UpcomingRow,
+} from "@/components/portal/pro-dashboard-kpis";
+import {
+  ageLabel,
+  bucketSeries,
+  DASHBOARD_PERIOD_LABELS,
+  dashboardPeriods,
+  kpiDelta,
+  moneyToNumber,
+  stockSeries,
+  toMs,
+  usdWhole,
+  type DashboardPeriodKind,
+} from "@/lib/dashboard-kpis";
+import { useManagerMessagingNumberStatus } from "@/hooks/use-manager-messaging-number-status";
+import { MANAGER_MESSAGING_SETTINGS_HREF } from "@/lib/sms/manager-messaging-number";
+import { loadInspectionList } from "@/lib/inspections/client";
+import { inspectionRoomLabel, type InspectionResidency } from "@/lib/inspections/model";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
@@ -20,6 +50,7 @@ import {
 import {
   chargeDueLabel,
   HOUSEHOLD_CHARGES_EVENT,
+  householdChargeDueDate,
   householdChargeManagerBucket,
   isHouseholdChargeOverdue,
   syncHouseholdChargesFromServer,
@@ -74,10 +105,7 @@ import {
 } from "@/lib/portal-inbox-storage";
 import {
   ManagerPortalPageShell,
-  portalDashboardWelcomeSubtitle,
   PORTAL_DASHBOARD_STACK,
-  PortalDashboardKpiRow,
-  PortalDashboardKpiTile,
   formatCompactChargeLine,
   formatCompactPlacementLine,
 } from "@/components/portal/portal-metrics";
@@ -111,8 +139,10 @@ import {
 } from "@/lib/manager-first-listing-onboarding";
 import { syncManagerPortfolioFromServer } from "@/lib/manager-portfolio-access";
 import { propertyListHref } from "@/lib/portal-detail-routes";
+import { MANAGER_ATTENTION_MAX_ROWS, buildManagerAttentionRows } from "@/lib/manager-attention-queue";
 
 const BASE = "/portal";
+
 
 /** Semantic status foreground tokens for the leading issue-row dots. */
 const DOT_INFO = "var(--status-approved-fg)";
@@ -569,6 +599,54 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [residentAccountEmails, setResidentAccountEmails] = useState<Set<string>>(new Set());
   const [showFirstListingBanner, setShowFirstListingBanner] = useState(false);
+  /*
+   * The KPI baseline. A per-device convenience, read after mount so the server
+   * and first client paint agree; "This month" until the manager picks another.
+   */
+  const [periodKind, setPeriodKind] = useState<DashboardPeriodKind>("month");
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("proplane.dashboard.period");
+      if (saved === "month" || saved === "week" || saved === "30d") {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- storage is only readable after mount
+        setPeriodKind(saved);
+      }
+    } catch {
+      /* private mode */
+    }
+  }, []);
+  const choosePeriod = (next: DashboardPeriodKind) => {
+    setPeriodKind(next);
+    try {
+      window.localStorage.setItem("proplane.dashboard.period", next);
+    } catch {
+      /* private mode */
+    }
+  };
+  // Move-ins and move-outs in the next fortnight, for the Upcoming panel.
+  const [residencies, setResidencies] = useState<InspectionResidency[]>([]);
+  useEffect(() => {
+    if (!authReady || !userId || isDemoModeActive()) return;
+    let cancelled = false;
+    void loadInspectionList(userId, "manager")
+      .then((list) => {
+        if (!cancelled) setResidencies(list.residencies ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setResidencies([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, userId]);
+  // The same condition the portal-wide notice uses, so both say the same thing.
+  const messaging = useManagerMessagingNumberStatus();
+  const messagingNeedsSetup =
+    messaging.resolved &&
+    !messaging.statusError &&
+    !!messaging.status &&
+    !messaging.status.number?.phoneNumber &&
+    messaging.status.planTier !== "free";
 
   // PRP-396: once per session, soft-redirect empty/first-draft managers to
   // Properties → Drafts (seed + wizard live on that page). Banner stays as a
@@ -837,7 +915,10 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
     // Vacant = units actively listed for rent (a live listing is a unit to fill).
     const roomsVacant = livePropertyCount;
 
+    const portfolio = readPortfolioSnapshot(userId);
+
     return {
+      portfolio,
       pendingApps,
       pendingLeaseRows,
       pendingCharges,
@@ -852,25 +933,101 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
       expensesByMonth,
       managerSignatureLeaseCount,
       roomsVacant,
+      // Raw rows the KPI series are bucketed from — see `kpis` below.
+      charges,
+      leases,
+      pendingServiceRequests,
     };
   }, [tick, userId, nowMs]);
+
+  /*
+   * The four headline numbers with a direction and eight periods of history,
+   * re-bucketed when the manager changes the baseline. Kept out of `data` so a
+   * period change does not re-run every store read above.
+   */
+  const kpis = useMemo(() => {
+    if (!data) return null;
+    const periods = dashboardPeriods(periodKind, nowMs, 8);
+    const labels = periods.map((p) => p.label);
+    const previous = DASHBOARD_PERIOD_LABELS[periodKind].previous;
+    const current = periods[periods.length - 1]!;
+
+    // Occupancy is a stock: leases signed by the end of each period, minus any
+    // that ended. `fullySignedAt` is the truth; older rows fall back to their
+    // last update, which for a signed lease is when it was signed.
+    const signed = data.leases.filter((l) => l.status === "Fully Signed");
+    const occupiedSeries = stockSeries(
+      signed,
+      periods,
+      (l) => toMs(l.fullySignedAt ?? l.signedAtIso ?? l.updatedAtIso),
+      (l) => toMs(l.application?.leaseEnd) ?? toMs(l.voidedAt),
+      nowMs,
+    );
+    const occupiedNow = occupiedSeries[occupiedSeries.length - 1] ?? 0;
+    const spaces = Math.max(data.portfolio.rentableSpaces, occupiedNow, 1);
+    const occupancyPct = occupiedSeries.map((n) => Math.round((n / spaces) * 100));
+
+    // Rent collected: paid charges by the day they were paid; due: every charge
+    // whose due date falls in the current period.
+    const collectedSeries = bucketSeries(
+      data.charges.filter((c) => c.status === "paid" || c.paidAt),
+      periods,
+      (c) => toMs(c.paidAt ?? c.createdAt),
+      (c) => moneyToNumber(c.amountLabel),
+    );
+    const dueThisPeriod = data.charges.reduce((sum, c) => {
+      const due = householdChargeDueDate(c)?.getTime();
+      return due != null && due >= current.start && due < current.end ? sum + moneyToNumber(c.amountLabel) : sum;
+    }, 0);
+
+    // Open requests: how many are open now, how old the oldest is, and how many
+    // were raised in each period (service requests carry the only request date).
+    const openedSeries = bucketSeries(data.pendingServiceRequests, periods, (r) => toMs(r.requestedAt));
+    const oldestMs = data.pendingServiceRequests
+      .map((r) => toMs(r.requestedAt))
+      .filter((n): n is number => n != null)
+      .sort((a, b) => a - b)[0];
+
+    return {
+      labels,
+      occupancy: {
+        value: `${occupancyPct[occupancyPct.length - 1] ?? 0}%`,
+        // One population for the card: the same series the figure comes from.
+        // A portfolio with nothing rentable yet says so, rather than "0 / 1".
+        unit: data.portfolio.rentableSpaces > 0 ? `${occupiedNow} / ${spaces}` : "No spaces yet",
+        series: occupancyPct,
+        delta: kpiDelta(occupancyPct, (n) => `${n} pts`, previous),
+      },
+      collected: {
+        value: usdWhole(collectedSeries[collectedSeries.length - 1] ?? 0),
+        unit: dueThisPeriod > 0 ? `of ${usdWhole(dueThisPeriod)} due` : undefined,
+        series: collectedSeries,
+        delta: kpiDelta(collectedSeries, usdWhole, previous),
+      },
+      requests: {
+        value: String(data.serviceItems.length),
+        unit: oldestMs != null ? `oldest ${ageLabel(oldestMs, nowMs)}` : undefined,
+        series: openedSeries,
+        delta: kpiDelta(openedSeries, String, previous, true),
+      },
+    };
+  }, [data, periodKind, nowMs]);
 
   if (!data) return null;
 
   const {
+    portfolio,
     pendingApps,
     pendingLeaseRows,
     pendingCharges,
     inboxThreads,
     inboxCount,
     serviceItems,
-    pendingServiceCount,
     tours,
     activeResidents,
     paymentsByMonth,
     expensesByMonth,
     managerSignatureLeaseCount,
-    roomsVacant,
   } = data;
 
   const pendingTours = tours.filter((t) => t.status === "pending");
@@ -931,13 +1088,81 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
       ? `${BASE}/documents/other?expiry=expired`
       : `${BASE}/documents/other?expiry=expiring30`;
 
+  /*
+   * Needs attention: every kind of thing waiting on the manager, in priority
+   * order — money owed, decisions, signatures, tours, setup — capped at six
+   * rows so it stays a list of next actions rather than a second inbox.
+   */
+  const applicationProperties = new Set(pendingApps.map((a) => a.propertyId || a.property));
+  const attentionRows: AttentionRow[] = buildManagerAttentionRows({
+    basePath: BASE,
+    overdueChargeCount,
+    overdueBalanceLabel,
+    pendingApplicationCount: pendingApps.length,
+    latestPendingApplicationProperty: pendingApps[0]?.property,
+    managerSignatureLeaseCount,
+    pendingTourCount: pendingTours.length,
+    messagingNeedsSetup,
+    messagingSettingsHref: MANAGER_MESSAGING_SETTINGS_HREF,
+    draftPropertyCount: portfolio.draftCount,
+    draftsHref: propertyListHref(BASE, "drafts"),
+    unreadConversationCount: inboxCount,
+    latestUnreadSubject: inboxThreads[0]?.subject,
+  });
+  const attentionShown = attentionRows.slice(0, MANAGER_ATTENTION_MAX_ROWS);
+
+  // Signed leases per property, for the occupancy bar on each card.
+  const occupiedByProperty = new Map<string, number>();
+  for (const lease of activeResidents) {
+    const key = lease.propertyId?.trim();
+    if (!key) continue;
+    occupiedByProperty.set(key, (occupiedByProperty.get(key) ?? 0) + 1);
+  }
+
+  // Upcoming: the next 14 days of tours, move-ins and move-outs.
+  const horizonMs = nowTick + 14 * 24 * 60 * 60 * 1000;
+  const upcomingRows: UpcomingRow[] = [
+    ...tours
+      .filter((t) => t.startMs >= nowTick - 30 * 60 * 1000 && t.startMs <= horizonMs)
+      .map((t) => ({
+        id: `tour-${t.id}`,
+        kind: t.status === "pending" ? "Tour request" : "Tour",
+        title: t.label,
+        detail: t.propertyTitle || "—",
+        at: t.startMs,
+        href: `${BASE}/tours/${t.status === "pending" ? "pending" : "upcoming"}`,
+      })),
+    ...residencies.flatMap((r) => {
+      const rows: UpcomingRow[] = [];
+      const moveIn = toMs(r.moveInDate);
+      const moveOut = toMs(r.moveOutDate);
+      const where = [r.property, r.room ? inspectionRoomLabel(r.room) : ""].filter(Boolean).join(" · ") || "—";
+      if (moveIn != null && moveIn >= nowTick - 24 * 60 * 60 * 1000 && moveIn <= horizonMs) {
+        rows.push({ id: `movein-${r.id}`, kind: "Move-in inspection", title: r.name, detail: where, at: moveIn, href: `${BASE}/inspections/move-in` });
+      }
+      if (moveOut != null && moveOut >= nowTick - 24 * 60 * 60 * 1000 && moveOut <= horizonMs) {
+        rows.push({ id: `moveout-${r.id}`, kind: "Lease ends", title: r.name, detail: where, at: moveOut, href: `${BASE}/inspections/move-out` });
+      }
+      return rows;
+    }),
+  ];
+
   return (
     <ManagerPortalPageShell
-      title="Dashboard"
-      subtitle={portalDashboardWelcomeSubtitle(displayName)}
+      title="Your portfolio, in focus."
+      subtitle={`Welcome back, ${displayName}. Keep homes organized. Keep the next step clear.`}
       hideTitleOnNative
       hideTitleOnMobileNav
-      welcomeSubtitle
+      primaryAction={
+        <Button
+          type="button"
+          className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+          data-attr="dashboard-add-property"
+          onClick={() => router.push(`${propertyListHref(BASE, "drafts")}?wizard=v2`)}
+        >
+          + Add property
+        </Button>
+      }
     >
       {/* Full width: Ask PropLane opens a popup by default, and a
           manager who pins it gets the portal-wide rail from the shell layout
@@ -975,57 +1200,70 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
           </Link>
         ) : null}
 
-        {/* Command center — restrained KPI stat row (scrolls horizontally on narrow screens). */}
-        <PortalDashboardKpiRow>
-            <PortalDashboardKpiTile
-              label="Rooms vacant"
-              value={roomsVacant}
-              tone={roomsVacant > 0 ? "warning" : "success"}
-              emphasis={roomsVacant > 0}
-              href={`${BASE}/properties`}
-              dataAttr="dashboard-kpi-vacant"
-            />
-            <PortalDashboardKpiTile
-              label="Leases"
-              value={pendingLeaseRows.length}
-              tone="brand"
-              emphasis={managerSignatureLeaseCount > 0 || pendingLeaseRows.length > 0}
-              href={`${BASE}/leases`}
-              dataAttr="dashboard-kpi-leases"
-            />
-            <PortalDashboardKpiTile
-              label="Applications"
-              value={pendingApps.length}
-              tone={pendingApps.length > 0 ? "warning" : "brand"}
-              emphasis={pendingApps.length > 0}
-              href={`${BASE}/applications`}
-              dataAttr="dashboard-kpi-applications"
-            />
-            <PortalDashboardKpiTile
-              label="Overdue"
-              value={overdueBalanceLabel}
-              tone={overdueChargeCount > 0 ? "danger" : "success"}
-              emphasis={overdueChargeCount > 0}
-              href={`${BASE}/payments`}
-              dataAttr="dashboard-kpi-overdue"
-            />
-            <PortalDashboardKpiTile
-              label="Services"
-              value={serviceItems.length}
-              tone={serviceItems.length > 0 ? "warning" : "neutral"}
-              emphasis={serviceItems.length > 0}
-              href={`${BASE}/services/requests`}
-              dataAttr="dashboard-kpi-services"
-            />
-            <PortalDashboardKpiTile
-              label="Messages"
-              value={inboxCount}
-              tone={inboxCount > 0 ? "brand" : "neutral"}
-              emphasis={inboxCount > 0}
-              href={`${BASE}/communication/inbox/unopened`}
-              dataAttr="dashboard-kpi-messages"
-            />
-        </PortalDashboardKpiRow>
+        {/* Portfolio at a glance — four figures with a direction, on the baseline the manager picks. */}
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-[15px] font-semibold tracking-[-0.01em] text-foreground">At a glance</h2>
+          <DashboardPeriodSelect value={periodKind} onChange={choosePeriod} />
+        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <KpiCard
+            label="Occupancy"
+            value={kpis?.occupancy.value ?? "0%"}
+            unit={kpis?.occupancy.unit}
+            detail="Signed leases over rentable spaces"
+            delta={kpis?.occupancy.delta ?? null}
+            series={kpis?.occupancy.series}
+            seriesLabels={kpis?.labels}
+            format={(n) => `${n}%`}
+            href={`${BASE}/residents/current`}
+            dataAttr="dashboard-metric-occupied"
+          />
+          <KpiCard
+            label="Rent collected"
+            value={kpis?.collected.value ?? "$0"}
+            unit={kpis?.collected.unit}
+            detail="Paid this period"
+            delta={kpis?.collected.delta ?? null}
+            series={kpis?.collected.series}
+            seriesLabels={kpis?.labels}
+            format={usdWhole}
+            href={`${BASE}/payments/incoming/paid`}
+            dataAttr="dashboard-metric-collected"
+          />
+          <KpiCard
+            label="Open requests"
+            value={kpis?.requests.value ?? "0"}
+            unit={kpis?.requests.unit}
+            detail="Services and maintenance still open"
+            delta={kpis?.requests.delta ?? null}
+            series={kpis?.requests.series}
+            seriesLabels={kpis?.labels}
+            format={String}
+            href={`${BASE}/services/requests`}
+            dataAttr="dashboard-metric-requests"
+          />
+          <KpiCard
+            label="Applications ready"
+            value={String(pendingApps.length)}
+            unit={
+              pendingApps.length > 0
+                ? `${applicationProperties.size} ${applicationProperties.size === 1 ? "property" : "properties"}`
+                : undefined
+            }
+            detail={pendingApps.length > 0 ? "Waiting for your decision" : "No applications waiting"}
+            delta={null}
+            href={`${BASE}/applications/pending`}
+            dataAttr="dashboard-metric-applications"
+          />
+        </div>
+
+        {/* What needs a decision now, and what the next fortnight holds. */}
+        <div className="grid gap-3 lg:grid-cols-2">
+          <AttentionPanel rows={attentionShown} />
+          <UpcomingPanel rows={upcomingRows} nowMs={nowTick} calendarHref={`${BASE}/calendar`} />
+        </div>
+
+        <PortfolioPropertiesSection cards={portfolio.cards} basePath={BASE} occupiedByProperty={occupiedByProperty} />
 
         {/* Financial trend graphs — payments collected vs. expenses, last 6 months. */}
         {visibility.cashflow ? (
@@ -1040,7 +1278,7 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
               ✦
             </span>
             <h2 className="text-xl font-bold leading-tight tracking-[-0.02em] text-foreground [html[data-native]_&]:text-lg">
-              Needs attention
+              Everything open
             </h2>
             {openCount > 0 ? (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-[var(--secondary)] px-2.5 py-0.5 text-[11px] font-medium text-muted">

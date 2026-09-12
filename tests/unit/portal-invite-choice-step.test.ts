@@ -55,6 +55,9 @@ describe("portal invite choice step", () => {
   it("mints co-manager or vendor links from the same modal", () => {
     expect(MODAL).toContain('kind?: "manager" | "vendor"');
     expect(MODAL).toContain("isVendor");
-    expect(MODAL).toContain("assignedPropertyIds: isVendor ? [] : selectedPropIds");
+    // Vendor links carry the chosen properties too (they become the directory
+    // row's assigned houses); only the module permissions stay manager-only.
+    expect(MODAL).toContain("assignedPropertyIds: selectedPropIds");
+    expect(MODAL).toContain("propertyPermissions: isVendor ? {} : permissions");
   });
 });

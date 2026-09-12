@@ -3,7 +3,15 @@ export const IOS_APP_STORE_APP_ID = "6795707576";
 
 export const IOS_APP_BUNDLE_ID = "space.proplane.app";
 
-const DEFAULT_IOS_APP_DOWNLOAD_URL = `https://apps.apple.com/app/id${IOS_APP_STORE_APP_ID}`;
+/** Minimum iOS the listing declares (App Store Connect record). */
+export const IOS_APP_MINIMUM_OS = "15";
+
+/**
+ * Canonical storefront URL. The short `apps.apple.com/app/id…` form redirects by
+ * the visitor's storefront and lands on "not available" where the app is not
+ * published; the explicit `/us/app/proplane/` path always resolves to the listing.
+ */
+const DEFAULT_IOS_APP_DOWNLOAD_URL = `https://apps.apple.com/us/app/proplane/id${IOS_APP_STORE_APP_ID}`;
 
 /**
  * Public download destination for the PropLane iOS app.

@@ -77,12 +77,13 @@ describe("portal-detail-routes", () => {
     expect(PROPERTY_DETAIL_SCOPE_LABELS.preview).toBe("Listing");
   });
 
-  it("parses resident detail tabs with application fallback", () => {
+  it("parses resident detail tabs with overview fallback", () => {
     expect(parseResidentDetailTab("payments")).toBe("payments");
     expect(parseResidentDetailTab("background-check")).toBe("background-check");
     expect(parseResidentDetailTab("application")).toBe("application");
     expect(parseResidentDetailTab("applicant")).toBe("application");
-    expect(parseResidentDetailTab("")).toBe("application");
+    expect(parseResidentDetailTab("overview")).toBe("overview");
+    expect(parseResidentDetailTab("")).toBe("overview");
   });
 
   it("builds background check list hrefs", () => {
@@ -121,8 +122,8 @@ describe("portal-detail-routes", () => {
       "/portal/residents/current/res-1/tours/pending/tour-1",
     );
     expect(calendarViewHref("/portal", "availability")).toBe("/portal/calendar");
-    expect(calendarViewHref("/portal", "bookings")).toBe("/portal/bookings/upcoming");
-    expect(bookingsHref("/portal")).toBe("/portal/bookings/upcoming");
+    expect(calendarViewHref("/portal", "bookings")).toBe("/portal/bookings/calendar");
+    expect(bookingsHref("/portal")).toBe("/portal/bookings/calendar");
     expect(teamLinkHref("/portal", "linked")).toBe("/portal/teams/managers");
     expect(teamMemberDetailHref("/portal", "invite-abc")).toBe("/portal/teams/managers/invite-abc");
   });

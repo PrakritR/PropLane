@@ -65,13 +65,13 @@ describe("portfolio calendar and bookings nav", () => {
 });
 
 describe("portfolio bookings buckets", () => {
-  it("offers upcoming, in-house, past, and calendar segments", () => {
+  it("offers calendar first, then upcoming, in-house, and past segments", () => {
     const routes = read("src/lib/portal-detail-routes.ts");
-    expect(routes).toContain('["upcoming", "inhouse", "past", "calendar"]');
+    expect(routes).toContain('["calendar", "upcoming", "inhouse", "past"]');
   });
 
-  it("unknown segment lands on upcoming", () => {
-    expect(parseManagerBookingBucket("bogus")).toBe("upcoming");
+  it("unknown segment lands on the calendar", () => {
+    expect(parseManagerBookingBucket("bogus")).toBe("calendar");
     expect(managerBookingListHref("/portal", "past")).toBe("/portal/bookings/past");
   });
 

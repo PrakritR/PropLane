@@ -2,10 +2,11 @@
  * EVIDENCE HARNESS — the settings route's answer to a code-less "PropLane covers it".
  *
  * Drives the REAL `PATCH /api/portal/manager-manual-payment-settings` handler and
- * records the request/response transcript. The point of the change is that a
- * code-less `proplane` selection is REFUSED with 400 — it used to be stored as a
- * quietly downgraded `resident` and answered 200, so the manager was told their
- * fees were covered when they were not.
+ * records the request/response transcript. A code-less `proplane` selection is
+ * REFUSED with 400 — it used to be stored as a quietly downgraded `resident` and
+ * answered 200, so the manager was told their fees were covered when they were
+ * not. A valid promo code, or a promo grant already on the account, is what lets
+ * the selection through (captain decision September 12, 2026).
  *
  * Set EVIDENCE_DIR to dump the transcript.
  */
@@ -25,6 +26,8 @@ const MANAGER_ID = "mgr-evidence-1";
 
 /** The one stored settings row, as `manual_payments` JSON on the manager's record. */
 let stored: Record<string, unknown> | null = null;
+/** The account's `manager_purchases.promo_code`, the other promo source. */
+let accountPromoCode: string | null = null;
 
 const db = {
   from(table: string) {
@@ -47,6 +50,19 @@ const db = {
       },
     };
   },
+  /** What `save_manager_payment_preferences` does with the server's grant answer. */
+  rpc: async (fn: string, args: { p_settings: Record<string, unknown>; p_coverage_granted?: boolean }) => {
+    if (fn !== "save_manager_payment_preferences") return { data: null, error: { message: `unexpected rpc ${fn}` } };
+    const next: Record<string, unknown> = { ...args.p_settings };
+    delete next.adminServiceFeeOverride;
+    if (stored?.adminServiceFeeOverride) next.adminServiceFeeOverride = stored.adminServiceFeeOverride;
+    if (next.serviceFeePayer === "proplane" && args.p_coverage_granted !== true && stored?.adminServiceFeeOverride !== "proplane") {
+      next.serviceFeePayer = "resident";
+      delete next.serviceFeeWaiverCode;
+    }
+    stored = next;
+    return { data: next, error: null };
+  },
 } as never;
 
 vi.mock("@/lib/supabase/service", () => ({ createSupabaseServiceRoleClient: () => db }));
@@ -57,6 +73,19 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/manager-manual-payment-settings.server", () => ({
   applyManagerManualPaymentsToListings: async () => ({ listingsUpdated: 0, chargesUpdated: 0 }),
+}));
+vi.mock("@/lib/manager-access-server", () => ({
+  getManagerPurchaseSku: async () => ({
+    tier: "free",
+    billing: null,
+    stripeCustomerId: null,
+    stripeSubscriptionId: null,
+    stripeCheckoutSessionId: null,
+    promoCode: accountPromoCode,
+    appleOriginalTransactionId: null,
+    paidAt: null,
+    readFailed: false,
+  }),
 }));
 
 const { PATCH } = await import("@/app/api/portal/manager-manual-payment-settings/route");
@@ -92,6 +121,7 @@ async function patch(label: string, body: Record<string, unknown>) {
 
 beforeEach(() => {
   stored = null;
+  accountPromoCode = null;
   transcript.length = 0;
 });
 
@@ -117,13 +147,13 @@ describe("evidence · PATCH manager-manual-payment-settings", () => {
     expect(wrong.status).toBe(400);
     expect(stored).toBeNull();
 
-    const ok = await patch("…and with FREE100", {
+    const ok = await patch("…and with the promo code", {
       ...BASE,
       serviceFeePayer: "proplane",
       serviceFeeWaiverCode: "free100",
     });
-    expect(ok.status).toBe(400);
-    expect(stored).toBeNull();
+    expect(ok.status).toBe(200);
+    expect(stored).toMatchObject({ serviceFeePayer: "proplane", serviceFeeWaiverCode: "FREE100" });
 
     // A legacy account already on `proplane` carries no code. An unrelated re-save
     // must keep it there rather than quietly moving Stripe's cost onto its residents.
@@ -133,8 +163,19 @@ describe("evidence · PATCH manager-manual-payment-settings", () => {
       axisPaymentsEnabled: false,
       serviceFeePayer: "proplane",
     });
-    expect(carried.status).toBe(400);
+    expect(carried.status).toBe(200);
+    expect(stored).toMatchObject({ serviceFeePayer: "proplane", axisPaymentsEnabled: false });
+
+    // The account's own promo grant (signup FREE100) needs no typed code.
+    stored = null;
+    accountPromoCode = "FREE100";
+    const granted = await patch("An account with a signup promo grant, no typed code", {
+      ...BASE,
+      serviceFeePayer: "proplane",
+    });
+    expect(granted.status).toBe(200);
     expect(stored).toMatchObject({ serviceFeePayer: "proplane" });
+    expect(stored).not.toHaveProperty("serviceFeeWaiverCode");
 
     if (OUT) {
       mkdirSync(OUT, { recursive: true });

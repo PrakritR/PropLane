@@ -66,6 +66,8 @@
   --glass-border: var(--pl-line);
   --portal-surface-dark: #0b1120;
   --portal-surface-light: var(--pl-white-muted);
+  /* Flat page canvas behind portal cards (the redesign's soft gray). */
+  --portal-canvas: #f5f7fb;
   --status-pending-fg: #a34a06; /* 5.3:1 on --status-pending-bg (PRP-184 #2) */
   --status-pending-bg: #fdf0d5;
   --status-approved-fg: #2456d6; /* 5.3:1 on --status-approved-bg; --pl-blue measured 3.8 (PRP-184 #2) */
@@ -2781,6 +2783,14 @@ html[data-portal-sticky-chrome] .portal-list-page-scroll {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+}
+
+/* A list command stack that ends up INSIDE the scroll body (a panel that wraps
+   it in a fragment with its modals) sticks to the scroller's own top edge. The
+   mobile-nav offset is for the un-pinned layout only; here it opened a gap the
+   height of the top bar between the page title and the tabs. */
+html[data-portal-sticky-chrome] .portal-list-page-scroll [data-slot="portal-list-control-stack"][data-sticky] {
+  top: 0;
 }
 
 html[data-portal-sticky-chrome] .portal-calendar-toolbar {

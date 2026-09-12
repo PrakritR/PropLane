@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 
 const showToast = vi.fn();
@@ -103,13 +104,15 @@ async function submitReplyOverBothChannels() {
       allowInlineCompose={false}
     />,
   );
-  const picker = await screen.findByLabelText("Send via");
-  fireEvent.click(picker);
-  const emailOption = await screen.findByRole("option", { name: /^Email$/i });
-  // A pick is pointerdown + pointerup at the same point; pointerdown alone is a scroll start.
-  fireEvent.pointerDown(emailOption, { pointerId: 1, clientX: 10, clientY: 10 });
-  fireEvent.pointerUp(emailOption, { pointerId: 1, clientX: 10, clientY: 10 });
-  await waitFor(() => expect(picker.textContent).toContain("Email & Text"));
+  // The channel picker is a segmented control (§13): press Email beside the
+  // already-on Text segment so the reply goes out on both.
+  const picker = await screen.findByRole("group", { name: "Send via" });
+  const segment = (name: RegExp) => within(picker).getByRole("button", { name });
+  fireEvent.click(segment(/^Email$/i));
+  await waitFor(() => {
+    expect(segment(/^Email$/i)).toHaveAttribute("aria-pressed", "true");
+    expect(segment(/^Text$/i)).toHaveAttribute("aria-pressed", "true");
+  });
   const input = await screen.findByPlaceholderText("Write a reply…");
   fireEvent.change(input, { target: { value: "Checking in" } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));

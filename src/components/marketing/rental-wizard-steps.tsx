@@ -32,10 +32,12 @@ import {
   isPropertyRentedByRoom,
   isRoomApprovedConflict,
   isRoomPendingConflict,
+  listingLongTermLengths,
   listingOfferedLeaseTerms,
   roomSelectOptionsWithNone,
 } from "@/lib/rental-application/data";
-import { sortLeaseTermsCanonical } from "@/lib/rental-application/lease-terms";
+import { addMonthsToDateString, longTermLengthFor } from "@/lib/rental-application/long-term-length";
+import { LONG_TERM_LEASE_TERM, sortLeaseTermsCanonical } from "@/lib/rental-application/lease-terms";
 import {
   paymentAtSigningPriceLabel,
   utilitiesListingEstimateLabel,
@@ -682,6 +684,7 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
     const offeredLeaseTerms = form.propertyId.trim()
       ? listingOfferedLeaseTerms(form.propertyId)
       : [...LEASE_TERM_CHOICES];
+    const longTermLengths = form.propertyId.trim() ? listingLongTermLengths(form.propertyId) : [];
     // A resumed draft — or an application started while a retired length was
     // still offered — keeps its OWN answer selectable. Dropping it would blank
     // what they already chose without a word, the same reason an already-picked
@@ -1028,6 +1031,28 @@ export function RentalWizardStepBody(p: WizardStepsProps) {
             />
             <FieldError msg={errors.leaseStart} />
           </div>
+          {form.leaseTerm === LONG_TERM_LEASE_TERM && longTermLengths.length > 0 ? (
+            <div className="space-y-2" data-wizard-field="longTermLength">
+              <Label htmlFor="longTermLength">Lease length</Label>
+              <Select
+                id="longTermLength"
+                value={longTermLengthFor(form.leaseStart, form.leaseEnd, longTermLengths)}
+                onChange={(e) => {
+                  const months = Number(e.target.value);
+                  if (!months || !form.leaseStart) return;
+                  patch({ leaseEnd: addMonthsToDateString(form.leaseStart, months) });
+                }}
+              >
+                <option value="">Pick a length…</option>
+                {longTermLengths.map((months) => (
+                  <option key={months} value={String(months)}>
+                    {months} months
+                  </option>
+                ))}
+              </Select>
+              <p className="text-xs text-muted">The manager offers these lengths; picking one fills the end date from your move-in date.</p>
+            </div>
+          ) : null}
           {form.leaseTerm !== "Month-to-Month" ? (
             <div className="space-y-2">
               <Label htmlFor="leaseEnd" required>

@@ -1,16 +1,20 @@
 "use client";
 
 /**
- * The redesigned create-listing wizard.
+ * The listing editor — one surface for adding a property and for editing it.
  *
- * "Add property" opens the editor itself, at step 1. There used to be three
- * screens in front of it — address, confirm the address, how you rent it — and
- * every one of those questions is asked again on the Home step, so a manager
- * answered the same three things twice before reaching anything new.
+ * There used to be two: a four-screen "Quick Add" that asked what, where, how
+ * and how much before the property existed, and the editor a manager landed in
+ * afterwards. Both asked the same first questions, and both were disliked for
+ * different reasons — the modal for making a manager click through four cards
+ * to reach a form, the editor for opening as a wall of selects. So the two are
+ * ONE editor now: a brand-new property opens straight in it at Basics, where
+ * the property type is a row of tiles, how-you-rent-it is two cards, and the
+ * address and bedroom count sit right under them. Save & exit from anywhere
+ * keeps the draft; Publish is the last section.
  *
  * `AddPropertyFlow` and {@link submissionFromAddProperty} are kept for callers
- * that already collected those answers elsewhere; the wizard itself no longer
- * puts them in front of a manager, so only the result type is imported here.
+ * that already collected those answers elsewhere.
  *
  * It reads and writes the SAME `ManagerListingSubmissionV1` the existing wizard
  * uses, so drafts, normalization, validation, publishing and every downstream
@@ -130,8 +134,8 @@ export function ListingWizardV2({
   useEffect(() => {
     setDirty(submission !== savedRef.current);
   }, [submission]);
-  const markSaved = () => {
-    savedRef.current = submission;
+  const markSaved = (sub: ManagerListingSubmissionV1 = submission) => {
+    savedRef.current = sub;
     setDirty(false);
   };
   const saveState = busy ? "Saving…" : dirty ? "Unsaved changes" : editing ? "Saved" : "Not saved yet";

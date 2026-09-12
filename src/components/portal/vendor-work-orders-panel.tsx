@@ -2,6 +2,8 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { ListChecks } from "lucide-react";
+import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -863,11 +865,30 @@ export function VendorWorkOrdersPanel() {
   return (
     <ManagerPortalPageShell
       title="Services"
+      subtitle="Offers, site visits, scheduled jobs, and the tasks managers hand you."
       hideTitleOnMobileNav
-      filterRow={
-        <ManagerPortalStatusPills tabs={tabs} activeId={tab} onChange={(id) => setTab(id as VendorWorkOrderTab)} />
-      }
+      titleInlineFilter={null}
+      compactFilterRow
     >
+      {/* Tasks are part of Services for a vendor (no separate destination): the
+          same tab strip carries the work-order states and a Tasks tab. */}
+      <PortalListControlStack
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
+        destinationRow={
+          <div className="flex min-w-0 items-center gap-1">
+            <ManagerPortalStatusPills tabs={tabs} activeId={tab} onChange={(id) => setTab(id as VendorWorkOrderTab)} />
+            <Link
+              href="/vendor/tasks"
+              data-attr="vendor-services-tasks-tab"
+              className="ml-auto inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-muted transition hover:bg-[var(--secondary)]/60 hover:text-foreground"
+            >
+              <ListChecks className="size-4" aria-hidden />
+              Tasks
+            </Link>
+          </div>
+        }
+      />
       {bidsSyncFailed || payoutsSyncFailed ? (
         <p className="mb-4 rounded-xl border px-4 py-3 text-sm portal-banner-danger" data-attr="vendor-wo-sync-error">
           Couldn&apos;t refresh the latest bidding/payout status. This may be out of date. Retrying automatically.

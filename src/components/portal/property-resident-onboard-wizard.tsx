@@ -60,17 +60,21 @@ export function PropertyResidentPdfUploadCard({
   onPick: () => void;
 }) {
   return (
+    // A row on a phone (icon left, words right) so three choices fit one
+    // screen of a sheet; the tall dashed tile from `sm` up where there is room.
     <button
       type="button"
-      className="flex min-h-[10rem] w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border bg-accent/10 px-3 py-6 text-center transition hover:border-primary/40 hover:bg-primary/[0.05] disabled:opacity-60"
+      className="flex w-full items-center gap-3 rounded-2xl border-2 border-dashed border-border bg-accent/10 px-4 py-3 text-left transition hover:border-primary/40 hover:bg-primary/[0.05] disabled:opacity-60 sm:min-h-[10rem] sm:flex-col sm:items-center sm:justify-center sm:gap-2 sm:px-3 sm:py-6 sm:text-center"
       onClick={onPick}
       disabled={busy}
       data-attr={dataAttr}
     >
-      <FileUp className="h-7 w-7 text-primary" aria-hidden />
-      <span className="text-sm font-semibold text-foreground">{title}</span>
-      <span className="text-xs text-muted">{subtitle}</span>
-      {fileName ? <span className="mt-1 max-w-full truncate text-xs font-medium text-foreground">{fileName}</span> : null}
+      <FileUp className="h-6 w-6 shrink-0 text-primary sm:h-7 sm:w-7" aria-hidden />
+      <span className="min-w-0 sm:contents">
+        <span className="block text-sm font-semibold text-foreground">{title}</span>
+        <span className="block text-xs text-muted">{subtitle}</span>
+        {fileName ? <span className="mt-1 block max-w-full truncate text-xs font-medium text-foreground">{fileName}</span> : null}
+      </span>
     </button>
   );
 }

@@ -79,11 +79,12 @@ export function createMemoryDb(seed: Record<string, Row[]> = {}): MemoryDb {
         for (const r of op.rows) rows.push({ ...r });
         out = op.rows;
       } else if (op.kind === "upsert") {
-        const key = op.onConflict || "id";
+        // Composite keys ("a,b") match Postgres' `on conflict (a, b)`.
+        const keys = (op.onConflict || "id").split(",").map((k) => k.trim()).filter(Boolean);
         const inserted: Row[] = [];
         const upserted: Row[] = [];
         for (const r of op.rows) {
-          const existing = rows.find((x) => String(x[key] ?? "") === String(r[key] ?? ""));
+          const existing = rows.find((x) => keys.every((key) => String(x[key] ?? "") === String(r[key] ?? "")));
           if (existing) {
             if (!op.ignoreDuplicates) {
               Object.assign(existing, r);

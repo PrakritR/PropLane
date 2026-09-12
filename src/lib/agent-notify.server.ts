@@ -58,6 +58,7 @@ export async function notifyManagerFromAgent(
     ? `agent_notice_msg_${createHash("sha256").update(`${args.landlordId}:${args.idempotencyKey}`).digest("hex").slice(0, 24)}`
     : `agent_notice_msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   let inboxDelivered = false;
+  let inboxAlreadySent = false;
   if (channels.inbox) {
     const { data: existingRow } = await db
       .from("portal_inbox_thread_records")
@@ -70,6 +71,7 @@ export async function notifyManagerFromAgent(
       | null;
     const priorMessages = Array.isArray(existing?.messages) ? existing.messages : [];
     const alreadySent = priorMessages.some((m) => m?.id === messageId);
+    inboxAlreadySent = alreadySent;
 
     if (alreadySent) {
       // A retry of a notice already in the thread. Delivered, nothing appended.
@@ -114,7 +116,7 @@ export async function notifyManagerFromAgent(
     }
   }
 
-  if (channels.inbox && args.notify?.push !== false) {
+  if (channels.inbox && args.notify?.push !== false && !inboxAlreadySent) {
     try {
       await sendPushToUser(args.landlordId, {
         title: args.subject,

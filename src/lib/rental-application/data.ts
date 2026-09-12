@@ -12,7 +12,7 @@ import {
   readExtraListings,
 } from "@/lib/demo-property-pipeline";
 import { effectiveApplicationForRow, readManagerApplicationRows } from "@/lib/manager-applications-storage";
-import { isEntireHomeListing, normalizeManagerListingSubmissionV1, resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
+import { isEntireHomeListing, normalizeLongTermLengths, normalizeManagerListingSubmissionV1, resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
 import {
   applicationHoldsRoomPublicly,
   executedApplicationIdsForManager,
@@ -52,6 +52,13 @@ export function listingAllowedLeaseTerms(propertyId: string): string[] {
  * listing's retired 3/6/9/12-Month lengths, and validation needs them); this is
  * the OFFERED set, where those lengths collapse onto Long-term.
  */
+/** Fixed lengths (months) this listing offers a Long-term let at; empty = dates decide. */
+export function listingLongTermLengths(propertyId: string): number[] {
+  const prop = getPropertyById(propertyId);
+  const sub = prop?.listingSubmission?.v === 1 ? prop.listingSubmission : undefined;
+  return normalizeLongTermLengths(sub?.longTermLengthsOffered);
+}
+
 export function listingOfferedLeaseTerms(propertyId: string): string[] {
   const offered = offeredLeaseTermsFromStored(listingAllowedLeaseTerms(propertyId));
   return offered.length > 0 ? offered : [...LEASE_TERM_CHOICES];

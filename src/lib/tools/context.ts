@@ -69,8 +69,8 @@ export type LeasingSmsAgentScope = {
    * a field called `prospectPhoneE164` would silently poison both.
    */
   prospectEmail?: string | null;
-  /** How the prospect reached us. Absent means SMS, which is the original path. */
-  channel?: "sms" | "email";
+  /** How the prospect reached us. This is explicit so voice/email cannot inherit SMS authority. */
+  channel: "sms" | "voice" | "email";
   workNumber: string | null;
   /**
    * True on the shared Claw line (`+12053690702`), where a single number fronts
@@ -80,6 +80,12 @@ export type LeasingSmsAgentScope = {
    * False/undefined on a per-manager work number (scoped to that manager only).
    */
   crossCatalog?: boolean;
+  /** Confirmed submitted/delivered replies eligible for semantic repeat suppression. */
+  recentDeliveredReplies?: readonly {
+    messageId: string;
+    text: string;
+    submittedAt: string;
+  }[];
 };
 
 /**

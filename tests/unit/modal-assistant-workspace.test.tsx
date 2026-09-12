@@ -173,8 +173,12 @@ describe("modal assistant workspace", () => {
       <Modal open title="Mobile editor" onClose={() => {}} fullScreenMobile={fullScreenMobile}><Editor /></Modal>
     </PortalAssistantConfigProvider>);
     const panel = screen.getByRole("textbox", { name: "Message draft" }).closest(".modal-panel")!;
-    expect(panel.className.includes("!max-w-none")).toBe(fullScreenMobile);
-    expect(panel.className.includes("native-safe-top")).toBe(true);
+    // Full screen takes the whole phone; otherwise the editor is a bottom sheet
+    // that hugs its content — full width either way, never a floating card.
+    expect(panel.className.includes("!max-h-full")).toBe(fullScreenMobile);
+    expect(panel.className.includes("rounded-t-2xl")).toBe(!fullScreenMobile);
+    expect(panel.className.includes("!max-w-none")).toBe(true);
+    expect(panel.className.includes(fullScreenMobile ? "native-safe-top" : "native-safe-bottom")).toBe(true);
   });
 
   it("preserves fullPage sizing and safe-area padding with the assistant closed", () => {

@@ -60,7 +60,10 @@ describe("VendorTaskList", () => {
 
   it("renders assigned tasks with status tabs", async () => {
     render(<VendorTaskList tabId="in-progress" basePath="/vendor" />);
-    expect(screen.getByRole("heading", { name: "Tasks" })).toBeInTheDocument();
+    // Tasks are a tab of Services for a vendor since the redesign: the page keeps
+    // the Services heading and offers a way back to the job states.
+    expect(screen.getByRole("heading", { name: "Services" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Jobs/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /In progress/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Completed/i })).toBeInTheDocument();
     await waitFor(() => {

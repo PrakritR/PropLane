@@ -1,24 +1,47 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { createContext, useEffect, type ReactNode } from "react";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** Docked bottom bar when list rows are selected — replaces invisible bulk affordances. */
+/** How many actions the floating pill shows before folding the rest into "…". */
+export const BULK_BAR_VISIBLE_ACTIONS = 5;
+
+/**
+ * Read by {@link PortalAdaptiveActionRow}: inside the pill, show up to this
+ * many actions by count rather than by measured width (the pill sizes itself
+ * to its content, so a width measurement there is circular).
+ */
+export const BulkBarActionLimitContext = createContext<number | null>(null);
+
+/**
+ * The floating bulk bar — a pill that appears above the list while rows are
+ * selected: "Unlist · Share · Delete · ✕", the way Linear and Notion surface
+ * bulk actions. It used to be a full-width light dock. The count label is
+ * gone (round 3): the checked rows already say what is selected, and the
+ * count made the pill read as a status line rather than a set of buttons.
+ * The count still feeds the accessible name and `data-count`.
+ *
+ * `placement="list-pane"` keeps the older in-flow footer for Communication's
+ * left column, which has its own scroll container.
+ */
 export function BulkActionBar({
   count,
   children,
   className,
-  /** Mirrors payment ledger list gutters so actions line up with amount column. */
+  /** Kept for callers; the pill no longer differs by variant. */
   variant = "default",
-  /** Hide the "{n} selected" label (tours bulk bar shows actions only). */
+  /** Accepted for callers; the pill no longer shows a count at all. */
   hideCount = false,
-  /** Override the default "{count} selected" label. */
+  /** Accepted for callers; used only for the accessible name. */
   countLabel,
   /**
-   * `viewport` — fixed to the portal bottom (default).
+   * `viewport` — floating pill above the portal bottom (default).
    * `list-pane` — in-flow footer inside Communication's left list column only.
    */
   placement = "viewport",
+  /** Clears the selection — renders the ✕ at the end of the pill. */
+  onClear,
 }: {
   count: number;
   children: ReactNode;
@@ -27,8 +50,10 @@ export function BulkActionBar({
   hideCount?: boolean;
   countLabel?: (count: number) => string;
   placement?: "viewport" | "list-pane";
+  onClear?: () => void;
 }) {
   const listPane = placement === "list-pane";
+  void hideCount;
 
   useEffect(() => {
     if (listPane || count <= 0) return;
@@ -44,16 +69,36 @@ export function BulkActionBar({
 
   if (count <= 0) return null;
 
+  const label = countLabel ? countLabel(count) : `${count} selected`;
+
+  if (listPane) {
+    return (
+      <div
+        className={cn(
+          "relative shrink-0 border-t border-border bg-card/95 px-3 py-2.5 shadow-[var(--shadow-sm)] backdrop-blur-md sm:px-4",
+          className,
+        )}
+        data-slot="bulk-action-bar"
+        data-variant={variant}
+        role="region"
+        aria-label={count === 1 ? "Bulk actions, 1 item selected" : `Bulk actions, ${count} items selected`}
+      >
+        <div className="flex w-full min-w-0 flex-nowrap items-center gap-3">
+          <p className="shrink-0 text-[11px] font-semibold tabular-nums text-foreground">{label}</p>
+          <div className="relative min-w-0 flex-1">{children}</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
-        listPane
-          ? "relative shrink-0 border-t border-border bg-card/95 px-3 py-2.5 shadow-[var(--shadow-sm)] backdrop-blur-md sm:px-4"
-          // Above the assistant FAB (z-55) so Mark as paid / Delete stay clickable.
-          : "fixed inset-x-0 bottom-0 z-[56] border-t border-border bg-card/95 px-3 py-2.5 shadow-[var(--shadow-lg)] backdrop-blur-md sm:px-4 sm:py-3",
-        !listPane &&
-          "pb-[max(0.75rem,var(--native-safe-bottom))] max-lg:left-[max(0.625rem,env(safe-area-inset-left,0px))] max-lg:right-[max(0.625rem,env(safe-area-inset-right,0px))] max-lg:w-auto max-lg:overflow-hidden max-lg:bottom-[calc(var(--portal-native-bottom-nav-inset,0px)+var(--portal-floating-bottom-gap,1.25rem))] max-lg:rounded-2xl max-lg:border max-lg:py-3 max-lg:pb-3 max-lg:shadow-md",
-        !listPane && variant === "payments" && "lg:left-[224px] lg:right-0",
+        // Centred over the content column (the sidebar is 224px on desktop),
+        // above the assistant FAB (z-55) so every action stays clickable.
+        "pointer-events-none fixed inset-x-0 z-[56] flex justify-center px-3",
+        "bottom-[calc(var(--portal-native-bottom-nav-inset,0px)+var(--portal-floating-bottom-gap,1.25rem)+env(safe-area-inset-bottom,0px))] lg:bottom-6",
+        variant === "payments" && "lg:left-[224px]",
         className,
       )}
       data-slot="bulk-action-bar"
@@ -61,25 +106,36 @@ export function BulkActionBar({
       role="region"
       aria-label={count === 1 ? "Bulk actions, 1 item selected" : `Bulk actions, ${count} items selected`}
     >
-      {variant === "payments" ? (
-        <div className="flex w-full min-w-0 items-center overflow-hidden px-2.5 max-md:px-0 sm:px-4 lg:px-5" data-portal-action-slot="">
-          <div className="relative min-w-0 w-full flex-1 overflow-hidden">{children}</div>
-        </div>
-      ) : (
-        <div
-          className={cn(
-            "mx-auto flex w-full max-w-5xl min-w-0 flex-nowrap items-center",
-            hideCount ? "justify-start gap-2" : "gap-5 sm:gap-6",
-          )}
-        >
-          {!hideCount ? (
-            <p className="shrink-0 text-[10px] font-semibold tabular-nums text-foreground sm:text-[11px]">
-              {countLabel ? countLabel(count) : `${count} selected`}
-            </p>
-          ) : null}
-          <div className={cn("relative min-w-0", hideCount ? undefined : "flex-1")}>{children}</div>
-        </div>
-      )}
+      <div
+        className={cn(
+          // A floating white pill in the site's own palette: hairline border, a
+          // soft lift. (Started life as a dark pill; the captain asked for the
+          // theme's colours instead.)
+          "pointer-events-auto flex max-w-full min-w-0 items-center gap-1 rounded-full border border-border bg-card p-1.5 text-foreground shadow-[0_16px_40px_-12px_rgba(11,27,58,0.35)] [html[data-theme=dark]_&]:shadow-[0_16px_40px_-12px_rgba(0,0,0,0.7)]",
+          "[&_button]:!h-9 [&_button]:!min-h-0 [&_button]:!rounded-full [&_button]:!px-3 [&_button]:!text-[13px] [&_button]:!shadow-none",
+        )}
+        data-count={count}
+        title={label}
+      >
+        <BulkBarActionLimitContext.Provider value={BULK_BAR_VISIBLE_ACTIONS}>
+          <div
+            className="flex min-w-0 flex-nowrap items-center gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {children}
+          </div>
+        </BulkBarActionLimitContext.Provider>
+        {onClear ? (
+          <button
+            type="button"
+            onClick={onClear}
+            aria-label="Clear selection"
+            data-attr="bulk-bar-clear"
+            className="ml-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-muted hover:bg-accent/60 hover:text-foreground"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

@@ -71,6 +71,8 @@ vi.mock("@/lib/household-charges", () => ({
     c.status === "paid" ? "paid" : c.__overdue ? "overdue" : "pending",
   isManagerAddedOneOffCharge: () => false,
   chargeDueLabel: (c: { __overdue?: boolean }) => (c.__overdue ? "Due May 1, 2026" : "Due Jul 20, 2026"),
+  // The KPI row asks each charge for its due date to total "due this period".
+  householdChargeDueDate: (c: { __overdue?: boolean }) => (c.__overdue ? new Date(2026, 4, 1) : new Date(2026, 6, 20)),
 }));
 
 vi.mock("@/lib/manager-applications-storage", () => ({
@@ -118,6 +120,10 @@ vi.mock("@/lib/portal-inbox-storage", () => ({
 
 vi.mock("@/lib/demo-admin-property-inventory", () => ({
   adminKpiCounts: () => [2, 0, 4],
+  // The portfolio overview reads property rows per stage; an empty portfolio
+  // keeps this test about the banners.
+  managerPropertyRowsForStage: () => [],
+  adminPropertyRentDisplayLabel: () => "",
 }));
 
 vi.mock("@/lib/demo-admin-scheduling", () => ({

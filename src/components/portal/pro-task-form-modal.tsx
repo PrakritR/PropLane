@@ -46,6 +46,11 @@ import {
   updateManagerTask,
   type ManagerTaskPriority,
   type ManagerTaskUrgency,
+  addManagerTaskComment,
+  type ManagerTaskAttachment,
+  type ManagerTaskChecklistItem,
+  type ManagerTaskComment,
+  type ManagerTaskRecurrence,
 } from "@/lib/manager-tasks";
 import { scheduledTaskTitleForTour } from "@/lib/manager-scheduled-work-tasks";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
@@ -92,6 +97,31 @@ function localTimePart(iso: string | undefined): string {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
+/** Checklist lines → items, keeping the id (and tick) of any line that already existed. */
+function checklistFromText(text: string, existing: ManagerTaskChecklistItem[]): ManagerTaskChecklistItem[] {
+  const byLabel = new Map(existing.map((item) => [item.label, item]));
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((label) => byLabel.get(label) ?? { id: crypto.randomUUID(), label, done: false });
+}
+
+/** "Name https://…" or bare URLs, one per line. */
+function attachmentsFromText(text: string): ManagerTaskAttachment[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/(https?:\/\/\S+)/i);
+      const url = match?.[1] ?? "";
+      const name = line.replace(url, "").trim() || url;
+      return { id: crypto.randomUUID(), name, url, addedAt: new Date().toISOString() };
+    })
+    .filter((item) => item.url);
+}
+
 function roomNameFromOptionLabel(label: string): string {
   return label.split(" · ")[0]?.trim() || label.trim();
 }
@@ -129,6 +159,10 @@ const EMPTY_FORM = {
   guestPhone: "",
   residentEmail: "",
   workOrderCategory: "General" as ResidentMaintenanceCategoryLabel,
+  recurrence: "none" as ManagerTaskRecurrence,
+  /** One checklist item per line; ids are minted on save so ticks survive edits. */
+  checklistText: "",
+  attachmentsText: "",
 };
 
 export function ManagerTaskFormModal({
@@ -151,6 +185,10 @@ export function ManagerTaskFormModal({
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [assignee, setAssignee] = useState<WorkAssignee | null>(null);
+  const [existingChecklist, setExistingChecklist] = useState<ManagerTaskChecklistItem[]>([]);
+  const [comments, setComments] = useState<ManagerTaskComment[]>([]);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentPosting, setCommentPosting] = useState(false);
   const [selectedRoomValue, setSelectedRoomValue] = useState("");
   const [residentTick, setResidentTick] = useState(0);
   const [serviceFooter, setServiceFooter] = useState<ServiceIntakeFooterState | null>(null);
@@ -259,7 +297,12 @@ export function ManagerTaskFormModal({
         // the dates they already have rather than assuming a reserved slot.
         urgency: inferManagerTaskUrgency(task),
         priority: task.priority ?? "medium",
+        recurrence: task.recurrence ?? "none",
+        checklistText: (task.checklist ?? []).map((item) => item.label).join("\n"),
+        attachmentsText: (task.attachments ?? []).map((item) => (item.name === item.url ? item.url : `${item.name} ${item.url}`)).join("\n"),
       });
+      setExistingChecklist(task.checklist ?? []);
+      setComments(task.comments ?? []);
       setAssignee(task.assignee ?? null);
       const match = getRoomOptionsForProperty(task.propertyId ?? "", { includeUnavailable: true }).find(
         (option) =>
@@ -393,6 +436,9 @@ export function ManagerTaskFormModal({
         urgency: form.urgency,
         priority: form.priority,
         taskType: managerTaskTypeFromFormKind(form.taskKind),
+        recurrence: form.recurrence,
+        checklist: checklistFromText(form.checklistText, existingChecklist),
+        attachments: attachmentsFromText(form.attachmentsText),
       };
 
       if (editingId) {
@@ -797,6 +843,23 @@ export function ManagerTaskFormModal({
               </Select>
             </div>
 
+            <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
+              <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-recurrence">
+                Repeats
+              </label>
+              <Select
+                id="manager-task-recurrence"
+                value={form.recurrence}
+                onChange={(e) => setForm((current) => ({ ...current, recurrence: e.target.value as ManagerTaskRecurrence }))}
+                data-attr="manager-task-recurrence"
+              >
+                <option value="none">Does not repeat</option>
+                <option value="daily">Every day</option>
+                <option value="weekly">Every week</option>
+                <option value="monthly">Every month (same day, month-end clamped)</option>
+              </Select>
+            </div>
+
             {form.urgency === "scheduled" ? (
             <div className={PORTAL_MODAL_FORM_FIELD_CLASS}>
               <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-schedule-date">
@@ -878,6 +941,87 @@ export function ManagerTaskFormModal({
             data-attr="manager-task-notes"
           />
         </div>
+
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-checklist">
+            Checklist (one step per line)
+          </label>
+          <textarea
+            id="manager-task-checklist"
+            className="min-h-[72px] w-full rounded-xl border border-border bg-card px-3 py-2 text-sm"
+            placeholder={"Check the filter\nPhotograph the unit"}
+            value={form.checklistText}
+            onChange={(e) => setForm((current) => ({ ...current, checklistText: e.target.value }))}
+            data-attr="manager-task-checklist"
+          />
+          {existingChecklist.length > 0 ? (
+            <p className="mt-1 text-xs text-muted">
+              {existingChecklist.filter((item) => item.done).length} of {existingChecklist.length} done — ticks are kept for lines you leave unchanged.
+            </p>
+          ) : null}
+        </div>
+
+        <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
+          <label className={MODAL_FIELD_LABEL_CLASS} htmlFor="manager-task-attachments">
+            Attachments (one link per line, optional name first)
+          </label>
+          <textarea
+            id="manager-task-attachments"
+            className="min-h-[56px] w-full rounded-xl border border-border bg-card px-3 py-2 text-sm"
+            placeholder={"Quote https://example.com/quote.pdf"}
+            value={form.attachmentsText}
+            onChange={(e) => setForm((current) => ({ ...current, attachmentsText: e.target.value }))}
+            data-attr="manager-task-attachments"
+          />
+        </div>
+
+        {editingId ? (
+          <div className={cn(PORTAL_MODAL_FORM_FIELD_CLASS, PORTAL_MODAL_FORM_FULL_ROW_CLASS)} data-attr="manager-task-comments">
+            <p className={MODAL_FIELD_LABEL_CLASS}>Comments</p>
+            {comments.length === 0 ? (
+              <p className="text-xs text-muted">No comments yet.</p>
+            ) : (
+              <ul className="max-h-48 space-y-2 overflow-y-auto rounded-xl border border-border bg-card p-2">
+                {comments.map((comment) => (
+                  <li key={comment.id} className="text-sm">
+                    <span className="font-semibold text-foreground">{comment.authorName || "Team member"}</span>
+                    <span className="ml-2 text-xs text-muted">{new Date(comment.at).toLocaleString()}</span>
+                    <p className="whitespace-pre-wrap text-foreground/90">{comment.text}</p>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <div className="mt-2 flex items-start gap-2">
+              <textarea
+                aria-label="Add comment"
+                className="min-h-[44px] flex-1 rounded-xl border border-border bg-card px-3 py-2 text-sm"
+                value={commentDraft}
+                onChange={(e) => setCommentDraft(e.target.value)}
+                data-attr="manager-task-comment-draft"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                disabled={commentPosting || !commentDraft.trim()}
+                data-attr="manager-task-comment-post"
+                onClick={async () => {
+                  setCommentPosting(true);
+                  try {
+                    const saved = await addManagerTaskComment(managerUserId, editingId, commentDraft);
+                    setComments(saved.comments ?? []);
+                    setCommentDraft("");
+                  } catch (e) {
+                    showToast(e instanceof Error ? e.message : "Could not post the comment.");
+                  } finally {
+                    setCommentPosting(false);
+                  }
+                }}
+              >
+                {commentPosting ? "Posting…" : "Post"}
+              </Button>
+            </div>
+          </div>
+        ) : null}
 
         <p className={cn("text-xs text-muted", PORTAL_MODAL_FORM_FULL_ROW_CLASS)}>
           {isTour

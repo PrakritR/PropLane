@@ -29,8 +29,11 @@ import {
   roomPricingIsFlexible,
 } from "@/lib/room-pricing";
 import { getNearbyTransit, type TransitMode } from "@/lib/nearby-transit.server";
+import { exactListingIdentityMatch, normalizeListingIdentity, normalizeListingWords } from "@/lib/listing-identity";
+import { updateAuditResult, writeAuditLog } from "../audit";
 
 export const LEASING_ESCALATE_TOOL_NAME = "escalate_to_manager";
+export const LEASING_SMS_SUPPRESS_TOOL_NAME = "suppress_redundant_reply";
 
 function asObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -414,10 +417,26 @@ const LISTING_MATCH_STOPWORDS = new Set([
 
 /** Significant tokens for fuzzy ad-title matching (PRP-426). */
 export function listingSummarySignificantTokens(text: string): string[] {
-  return text
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
+  return normalizeListingWords(text)
     .filter((w) => w.length > 2 && !LISTING_MATCH_STOPWORDS.has(w));
+}
+
+function listingIdentityFields(summary: ReturnType<typeof summarizeListingRecord>): (string | null)[] {
+  return [summary.title, summary.address, summary.alsoListedAs, ...summary.rooms.map((room) => room.name)];
+}
+
+/** Exact normalized identities outrank fuzzy marketing-token matches. */
+export function listingSummaryMatchRank(
+  summary: ReturnType<typeof summarizeListingRecord>,
+  needle: string,
+): number {
+  const value = needle.trim();
+  if (!value) return 1;
+  if (exactListingIdentityMatch(value, listingIdentityFields(summary))) return 4;
+  const compactNeedle = normalizeListingIdentity(value);
+  const compactIdentities = listingIdentityFields(summary).map((field) => normalizeListingIdentity(field ?? ""));
+  if (compactNeedle && compactIdentities.some((field) => field.includes(compactNeedle))) return 3;
+  return listingSummaryMatches(summary, value) ? 2 : 0;
 }
 
 /** True when a listing summary matches a free-text needle (address/name/room/ad title). */
@@ -466,7 +485,7 @@ export function listingSummaryMatches(
 export const listLiveListingsTool = defineTool({
   name: "list_live_listings",
   description:
-    "Search PropLane's live public listings — on the shared PropLane line this spans EVERY manager's listings (the same catalog as the public /rent site), so use it to find ANY house or room a prospect names. Returns title, address, neighborhood, rent label, room names/prices, pet policy, and every marketing surface the manager wrote — the tagline, ad titles (alsoListedAs), and free-text notes about the home (marketingNotes) — all of which are searched, so pass the words a prospect quotes from an ad as the query. Use first when matching a prospect's house or room question.",
+    "Search PropLane's live public listings — on the shared PropLane line this spans EVERY manager's listings (the same catalog as the public /rent site), so use it to find ANY house or room a prospect names. Joined/spaced names, case, Unicode, and punctuation are normalized; exact identity ranks before fuzzy marketing terms. The resolution field says exact, ranked, ambiguous, none, or browsing. Ask a short clarifying question for ambiguous results. Returns canonical property and room ids plus public facts. Use first when matching a prospect's house or room question.",
   kind: "read",
   inputSchema: z
     .object({
@@ -479,12 +498,49 @@ export const listLiveListingsTool = defineTool({
   handler: async (ctx, input) => {
     const needle = (input.query ?? "").trim();
     const rows = await loadBrowsableListings(ctx);
-    const listings = rows
+    const ranked = rows
       .map(summarizeListingRecord)
-      .filter((s) => listingSummaryMatches(s, needle))
+      .map((listing) => ({ listing, rank: listingSummaryMatchRank(listing, needle) }))
+      .filter(({ rank }) => rank > 0)
+      .sort((a, b) => b.rank - a.rank);
+    const bestRank = ranked[0]?.rank ?? 0;
+    const bestCount = ranked.filter(({ rank }) => rank === bestRank).length;
+    const listings = ranked
+      .map(({ listing }) => listing)
       // Cap the payload the model sees (large catalogs); a needle narrows first.
       .slice(0, 40);
-    return { count: listings.length, listings };
+    return {
+      count: listings.length,
+      listings,
+      resolution: !needle
+        ? "browsing"
+        : listings.length === 0
+          ? "none"
+          : bestCount > 1
+            ? "ambiguous"
+            : bestRank === 4
+              ? "exact"
+              : "ranked",
+    };
+  },
+});
+
+export const suppressRedundantLeasingReplyTool = defineTool({
+  name: LEASING_SMS_SUPPRESS_TOOL_NAME,
+  description:
+    "Stay silent when the newest inbound is only an acknowledgment or repeats a question already answered by a confirmed recent SMS. Never use for a correction, new fact, new question, explicit repeat or clarification request, changed availability, or a reply whose delivery is failed or unknown. Copy the recent delivered message id exactly.",
+  inputSchema: z.object({
+    recentOutboundMessageId: z.string().min(1),
+    reason: z.enum(["acknowledgment", "repeated_question"]),
+  }).strict(),
+  handler: async (ctx, input) => {
+    const matched = ctx.leasingScope?.recentDeliveredReplies?.find(
+      (reply) => reply.messageId === input.recentOutboundMessageId,
+    );
+    if (!matched) {
+      throw new Error("That message is not a confirmed recent delivered reply. Answer the prospect normally.");
+    }
+    return { suppress: true as const, referenceMessageId: matched.messageId, reason: input.reason };
   },
 });
 
@@ -576,6 +632,20 @@ export const buildProspectLinksTool = defineTool({
   handler: async (ctx, input) => {
     const rec = await loadResolvableListing(ctx, input.propertyId);
     if (!rec) return { ok: false, error: "listing_not_found" };
+    // Minting links for a house is the agent committing to it: tag the thread
+    // so the teammates who hold that house can see it. Owned listings only —
+    // `loadOwnedListing` is what resolved, or it is another manager's catalog.
+    if (ctx.leasingScope && (await loadOwnedListing(ctx, input.propertyId))) {
+      const { tagProspectThreadFromAgent } = await import("@/lib/sms/conversation-houses.server");
+      await tagProspectThreadFromAgent(ctx.db, {
+        landlordId: ctx.landlordId,
+        prospectPhoneE164: ctx.leasingScope.prospectPhoneE164,
+        channel: ctx.leasingScope.channel ?? "sms",
+        propertyId: input.propertyId,
+        propertyOwnerUserId: ctx.landlordId,
+        source: "leasing",
+      });
+    }
     const src = propertySource(rec);
     const rooms = summarizeRooms(src);
     let listingRoomId = input.listingRoomId?.trim() || "";
@@ -632,7 +702,7 @@ export function proplaneSiteLinks(origin: string) {
   const base = origin.replace(/\/$/, "");
   return {
     origin: base,
-    browseHomes: `${base}/rent`,
+    browseHomes: `${base}/rent/browse`,
     startApplication: `${base}/rent/apply`,
     pricing: `${base}/pricing`,
     demo: `${base}/demo`,
@@ -666,6 +736,10 @@ export const escalateLeasingToManagerTool = defineWriteTool({
         .min(1)
         .max(500)
         .describe("One or two factual sentences describing what the prospect needs."),
+      handoff: z
+        .enum(["quiet"])
+        .optional()
+        .describe("Use quiet only when a delivered manager handoff is the only useful next step for this SMS prospect."),
     })
     .strict(),
   // Allow-listed on the SMS surface (no human is present on a webhook turn);
@@ -679,34 +753,43 @@ export const escalateLeasingToManagerTool = defineWriteTool({
   }),
   handler: async (ctx, input) => {
     const scope = ctx.leasingScope;
-    if (!scope) return { ok: false, error: "No leasing conversation bound." };
+    if (!scope) return { ok: false, retrySafe: true, sideEffects: "none", error: "No leasing conversation bound." };
 
     const hourBucket = new Date().toISOString().slice(0, 13);
     const dedupeKey = `leasing_sms_escalate:${scope.sessionId}:${hourBucket}`;
-    const { error: auditError } = await ctx.db.from("audit_log").insert({
-      actor_user_id: ctx.landlordId,
-      landlord_id: ctx.landlordId,
+    const audit = await writeAuditLog(ctx, {
       action: "leasing_sms_escalate",
-      tool_name: LEASING_ESCALATE_TOOL_NAME,
-      input_summary: {
-        prospectPhone: scope.prospectPhoneE164,
-        prospectEmail: scope.prospectEmail ?? null,
-        summary: input.summary.slice(0, 200),
-      },
-      dedupe_key: dedupeKey,
-      created_at: new Date().toISOString(),
+      toolName: LEASING_ESCALATE_TOOL_NAME,
+      inputSummary: { sessionId: scope.sessionId, channel: scope.channel ?? "sms" },
+      resultSummary: { deliveryStatus: "pending" },
+      dedupeKey,
     });
-    if (auditError) {
-      if (auditError.code === "23505") {
+    if (!audit.recorded) {
+      if (!audit.duplicate) return { ok: false, retrySafe: true, sideEffects: "none", error: "Could not record the escalation." };
+      const { data: prior } = await ctx.db
+        .from("audit_log")
+        .select("result_summary")
+        .eq("dedupe_key", dedupeKey)
+        .maybeSingle();
+      const summary = prior?.result_summary as { deliveryStatus?: string } | null;
+      if (summary?.deliveryStatus === "delivered") {
         return {
           ok: true,
           alreadyEscalated: true,
           message: "The manager was already notified about this a moment ago.",
         };
       }
-      return { ok: false, error: "Could not record the escalation." };
+      if (summary?.deliveryStatus === "suppressed") {
+        return {
+          ok: false,
+          suppressed: true,
+          error: "The manager has disabled these notifications.",
+        };
+      }
+      // A legacy/pending audit row is not proof that notification succeeded.
+      // Fail closed to unknown so concurrent retries cannot double-notify.
+      return { ok: false, deliveryUnknown: true, error: "The manager notification outcome is not confirmed." };
     }
-
     /* Name the channel the prospect actually used. Telling a manager someone
        "texted your work number ()" — with an empty phone — is worse than no
        notice at all: it points them at the wrong place to reply. */
@@ -714,29 +797,55 @@ export const escalateLeasingToManagerTool = defineWriteTool({
     const contact = emailedIn
       ? scope.prospectEmail?.trim() || "an unknown address"
       : scope.prospectPhoneE164;
-    await notifyManagerFromAgent(ctx.db, {
-      landlordId: ctx.landlordId,
-      subject: emailedIn ? "Leasing email needs you" : "Leasing text needs you",
-      text: [
-        emailedIn
-          ? `A prospect emailed your work address (${contact}):`
-          : `A prospect texted your work number (${contact}):`,
-        "",
-        input.summary,
-        "",
-        emailedIn
-          ? "Open Communication to reply."
-          : "Open Communication → SMS to reply from your work number.",
-      ].join("\n"),
-      threadType: "leasing_sms_escalation",
-      url: emailedIn ? "/portal/communication" : "/portal/communication/sms",
-      notify: { push: true, sms: true },
-    });
+    let notification: Awaited<ReturnType<typeof notifyManagerFromAgent>>;
+    try {
+      notification = await notifyManagerFromAgent(ctx.db, {
+        landlordId: ctx.landlordId,
+        subject: emailedIn ? "Leasing email needs you" : "Leasing text needs you",
+        text: [
+          emailedIn
+            ? `A prospect emailed your work address (${contact}):`
+            : `A prospect texted your work number (${contact}):`,
+          "",
+          input.summary,
+          "",
+          emailedIn
+            ? "Open Communication to reply."
+            : "Open Communication → SMS to reply from your work number.",
+        ].join("\n"),
+        threadType: "leasing_sms_escalation",
+        url: emailedIn ? "/portal/communication" : "/portal/communication/sms",
+        notify: { push: true, sms: true },
+        idempotencyKey: dedupeKey,
+      });
+      if (!notification.delivered) {
+        const deliveryStatus = notification.suppressed ? "suppressed" : "unknown";
+        await updateAuditResult(ctx, dedupeKey, { deliveryStatus });
+        return notification.suppressed
+          ? { ok: false, suppressed: true, error: "The manager has disabled these notifications." }
+          : { ok: false, deliveryUnknown: true, error: "The manager notification outcome is not confirmed." };
+      }
+    } catch (error) {
+      await updateAuditResult(ctx, dedupeKey, { deliveryStatus: "failed" }, { clearDedupeKey: true });
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "The manager notification could not be delivered.",
+      };
+    }
+    await updateAuditResult(ctx, dedupeKey, { deliveryStatus: "delivered" });
     await ctx.db
       .from("agent_sessions")
       .update({ status: "escalated", updated_at: new Date().toISOString() })
-      .eq("id", scope.sessionId);
+      .eq("id", scope.sessionId)
+      .eq("landlord_id", ctx.landlordId);
     track("leasing_sms_escalated", ctx.landlordId, { channel: emailedIn ? "email" : "sms" });
-    return { ok: true, message: "The manager has been notified and will follow up." };
+    return {
+      ok: true,
+      message: "The manager has been notified and will follow up.",
+      // An audit record only prevents repeat notices. It is never proof that a
+      // manager can see this handoff, so only the notifier's explicit delivery
+      // result may authorize the SMS runtime to stay quiet.
+      quietHandoff: input.handoff === "quiet" && notification.delivered && !notification.suppressed,
+    };
   },
 });

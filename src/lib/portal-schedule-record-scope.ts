@@ -7,6 +7,13 @@ import {
 
 const MANAGER_PROPERTY_AVAIL_PREFIX = "axis_mgr_avail_slots_v2_";
 const CALENDAR_SHARE_PREFIX = "axis_calendar_share_avail_";
+export const ROOM_DATE_BLOCK_RECORD_TYPE = "room_date_block";
+const ROOM_DATE_BLOCK_PREFIX = "axis_room_block_";
+
+/** Id of a manager's explicit closed-dates record; the owner is in the id so reads and writes scope to them. */
+export function roomDateBlockRecordId(userId: string, blockUid: string): string {
+  return `${ROOM_DATE_BLOCK_PREFIX}${userId.trim()}_${blockUid}`;
+}
 
 /** True when a manager-scoped schedule record id is owned by the authenticated user. */
 export function managerScheduleRecordIdOwnedByUser(
@@ -33,6 +40,9 @@ export function managerScheduleRecordIdOwnedByUser(
   if (recordType === "vendor_flexible_preferences") {
     return id === vendorFlexiblePreferencesStorageKey(uid);
   }
+  if (recordType === ROOM_DATE_BLOCK_RECORD_TYPE) {
+    return id.startsWith(`${ROOM_DATE_BLOCK_PREFIX}${uid}_`);
+  }
   return true;
 }
 
@@ -42,7 +52,8 @@ export function isManagerScopedScheduleRecordType(recordType: string): boolean {
     recordType === "manager_property_availability" ||
     recordType === "calendar_share_settings" ||
     recordType === "vendor_availability" ||
-    recordType === "vendor_flexible_preferences"
+    recordType === "vendor_flexible_preferences" ||
+    recordType === ROOM_DATE_BLOCK_RECORD_TYPE
   );
 }
 

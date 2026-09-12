@@ -1,5 +1,7 @@
 "use client";
 
+import { ChevronRight, Pencil } from "lucide-react";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PaymentAutomationSettingsHandle } from "@/components/portal/payment-schedule-ui";
 import { Modal, ModalFooter } from "@/components/ui/modal";
@@ -72,9 +74,17 @@ export function ProPortalSettingsModal({
   propertyOptions = [],
   initialPropertyId,
   paymentsMode = "incoming",
+  editAction,
 }: {
   open: boolean;
   onClose: () => void;
+  /**
+   * The section's "Edit … configuration" entry. The redesign moved module Edit
+   * out of the list toolbar and under Settings, so a section that still has a
+   * per-property editor hands it in here; it renders as the first row and
+   * closes this dialog before opening the editor.
+   */
+  editAction?: { label: string; description?: string; onSelect: () => void; dataAttr?: string };
   initialTab?: ManagerPortalSettingsTab;
   /** Incoming payments = resident rent reminders; outgoing = manager payee reminders. */
   paymentsMode?: "incoming" | "outgoing";
@@ -319,6 +329,26 @@ export function ProPortalSettingsModal({
         ) : undefined
       }
     >
+      {editAction ? (
+        <button
+          type="button"
+          className="mb-3 flex w-full items-center gap-3 rounded-xl border border-border bg-card px-3 py-2.5 text-left transition hover:border-primary/40 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+          data-attr={editAction.dataAttr ?? "manager-settings-edit-configuration"}
+          onClick={() => {
+            onClose();
+            editAction.onSelect();
+          }}
+        >
+          <Pencil className="size-4 shrink-0 text-primary" strokeWidth={1.75} aria-hidden />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold text-foreground">{editAction.label}</span>
+            {editAction.description ? (
+              <span className="block text-xs text-muted">{editAction.description}</span>
+            ) : null}
+          </span>
+          <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden />
+        </button>
+      ) : null}
       {/* A scoped dialog is already ON its one section, so a switcher would only offer the manager
           a way to wander out of it. */}
       {scoped ? null : (

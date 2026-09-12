@@ -6,10 +6,9 @@ import { Button } from "@/components/ui/button";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
-import {
-  ManagerPortalPageShell,
-  PORTAL_COMMAND_ACTION_BTN,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
+import { Settings2 } from "lucide-react";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
@@ -364,15 +363,12 @@ export function ManagerBackgroundChecks({
   );
 
   const settingsButton = (
-    <Button
-      type="button"
-      variant="outline"
-      className={PORTAL_COMMAND_ACTION_BTN}
+    <PortalIconAction
+      icon={Settings2}
+      label="Background check settings"
       data-attr="background-check-settings-open"
       onClick={() => setScreeningSettingsOpen(true)}
-    >
-      Settings
-    </Button>
+    />
   );
 
   const listActions = (
@@ -492,7 +488,13 @@ export function ManagerBackgroundChecks({
 
   return (
     <>
-      <ManagerPortalPageShell title="Background check" hideTitleOnMobileNav titleInlineFilter={null} compactFilterRow>
+      <ManagerPortalPageShell
+        title="Background check"
+        subtitle="Consent, report readiness, and review stay attached to each applicant."
+        hideTitleOnMobileNav
+        titleInlineFilter={null}
+        compactFilterRow
+      >
         <PortalListControlStack
           className="mb-2 max-lg:mb-2"
           variant="command"

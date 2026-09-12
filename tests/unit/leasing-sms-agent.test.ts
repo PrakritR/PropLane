@@ -1,25 +1,37 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { routeResolves } from "../helpers/route-resolves";
 
 vi.mock("@/lib/public-listings.server", () => ({
   getPublicListings: vi.fn(),
 }));
 
+vi.mock("@/lib/agent-notify.server", () => ({
+  notifyManagerFromAgent: vi.fn(),
+}));
+
+vi.mock("@/lib/analytics/posthog", () => ({ track: vi.fn() }));
+
 import { getPublicListings } from "@/lib/public-listings.server";
+import { notifyManagerFromAgent } from "@/lib/agent-notify.server";
 import { createDefaultListingSubmission } from "@/lib/manager-listing-submission";
 import { shouldBillCustomLeaseSurcharge } from "@/lib/custom-lease-billing";
 import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { LEASING_SMS_AGENT_SYSTEM_PROMPT } from "@/lib/agent/system-prompts";
+import { buildDurableSmsHistory, mergeDurableToolContext } from "@/lib/agent/leasing-sms-agent.server";
 import { leasingSmsAgentRegistry, LEASING_SMS_INLINE_WRITE_TOOLS } from "@/lib/tools";
 import type { AgentContext } from "@/lib/tools/context";
 import {
   __resetLeasingCatalogCache,
   buildProspectLinksTool,
+  escalateLeasingToManagerTool,
   getListingDetailsTool,
   getSiteLinksTool,
   LEASING_ESCALATE_TOOL_NAME,
   listLiveListingsTool,
+  listingSummaryMatchRank,
   listingSummaryMatches,
   proplaneSiteLinks,
+  suppressRedundantLeasingReplyTool,
   summarizeListingRecord,
   type RawPropertyRecord,
 } from "@/lib/tools/domains/leasing-sms";
@@ -84,6 +96,84 @@ beforeEach(() => {
   (getPublicListings as unknown as ReturnType<typeof vi.fn>).mockReset();
   process.env.PROPLANE_SMS_LINK_ORIGIN = PROD_ORIGIN;
   process.env.CLAW_MESSENGER_LINK_ORIGIN = PROD_ORIGIN;
+  vi.mocked(notifyManagerFromAgent).mockReset();
+});
+
+function escalationDb(auditError: { code?: string } | null = null) {
+  const audit = {
+    insert: vi.fn(async () => ({ error: auditError })),
+    update: vi.fn(() => ({ eq: vi.fn(async () => ({ error: null })) })),
+    select: vi.fn(() => ({
+      eq: vi.fn(() => ({
+        maybeSingle: vi.fn(async () => ({
+          data: { result_summary: { deliveryStatus: "pending" } },
+          error: null,
+        })),
+      })),
+    })),
+  };
+  const updateChain: Record<string, unknown> = {};
+  const session = {
+    eq: vi.fn(() => updateChain),
+    update: vi.fn(() => updateChain),
+  };
+  updateChain.eq = session.eq;
+  updateChain.then = (resolve: (value: unknown) => unknown) =>
+    Promise.resolve({ error: null }).then(resolve);
+  return {
+    db: { from: (table: string) => (table === "audit_log" ? audit : session) } as AgentContext["db"],
+    audit,
+    session,
+  };
+}
+
+describe("leasing quiet handoff", () => {
+  it("authorizes quiet SMS only after the existing notifier confirms delivery", async () => {
+    const { db, session } = escalationDb();
+    vi.mocked(notifyManagerFromAgent).mockResolvedValue({ delivered: true, suppressed: false });
+
+    const result = await escalateLeasingToManagerTool.handler(
+      { ...ctxFor({ crossCatalog: false }), db },
+      { summary: "Prospect is ready to reserve but needs an unlisted exception.", handoff: "quiet" },
+    );
+
+    expect(result).toMatchObject({ ok: true, quietHandoff: true });
+    expect(notifyManagerFromAgent).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({ landlordId: "primary-manager", threadType: "leasing_sms_escalation" }),
+    );
+    expect(session.eq).toHaveBeenCalledWith("landlord_id", "primary-manager");
+  });
+
+  it.each([
+    ["suppressed", { delivered: false, suppressed: true }],
+    ["undelivered", { delivered: false, suppressed: false }],
+  ] as const)("does not authorize quiet SMS when the notifier is %s", async (_, delivery) => {
+    const { db } = escalationDb();
+    vi.mocked(notifyManagerFromAgent).mockResolvedValue(delivery);
+
+    const result = await escalateLeasingToManagerTool.handler(
+      { ...ctxFor({ crossCatalog: false }), db },
+      { summary: "Needs a manager decision.", handoff: "quiet" },
+    );
+
+    expect(result).toMatchObject(delivery.suppressed
+      ? { ok: false, suppressed: true }
+      : { ok: false, deliveryUnknown: true });
+  });
+
+  it("does not treat an audit-only duplicate as a delivered quiet handoff", async () => {
+    const { db } = escalationDb({ code: "23505" });
+
+    const result = await escalateLeasingToManagerTool.handler(
+      { ...ctxFor({ crossCatalog: false }), db },
+      { summary: "Needs a manager decision.", handoff: "quiet" },
+    );
+
+    expect(result).toMatchObject({ ok: false, deliveryUnknown: true });
+    expect(result).not.toHaveProperty("quietHandoff", true);
+    expect(notifyManagerFromAgent).not.toHaveBeenCalled();
+  });
 });
 
 describe("leasing SMS agent registry", () => {
@@ -98,6 +188,7 @@ describe("leasing SMS agent registry", () => {
         "list_live_listings",
         "list_open_tour_slots",
         "request_tour",
+        "suppress_redundant_reply",
       ].sort(),
     );
   });
@@ -127,14 +218,85 @@ describe("leasing SMS system prompt", () => {
   });
 
   it("teaches cross-catalog lookup and per-message property re-resolution", () => {
-    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/ANY live PropLane listing/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/shared Claw line.*across the catalog/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/manager-scoped session.*only listings owned by that manager/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/never claim ownership/i);
     expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/re-resolve/i);
-    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/discussed earlier/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/selected property and room/i);
+  });
+
+  it("keeps replies conversational and links relevant across turns", () => {
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/at most one clear clarification question/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/Do not restart the greeting/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/Include a link only when it directly helps/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/Do not offer to send a link that is already/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/UW or Seattle and Bellevue are different locations/i);
+  });
+
+  it("handles high-intent prospects without treating them as residents", () => {
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/still a prospect, not an authenticated resident/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/ready to pay, reserve, or move now/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/manager-only exception, persistent uncertainty/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/useful grounded answer first/i);
+    expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/handoff to quiet only when/i);
   });
 
   it("carries product knowledge and never says Axis", () => {
     expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).toMatch(/get_site_links/);
     expect(LEASING_SMS_AGENT_SYSTEM_PROMPT).not.toMatch(/\bAxis\b/);
+  });
+});
+
+describe("durable canonical listing memory", () => {
+  it("uses only prior confirmed history and appends the exact claimed burst once", () => {
+    const history = buildDurableSmsHistory([
+      { direction: "inbound", body: "old question", message_sid: "old", created_at: "2026-09-12T11:00:00.000Z" },
+      { direction: "outbound", body: "old confirmed answer", message_sid: "sent", created_at: "2026-09-12T11:01:00.000Z" },
+      { direction: "inbound", body: "first claimed fragment", message_sid: "m1", created_at: "2026-09-12T12:00:00.000Z" },
+      { direction: "inbound", body: "unclaimed later text", message_sid: "m3", created_at: "2026-09-12T12:00:03.000Z" },
+    ], {
+      claimedText: "first claimed fragment\nsecond claimed fragment",
+      claimedSourceIds: ["m1", "m2"],
+      snapshotCutoff: "2026-09-12T12:00:02.000Z",
+    });
+    expect(history).toEqual([
+      { role: "user", content: "old question" },
+      { role: "assistant", content: "old confirmed answer" },
+      { role: "user", content: "first claimed fragment\nsecond claimed fragment" },
+    ]);
+  });
+
+  it("survives a no-tool clarification before a later tour request", () => {
+    const resolved = mergeDurableToolContext([], [{
+      tool: "get_listing_details",
+      input: { propertyId: "jain-home", roomQuery: "blue" },
+      output: { found: true, listing: { propertyId: "jain-home", rooms: [{ id: "room-blue" }] } },
+    }], "2026-09-12T12:00:00.000Z");
+    const afterClarification = mergeDurableToolContext(resolved, [], "2026-09-12T12:01:00.000Z");
+    expect(afterClarification).toEqual(resolved);
+    expect(JSON.stringify(afterClarification)).toContain("jain-home");
+    expect(JSON.stringify(afterClarification)).toContain("room-blue");
+  });
+
+  it("replaces old canonical facts after an explicit new property lookup", () => {
+    const oldContext = mergeDurableToolContext([], [{
+      tool: "get_listing_details", input: { propertyId: "jain-home" }, output: { found: true, listing: { propertyId: "jain-home" } },
+    }], "2026-09-12T12:00:00.000Z");
+    const changed = mergeDurableToolContext(oldContext, [{
+      tool: "get_listing_details", input: { propertyId: "ballard-home" }, output: { found: true, listing: { propertyId: "ballard-home" } },
+    }], "2026-09-12T12:02:00.000Z");
+    expect(JSON.stringify(changed)).not.toContain("jain-home");
+    expect(JSON.stringify(changed)).toContain("ballard-home");
+  });
+
+  it("does not let failed tool outputs evict canonical property facts", () => {
+    const oldContext = mergeDurableToolContext([], [{
+      tool: "get_listing_details", input: { propertyId: "jain-home" }, output: { found: true, listing: { propertyId: "jain-home" } },
+    }], "2026-09-12T12:00:00.000Z");
+    const afterFailure = mergeDurableToolContext(oldContext, [{
+      tool: "list_open_tour_slots", input: { propertyId: "jain-home" }, output: { ok: false, error: "lookup unavailable" },
+    }], "2026-09-12T12:02:00.000Z");
+    expect(afterFailure).toEqual(oldContext);
   });
 });
 
@@ -159,6 +321,33 @@ describe("pure listing helpers", () => {
     expect(listingSummaryMatches(s, "1st")).toBe(true);
     expect(listingSummaryMatches(s, "")).toBe(true);
     expect(listingSummaryMatches(s, "fremont")).toBe(false);
+  });
+
+  it("normalizes joined names, punctuation, case, and Unicode before fuzzy marketing tokens", () => {
+    const jain = summarizeListingRecord({
+      id: "jain-id",
+      status: "live",
+      property_data: { buildingName: "Jaín Home", address: "12 Main St" },
+      row_data: null,
+    });
+    expect(listingSummaryMatchRank(jain, "JainHome")).toBe(4);
+    expect(listingSummaryMatchRank(jain, "JAIN-HOME!!!")).toBe(4);
+  });
+
+  it("requires a confirmed recent outbound reference before suppressing", async () => {
+    const base = ctxFor({ crossCatalog: true });
+    base.leasingScope = {
+      ...base.leasingScope!,
+      recentDeliveredReplies: [{ messageId: "out-1", text: "Rent is $1,200.", submittedAt: new Date().toISOString() }],
+    };
+    await expect(suppressRedundantLeasingReplyTool.handler(base, {
+      recentOutboundMessageId: "out-1",
+      reason: "acknowledgment",
+    })).resolves.toMatchObject({ suppress: true, referenceMessageId: "out-1" });
+    await expect(suppressRedundantLeasingReplyTool.handler(base, {
+      recentOutboundMessageId: "failed-out",
+      reason: "repeated_question",
+    })).rejects.toThrow(/not a confirmed recent delivered reply/i);
   });
 
   // PRP-426: a prospect quotes the Facebook ad title, which is not the PropLane
@@ -419,7 +608,8 @@ describe("pure listing helpers", () => {
 describe("proplaneSiteLinks", () => {
   it("builds production-origin links, never localhost", () => {
     const links = proplaneSiteLinks(PROD_ORIGIN);
-    expect(links.browseHomes).toBe(`${PROD_ORIGIN}/rent`);
+    expect(links.browseHomes).toBe(`${PROD_ORIGIN}/rent/browse`);
+    expect(routeResolves(new URL(links.browseHomes).pathname)).toBe(true);
     expect(links.startApplication).toBe(`${PROD_ORIGIN}/rent/apply`);
     expect(links.pricing).toBe(`${PROD_ORIGIN}/pricing`);
     for (const url of Object.values(links)) {
@@ -498,7 +688,7 @@ describe("per-manager line stays scoped (no cross-catalog leakage)", () => {
 describe("get_site_links tool", () => {
   it("returns production-origin canonical links", async () => {
     const res = await getSiteLinksTool.handler(ctxFor({ crossCatalog: true }), {});
-    expect(res.links.browseHomes).toBe(`${PROD_ORIGIN}/rent`);
+    expect(res.links.browseHomes).toBe(`${PROD_ORIGIN}/rent/browse`);
     expect(res.links.startApplication).toBe(`${PROD_ORIGIN}/rent/apply`);
     expect(res.links.origin).toBe(PROD_ORIGIN);
   });

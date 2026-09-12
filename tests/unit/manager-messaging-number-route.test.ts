@@ -30,6 +30,7 @@ vi.mock("@/lib/rate-limit", () => ({ rateLimit: mocks.rateLimit }));
 import { GET, POST } from "@/app/api/manager/messaging-number/route";
 
 const MANAGER = "00000000-0000-4000-8000-000000000001";
+const OWNER = "00000000-0000-4000-8000-000000000099";
 const originalProvisioning = process.env.SMS_PROVISIONING_ENABLED;
 
 function dbFor(input?: {
@@ -64,7 +65,7 @@ function dbFor(input?: {
           {
             id: "link-1",
             invitee_user_id: MANAGER,
-            inviter_user_id: "00000000-0000-4000-8000-000000000099",
+            inviter_user_id: OWNER,
             status: "accepted",
           },
         ]
@@ -201,8 +202,18 @@ describe("manager messaging-number route", () => {
     expect((await (await GET()).json()).planTier).toBe("unknown");
   });
 
-  it("exposes co-manager workspace role while allowing number setup when eligible", async () => {
+  it("hands a co-manager the workspace's number and never a Request button", async () => {
+    // One work number per workspace: the owner's line is the one the
+    // co-manager reads and sends from, so `canRequest` is off regardless of
+    // plan, runtime, or provisioning flags.
     const db = dbFor({ mode: "automatic", coManager: true });
+    db.__tables.manager_sms_numbers.push({
+      manager_user_id: OWNER,
+      phone_number: "+12065550199",
+      provision_state: "active",
+      registration_state: "approved",
+    });
+    db.__tables.profiles.push({ id: OWNER, full_name: "Prakrit Ramachandran", email: "owner@example.com" });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
     process.env.SMS_PROVISIONING_ENABLED = "1";
 
@@ -211,8 +222,24 @@ describe("manager messaging-number route", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       workspaceRole: "co_manager",
-      canRequest: true,
+      canRequest: false,
+      workspaceNumber: {
+        phoneNumber: "+12065550199",
+        ownerUserId: OWNER,
+        ownerName: "Prakrit Ramachandran",
+      },
     });
+  });
+
+  it("tells a co-manager whose job it is when the workspace has no number yet", async () => {
+    const db = dbFor({ mode: "automatic", coManager: true });
+    db.__tables.profiles.push({ id: OWNER, full_name: "Prakrit Ramachandran", email: "owner@example.com" });
+    mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
+
+    const body = await (await GET()).json();
+
+    expect(body.workspaceNumber).toEqual({ phoneNumber: null, ownerUserId: OWNER, ownerName: "Prakrit Ramachandran" });
+    expect(body.canRequest).toBe(false);
   });
 
   it("removes unexpected persisted last_error details from read-only status", async () => {
@@ -391,15 +418,9 @@ describe("manager messaging-number route", () => {
     expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 
-  it("provisions a co-manager work number after entitlement reconciliation", async () => {
+  it("refuses to buy a co-manager a second number for the same workspace", async () => {
     const db = dbFor({ mode: "automatic", coManager: true });
     mocks.requireManagerRouteUser.mockResolvedValue({ db, userId: MANAGER });
-    mocks.provisionManagerNumber.mockResolvedValue({
-      ok: true,
-      number: "+12065550123",
-      state: "active",
-      alreadyProvisioned: false,
-    });
     process.env.SMS_PROVISIONING_ENABLED = "1";
 
     const response = await POST(
@@ -409,12 +430,11 @@ describe("manager messaging-number route", () => {
       }),
     );
 
-    expect(response.status).toBe(200);
-    expect(mocks.reconcileManagerSmsEntitlement).toHaveBeenCalledWith(
-      db,
-      MANAGER,
-    );
-    expect(mocks.provisionManagerNumber).toHaveBeenCalledWith(db, MANAGER, undefined);
+    expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe("workspace_number_shared");
+    // Refused before any billing or provider work, not after.
+    expect(mocks.reconcileManagerSmsEntitlement).not.toHaveBeenCalled();
+    expect(mocks.provisionManagerNumber).not.toHaveBeenCalled();
   });
 
   it("keeps the environment kill switch ahead of provider provisioning", async () => {

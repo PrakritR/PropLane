@@ -79,6 +79,9 @@ export function propertyDetailTopNavId(tab: PropertyDetailTabId): PropertyDetail
 
 /** Routed detail tabs for manager resident profile (Appendix C2). */
 export const RESIDENT_DETAIL_TABS = [
+  // Overview lands first (round 3): who they are, where they live, what is
+  // due and what is waiting — the property page's Preview, for a person.
+  "overview",
   "tours",
   "application",
   "background-check",
@@ -92,6 +95,7 @@ export const RESIDENT_DETAIL_TABS = [
 export type ResidentDetailTabId = (typeof RESIDENT_DETAIL_TABS)[number];
 
 export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
+  overview: "Overview",
   "background-check": "Background check",
   application: "Application",
   lease: "Lease",
@@ -104,6 +108,7 @@ export const RESIDENT_DETAIL_TAB_LABELS: Record<ResidentDetailTabId, string> = {
 
 /** Compact labels for resident detail tabs on phone-width layouts. */
 export const RESIDENT_DETAIL_TAB_SHORT_LABELS: Record<ResidentDetailTabId, string> = {
+  overview: "Home",
   "background-check": "Screen",
   application: "Apply",
   lease: "Lease",
@@ -161,7 +166,7 @@ export function parseResidentDetailTab(raw: string | undefined | null): Resident
   if (raw && (RESIDENT_DETAIL_TABS as readonly string[]).includes(raw)) {
     return raw as ResidentDetailTabId;
   }
-  return "application";
+  return "overview";
 }
 
 export function propertyDetailHref(
@@ -302,23 +307,28 @@ export function parseCalendarViewTab(raw: string | undefined | null): CalendarVi
 }
 
 export function calendarViewHref(basePath: string, tab: CalendarViewTabId): string {
-  if (tab === "bookings") return managerBookingListHref(basePath, "upcoming");
+  if (tab === "bookings") return managerBookingListHref(basePath, DEFAULT_MANAGER_BOOKING_BUCKET);
   return `${basePath}/calendar`;
 }
 
 export function bookingsHref(basePath: string): string {
-  return managerBookingListHref(basePath, "upcoming");
+  return managerBookingListHref(basePath, DEFAULT_MANAGER_BOOKING_BUCKET);
 }
 
-/** Manager portfolio booking list buckets (table + calendar tab). */
-export const MANAGER_BOOKING_BUCKETS = ["upcoming", "inhouse", "past", "calendar"] as const;
+/**
+ * Manager portfolio booking buckets. The calendar is first and the default:
+ * "is this room free on the 14th" is the question the screen answers, and a
+ * list cannot answer it at a glance.
+ */
+export const MANAGER_BOOKING_BUCKETS = ["calendar", "upcoming", "inhouse", "past"] as const;
 export type ManagerBookingBucketId = (typeof MANAGER_BOOKING_BUCKETS)[number];
+export const DEFAULT_MANAGER_BOOKING_BUCKET: ManagerBookingBucketId = "calendar";
 
 export const MANAGER_BOOKING_BUCKET_LABELS: Record<ManagerBookingBucketId, string> = {
+  calendar: "Calendar",
   upcoming: "Upcoming",
   inhouse: "In-house",
   past: "Past",
-  calendar: "Calendar",
 };
 
 export function parseManagerBookingBucket(
@@ -327,12 +337,12 @@ export function parseManagerBookingBucket(
   if (raw && (MANAGER_BOOKING_BUCKETS as readonly string[]).includes(raw)) {
     return raw as ManagerBookingBucketId;
   }
-  return "upcoming";
+  return DEFAULT_MANAGER_BOOKING_BUCKET;
 }
 
 export function managerBookingListHref(
   basePath: string,
-  bucket: ManagerBookingBucketId = "upcoming",
+  bucket: ManagerBookingBucketId = DEFAULT_MANAGER_BOOKING_BUCKET,
 ): string {
   return `${basePath}/bookings/${bucket}`;
 }
@@ -402,9 +412,10 @@ export const VENDOR_TASK_LIST_TAB_LABELS: Record<VendorTaskListTabId, string> = 
 };
 
 export const MANAGER_TASK_LIST_TAB_LABELS: Record<ManagerTaskListTabId, string> = {
-  "in-progress": "In progress",
+  // Open / Overdue / Done — the slugs stay, so every saved link still lands.
+  "in-progress": "Open",
   overdue: "Overdue",
-  completed: "Completed",
+  completed: "Done",
 };
 
 export function parseManagerTaskListTab(raw: string | undefined | null): ManagerTaskListTabId {
@@ -694,7 +705,6 @@ export const RESIDENT_MOVE_IN_TABS = [
   "housemates",
   "info",
   "amenities",
-  "inspections",
 ] as const;
 export type ResidentMoveInTabId = (typeof RESIDENT_MOVE_IN_TABS)[number];
 
@@ -703,7 +713,6 @@ export const RESIDENT_MOVE_IN_TAB_LABELS: Record<ResidentMoveInTabId, string> = 
   housemates: "Housemates",
   info: "Info & rules",
   amenities: "Amenities",
-  inspections: "Inspections",
 };
 
 /** Compact labels for house-details sub-tabs on phone-width layouts. */
@@ -712,13 +721,14 @@ export const RESIDENT_MOVE_IN_TAB_SHORT_LABELS: Record<ResidentMoveInTabId, stri
   housemates: "Mates",
   info: "Rules",
   amenities: "Amenity",
-  inspections: "Inspections",
 };
 
 /**
  * "Move-in" sat next to "Inspections" and read as the same thing, so the arrival details it
  * held — keys, parking, access codes — now live under Info & rules and the tab is gone.
  * The URL it owned still resolves rather than silently dropping a resident on Placement.
+ * "Inspections" became the resident's own section (`/resident/inspections`); the
+ * section renderer redirects that old sub-tab URL before this parser sees it.
  */
 const RESIDENT_MOVE_IN_TAB_ALIASES: Record<string, ResidentMoveInTabId> = { instructions: "info" };
 

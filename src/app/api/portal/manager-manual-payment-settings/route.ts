@@ -13,9 +13,11 @@ import {
   applyPropertyServiceFeePayersToListings,
   loadPropertyServiceFeePayers,
 } from "@/lib/manager-manual-payment-settings.server";
+import { getManagerPurchaseSku } from "@/lib/manager-access-server";
 import {
   LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
   type ServiceFeePayer,
+  waiverGrantedFromPromoCode,
 } from "@/lib/payment-policy";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -68,8 +70,25 @@ function parsePropertyServiceFeePayerUpdates(
   return out;
 }
 
-async function accountWaiverGranted(db: ReturnType<typeof createSupabaseServiceRoleClient>, userId: string) {
-  return (await loadManagerManualPaymentSettings(db, userId)).adminServiceFeeOverride === "proplane";
+/**
+ * Whether something already on the account lets PropLane cover the fee: staff approval,
+ * or the account's own promo grant (`manager_purchases.promo_code`, written only by
+ * server-side flows that validated it). A failed purchase read throws rather than
+ * answering "no": that would silently move Stripe's cost onto a granted account's
+ * residents while the route answered 200.
+ */
+async function accountWaiverGranted(
+  db: ReturnType<typeof createSupabaseServiceRoleClient>,
+  userId: string,
+  settings?: Awaited<ReturnType<typeof loadManagerManualPaymentSettings>>,
+) {
+  const stored = settings ?? (await loadManagerManualPaymentSettings(db, userId));
+  if (stored.adminServiceFeeOverride === "proplane") return true;
+  const purchase = await getManagerPurchaseSku(userId);
+  if (purchase.readFailed) {
+    throw new Error("Could not read account promo status.");
+  }
+  return waiverGrantedFromPromoCode(purchase.promoCode);
 }
 
 export async function GET(req: Request) {
@@ -106,7 +125,9 @@ export async function PATCH(req: Request) {
       if (normalized.zellePaymentsEnabled && !isValidZelleContact(normalized.zelleContact)) {
         return NextResponse.json({ error: "Enter a valid Zelle phone number or email address." }, { status: 400 });
       }
-      const grant = settings.adminServiceFeeOverride === "proplane";
+      // Only look the grant up when the answer can change the save: a `proplane`
+      // selection needs one, and everything else is stored as typed.
+      const grant = rest.serviceFeePayer === "proplane" ? await accountWaiverGranted(ctx.db, ctx.userId, settings) : false;
       if (
         rest.serviceFeePayer === "proplane" &&
         resolveSavedServiceFeeSelection(normalized, settings, grant).serviceFeePayer !== "proplane"

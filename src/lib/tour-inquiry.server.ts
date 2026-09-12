@@ -195,6 +195,11 @@ export async function acceptTourInquiry(
     attendeeName: textField(row, "name") || undefined,
     attendeeEmail: textField(row, "email") || undefined,
     attendeePhone: textField(row, "phone") || undefined,
+    smsConsent: row.smsConsent === true,
+    // Preserve the server-owned channel provenance. Otherwise this second
+    // confirmation path turns a known non-SMS inquiry into an ambiguous legacy
+    // planned event that can consult historical conversation evidence.
+    ...(typeof row.smsOrigin === "string" ? { smsOrigin: row.smsOrigin } : {}),
     notes: textField(row, "notes") || undefined,
     instructions: instructions || undefined,
   };

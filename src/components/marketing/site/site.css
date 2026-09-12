@@ -1,0 +1,200 @@
+/* Public site — section styles that Tailwind utilities cannot express (positioned art, keyframes). Imported by the components that use them. */
+
+/* ───────────── home hero — "Night blue" (site/hero.tsx) ───────────── */
+.site-hero-glow {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  pointer-events: none;
+}
+.site-hero-glow-a {
+  width: 640px;
+  height: 640px;
+  left: -180px;
+  top: -280px;
+  background: #2863f0;
+  opacity: 0.55;
+}
+.site-hero-glow-b {
+  width: 560px;
+  height: 560px;
+  right: -160px;
+  top: 40px;
+  background: #5a8cff;
+  opacity: 0.3;
+}
+.site-hero-grain {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 22px 22px;
+  pointer-events: none;
+}
+.site-hero-browser {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  background: #fff;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
+  /* Bleed: the page below hides the bottom of the frame. */
+  margin-bottom: -1px;
+  max-height: 440px;
+}
+.site-hero-phone {
+  position: absolute;
+  right: -12px;
+  bottom: 14px; /* sits fully inside the hero — the section edge must not clip it */
+  z-index: 3;
+  width: 168px;
+  overflow: hidden;
+  border: 6px solid #111;
+  border-radius: 28px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+.site-hero-draft {
+  position: absolute;
+  left: -18px;
+  top: 34%;
+  z-index: 3;
+  width: 250px;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 12px;
+  box-shadow: 0 14px 34px rgba(8, 9, 11, 0.28);
+}
+@media (max-width: 767px) {
+  .site-hero-browser { max-height: 260px; }
+  .site-hero-phone { width: 118px; right: -6px; bottom: 10px; border-width: 4px; border-radius: 20px; }
+  .site-hero-draft { display: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .site-hero-phone, .site-hero-draft { animation: site-hero-rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+  .site-hero-draft { animation-delay: 0.15s; }
+}
+@keyframes site-hero-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ───────────── communication scroll story (site/story.tsx) ───────────── */
+.site-story {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 32px;
+  align-items: start;
+}
+.site-story-step {
+  padding: 40px 0 40px 18px;
+  border-top: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  transition: border-color 0.25s ease;
+  cursor: default;
+}
+/* Inactive steps read in the muted ink (still AA); the active one in full ink with a blue rail. */
+.site-story-step h3 { color: var(--muted); transition: color 0.25s ease; }
+.site-story-step.is-active { border-left-color: var(--primary); }
+.site-story-step.is-active h3 { color: var(--foreground); }
+.site-story-step:first-child { border-top: 0; padding-top: 8px; }
+.site-story-step:last-child { padding-bottom: 260px; }
+.site-story-frame {
+  position: sticky;
+  top: 24px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: 0 24px 60px rgba(8, 9, 11, 0.14);
+}
+.site-story-inbox {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  height: 520px;
+  font-size: 12px;
+}
+.site-story-list {
+  overflow: hidden;
+  border-right: 1px solid var(--border);
+  background: var(--card);
+}
+.site-story-dash {
+  height: 520px;
+  padding: 16px 18px;
+  background: var(--portal-canvas, #f5f7fb);
+}
+.site-story-caret {
+  display: inline-block;
+  width: 1px;
+  height: 12px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: currentColor;
+  animation: site-story-blink 1s steps(1) infinite;
+}
+@keyframes site-story-blink { 50% { opacity: 0; } }
+
+@media (max-width: 1023px) {
+  .site-story { grid-template-columns: 1fr; gap: 20px; }
+  .site-story-frame { position: static; }
+  .site-story-step { padding: 22px 0; }
+  .site-story-step:last-child { padding-bottom: 22px; }
+  .site-story-inbox { grid-template-columns: 1fr; height: auto; }
+  .site-story-list { display: none; }
+  .site-story-dash { height: auto; }
+}
+/* Reduced motion: no sticky, no observer — every pane shows, stacked. */
+@media (prefers-reduced-motion: reduce) {
+  .site-story { grid-template-columns: 1fr; }
+  .site-story-frame { position: static; }
+  .site-story-pane[hidden] { display: block !important; border-top: 1px solid var(--border); }
+  .site-story-caret { animation: none; }
+}
+
+/* ───────────── /app phone frames (site/app-page.tsx) ───────────── */
+.site-app-shots { position: relative; height: 480px; }
+.site-app-phone {
+  position: absolute;
+  right: 24px;
+  top: 0;
+  z-index: 2;
+  width: 220px;
+  overflow: hidden;
+  border: 7px solid #111;
+  border-radius: 32px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(8, 9, 11, 0.22);
+}
+.site-app-phone.is-back { right: 210px; top: 56px; z-index: 1; width: 200px; opacity: 0.92; }
+@media (max-width: 1023px) {
+  .site-app-shots { height: 420px; }
+  .site-app-phone { right: calc(50% - 190px); width: 190px; }
+  .site-app-phone.is-back { right: calc(50% + 10px); width: 170px; }
+}
+
+/* story: composer menus and the sent-bubble entrance */
+.site-story-menu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  width: 260px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 18px 40px rgba(8, 9, 11, 0.16);
+}
+.site-story-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  text-align: left;
+  transition: background-color 0.15s ease;
+}
+.site-story-menu-item:hover { background: var(--accent); }
+.site-story-menu-item b { display: block; font-size: 12.5px; color: var(--foreground); }
+.site-story-menu-item span { display: block; font-size: 11px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) {
+  .site-story-sent { animation: site-hero-rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+}

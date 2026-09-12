@@ -40,14 +40,38 @@ export type PurgeTableRule = {
    * delete concurrently with the cascade that is already removing it — children first,
    * parents (journal entries, work orders, properties, documents) last.
    */
-  phase: 1 | 2 | 3;
+  phase: 1 | 2 | 3 | 4;
   manager?: PurgeScopeRule;
   resident?: PurgeScopeRule;
   vendor?: PurgeScopeRule;
 };
 
 export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
+  {
+    table: "portal_workspaces",
+    // Properties must be removed first; deleting a workspace never deletes houses.
+    phase: 4,
+    manager: { ids: ["owner_user_id"] },
+  },
   // ---------------------------------------------------------------- phase 1: child rows
+  {
+    // Source receipts are private conversation content and cascade from the
+    // durable burst. Keep this explicit so the account-purge coverage test
+    // cannot silently leave a re-registered manager's prospect history.
+    table: "prospect_sms_ingress",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    table: "prospect_sms_inline_actions",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    table: "prospect_sms_shadow_jobs",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
   {
     table: "gl_journal_lines",
     phase: 1,
@@ -305,6 +329,7 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id"] },
   },
   { table: "manager_comms_credit_adjustments", phase: 2, manager: { ids: ["manager_user_id"] } },
+  { table: "manager_plan_addons", phase: 2, manager: { ids: ["manager_user_id"] } },
   { table: "manager_comms_credit_purchases", phase: 2, manager: { ids: ["manager_user_id"] } },
   {
     table: "manager_comms_billing_accounts",
@@ -370,6 +395,13 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     phase: 2,
     manager: { ids: ["manager_user_id"] },
     resident: { ids: ["resident_user_id"] },
+  },
+  {
+    // Which house(s) a Communication thread is about. Owned by the workspace's
+    // manager; the co-manager who tagged it is recorded, not an owner.
+    table: "manager_sms_conversation_houses",
+    phase: 2,
+    manager: { ids: ["manager_user_id", "tagged_by_user_id"] },
   },
   {
     table: "manager_purchases",
@@ -537,6 +569,11 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { ids: ["recipient_user_id"], emails: ["recipient_email"] },
   },
   {
+    table: "prospect_sms_bursts",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "mcp_oauth_authorization_codes",
     phase: 2,
     manager: { ids: ["user_id"] },
@@ -656,6 +693,12 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     vendor: { detachIds: ["vendor_user_id"] },
   },
   {
+    // The vendor's own business record — theirs alone, gone with the login.
+    table: "vendor_business_profiles",
+    phase: 3,
+    vendor: { ids: ["user_id"] },
+  },
+  {
     table: "portal_work_order_records",
     phase: 3,
     manager: { ids: ["manager_user_id"] },
@@ -733,6 +776,7 @@ export const ACCOUNT_PURGE_RETAINED: Readonly<Record<string, string>> = {
 export const NON_OWNERSHIP_COLUMNS: Readonly<Record<string, string>> = {
   "manager_property_owners.owner_email": "Contact address for a third-party property owner, not a PropLane login.",
   "manager_sms_contacts.contact_email": "Denormalized contact address on the manager's own SMS contact row.",
+  "vendor_business_profiles.work_email": "The vendor's public business mailbox, keyed by user_id; the row is deleted with the login.",
 };
 
 export function purgeRulesForScope(scope: PurgeScope, phase: 1 | 2 | 3) {

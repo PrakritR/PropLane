@@ -53,6 +53,7 @@ export const NATIVE_BOTTOM_NAV_RESIDENT_ORDER = [
   "payments",
   "communication",
   "move-in",
+  "inspections",
   "documents",
 ] as const;
 
@@ -110,6 +111,8 @@ export function orderNativeBottomNavItems<T extends { section: string }>(
  * Feedback inside Profile/Settings — see portal-settings-extras.tsx and
  * manager-properties.tsx). Keep in sync with `src/lib/platform/parity.ts`.
  */
+// Properties · Residents · Dashboard · Inbox (+ More) — the captain's order
+// (Sep 12): the bar keeps every section where managers learned it is.
 export const NATIVE_BOTTOM_NAV_PRO_MANAGER_PRIMARY = [
   "properties",
   "residents",
@@ -141,7 +144,8 @@ export const NATIVE_BOTTOM_NAV_RESIDENT_PRIMARY = residentBottomNavPrimarySectio
 
 export const NATIVE_BOTTOM_NAV_ADMIN_PRIMARY = ["dashboard", "properties", "axis-users", "events"] as const;
 
-export const NATIVE_BOTTOM_NAV_VENDOR_PRIMARY = ["work-orders", "calendar", "communication", "payments"] as const;
+// Services · Payments · Dashboard · Communication (+ More), per the portal redesign.
+export const NATIVE_BOTTOM_NAV_VENDOR_PRIMARY = ["work-orders", "payments", "dashboard", "communication"] as const;
 
 /**
  * Every role gets the fixed native bottom bar. Settings stays in the profile

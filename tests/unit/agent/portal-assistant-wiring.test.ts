@@ -149,7 +149,9 @@ describe("role registries never cross", () => {
       expect(resident.has(name), `${name} is a resident tool`).toBe(false);
     }
     expect(vendorWorkOrderAgentRegistry.size).toBeLessThanOrEqual(6);
-    expect(leasingSmsAgentRegistry.size).toBeLessThanOrEqual(8);
+    // Nine intentional capabilities: five listing/link reads, nearby transit,
+    // redundant-reply suppression, manager escalation, and tour requests.
+    expect(leasingSmsAgentRegistry.size).toBeLessThanOrEqual(9);
   });
 
   it("the one-job vendor SMS agent shares nothing at all", () => {

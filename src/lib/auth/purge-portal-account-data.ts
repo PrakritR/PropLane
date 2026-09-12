@@ -104,7 +104,7 @@ async function runManifestPurge(
   complete = true,
 ): Promise<void> {
   if (!target.userId && !target.email) return;
-  for (const phase of [1, 2, 3] as const) {
+  for (const phase of [1, 2, 3, 4] as const) {
     const ops = ACCOUNT_PURGE_TABLES.filter((rule) => rule.phase === phase).flatMap((rule) => {
       if (!complete && SHARED_ACCOUNT_TABLES.has(rule.table)) return [];
       const scopeRule = rule[scope];

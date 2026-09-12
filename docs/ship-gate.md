@@ -4,11 +4,17 @@ Use this checklist whenever promoting `staging` → `production`, or when finish
 a substantial feature. Agents must follow it (see `AGENTS.md` and
 `.cursor/rules/ship-and-review-gate.mdc`).
 
-> **The full ladder is `agent keepers` → `prakrit` → `main` → `staging` →
-> `production`.** `prakrit` is captain integration only (folds agent branches
-> together); agents never land there themselves. The deploy rungs remain
+> **Prakrit's ladder is `agent keepers` → `prakrit` → `main` → `staging` →
+> `production`; an explicit Akhil ship request authorizes agents working for
+> him to promote his `keeper` → `main` → `staging` → `production`.** `prakrit` is captain integration only (folds
+> agent branches together); Prakrit's agents never land there themselves. The deploy rungs remain
 > `main` → `staging` → `production`. `scripts/promote-main-to-production.sh`
 > is retired and exits 1 — live ships from `staging`.
+>
+> Temporary exception: until 2026-09-15T04:00:00Z, Akhil-authorized releases
+> may explicitly run `npm run ship:production -- --skip-staging`. The
+> [machine-readable policy](agents/temporary-direct-production-policy.json)
+> fixes the source at `origin/main`; every other gate in this document remains.
 
 ## Why
 
@@ -255,8 +261,10 @@ rather than reintroducing retries.
 
 ## Land work on `main` (localhost)
 
-Work goes straight to `main`, fast-forward only, never force. `main` does not
-create a Vercel deployment — verify on localhost before promoting to staging.
+After an explicit Akhil ship request, agents working for him may land his
+reviewed keeper on `main`, fast-forward only and never force. They do not write
+`prakrit`; Prakrit continues to integrate through it. `main` does not create a
+Vercel deployment - verify on localhost before promoting to staging.
 
 Before pushing:
 
@@ -274,8 +282,8 @@ or reachable history. Removing that command is **not a passed script or a waiver
 of the Critical/High gate**. The required reviews and their retained evidence
 provide the review gate. See the [reconciliation evidence](security/2026-09-05-release-gate-reconciliation.md).
 
-Never open a GitHub PR unless the captain explicitly asks. Never push `fm/*`
-branches.
+Never open a GitHub PR unless the matching developer explicitly asks. Never
+push `fm/*` branches.
 
 Scripts restart dev servers and open the browser via `bin/fm-proplane-open-localhost.sh`.
 
@@ -297,6 +305,17 @@ Dedicated QA then tests the staging URL. Staging uses project
 # after QA sign-off on staging
 npm run ship:production
 ```
+
+During the active dated Akhil exception only:
+
+```bash
+npm run ship:production -- --skip-staging
+```
+
+This option expires at 2026-09-15T04:00:00Z and fails closed if its
+[policy](agents/temporary-direct-production-policy.json) is missing, malformed,
+expired, or changed beyond the authorized scope. It still runs preflight and
+requires `origin/production` to be an ancestor of `origin/main`.
 
 Or manually:
 

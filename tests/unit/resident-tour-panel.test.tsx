@@ -28,6 +28,8 @@ vi.mock("@/components/ui/modal", () => ({
     children: ReactNode;
   }) => (open ? <div role="dialog" aria-label={title}><h2>{title}</h2>{children}</div> : null),
   ModalFooter: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  // The phone action sheet (vaul) imports the close-button class from here.
+  MODAL_HEADER_CLOSE_CLASS: "",
 }));
 vi.mock("@/components/marketing/tour-schedule-flow", () => ({
   TourScheduleFlow: () => <div data-testid="tour-schedule-flow" />,
@@ -112,7 +114,8 @@ describe("ResidentTourPanel", () => {
     expect(screen.getByText("Pending")).toBeTruthy();
     expect(screen.getByText("Confirmed")).toBeTruthy();
     expect(screen.queryByText("Your scheduled property tours and requested times.")).toBeNull();
-    expect(screen.getByText("SCHEDULE TOUR")).toBeTruthy();
+    // Add rows read in sentence case since the portal redesign (plus glyph + label).
+    expect(screen.getByText("Schedule tour")).toBeTruthy();
   });
 
   it("opens schedule tour in a modal instead of leaving the tour tab", async () => {

@@ -20,7 +20,7 @@ export function ManagerPropertyBookingsPanel({
   managerUserId: string | null;
   showToast: (message: string) => void;
 }) {
-  const [bucket, setBucket] = useState<ManagerBookingBucketId>("upcoming");
+  const [bucket, setBucket] = useState<ManagerBookingBucketId>("calendar");
   const [refreshSignal, setRefreshSignal] = useState(0);
   const [roomFilterId, setRoomFilterId] = useState("");
 
@@ -37,8 +37,11 @@ export function ManagerPropertyBookingsPanel({
     }));
   }, [submission]);
 
+  // Inside a property's detail page the calendar lays out at its natural
+  // height and the page body scrolls. Forcing the fill-height layout here
+  // clipped the month grid at the fold with no way to reach the rest.
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-col">
       <ManagerBookingsWorkspace
         bucket={bucket}
         onBucketChange={setBucket}

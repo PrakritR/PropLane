@@ -153,17 +153,18 @@ describe("BulkActionBar", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("shows selection count when active", () => {
+  it("shows the actions, and carries the count only as the accessible name (round 3: no count label)", () => {
     render(
       <BulkActionBar count={3}>
         <button type="button">Delete</button>
       </BulkActionBar>,
     );
-    expect(screen.getByText("3 selected")).toBeTruthy();
+    expect(screen.queryByText("3 selected")).toBeNull();
+    expect(screen.getByRole("region", { name: "Bulk actions, 3 items selected" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 
-  it("hides selection count when hideCount is set", () => {
+  it("hideCount changes nothing — the pill never shows a count", () => {
     render(
       <BulkActionBar count={2} hideCount>
         <button type="button">Message</button>
@@ -173,13 +174,32 @@ describe("BulkActionBar", () => {
     expect(screen.getByRole("button", { name: "Message" })).toBeTruthy();
   });
 
-  it("uses a custom count label when provided", () => {
+  it("offers a clear ✕ only when told how to clear", () => {
+    const onClear = vi.fn();
+    const { unmount } = render(
+      <BulkActionBar count={2} onClear={onClear}>
+        <button type="button">Message</button>
+      </BulkActionBar>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(onClear).toHaveBeenCalled();
+    unmount();
+    render(
+      <BulkActionBar count={2}>
+        <button type="button">Message</button>
+      </BulkActionBar>,
+    );
+    expect(screen.queryByRole("button", { name: "Clear selection" })).toBeNull();
+  });
+
+  it("a custom count label feeds the pill's title, not a visible line", () => {
     render(
       <BulkActionBar count={3} countLabel={(n) => `${n} tours selected`}>
         <button type="button">Confirm</button>
       </BulkActionBar>,
     );
-    expect(screen.getByText("3 tours selected")).toBeTruthy();
+    expect(screen.queryByText("3 tours selected")).toBeNull();
+    expect(screen.getByTitle("3 tours selected")).toBeTruthy();
   });
 });
 

@@ -9,9 +9,8 @@ import {
   ManagerPortalPageShell,
   MANAGER_TABLE_TH,
   PORTAL_COMMAND_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
 } from "@/components/portal/portal-metrics";
+import { PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
 import {
   PORTAL_DATA_TABLE,
   PORTAL_DATA_TABLE_WRAP,
@@ -505,24 +504,35 @@ export function ManagerDocumentsPanel({
       (tabId === "expense-documents" && generated) ||
       Boolean(incomeReceiptExportHref && generated));
 
-  const documentsCommandActions =
-    !isLeasingDocumentsTab && !isOtherDocumentsTab && tabId !== "templates" ? (
-      <>
-        {hasExportActions ? exportActions : null}
-        <Button
-          type="button"
-          className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-          style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-          onClick={() => setGenerateModalOpen(true)}
-          disabled={loading}
-          data-attr="documents-generate-report"
-        >
-          {loading ? "Generating…" : "Generate report"}
-        </Button>
-      </>
-    ) : documentsFilterSheet ? (
-      <>{documentsFilterSheet}</>
-    ) : null;
+  const isReportTab = !isLeasingDocumentsTab && !isOtherDocumentsTab && tabId !== "templates";
+  const documentsCommandActions = isReportTab ? (
+    hasExportActions ? exportActions : null
+  ) : documentsFilterSheet ? (
+    <>{documentsFilterSheet}</>
+  ) : null;
+
+  // The page's one prominent action follows the tab: report tabs generate,
+  // document tabs upload.
+  const documentsPrimaryAction = isReportTab ? (
+    <Button
+      type="button"
+      className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+      onClick={() => setGenerateModalOpen(true)}
+      disabled={loading}
+      data-attr="documents-generate-report"
+    >
+      {loading ? "Generating…" : "Generate report"}
+    </Button>
+  ) : isLeasingDocumentsTab || isOtherDocumentsTab ? (
+    <Button
+      type="button"
+      className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+      onClick={openDocumentUpload}
+      data-attr="documents-upload-top"
+    >
+      + Upload
+    </Button>
+  ) : undefined;
 
   if (tabId === "applications" && applicationId) {
     return (
@@ -538,9 +548,11 @@ export function ManagerDocumentsPanel({
   return (
     <ManagerPortalPageShell
       title="Documents"
+      subtitle="Applications, leases, reports, and everything else you keep on file."
       titleInlineFilter={null}
       hideTitleOnMobileNav
       compactFilterRow
+      primaryAction={documentsPrimaryAction}
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"

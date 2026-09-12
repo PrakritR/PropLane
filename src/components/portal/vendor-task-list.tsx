@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { Wrench } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DestinationNav } from "@/components/ui/destination-nav";
 import { useShallowTabId } from "@/components/ui/tabs";
@@ -150,18 +152,35 @@ export function VendorTaskList({
   }
 
   return (
-    <ManagerPortalPageShell title="Tasks" hideTitleOnMobileNav>
+    <ManagerPortalPageShell
+      title="Services"
+      subtitle="Tasks your managers assigned, alongside your jobs."
+      hideTitleOnMobileNav
+      titleInlineFilter={null}
+      compactFilterRow
+    >
       <PortalListControlStack
-        className="mb-2"
+        className="mb-2 max-lg:mb-1.5"
+        variant="command"
         destinationRow={
-          <DestinationNav
-            items={tabItems}
-            activeId={tabId}
-            ariaLabel="Task status"
-            itemLayout="equal"
-            denseEqualRow
-            className="max-w-none"
-          />
+          <div className="flex min-w-0 items-center gap-1">
+            <Link
+              href={`${basePath}/work-orders`}
+              data-attr="vendor-tasks-services-tab"
+              className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-semibold text-muted transition hover:bg-[var(--secondary)]/60 hover:text-foreground"
+            >
+              <Wrench className="size-4" aria-hidden />
+              Jobs
+            </Link>
+            <DestinationNav
+              items={tabItems}
+              activeId={tabId}
+              ariaLabel="Task status"
+              itemLayout="equal"
+              denseEqualRow
+              className="max-w-none"
+            />
+          </div>
         }
       />
 

@@ -1644,9 +1644,7 @@ export function ManagerPaymentsLedgerPanel({
                   <span className="truncate text-xs font-semibold text-foreground">
                     {cluster.propertyLabel}
                   </span>
-                  <Badge tone="info">
-                    {cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}
-                  </Badge>
+                  <span className="sr-only">{cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}</span>
                   {(() => {
                     const chargeIds = new Set(
                       cluster.rows
@@ -1689,9 +1687,7 @@ export function ManagerPaymentsLedgerPanel({
                   {cluster.propertyLabel ? (
                     <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
                   ) : null}
-                  <Badge tone="info">
-                    {cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}
-                  </Badge>
+                  <span className="sr-only">{cluster.rows.length === 1 ? "1 charge" : `${cluster.rows.length} charges`}</span>
                   {(() => {
                     const chargeIds = new Set(
                       cluster.rows

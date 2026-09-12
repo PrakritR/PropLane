@@ -57,9 +57,6 @@ export function ResidentLeaseReportIssueModal({
         />
       </label>
       <ModalFooter>
-        <Button type="button" variant="outline" onClick={handleClose} disabled={busy}>
-          Cancel
-        </Button>
         <Button
           type="button"
           variant="primary"

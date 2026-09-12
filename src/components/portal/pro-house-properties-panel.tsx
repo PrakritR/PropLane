@@ -1,8 +1,28 @@
 "use client";
 
+import { activeWorkspaceScope, propertiesOutsideActiveWorkspace, workspaceContainsProperty } from "@/lib/workspaces/selection";
+
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { ImageOff } from "lucide-react";
+import {
+  propertyRowAddress,
+  propertyRowDetail,
+  propertyRowRentLabel,
+  propertyRowThumbnail,
+} from "@/lib/property-row-summary";
+import {
+  propertyAttention,
+  propertyAttentionParts,
+  type PropertyAttention,
+} from "@/lib/property-attention";
+import {
+  MANAGER_APPLICATIONS_EVENT,
+  readManagerApplicationRows,
+  syncManagerApplicationsFromServer,
+} from "@/lib/manager-applications-storage";
+import { applicationVisibleToPortalUser } from "@/lib/manager-portfolio-access";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenuItem,
@@ -10,6 +30,7 @@ import {
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalDetailDestinationNav } from "@/components/portal/portal-detail-destination-nav";
+import { PortalPropertyRail } from "@/components/portal/portal-property-rail";
 import type { MockProperty } from "@/data/types";
 import { ListingDetailSections } from "@/components/marketing/listing-detail-sections";
 import { ListingStickySubnav } from "@/components/marketing/listing-detail-subnav";
@@ -27,11 +48,10 @@ import { ModalShell } from "@/components/ui/modal";
 import { ConfirmDeleteModal } from "@/components/portal/confirm-delete-modal";
 import { ShareLeadLinkModal } from "@/components/portal/share-lead-link-modal";
 import { ManagerPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
-import { PortalPageFooterActions } from "@/components/portal/portal-section-action-row";
 import { PortalPageChrome, PortalPageScrollBody } from "@/lib/portal-page-chrome-layout";
 import { cn } from "@/lib/utils";
 import { PORTAL_PROPERTY_DETAIL_ACTION_BUTTON_CLASS } from "@/components/portal/portal-property-detail-section";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import {
   PROPERTY_DETAIL_TOP_TAB_LABELS,
   PROPERTY_DETAIL_TOP_TAB_SHORT_LABELS,
@@ -46,13 +66,10 @@ import {
 } from "@/lib/portal-detail-routes";
 import { ManagerPropertyRequestsPanel } from "@/components/portal/pro-property-requests-panel";
 import { PropertyResidentOnboardWizard } from "@/components/portal/property-resident-onboard-wizard";
-import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
+import { PortalPropertyRecordRow, PortalRowStatusChip } from "@/components/portal/portal-record-row";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
+import { LEASE_PIPELINE_EVENT, readLeasePipeline } from "@/lib/lease-pipeline-storage";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
-import {
-  PortalListAddRow,
-  PORTAL_LIST_ADD_ICONS,
-  PORTAL_LIST_ADD_ROW_WRAP_CLASS,
-} from "@/components/portal/portal-list-add-row";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
@@ -61,7 +78,6 @@ import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { useListingContactSmsPhone } from "@/hooks/use-listing-contact-sms-phone";
 import { isDemoModeActive, resolveManagerScopeUserId } from "@/lib/demo/demo-session";
 import {
-  adminPropertyRentDisplayLabel,
   compareAdminPropertyRowsForDisplay,
   deleteManagerPropertyDraft,
   deleteUnlistedManagerProperty,
@@ -891,7 +907,16 @@ function ManagerPropertyInlineDetails({
   if (!row || !mock || !managerSubmission) return null;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 lg:flex-row">
+      <PortalPropertyRail
+        items={topNavItems}
+        activeId={activeTopNavId}
+        backHref={propertyListHref(propertiesBase, stage)}
+        title={managerPropertyRowTitle(row, bucket)}
+        subtitle={row.address}
+        className="lg:mr-5 lg:rounded-xl lg:border lg:bg-card"
+      />
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <PortalPageChrome>
         <div
           className="border-b border-border/40 bg-background"
@@ -903,6 +928,7 @@ function ManagerPropertyInlineDetails({
             ariaLabel="Property sections"
             denseEqualRow
             appearance="command"
+            className="lg:hidden"
           />
           {isListingPreview && hasPreview ? (
             <div className="w-full border-t border-border/60 bg-accent/30 px-1 py-1">
@@ -920,9 +946,7 @@ function ManagerPropertyInlineDetails({
       <PortalPageScrollBody
         className={cn(
           "min-w-0 max-w-full pt-3",
-          activeDetailTab === "bookings" && "flex flex-col overflow-hidden",
-          hasPinnedPropertyFooter &&
-            "pb-[calc(2.75rem+var(--portal-native-bottom-nav-inset,0px)+env(safe-area-inset-bottom,0px))] lg:pb-3",
+          hasPinnedPropertyFooter && "pb-3",
         )}
       >
       {isListingPreview ? (
@@ -1047,9 +1071,7 @@ function ManagerPropertyInlineDetails({
       </PortalPageScrollBody>
 
       {propertyTabFooterActions ? (
-        <PortalPageFooterActions pinned rowVariant="header" omitSpacer>
-          {propertyTabFooterActions}
-        </PortalPageFooterActions>
+        <PortalRecordActions omitSpacer>{propertyTabFooterActions}</PortalRecordActions>
       ) : null}
 
       {listingId || stablePropertyId ? (
@@ -1133,6 +1155,7 @@ function ManagerPropertyInlineDetails({
         scopedTitle="Tour"
       />
     </div>
+    </div>
   );
 }
 
@@ -1150,7 +1173,7 @@ export function ManagerHousePropertiesPanel({
   propertyTourId,
   onAddProperty,
   addPropertyDisabled = false,
-  addPropertyHint,
+  searchQuery = "",
 }: {
   showToast: (m: string) => void;
   activeStage: ManagerStageKey;
@@ -1165,8 +1188,8 @@ export function ManagerHousePropertiesPanel({
   propertyTourId?: string;
   onAddProperty?: () => void;
   addPropertyDisabled?: boolean;
-  /** Shown under the ADD label when the row is disabled at plan cap. */
-  addPropertyHint?: string;
+  /** Free-text match against the row title, address, and neighborhood (list view only). */
+  searchQuery?: string;
 }) {
   const router = useRouter();
   const { userId: managerUserId, ready: authReady } = useManagerUserId();
@@ -1232,16 +1255,41 @@ export function ManagerHousePropertiesPanel({
     };
     window.addEventListener(PROPERTY_PIPELINE_EVENT, on);
     window.addEventListener("axis-pro-relationships", on);
+    // A lease signed elsewhere changes the occupancy chip on its row.
+    window.addEventListener(LEASE_PIPELINE_EVENT, on);
     return () => {
       window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
       window.removeEventListener("axis-pro-relationships", on);
+      window.removeEventListener(LEASE_PIPELINE_EVENT, on);
     };
   }, [scopeUserId]);
 
 
+  /*
+   * The applications behind every row, so a row can say what it needs.
+   *
+   * Synced the same way the dashboard syncs them, and re-read on the store's own
+   * event — never re-fetched on that event, which would be a request loop.
+   */
+  const [appTick, setAppTick] = useState(0);
+  useEffect(() => {
+    if (!scopeUserId || isDemoModeActive()) return;
+    void syncManagerApplicationsFromServer({ managerUserId: scopeUserId }).then(() => setAppTick((t) => t + 1));
+    const on = () => setAppTick((t) => t + 1);
+    window.addEventListener(MANAGER_APPLICATIONS_EVENT, on);
+    return () => window.removeEventListener(MANAGER_APPLICATIONS_EVENT, on);
+  }, [scopeUserId]);
+  const applications = useMemo(() => {
+    void appTick;
+    if (!scopeUserId) return [];
+    return readManagerApplicationRows().filter((a) => applicationVisibleToPortalUser(a, scopeUserId));
+  }, [appTick, scopeUserId]);
+
+  /** Which "needs you" chip is narrowing the list, if any. */
+
   const rows = useMemo(() => {
     void tick;
-    if (!scopeUserId) return [] as Array<{ sourceBucket: AdminPropertyBucketIndex; row: AdminPropertyRow; linked: boolean }>;
+    if (!scopeUserId) return [] as Array<{ sourceBucket: AdminPropertyBucketIndex; row: AdminPropertyRow; linked: boolean; attention: PropertyAttention }>;
     const stage = MANAGER_STAGES.find((item) => item.key === activeStage);
     if (!stage) return [];
     const linkedIds = collectLinkedPropertyIds(scopeUserId);
@@ -1252,11 +1300,61 @@ export function ManagerHousePropertiesPanel({
           sourceBucket: bucket,
           row,
           linked: propertyIdIsLinked(pid, linkedIds),
+          attention: propertyAttention(row, applications),
         };
       }),
     );
-    return [...mapped].sort((a, b) => compareAdminPropertyRowsForDisplay(a.row, b.row));
-  }, [tick, scopeUserId, activeStage]);
+    const needle = searchQuery.trim().toLowerCase();
+    return mapped
+      .filter(({ row }) => propertyKeyProp || workspaceContainsProperty(row.listingId?.trim() || row.adminRefId.trim()))
+      .filter(({ row, sourceBucket }) => {
+        if (!needle) return true;
+        const haystack = [managerPropertyRowTitle(row, sourceBucket), row.address, row.zip, row.neighborhood]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(needle);
+      })
+      // The property that needs the manager most comes first; ties keep the
+      // stable name order every other list uses.
+      .sort((a, b) => b.attention.score - a.attention.score || compareAdminPropertyRowsForDisplay(a.row, b.row));
+  }, [tick, scopeUserId, activeStage, propertyKeyProp, searchQuery, applications]);
+
+
+  /**
+   * Signed leases per property, for the row's occupancy chip — the same
+   * Fully Signed rows the dashboard's occupancy figure counts.
+   */
+  const occupiedByProperty = useMemo(() => {
+    void tick;
+    const map = new Map<string, number>();
+    if (!scopeUserId) return map;
+    for (const lease of readLeasePipeline(scopeUserId)) {
+      if (lease.status !== "Fully Signed") continue;
+      const key = lease.propertyId?.trim();
+      if (!key) continue;
+      map.set(key, (map.get(key) ?? 0) + 1);
+    }
+    return map;
+  }, [tick, scopeUserId]);
+
+  /** Rows per stage, for the empty state's "n drafts · open Drafts" link. */
+  const stageCounts = useMemo(() => {
+    void tick;
+    const counts: Record<string, number> = {};
+    if (!scopeUserId) return counts;
+    for (const stage of MANAGER_STAGES) {
+      counts[stage.key] = stage.buckets.reduce<number>(
+        (n, bucket) =>
+          n +
+          readAdminPropertyRows(bucket, scopeUserId).filter((row) =>
+            propertyKeyProp || workspaceContainsProperty(row.listingId?.trim() || row.adminRefId.trim()),
+          ).length,
+        0,
+      );
+    }
+    return counts;
+  }, [tick, scopeUserId, propertyKeyProp]);
 
   const propertyRowKey = (row: AdminPropertyRow) => row.adminRefId + (row.listingId ?? "");
   const propertyKeyFromRow = (row: AdminPropertyRow) =>
@@ -1568,42 +1666,120 @@ export function ManagerHousePropertiesPanel({
     );
   }
 
-  const renderAddPropertyRow = () =>
-    onAddProperty ? (
-      <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>
-        <PortalListAddRow
-          label="Add property"
-          ariaLabel="Add property"
-          icon={PORTAL_LIST_ADD_ICONS.property}
-          hint={addPropertyHint}
-          onClick={onAddProperty}
-          disabled={addPropertyDisabled}
-          dataAttr="manager-properties-create"
-          className="portal-list-add-row--property min-h-[11rem] sm:min-h-[12.5rem] sm:py-14 [&>svg]:h-10 [&>svg]:w-10 [&_span_span]:text-xs sm:[&_span_span]:text-sm"
-        />
-      </div>
-    ) : null;
+  /**
+   * The empty state (§15): what this stage holds, the stage that has rows,
+   * and the one action. No bare dashed box.
+   */
+  const renderEmptyState = () => {
+    const sibling = MANAGER_STAGES.filter((s) => s.key !== activeStage && (stageCounts[s.key] ?? 0) > 0)[0];
+    const copy: Record<string, { title: string; description: string }> = {
+      listed: { title: "No listed homes yet", description: "Homes you publish appear here, where renters can find and apply to them." },
+      unlisted: { title: "Nothing unlisted", description: "A home you take off the market waits here until you relist it." },
+      drafts: { title: "No drafts in progress", description: "A home you start and save without publishing waits here." },
+    };
+    const c = copy[activeStage] ?? { title: "Nothing here yet", description: "" };
+    /*
+     * A workspace that holds nothing while the account holds homes elsewhere is
+     * not "no homes yet" — the homes are one switch away. Name the workspace and
+     * point at where they are, rather than inviting the manager to add a home
+     * the plan meter may already refuse (which is exactly how this read before).
+     */
+    const scope = activeWorkspaceScope();
+    const elsewhere = propertiesOutsideActiveWorkspace();
+    const emptyWorkspace = scope && !searchQuery.trim() && scope.propertyCount === 0 && elsewhere > 0;
+    return (
+      <PortalListEmptyCard
+        title={searchQuery.trim() ? "No homes match that search" : emptyWorkspace ? `Nothing in ${scope.name} yet` : c.title}
+        description={
+          searchQuery.trim()
+            ? "Try another name, address or neighborhood."
+            : emptyWorkspace
+              ? `Your ${elsewhere} ${elsewhere === 1 ? "home lives" : "homes live"} in another workspace. Switch workspaces from the menu at the top of the sidebar, or move homes here from Settings.`
+              : c.description
+        }
+        sibling={
+          emptyWorkspace
+            ? {
+                label: "Manage workspaces · move homes here",
+                href: "/portal/profile?tab=workspaces",
+                dataAttr: "manager-properties-empty-workspaces",
+              }
+            : sibling
+              ? {
+                  label: `${stageCounts[sibling.key]} ${sibling.label.toLowerCase()} · open ${sibling.label}`,
+                  href: propertyListHref(propertiesBase, sibling.key),
+                  dataAttr: `manager-properties-empty-sibling-${sibling.key}`,
+                }
+              : null
+        }
+        actions={
+          onAddProperty
+            ? [{ label: "Add property", onClick: onAddProperty, disabled: addPropertyDisabled, dataAttr: "manager-properties-create" }]
+            : []
+        }
+        dataAttr="manager-properties-empty"
+      />
+    );
+  };
 
   return (
     <>
       <div className={PORTAL_LIST_PAGE_BODY}>
-        {rows.map(({ sourceBucket, row, linked }) => {
+        {rows.map(({ sourceBucket, row, linked, attention }) => {
           const rowKey = row.adminRefId + (row.listingId ?? "");
-          const address = `${row.address}${row.zip ? `, ${row.zip}` : ""}`;
-          const summary = `${adminPropertyRentDisplayLabel(row)} · ${row.beds} bd / ${row.baths} ba · ${row.neighborhood}`;
+          const thumb = propertyRowThumbnail(row);
+          const attentionParts = sourceBucket === 2 ? propertyAttentionParts(attention) : [];
           return (
             <PortalPropertyRecordRow
               key={rowKey}
               title={managerPropertyRowTitle(row, sourceBucket)}
-              address={address}
-              summary={summary}
+              address={propertyRowAddress(row)}
+              summary={propertyRowDetail(row)}
+              trailing={sourceBucket === 5 ? undefined : propertyRowRentLabel(row)}
+              chip={(() => {
+                // Drafts are not let; every other stage says how full the home is.
+                if (sourceBucket === 5) return undefined;
+                const rooms = row.submission?.rooms?.length ?? 0;
+                const spaces = row.submission?.listingPlaceCategoryId === "entire_home" ? 1 : Math.max(rooms, 1);
+                const occupied = Math.min(occupiedByProperty.get(propertyKeyFromRow(row)) ?? 0, spaces);
+                return (
+                  <PortalRowStatusChip
+                    tone={occupied >= spaces ? "ok" : occupied === 0 ? "warn" : "neutral"}
+                    dataAttr="property-row-occupancy"
+                  >
+                    {occupied === 0 && spaces === 1 ? "Vacant" : `${occupied} / ${spaces} occupied`}
+                  </PortalRowStatusChip>
+                );
+              })()}
+              leading={
+                thumb ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={thumb}
+                    alt=""
+                    className="h-14 w-[4.5rem] rounded-lg object-cover"
+                  />
+                ) : (
+                  <div
+                    aria-hidden
+                    className="grid h-14 w-[4.5rem] place-items-center rounded-lg bg-accent/60 text-muted"
+                  >
+                    <ImageOff className="h-4 w-4" />
+                  </div>
+                )
+              }
               checked={selectedIds.has(rowKey)}
               onSelectedChange={() => toggleSelected(rowKey)}
               badge={
-                linked ? (
-                  <Badge tone="info">
-                    Co-managed
-                  </Badge>
+                linked || attentionParts.length > 0 ? (
+                  <span className="flex flex-wrap gap-1.5">
+                    {attentionParts.map((part) => (
+                      <Badge key={part.text} tone={part.tone}>
+                        {part.text}
+                      </Badge>
+                    ))}
+                    {linked ? <Badge tone="info">Co-managed</Badge> : null}
+                  </span>
                 ) : undefined
               }
               onOpen={() => {
@@ -1622,10 +1798,10 @@ export function ManagerHousePropertiesPanel({
             />
           );
         })}
-        {renderAddPropertyRow()}
+        {rows.length === 0 ? renderEmptyState() : null}
       </div>
       {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+        <BulkActionBar count={selectedIds.size} hideCount variant="payments" onClear={clearSelection}>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             {canBulkEdit ? (
               <Button

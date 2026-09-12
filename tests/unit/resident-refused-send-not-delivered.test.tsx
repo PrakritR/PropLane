@@ -14,7 +14,7 @@
 // succeeds, the optimistic bubble is withdrawn on refusal, the resident keeps
 // their draft, and they are told WHY.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 
 const THREAD = {
   id: "res-thr-1000000001",
@@ -156,18 +156,29 @@ function stubFetchSequence(sendResponses: { status: number; body: Record<string,
  * send tests exercise the same two-request path a resident uses.
  */
 async function enableEmailAndSmsChannels() {
+  // The channel picker is a segmented control (§13): each segment toggles.
+  // Await each press — the segments read their state from props, so two
+  // synchronous clicks would compute the second from the first's stale props.
   await waitFor(() => expect(document.querySelectorAll('[aria-label="Send via"]').length).toBeGreaterThan(0));
   const picker = document.querySelectorAll('[aria-label="Send via"]')[0] as HTMLElement;
-  fireEvent.click(picker);
-  const tapOption = async (name: RegExp) => {
-    const option = await screen.findByRole("option", { name });
-    fireEvent.pointerDown(option, { pointerId: 1, clientX: 10, clientY: 10 });
-    fireEvent.pointerUp(option, { pointerId: 1, clientX: 10, clientY: 10 });
+  const segment = (name: RegExp) => within(picker).getByRole("button", { name });
+  const pressed = (name: RegExp) => segment(name).getAttribute("aria-pressed") === "true";
+  const press = async (name: RegExp, want: boolean) => {
+    if (pressed(name) === want) return;
+    fireEvent.click(segment(name));
+    await waitFor(() => expect(pressed(name)).toBe(want));
   };
-  await tapOption(/^Email$/i);
-  await tapOption(/^Text$/i);
-  await tapOption(/^PropLane$/i);
-  await waitFor(() => expect(picker.textContent).toContain("Email & Text"));
+  // Texting comes on once the SMS status loads, and the panel re-resolves its
+  // default channels at that moment — press nothing until it has.
+  await waitFor(() => expect((segment(/^Text$/i) as HTMLButtonElement).disabled).toBe(false));
+  await press(/^Email$/i, true);
+  await press(/^Text$/i, true);
+  await press(/^In-app$/i, false);
+  await waitFor(() => {
+    expect(pressed(/^Email$/i)).toBe(true);
+    expect(pressed(/^Text$/i)).toBe(true);
+    expect(pressed(/^In-app$/i)).toBe(false);
+  });
 }
 
 async function openThreadAndReply(text: string) {

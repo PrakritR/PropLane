@@ -1,15 +1,11 @@
 /**
- * One inbox, two segments, in every portal.
+ * One inbox, three segments, in every portal.
  *
  * AGENTS.md: "Communication is ONE conversation-based inbox with NO folder
- * tabs." The manager panel is the reference and carries exactly Active and
- * Archived. The resident and vendor panels each grew a third "Unread"
- * destination — which is a FILTER (is this thread unread), not a folder, and it
- * put the two portals out of step with the surface they are meant to copy.
- *
- * The `/unread` URL still resolves in all three: a segment that stops being a
- * tab should not become a 404 for anyone who bookmarked it. It just highlights
- * Active, which is where those conversations live.
+ * tabs." The segments are VIEWS of that one list — All, Unread (is this thread
+ * unread), Archived — never folders, and every portal shows the same three
+ * (Property Studio round 2, §13). They are owned once, in the shared rail, so
+ * the portals cannot drift apart again.
  *
  * The segment rail MOVED. It used to be typed out per portal in a
  * `PortalListControlStack` above the panel; it now lives once in
@@ -38,18 +34,20 @@ const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 describe("the shared segment rail", () => {
   const src = read(RAIL);
 
-  it("offers Active and Archived, and nothing else", () => {
+  it("offers All, Unread and Archived, and nothing else", () => {
     expect(src).toContain('dataAttr: "communication-segment-active"');
+    expect(src).toContain('dataAttr: "communication-segment-unread"');
     expect(src).toContain('dataAttr: "communication-segment-archived"');
-    expect(src).not.toContain('dataAttr: "communication-segment-unread"');
+    expect((src.match(/dataAttr: "communication-segment-/g) ?? []).length).toBe(3);
   });
 
-  it("still resolves a bookmarked /unread onto Active", () => {
-    expect(src).toMatch(/activeId=\{listSegment === "unread" \? "active" : listSegment\}/);
+  it("highlights the segment from the route, /unread included", () => {
+    expect(src).toMatch(/activeId=\{listSegment\}/);
   });
 
   it("routes both segments as links rather than re-adding folder tabs", () => {
     expect(src).toContain("`${commBase}/active`");
+    expect(src).toContain("`${commBase}/unread`");
     expect(src).toContain("`${commBase}/archived`");
     // DestinationNav renders next/link items; a button-based tab strip here
     // would break deep-linking and reintroduce folders.

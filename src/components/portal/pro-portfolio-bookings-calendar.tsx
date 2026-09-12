@@ -21,6 +21,8 @@ import {
 } from "@/lib/channel-calendar/property-bookings";
 import {
   bookingOccupancyStats,
+  bookingSourceBadgeTone,
+  bookingSourceDotClass,
   bookingSourceLabel,
   bookingStatusTone,
   formatBookingStayRange,
@@ -117,12 +119,15 @@ function bookedDaysInYear(entries: PropertyBookingEntry[], year: number): number
   return count;
 }
 
+/** A signed stay outranks a channel import, which outranks a hold, which outranks a manual block. */
 function dominantSourceForDay(
   dayBookings: PropertyBookingEntry[],
 ): PropertyBookingEntry["source"] | null {
   if (dayBookings.length === 0) return null;
-  if (dayBookings.some((b) => b.source === "proplane")) return "proplane";
-  return "airbnb";
+  for (const source of ["proplane", "airbnb", "hold", "block"] as const) {
+    if (dayBookings.some((b) => b.source === source)) return source;
+  }
+  return null;
 }
 
 function dayCellClassName(
@@ -137,6 +142,12 @@ function dayCellClassName(
   }
   if (source === "proplane") {
     return `${base} border-[color-mix(in_srgb,var(--status-approved-fg)_35%,transparent)] bg-[var(--status-approved-bg)] text-[var(--status-approved-fg)]`;
+  }
+  if (source === "hold") {
+    return `${base} border-[color-mix(in_srgb,var(--status-confirmed-fg)_35%,transparent)] bg-[var(--status-confirmed-bg)] text-[var(--status-confirmed-fg)]`;
+  }
+  if (source === "block") {
+    return `${base} border-border bg-[var(--secondary)] text-muted [background-image:repeating-linear-gradient(135deg,transparent_0_6px,color-mix(in_srgb,var(--border)_70%,transparent)_6px_7px)]`;
   }
   return `${base} border-[color-mix(in_srgb,var(--status-pending-fg)_35%,transparent)] bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]`;
 }
@@ -174,9 +185,7 @@ function DayBookingCell({
         </span>
         {booked && source ? (
           <span
-            className={`h-1.5 w-1.5 shrink-0 rounded-full ${
-              source === "proplane" ? "bg-primary" : "bg-[var(--status-pending-fg)]"
-            }`}
+            className={`h-1.5 w-1.5 shrink-0 rounded-full ${bookingSourceDotClass(source)}`}
             aria-hidden
           />
         ) : null}
@@ -243,11 +252,7 @@ function YearMonthMiniGrid({
             <span
               key={key}
               className={`aspect-square rounded-[2px] ${
-                filled
-                  ? src === "proplane"
-                    ? "bg-primary/70"
-                    : "bg-[var(--status-pending-fg)]/55"
-                  : "bg-border/40"
+                filled && src ? `${bookingSourceDotClass(src)} opacity-70` : "bg-border/40"
               }`}
               aria-hidden
             />
@@ -274,7 +279,7 @@ function DayViewStayCard({ booking }: { booking: PropertyBookingEntry }) {
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-1">
-          <Badge tone={booking.source === "airbnb" ? "pending" : "info"}>
+          <Badge tone={bookingSourceBadgeTone(booking.source)}>
             {bookingSourceLabel(booking.source)}
           </Badge>
           {booking.statusLabel ? (
@@ -298,6 +303,8 @@ export function ManagerPortfolioBookingsCalendar({
   emptyMessage,
   variant = "embedded",
   calendarOnly = false,
+  onBlockDates,
+  onRemoveBlock,
 }: {
   propertyIds: string[];
   showToast: (message: string) => void;
@@ -307,6 +314,8 @@ export function ManagerPortfolioBookingsCalendar({
   emptyMessage?: string;
   variant?: "embedded" | "standalone";
   calendarOnly?: boolean;
+  onBlockDates?: (dayKey: string) => void;
+  onRemoveBlock?: (blockId: string) => Promise<void>;
 }) {
   return (
     <ManagerBookingsHub
@@ -318,6 +327,8 @@ export function ManagerPortfolioBookingsCalendar({
       emptyMessage={emptyMessage}
       variant={variant}
       calendarOnly={calendarOnly}
+      onBlockDates={onBlockDates}
+      onRemoveBlock={onRemoveBlock}
     />
   );
 }
@@ -331,6 +342,8 @@ export function ManagerBookingsHub({
   emptyMessage,
   variant = "embedded",
   calendarOnly = false,
+  onBlockDates,
+  onRemoveBlock,
 }: {
   propertyIds: string[];
   showToast: (message: string) => void;
@@ -341,6 +354,10 @@ export function ManagerBookingsHub({
   variant?: "embedded" | "standalone";
   /** When true, skip the List|Calendar hub toggle — calendar grid only (portfolio Calendar tab). */
   calendarOnly?: boolean;
+  /** Open the "Block dates" form preset to this day. */
+  onBlockDates?: (dayKey: string) => void;
+  /** Lift a block from the day detail. */
+  onRemoveBlock?: (blockId: string) => Promise<void>;
 }) {
   const [airbnbEntries, setAirbnbEntries] = useState<PropertyBookingEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -652,6 +669,14 @@ export function ManagerBookingsHub({
                   />
                   Airbnb
                 </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-[var(--status-confirmed-fg)]" aria-hidden />
+                  Approved · lease pending
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-full bg-muted" aria-hidden />
+                  Blocked
+                </span>
               </div>
             </div>
           </div>
@@ -663,6 +688,15 @@ export function ManagerBookingsHub({
         onClose={() => setDayModalOpen(false)}
         dayLabel={selectedDayLabel}
         entries={selectedDayBookings}
+        onBlockDates={
+          onBlockDates && selectedDayKey
+            ? () => {
+                setDayModalOpen(false);
+                onBlockDates(selectedDayKey);
+              }
+            : undefined
+        }
+        onRemoveBlock={onRemoveBlock}
       />
     </>
   );

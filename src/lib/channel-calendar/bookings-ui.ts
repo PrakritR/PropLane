@@ -151,8 +151,46 @@ export function bookingOccupancyStats(
   return { bookedNights, checkInsThisWeek, occupancyPercent };
 }
 
+/** Calendar dot / heat colour per source; the legend under the grid uses the same map. */
+export function bookingSourceDotClass(source: PropertyBookingEntry["source"]): string {
+  switch (source) {
+    case "proplane":
+      return "bg-primary";
+    case "airbnb":
+      return "bg-[var(--status-pending-fg)]";
+    case "hold":
+      return "bg-[var(--status-confirmed-fg)]";
+    default:
+      return "bg-muted";
+  }
+}
+
+export function bookingSourceBadgeTone(
+  source: PropertyBookingEntry["source"],
+): "pending" | "info" | "confirmed" | "neutral" {
+  switch (source) {
+    case "airbnb":
+      return "pending";
+    case "hold":
+      return "confirmed";
+    case "block":
+      return "neutral";
+    default:
+      return "info";
+  }
+}
+
 export function bookingSourceLabel(source: PropertyBookingEntry["source"]): string {
-  return source === "airbnb" ? "Airbnb" : "PropLane";
+  switch (source) {
+    case "airbnb":
+      return "Airbnb";
+    case "hold":
+      return "Hold";
+    case "block":
+      return "Blocked";
+    default:
+      return "PropLane";
+  }
 }
 
 export function bookingStatusTone(

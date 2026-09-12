@@ -18,10 +18,11 @@ describe("Teams sidebar dropdown (Managers + Vendors)", () => {
     expect(teams?.tabs.map((tab) => tab.label)).toEqual(["Managers", "Vendors"]);
   });
 
-  it("groups Teams under the Team heading", () => {
-    const group = PORTAL_NAV_GROUPS.pro.find((g) => g.id === "team");
-    expect(group?.label).toBe("Team");
-    expect(group?.sections).toEqual(["teams"]);
+  it("keeps Teams out of the sidebar — team management lives in Settings", () => {
+    // Property Studio slice 9: managers and vendors are managed from
+    // Settings → Team / Vendors; the /teams routes stay for deep links.
+    expect(PORTAL_NAV_GROUPS.pro.find((g) => g.id === "team")).toBeUndefined();
+    expect(PORTAL_NAV_GROUPS.pro.some((g) => g.sections.includes("teams"))).toBe(false);
   });
 });
 

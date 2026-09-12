@@ -18,6 +18,7 @@ export const RESIDENT_FREE_TIER_SECTION_IDS = [
   "applications",
   "payments",
   "move-in",
+  "inspections",
   "communication",
   "profile",
 ] as const;
@@ -32,6 +33,17 @@ const DOCUMENTS_TABS = [
   // shows both own uploads and manager-shared docs, tagged by a Source column.
   // The legacy /documents/shared route redirects here (render-portal-section).
   { id: "other", label: "Other documents" },
+] as const;
+
+/**
+ * Move-in and move-out condition reports are the resident's own section since
+ * the portal redesign (they used to be a My home sub-tab, which still redirects
+ * here). A resident has no general Tasks list — these two obligations ARE the
+ * tasks, and they live on the dashboard as required next steps.
+ */
+const INSPECTIONS_TABS = [
+  { id: "move-in", label: "Move-in" },
+  { id: "move-out", label: "Move-out" },
 ] as const;
 
 const MOVE_IN_TABS = RESIDENT_MOVE_IN_TABS.map((id) => ({
@@ -70,7 +82,7 @@ export const RESIDENT_APPLICATION_PHASE_PORTAL_SECTIONS: PortalSection[] = [
   { section: "tour", label: "Tour", tabs: [] },
   { section: "applications", label: "Application", tabs: [] },
   { section: "dashboard", label: "Dashboard", tabs: [] },
-  { section: "communication", label: "Communication", tabs: [] },
+  { section: "communication", label: "Inbox", tabs: [] },
   { section: "profile", label: "Settings", tabs: [] },
 ];
 
@@ -84,8 +96,9 @@ export const RESIDENT_UNIFIED_PORTAL_SECTIONS: PortalSection[] = [
   { section: "dashboard", label: "Dashboard", tabs: [] },
   { section: "lease", label: "Lease", tabs: [] },
   { section: "services", label: "Services", tabs: [] },
+  { section: "inspections", label: "Inspections", tabs: [...INSPECTIONS_TABS] },
   { section: "payments", label: "Payments", tabs: [] },
-  { section: "communication", label: "Communication", tabs: [] },
+  { section: "communication", label: "Inbox", tabs: [] },
   { section: "move-in", label: "My home", tabs: [...MOVE_IN_TABS] },
   { section: "documents", label: "Documents", tabs: [...DOCUMENTS_TABS] },
   { section: "profile", label: "Settings", tabs: [] },
@@ -98,7 +111,7 @@ export const RESIDENT_PRE_LEASE_PORTAL_SECTIONS: PortalSection[] = [
   { section: "applications", label: "Application", tabs: [] },
   { section: "lease", label: "Lease", tabs: [] },
   { section: "payments", label: "Payments", tabs: [] },
-  { section: "communication", label: "Communication", tabs: [] },
+  { section: "communication", label: "Inbox", tabs: [] },
   { section: "documents", label: "Documents", tabs: [...DOCUMENTS_TABS] },
   { section: "profile", label: "Settings", tabs: [] },
 ];
@@ -117,10 +130,11 @@ export const RESIDENT_APPROVED_PORTAL_SECTIONS: PortalSection[] = [
   { section: "payments", label: "Payments", tabs: [] },
   { section: "dashboard", label: "Dashboard", tabs: [] },
   { section: "tour", label: "Tour", tabs: [] },
-  { section: "communication", label: "Communication", tabs: [] },
+  { section: "communication", label: "Inbox", tabs: [] },
   { section: "applications", label: "Application", tabs: [] },
   { section: "lease", label: "Lease", tabs: [] },
   { section: "move-in", label: "My home", tabs: [...MOVE_IN_TABS] },
+  { section: "inspections", label: "Inspections", tabs: [...INSPECTIONS_TABS] },
   { section: "documents", label: "Documents", tabs: [...DOCUMENTS_TABS] },
   { section: "profile", label: "Settings", tabs: [] },
 ];
@@ -146,6 +160,7 @@ export const RESIDENT_RENDERED_SECTION_IDS = [
   "lease",
   "payments",
   "move-in",
+  "inspections",
   "communication",
   "documents",
   "bugs-feedback",
@@ -166,7 +181,8 @@ export const RESIDENT_PORTAL_SMOKE_PATHS = [
   { label: "Lease", path: `${RESIDENT_PORTAL_BASE_PATH}/lease` },
   { label: "Payments", path: `${RESIDENT_PORTAL_BASE_PATH}/payments` },
   { label: "My home", path: `${RESIDENT_PORTAL_BASE_PATH}/move-in` },
-  { label: "Communication", path: `${RESIDENT_PORTAL_BASE_PATH}/communication/active` },
+  { label: "Inspections", path: `${RESIDENT_PORTAL_BASE_PATH}/inspections/move-in` },
+  { label: "Inbox", path: `${RESIDENT_PORTAL_BASE_PATH}/communication/active` },
   { label: "Documents", path: `${RESIDENT_PORTAL_BASE_PATH}/documents/application` },
 ] as const;
 

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { useIsNativeApp } from "@/hooks/use-is-native-app";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import {
   ManagerPortalPageShell,
   portalDashboardWelcomeSubtitle,
@@ -581,7 +582,15 @@ export function VendorDashboard({ displayName }: { displayName: string }) {
             )}
           />
         </div>
-        ) : null}
+        ) : (
+          // Six zeros above an empty canvas read as a broken page; say so instead.
+          <PortalListEmptyCard
+            title="Nothing is waiting on you."
+            description="New job offers, quotes to send, scheduled visits and payouts land here the moment a manager sends one."
+            sibling={{ href: `${BASE}/work-orders`, label: "Open services", dataAttr: "vendor-dashboard-empty-services" }}
+            dataAttr="vendor-dashboard-empty"
+          />
+        )}
       </div>
     </ManagerPortalPageShell>
   );

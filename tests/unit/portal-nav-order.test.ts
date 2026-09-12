@@ -66,6 +66,9 @@ describe("portal nav order contracts", () => {
       "payments",
       "communication",
       "move-in",
+      // Inspections is the resident's own section since the redesign; it sits
+      // with My home, before the reference sections.
+      "inspections",
       "documents",
       "profile",
     ]);
@@ -139,7 +142,7 @@ describe("resident portal nav grouping", () => {
   it("approved: leads with resident operations before reference sections", () => {
     const sections = sectionIds(RESIDENT_APPROVED_PORTAL_SECTIONS);
     expect(sections.slice(0, 4)).toEqual(["services", "payments", "dashboard", "tour"]);
-    expectContiguousBlock(sections, ["applications", "lease", "move-in"], "communication", "documents");
+    expectContiguousBlock(sections, ["applications", "lease", "move-in", "inspections"], "communication", "documents");
   });
 
   it("approved: keeps documents next to settings after the post-lease workspace", () => {

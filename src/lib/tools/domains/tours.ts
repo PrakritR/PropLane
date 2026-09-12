@@ -33,6 +33,7 @@ import { cancelPlannedTour, reschedulePlannedTour } from "@/lib/tour-planned-cha
 import { formatTourRangeLabel } from "@/lib/tour-inquiry.server";
 import { slotStartMs, TOUR_CALENDAR_TIME_ZONE } from "@/lib/tour-slot-math";
 import { smsAccessAllowsPropertyRecord } from "@/lib/sms/manager-sms-access";
+import { normalizeE164 } from "@/lib/twilio";
 
 /** Slots are a grid; a page of them is plenty for a chat reply or a text. */
 const SLOT_LIMIT = 40;
@@ -58,7 +59,7 @@ type OfferedSlot = { slotKey: string; start: string; end: string; label: string;
 async function loadOfferedSlots(
   db: AgentContext["db"],
   input: SlotsInput,
-): Promise<{ slots: OfferedSlot[]; timeZone: string }> {
+): Promise<{ slots: OfferedSlot[]; timeZone: string; resolution: "resolved" | "unavailable" }> {
   const result = await listOpenTourSlots(db, {
     propertyId: input.propertyId,
     buildingName: input.buildingName ?? null,
@@ -84,14 +85,18 @@ async function loadOfferedSlots(
     });
   }
   slots.sort((a, b) => a.start.localeCompare(b.start));
-  return { slots: slots.slice(0, SLOT_LIMIT), timeZone: TOUR_CALENDAR_TIME_ZONE };
+  return {
+    slots: slots.slice(0, SLOT_LIMIT),
+    timeZone: TOUR_CALENDAR_TIME_ZONE,
+    resolution: result.resolution ?? "resolved",
+  };
 }
 
 const SLOTS_DESCRIPTION =
   "List the tour times currently open for a property, with the host for each. This is the ONLY source of bookable times — published availability minus calendar-busy minus already-booked, the same grid the public booking page shows. Always call this before offering, requesting, or booking a time, and quote the returned start/end verbatim; never work a time out yourself.";
 
 /** Manager-scoped read. Availability is public by nature, so no extra filter. */
-export const listOpenTourSlotsTool = defineTool<SlotsInput, { slots: OfferedSlot[]; timeZone: string }>({
+export const listOpenTourSlotsTool = defineTool<SlotsInput, { slots: OfferedSlot[]; timeZone: string; resolution: "resolved" | "unavailable" }>({
   name: "list_open_tour_slots",
   description: SLOTS_DESCRIPTION,
   inputSchema: slotsInputSchema,
@@ -101,7 +106,7 @@ export const listOpenTourSlotsTool = defineTool<SlotsInput, { slots: OfferedSlot
 /** The identical read, bound to the resident context type. */
 export const residentListOpenTourSlotsTool = defineTool<
   SlotsInput,
-  { slots: OfferedSlot[]; timeZone: string },
+  { slots: OfferedSlot[]; timeZone: string; resolution: "resolved" | "unavailable" },
   ResidentAgentContext
 >({
   name: "list_open_tour_slots",
@@ -140,7 +145,11 @@ const REQUEST_TOUR_DESCRIPTION =
  * re-derives whether that host may actually host this property and whether the
  * slot is genuinely published and free, so naming a manager here proves nothing.
  */
-function tourInquiryRowFrom(input: RequestTourInput): Record<string, unknown> {
+function tourInquiryRowFrom(input: RequestTourInput, opts?: { trustedSmsPhone?: string | null }): Record<string, unknown> {
+  const trustedSmsPhone = opts?.trustedSmsPhone ? normalizeE164(opts.trustedSmsPhone) : null;
+  if (opts?.trustedSmsPhone && (!trustedSmsPhone || normalizeE164(input.phone) !== trustedSmsPhone)) {
+    throw new Error("Use the phone number that texted us to request this tour.");
+  }
   return {
     kind: "tour",
     propertyId: input.propertyId,
@@ -149,7 +158,7 @@ function tourInquiryRowFrom(input: RequestTourInput): Record<string, unknown> {
     managerUserId: input.hostUserId,
     name: input.name.trim(),
     email: input.email.trim(),
-    phone: input.phone.trim(),
+    phone: trustedSmsPhone ?? input.phone.trim(),
     notes: input.notes?.trim() || undefined,
     tourFormat: normalizeTourFormat(input.tourFormat),
     slotKey: input.slotKey,
@@ -259,7 +268,24 @@ export const leasingRequestTourTool = defineWriteTool<RequestTourInput, { reply:
   },
   handler: async (ctx, input) => {
     await assertSlotStillOpen(ctx.db, input);
-    const created = await createTourInquiry(ctx.db, { incoming: tourInquiryRowFrom(input) });
+    const scope = ctx.leasingScope;
+    const smsOrigin = scope?.channel === "sms" ? { senderPhoneE164: scope.prospectPhoneE164 } : null;
+    const created = await createTourInquiry(ctx.db, {
+      incoming: tourInquiryRowFrom(input, smsOrigin ? { trustedSmsPhone: smsOrigin.senderPhoneE164 } : undefined),
+      smsOrigin,
+    });
+    // A tour request names the house outright: tag the prospect's thread.
+    if (ctx.leasingScope) {
+      const { tagProspectThreadFromAgent } = await import("@/lib/sms/conversation-houses.server");
+      await tagProspectThreadFromAgent(ctx.db, {
+        landlordId: ctx.landlordId,
+        prospectPhoneE164: ctx.leasingScope.prospectPhoneE164,
+        channel: ctx.leasingScope.channel ?? "sms",
+        propertyId: input.propertyId,
+        propertyOwnerUserId: input.hostUserId ?? ctx.landlordId,
+        source: "tour",
+      });
+    }
     if (!created.ok) throw new Error(created.error);
     return {
       reply: `Tour requested for ${formatTourRangeLabel(input.start, input.end)}. ${input.name.trim()} will hear back once the manager confirms.`,

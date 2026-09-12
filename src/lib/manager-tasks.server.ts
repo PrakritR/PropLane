@@ -1,9 +1,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import crypto from "node:crypto";
 import { DEFAULT_EVENT_DURATION_MINUTES } from "@/lib/demo-admin-scheduling";
 import {
   managerTasksStorageKey,
+  nextRecurrenceDate,
   normalizeManagerTasks,
+  normalizeTaskAttachments,
+  normalizeTaskChecklist,
+  normalizeTaskComments,
+  normalizeTaskPriority,
+  normalizeTaskRecurrence,
   normalizeTaskType,
+  normalizeTaskUrgency,
   type ManagerTask,
 } from "@/lib/manager-tasks";
 import { normalizeAssignee } from "@/lib/work-assignment";
@@ -165,6 +173,13 @@ export async function createManagerTaskRow(
     completed: false,
     assignee,
     taskType: normalizeTaskType(body.taskType) ?? "general",
+    // Priority and urgency were silently dropped here before: the form sent
+    // them and the row came back "medium / scheduled" every time.
+    urgency: normalizeTaskUrgency(body.urgency),
+    priority: normalizeTaskPriority(body.priority),
+    recurrence: normalizeTaskRecurrence(body.recurrence),
+    checklist: normalizeTaskChecklist(body.checklist),
+    attachments: normalizeTaskAttachments(body.attachments),
     linkedTourId: typeof body.linkedTourId === "string" ? body.linkedTourId.trim() || undefined : undefined,
     linkedWorkOrderId:
       typeof body.linkedWorkOrderId === "string" ? body.linkedWorkOrderId.trim() || undefined : undefined,
@@ -181,12 +196,19 @@ export async function createManagerTaskRow(
   return task;
 }
 
+export type PatchManagerTaskResult = ManagerTask & {
+  /** Set when completing a recurring task filed its next occurrence. */
+  nextOccurrence?: ManagerTask;
+};
+
 export async function patchManagerTaskRow(
   db: SupabaseClient,
   managerUserId: string,
   taskId: string,
   patch: Record<string, unknown>,
-): Promise<ManagerTask> {
+  /** Who is writing, for comment attribution. Falls back to the viewer id. */
+  author?: { name?: string | null },
+): Promise<PatchManagerTaskResult> {
   // The record may be a linked owner's, when the task was assigned to this
   // viewer — see ownerRecordForWritableTask. Everything below then edits and
   // saves THAT record, never the viewer's own.
@@ -267,11 +289,59 @@ export async function patchManagerTaskRow(
       typeof patch.reminderSentAt === "string"
         ? patch.reminderSentAt.trim() || undefined
         : current.reminderSentAt,
+    urgency: patch.urgency !== undefined ? normalizeTaskUrgency(patch.urgency) : current.urgency,
+    priority: patch.priority !== undefined ? normalizeTaskPriority(patch.priority) : current.priority,
+    recurrence: patch.recurrence !== undefined ? normalizeTaskRecurrence(patch.recurrence) : current.recurrence,
+    checklist: patch.checklist !== undefined ? normalizeTaskChecklist(patch.checklist) : current.checklist,
+    attachments:
+      patch.attachments !== undefined ? normalizeTaskAttachments(patch.attachments) : current.attachments,
+    comments:
+      typeof patch.addComment === "string" && patch.addComment.trim()
+        ? normalizeTaskComments([
+            ...(current.comments ?? []),
+            {
+              id: crypto.randomUUID(),
+              authorUserId: managerUserId,
+              authorName: author?.name?.trim() || "",
+              text: patch.addComment.trim(),
+              at: new Date().toISOString(),
+            },
+          ])
+        : current.comments,
     updatedAt: new Date().toISOString(),
   };
-  const updated = tasks.map((row) => (row.id === taskId ? next : row));
+
+  // Completing a recurring task files the next one: same shape, next due date
+  // (month-end clamped), checklist reset, comments left behind on the finished copy.
+  let nextOccurrence: ManagerTask | undefined;
+  if (!current.completed && next.completed && next.recurrence && next.recurrence !== "none") {
+    // A recurring task with no date of its own repeats from the day it was done.
+    const anchor = next.dueDate ?? next.start ?? new Date().toISOString();
+    const nextDue = nextRecurrenceDate(anchor, next.recurrence);
+    if (nextDue) {
+      const nowIso = new Date().toISOString();
+      const spanMs = next.start && next.end ? Date.parse(next.end) - Date.parse(next.start) : 0;
+      nextOccurrence = {
+        ...next,
+        id: crypto.randomUUID(),
+        completed: false,
+        comments: undefined,
+        checklist: next.checklist?.map((item) => ({ ...item, done: false })),
+        reminderSentAt: undefined,
+        advanceReminderSentOffsets: undefined,
+        recurrenceOfTaskId: next.id,
+        ...(next.start && next.end
+          ? { start: nextDue, end: new Date(Date.parse(nextDue) + spanMs).toISOString(), dueDate: undefined }
+          : { dueDate: nextDue, start: undefined, end: undefined }),
+        createdAt: nowIso,
+        updatedAt: nowIso,
+      };
+    }
+  }
+
+  const updated = [...tasks.map((row) => (row.id === taskId ? next : row)), ...(nextOccurrence ? [nextOccurrence] : [])];
   await saveManagerTasks(db, ownerUserId, updated);
-  return next;
+  return nextOccurrence ? { ...next, nextOccurrence } : next;
 }
 
 export async function deleteManagerTaskRow(

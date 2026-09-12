@@ -123,7 +123,7 @@ export function ApplicationReviewLauncherRow({
         ) : null}
 
         {householdPanels ? (
-          <div className="grid gap-2 xl:grid-cols-2">
+          <div className="xl:columns-2 xl:gap-3 [&>*]:mb-3 [&>*]:break-inside-avoid">
             {householdPanels}
             {row.application ? (
               <ManagerApplicationReadonlyReview

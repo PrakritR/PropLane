@@ -40,9 +40,7 @@ export function ManagerLeasesGroupedTable({
               {cluster.propertyLabel ? (
                 <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
               ) : null}
-              <Badge tone="info">
-                {cluster.rows.length === 1 ? "1 lease" : `${cluster.rows.length} leases`}
-              </Badge>
+              <span className="sr-only">{cluster.rows.length === 1 ? "1 lease" : `${cluster.rows.length} leases`}</span>
             </>
           }
         >

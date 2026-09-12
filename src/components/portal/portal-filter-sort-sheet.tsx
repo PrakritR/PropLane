@@ -14,6 +14,7 @@ import {
 } from "@/lib/portal-filter-draft";
 import { createPortal } from "react-dom";
 import { SlidersHorizontal, X } from "lucide-react";
+import { PortalIconAction } from "@/components/portal/portal-icon-action";
 import { Button } from "@/components/ui/button";
 import { Modal, MODAL_HEADER_CLOSE_CLASS, ModalFooter } from "@/components/ui/modal";
 import { VaulBottomSheet } from "@/components/ui/vaul-bottom-sheet";
@@ -30,7 +31,7 @@ import {
   FilterFieldsAccordionScope,
   FilterSheetScrollLockContext,
 } from "@/components/portal/filter-field-lists";
-import { PORTAL_COMMAND_ACTION_BTN, PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
+import { PORTAL_HEADER_ACTION_BTN } from "@/components/portal/portal-metrics";
 import {
   fieldSelectMenuZIndex,
   useFieldSelectMenu,
@@ -506,17 +507,29 @@ export function PortalFilterSortSheet({
           className,
         )}
       >
+        {commandStripTrigger ? (
+          // Compact plain icon in the list command row. The active count stays in
+          // the accessible name (and a dot) rather than a second label.
+          <PortalIconAction
+            ref={buttonRef}
+            icon={SlidersHorizontal}
+            label={activeCount > 0 ? `Filter · ${activeCount} active` : "Filter"}
+            active={activeCount > 0}
+            className="relative"
+            data-attr={dataAttr}
+            aria-expanded={open}
+            onClick={() => {
+              if (open) closeFromPointer();
+              else setFilterOpen(true);
+            }}
+          />
+        ) : (
         <Button
           ref={buttonRef}
           type="button"
           variant="outline"
           className={cn(
-            commandStripTrigger
-              ? cn(
-                  PORTAL_COMMAND_ACTION_BTN,
-                  "inline-flex w-auto items-center justify-center gap-1.5 whitespace-nowrap",
-                )
-              : compactTrigger
+            compactTrigger
               ? cn(
                   PORTAL_HEADER_ACTION_BTN,
                   "inline-flex w-auto items-center justify-center gap-1.5 whitespace-nowrap max-md:px-2.5 md:px-3",
@@ -536,6 +549,7 @@ export function PortalFilterSortSheet({
             Filter{activeCount > 0 ? ` · ${activeCount} active` : ""}
           </span>
         </Button>
+        )}
         {dropdownOpen && isClient && menuRect && portalHost
           ? createPortal(
               <>

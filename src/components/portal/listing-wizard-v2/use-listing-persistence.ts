@@ -160,5 +160,15 @@ export function useListingPersistence({
     [userId, skuTier, propertyCount, editListingId, editListingOwnerUserId],
   );
 
-  return { saveDraft, publish, busy, draftId: draftIdRef };
+  /**
+   * Forget the draft this hook has been updating, so the next save creates a
+   * new row. A caller that lets a manager add a second property from the same
+   * mounted hook needs this: without it the second property would silently
+   * overwrite the first one's draft.
+   */
+  const startFresh = useCallback(() => {
+    draftIdRef.current = null;
+  }, []);
+
+  return { saveDraft, publish, busy, draftId: draftIdRef, startFresh };
 }

@@ -28,6 +28,51 @@ context so the model uses the already-scoped row for intent narrowing and can
 pass the opaque id to existing tools. The primary key remains unchanged and is
 never exposed as the conversational handle.
 
+## One work number per WORKSPACE (a co-manager never gets a line of their own)
+
+A work number belongs to the workspace — the owner plus every co-manager
+with an accepted `account_link_invites` row — not to whoever's row it was
+bought under. The owner's `manager_sms_numbers` row IS the workspace's number.
+`resolveWorkspaceOwnerForWorkNumber` / `resolveWorkspaceWorkNumbers`
+(`src/lib/sms/manager-workspace-role.server.ts`) are the one answer to "whose
+line is this"; every reader below goes through them.
+
+- A pure co-manager (accepted link, no owned houses) reads and sends from the
+  owner's line. `GET /api/manager/messaging-number` returns it as
+  `workspaceNumber` with `ownerName`; `canRequest` is false and `POST
+  request_number` is a 409 (`workspace_number_shared`). `provisionManagerNumber`,
+  the signup backfill and `resolveManagerWorkNumber` all refuse to buy one.
+- Inbound on a line still held by a pure co-manager (bought before this rule)
+  collapses to the workspace owner BEFORE resident identity, leasing, and
+  logging, so the texter reaches the owner's residents and listings and the
+  thread lands in the owner's inbox. The old "This is a co-manager's PropLane
+  assistant number…" bounce is gone and must not come back. Retire such lines
+  with `scripts/release-co-manager-work-numbers.ts` (dry-run by default).
+- "Sent by <teammate>" inside Communication is a read-time join from
+  `manager_sms_messages.message_sid` to `sms_outbox.actor_user_id`; never shown
+  to the texter. Coverage: `tests/unit/workspace-work-number-routing.test.ts`.
+
+## Conversation houses (which house a thread is about)
+
+`manager_sms_conversation_houses` — `(conversation_key, property_id, source)`,
+service-role only (`20260911190000_sms_conversation_houses.sql`). One workspace
+number is shared by the whole team, so the houses on a thread decide which
+members see it. Library: `src/lib/sms/conversation-houses.server.ts`.
+
+- **A tag is never a guess.** Sources: `residency` (derived at read time from
+  the resident's application `property`, matched against the owner's house
+  labels/aliases — not persisted, so a move updates it for free), `leasing`
+  (the keyword bot's EXPLICIT `hinted` match or `build_prospect_links` on an
+  owned listing — never the `defaultPropertyId` fallback), `tour`
+  (`request_tour`), `outbound` (a send carrying `sms_outbox.property_id`), and
+  `manual` (the house chip in the thread header, `PATCH
+  /api/manager/sms-conversations/houses`, owner-verified ids, `inbox` at edit).
+- Automatic tags are additive and never overwrite an existing tag; `manual`
+  replaces everything and is the only way to clear a thread to untagged.
+- The read path stamps `houses[]` on every conversation
+  (`attachConversationHouses`); `smsConversationSubtitle` shows the first one.
+  Coverage: `tests/unit/sms-conversation-houses.test.ts`.
+
 ## Conversation identity is per-counterparty, NOT the phone pair (read this first)
 
 A conversation used to be derived from the phone-number pair on the wire
@@ -314,12 +359,15 @@ carrier reviewer can inspect cold). On the tours-contact page
 strict boolean and ignores any client-supplied timestamp, so per-lead consent is
 provable), and a positive opt-in written to the `sms_consent` ledger via
 `recordOptIn(..., "tours-contact")` in the `partner-inquiries` /
-`property-lead-message` routes. The load-bearing
-send gate is in `textTourGuest` (`tour-notification-delivery.server.ts`): a
-prospect is texted ONLY when `smsConsent === true`. Absence of a prior STOP is
-NOT consent — `sendResidentOutboundSms`/`sendSms` only check `isPhoneOptedOut`,
-which fails open, so a positive opt-in is required before any tour SMS. A later
-inbound STOP still supersedes the recorded opt-in. Coverage:
+`property-lead-message` routes. The load-bearing send gate is
+`resolveTourSmsEligibility`: it accepts either that explicit tour opt-in or a
+current trusted inbound grant for the exact manager, Messaging Service,
+prospect conversation, transactional class, and lifecycle purpose. New
+non-SMS-origin inquiries cannot borrow historical conversation evidence.
+Conversation-derived purpose grants record their derivation and are rechecked
+both on retry and at final outbox dispatch; explicit opt-in and independently
+restored purpose consent remain distinct. Any global, purpose, or source
+conversation revoke fails closed. Coverage:
 `tests/unit/tour-guest-sms-consent.test.ts`,
 `tests/unit/partner-inquiry-sms-consent.test.ts`,
 `tests/unit/tours-contact-sms-consent-ui.test.tsx`.
@@ -768,6 +816,25 @@ dates satisfy the canonical billing predicate; standard deposits say nothing
 about short-term deposits. A room's explicit zero deposit overrides the listing.
 Missing or malformed facts stay unknown. Mixed-question replies answer the
 known parts before escalating only the missing information.
+
+The leasing prompt treats recent texts as one conversation: it retains the
+selected room, corrected location, intended duration, move-in urgency, and
+links already sent until the prospect changes the listing. Replies stay
+concise, ask at most one combined clarification question, and include only a
+relevant tool-built link. A prospect ready to reserve, pay, or move immediately
+remains a prospect, so the agent never redirects them to resident rent payment
+or claims approval, reservation, or payment.
+
+For a high-intent manager-only uncertainty with no useful grounded reply left,
+the existing `escalate_to_manager` tool may request an SMS-only quiet handoff.
+Silence is authorized only by the notifier's delivered, non-suppressed result.
+Tool failure, notification suppression, and an audit-only dedupe never prove
+delivery. `runLeasingSmsAgentTurn` records an explicit `quiet_handoff` result
+with an empty reply, does not persist a fictional assistant message, and stores
+that result in the existing paid-turn replay record. The inbound caller marks
+the receipt handled without an outbox or template fallback. `null` still means
+the agent was unavailable or failed and retains the established fallback;
+voice and email retain their reply paths.
 
 ## Historical: Claw Messenger shared line
 

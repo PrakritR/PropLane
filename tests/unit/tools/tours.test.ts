@@ -51,7 +51,12 @@ const START = new Date(SLOT_START_MS).toISOString();
 const END = new Date(SLOT_START_MS + 30 * 60 * 1000).toISOString();
 
 /** Only the audit + db surface these tools touch. */
-function makeCtx(landlordId = MGR): AgentContext {
+function makeCtx(landlordId = MGR, leasingScope: AgentContext["leasingScope"] = {
+  sessionId: "session-1",
+  prospectPhoneE164: "+12065550100",
+  channel: "sms",
+  workNumber: "+12065550999",
+}): AgentContext {
   const auditRows: Record<string, unknown>[] = [];
   const db = {
     from: () => ({
@@ -68,6 +73,7 @@ function makeCtx(landlordId = MGR): AgentContext {
     email: "mgr@example.com",
     roles: ["manager"],
     isAdmin: false,
+    leasingScope,
     db: db as unknown as AgentContext["db"],
   };
 }
@@ -176,6 +182,42 @@ describe("request_tour — files a request, books nothing", () => {
     // Status is set by createTourInquiry and defaults to pending — the tool
     // must never assert a booked/accepted state of its own.
     expect(incoming.status).toBeUndefined();
+  });
+
+  it("accepts a normalized equivalent authenticated SMS sender and persists the trusted number", async () => {
+    offerSlot();
+    const res = await executeWrite(leasingRequestTourTool, makeCtx(MGR, {
+      sessionId: "session-sms",
+      prospectPhoneE164: "+12065550100",
+      channel: "sms",
+      workNumber: "+12065550999",
+    }), { ...REQUEST_INPUT, phone: "(206) 555-0100" });
+    expect(res.ok).toBe(true);
+    expect(createTourInquiry.mock.calls[0]![1]).toMatchObject({
+      smsOrigin: { senderPhoneE164: "+12065550100" },
+      incoming: { phone: "+12065550100" },
+    });
+  });
+
+  it("rejects a model-supplied phone that differs from the authenticated SMS sender", async () => {
+    offerSlot();
+    const res = await executeWrite(leasingRequestTourTool, makeCtx(), { ...REQUEST_INPUT, phone: "+12065550101" });
+    expect(res.ok).toBe(false);
+    expect(createTourInquiry).not.toHaveBeenCalled();
+  });
+
+  it("keeps voice and email tour requests non-SMS", async () => {
+    offerSlot();
+    for (const channel of ["voice", "email"] as const) {
+      const res = await executeWrite(leasingRequestTourTool, makeCtx(MGR, {
+        sessionId: `session-${channel}`,
+        prospectPhoneE164: "+12065550100",
+        channel,
+        workNumber: "+12065550999",
+      }), REQUEST_INPUT);
+      expect(res.ok).toBe(true);
+      expect(createTourInquiry.mock.calls.at(-1)?.[1]).toMatchObject({ smsOrigin: null });
+    }
   });
 
   it("is offered to residents under the same name and contract", async () => {

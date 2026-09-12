@@ -14,10 +14,9 @@ import {
   type PortalListGroupMode,
 } from "@/lib/portal-list-grouping";
 import { useAppUi } from "@/components/providers/app-ui-provider";
-import {
-  ManagerPortalPageShell,
-  PORTAL_COMMAND_ACTION_BTN,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { Settings2, Wrench } from "lucide-react";
 import type { DemoManagerOutgoingPaymentRow, DemoManagerPaymentLedgerRow } from "@/data/demo-portal";
 import { parseMoneyLabel } from "@/lib/portal-monthly-profit";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
@@ -695,15 +694,12 @@ export function ManagerPayments({
     offered a choice between them has nothing left to choose.
   */
   const paymentsSettingsMenu = (
-    <Button
-      type="button"
-      variant="outline"
-      className={PORTAL_COMMAND_ACTION_BTN}
+    <PortalIconAction
+      icon={Settings2}
+      label="Payment settings"
       data-attr="payments-settings-open"
       onClick={() => setPaymentSettingsOpen(true)}
-    >
-      Settings
-    </Button>
+    />
   );
 
   /*
@@ -715,15 +711,12 @@ export function ManagerPayments({
   */
 
   const paymentsSetupButton = (
-    <Button
-      type="button"
-      variant="outline"
-      className={PORTAL_COMMAND_ACTION_BTN}
+    <PortalIconAction
+      icon={Wrench}
+      label="Payment setup"
       data-attr="payments-setup"
       onClick={() => setPaymentSetupOpen(true)}
-    >
-      Setup
-    </Button>
+    />
   );
 
   const paymentsListActions = (
@@ -902,9 +895,33 @@ export function ManagerPayments({
   return (
     <ManagerPortalPageShell
       title="Payments"
+      subtitle="Know what is due, what is paid, and what needs your attention."
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
+      primaryAction={
+        direction === "incoming" ? (
+          canCreatePayment ? (
+            <Button
+              type="button"
+              className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+              data-attr="payments-add-top"
+              onClick={() => setAddOpen(true)}
+            >
+              + Add charge
+            </Button>
+          ) : undefined
+        ) : (
+          <Button
+            type="button"
+            className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+            data-attr="payments-add-outgoing-top"
+            onClick={() => setAddOutgoingOpen(true)}
+          >
+            + Add payment
+          </Button>
+        )
+      }
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-2"

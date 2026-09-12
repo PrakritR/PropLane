@@ -72,7 +72,9 @@ export const EMAIL_COLUMNS = [
  *
  *   - the GL chain first, or deleting the user fails on `ledger_entries_gl_journal_entry_id_fkey`
  *   - the whole vendor chain before `portal_work_order_records`
- *   - `manager_property_records` last, because most things reference a property
+ *   - `manager_property_records` after everything that references a property
+ *   - `portal_workspaces` very last: a property references its workspace (RESTRICT), so the
+ *     workspace can only go once its properties are gone
  */
 export const DELETE_ORDER = [
   // 1. child rows, and the GL/vendor chains that must clear first
@@ -96,10 +98,14 @@ export const DELETE_ORDER = [
   "vendor_invoices",
   "vendor_payouts",
   "vendor_tax_profiles",
+  "vendor_business_profiles",
   "vendor_availability_rules",
   "vendor_invites",
   "action_event_deliveries",
   "webhook_deliveries",
+  "prospect_sms_ingress",
+  "prospect_sms_inline_actions",
+  "prospect_sms_shadow_jobs",
   "agent_messages",
   "agent_pending_actions",
   "sms_relay_bindings",
@@ -122,6 +128,7 @@ export const DELETE_ORDER = [
   "manager_bank_accounts",
   "manager_budgets",
   "manager_comms_credit_adjustments",
+  "manager_plan_addons",
   "manager_comms_credit_purchases",
   "manager_comms_billing_accounts",
   "manager_comms_usage_events",
@@ -135,6 +142,7 @@ export const DELETE_ORDER = [
   "manager_sms_numbers",
   "manager_sms_contacts",
   "manager_sms_messages",
+  "manager_sms_conversation_houses",
   "manager_purchases",
   "chart_of_accounts",
   "stripe_disputes",
@@ -163,6 +171,7 @@ export const DELETE_ORDER = [
   "phone_verifications",
   "sms_consent",
   "sms_manager_entitlements",
+  "prospect_sms_bursts",
   "sms_outbox",
   "mcp_oauth_authorization_codes",
   "mcp_oauth_tokens",
@@ -184,6 +193,7 @@ export const DELETE_ORDER = [
   "portal_work_order_records",
   "portal_inbox_thread_records",
   "manager_property_records",
+  "portal_workspaces",
 ];
 
 /** Tables holding the login itself, removed only when the caller is not keeping it. */

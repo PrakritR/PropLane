@@ -1,45 +1,90 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { MarketingCtaPair } from "@/components/marketing/marketing-cta";
-import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
 import { MANAGER_PLAN_TIERS, type PlanTierId } from "@/data/manager-plan-tiers";
 import { MANAGER_TIER_MONTHLY_USD } from "@/lib/manager-access";
+import { MANAGER_GET_STARTED_HREF } from "@/lib/marketing/public-contact";
+import { SiteFeatureRows, type SiteFeatureRow } from "@/components/marketing/site/feature-rows";
+import { SiteFinalCta } from "@/components/marketing/site/final-cta";
 import {
-  MarketingHero,
-  MarketingPageShell,
-  MarketingSection,
-} from "@/components/marketing/marketing-page-shell";
+  MockApproveRow,
+  MockChip,
+  MockDraft,
+  MockFrame,
+  MockRow,
+  SITE_MEASURE,
+  SiteCtaPair,
+  SiteEyebrow,
+  SiteHeading,
+  SiteIntro,
+  SiteSection,
+} from "@/components/marketing/site/primitives";
 
 export const metadata: Metadata = {
   title: "For managers & landlords",
   description:
-    "PropLane for property managers and landlords: AI drafts leases, rent work, and vendor outreach. You approve every write. Real double-entry books underneath.",
+    "PropLane for property managers and landlords: list, screen, lease and collect from one queue on web and iPhone — and nothing goes out without your OK.",
 };
 
-const CAPABILITIES = [
+/*
+ * The buyer page. It repeats the promise, then earns it with four rows — each
+ * a real screen — and closes with pricing and both doors. Built for how
+ * managers and landlords actually work: the same buyer, whether they
+ * self-manage three homes or run twenty with a team.
+ */
+const ROWS: SiteFeatureRow[] = [
   {
-    title: "Leasing that fills itself",
-    body: "Public apply links, tour booking, AI lease drafts from applications, and e-sign, all in one queue.",
+    eyebrow: "Leasing",
+    title: "From listing to signed lease without a PDF",
+    body: "Four answers make a listing. Tours book themselves. The application becomes the lease draft; you read it, tweak a clause, both of you sign online.",
+    mock: (
+      <MockFrame title="Applications · Pending" aside={<MockChip tone="bad">2</MockChip>}>
+        <div className="divide-y divide-border/60">
+          <MockRow name="Maya Chen" title="Maya Chen" sub="Cascade Lofts · 4B · screening clear" right={<MockChip tone="info">Approve</MockChip>} />
+          <MockRow name="Dev Ramos" title="Dev Ramos" sub="Ballard Commons · 1C" right={<MockChip>New</MockChip>} />
+        </div>
+      </MockFrame>
+    ),
   },
   {
-    title: "Rent without the chase",
-    body: "Online payments, late fees, and reminders that draft first. You confirm before anything sends.",
+    eyebrow: "Rent",
+    title: "Rent that collects itself",
+    body: "Card, bank or Zelle. Reminders and late fees draft first and send on your approval. Deposits stay liability; the ledger balances.",
+    mock: (
+      <MockFrame title="Payments · Incoming">
+        <div className="divide-y divide-border/60">
+          <MockRow name="Jordan Lee" title="Jordan Lee · Sep rent" sub="$1,240 · 3 days late" right={<span className="flex items-center gap-2"><MockChip tone="bad">Overdue</MockChip><MockChip tone="info">Remind</MockChip></span>} />
+          <MockRow name="Priya Nair" title="Priya Nair · Sep rent" sub="$1,160 · paid by bank" right={<MockChip tone="good">Paid</MockChip>} />
+        </div>
+      </MockFrame>
+    ),
   },
   {
-    title: "Vendors who show up",
-    body: "Services, bids, visits, and Connect payouts, all tracked from request to paid.",
+    eyebrow: "Inbox & work number",
+    title: "One inbox, one number, drafts waiting",
+    body: "Residents text your PropLane number, applicants email, vendors reply — one thread each, with a drafted answer you approve, edit or discard.",
+    mock: (
+      <MockFrame title="Inbox · Dana Reyes" aside={<MockChip tone="warn">Draft</MockChip>}>
+        <MockDraft>&ldquo;Thanks Dana — Pacific Plumbing is booked Thursday 10–12.&rdquo;</MockDraft>
+        <div className="mt-3">
+          <MockApproveRow />
+        </div>
+      </MockFrame>
+    ),
   },
   {
-    title: "Books that balance",
-    body: "Charges and payments write through to a double-entry ledger. Trust deposits stay liability.",
+    eyebrow: "Team",
+    title: "Co-managers with exactly the access you give",
+    body: "Invite by link. Per module — Properties, Leasing, Payments, Services, Inbox — No access · View · Edit · Manage. Property-scoped vendors.",
+    mock: (
+      <MockFrame title="Settings · Team">
+        <div className="divide-y divide-border/60">
+          <MockRow name="Test Manager" title="Test Manager" sub="Owner · all houses" right={<MockChip>Owner</MockChip>} />
+          <MockRow name="Sofia Diaz" title="Sofia Diaz" sub="3 houses · Payments: View · Inbox: Manage" right={<MockChip tone="info">Access</MockChip>} />
+        </div>
+      </MockFrame>
+    ),
   },
-] as const;
-
-const TIER_BLURBS: Record<PlanTierId, string> = {
-  free: "1 listing · try the core flow",
-  pro: "Residents, leases, inbox, co-managers",
-  business: "Scale listings · no payment fees",
-};
+];
 
 function tierMonthlyPrice(id: PlanTierId): string {
   const usd = MANAGER_TIER_MONTHLY_USD[id];
@@ -48,71 +93,73 @@ function tierMonthlyPrice(id: PlanTierId): string {
 
 export default function PartnerLandingPage() {
   return (
-    <MarketingPageShell>
-      <MarketingHero
-        title="Run the portfolio. Approve the rest."
-        subtitle="PropLane drafts leases, rent work, and vendor outreach, then hands you one queue. Free to start."
-      >
-        <MarketingCtaPair
-          primaryHref={MANAGER_GET_STARTED_HREF}
-          primaryLabel="Get started free"
-          primaryAttr="partner-hero-get-started"
-          secondaryAttr="partner-hero-book-demo"
-        />
-      </MarketingHero>
-
-      <MarketingSection>
-        <h2 className="lp-center max-w-[22ch]">Built for how managers and landlords actually work</h2>
-        <p className="lp-section-lede lp-center">
-          One account for leasing, rent, maintenance, inbox, and books — whether you self-manage or run a portfolio, on web and iOS.
-        </p>
-        <div className="lp-page-grid-2">
-          {CAPABILITIES.map((item) => (
-            <div key={item.title} className="lp-page-card lp-page-card-pad">
-              <h3>{item.title}</h3>
-              <p>{item.body}</p>
-            </div>
-          ))}
+    <div className="relative min-h-0 flex-1">
+      <section className="border-b border-border/70 pb-14 pt-14 sm:pt-16 lg:pb-20 lg:pt-20" aria-labelledby="partner-title">
+        <div className={`${SITE_MEASURE} max-w-[860px]`}>
+          <SiteEyebrow className="mb-4">For managers &amp; landlords</SiteEyebrow>
+          <SiteHeading as="h1" id="partner-title">
+            Run the portfolio.
+            <br />
+            <span className="text-primary">Approve the rest.</span>
+          </SiteHeading>
+          <p className="mt-5 max-w-[52ch] text-[16.5px] leading-relaxed text-muted sm:text-[17.5px]">
+            PropLane drafts leases, rent work and vendor outreach for property managers and landlords, then hands you one
+            queue on web and iPhone. Self-manage three homes or run twenty with a team — nothing goes out without your OK.
+          </p>
+          <SiteCtaPair
+            className="mt-8"
+            primaryHref={MANAGER_GET_STARTED_HREF}
+            primaryLabel="Get started free"
+            primaryAttr="partner-hero-get-started"
+            secondaryAttr="partner-hero-book-demo"
+            note="Free for one home · no card · 14-day Pro trial"
+          />
         </div>
-      </MarketingSection>
+      </section>
 
-      <MarketingSection>
+      <SiteSection ariaLabelledBy="partner-rows-title">
+        <SiteIntro
+          id="partner-rows-title"
+          title="Built for how managers and landlords actually work"
+          lede="One account for leasing, rent, maintenance, inbox and books — every screen below is the product."
+        />
+        <SiteFeatureRows rows={ROWS} />
+      </SiteSection>
+
+      <SiteSection tone="muted" ariaLabelledBy="partner-pricing-title">
         <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-16">
           <div>
-            <p className="lp-page-kicker">Pricing</p>
-            <h2 className="mt-2 max-w-[14ch]">Free, Pro, or Business</h2>
-            <p className="lp-section-lede">
-              Start at $0. Upgrade when the portfolio earns it. 14-day Pro trial, no card.
+            <SiteEyebrow className="mb-3">Pricing</SiteEyebrow>
+            <SiteHeading id="partner-pricing-title">Free for one home.</SiteHeading>
+            <p className="mt-4 max-w-[44ch] text-[16px] leading-relaxed text-muted">
+              Start at $0. Upgrade when the portfolio earns it. Pro and Business begin with a 14-day trial, no card.
             </p>
-            <div className="mt-6">
-              <Link
-                href="/pricing"
-                data-attr="partner-see-pricing"
-                className="lp-btn lp-btn-ghost"
-              >
-                See pricing →
-              </Link>
-            </div>
+            <Link href="/pricing" data-attr="partner-see-pricing" className="mt-6 inline-flex items-center gap-1.5 text-[15px] font-bold text-primary hover:underline">
+              See pricing <span aria-hidden>→</span>
+            </Link>
           </div>
-          <div className="lp-page-card overflow-hidden">
-            {MANAGER_PLAN_TIERS.map((tier, i) => (
-              <div
-                key={tier.id}
-                className={`lp-page-card-pad flex items-baseline justify-between gap-4 ${i > 0 ? "border-t border-[var(--lp-line)]" : ""}`}
-              >
-                <div>
-                  <h3>{tier.label}</h3>
-                  <p>{TIER_BLURBS[tier.id]}</p>
-                </div>
-                <span className="shrink-0 text-[15px] font-semibold text-[var(--lp-ink)]">
-                  {tierMonthlyPrice(tier.id)}
+          <div className="divide-y divide-border rounded-2xl border border-border bg-card">
+            {MANAGER_PLAN_TIERS.map((tier) => (
+              <div key={tier.id} className="flex items-center justify-between gap-4 px-5 py-4">
+                <span className="flex items-center gap-2.5">
+                  <b className="text-[15px] font-bold text-foreground">{tier.label}</b>
+                  {tier.id === "pro" ? <MockChip tone="info">Most popular</MockChip> : null}
                 </span>
+                <span className="text-[16px] font-bold tabular-nums text-foreground">{tierMonthlyPrice(tier.id)}</span>
               </div>
             ))}
           </div>
         </div>
-      </MarketingSection>
+      </SiteSection>
 
-    </MarketingPageShell>
+      <SiteFinalCta
+        title="Bring one home. See the first approval land."
+        lede="List it in four answers; the first drafts are in your queue in about ten minutes."
+        primaryHref={MANAGER_GET_STARTED_HREF}
+        primaryLabel="Start free"
+        primaryAttr="partner-closing-get-started"
+        secondaryAttr="partner-closing-book-demo"
+      />
+    </div>
   );
 }

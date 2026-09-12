@@ -41,7 +41,8 @@ describe("the stored value", () => {
 
   it("preserves grant-backed PropLane absorb without a per-listing code on read paths", () => {
     expect(withFeePayer("proplane")).toBe("proplane");
-    expect(withFeePayer("proplane", "WRONG")).toBe("proplane");
+    // A typed code that does not match is a typo, not a grant.
+    expect(withFeePayer("proplane", "WRONG")).toBe("resident");
     expect(
       withFeePayer("proplane", undefined, { accountPaymentWaiverGranted: false }),
     ).toBe("resident");

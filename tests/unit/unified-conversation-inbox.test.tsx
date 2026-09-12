@@ -158,7 +158,7 @@ describe("unified conversation inbox (no folder tabs)", () => {
     // Archive segment — routed links in the list chrome (internal mode).
     const archivedLink = screen.getByRole("link", { name: /Archived/ });
     expect(archivedLink.getAttribute("href")).toContain("/archived");
-    expect(screen.queryByRole("link", { name: /Unread/ })).toBeNull();
+    expect(screen.getByRole("link", { name: /Unread/ }).getAttribute("href")).toContain("/unread");
 
     cleanup();
     render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" />);
@@ -341,7 +341,7 @@ describe("unified conversation inbox (no folder tabs)", () => {
     await waitFor(() => expect(screen.getByText("Dana Ramirez")).toBeTruthy());
     expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
 
-    const activeLink = screen.getByRole("link", { name: /^Conversations/ });
+    const activeLink = screen.getByRole("link", { name: /^All/ });
     expect(activeLink.getAttribute("aria-current")).toBe("page");
     expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
   });

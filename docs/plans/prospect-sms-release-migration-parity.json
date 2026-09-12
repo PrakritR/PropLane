@@ -1,0 +1,217 @@
+[
+  {
+    "target": "staging",
+    "status": 201,
+    "checked": true,
+    "appliedCount": 194,
+    "missing": [
+      {
+        "version": "20260911190000",
+        "name": "sms_conversation_houses"
+      },
+      {
+        "version": "20260911230000",
+        "name": "portal_workspaces"
+      },
+      {
+        "version": "20260912000000",
+        "name": "vendor_business_profiles"
+      },
+      {
+        "version": "20260912143000",
+        "name": "prospect_sms_bursts"
+      }
+    ],
+    "extra": [
+      {
+        "version": "20260911161000",
+        "name": "comms_billing_rollout"
+      }
+    ],
+    "problems": [
+      {
+        "source": "repo",
+        "kind": "duplicate-name",
+        "index": 82,
+        "version": "20260716090000",
+        "name": "agent_pending_actions"
+      },
+      {
+        "source": "database",
+        "kind": "duplicate-name",
+        "index": 82,
+        "version": "20260716090000",
+        "name": "agent_pending_actions"
+      },
+      {
+        "source": "database",
+        "kind": "duplicate-name",
+        "index": 170,
+        "version": "20260907090000",
+        "name": "resident_invite_links"
+      }
+    ]
+  },
+  {
+    "target": "production",
+    "status": 201,
+    "checked": true,
+    "appliedCount": 186,
+    "missing": [
+      {
+        "version": "20260802120000",
+        "name": "portal_inbox_attachments_bucket"
+      },
+      {
+        "version": "20260831140000",
+        "name": "manager_sms_contact_email"
+      },
+      {
+        "version": "20260902120000",
+        "name": "manager_sms_agent_sessions"
+      },
+      {
+        "version": "20260904130000",
+        "name": "work_order_events"
+      },
+      {
+        "version": "20260904133000",
+        "name": "manager_assistant_emails_mailbox_local"
+      },
+      {
+        "version": "20260904140000",
+        "name": "action_event_bus"
+      },
+      {
+        "version": "20260904150000",
+        "name": "co_manager_permissions_explicit_grant"
+      },
+      {
+        "version": "20260904160000",
+        "name": "account_link_invites_expiry"
+      },
+      {
+        "version": "20260904170000",
+        "name": "work_order_vendor_offers_declined"
+      },
+      {
+        "version": "20260904183000",
+        "name": "reminder_queue_expand_kinds"
+      },
+      {
+        "version": "20260904194500",
+        "name": "reminder_queue_payment_manager_kind"
+      },
+      {
+        "version": "20260905130000",
+        "name": "manager_comms_billing"
+      },
+      {
+        "version": "20260905194500",
+        "name": "manager_voice_agent_sessions"
+      },
+      {
+        "version": "20260905210000",
+        "name": "manager_comms_usage_invoicing"
+      },
+      {
+        "version": "20260905220000",
+        "name": "comms_usage_work_number_setup"
+      },
+      {
+        "version": "20260905230000",
+        "name": "action_event_cross_party_domains"
+      },
+      {
+        "version": "20260906010000",
+        "name": "account_link_open_invite_token"
+      },
+      {
+        "version": "20260906070000",
+        "name": "shared_room_capacity"
+      },
+      {
+        "version": "20260906080000",
+        "name": "sales_migration_provenance"
+      },
+      {
+        "version": "20260906081000",
+        "name": "utility_allocations"
+      },
+      {
+        "version": "20260906085000",
+        "name": "statement_match_targets"
+      },
+      {
+        "version": "20260912143000",
+        "name": "prospect_sms_bursts"
+      }
+    ],
+    "extra": [
+      {
+        "version": "20260906214158",
+        "name": "sms_contact_email_and_manager_sms_sessions_and_work_order_events"
+      },
+      {
+        "version": "20260906214225",
+        "name": "action_event_bus_and_co_manager_explicit_grant_and_invite_expiry"
+      },
+      {
+        "version": "20260906214241",
+        "name": "reminder_kinds_and_comms_billing_and_voice_sessions"
+      },
+      {
+        "version": "20260906214259",
+        "name": "comms_invoicing_action_event_domains_and_open_invite_token"
+      },
+      {
+        "version": "20260906214429",
+        "name": "shared_room_capacity_helpers"
+      },
+      {
+        "version": "20260906214510",
+        "name": "shared_room_capacity_triggers"
+      },
+      {
+        "version": "20260906214533",
+        "name": "sales_provenance_utility_allocations_statement_match"
+      },
+      {
+        "version": "20260906214710",
+        "name": "inspection_reminder_kinds_final"
+      },
+      {
+        "version": "20260907013446",
+        "name": "outbound_mail_channel_column_repair"
+      },
+      {
+        "version": "20260907013451",
+        "name": "portal_inbox_attachments_bucket_repair"
+      },
+      {
+        "version": "20260911010000",
+        "name": "production_recovery_schema"
+      },
+      {
+        "version": "20260911161000",
+        "name": "comms_billing_rollout"
+      }
+    ],
+    "problems": [
+      {
+        "source": "repo",
+        "kind": "duplicate-name",
+        "index": 82,
+        "version": "20260716090000",
+        "name": "agent_pending_actions"
+      },
+      {
+        "source": "database",
+        "kind": "duplicate-name",
+        "index": 82,
+        "version": "20260716090000",
+        "name": "agent_pending_actions"
+      }
+    ]
+  }
+]

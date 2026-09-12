@@ -24,10 +24,13 @@ export function ResidentScheduleTourModal({
   open,
   onClose,
   onScheduled,
+  initialPropertyId,
 }: {
   open: boolean;
   onClose: () => void;
   onScheduled?: () => void;
+  /** Rescheduling: skip the picker and open the slot flow on this property. */
+  initialPropertyId?: string | null;
 }) {
   const { showToast } = useAppUi();
   const navigate = usePortalNavigate();
@@ -38,14 +41,15 @@ export function ResidentScheduleTourModal({
 
   useEffect(() => {
     if (!open) return;
-    setPickedPropertyId(null);
-    setFlowPropertyId(null);
+    const preset = initialPropertyId?.trim() || null;
+    setPickedPropertyId(preset);
+    setFlowPropertyId(preset);
     setFlowFooter(null);
     void loadPublicExtraListingsFromServer().then(() => setTick((n) => n + 1));
     const on = () => setTick((n) => n + 1);
     window.addEventListener(PROPERTY_PIPELINE_EVENT, on);
     return () => window.removeEventListener(PROPERTY_PIPELINE_EVENT, on);
-  }, [open]);
+  }, [open, initialPropertyId]);
 
   useEffect(() => {
     if (!flowPropertyId) return;

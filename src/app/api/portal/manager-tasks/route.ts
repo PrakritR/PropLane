@@ -54,8 +54,11 @@ export async function PATCH(req: Request) {
     const body = (await req.json().catch(() => null)) as { id?: string } | null;
     const taskId = String(body?.id ?? "").trim();
     if (!taskId) return NextResponse.json({ error: "id required." }, { status: 400 });
-    const task = await patchManagerTaskRow(ctx.db, ctx.userId, taskId, body ?? {});
-    return NextResponse.json({ task });
+    const { data: author } = await ctx.db.from("profiles").select("full_name, email").eq("id", ctx.userId).maybeSingle();
+    const { nextOccurrence, ...task } = await patchManagerTaskRow(ctx.db, ctx.userId, taskId, body ?? {}, {
+      name: (author?.full_name as string | null) || (author?.email as string | null) || null,
+    });
+    return NextResponse.json({ task, ...(nextOccurrence ? { nextOccurrence } : {}) });
   } catch (e) {
     return NextResponse.json({ error: taskRouteError(e, "Could not save task.") }, { status: 400 });
   }

@@ -358,6 +358,19 @@ export async function resolveManagerWorkNumber(
   if (isClawSharedLineBridgeEnabled()) {
     return clawLeasingAgentPhoneE164();
   }
+  // A work number belongs to the workspace: a co-manager with no houses of
+  // their own resolves to the owner's line and never triggers a purchase.
+  const { resolveWorkspaceOwnerForWorkNumber } = await import("@/lib/sms/manager-workspace-role.server");
+  const workspace = await resolveWorkspaceOwnerForWorkNumber(db, managerUserId);
+  if (workspace.sharedFromCoManager) {
+    const { data: owner } = await db
+      .from("profiles")
+      .select("sms_from_number")
+      .eq("id", workspace.ownerUserId)
+      .maybeSingle();
+    const ownerNumber = String(owner?.sms_from_number ?? "").trim();
+    return ownerNumber && !isPlaceholderManagerWorkNumber(ownerNumber) ? ownerNumber : null;
+  }
   const { data } = await db.from("profiles").select("sms_from_number").eq("id", managerUserId).maybeSingle();
   const current = String(data?.sms_from_number ?? "").trim();
   if (current && isLegacyClawSharedSmsNumber(current) && isClawSharedLineBridgeEnabled()) {

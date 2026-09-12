@@ -86,6 +86,9 @@ export function ManagerWorkNumberButton({ className }: { className?: string }) {
 
   // Once a number is assigned, the CTA has done its job and disappears.
   if (status.number?.phoneNumber) return null;
+  // A co-manager never sets up a number: the workspace's line is the owner's
+  // to request. The header card says whose job that is when it is missing.
+  if (status.workspaceRole === "co_manager") return null;
 
   if (status.planTier === "free") {
     return (

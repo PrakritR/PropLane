@@ -149,7 +149,13 @@ describe("minting a link", () => {
     expect(PANEL).toContain("onCreateInviteLink={openInviteLinkModal}");
     expect(PANEL).toContain('inviteLinkDataAttr="co-manager-create-invite-link"');
     expect(PANEL).toContain("ManagerInviteLinkModal");
+    // ONE entry point opens the add dialog: the page's "+ Invite manager"
+    // beside the title. The Members block's duplicate "Invite a manager" and
+    // the dashed row at the list foot are gone (round 3: one door each); the
+    // shareable link has its own secondary beside the primary.
     expect(PANEL.match(/onClick=\{openLinkModal\}/g)).toHaveLength(1);
+    expect(PANEL).not.toContain("onInvite={openLinkModal}");
+    expect(PANEL).toContain('data-attr="team-invite-link-create"');
     expect(PANEL).toContain('data-attr="co-manager-link-continue"');
     expect(PANEL).toContain("PortalInviteChoiceStep");
   });

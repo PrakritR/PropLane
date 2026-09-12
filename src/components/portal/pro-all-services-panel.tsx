@@ -19,7 +19,6 @@ const SERVICE_STATE_TABS: { id: ServiceRowState; label: string }[] = [
   { id: "declined", label: "Declined" },
 ];
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
-import { Badge } from "@/components/ui/badge";
 import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
@@ -41,10 +40,9 @@ import {
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PORTAL_PROPERTY_FILTER_SHEET_CLASS } from "@/components/portal/portal-filter-shell";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import {
-  ManagerPortalPageShell,
-  PORTAL_COMMAND_ACTION_BTN,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { Settings2 } from "lucide-react";
 import { PortalActiveFilterChips, type PortalActiveFilterChip } from "@/components/portal/portal-filter-chips";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
@@ -596,9 +594,20 @@ export function ManagerAllServicesPanel({
   return (
     <ManagerPortalPageShell
       title="Services"
+      subtitle="Requests and maintenance, with clear ownership and next steps."
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
+      primaryAction={
+        <Button
+          type="button"
+          className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+          data-attr="services-add-top"
+          onClick={() => setAddServiceOpen(true)}
+        >
+          + Add service
+        </Button>
+      }
     >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
@@ -607,26 +616,12 @@ export function ManagerAllServicesPanel({
         actions={
           <>
             {servicesFilterSheet}
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_COMMAND_ACTION_BTN}
+            <PortalIconAction
+              icon={Settings2}
+              label="Service settings"
               data-attr="services-settings-open"
               onClick={() => setServicesSettingsOpen(true)}
-            >
-              Settings
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_COMMAND_ACTION_BTN}
-              data-attr="edit-service-requests-open"
-              onClick={() => setEditServiceRequestsOpen(true)}
-              disabled={propertyOptions.length === 0}
-              title={propertyOptions.length === 0 ? "Add a property before editing its service types" : undefined}
-            >
-              Edit
-            </Button>
+            />
           </>
         }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
@@ -647,9 +642,7 @@ export function ManagerAllServicesPanel({
                         <span className="truncate text-xs font-semibold text-foreground">
                           {cluster.propertyLabel}
                         </span>
-                        <Badge tone="info">
-                          {cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}
-                        </Badge>
+                        <span className="sr-only">{cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}</span>
                       </>
                     }
                   >
@@ -671,9 +664,7 @@ export function ManagerAllServicesPanel({
                         {cluster.propertyLabel ? (
                           <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
                         ) : null}
-                        <Badge tone="info">
-                          {cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}
-                        </Badge>
+                        <span className="sr-only">{cluster.rows.length === 1 ? "1 item" : `${cluster.rows.length} items`}</span>
                       </>
                     }
                   >
@@ -708,6 +699,16 @@ export function ManagerAllServicesPanel({
         onClose={() => setServicesSettingsOpen(false)}
         initialTab="services"
         scopedTitle="Services"
+        editAction={
+          propertyOptions.length > 0
+            ? {
+                label: "Edit service catalog",
+                description: "Service types and pricing per property.",
+                dataAttr: "edit-service-requests-open",
+                onSelect: () => setEditServiceRequestsOpen(true),
+              }
+            : undefined
+        }
       />
 
       <ScheduleServiceVisitModal

@@ -50,6 +50,7 @@ describe.skipIf(!configuredPort)("shared-room PostgreSQL transaction guard", () 
       create table public.application_fee_waiver_redemptions(application_id text);
     `);
     await db.query(await readFile("supabase/migrations/20260906070000_shared_room_capacity.sql", "utf8"));
+    await db.query(await readFile("supabase/migrations/20260912150000_shared_room_capacity_normalization_occupancy_start.sql", "utf8"));
   });
   afterAll(async () => {
     for (const client of connections) {

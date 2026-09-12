@@ -78,9 +78,14 @@ describe("Finance and Documents command layout", () => {
     expect(payments).toContain("paymentsListActions");
     expect(payments).toContain("paymentsSettingsMenu");
     expect(payments).toContain('data-attr="payments-setup"');
-    expect(payments).toMatch(/\n\s+Setup\n/);
-    expect(payments).not.toMatch(/paymentsSetupButton[\s\S]*Payment setup/);
-    expect(payments).not.toContain("Add charge");
+    // Setup is a plain icon control since the redesign; its accessible name is the label.
+    expect(payments).toMatch(/paymentsSetupButton = \(\s*<PortalIconAction[\s\S]*?label="Payment setup"/);
+    // "+ Add charge" is the page's one prominent action beside the title, never a
+    // second copy inside the command strip.
+    const strip = payments.match(/paymentsListActions = \(\s*<>[\s\S]*?<\/>\s*\);/)?.[0] ?? "";
+    expect(strip).not.toBe("");
+    expect(strip).not.toContain("Add charge");
+    expect(payments).toContain('data-attr="payments-add-top"');
     expect(payments).not.toContain("payments-direction-incoming");
     expect(applications).toContain("titleInlineFilter={null}");
     expect(applications).toContain('variant="command"');

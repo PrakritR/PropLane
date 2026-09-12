@@ -1,9 +1,12 @@
 "use client";
 
+import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+
+import { BookOpen, Settings2 } from "lucide-react";
+
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import {
   ManagerPortalPageShell,
-  PORTAL_COMMAND_ACTION_BTN,
 } from "@/components/portal/portal-metrics";
 import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
@@ -51,6 +54,7 @@ import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import { vendorDetailHref, vendorListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalDataTableEmpty, PORTAL_DETAIL_BTN, PortalTableDetailActions } from "@/components/portal/portal-data-table";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
@@ -73,24 +77,18 @@ export function ManagerVendorsToolbar({
 }) {
   return (
     <>
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
+      <PortalIconAction
+        icon={BookOpen}
+        label="Vendor catalog"
         onClick={onCatalog}
         data-attr="manager-vendor-catalog-open"
-      >
-        Vendor catalog
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        className={PORTAL_COMMAND_ACTION_BTN}
+      />
+      <PortalIconAction
+        icon={Settings2}
+        label="Vendor defaults"
         onClick={onDefaults}
         data-attr="manager-vendor-defaults-open"
-      >
-        Defaults
-      </Button>
+      />
     </>
   );
 }
@@ -109,11 +107,14 @@ function vendorRowPreview(row: ManagerVendorRow): string {
 export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   {
     embedded = false,
+    bare = false,
     vendorId: vendorIdProp,
     listBasePath,
   }: {
     /** When true, render inside Services tab shell (no duplicate page header). */
     embedded?: boolean;
+    /** Inside Settings → Vendors: no page shell at all. */
+    bare?: boolean;
     vendorId?: string;
     listBasePath?: string;
   },
@@ -628,7 +629,13 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
   const listBody =
     vendors.length === 0 ? (
-      vendorListAddRow
+      // An empty list says so in words; "+ Add vendor" is already in the header.
+      <PortalListEmptyCard
+        title="No vendors yet."
+        description="Add the tradespeople you dispatch to. Each one gets their own sign-in, and you assign houses per vendor."
+        actions={[{ label: "Add vendor", onClick: () => openAddVendorForm(), dataAttr: "vendors-empty-add" }]}
+        dataAttr="vendors-empty"
+      />
     ) : (
       <div className={PORTAL_LIST_PAGE_BODY}>
         {vendors.map((row) => (
@@ -726,21 +733,44 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     />
   );
 
-  if (embedded) {
+  const addVendorAction = (
+    <Button
+      type="button"
+      className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+      data-attr="manager-vendor-add-top"
+      onClick={() => openAddVendorForm()}
+    >
+      + Add vendor
+    </Button>
+  );
+
+  if (bare) {
     return (
-      <ManagerPortalPageShell title="Teams" hideTitleOnMobileNav compactFilterRow>
+      <div className="min-w-0" data-attr="settings-team-vendors">
         <PortalListControlStack
           className="mb-2 max-lg:mb-1.5"
           variant="command"
-          actions={vendorToolbar}
+          stickyDestinations={false}
+          actions={
+            <>
+              {vendorToolbar}
+              {addVendorAction}
+            </>
+          }
         />
         {body}
-      </ManagerPortalPageShell>
+      </div>
     );
   }
 
   return (
-    <ManagerPortalPageShell title="Teams" hideTitleOnMobileNav compactFilterRow>
+    <ManagerPortalPageShell
+      title="Teams"
+      subtitle={embedded ? undefined : "Vendors you dispatch to, and the defaults that route them."}
+      hideTitleOnMobileNav
+      compactFilterRow
+      primaryAction={addVendorAction}
+    >
       <PortalListControlStack
         className="mb-2 max-lg:mb-1.5"
         variant="command"

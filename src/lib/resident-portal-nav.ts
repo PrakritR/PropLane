@@ -60,6 +60,7 @@ const STAGE_UNLOCKED_SECTIONS: Record<ResidentPortalNavStage, readonly string[]>
     "communication",
     "lease",
     "move-in",
+    "inspections",
     "documents",
     "profile",
   ],

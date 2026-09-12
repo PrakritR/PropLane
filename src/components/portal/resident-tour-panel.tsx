@@ -3,7 +3,6 @@
 import { Calendar } from "lucide-react";
 import { tourFormatLabel } from "@/lib/tour-format";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
   ManagerPortalPageShell,
@@ -11,6 +10,7 @@ import {
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
+import { PortalRecordActionSheet } from "@/components/portal/portal-record-action-sheet";
 import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { ResidentScheduleTourModal } from "@/components/portal/resident-schedule-tour-modal";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
@@ -23,8 +23,8 @@ import {
 import { LocalDestinationNav } from "@/components/ui/destination-nav";
 import { formatRangeLabel } from "@/lib/demo-admin-scheduling";
 import { formatTourContactPhoneDisplay } from "@/lib/tour-contact-quality";
-import { buildRentalApplyHref } from "@/lib/rental-application/apply-from-listing";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
+import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { stageResidentComposePrefill } from "@/lib/resident-compose-prefill";
 import { residentTourManagerMessageDraft } from "@/lib/resident-manager-message-draft";
 import {
@@ -92,23 +92,23 @@ function DetailField({ label, value }: { label: string; value: string | null | u
 
 function TourDetailBody({
   tour,
-  basePath,
   detailTab,
   onDetailTabChange,
   onMessageManager,
+  onReschedule,
+  onCancel,
+  cancelling,
 }: {
   tour: ResidentTourView;
   basePath: string;
   detailTab: TourDetailTabId;
   onDetailTabChange: (tab: TourDetailTabId) => void;
   onMessageManager: () => void;
+  onReschedule: () => void;
+  onCancel: () => void;
+  cancelling: boolean;
 }) {
-  const applyHref = tour.propertyId
-    ? buildRentalApplyHref({
-        propertyId: tour.propertyId,
-        listingRoomName: tour.roomLabel?.trim() || undefined,
-      })
-    : "/resident/applications/apply";
+  const over = residentTourBucketForView(tour) === "declined";
 
   return (
     <div className="space-y-5 px-1 pb-8">
@@ -158,12 +158,31 @@ function TourDetailBody({
             </div>
           ) : null}
 
-          <PortalSectionActionRow variant="header">
-            <Button type="button" variant="primary" className="rounded-full" asChild>
-              <Link href={applyHref} data-attr="resident-tour-apply">
-                Apply for this property
-              </Link>
-            </Button>
+          {/* Exactly three actions, per the approved design: Reschedule, Message host, Cancel tour.
+              On a phone they are a bottom sheet with a grab handle, cancel last in red (§14). */}
+          <PortalRecordActionSheet
+            title="Tour options"
+            triggerDataAttr="resident-tour-options"
+            actions={[
+              ...(!over ? [{ id: "reschedule", label: "Reschedule", onSelect: onReschedule, dataAttr: "resident-tour-reschedule-sheet" }] : []),
+              { id: "message", label: "Message host", onSelect: onMessageManager, dataAttr: "resident-tour-message-manager-sheet" },
+              ...(!over
+                ? [{ id: "cancel", label: cancelling ? "Cancelling…" : "Cancel tour", onSelect: onCancel, destructive: true, disabled: cancelling, dataAttr: "resident-tour-cancel-sheet" }]
+                : []),
+            ]}
+          />
+          <PortalSectionActionRow variant="header" className="max-md:hidden">
+            {!over ? (
+              <Button
+                type="button"
+                variant="primary"
+                className="rounded-full"
+                data-attr="resident-tour-reschedule"
+                onClick={onReschedule}
+              >
+                Reschedule
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
@@ -171,8 +190,20 @@ function TourDetailBody({
               data-attr="resident-tour-message-manager"
               onClick={onMessageManager}
             >
-              Message your manager
+              Message host
             </Button>
+            {!over ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-full portal-danger-outline text-rose-800"
+                data-attr="resident-tour-cancel"
+                disabled={cancelling}
+                onClick={onCancel}
+              >
+                {cancelling ? "Cancelling…" : "Cancel tour"}
+              </Button>
+            ) : null}
           </PortalSectionActionRow>
         </div>
       ) : (
@@ -211,6 +242,7 @@ export function ResidentTourPanel({
   inquiryId?: string;
 }) {
   const navigate = usePortalNavigate();
+  const { showToast } = useAppUi();
   const [tours, setTours] = useState<ResidentTourView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -268,6 +300,45 @@ export function ResidentTourPanel({
       setLoading(false);
     }
   }, []);
+
+  const [rescheduleFor, setRescheduleFor] = useState<ResidentTourView | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const confirm = useConfirm();
+
+  const cancelTour = useCallback(
+    async (tour: ResidentTourView, options?: { silent?: boolean }) => {
+      if (!options?.silent) {
+        const ok = await confirm({
+          title: "Cancel this tour?",
+          description: `${tour.propertyTitle ?? "Your tour"} · ${tourWhenLabel(tour)}. Your host will be told.`,
+          confirmLabel: "Cancel tour",
+        });
+        if (!ok) return;
+      }
+      setCancellingId(tour.inquiryId);
+      try {
+        const res = await fetch("/api/portal-resident-tours/cancel", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inquiryId: tour.inquiryId }),
+        });
+        const body = (await res.json().catch(() => ({}))) as { error?: string; outcome?: string };
+        if (!res.ok) {
+          showToast(body.error ?? "Could not cancel the tour.");
+          return;
+        }
+        if (!options?.silent) showToast(body.outcome === "tour-cancelled" ? "Tour cancelled." : "Tour request withdrawn.");
+        await loadTours();
+        if (!options?.silent) navigate(residentTourListHref(basePath, "declined"));
+      } catch {
+        showToast("Could not cancel the tour.");
+      } finally {
+        setCancellingId(null);
+      }
+    },
+    [basePath, confirm, loadTours, navigate, showToast],
+  );
 
   useEffect(() => {
     void loadTours();
@@ -458,6 +529,12 @@ export function ResidentTourPanel({
           detailTab={detailTab}
           onDetailTabChange={setDetailTab}
           onMessageManager={() => openMessageManager(detailTour)}
+          onReschedule={() => {
+            setRescheduleFor(detailTour);
+            setScheduleTourOpen(true);
+          }}
+          onCancel={() => void cancelTour(detailTour)}
+          cancelling={cancellingId === detailTour.inquiryId}
         />
       </PortalRecordDetailPage>
     );
@@ -467,8 +544,19 @@ export function ResidentTourPanel({
     <>
       <ResidentScheduleTourModal
         open={scheduleTourOpen}
-        onClose={() => setScheduleTourOpen(false)}
-        onScheduled={() => void loadTours()}
+        onClose={() => {
+          setScheduleTourOpen(false);
+          setRescheduleFor(null);
+        }}
+        initialPropertyId={rescheduleFor?.propertyId ?? null}
+        onScheduled={() => {
+          // A reschedule is a new request for the same home; the old one is
+          // withdrawn only once the new one is actually on file.
+          const previous = rescheduleFor;
+          setRescheduleFor(null);
+          if (previous) void cancelTour(previous, { silent: true });
+          else void loadTours();
+        }}
       />
       <ManagerPortalPageShell title="Tour" hideTitleOnMobileNav compactFilterRow>
         <PortalListControlStack

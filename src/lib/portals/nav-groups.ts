@@ -18,6 +18,8 @@ export type NavGroupConfig = { id: string; label: string | null; sections: strin
 export const SIDEBAR_EXCLUDED_SECTIONS = new Set<string>([
   "profile",
   "bugs-feedback",
+  /** App download lives under Settings; the redesign dropped it from every nav. */
+  "app",
   /** Nested under Leasing → Application submenu; not a second sidebar row. */
   "background-checks",
 ]);
@@ -30,6 +32,12 @@ export function isHiddenFromMobileNav(kind: PortalKind, section: string): boolea
   if (section === "bugs-feedback") return kind !== "admin";
   // Settings → mobile profile menu (same as desktop sidebar exclusion).
   if (section === "profile") return true;
+  // App download page: reachable from Settings, never a nav destination.
+  if (section === "app" && (kind === "manager" || kind === "pro")) return true;
+  // Vendor tasks sit inside Services.
+  if (section === "tasks" && kind === "vendor") return true;
+  // Manager team management lives in Settings.
+  if (section === "teams" && (kind === "manager" || kind === "pro")) return true;
   return false;
 }
 
@@ -39,12 +47,16 @@ export function isAppNavHiddenInNativeShell(kind: PortalKind, section: string, i
 }
 
 const PRO_GROUPS: NavGroupConfig[] = [
-  { id: "home", label: null, sections: ["dashboard", "app"] },
-  { id: "leasing", label: "Leasing", sections: ["properties", "tours", "applications", "leases"] },
+  // Portfolio first: the workspace's own two destinations sit above the lifecycle
+  // groups. `app` (the download page) is deliberately not a sidebar row any more —
+  // it stays routable from Settings and the native shell never showed it anyway.
+  { id: "workspace", label: "Workspace", sections: ["dashboard", "properties"] },
+  { id: "leasing", label: "Leasing", sections: ["tours", "applications", "leases"] },
   { id: "tenancy", label: "Tenancy", sections: ["residents", "inspections", "payments", "services"] },
   { id: "operations", label: "Operations", sections: ["tasks", "calendar", "bookings", "communication"] },
   { id: "marketing", label: "Marketing", sections: ["promotion"] },
-  { id: "team", label: "Team", sections: ["teams"] },
+  // Team (managers, vendors) is managed under Settings → Workspaces / Team / Vendors;
+  // the /teams routes stay reachable for deep links and detail pages.
   { id: "finances", label: "Finances", sections: ["financials", "documents"] },
 ];
 
@@ -57,14 +69,15 @@ const ADMIN_GROUPS: NavGroupConfig[] = [
 
 const RESIDENT_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard", "tour", "applications"] },
-  { id: "my-home", label: "My home", sections: ["lease", "move-in", "services"] },
+  { id: "my-home", label: "My home", sections: ["lease", "move-in", "services", "inspections"] },
   { id: "finances", label: "Finances", sections: ["payments", "documents"] },
   { id: "messages", label: "Messages", sections: ["communication"] },
 ];
 
 const VENDOR_GROUPS: NavGroupConfig[] = [
   { id: "home", label: null, sections: ["dashboard"] },
-  { id: "work", label: "Work", sections: ["work-orders", "tasks", "calendar"] },
+  // Vendor tasks live inside Services (a tab there); the route stays but is not a row.
+  { id: "work", label: "Work", sections: ["work-orders", "calendar"] },
   { id: "operations", label: "Operations", sections: ["communication"] },
   { id: "finances", label: "Finances", sections: ["financials", "payments", "documents"] },
 ];
@@ -111,7 +124,15 @@ export function groupNavItems<T extends { section: string }>(
     return { id: g.id, label: g.label, items: groupItems };
   });
 
-  const leftovers = items.filter((i) => !assigned.has(i.section) && !SIDEBAR_EXCLUDED_SECTIONS.has(i.section));
+  const leftovers = items.filter(
+    (i) =>
+      !assigned.has(i.section) &&
+      !SIDEBAR_EXCLUDED_SECTIONS.has(i.section) &&
+      // Vendor tasks are a Services tab, not a row; the route stays reachable.
+      !(kind === "vendor" && i.section === "tasks") &&
+      // Manager Teams moved into Settings (Workspaces / Team / Vendors).
+      !((kind === "manager" || kind === "pro") && i.section === "teams"),
+  );
   if (leftovers.length) groups.push({ id: "more", label: null, items: leftovers });
 
   return groups.filter((g) => g.items.length > 0);

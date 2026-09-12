@@ -40,7 +40,7 @@ function Cover({ photos, label }: { photos: number; label?: string }) {
       className={
         photos > 0
           ? "grid h-[112px] place-items-center rounded-xl bg-accent/60 text-muted"
-          : "grid h-[112px] place-items-center rounded-xl bg-[var(--status-pending-bg)] text-[var(--status-pending-fg)]"
+          : "grid h-[112px] place-items-center rounded-xl border border-dashed border-border bg-accent/40 text-muted"
       }
     >
       <div className="flex flex-col items-center gap-1 text-[12.5px] font-semibold">

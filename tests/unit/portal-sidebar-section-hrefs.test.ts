@@ -21,7 +21,7 @@ describe("portal sidebar section hrefs", () => {
   it("matches smoke paths for Finances and Documents", () => {
     const finances = MANAGER_PORTAL_SMOKE_PATHS.find((p) => p.label === "Finances");
     const documents = MANAGER_PORTAL_SMOKE_PATHS.find((p) => p.label === "Documents");
-    expect(finances?.path).toBe("/portal/financials/income");
+    expect(finances?.path).toBe("/portal/financials/overview");
     expect(documents?.path).toBe("/portal/documents/applications");
     expect(finances?.path).not.toContain("/pending");
     expect(documents?.path).not.toContain("/pending");

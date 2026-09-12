@@ -19,6 +19,7 @@ import {
   type ManagerTaskListFilterId,
   type ManagerTaskListSortId,
 } from "@/lib/manager-task-display";
+import type { ManagerTaskPriority } from "@/lib/manager-tasks";
 import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import type { ManagerTaskListTabId } from "@/lib/portal-detail-routes";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
@@ -73,6 +74,75 @@ function TaskCategoryFilterFields({
   );
 }
 
+/** Who a task is on — one entry per assignee seen on the list. */
+function TaskAssigneeFilterField({
+  options,
+  value,
+  onChange,
+}: {
+  options: { id: string; label: string }[];
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const closeFieldMenu = useFilterAccordionClose();
+  const [draft, setDraft] = usePortalFilterDraft(value, onChange, "");
+  const selectOptions = [{ value: "", label: "Anyone" }, ...options.map((o) => ({ value: o.id, label: o.label }))];
+  return (
+    <FilterCollapsibleSection
+      sectionId="assignee"
+      label="Assignee"
+      summary={filterSingleSelectSummary(draft, selectOptions, "Anyone")}
+      empty={draft === ""}
+      menuOptionCount={selectOptions.length}
+      dataAttr="tasks-filter-assignee-trigger"
+    >
+      <FilterSingleSelectList
+        options={selectOptions}
+        value={draft}
+        onChange={(next) => setDraft(next)}
+        onPick={closeFieldMenu}
+        dataAttr="tasks-filter-assignee"
+      />
+    </FilterCollapsibleSection>
+  );
+}
+
+const PRIORITY_OPTIONS: { value: ManagerTaskPriority | ""; label: string }[] = [
+  { value: "", label: "Any priority" },
+  { value: "high", label: "High" },
+  { value: "medium", label: "Normal" },
+  { value: "low", label: "Low" },
+];
+
+function TaskPriorityFilterField({
+  value,
+  onChange,
+}: {
+  value: ManagerTaskPriority | "";
+  onChange: (next: ManagerTaskPriority | "") => void;
+}) {
+  const closeFieldMenu = useFilterAccordionClose();
+  const [draft, setDraft] = usePortalFilterDraft<ManagerTaskPriority | "">(value, onChange, "");
+  return (
+    <FilterCollapsibleSection
+      sectionId="priority"
+      label="Priority"
+      summary={filterSingleSelectSummary(draft, PRIORITY_OPTIONS, "Any priority")}
+      empty={draft === ""}
+      menuOptionCount={PRIORITY_OPTIONS.length}
+      dataAttr="tasks-filter-priority-trigger"
+    >
+      <FilterSingleSelectList
+        options={PRIORITY_OPTIONS}
+        value={draft}
+        onChange={(next) => setDraft(next as ManagerTaskPriority | "")}
+        onPick={closeFieldMenu}
+        dataAttr="tasks-filter-priority"
+      />
+    </FilterCollapsibleSection>
+  );
+}
+
 export function ManagerTaskFilterFields({
   listFilter,
   onListFilterChange,
@@ -80,6 +150,11 @@ export function ManagerTaskFilterFields({
   propertyOptions,
   propertyFilterId,
   onPropertyFilterIdChange,
+  assigneeOptions = [],
+  assigneeFilterId = "",
+  onAssigneeFilterIdChange,
+  priorityFilter = "",
+  onPriorityFilterChange,
   groupMode,
   onGroupModeChange,
   sortId,
@@ -91,6 +166,11 @@ export function ManagerTaskFilterFields({
   propertyOptions: { id: string; label: string }[];
   propertyFilterId: string;
   onPropertyFilterIdChange: (next: string) => void;
+  assigneeOptions?: { id: string; label: string }[];
+  assigneeFilterId?: string;
+  onAssigneeFilterIdChange?: (next: string) => void;
+  priorityFilter?: ManagerTaskPriority | "";
+  onPriorityFilterChange?: (next: ManagerTaskPriority | "") => void;
   groupMode: PortalListGroupMode;
   onGroupModeChange: (next: PortalListGroupMode) => void;
   sortId: ManagerTaskListSortId;
@@ -144,6 +224,10 @@ export function ManagerTaskFilterFields({
           propertyDataAttr="tasks-filter-property"
         />
       ) : null}
+      {onAssigneeFilterIdChange && assigneeOptions.length > 0 ? (
+        <TaskAssigneeFilterField options={assigneeOptions} value={assigneeFilterId} onChange={onAssigneeFilterIdChange} />
+      ) : null}
+      {onPriorityFilterChange ? <TaskPriorityFilterField value={priorityFilter} onChange={onPriorityFilterChange} /> : null}
     </FilterFieldsAccordion>
   );
 }

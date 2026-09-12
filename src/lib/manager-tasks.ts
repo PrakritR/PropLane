@@ -80,6 +80,13 @@ export function inferManagerTaskUrgency(
   return "urgent";
 }
 
+/** How often a task comes back once completed. `none` (or absent) = one-off. */
+export type ManagerTaskRecurrence = "none" | "daily" | "weekly" | "monthly";
+export type ManagerTaskChecklistItem = { id: string; label: string; done: boolean };
+export type ManagerTaskComment = { id: string; authorUserId: string; authorName: string; text: string; at: string };
+/** A linked file or page — a URL the assignee can open. Binary uploads stay in Documents. */
+export type ManagerTaskAttachment = { id: string; name: string; url: string; addedAt: string };
+
 export type ManagerTask = {
   id: string;
   title: string;
@@ -114,6 +121,13 @@ export type ManagerTask = {
   /** Application id, lease id, etc. — paired with templateKey for dedup. */
   sourceId?: string;
   dedupKey?: string;
+  /** Completing a recurring task files the next occurrence with the same shape. */
+  recurrence?: ManagerTaskRecurrence;
+  /** The task this one was spawned from by recurrence, for the audit trail. */
+  recurrenceOfTaskId?: string;
+  checklist?: ManagerTaskChecklistItem[];
+  comments?: ManagerTaskComment[];
+  attachments?: ManagerTaskAttachment[];
   /** Last due-date reminder email sent (ISO). */
   reminderSentAt?: string;
   /** Reminder offsets (minutes before due) already emailed for this task. */
@@ -137,7 +151,93 @@ export type ManagerTaskInput = {
   priority?: ManagerTaskPriority;
   linkedTourId?: string;
   linkedWorkOrderId?: string;
+  recurrence?: ManagerTaskRecurrence;
+  checklist?: ManagerTaskChecklistItem[];
+  attachments?: ManagerTaskAttachment[];
 };
+
+export function normalizeTaskRecurrence(raw: unknown): ManagerTaskRecurrence | undefined {
+  return raw === "daily" || raw === "weekly" || raw === "monthly" ? raw : raw === "none" ? "none" : undefined;
+}
+
+export function normalizeTaskChecklist(raw: unknown): ManagerTaskChecklistItem[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const items = raw
+    .map((item): ManagerTaskChecklistItem | null => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const label = typeof row.label === "string" ? row.label.trim().slice(0, 200) : "";
+      if (!label) return null;
+      return { id: typeof row.id === "string" && row.id.trim() ? row.id.trim() : crypto.randomUUID(), label, done: row.done === true };
+    })
+    .filter((item): item is ManagerTaskChecklistItem => Boolean(item))
+    .slice(0, 50);
+  return items.length ? items : undefined;
+}
+
+export function normalizeTaskComments(raw: unknown): ManagerTaskComment[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const items = raw
+    .map((item): ManagerTaskComment | null => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const text = typeof row.text === "string" ? row.text.trim().slice(0, 2000) : "";
+      if (!text) return null;
+      return {
+        id: typeof row.id === "string" && row.id.trim() ? row.id.trim() : crypto.randomUUID(),
+        authorUserId: typeof row.authorUserId === "string" ? row.authorUserId : "",
+        authorName: typeof row.authorName === "string" ? row.authorName.trim().slice(0, 120) : "",
+        text,
+        at: typeof row.at === "string" && row.at ? row.at : new Date().toISOString(),
+      };
+    })
+    .filter((item): item is ManagerTaskComment => Boolean(item))
+    .slice(-200);
+  return items.length ? items : undefined;
+}
+
+export function normalizeTaskAttachments(raw: unknown): ManagerTaskAttachment[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const items = raw
+    .map((item): ManagerTaskAttachment | null => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const url = typeof row.url === "string" ? row.url.trim() : "";
+      // Only web links: a javascript: or data: "attachment" is a payload, not a file.
+      if (!/^https?:\/\//i.test(url) || url.length > 2000) return null;
+      const name = (typeof row.name === "string" ? row.name.trim() : "").slice(0, 160) || url;
+      return {
+        id: typeof row.id === "string" && row.id.trim() ? row.id.trim() : crypto.randomUUID(),
+        name,
+        url,
+        addedAt: typeof row.addedAt === "string" && row.addedAt ? row.addedAt : new Date().toISOString(),
+      };
+    })
+    .filter((item): item is ManagerTaskAttachment => Boolean(item))
+    .slice(0, 25);
+  return items.length ? items : undefined;
+}
+
+/**
+ * The date the next occurrence is due, clamped to the month's last day so a
+ * task due on the 31st lands on Nov 30 rather than sliding into December.
+ */
+export function nextRecurrenceDate(fromIso: string, recurrence: ManagerTaskRecurrence): string | null {
+  if (recurrence === "none") return null;
+  const from = new Date(fromIso);
+  if (Number.isNaN(from.getTime())) return null;
+  const next = new Date(from);
+  if (recurrence === "daily") next.setDate(next.getDate() + 1);
+  else if (recurrence === "weekly") next.setDate(next.getDate() + 7);
+  else {
+    const day = from.getDate();
+    next.setDate(1);
+    next.setMonth(next.getMonth() + 1);
+    const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+    next.setDate(Math.min(day, lastDay));
+  }
+  return next.toISOString();
+}
 
 export function normalizeTaskType(raw: unknown): ManagerTaskType | undefined {
   if (typeof raw !== "string") return undefined;
@@ -215,6 +315,12 @@ function normalizeTask(raw: unknown): ManagerTask | null {
     linkedTourId: typeof row.linkedTourId === "string" ? row.linkedTourId.trim() || undefined : undefined,
     linkedWorkOrderId:
       typeof row.linkedWorkOrderId === "string" ? row.linkedWorkOrderId.trim() || undefined : undefined,
+    recurrence: normalizeTaskRecurrence(row.recurrence),
+    recurrenceOfTaskId:
+      typeof row.recurrenceOfTaskId === "string" ? row.recurrenceOfTaskId.trim() || undefined : undefined,
+    checklist: normalizeTaskChecklist(row.checklist),
+    comments: normalizeTaskComments(row.comments),
+    attachments: normalizeTaskAttachments(row.attachments),
     templateKey: typeof row.templateKey === "string" ? row.templateKey.trim() || undefined : undefined,
     sourceId: typeof row.sourceId === "string" ? row.sourceId.trim() || undefined : undefined,
     dedupKey: typeof row.dedupKey === "string" ? row.dedupKey.trim() || undefined : undefined,
@@ -369,6 +475,9 @@ export async function createManagerTask(
     priority: normalizeTaskPriority(input.priority),
     linkedTourId: input.linkedTourId?.trim() || undefined,
     linkedWorkOrderId: input.linkedWorkOrderId?.trim() || undefined,
+    recurrence: normalizeTaskRecurrence(input.recurrence),
+    checklist: normalizeTaskChecklist(input.checklist),
+    attachments: normalizeTaskAttachments(input.attachments),
     createdAt: now,
     updatedAt: now,
   };
@@ -416,6 +525,9 @@ export async function updateManagerTask(
       | "completed"
       | "urgency"
       | "priority"
+      | "recurrence"
+      | "checklist"
+      | "attachments"
     >
     // `assignee` is widened to accept null so an edit can UNASSIGN. `undefined` already means
     // "leave it alone" for every field in this patch, so without null there is no way to express
@@ -455,6 +567,9 @@ export async function updateManagerTask(
       patch.urgency !== undefined ? normalizeTaskUrgency(patch.urgency) : current.urgency,
     priority:
       patch.priority !== undefined ? normalizeTaskPriority(patch.priority) : current.priority,
+    recurrence: patch.recurrence !== undefined ? normalizeTaskRecurrence(patch.recurrence) : current.recurrence,
+    checklist: patch.checklist !== undefined ? normalizeTaskChecklist(patch.checklist) : current.checklist,
+    attachments: patch.attachments !== undefined ? normalizeTaskAttachments(patch.attachments) : current.attachments,
     start,
     end,
     dueDate: start && end ? undefined : dueDate,
@@ -477,13 +592,54 @@ export async function updateManagerTask(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id: taskId, ...patch }),
   });
-  const data = (await res.json().catch(() => ({}))) as { task?: unknown; error?: string };
+  const data = (await res.json().catch(() => ({}))) as { task?: unknown; nextOccurrence?: unknown; error?: string };
   if (!res.ok) throw new Error(data.error ?? "Could not update task.");
   const saved = normalizeTask(data.task);
   if (!saved) throw new Error("Could not update task.");
-  const tasks = readLocalTasks(managerUserId).map((row) => (row.id === taskId ? saved : row));
+  const spawned = normalizeTask(data.nextOccurrence);
+  const tasks = [
+    ...readLocalTasks(managerUserId).map((row) => (row.id === taskId ? saved : row)),
+    ...(spawned && !readLocalTasks(managerUserId).some((row) => row.id === spawned.id) ? [spawned] : []),
+  ];
   writeLocalTasks(managerUserId, tasks);
   syncLocalTasksToPlannedEvents(managerUserId, tasks);
+  notifyManagerTasksChanged();
+  return saved;
+}
+
+/** Post a comment on a task; the server stamps the author from the session. */
+export async function addManagerTaskComment(managerUserId: string, taskId: string, text: string): Promise<ManagerTask> {
+  const body = text.trim();
+  if (!body) throw new Error("Write a comment first.");
+  if (isDemoModeActive()) {
+    const tasks = readLocalTasks(managerUserId).map((row) =>
+      row.id === taskId
+        ? {
+            ...row,
+            comments: [
+              ...(row.comments ?? []),
+              { id: crypto.randomUUID(), authorUserId: managerUserId, authorName: "You", text: body, at: new Date().toISOString() },
+            ],
+            updatedAt: new Date().toISOString(),
+          }
+        : row,
+    );
+    writeLocalTasks(managerUserId, tasks);
+    notifyManagerTasksChanged();
+    return tasks.find((row) => row.id === taskId)!;
+  }
+  const res = await fetch("/api/portal/manager-tasks", {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: taskId, addComment: body }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { task?: unknown; error?: string };
+  if (!res.ok) throw new Error(data.error ?? "Could not post the comment.");
+  const saved = normalizeTask(data.task);
+  if (!saved) throw new Error("Could not post the comment.");
+  const tasks = readLocalTasks(managerUserId).map((row) => (row.id === taskId ? saved : row));
+  writeLocalTasks(managerUserId, tasks);
   notifyManagerTasksChanged();
   return saved;
 }

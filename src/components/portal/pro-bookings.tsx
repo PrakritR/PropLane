@@ -2,15 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApplicationFilterSortFields } from "@/components/portal/application-filter-sort-fields";
+import { BookingsBlockDatesModal, type BlockDatesDraft } from "@/components/portal/bookings-block-dates-modal";
 import { ChannelCalendarLinkModal } from "@/components/portal/channel-calendar-link-modal";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { ManagerBookingsListView } from "@/components/portal/manager-bookings-list-view";
-import {
-  ManagerPortalPageShell,
-  PORTAL_COMMAND_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_BTN,
-  PORTAL_COMMAND_PRIMARY_ACTION_STYLE,
-} from "@/components/portal/portal-metrics";
+import { ManagerPortalPageShell } from "@/components/portal/portal-metrics";
+import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
+import { CalendarOff, Settings2 } from "lucide-react";
 import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips";
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
@@ -28,6 +26,7 @@ import {
   type ManagerBookingListBucketId,
 } from "@/lib/channel-calendar/bookings-ui";
 import { filterBookingEntriesByRoom } from "@/lib/channel-calendar/property-bookings";
+import { deleteRoomDateBlock, saveRoomDateBlock } from "@/lib/channel-calendar/room-date-blocks";
 import { buildManagerPropertyFilterOptions, MANAGER_PORTFOLIO_REFRESH_EVENTS } from "@/lib/manager-portfolio-access";
 import type { ManagerPropertyFilterOption } from "@/lib/manager-portfolio-access";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -102,6 +101,7 @@ function useBookingsWorkspace({
   const [propertyFilters, setPropertyFilters] = useState<string[]>([]);
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [blockModal, setBlockModal] = useState<{ open: boolean; dayKey: string | null }>({ open: false, dayKey: null });
 
   const scopedPropertyIds = useMemo(() => {
     if (propertyFilters.length === 0) return propertyIds;
@@ -131,6 +131,37 @@ function useBookingsWorkspace({
     [rawEntries, roomFilterId],
   );
 
+  /**
+   * The calendar fetches Airbnb itself; everything PropLane knows — signed
+   * stays, approved-application holds, blocked dates — rides in here. Without
+   * this the grid showed only the channel import and reported a let room free.
+   */
+  const calendarExtraEntries = useMemo(
+    () => rawEntries.filter((entry) => entry.source !== "airbnb"),
+    [rawEntries],
+  );
+
+  const saveBlock = useCallback(
+    async (draft: BlockDatesDraft) => {
+      if (!userId) throw new Error("Sign in again to block dates.");
+      await saveRoomDateBlock(userId, draft);
+      showToast("Dates blocked.");
+    },
+    [userId, showToast],
+  );
+
+  const removeBlock = useCallback(
+    async (blockId: string) => {
+      try {
+        await deleteRoomDateBlock(blockId);
+        showToast("Block removed.");
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : "Could not remove that block.");
+      }
+    },
+    [showToast],
+  );
+
   const todayKey = useMemo(() => dateKey(startOfLocalDay(new Date())), []);
 
   const counts = useMemo(() => {
@@ -156,7 +187,8 @@ function useBookingsWorkspace({
       BOOKING_BUCKET_LABELS.map(({ id, label }) => ({
         id,
         label,
-        count: counts[id],
+        // The calendar is a view, not a bucket — a "0" beside it reads as empty.
+        count: id === "calendar" ? undefined : counts[id],
       })),
     [counts],
   );
@@ -322,26 +354,20 @@ function useBookingsWorkspace({
         <>
           {propertyFilterSheet}
           {roomFilterSheet}
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_COMMAND_ACTION_BTN}
+          <PortalIconAction
+            icon={CalendarOff}
+            label="Block dates"
+            data-attr="bookings-block-dates-open"
+            disabled={linkDisabled}
+            onClick={() => setBlockModal({ open: true, dayKey: null })}
+          />
+          <PortalIconAction
+            icon={Settings2}
+            label="Booking settings"
             data-attr="bookings-settings-open"
             disabled={linkDisabled}
             onClick={() => setSettingsModalOpen(true)}
-          >
-            Settings
-          </Button>
-          <Button
-            type="button"
-            className={PORTAL_COMMAND_PRIMARY_ACTION_BTN}
-            style={PORTAL_COMMAND_PRIMARY_ACTION_STYLE}
-            disabled={linkDisabled}
-            data-attr="portfolio-bookings-link-airbnb"
-            onClick={() => setLinkModalOpen(true)}
-          >
-            Link Airbnb
-          </Button>
+          />
         </>
       }
       activeFilterChips={activeFilterChips}
@@ -354,10 +380,13 @@ function useBookingsWorkspace({
         propertyIds={scopedPropertyIds}
         showToast={showToast}
         refreshSignal={refreshSignal}
+        extraEntries={calendarExtraEntries}
         roomFilterId={roomFilterId}
         emptyMessage={emptyMessage}
         variant="standalone"
         calendarOnly
+        onBlockDates={(dayKey) => setBlockModal({ open: true, dayKey })}
+        onRemoveBlock={removeBlock}
       />
     ) : (
       <ManagerBookingsListView
@@ -398,6 +427,18 @@ function useBookingsWorkspace({
         showToast={showToast}
         onChanged={() => onRefreshSignal?.()}
       />
+      <BookingsBlockDatesModal
+        open={blockModal.open}
+        onClose={() => setBlockModal({ open: false, dayKey: null })}
+        propertyOptions={propertyOptions}
+        initialPropertyId={
+          propertyFilters.length === 1 ? propertyFilters[0] : propertyIds.length === 1 ? propertyIds[0] : undefined
+        }
+        initialRoomId={roomFilterId}
+        initialDayKey={blockModal.dayKey}
+        entries={rawEntries}
+        onSave={saveBlock}
+      />
       <ProPortalSettingsModal
         open={settingsModalOpen}
         onClose={() => setSettingsModalOpen(false)}
@@ -409,7 +450,19 @@ function useBookingsWorkspace({
     </>
   );
 
-  return { controlStack, content, modals };
+  const primaryAction = (
+    <Button
+      type="button"
+      className={PORTAL_PAGE_PRIMARY_ACTION_BTN}
+      disabled={linkDisabled}
+      data-attr="portfolio-bookings-link-airbnb"
+      onClick={() => setLinkModalOpen(true)}
+    >
+      Link Airbnb
+    </Button>
+  );
+
+  return { controlStack, content, modals, primaryAction };
 }
 
 /**
@@ -417,9 +470,11 @@ function useBookingsWorkspace({
  * the panel's own flex column.
  */
 export function ManagerBookingsWorkspace(props: BookingsWorkspaceProps) {
-  const { controlStack, content, modals } = useBookingsWorkspace(props);
+  const { controlStack, content, modals, primaryAction } = useBookingsWorkspace(props);
   return (
     <>
+      {/* No page headline inside a property tab — the one prominent action sits above the tabs. */}
+      <div className="mb-2 flex shrink-0 justify-end">{primaryAction}</div>
       {controlStack}
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">{content}</div>
       {modals}
@@ -428,7 +483,7 @@ export function ManagerBookingsWorkspace(props: BookingsWorkspaceProps) {
 }
 
 export function ManagerBookings({
-  bucket = "upcoming",
+  bucket = "calendar",
   basePath = "/portal",
 }: {
   bucket?: ManagerBookingBucketId;
@@ -462,7 +517,7 @@ export function ManagerBookings({
 
   const propertyIds = useMemo(() => propertyOptions.map((option) => option.id), [propertyOptions]);
 
-  const { controlStack, content, modals } = useBookingsWorkspace({
+  const { controlStack, content, modals, primaryAction } = useBookingsWorkspace({
     bucket,
     basePath,
     propertyIds,
@@ -483,7 +538,14 @@ export function ManagerBookings({
    * they scrolled away with the rows.
    */
   return (
-    <ManagerPortalPageShell title="Bookings" hideTitleOnMobileNav titleInlineFilter={null} compactFilterRow>
+    <ManagerPortalPageShell
+      title="Bookings"
+      subtitle="Stays, blocked dates, and channel calendars for every space."
+      hideTitleOnMobileNav
+      titleInlineFilter={null}
+      compactFilterRow
+      primaryAction={primaryAction}
+    >
       {controlStack}
       {modals}
       <PortalPageScrollBody>{content}</PortalPageScrollBody>

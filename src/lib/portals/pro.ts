@@ -58,6 +58,8 @@ export const proPortal: PortalDefinition = {
     },
     {
       section: "communication",
+      // The section is the whole channel set (in-app, email, text), and the
+      // route already says so; the nav now agrees. Paths are unchanged.
       label: "Communication",
       tabs: [],
     },
@@ -109,11 +111,11 @@ export const MANAGER_PORTAL_SMOKE_PATHS = [
   { label: "Tasks", path: "/portal/tasks" },
   { label: "Communication", path: "/portal/communication/active" },
   { label: "Calendar", path: "/portal/calendar" },
-  { label: "Bookings", path: "/portal/bookings/upcoming" },
+  { label: "Bookings", path: "/portal/bookings/calendar" },
   { label: "Teams (managers)", path: "/portal/teams/managers" },
   { label: "Teams (vendors)", path: "/portal/teams/vendors" },
   { label: "Promotion", path: "/portal/promotion" },
-  { label: "Finances", path: "/portal/financials/income" },
+  { label: "Finances", path: "/portal/financials/overview" },
   { label: "Documents", path: "/portal/documents/applications" },
   { label: "Feedback", path: "/portal/bugs-feedback" },
   { label: "App", path: "/portal/app" },

@@ -3,9 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   sendSms: vi.fn(),
   log: vi.fn(),
+  readSuppression: vi.fn(),
 }));
 
-vi.mock("@/lib/twilio", () => ({ sendSms: mocks.sendSms }));
+vi.mock("@/lib/twilio", () => ({
+  sendSms: mocks.sendSms,
+  normalizeE164: (phone: string) => phone.startsWith("+") ? phone : `+1${phone.replace(/\D/g, "")}`,
+}));
 vi.mock("@/lib/manager-sms-messages.server", () => ({ logManagerSmsMessage: mocks.log }));
 vi.mock("@/lib/sms/manager-sms-entitlement.server", () => ({
   getEffectiveManagerSmsEntitlement: vi.fn(async () => ({ eligible: true, reason: "included" })),
@@ -14,7 +18,8 @@ vi.mock("@/lib/sms/application-consent.server", () => ({
   ensureApplicationScopedSmsConsent: vi.fn(async () => ({ ok: true, granted: true })),
 }));
 vi.mock("@/lib/sms-consent", () => ({
-  readSmsSuppressionState: vi.fn(async () => ({ ok: true, optedOut: false })),
+  readSmsSuppressionState: mocks.readSuppression,
+  normalizeConsentPhone: (phone: string) => phone.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, ""),
 }));
 vi.mock("@/lib/sms/number-registration-policy", () => ({
   estimateSmsSegments: vi.fn(() => ({ segmentCount: 1 })),
@@ -27,19 +32,46 @@ import {
   dispatchOwnerSmsOutbox,
   reconcileSubmittedSmsConversationLogs,
 } from "@/lib/sms/owner-sms-dispatcher.server";
+import { reserveCommsCredit } from "@/lib/comms-billing/wallet.server";
 
 type Row = Record<string, unknown>;
 
-function dispatchDb({ failFirstConversationLogMarkerWrite = false } = {}) {
+function dispatchDb({
+  failFirstConversationLogMarkerWrite = false,
+  derivedTourConsent,
+  recipientUserId,
+}: {
+  failFirstConversationLogMarkerWrite?: boolean;
+  derivedTourConsent?: "allowed" | "revoked";
+  recipientUserId?: string | null;
+} = {}) {
   const outbox: Row = {
     id: "outbox-1", manager_user_id: "manager-1", actor_user_id: "manager-1",
-    recipient_user_id: null, recipient_email: "prospect@example.com", recipient_phone: "+12065550142",
+    recipient_user_id: recipientUserId ?? null, recipient_email: "prospect@example.com", recipient_phone: "+12065550142",
     body: "Your application has been approved.", send_class: "transactional",
     purpose: "application_approved_notification", conversation_key: "manager-1:prospect:+12065550142",
     counterparty_role: "prospect", property_id: "property-1", recipient_timezone: "America/Los_Angeles",
     dedupe_key: "approval-1", trace_id: null, segment_count: 1, status: "claimed", lease_owner: "worker-1",
     lease_expires_at: "2999-01-01T00:00:00.000Z", conversation_log_status: "pending", conversation_log_attempts: 0,
   };
+  if (derivedTourConsent) outbox.purpose = "tour_rescheduled";
+  const consentEvents: Row[] = derivedTourConsent ? [
+    {
+      recipient_phone_key: "2065550142", manager_user_id: "manager-1",
+      messaging_service_sid: "MG1", purpose: "tour_rescheduled", send_class: "transactional",
+      conversation_key: "manager-1:prospect:+12065550142", event_type: "granted",
+      source: "recipient_initiated_inbound", occurred_at: "2026-09-10T10:00:00.000Z",
+      evidence: { conversationPurpose: "manager_conversation" },
+    },
+    {
+      recipient_phone_key: "2065550142", manager_user_id: "manager-1",
+      messaging_service_sid: "MG1", purpose: "manager_conversation", send_class: "transactional",
+      conversation_key: "manager-1:prospect:+12065550142",
+      event_type: derivedTourConsent === "allowed" ? "granted" : "revoked",
+      source: derivedTourConsent === "allowed" ? "recipient_initiated_inbound" : "twilio_stop",
+      occurred_at: "2026-09-10T10:01:00.000Z", evidence: {},
+    },
+  ] : [];
   const attempts: Row[] = [];
   let claimAvailable = true;
   let campaignAllocations = 0;
@@ -56,6 +88,9 @@ function dispatchDb({ failFirstConversationLogMarkerWrite = false } = {}) {
       if (table === "manager_sms_numbers") return { data: { manager_user_id: "manager-1", phone_number: "+12065550999", phone_number_sid: "PN1", messaging_service_sid: "MG1", campaign_sid: "CP1", provision_state: "active", registration_state: "registered", registration_ref: null, attachment_state: null, number_registration_state: null, grace_started_at: null, grace_expires_at: null, quarantined_at: null, quarantine_reason: null }, error: null };
       if (table === "sms_delivery_attempts") return { data: [], error: null };
       if (table === "sms_delivery_events") return { data: null, error: null };
+      if (table === "sms_consent_events") {
+        return { data: consentEvents.filter((row) => filters.every((filter) => filter(row))), error: null };
+      }
       if (table === "sms_outbox") return { data: matching(filters) ? (limitCalled ? [{ ...outbox }] : outbox) : (limitCalled ? [] : null), error: null };
       return { data: null, error: null };
     };
@@ -147,6 +182,8 @@ describe("dispatcher conversation-log repair handoff", () => {
     process.env.TWILIO_CAMPAIGN_SID = "CP1";
     mocks.sendSms.mockReset().mockResolvedValue({ sent: true, sid: "SM-original" });
     mocks.log.mockReset().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    mocks.readSuppression.mockReset().mockResolvedValue({ ok: true, optedOut: false });
+    vi.mocked(reserveCommsCredit).mockReset().mockResolvedValue({ allowed: true, duplicate: false, state: "reserved" });
   });
 
   it("submits once, snapshots the original sender, then repairs the same SID without a provider resend", async () => {
@@ -207,12 +244,63 @@ describe("dispatcher conversation-log repair handoff", () => {
       conversation_log_next_attempt_at: null,
     });
   });
+
+  it("blocks a queued conversation-derived tour after its source authority is revoked", async () => {
+    const { db, outbox, campaignAllocations } = dispatchDb({ derivedTourConsent: "revoked" });
+    await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db)).resolves.toMatchObject({
+      claimed: 1,
+      submitted: 0,
+      blocked: 1,
+    });
+    expect(campaignAllocations()).toBe(0);
+    expect(vi.mocked(reserveCommsCredit)).not.toHaveBeenCalled();
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+    expect(outbox).toMatchObject({ status: "blocked", blocked_reason: "tour_sms_consent_missing" });
+  });
+
+  it("rechecks a claimed row against user-keyed STOP when the queued phone has changed", async () => {
+    const { db, outbox, campaignAllocations } = dispatchDb({ recipientUserId: "resident-1" });
+    outbox.recipient_phone = "+12065550199";
+    mocks.readSuppression.mockImplementation(async (_db, _phone, options) => ({
+      ok: true,
+      optedOut: options?.userId === "resident-1",
+    }));
+
+    await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db)).resolves.toMatchObject({
+      claimed: 1,
+      submitted: 0,
+      blocked: 1,
+    });
+    expect(mocks.readSuppression).toHaveBeenCalledWith(expect.anything(), "+12065550199", { userId: "resident-1" });
+    expect(campaignAllocations()).toBe(0);
+    expect(vi.mocked(reserveCommsCredit)).not.toHaveBeenCalled();
+    expect(mocks.sendSms).not.toHaveBeenCalled();
+    expect(outbox).toMatchObject({ status: "blocked", blocked_reason: "recipient_opted_out" });
+  });
+
+  it("retains campaign and wallet dispatch for a currently authorized derived tour", async () => {
+    const { db, outbox, campaignAllocations } = dispatchDb({ derivedTourConsent: "allowed" });
+    await expect(dispatchOwnerSmsOutbox({ workerId: "worker-1" }, db)).resolves.toMatchObject({
+      claimed: 1,
+      submitted: 1,
+    });
+    expect(campaignAllocations()).toBe(1);
+    expect(vi.mocked(reserveCommsCredit)).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        managerUserId: "manager-1",
+        meter: "sms_outbound_segment",
+        quantity: 1,
+        idempotencyKey: "sms_outbound:outbox-1",
+      }),
+    );
+    expect(mocks.sendSms).toHaveBeenCalledTimes(1);
+    expect(outbox).toMatchObject({ status: "submitted", provider_message_sid: "SM-original" });
+  });
 });
 
 vi.mock("@/lib/comms-billing/eligibility.server", () => ({evaluateManagerCommsBillingGate:vi.fn(async()=>({allowed:true}))}));
 vi.mock("@/lib/comms-billing/wallet.server", () => ({reserveCommsCredit:vi.fn(async()=>({allowed:true,duplicate:false,state:"reserved"})),finishCommsCredit:vi.fn(async()=>{})}));
-
-import { reserveCommsCredit } from "@/lib/comms-billing/wallet.server";
 
 describe("dispatcher credit reservation outcomes", () => {
   beforeEach(() => {

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { PortalTitleActionsHost } from "@/components/portal/portal-title-actions-slot";
 import { cn } from "@/lib/utils";
 import { HORIZONTAL_SCROLL_ATTR, PORTAL_HORIZONTAL_SCROLL_ROW_CLASS } from "@/lib/horizontal-scroll";
 import { PAGE_HEADER_TITLE_CLASS } from "@/components/ui/page-header";
@@ -108,6 +109,7 @@ export function PortalPageTitleBand({
           {headerActions}
         </div>
       ) : null}
+      <PortalTitleActionsHost className="flex shrink-0 items-center gap-1 sm:gap-1.5" />
     </div>
   );
 }
@@ -185,8 +187,10 @@ export function PortalPageFooterActions({
       ) : null}
       <div
         className={cn(
-          "fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background shadow-[var(--shadow-lg)]",
-          pinned ? "bg-background/98 backdrop-blur-sm" : "bg-background/95 backdrop-blur-md",
+          // A hairline over the canvas, not a shadowed white slab: the dock should
+          // read as the page's own foot, the way Mobbin record pages pin actions.
+          "fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-background",
+          pinned ? "bg-background/95 backdrop-blur-sm" : "bg-background/95 backdrop-blur-md shadow-[var(--shadow-lg)]",
           rowVariant === "header" ? "px-2 py-2 max-md:pb-2" : "px-4 py-3",
           "pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]",
           "max-lg:bottom-[var(--portal-native-bottom-nav-inset,0px)]",
@@ -287,20 +291,20 @@ export function PortalSectionActionRow({
   return (
     <div
       className={cn(
-        "flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2",
-        "max-sm:[&_button]:w-full max-sm:[&_a]:w-full",
+        "flex w-full min-w-0 flex-nowrap items-center gap-2 overflow-x-auto overscroll-x-contain",
+        "[&_button]:w-auto [&_a]:w-auto",
         className,
       )}
       data-slot="portal-section-action-row"
     >
-      <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:[&_button]:w-auto sm:[&_a]:w-auto">
+      <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-2 [&_button]:shrink-0 [&_a]:shrink-0">
         {children}
       </div>
       {destructive ? (
         <div
           className={cn(
-            "flex w-full min-w-0 flex-col gap-3 border-t border-border pt-3 sm:ml-auto sm:w-auto sm:flex-row sm:border-0 sm:border-l sm:pl-3 sm:pt-0",
-            "max-sm:[&_button]:w-full sm:[&_button]:w-auto",
+            "ml-auto flex shrink-0 items-center gap-2 border-l border-border pl-2",
+            "[&_button]:w-auto",
           )}
           data-slot="portal-section-action-row-destructive"
         >

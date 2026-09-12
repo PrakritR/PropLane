@@ -3,7 +3,9 @@ import type { ResidentTourBucketId } from "@/lib/portal-detail-routes";
 
 export function residentTourBucketForView(tour: ResidentTourView): ResidentTourBucketId {
   if (tour.confirmed) return "confirmed";
-  if (tour.status.trim().toLowerCase() === "declined") return "declined";
+  const status = tour.status.trim().toLowerCase();
+  // A tour the resident withdrew files with declined ones: it is over either way.
+  if (status === "declined" || status === "cancelled" || status === "canceled") return "declined";
   return "pending";
 }
 
