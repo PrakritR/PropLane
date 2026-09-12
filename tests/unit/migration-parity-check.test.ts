@@ -23,16 +23,9 @@ describe("reading the repo's own migrations", () => {
     expect(parsed).toHaveLength(files.length);
   });
 
-  it("keeps versions ordered and surfaces the existing duplicate name", () => {
+  it("keeps versions ordered with unique migration names", () => {
     const parsed = parseMigrationFileNames(readdirSync(MIGRATIONS_DIR));
-    expect(migrationIdentityProblems(parsed, "repo")).toEqual([
-      expect.objectContaining({
-        source: "repo",
-        kind: "duplicate-name",
-        version: "20260716090000",
-        name: "agent_pending_actions",
-      }),
-    ]);
+    expect(migrationIdentityProblems(parsed, "repo")).toEqual([]);
     expect(parsed.map((row) => row.version)).toEqual(parsed.map((row) => row.version).sort());
   });
 

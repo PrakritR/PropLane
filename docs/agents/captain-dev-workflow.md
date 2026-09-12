@@ -157,8 +157,10 @@ URL (QA) before a live ship.
 
 ---
 
-## Production data (hard stop)
+## Production data
 
-**Never write production data.** Dev/test Supabase only unless the captain issues a
-**named one-shot waiver**. See `no-production-data-writes.mdc` and
-`no-production-live-listings.mdc`.
+Default routine work to dev/test Supabase. A production schema or data change
+requires explicit authorization for its exact scope, a reviewed and backed-up
+fail-closed apply path, and post-apply verification. Authorization does not
+extend to unrelated mutations. The separate locked-listing constraints in
+`no-production-live-listings.mdc` still apply.

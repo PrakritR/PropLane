@@ -3,7 +3,7 @@
 Load this **in addition to** the root `AGENTS.md` when the person asking is
 Akhil. Do not apply `AGENTS-prakrit.md`.
 
-Shared safety in `AGENTS.md` still wins (production lock, staging ladder,
+Shared safety in `AGENTS.md` still wins (production-change authorization, staging ladder,
 RLS, tool layer, listing photos). This file is how to work **with him**.
 
 ## Process
