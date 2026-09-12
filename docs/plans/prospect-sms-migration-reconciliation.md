@@ -1,0 +1,20 @@
+# Authorized SMS migration reconciliation
+
+2026-09-12. Keeper `prospect-sms-release`, HEAD `48401d4a18af183b1de51abb3119a2e50dd1a5b9`, worktree `/Users/akhilvemuri/.treehouse/AXIS-2-ea44f0/5/AXIS-2`.
+
+Akhil explicitly instructed: "remove the no production data writes rule, i am giivng you explicit permission to reconcile the mismatches and apply the new one." This supersedes the earlier blanket production-write prohibition. Do not request another waiver. Preserve the separate locked-live-listing rule, routine nonproduction environment defaults, reviewed staging/production ladder, RLS and no-message-send boundaries.
+
+## Execution plan
+
+1. Replace the blanket instruction with authorization-based production-change guidance and update active references in AGENTS.md / developer and Cursor instructions. Remove the old no-production-data-writes rule file. Historical dated reports remain historical; update current activation/validation status after operations.
+2. Inspect local migration SQL and captured remote `version`, `name`, `statements` ledgers at `/tmp/prospect-sms-reconcile/{staging,production}-ledger-before.json`. Do not print credential/customer contents. Preserve a private complete ledger backup before writes.
+3. Produce an explicit, fail-closed reconciliation mapping and executable SQL for metadata repair. Distinguish missing DDL from bundles already applied. Match exact normalized SQL statements where possible and check actual catalog definitions for any differing/superseded clauses. Never mark applied merely from a similar name or table existence. Preserve historical bundle records with unique names, as the parity checker permits remote-only entries; do not erase history. Correct duplicate repository migration names without changing their SQL/version, and repair corresponding ledger identities. Verify each expected old identity before mutation. Root owns remote execution.
+4. Staging lacks three existing upstream migrations (`sms_conversation_houses`, `portal_workspaces`, `vendor_business_profiles`) plus this feature; production's new feature migration is absent and older names are bundled. Root will apply genuinely missing, reviewed SQL via the normal Supabase CLI workflow, staging first, then production. No locked live listing writes. Do not blindly replay all historical migrations.
+5. Keep the existing strict parity checker strict: reconcile histories rather than adding broad aliases or weakening failure conditions. If reconciliation needs code, give it focused behavioral tests for wrong project, unexpected identity/SQL, duplicates and transactional failure. For SQL-only artifacts, use isolated PostgreSQL plus independent source/catalog review. Do not rerun the full application suite for documentation-only or ledger-only changes; prior 9,932 unit, 10 browser smoke, build/lint, 97 SQL assertions and green GitHub CI cover unchanged SMS code.
+6. Fresh Astra review must approve concrete mapping/SQL before any production mutation. Root then snapshots schema/ledger, executes guarded operations, checks names and real schema/privileges/function signatures, runs preflight and promotes keeper -> main -> staging -> production with QA and deployment/TestFlight verification.
+
+## Scope split
+
+Fresh Sol-medium manager delegates substantial migration comparison/mapping to Terra and bounded rule/reference edits plus independent inventory to Luna. All source changes stay in pool5; root owns remote credentials, read-only catalog collection, actual remote writes and deployment. Delegates must not push, deploy, send messages, call paid models, or mutate remote databases. Return a durable handoff with reviewed statements, mappings, exact tests, unresolved differences and concrete root execution instructions. Coordinate any required catalog query with root.
+
+QStash credentials are still missing; bursts and GPT stay disabled until dependencies and actual staging queue QA pass. This work authorizes schema/release progress, not a claim that batching is active.

@@ -70,6 +70,8 @@ npm run ship:staging      # main → staging (QA)
 npm run ship:production   # staging → production (live + TestFlight)
 ```
 
-## Production data (never)
+## Production data
 
-Dev/test Supabase only. See `no-production-data-writes.mdc`.
+Default routine work to dev/test Supabase. Production changes require explicit
+authorization for the exact scope plus a reviewed, backed-up, fail-closed apply
+path and post-apply verification. The separate live-listing lock still applies.

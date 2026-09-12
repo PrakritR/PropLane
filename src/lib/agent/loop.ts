@@ -26,6 +26,7 @@ const MAX_ITERATIONS = 8;
 export { MAX_ITERATIONS };
 
 export type ToolTraceEntry = { tool: string; ok: boolean };
+export type ToolEvidenceEntry = { tool: string; input: unknown; output: unknown };
 export type TurnUsage = { inputTokens: number; outputTokens: number };
 
 /** A write tool the model proposed; the turn halted awaiting user confirmation. */
@@ -40,6 +41,8 @@ export type PendingActionProposal = {
 export type AgentTurnResult = {
   reply: string;
   toolTrace: ToolTraceEntry[];
+  /** Successful, schema-validated tool facts used by this turn. */
+  toolEvidence: ToolEvidenceEntry[];
   model: string;
   tier: ModelTier;
   provider: AgentProvider;
@@ -49,10 +52,12 @@ export type AgentTurnResult = {
   usage: TurnUsage;
   /** Present => the turn halted on a write-tool proposal awaiting confirmation. */
   pendingAction?: PendingActionProposal;
+  /** Present only when a surface explicitly accepts a validated silence tool. */
+  suppression?: { toolName: string; referenceMessageId: string; reason: string };
   /** 1-based count of LLM calls made this turn (capped at MAX_ITERATIONS). */
   iterationCount: number;
   /** Why the loop stopped — used by Langfuse turn-summary / health reports. */
-  terminationReason: "end_turn" | "pending_action" | "max_iterations";
+  terminationReason: "end_turn" | "pending_action" | "suppressed" | "max_iterations";
   /** Anthropic stop_reason of the last LLM call, when one ran. */
   finalStopReason: string | null;
 };
@@ -132,6 +137,12 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
    * or confirmed, so the model must not be able to make one.
    */
   readOnly?: boolean;
+  /** Surface-specific read tools whose validated result can terminate with silence. */
+  suppressionTools?: readonly string[];
+  /** Atomic surface fence for allow-listed inline writes (for revisioned workers). */
+  authorizeInlineWrite?: (call: { id: string; name: string; input: unknown }) => Promise<boolean>;
+  /** Releases a claim only when the tool returned a known no-side-effect rejection. */
+  releaseInlineWrite?: (call: { id: string; name: string; input: unknown }) => Promise<boolean>;
 }): Promise<AgentTurnResult> {
   const system = opts.system ?? MANAGER_SYSTEM_PROMPT;
   const allowWrite = opts.allowWriteTools ?? [];
@@ -139,6 +150,7 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
   const tools = opts.toolNames ? allTools.filter((tool) => opts.toolNames!.includes(tool.name)) : allTools;
   const messages: Anthropic.MessageParam[] = [...opts.messages];
   const toolTrace: ToolTraceEntry[] = [];
+  const toolEvidence: ToolEvidenceEntry[] = [];
 
   // Route the turn once, up front, based on its complexity, and use that model
   // for every iteration of the loop (switching models mid-turn would thrash the
@@ -156,6 +168,7 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
   let actualProvider: AgentProvider = selection.provider;
   let fallbackReason: string | undefined;
   let totalLatencyMs = 0;
+  let continuationState: import("./provider").OpenAIResponsesContinuation | undefined;
   const usage: TurnUsage = { inputTokens: 0, outputTokens: 0 };
 
   const observer = opts.observer;
@@ -169,7 +182,8 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
     // Snapshot the messages sent for this call before we mutate the array, so the
     // trace records the exact prompt for replay.
     const callInput = [...messages];
-    const response = await completeAgentModel({ selection, system, tools, messages });
+    const response = await completeAgentModel({ selection, system, tools, messages, continuationState });
+    continuationState = response.continuationState;
     actualProvider = response.provider;
     if (response.fallbackReason) effectiveModel = selection.fallbackModel || model;
     fallbackReason ??= response.fallbackReason;
@@ -210,6 +224,48 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
       continue;
     }
 
+    const suppressionUse = toolUses.find((use) => opts.suppressionTools?.includes(use.name));
+    if (suppressionUse) {
+      const suppressionResult = await runReadTool(opts.registry, opts.ctx, suppressionUse.name, suppressionUse.input);
+      toolTrace.push({ tool: suppressionUse.name, ok: suppressionResult.ok });
+      if (suppressionResult.ok) toolEvidence.push({ tool: suppressionUse.name, input: suppressionUse.input, output: suppressionResult.data });
+      notify(
+        observer?.onToolCall &&
+          (() => observer.onToolCall!({
+            iteration: i,
+            name: suppressionUse.name,
+            input: suppressionUse.input,
+            ok: suppressionResult.ok,
+            output: suppressionResult.ok ? suppressionResult.data : suppressionResult.error,
+          })),
+      );
+      const data = suppressionResult.ok && suppressionResult.data && typeof suppressionResult.data === "object"
+        ? suppressionResult.data as Record<string, unknown>
+        : null;
+      if (data?.suppress === true && typeof data.referenceMessageId === "string" && typeof data.reason === "string") {
+        return {
+          reply: "",
+          toolTrace,
+          toolEvidence,
+          model: effectiveModel,
+          tier,
+          usage,
+          provider: actualProvider,
+          route: selection.route,
+          fallbackReason,
+          latencyMs: totalLatencyMs,
+          iterationCount: i + 1,
+          terminationReason: "suppressed",
+          finalStopReason: lastStopReason,
+          suppression: {
+            toolName: suppressionUse.name,
+            referenceMessageId: data.referenceMessageId,
+            reason: data.reason,
+          },
+        };
+      }
+    }
+
     if (response.stopReason !== "tool_use" || toolUses.length === 0) {
       const reply = response.content
         .filter((b): b is Anthropic.TextBlock => b.type === "text")
@@ -219,6 +275,7 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
       return {
         reply: reply || "I couldn't find an answer to that.",
         toolTrace,
+        toolEvidence,
         model: effectiveModel,
         tier,
         usage,
@@ -265,6 +322,7 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
         return {
           reply,
           toolTrace,
+          toolEvidence,
           model: effectiveModel,
           tier,
           usage,
@@ -310,7 +368,7 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
           });
           continue;
         }
-        const result = await runInlineTool(opts.registry, opts.ctx, use, i, toolTrace, allowWrite, observer);
+        const result = await runInlineTool(opts.registry, opts.ctx, use, i, toolTrace, toolEvidence, allowWrite, observer, opts.authorizeInlineWrite, opts.releaseInlineWrite);
         results.push(result);
       }
       messages.push({ role: "user", content: results });
@@ -320,7 +378,7 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
     messages.push({ role: "assistant", content: response.content });
 
     const results = await Promise.all(
-      toolUses.map((use) => runInlineTool(opts.registry, opts.ctx, use, i, toolTrace, allowWrite, observer)),
+      toolUses.map((use) => runInlineTool(opts.registry, opts.ctx, use, i, toolTrace, toolEvidence, allowWrite, observer, opts.authorizeInlineWrite, opts.releaseInlineWrite)),
     );
     messages.push({ role: "user", content: results });
   }
@@ -328,6 +386,7 @@ export async function runAgentTurn<Ctx = AgentContext>(opts: {
   return {
     reply: "I reached the maximum number of steps without finishing. Please try a more specific question.",
     toolTrace,
+    toolEvidence,
     model: effectiveModel,
     tier,
     usage,
@@ -352,12 +411,39 @@ async function runInlineTool<Ctx>(
   use: Anthropic.ToolUseBlock,
   iteration: number,
   toolTrace: ToolTraceEntry[],
+  toolEvidence: ToolEvidenceEntry[],
   allowWrite: readonly string[],
   observer?: AgentObserver,
+  authorizeInlineWrite?: (call: { id: string; name: string; input: unknown }) => Promise<boolean>,
+  releaseInlineWrite?: (call: { id: string; name: string; input: unknown }) => Promise<boolean>,
 ): Promise<Anthropic.ToolResultBlockParam> {
+  const tool = registry.get(use.name);
+  const parsedInput = tool?.inputSchema.safeParse(use.input ?? {});
+  if (tool?.kind === "write" && allowWrite.includes(use.name) && authorizeInlineWrite) {
+    // Invalid model JSON is safe to correct within the turn and must not burn
+    // the revision's once-only external-action claim.
+    if (!parsedInput?.success) {
+      const result = await runReadTool(registry, ctx, use.name, use.input, { allowWrite });
+      toolTrace.push({ tool: use.name, ok: false });
+      notify(observer?.onToolCall && (() => observer.onToolCall!({ iteration, name: use.name, input: use.input, ok: false, output: result.ok ? result.data : result.error })));
+      return { type: "tool_result", tool_use_id: use.id, content: result.ok ? JSON.stringify(result.data) : result.error, is_error: true };
+    }
+    const authorized = await authorizeInlineWrite({ id: use.id, name: use.name, input: parsedInput.data }).catch(() => false);
+    if (!authorized) {
+      const error = "This inline action is stale or already claimed and was not executed.";
+      toolTrace.push({ tool: use.name, ok: false });
+      notify(observer?.onToolCall && (() => observer.onToolCall!({ iteration, name: use.name, input: use.input, ok: false, output: error })));
+      return { type: "tool_result", tool_use_id: use.id, content: error, is_error: true };
+    }
+  }
   const result = await runReadTool(registry, ctx, use.name, use.input, { allowWrite });
   const ok = result.ok;
   const output = result.ok ? result.data : result.error;
+  const outputRecord = output && typeof output === "object" ? output as Record<string, unknown> : null;
+  if (tool?.kind === "write" && result.ok && outputRecord?.retrySafe === true && outputRecord.sideEffects === "none") {
+    await releaseInlineWrite?.({ id: use.id, name: use.name, input: parsedInput?.success ? parsedInput.data : use.input }).catch(() => false);
+  }
+  if (result.ok) toolEvidence.push({ tool: use.name, input: use.input, output });
 
   toolTrace.push({ tool: use.name, ok });
   notify(

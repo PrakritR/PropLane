@@ -1,0 +1,424 @@
+{
+  "formatVersion": 1,
+  "reviewedAt": "2026-09-12",
+  "reviewer": "independent Astra release reviewer, explicit capacity fallback",
+  "target": "production",
+  "projectRef": "qahnczmilgptcedaqype",
+  "purpose": "Bounded historical migration identity certification; not full database schema equality.",
+  "evidence": [
+    {
+      "file": "production-ledger-before.json",
+      "sha256": "e64295431a7384a57f7423bba81376bc9319e9e36ca94f88e5d690ea507e5817"
+    },
+    {
+      "file": "production-schema-before.sql",
+      "sha256": "8ae45fcd16f3782e1897d20a3c1c8a5098f398f36bb9c587570d9649f4e07c6c"
+    },
+    {
+      "file": "production-inbox-bucket.json",
+      "sha256": "f102777850202483e57e08f8c24059edcc58334b922fc1d99b271576ec0b8635"
+    },
+    {
+      "file": "production-storage-policies.json",
+      "sha256": "a02d226c36da62e4dc8d68e623c97df47c39f5ad7ec648d1353b16a08a1c59c5"
+    }
+  ],
+  "statementHashEncoding": "SHA-256 of UTF-8 JSON.stringify-equivalent compact JSON array of original statements, preserving order and Unicode; not normalized SQL.",
+  "migrations": [
+    {
+      "version": "20260802120000",
+      "name": "portal_inbox_attachments_bucket",
+      "sourceFile": "supabase/migrations/20260802120000_portal_inbox_attachments_bucket.sql",
+      "sourceSha256": "27e2b6a20cbf434c3dfee554e03821d01a190a51144dfd49b852b07a732280d8",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "All two canonical statements match the recorded repair; captured bucket is private, 10485760 bytes, JPEG/PNG/WebP/GIF/PDF; captured storage policies expose no client access to this bucket.",
+      "lineage": [
+        {
+          "version": "20260907013451",
+          "name": "portal_inbox_attachments_bucket_repair",
+          "statementsSha256": "db2ae56ae2f48da79c68672fb9589ebf741e488ac8dda8b6a94b2341981ebf11"
+        }
+      ]
+    },
+    {
+      "version": "20260831140000",
+      "name": "manager_sms_contact_email",
+      "sourceFile": "supabase/migrations/20260831140000_manager_sms_contact_email.sql",
+      "sourceSha256": "f00914d0f8fc817e2e478596531b4c24ecdc7b8c0637e3b2f30607474de03133",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "Both canonical statements match: contact_email text with length check and owner/email index.",
+      "lineage": [
+        {
+          "version": "20260906214158",
+          "name": "sms_contact_email_and_manager_sms_sessions_and_work_order_events",
+          "statementsSha256": "7d43590f34632a4a111c8d54f8b386cb67cf1be53450e005b9e3cbf381ab68df"
+        }
+      ]
+    },
+    {
+      "version": "20260902120000",
+      "name": "manager_sms_agent_sessions",
+      "sourceFile": "supabase/migrations/20260902120000_manager_sms_agent_sessions.sql",
+      "sourceSha256": "18c406eea5825a403bb8c46183d85244549176889928bc7d4260392c9ae2c58a",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "All four canonical statements match, including owner/user/phone identity index and prepared reply route allowlist function.",
+      "lineage": [
+        {
+          "version": "20260906214158",
+          "name": "sms_contact_email_and_manager_sms_sessions_and_work_order_events",
+          "statementsSha256": "7d43590f34632a4a111c8d54f8b386cb67cf1be53450e005b9e3cbf381ab68df"
+        }
+      ]
+    },
+    {
+      "version": "20260904130000",
+      "name": "work_order_events",
+      "sourceFile": "supabase/migrations/20260904130000_work_order_events.sql",
+      "sourceSha256": "85684b4af839b3e6ce063d13337529d8da24e4b146d9b67c45a88a1b8630c545",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "All eleven canonical statements occur in first bundle; next bundle intentionally renames tables to action_events/action_event_deliveries and evolves their contract.",
+      "lineage": [
+        {
+          "version": "20260906214158",
+          "name": "sms_contact_email_and_manager_sms_sessions_and_work_order_events",
+          "statementsSha256": "7d43590f34632a4a111c8d54f8b386cb67cf1be53450e005b9e3cbf381ab68df"
+        },
+        {
+          "version": "20260906214225",
+          "name": "action_event_bus_and_co_manager_explicit_grant_and_invite_expiry",
+          "statementsSha256": "103bedd189d9844437df55f7f9a27563b0cf98ed6276df7df7ace8bca7308181"
+        }
+      ]
+    },
+    {
+      "version": "20260904133000",
+      "name": "manager_assistant_emails_mailbox_local",
+      "sourceFile": "supabase/migrations/20260904133000_manager_assistant_emails_mailbox_local.sql",
+      "sourceSha256": "f48a0b2558e1d1f3e68b4c9c98db4b1368b24c96a717d372fefe767121ddb645",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "Both mailbox_local column and active nonnull unique index statements occur in manager_assistant_emails bundle.",
+      "lineage": [
+        {
+          "version": "20260906211554",
+          "name": "manager_assistant_emails",
+          "statementsSha256": "2f67f434e501b7ed4ecd10c81697c6de902f0e2a3cdbf366bfa2fcddd1c59b50"
+        }
+      ]
+    },
+    {
+      "version": "20260904140000",
+      "name": "action_event_bus",
+      "sourceFile": "supabase/migrations/20260904140000_action_event_bus.sql",
+      "sourceSha256": "ba2bf43759af721d02de1a53b67013efda6f1789cd46a1503618a7c9a14e71d7",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "All nine canonical statements occur in first bundle; second bundle intentionally expands cross-party domain constraint.",
+      "lineage": [
+        {
+          "version": "20260906214225",
+          "name": "action_event_bus_and_co_manager_explicit_grant_and_invite_expiry",
+          "statementsSha256": "103bedd189d9844437df55f7f9a27563b0cf98ed6276df7df7ace8bca7308181"
+        },
+        {
+          "version": "20260906214259",
+          "name": "comms_invoicing_action_event_domains_and_open_invite_token",
+          "statementsSha256": "7046573851a5656076b87317489337750028e18f93b4f7596ff0ac48e5185bbe"
+        }
+      ]
+    },
+    {
+      "version": "20260904150000",
+      "name": "co_manager_permissions_explicit_grant",
+      "sourceFile": "supabase/migrations/20260904150000_co_manager_permissions_explicit_grant.sql",
+      "sourceSha256": "9abe0bb0883f64500f1f609ea0c751f68fd33f6a1bb6fb0171cf7e5e9a78aac0",
+      "basis": "reviewed_final_contract",
+      "reviewConclusion": "DO executable logic matches after comments/whitespace normalization; canonical concatenated comment equals recorded/catalog comment. Historical permissions backfill is certified from ledger execution lineage, not replayed against current intentionally empty grants.",
+      "lineage": [
+        {
+          "version": "20260906214225",
+          "name": "action_event_bus_and_co_manager_explicit_grant_and_invite_expiry",
+          "statementsSha256": "103bedd189d9844437df55f7f9a27563b0cf98ed6276df7df7ace8bca7308181"
+        }
+      ]
+    },
+    {
+      "version": "20260904160000",
+      "name": "account_link_invites_expiry",
+      "sourceFile": "supabase/migrations/20260904160000_account_link_invites_expiry.sql",
+      "sourceSha256": "fb04ba8c47993fe599a8993e2af6404d6d5b350bb2fa44e0708e51969b0b49e5",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "All five canonical statements match, including original expiry backfill, default and index. No replay of historical data backfill.",
+      "lineage": [
+        {
+          "version": "20260906214225",
+          "name": "action_event_bus_and_co_manager_explicit_grant_and_invite_expiry",
+          "statementsSha256": "103bedd189d9844437df55f7f9a27563b0cf98ed6276df7df7ace8bca7308181"
+        }
+      ]
+    },
+    {
+      "version": "20260904170000",
+      "name": "work_order_vendor_offers_declined",
+      "sourceFile": "supabase/migrations/20260904170000_work_order_vendor_offers_declined.sql",
+      "sourceSha256": "4275ef9dca05695e5b13a7956ee2a9187e5561b117ec618237f2999c886dbb7a",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "All four canonical statements match declined status and optional decline fields.",
+      "lineage": [
+        {
+          "version": "20260906214225",
+          "name": "action_event_bus_and_co_manager_explicit_grant_and_invite_expiry",
+          "statementsSha256": "103bedd189d9844437df55f7f9a27563b0cf98ed6276df7df7ace8bca7308181"
+        }
+      ]
+    },
+    {
+      "version": "20260904183000",
+      "name": "reminder_queue_expand_kinds",
+      "sourceFile": "supabase/migrations/20260904183000_reminder_queue_expand_kinds.sql",
+      "sourceSha256": "84211b815349782b4d7de471bd6be0385f5cfda2f8d23e845383719bff74625c",
+      "basis": "reviewed_final_contract",
+      "reviewConclusion": "Final production kind constraint preserves all eleven original kinds, adds payment_manager and inspection/inspection_manager; role constraint is manager/counterparty/team. Later inspection migration supersedes the intermediate kind constraint.",
+      "lineage": [
+        {
+          "version": "20260906214241",
+          "name": "reminder_kinds_and_comms_billing_and_voice_sessions",
+          "statementsSha256": "9e42783de30ec9202de434451696a73f1f27e68785aae8287bad61a2cf2d0b24"
+        },
+        {
+          "version": "20260906214710",
+          "name": "inspection_reminder_kinds_final",
+          "statementsSha256": "2f85e1fd41dd4a3bd5f7e25160b1606d6c39d31836d2b8ae115180e3c4327526"
+        }
+      ]
+    },
+    {
+      "version": "20260904194500",
+      "name": "reminder_queue_payment_manager_kind",
+      "sourceFile": "supabase/migrations/20260904194500_reminder_queue_payment_manager_kind.sql",
+      "sourceSha256": "8dd86f7794dc7263c85ce7da97bd2ae4ae6a0bbea031686916437b1dd785877f",
+      "basis": "reviewed_final_contract",
+      "reviewConclusion": "Final production kind constraint preserves all twelve original kinds including payment_manager and adds inspection/inspection_manager; expected later inspection supersession.",
+      "lineage": [
+        {
+          "version": "20260906214241",
+          "name": "reminder_kinds_and_comms_billing_and_voice_sessions",
+          "statementsSha256": "9e42783de30ec9202de434451696a73f1f27e68785aae8287bad61a2cf2d0b24"
+        },
+        {
+          "version": "20260906214710",
+          "name": "inspection_reminder_kinds_final",
+          "statementsSha256": "2f85e1fd41dd4a3bd5f7e25160b1606d6c39d31836d2b8ae115180e3c4327526"
+        }
+      ]
+    },
+    {
+      "version": "20260905130000",
+      "name": "manager_comms_billing",
+      "sourceFile": "supabase/migrations/20260905130000_manager_comms_billing.sql",
+      "sourceSha256": "43a1d7880d7150e782f719d4c82f0abe78469618e05647c35a770172af16e75f",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "All eight canonical billing table/index/RLS/ACL statements match.",
+      "lineage": [
+        {
+          "version": "20260906214241",
+          "name": "reminder_kinds_and_comms_billing_and_voice_sessions",
+          "statementsSha256": "9e42783de30ec9202de434451696a73f1f27e68785aae8287bad61a2cf2d0b24"
+        }
+      ]
+    },
+    {
+      "version": "20260905194500",
+      "name": "manager_voice_agent_sessions",
+      "sourceFile": "supabase/migrations/20260905194500_manager_voice_agent_sessions.sql",
+      "sourceSha256": "06a7b6e993f21e87b82218b655ac3a7f03a63e5c5f0394e3caaa522eeaead114",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "Canonical manager voice landlord/user/phone identity index matches.",
+      "lineage": [
+        {
+          "version": "20260906214241",
+          "name": "reminder_kinds_and_comms_billing_and_voice_sessions",
+          "statementsSha256": "9e42783de30ec9202de434451696a73f1f27e68785aae8287bad61a2cf2d0b24"
+        }
+      ]
+    },
+    {
+      "version": "20260905210000",
+      "name": "manager_comms_usage_invoicing",
+      "sourceFile": "supabase/migrations/20260905210000_manager_comms_usage_invoicing.sql",
+      "sourceSha256": "adcd243e06a52bf65cdc877b89be512b08f5e5ca4664d4a11c8d2d33688a87a9",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "All four canonical invoicing columns and index statements match.",
+      "lineage": [
+        {
+          "version": "20260906214259",
+          "name": "comms_invoicing_action_event_domains_and_open_invite_token",
+          "statementsSha256": "7046573851a5656076b87317489337750028e18f93b4f7596ff0ac48e5185bbe"
+        }
+      ]
+    },
+    {
+      "version": "20260905220000",
+      "name": "comms_usage_work_number_setup",
+      "sourceFile": "supabase/migrations/20260905220000_comms_usage_work_number_setup.sql",
+      "sourceSha256": "81429e67a31f2c0863ceb8cc84630f1cf5056699fc1906ed5f78fdbdee062120",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "Both canonical usage meter constraint statements match; later billing migrations remain authoritative for additions.",
+      "lineage": [
+        {
+          "version": "20260906214259",
+          "name": "comms_invoicing_action_event_domains_and_open_invite_token",
+          "statementsSha256": "7046573851a5656076b87317489337750028e18f93b4f7596ff0ac48e5185bbe"
+        }
+      ]
+    },
+    {
+      "version": "20260905230000",
+      "name": "action_event_cross_party_domains",
+      "sourceFile": "supabase/migrations/20260905230000_action_event_cross_party_domains.sql",
+      "sourceSha256": "d949261efec4b819267b496b1c70dd982de732c61ba00976e42649e2233eea24",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "Both canonical domain expansion and table comment statements match.",
+      "lineage": [
+        {
+          "version": "20260906214259",
+          "name": "comms_invoicing_action_event_domains_and_open_invite_token",
+          "statementsSha256": "7046573851a5656076b87317489337750028e18f93b4f7596ff0ac48e5185bbe"
+        }
+      ]
+    },
+    {
+      "version": "20260906010000",
+      "name": "account_link_open_invite_token",
+      "sourceFile": "supabase/migrations/20260906010000_account_link_open_invite_token.sql",
+      "sourceSha256": "91b09cfaa2e0bf639aca7a5d773b5c090d53cc8965c58943301bb82dd06a3dfb",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "All ten canonical nullability, no-self check, token hash, unique indexes, inherited flag and revoke statements match.",
+      "lineage": [
+        {
+          "version": "20260906214259",
+          "name": "comms_invoicing_action_event_domains_and_open_invite_token",
+          "statementsSha256": "7046573851a5656076b87317489337750028e18f93b4f7596ff0ac48e5185bbe"
+        }
+      ]
+    },
+    {
+      "version": "20260906070000",
+      "name": "shared_room_capacity",
+      "sourceFile": "supabase/migrations/20260906070000_shared_room_capacity.sql",
+      "sourceSha256": "31a7dc91a843bab10d0e7b63c391c9280d67fa591f173f73c5df13f3d2ac8941",
+      "basis": "reviewed_final_contract_after_prerequisite",
+      "reviewConclusion": "Historical helper/trigger function bodies match ignoring comments except normalize_application_record_id still lacks occupancy_start preservation. New corrective migration is required before mirror certification; its authoritative function and service-only ACL are separately pinned below.",
+      "lineage": [
+        {
+          "version": "20260906214429",
+          "name": "shared_room_capacity_helpers",
+          "statementsSha256": "3435f563562a339328224ea70a35db41af8ba4e1147ee7fcd753b3c02adab89c"
+        },
+        {
+          "version": "20260906214510",
+          "name": "shared_room_capacity_triggers",
+          "statementsSha256": "146c3c54c11cb1a79aeeb77ea02f75b2925e2fa6fc7a5a9738b922fd8a98ee07"
+        },
+        {
+          "version": "20260906050000",
+          "name": "application_record_normalization",
+          "statementsSha256": "7889e36fd79d35e71100b857f61fc2906335c2424b0819c847f86a758db9ee37"
+        }
+      ]
+    },
+    {
+      "version": "20260906080000",
+      "name": "sales_migration_provenance",
+      "sourceFile": "supabase/migrations/20260906080000_sales_migration_provenance.sql",
+      "sourceSha256": "fd70397224bbca65e27f39c30264803542bf651d8efb6309d9465ea4ca1fb036",
+      "basis": "reviewed_final_contract",
+      "reviewConclusion": "Bundle differs only by IF NOT EXISTS for table/index. Catalog columns/defaults/checks/PK/unique/FK/index/RLS/owner SELECT policy/authenticated SELECT-only and service-role ACL match.",
+      "lineage": [
+        {
+          "version": "20260906214533",
+          "name": "sales_provenance_utility_allocations_statement_match",
+          "statementsSha256": "a880c4f9c6e6cd92173b47dd9851a4c8992507aa38884c1972f6620f1588f47a"
+        }
+      ]
+    },
+    {
+      "version": "20260906081000",
+      "name": "utility_allocations",
+      "sourceFile": "supabase/migrations/20260906081000_utility_allocations.sql",
+      "sourceSha256": "4591ddd39f3352f0c066eda43fff91f2f4800b7a971e192ea2b067c025bab038",
+      "basis": "reviewed_final_contract",
+      "reviewConclusion": "Bundle table differs only by IF NOT EXISTS. Catalog columns/defaults/checks/PK/unique/FKs/RLS/owner SELECT policy/authenticated SELECT-only and service-role ACL match.",
+      "lineage": [
+        {
+          "version": "20260906214533",
+          "name": "sales_provenance_utility_allocations_statement_match",
+          "statementsSha256": "a880c4f9c6e6cd92173b47dd9851a4c8992507aa38884c1972f6620f1588f47a"
+        }
+      ]
+    },
+    {
+      "version": "20260906085000",
+      "name": "statement_match_targets",
+      "sourceFile": "supabase/migrations/20260906085000_statement_match_targets.sql",
+      "sourceSha256": "82ae625de06701d35ab2ce939d7592daf4e0cfe432f617a083af5d5e6fc70c78",
+      "basis": "normalized_statement_lineage",
+      "reviewConclusion": "All five canonical expense reference, one-target constraint, validated match function, revoke and trigger statements match.",
+      "lineage": [
+        {
+          "version": "20260906214533",
+          "name": "sales_provenance_utility_allocations_statement_match",
+          "statementsSha256": "a880c4f9c6e6cd92173b47dd9851a4c8992507aa38884c1972f6620f1588f47a"
+        }
+      ]
+    }
+  ],
+  "prerequisites": [
+    {
+      "migrationVersion": "20260912150000",
+      "migrationName": "shared_room_capacity_normalization_occupancy_start",
+      "sourceSha256": "78a25930905b34d16348f7f5d28023a184a89ae0bf5a08d2f673de0048484f28",
+      "functionSignature": "public.normalize_application_record_id(text,jsonb,jsonb)",
+      "definitionRequirement": "Exact reviewed authoritative function body preserving old_row.occupancy_start in INSERT; not merely an occupancy_start substring.",
+      "securityDefiner": true,
+      "searchPath": "",
+      "acl": {
+        "publicExecute": false,
+        "anonExecute": false,
+        "authenticatedExecute": false,
+        "serviceRoleExecute": true
+      },
+      "applyEffect": "CREATE OR REPLACE FUNCTION and revoke/grant only; no function invocation or listing/application DML during apply."
+    }
+  ],
+  "excludedDrift": [
+    {
+      "object": "public.profiles.phone",
+      "production": "numeric",
+      "staging": "text",
+      "disposition": "pre-existing already-ledgered drift outside these 21 identities; not corrected or certified away"
+    },
+    {
+      "object": "public.vendor_tax_profiles primary key",
+      "production": "vendor_id",
+      "staging": "manager_user_id,vendor_id",
+      "disposition": "pre-existing already-ledgered drift outside these 21 identities; not corrected or certified away"
+    },
+    {
+      "object": "public.allocate_sms_proxy_number(uuid) ACL",
+      "production": "extra PUBLIC revoke",
+      "staging": "no explicit PUBLIC revoke in dump",
+      "disposition": "production stricter, outside these 21 identities"
+    },
+    {
+      "object": "public.agent_messages and public.agent_sessions",
+      "disposition": "column order differences only; not behavior drift"
+    }
+  ],
+  "executionConstraints": [
+    "Retain all original historical bundle records and original statements.",
+    "Do not execute historical mirrored SQL or co-manager permission backfill.",
+    "Do not replay production portal_workspaces migration or update locked live listings.",
+    "Bind target, lock ledger, verify captured statement identities and reviewed artifact hashes, and rollback on any mismatch.",
+    "Apply and attest occupancy correction before certifying shared_room_capacity mirror.",
+    "SMS burst activation and GPT comparison remain disabled."
+  ]
+}

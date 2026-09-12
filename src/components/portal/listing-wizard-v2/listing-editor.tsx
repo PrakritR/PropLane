@@ -21,7 +21,7 @@
  * downstream reader keep working exactly as before.
  */
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { listingPaymentWaiverCodeMatches } from "@/lib/payment-policy";
@@ -104,11 +104,7 @@ import {
   ChoiceCard,
   CountStepper,
   KindTile,
-  Row,
-  RowCell,
-  RowList,
   RowSelectCell,
-  rowTemplate,
   RailCover,
   RailNotice,
   RailStatus,
@@ -150,31 +146,6 @@ const BATHROOM_ACCESS_OPTIONS = [
 ] as const;
 
 type Patch = (next: Partial<ManagerListingSubmissionV1>) => void;
-
-/**
- * Lets a step tell the footer that a detail pane is open, so the footer's Back
- * button returns to the list instead of leaving the step entirely.
- *
- * A manager who opens Room 3, looks at it, and presses the only Back button on
- * screen means "back to the rooms" — the wizard's own Back had been taking them
- * to Home, losing the place they were in.
- */
-const DetailBackContext = createContext<(close: (() => void) | null) => void>(() => {});
-
-function useDetailBack(open: boolean, close: () => void) {
-  const register = useContext(DetailBackContext);
-  const closeRef = useRef(close);
-  // Written in an effect, not during render: a ref read or written while
-  // rendering is not safe under concurrent rendering.
-  useEffect(() => {
-    closeRef.current = close;
-  });
-  useEffect(() => {
-    if (!open) return;
-    register(() => closeRef.current());
-    return () => register(null);
-  }, [open, register]);
-}
 
 /* ─────────────────────── shared little helpers ─────────────────────── */
 
@@ -1298,156 +1269,92 @@ function StepRooms({
 
 /* ─────────────────────────── step 3 · spaces ─────────────────────────── */
 
-function BathroomDetail({
-  bath,
-  index,
-  rooms,
-  onChange,
-  onBack,
-}: {
-  bath: ManagerBathroomSubmission;
-  index: number;
-  /** So the manager can say which rooms use this bathroom, and how they reach it. */
-  rooms: readonly ManagerRoomSubmission[];
-  onChange: (next: ManagerBathroomSubmission) => void;
-  onBack: () => void;
-}) {
-  const set = (patch: Partial<ManagerBathroomSubmission>) => onChange({ ...bath, ...patch });
+/* ────────────── bathrooms + shared spaces · the rooms grid, reused ────────────── */
+
+/**
+ * Both steps are the Rooms grid in different clothes: a header row, an
+ * "Every …" row that holds the defaults, one row per record with a chevron
+ * that opens it in place, and ✕ to remove. Grey dashed = following the top
+ * row, ink with a dot = the record's own, per field, with Reset on each.
+ *
+ * Follow/own is decided the way the rooms table decides it: a field is the
+ * record's own once the manager has edited it by hand (remembered per field,
+ * so a later top-row change never sweeps it up), or when its stored value
+ * already differs from the top row (a listing saved before the top row
+ * existed). The defaults themselves are a session convenience, never stored.
+ */
+const BATH_GRID_COLUMNS = "22px minmax(140px,1.3fr) minmax(100px,0.9fr) minmax(110px,0.9fr) minmax(150px,1.2fr) 26px";
+const SPACE_GRID_COLUMNS = "22px minmax(140px,1.3fr) minmax(120px,0.9fr) minmax(100px,0.9fr) minmax(150px,1.2fr) 26px";
+
+type OwnFields = Record<string, Set<string>>;
+function useOwnFields() {
+  const [own, setOwn] = useState<OwnFields>({});
+  const mark = (id: string, field: string) =>
+    setOwn((prev) => {
+      const next = new Set(prev[id] ?? []);
+      next.add(field);
+      return { ...prev, [id]: next };
+    });
+  const clear = (id: string, field: string) =>
+    setOwn((prev) => {
+      const next = new Set(prev[id] ?? []);
+      next.delete(field);
+      return { ...prev, [id]: next };
+    });
+  const has = (id: string, field: string) => own[id]?.has(field) ?? false;
+  return { mark, clear, has };
+}
+
+function GridChevron({ open, onClick, label, dataAttr }: { open: boolean; onClick: () => void; label: string; dataAttr: string }) {
   return (
-    <StepColumn>
-      <p className="mb-2 text-[12px] font-bold text-muted">Bathroom</p>
-      <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">
-        {bath.name.trim() || `Bathroom ${index + 1}`}
-      </h2>
-      <p className="mb-5 mt-1.5 text-[13.5px] leading-relaxed text-muted">
-        Everything about this bathroom on one screen, the same as a room.
-      </p>
-      <FieldRow cols={2}>
-        <Field label="Name" optional>
-          <Input
-            value={bath.name}
-            placeholder={`Bathroom ${index + 1}`}
-            onChange={(e) => set({ name: e.target.value })}
-          />
-        </Field>
-        <Field label="Fixtures">
-          <CheckboxMultiSelect
-            hideLabel
-            label="Fixtures"
-          options={[
-            { value: "shower", label: "Shower" },
-            { value: "bathtub", label: "Bathtub" },
-            { value: "toilet", label: "Toilet" },
-            { value: "sink", label: "Sink" },
-            { value: "mirror", label: "Mirror" },
-          ]}
-          selected={[
-            ...(bath.shower ? ["shower"] : []),
-            ...(bath.bathtub ? ["bathtub"] : []),
-            ...(bath.toilet ? ["toilet"] : []),
-            ...(bath.sink ? ["sink"] : []),
-            ...(bath.mirror ? ["mirror"] : []),
-          ]}
-          emptyLabel="Choose fixtures…"
-            onChange={(next) =>
-              set({
-                shower: next.includes("shower"),
-                bathtub: next.includes("bathtub"),
-                toilet: next.includes("toilet"),
-                sink: next.includes("sink"),
-                mirror: next.includes("mirror"),
-              })
-            }
-          />
-        </Field>
-      </FieldRow>
-      <FieldRow cols={2}>
-        <Field label="Used by">
-        <CheckboxMultiSelect
-          hideLabel
-          label="Used by"
-          options={[
-            { value: "__all", label: "Every room" },
-            ...rooms.map((r, i) => ({ value: r.id, label: r.name.trim() || `Room ${i + 1}` })),
-          ]}
-          selected={[...(bath.allResidents ? ["__all"] : []), ...(bath.assignedRoomIds ?? [])]}
-          emptyLabel="Choose rooms…"
-          onChange={(next) => {
-            const all = next.includes("__all");
-            set({
-              allResidents: all,
-              // "Every room" is its own answer; the per-room list is what a
-              // manager edits when only some rooms use this bathroom.
-              assignedRoomIds: all ? rooms.map((r) => r.id) : next.filter((v) => v !== "__all"),
-            });
-          }}
-        />
-        </Field>
-        <Field label="Finishes and extras" optional>
-          <AmenityChips
-            presets={BATHROOM_EXTRA_AMENITY_PRESETS}
-            value={bath.amenitiesText ?? ""}
-            onChange={(next) => set({ amenitiesText: next })}
-          />
-        </Field>
-      </FieldRow>
-      {(bath.assignedRoomIds ?? []).length > 0 ? (
-        <Field group label="How each room reaches it">
-          {(bath.assignedRoomIds ?? []).map((id) => {
-            const room = rooms.find((r) => r.id === id);
-            const label = room?.name.trim() || `Room ${rooms.findIndex((r) => r.id === id) + 1}`;
-            return (
-              <div key={id} className="mb-2 flex items-center gap-3">
-                <span className="w-32 shrink-0 truncate text-[13px] font-semibold text-foreground">{label}</span>
-                <Select
-                  aria-label={`How ${label} reaches ${bath.name || `bathroom ${index + 1}`}`}
-                  value={bath.accessKindByRoomId?.[id] ?? ""}
-                  onChange={(e) => {
-                    const kind = BATHROOM_ACCESS_OPTIONS.some((o) => o.value === e.target.value)
-                      ? (e.target.value as ManagerBathroomRoomAccessKind)
-                      : undefined;
-                    set({ accessKindByRoomId: { ...(bath.accessKindByRoomId ?? {}), [id]: kind } });
-                  }}
-                >
-                  <option value="">Select…</option>
-                  {BATHROOM_ACCESS_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-            );
-          })}
-        </Field>
-      ) : null}
-      <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">Media</p>
-      <FieldRow cols={2}>
-        <Field label="Photos of this bathroom" optional>
-          <PhotoStrip
-            label="bathroom"
-            urls={bath.photoDataUrls ?? []}
-            onChange={(next) => set({ photoDataUrls: next })}
-          />
-        </Field>
-        <Field label="Video of this bathroom" optional>
-          <VideoSlot label="bathroom" url={bath.videoDataUrl} onChange={(next) => set({ videoDataUrl: next })} />
-        </Field>
-      </FieldRow>
-      <button
-        type="button"
-        onClick={onBack}
-        data-attr="listing-v2-bath-back"
-        className="mt-5 min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground"
-      >
-        Back to bathrooms
-      </button>
-    </StepColumn>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-expanded={open}
+      aria-label={`${open ? "Close" : "Open"} ${label}`}
+      data-attr={dataAttr}
+      className={cn("grid h-6 w-6 place-items-center rounded-md text-muted hover:bg-foreground/[0.06] hover:text-foreground", open && "text-primary")}
+    >
+      <ChevronRight className={cn("h-4 w-4 transition-transform", open && "rotate-90")} aria-hidden />
+    </button>
   );
 }
 
-/** What "most bathrooms are" — the same idea as the rooms table's top row. */
+/** "Follows every bathroom" / "This bathroom · Reset" beside a field label. */
+function FollowTag({ own, who, onReset }: { own: boolean; who: string; onReset: () => void }) {
+  return own ? (
+    <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-[var(--status-approved-fg)]">
+      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-primary" />
+      This {who}
+      <button type="button" onClick={onReset} className="font-bold hover:underline">
+        Reset
+      </button>
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-muted">
+      <Link2 className="h-3 w-3" aria-hidden />
+      Follows every {who}
+    </span>
+  );
+}
+
+const GRID_HEAD = "grid items-center gap-2 border-b border-border bg-accent/25 px-3 py-2 text-[10.5px] font-extrabold uppercase tracking-wide text-muted";
+const GRID_DEFAULTS_ROW = "grid items-center gap-2 border-b-2 border-primary/25 bg-primary/[0.05] px-3 py-2";
+const GRID_NAME_INPUT = "min-h-[36px] w-full rounded-lg border border-border bg-card px-2 text-[13px] font-semibold text-foreground outline-none focus:border-primary";
+const GRID_REMOVE = "grid h-7 w-7 place-items-center rounded-md text-muted hover:bg-foreground/[0.06] hover:text-foreground";
+const INLINE_EDITOR = "grid gap-x-6 gap-y-4 border-t border-border bg-card px-5 py-4 pl-12 sm:grid-cols-2";
+const INLINE_ACTIONS = "flex items-center justify-between gap-3 border-t border-border pt-3 sm:col-span-2";
+
+/* ── bathrooms ── */
+
+/** What "every bathroom" is — the same idea as the rooms table's top row. */
 type BathroomDefaults = { location: string; type: "full" | "shower" | "half" | ""; amenitiesText: string };
+type BathroomInheritField = keyof BathroomDefaults;
+const BATHROOM_TYPE_OPTIONS = [
+  { value: "full", label: "Full bath" },
+  { value: "shower", label: "Shower only" },
+  { value: "half", label: "Half bath" },
+];
 
 /** A bathroom's type, read back from the fixtures that define it. */
 function bathroomTypeOf(bath: ManagerBathroomSubmission): "full" | "shower" | "half" {
@@ -1458,185 +1365,257 @@ function writeBathroomType(bath: ManagerBathroomSubmission, type: "full" | "show
   return { ...bath, toilet: true, sink: true, shower: type !== "half", bathtub: type === "full" };
 }
 
-function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [openBathId, setOpenBathId] = useState<string | null>(null);
-  const [openDefaults, setOpenDefaults] = useState(false);
-  const [defaults, setDefaults] = useState<BathroomDefaults>({ location: "", type: "", amenitiesText: "" });
-  /*
-   * Which bathrooms the manager has edited by hand. Exactly the rule the rooms
-   * table follows: once a bathroom is touched it stops following the top row,
-   * including for the fields left alone, so a floor set on one bathroom is
-   * never moved by a later change to what most bathrooms are.
-   */
-  const [touched, setTouched] = useState<Set<string>>(new Set());
-  const markTouched = (id: string) => setTouched((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
-  const baths = sub.bathrooms ?? [];
+function bathroomFieldValue(bath: ManagerBathroomSubmission, field: BathroomInheritField): string {
+  if (field === "location") return bath.location ?? "";
+  if (field === "type") return bathroomTypeOf(bath);
+  return bath.amenitiesText ?? "";
+}
 
-  function editBathDefault<K extends keyof BathroomDefaults>(field: K, value: BathroomDefaults[K]) {
-    setDefaults((prev) => ({ ...prev, [field]: value }));
-    patch({
-      bathrooms: baths.map((b) => {
-        if (touched.has(b.id)) return b;
-        if (field === "location") return { ...b, location: value as string };
-        if (field === "type" && value) return writeBathroomType(b, value as "full" | "shower" | "half");
-        if (field === "amenitiesText") return { ...b, amenitiesText: value as string };
-        return b;
-      }),
-    });
-  }
-  const openBath = baths.find((b) => b.id === openBathId) ?? null;
-  useDetailBack(Boolean(openBath), () => setOpenBathId(null));
-  if (openBath) {
-    return (
-      <BathroomDetail
-        bath={openBath}
-        index={baths.indexOf(openBath)}
-        rooms={sub.rooms ?? []}
-        onBack={() => setOpenBathId(null)}
-        onChange={(next) => {
-          markTouched(next.id);
-          patch({ bathrooms: baths.map((b) => (b.id === next.id ? next : b)) });
-        }}
-      />
-    );
-  }
+function writeBathroomField(bath: ManagerBathroomSubmission, field: BathroomInheritField, value: string): ManagerBathroomSubmission {
+  if (field === "location") return { ...bath, location: value };
+  if (field === "type") return value ? writeBathroomType(bath, value as "full" | "shower" | "half") : bath;
+  return { ...bath, amenitiesText: value };
+}
+
+function BathroomInlineEditor({
+  bath,
+  index,
+  rooms,
+  storiesId,
+  isOwn,
+  onField,
+  onReset,
+  onChange,
+  onRemove,
+}: {
+  bath: ManagerBathroomSubmission;
+  index: number;
+  rooms: readonly ManagerRoomSubmission[];
+  storiesId: string | undefined;
+  isOwn: (field: BathroomInheritField) => boolean;
+  onField: (field: BathroomInheritField, value: string) => void;
+  onReset: (field: BathroomInheritField) => void;
+  onChange: (patch: Partial<ManagerBathroomSubmission>) => void;
+  onRemove?: () => void;
+}) {
+  const label = bath.name.trim() || `Bathroom ${index + 1}`;
+  const floors = floorLevelSelectOptions(storiesId, bath.location ?? "");
+  return (
+    <div className={INLINE_EDITOR} data-attr="listing-v2-bath-editor">
+      <Field label="Name" optional>
+        <Input value={bath.name} placeholder={`Bathroom ${index + 1}`} onChange={(e) => onChange({ name: e.target.value })} />
+      </Field>
+      <Field label="Type" labelAside={<FollowTag own={isOwn("type")} who="bathroom" onReset={() => onReset("type")} />}>
+        <Select value={bathroomTypeOf(bath)} onChange={(e) => onField("type", e.target.value)}>
+          {BATHROOM_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Floor" optional labelAside={<FollowTag own={isOwn("location")} who="bathroom" onReset={() => onReset("location")} />}>
+        <Select value={bath.location ?? ""} onChange={(e) => onField("location", e.target.value)}>
+          <option value="">Select…</option>
+          {floors.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Rooms that use it" hint="The same fact as the Bathroom column on the Rooms step.">
+        <CheckboxMultiSelect
+          hideLabel
+          label="Rooms that use it"
+          options={[
+            { value: "__all", label: "Every room" },
+            ...rooms.map((r, i) => ({ value: r.id, label: r.name.trim() || `Room ${i + 1}` })),
+          ]}
+          selected={[...(bath.allResidents ? ["__all"] : []), ...(bath.assignedRoomIds ?? [])]}
+          emptyLabel="Choose rooms…"
+          onChange={(next) => {
+            const all = next.includes("__all");
+            onChange({
+              allResidents: all,
+              assignedRoomIds: all ? rooms.map((r) => r.id) : next.filter((v) => v !== "__all"),
+            });
+          }}
+        />
+      </Field>
+      <div className="sm:col-span-2">
+        <Field label="Finishes and extras" optional labelAside={<FollowTag own={isOwn("amenitiesText")} who="bathroom" onReset={() => onReset("amenitiesText")} />}>
+          <AmenityChips presets={BATHROOM_EXTRA_AMENITY_PRESETS} value={bath.amenitiesText ?? ""} onChange={(next) => onField("amenitiesText", next)} />
+        </Field>
+      </div>
+      {(bath.assignedRoomIds ?? []).length > 0 ? (
+        <div className="sm:col-span-2">
+          <Field group label="How each room reaches it">
+            {(bath.assignedRoomIds ?? []).map((id) => {
+              const room = rooms.find((r) => r.id === id);
+              const roomLabel = room?.name.trim() || `Room ${rooms.findIndex((r) => r.id === id) + 1}`;
+              return (
+                <div key={id} className="mb-2 flex items-center gap-3">
+                  <span className="w-32 shrink-0 truncate text-[13px] font-semibold text-foreground">{roomLabel}</span>
+                  <Select
+                    aria-label={`How ${roomLabel} reaches ${label}`}
+                    value={bath.accessKindByRoomId?.[id] ?? ""}
+                    onChange={(e) => {
+                      const kind = BATHROOM_ACCESS_OPTIONS.some((o) => o.value === e.target.value)
+                        ? (e.target.value as ManagerBathroomRoomAccessKind)
+                        : undefined;
+                      onChange({ accessKindByRoomId: { ...(bath.accessKindByRoomId ?? {}), [id]: kind } });
+                    }}
+                  >
+                    <option value="">Select…</option>
+                    {BATHROOM_ACCESS_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              );
+            })}
+          </Field>
+        </div>
+      ) : null}
+      <Field label="Photos" optional>
+        <PhotoStrip label="bathroom" urls={bath.photoDataUrls ?? []} onChange={(next) => onChange({ photoDataUrls: next })} />
+      </Field>
+      <Field label="Video" optional>
+        <VideoSlot label="bathroom" url={bath.videoDataUrl} onChange={(next) => onChange({ videoDataUrl: next })} />
+      </Field>
+      <div className={INLINE_ACTIONS}>
+        {onRemove ? (
+          <button type="button" onClick={onRemove} data-attr="listing-v2-bath-remove" className="text-[12.5px] font-bold text-destructive hover:underline">
+            Remove bathroom
+          </button>
+        ) : (
+          <span />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const [defaults, setDefaults] = useState<BathroomDefaults>({ location: "", type: "", amenitiesText: "" });
+  const own = useOwnFields();
+  const baths = sub.bathrooms ?? [];
+  const rooms = sub.rooms ?? [];
   const floors = floorLevelSelectOptions(sub.listingStoriesId, "").map((l) => ({ value: l, label: l }));
-  const cols = [
-    { key: "name", label: "Bathroom" },
-    { key: "floor", label: "Floor" },
-    { key: "type", label: "Type" },
-    { key: "details", label: "" },
-  ];
+  /** A row's list also carries the floor it already has, so a stored value outside the house's list is never shown blank. */
+  const floorOptionsFor = (current: string | undefined) => floorLevelSelectOptions(sub.listingStoriesId, current ?? "").map((l) => ({ value: l, label: l }));
+
+  const defaultValue = (field: BathroomInheritField) => defaults[field];
+  const isOwn = (bath: ManagerBathroomSubmission, field: BathroomInheritField) =>
+    own.has(bath.id, field) || (defaultValue(field) !== "" && bathroomFieldValue(bath, field) !== defaultValue(field)) || (defaultValue(field) === "" && field !== "type" && bathroomFieldValue(bath, field) !== "");
+  const writeBath = (id: string, next: ManagerBathroomSubmission) => patch({ bathrooms: baths.map((b) => (b.id === id ? next : b)) });
+  const setField = (bath: ManagerBathroomSubmission, field: BathroomInheritField, value: string) => {
+    own.mark(bath.id, field);
+    writeBath(bath.id, writeBathroomField(bath, field, value));
+  };
+  const resetField = (bath: ManagerBathroomSubmission, field: BathroomInheritField) => {
+    own.clear(bath.id, field);
+    writeBath(bath.id, writeBathroomField(bath, field, defaultValue(field)));
+  };
+  function editDefault(field: BathroomInheritField, value: string) {
+    // Followers are judged against the PREVIOUS default, then moved with it.
+    const followers = baths.filter((b) => !isOwn(b, field));
+    setDefaults((prev) => ({ ...prev, [field]: value }));
+    patch({ bathrooms: baths.map((b) => (followers.includes(b) ? writeBathroomField(b, field, value) : b)) });
+  }
+  const toggle = (id: string) => setOpen((prev) => (prev === id ? null : id));
+  const finishesSummary = (text: string) => {
+    const items = text.split(",").map((s) => s.trim()).filter(Boolean);
+    return items.length === 0 ? "" : items.length <= 2 ? items.join(", ") : `${items.length} finishes`;
+  };
+
   return (
     <StepColumn wide>
       <StepHeading
         title={`Your ${baths.length} ${baths.length === 1 ? "bathroom" : "bathrooms"}`}
-        subtitle="Set what is true for most bathrooms once. Change only the ones that differ."
+        subtitle="Set what is true for every bathroom once, at the top. Change only the ones that differ — grey follows the top row, ink with a dot is the bathroom's own."
       />
-      <RowList columns={cols}>
-        {/*
-         * The top row is the same shape as the rooms table's: it answers the
-         * same questions in the same columns, and its Details holds what a
-         * default can carry — a bathroom's photos and the rooms it serves are
-         * what make one different from the next, so they stay on the bathroom.
-         */}
-        <div
-          className="grid items-center gap-2 border-b-2 border-primary/25 bg-primary/[0.05] px-3 py-2"
-          style={{ gridTemplateColumns: rowTemplate(cols.length) }}
-        >
-          <span aria-hidden className="h-10 w-6" />
-          <span className="px-1 text-[13px] font-bold text-foreground">Most bathrooms are…</span>
-          <RowSelectCell
-            ariaLabel="Floor for most bathrooms"
-            value={defaults.location}
-            options={floors}
-            placeholder="Floor…"
-            onChange={(v) => editBathDefault("location", v)}
-          />
-          <RowSelectCell
-            ariaLabel="Type of most bathrooms"
-            value={defaults.type}
-            options={[
-              { value: "full", label: "Full bath" },
-              { value: "shower", label: "Shower only" },
-              { value: "half", label: "Half bath" },
-            ]}
-            placeholder="Type…"
-            onChange={(v) => editBathDefault("type", v as BathroomDefaults["type"])}
-          />
-          <button
-            type="button"
-            onClick={() => setOpenDefaults((v) => !v)}
-            data-attr="listing-v2-more-bath-defaults"
-            aria-expanded={openDefaults}
-            className="justify-self-start rounded-full border border-primary/30 bg-card px-3 py-1.5 text-[12px] font-bold text-primary hover:bg-accent/40"
-          >
-            Details
-          </button>
-          <span />
-        </div>
-
-        {openDefaults ? (
-          <div className="border-b border-border bg-primary/[0.03] px-3 py-3">
-            <Field label="Finishes most bathrooms have" optional>
-              <AmenityChips
-                presets={BATHROOM_EXTRA_AMENITY_PRESETS}
-                value={defaults.amenitiesText}
-                onChange={(next) => editBathDefault("amenitiesText", next)}
-              />
-            </Field>
+      <div className="overflow-x-auto rounded-2xl border border-border">
+        <div className="min-w-[700px]">
+          <div className={GRID_HEAD} style={{ gridTemplateColumns: BATH_GRID_COLUMNS }}>
+            <span /><span>Bathroom</span><span>Floor</span><span>Type</span><span>Finishes</span><span />
           </div>
-        ) : null}
 
-        {baths.map((bath, i) => (
-          <Row
-            key={bath.id}
-            columnCount={cols.length}
-            selected={selected.has(bath.id)}
-            onSelectChange={(on) =>
-              setSelected((prev) => {
-                const next = new Set(prev);
-                if (on) next.add(bath.id);
-                else next.delete(bath.id);
-                return next;
-              })
-            }
-            removeLabel={`Remove ${bath.name || `bathroom ${i + 1}`}`}
-            onRemove={() => patch({ bathrooms: baths.filter((b) => b.id !== bath.id) })}
-          >
-            <RowCell
-              ariaLabel={`Name for bathroom ${i + 1}`}
-              value={bath.name}
-              placeholder={`Bathroom ${i + 1}`}
-              onChange={(v) => {
-                markTouched(bath.id);
-                patch({ bathrooms: baths.map((b) => (b.id === bath.id ? { ...b, name: v } : b)) });
-              }}
-            />
-            <RowSelectCell
-              ariaLabel={`Floor for bathroom ${i + 1}`}
-              value={bath.location ?? ""}
-              options={floors}
-              placeholder="Floor…"
-              onChange={(v) => {
-                markTouched(bath.id);
-                patch({ bathrooms: baths.map((b) => (b.id === bath.id ? { ...b, location: v } : b)) });
-              }}
-            />
-            <RowSelectCell
-              ariaLabel={`Type of bathroom ${i + 1}`}
-              value={bathroomTypeOf(bath)}
-              options={[
-                { value: "full", label: "Full bath" },
-                { value: "shower", label: "Shower only" },
-                { value: "half", label: "Half bath" },
-              ]}
-              onChange={(v) => {
-                markTouched(bath.id);
-                patch({
-                  bathrooms: baths.map((b) =>
-                    b.id === bath.id ? writeBathroomType(b, v as "full" | "shower" | "half") : b,
-                  ),
-                });
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => setOpenBathId(bath.id)}
-              data-attr="listing-v2-bath-details"
-              className="justify-self-start rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-bold text-primary hover:bg-accent/40"
-            >
-              Details
-              {(bath.photoDataUrls ?? []).length > 0 ? (
-                <span className="ml-1.5 text-[10px] font-extrabold uppercase tracking-wide text-emerald-700">
-                  {(bath.photoDataUrls ?? []).length} photo{(bath.photoDataUrls ?? []).length === 1 ? "" : "s"}
-                </span>
-              ) : null}
-            </button>
-          </Row>
-        ))}
-      </RowList>
+          <div className={cn(open === "defaults" && "shadow-[inset_3px_0_0_var(--pl-blue)]")}>
+            <div className={GRID_DEFAULTS_ROW} style={{ gridTemplateColumns: BATH_GRID_COLUMNS }}>
+              <GridChevron open={open === "defaults"} onClick={() => toggle("defaults")} label="every bathroom" dataAttr="listing-v2-bath-defaults-open" />
+              <span className="min-w-0 leading-tight">
+                <b className="block text-[13.5px] font-bold text-foreground">Every bathroom</b>
+                <span className="block text-[11.5px] text-muted">Bathrooms follow this until you change them</span>
+              </span>
+              <RowSelectCell ariaLabel="Floor for every bathroom" value={defaults.location} options={floors} placeholder="Floor…" onChange={(v) => editDefault("location", v)} />
+              <RowSelectCell ariaLabel="Type of every bathroom" value={defaults.type} options={BATHROOM_TYPE_OPTIONS} placeholder="Type…" onChange={(v) => editDefault("type", v)} />
+              <button type="button" onClick={() => toggle("defaults")} className={cn(cellSelect(false), "truncate text-left")} aria-label="Finishes for every bathroom">
+                {finishesSummary(defaults.amenitiesText) || "Finishes…"}
+              </button>
+              <span />
+            </div>
+            {open === "defaults" ? (
+              <div className={INLINE_EDITOR} data-attr="listing-v2-bath-defaults-editor">
+                <div className="sm:col-span-2">
+                  <Field label="Finishes every bathroom has" optional>
+                    <AmenityChips presets={BATHROOM_EXTRA_AMENITY_PRESETS} value={defaults.amenitiesText} onChange={(next) => editDefault("amenitiesText", next)} />
+                  </Field>
+                </div>
+                <p className="text-[12px] text-muted sm:col-span-2">Photos and the rooms a bathroom serves belong to each bathroom — open one below.</p>
+              </div>
+            ) : null}
+          </div>
+
+          {baths.map((bath, i) => {
+            const isOpen = open === bath.id;
+            const label = bath.name.trim() || `Bathroom ${i + 1}`;
+            const inh = (f: BathroomInheritField) => !isOwn(bath, f);
+            const photos = (bath.photoDataUrls ?? []).length;
+            return (
+              <div key={bath.id} className={cn("border-b border-border last:border-b-0", isOpen && "shadow-[inset_3px_0_0_var(--pl-blue)]")}>
+                <div className={cn("grid items-center gap-2 px-3 py-2", isOpen && "bg-accent/20")} style={{ gridTemplateColumns: BATH_GRID_COLUMNS }} data-attr="listing-v2-bath-row">
+                  <GridChevron open={isOpen} onClick={() => toggle(bath.id)} label={label} dataAttr="listing-v2-bath-open" />
+                  <input aria-label={`Name for bathroom ${i + 1}`} value={bath.name} placeholder={`Bathroom ${i + 1}`} onChange={(e) => writeBath(bath.id, { ...bath, name: e.target.value })} className={GRID_NAME_INPUT} />
+                  <GridCell own={!inh("location")}>
+                    <RowSelectCell ariaLabel={`Floor for ${label}`} value={bath.location ?? ""} options={floorOptionsFor(bath.location)} placeholder="Floor…" inherited={inh("location")} onChange={(v) => setField(bath, "location", v)} />
+                  </GridCell>
+                  <GridCell own={!inh("type")}>
+                    <RowSelectCell ariaLabel={`Type of ${label}`} value={bathroomTypeOf(bath)} options={BATHROOM_TYPE_OPTIONS} inherited={inh("type")} onChange={(v) => setField(bath, "type", v)} />
+                  </GridCell>
+                  <GridCell own={!inh("amenitiesText")}>
+                    <button type="button" onClick={() => toggle(bath.id)} className={cn(cellSelect(inh("amenitiesText")), "truncate text-left")} aria-label={`Finishes for ${label}`}>
+                      {finishesSummary(bath.amenitiesText ?? "") || "Finishes…"}
+                      {photos > 0 ? <span className="ml-1.5 text-[10px] font-extrabold uppercase tracking-wide text-emerald-700">{photos} photo{photos === 1 ? "" : "s"}</span> : null}
+                    </button>
+                  </GridCell>
+                  <button type="button" aria-label={`Remove ${label}`} onClick={() => patch({ bathrooms: baths.filter((b) => b.id !== bath.id) })} className={GRID_REMOVE}>✕</button>
+                </div>
+                {isOpen ? (
+                  <BathroomInlineEditor
+                    bath={bath}
+                    index={i}
+                    rooms={rooms}
+                    storiesId={sub.listingStoriesId}
+                    isOwn={(f) => isOwn(bath, f)}
+                    onField={(f, v) => setField(bath, f, v)}
+                    onReset={(f) => resetField(bath, f)}
+                    onChange={(p) => writeBath(bath.id, { ...bath, ...p })}
+                    onRemove={() => {
+                      patch({ bathrooms: baths.filter((b) => b.id !== bath.id) });
+                      setOpen(null);
+                    }}
+                  />
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
       <AddRowButton
         label="Add bathroom"
         icon={Bath}
@@ -1644,55 +1623,60 @@ function StepBathrooms({ sub, patch }: { sub: ManagerListingSubmissionV1; patch:
         onClick={() => {
           const base = baths[0];
           const id = `bath-${Date.now()}`;
-          patch({
-            bathrooms: [
-              ...baths,
-              base ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null } : ({ id, name: "" } as never),
-            ],
-          });
+          const blank = base ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null, assignedRoomIds: [], accessKindByRoomId: {} } : ({ id, name: "" } as ManagerBathroomSubmission);
+          let next = blank;
+          for (const field of ["location", "type", "amenitiesText"] as const) {
+            if (defaults[field]) next = writeBathroomField(next, field, defaults[field]);
+          }
+          patch({ bathrooms: [...baths, next] });
+          setOpen(id);
         }}
       />
       <p className="mt-3 text-[12px] leading-relaxed text-muted">
-        Which rooms use which bathroom is set on the Rooms step, so you only say it once.
+        Which rooms use which bathroom is also the Bathroom column on the Rooms step — the same fact, edit it from either side.
       </p>
     </StepColumn>
   );
 }
 
-function SharedSpaceDetail({
+/* ── shared spaces ── */
+
+type SharedSpaceDefaults = { location: string };
+type SharedSpaceInheritField = "location" | "access";
+
+/** "Everyone" is an empty list nowhere, and every room everywhere — both read as not narrowed. */
+function spaceIsNarrowed(space: ManagerSharedSpaceSubmission, rooms: readonly ManagerRoomSubmission[]): boolean {
+  const ids = space.roomAccessIds ?? [];
+  if (ids.length === 0) return false;
+  return rooms.some((r) => !ids.includes(r.id));
+}
+
+function SharedSpaceInlineEditor({
   space,
-  index,
   rooms,
   storiesId,
+  isOwn,
+  onField,
+  onReset,
   onChange,
-  onBack,
+  onRemove,
 }: {
   space: ManagerSharedSpaceSubmission;
-  index: number;
-  /** Which rooms may use this space — a locked study is not shared by everyone. */
   rooms: readonly ManagerRoomSubmission[];
   storiesId: string | undefined;
-  onChange: (next: ManagerSharedSpaceSubmission) => void;
-  onBack: () => void;
+  isOwn: (field: SharedSpaceInheritField) => boolean;
+  onField: (field: "location", value: string) => void;
+  onReset: (field: SharedSpaceInheritField) => void;
+  onChange: (patch: Partial<ManagerSharedSpaceSubmission>) => void;
+  onRemove?: () => void;
 }) {
-  const set = (patch: Partial<ManagerSharedSpaceSubmission>) => onChange({ ...space, ...patch });
   return (
-    <StepColumn>
-      <p className="mb-2 text-[12px] font-bold text-muted">Shared space</p>
-      <h2 className="text-[23px] font-bold leading-tight tracking-tight text-foreground">
-        {space.name.trim() || `Shared space ${index + 1}`}
-      </h2>
-      <p className="mb-5 mt-1.5 text-[13.5px] leading-relaxed text-muted">
-        What is in it, and how it looks.
-      </p>
+    <div className={INLINE_EDITOR} data-attr="listing-v2-space-editor">
       <Field label="Name" optional>
-        <Input value={space.name} placeholder="Kitchen" onChange={(e) => set({ name: e.target.value })} />
+        <Input value={space.name} placeholder="Kitchen" onChange={(e) => onChange({ name: e.target.value })} />
       </Field>
       <Field label="Type" optional hint="Decides which amenities are offered below.">
-        <Select
-          value={space.spaceKind ?? ""}
-          onChange={(e) => set({ spaceKind: e.target.value as ManagerSharedSpaceSubmission["spaceKind"] })}
-        >
+        <Select value={space.spaceKind ?? ""} onChange={(e) => onChange({ spaceKind: e.target.value as ManagerSharedSpaceSubmission["spaceKind"] })}>
           <option value="">Select…</option>
           {SHARED_SPACE_KIND_OPTIONS.map((o) => (
             <option key={o.id} value={o.id}>
@@ -1701,8 +1685,8 @@ function SharedSpaceDetail({
           ))}
         </Select>
       </Field>
-      <Field label="Floor" optional>
-        <Select value={space.location ?? ""} onChange={(e) => set({ location: e.target.value })}>
+      <Field label="Floor" optional labelAside={<FollowTag own={isOwn("location")} who="shared space" onReset={() => onReset("location")} />}>
+        <Select value={space.location ?? ""} onChange={(e) => onField("location", e.target.value)}>
           <option value="">Select…</option>
           {floorLevelSelectOptions(storiesId, space.location).map((l) => (
             <option key={l} value={l}>
@@ -1711,117 +1695,148 @@ function SharedSpaceDetail({
           ))}
         </Select>
       </Field>
-      <Field label="Which rooms may use it" hint="Leave every room ticked unless this space is only for some of them.">
+      <Field label="Who may use it" hint="Every room, unless this space is only for some of them." labelAside={<FollowTag own={isOwn("access")} who="shared space" onReset={() => onReset("access")} />}>
         <CheckboxMultiSelect
           hideLabel
-          label="Which rooms may use it"
+          label="Who may use it"
           options={rooms.map((r, i) => ({ value: r.id, label: r.name.trim() || `Room ${i + 1}` }))}
-          selected={space.roomAccessIds ?? rooms.map((r) => r.id)}
+          selected={(space.roomAccessIds ?? []).length > 0 ? space.roomAccessIds : rooms.map((r) => r.id)}
           emptyLabel="Choose rooms…"
-          onChange={(next) => set({ roomAccessIds: next })}
+          onChange={(next) => onChange({ roomAccessIds: next })}
         />
       </Field>
-      <Field label="Description" optional hint="What a renter reads under this space.">
-        <Textarea
-          rows={2}
-          value={space.detail ?? ""}
-          onChange={(e) => set({ detail: e.target.value })}
-          placeholder="Sunny room off the kitchen, seats six…"
-        />
-      </Field>
-      <Field label="What is in it" optional>
-        <AmenityChips
-          presets={sharedSpaceAmenityPresetsForKind(space.spaceKind)}
-          value={space.amenitiesText ?? ""}
-          onChange={(next) => set({ amenitiesText: next })}
-        />
-      </Field>
+      <div className="sm:col-span-2">
+        <Field label="What is in it" optional>
+          <AmenityChips presets={sharedSpaceAmenityPresetsForKind(space.spaceKind)} value={space.amenitiesText ?? ""} onChange={(next) => onChange({ amenitiesText: next })} />
+        </Field>
+      </div>
+      <div className="sm:col-span-2">
+        <Field label="Description" optional hint="What a renter reads under this space.">
+          <Textarea rows={2} value={space.detail ?? ""} onChange={(e) => onChange({ detail: e.target.value })} placeholder="Sunny room off the kitchen, seats six…" />
+        </Field>
+      </div>
       <Field label="Photos" optional>
-        <PhotoStrip
-          label="shared space"
-          urls={space.photoDataUrls ?? []}
-          onChange={(next) => set({ photoDataUrls: next })}
-        />
+        <PhotoStrip label="shared space" urls={space.photoDataUrls ?? []} onChange={(next) => onChange({ photoDataUrls: next })} />
       </Field>
       <Field label="Video" optional>
-        <VideoSlot label="shared space" url={space.videoDataUrl} onChange={(next) => set({ videoDataUrl: next })} />
+        <VideoSlot label="shared space" url={space.videoDataUrl} onChange={(next) => onChange({ videoDataUrl: next })} />
       </Field>
-      <button
-        type="button"
-        onClick={onBack}
-        className="mt-5 min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground"
-      >
-        Back to shared spaces
-      </button>
-    </StepColumn>
+      <div className={INLINE_ACTIONS}>
+        {onRemove ? (
+          <button type="button" onClick={onRemove} data-attr="listing-v2-space-remove" className="text-[12.5px] font-bold text-destructive hover:underline">
+            Remove shared space
+          </button>
+        ) : (
+          <span />
+        )}
+      </div>
+    </div>
   );
 }
 
 function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
-  const [openSpaceId, setOpenSpaceId] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const [defaults, setDefaults] = useState<SharedSpaceDefaults>({ location: "" });
+  const own = useOwnFields();
   const spaces = sub.sharedSpaces ?? [];
-  const openSpace = spaces.find((sp) => sp.id === openSpaceId) ?? null;
-  useDetailBack(Boolean(openSpace), () => setOpenSpaceId(null));
-  if (openSpace) {
-    return (
-      <SharedSpaceDetail
-        space={openSpace}
-        index={spaces.indexOf(openSpace)}
-        rooms={sub.rooms ?? []}
-        storiesId={sub.listingStoriesId}
-        onBack={() => setOpenSpaceId(null)}
-        onChange={(next) => patch({ sharedSpaces: spaces.map((sp) => (sp.id === next.id ? next : sp)) })}
-      />
-    );
-  }
+  const rooms = sub.rooms ?? [];
   const floors = floorLevelSelectOptions(sub.listingStoriesId, "").map((l) => ({ value: l, label: l }));
-  const cols = [
-    { key: "name", label: "Shared space" },
-    { key: "floor", label: "Floor" },
-    { key: "details", label: "" },
-  ];
+  const kinds = SHARED_SPACE_KIND_OPTIONS.map((o) => ({ value: o.id, label: o.label }));
+
+  const isOwn = (space: ManagerSharedSpaceSubmission, field: SharedSpaceInheritField) => {
+    if (field === "access") return spaceIsNarrowed(space, rooms);
+    return own.has(space.id, "location") || (space.location ?? "") !== defaults.location;
+  };
+  const writeSpace = (id: string, next: ManagerSharedSpaceSubmission) => patch({ sharedSpaces: spaces.map((sp) => (sp.id === id ? next : sp)) });
+  const setFloor = (space: ManagerSharedSpaceSubmission, value: string) => {
+    own.mark(space.id, "location");
+    writeSpace(space.id, { ...space, location: value });
+  };
+  const resetField = (space: ManagerSharedSpaceSubmission, field: SharedSpaceInheritField) => {
+    if (field === "access") {
+      writeSpace(space.id, { ...space, roomAccessIds: rooms.map((r) => r.id) });
+      return;
+    }
+    own.clear(space.id, "location");
+    writeSpace(space.id, { ...space, location: defaults.location });
+  };
+  const editDefaultFloor = (value: string) => {
+    const followers = spaces.filter((sp) => !isOwn(sp, "location"));
+    setDefaults({ location: value });
+    patch({ sharedSpaces: spaces.map((sp) => (followers.includes(sp) ? { ...sp, location: value } : sp)) });
+  };
+  const toggle = (id: string) => setOpen((prev) => (prev === id ? null : id));
+  const accessSummary = (space: ManagerSharedSpaceSubmission) => {
+    if (!spaceIsNarrowed(space, rooms)) return "Everyone";
+    const n = (space.roomAccessIds ?? []).filter((id) => rooms.some((r) => r.id === id)).length;
+    return `${n} ${n === 1 ? "room" : "rooms"}`;
+  };
+
   return (
     <StepColumn wide>
       <StepHeading
         title="Kitchen, laundry and the rest"
-        subtitle="Everything every resident can use. Open one to add photos and amenities."
+        subtitle="Everything every resident can use. Set the floor once at the top; open a space for what is in it, photos and who may use it."
       />
-      <RowList columns={cols}>
-        {spaces.map((space, i) => (
-          <Row
-            key={space.id}
-            columnCount={cols.length}
-            selected={false}
-            onSelectChange={() => {}}
-            removeLabel={`Remove ${space.name || `shared space ${i + 1}`}`}
-            onRemove={() => patch({ sharedSpaces: spaces.filter((sp) => sp.id !== space.id) })}
-          >
-            <RowCell
-              ariaLabel={`Name for shared space ${i + 1}`}
-              value={space.name}
-              placeholder="Kitchen"
-              onChange={(v) => patch({ sharedSpaces: spaces.map((sp) => (sp.id === space.id ? { ...sp, name: v } : sp)) })}
-            />
-            <RowSelectCell
-              ariaLabel={`Floor for shared space ${i + 1}`}
-              value={space.location ?? ""}
-              options={floors}
-              placeholder="Floor…"
-              onChange={(v) =>
-                patch({ sharedSpaces: spaces.map((sp) => (sp.id === space.id ? { ...sp, location: v } : sp)) })
-              }
-            />
-            <button
-              type="button"
-              onClick={() => setOpenSpaceId(space.id)}
-              data-attr="listing-v2-space-details"
-              className="justify-self-start rounded-full border border-border bg-card px-3 py-1.5 text-[12px] font-bold text-primary hover:bg-accent/40"
-            >
-              Details
-            </button>
-          </Row>
-        ))}
-      </RowList>
+      <div className="overflow-x-auto rounded-2xl border border-border">
+        <div className="min-w-[700px]">
+          <div className={GRID_HEAD} style={{ gridTemplateColumns: SPACE_GRID_COLUMNS }}>
+            <span /><span>Shared space</span><span>Type</span><span>Floor</span><span>Who may use it</span><span />
+          </div>
+
+          <div className={GRID_DEFAULTS_ROW} style={{ gridTemplateColumns: SPACE_GRID_COLUMNS }}>
+            <span aria-hidden className="h-6 w-6" />
+            <span className="min-w-0 leading-tight">
+              <b className="block text-[13.5px] font-bold text-foreground">Every shared space</b>
+              <span className="block text-[11.5px] text-muted">Spaces follow this until you change them</span>
+            </span>
+            <span className="text-[12px] text-muted">—</span>
+            <RowSelectCell ariaLabel="Floor for every shared space" value={defaults.location} options={floors} placeholder="Floor…" onChange={editDefaultFloor} />
+            <span className={cn(cellSelect(false), "flex items-center text-muted")}>Everyone</span>
+            <span />
+          </div>
+
+          {spaces.map((space, i) => {
+            const isOpen = open === space.id;
+            const label = space.name.trim() || `Shared space ${i + 1}`;
+            const floorInherited = !isOwn(space, "location");
+            const accessInherited = !isOwn(space, "access");
+            return (
+              <div key={space.id} className={cn("border-b border-border last:border-b-0", isOpen && "shadow-[inset_3px_0_0_var(--pl-blue)]")}>
+                <div className={cn("grid items-center gap-2 px-3 py-2", isOpen && "bg-accent/20")} style={{ gridTemplateColumns: SPACE_GRID_COLUMNS }} data-attr="listing-v2-space-row">
+                  <GridChevron open={isOpen} onClick={() => toggle(space.id)} label={label} dataAttr="listing-v2-space-open" />
+                  <input aria-label={`Name for shared space ${i + 1}`} value={space.name} placeholder="Kitchen" onChange={(e) => writeSpace(space.id, { ...space, name: e.target.value })} className={GRID_NAME_INPUT} />
+                  <RowSelectCell ariaLabel={`Type of ${label}`} value={space.spaceKind ?? ""} options={kinds} placeholder="Type…" onChange={(v) => writeSpace(space.id, { ...space, spaceKind: v as ManagerSharedSpaceSubmission["spaceKind"] })} />
+                  <GridCell own={!floorInherited}>
+                    <RowSelectCell ariaLabel={`Floor for ${label}`} value={space.location ?? ""} options={floorLevelSelectOptions(sub.listingStoriesId, space.location ?? "").map((l) => ({ value: l, label: l }))} placeholder="Floor…" inherited={floorInherited} onChange={(v) => setFloor(space, v)} />
+                  </GridCell>
+                  <GridCell own={!accessInherited}>
+                    <button type="button" onClick={() => toggle(space.id)} className={cn(cellSelect(accessInherited), "truncate text-left")} aria-label={`Who may use ${label}`}>
+                      {accessSummary(space)}
+                    </button>
+                  </GridCell>
+                  <button type="button" aria-label={`Remove ${label}`} onClick={() => patch({ sharedSpaces: spaces.filter((sp) => sp.id !== space.id) })} className={GRID_REMOVE}>✕</button>
+                </div>
+                {isOpen ? (
+                  <SharedSpaceInlineEditor
+                    space={space}
+                    rooms={rooms}
+                    storiesId={sub.listingStoriesId}
+                    isOwn={(f) => isOwn(space, f)}
+                    onField={(_f, v) => setFloor(space, v)}
+                    onReset={(f) => resetField(space, f)}
+                    onChange={(p) => writeSpace(space.id, { ...space, ...p })}
+                    onRemove={() => {
+                      patch({ sharedSpaces: spaces.filter((sp) => sp.id !== space.id) });
+                      setOpen(null);
+                    }}
+                  />
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
       <AddRowButton
         label="Add shared space"
         icon={LayoutGrid}
@@ -1829,16 +1844,15 @@ function StepSharedSpaces({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
         onClick={() => {
           const base = spaces[0];
           const id = `space-${Date.now()}`;
-          patch({
-            sharedSpaces: [
-              ...spaces,
-              base ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null } : ({ id, name: "" } as never),
-            ],
-          });
+          const blank = base
+            ? { ...base, id, name: "", photoDataUrls: [], videoDataUrl: null, roomAccessIds: rooms.map((r) => r.id), location: defaults.location || base.location }
+            : ({ id, name: "", location: defaults.location, roomAccessIds: rooms.map((r) => r.id) } as never);
+          patch({ sharedSpaces: [...spaces, blank] });
+          setOpen(id);
         }}
       />
       <p className="mt-3 text-[12px] leading-relaxed text-muted">
-        Shared spaces are available to every room unless you say otherwise when you open one.
+        Shared spaces are available to every room unless you narrow one when you open it.
       </p>
     </StepColumn>
   );
@@ -2160,95 +2174,47 @@ function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
             </Select>
           </Field>
         </>
-      ) : (
-        <p className="mt-4 rounded-xl border border-border bg-card px-4 py-3 text-[12px] leading-relaxed text-muted">
-          Every charge a resident pays — rent, deposit, move-in fee, application fee, utilities and your own charges —
-          is set on the <span className="font-bold text-foreground">Rooms</span> step, inside the lease type it belongs
-          to, so no figure is asked for twice.
-        </p>
-      )}
+      ) : null}
 
-      <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">How rent reaches you</p>
-      <Field label="Accepted for rent" hint="Card or bank on PropLane is on unless you turn it off.">
+      {/*
+       * One answer for every payment. "Where does the money land" used to be
+       * asked twice — once for rent, once for the application fee — with two
+       * near-identical lists that also offered Zelle, Venmo and an ACH link,
+       * every one of which the normalizer has switched off since checkout went
+       * Stripe-only (`zelleEnabled = false`, bc91cc80): a manager could tick
+       * them and the save silently dropped them. What is offered here is what
+       * actually works, and ticking it turns it on for rent, deposits and the
+       * application fee together (`applicationFeeStripeEnabled` already follows
+       * `axisPaymentsEnabled` on save).
+       */}
+      <Field
+        label="Accepted for rent, deposits and the application fee"
+        hint="Card or bank on PropLane is on unless you turn it off. Amounts are set above."
+      >
         <CheckboxMultiSelect
           hideLabel
-          label="Accepted for rent"
+          label="How you get paid"
+          dataAttr="listing-v2-how-you-get-paid"
           options={[
             { value: "axis", label: "Card or bank on PropLane" },
-            { value: "zelle", label: "Zelle" },
-            { value: "venmo", label: "Venmo" },
-            { value: "ach", label: "ACH link" },
+            { value: "other", label: "Another way for the application fee", hint: "You write the instructions an applicant follows" },
           ]}
           selected={[
-            // `undefined` means on for PropLane's own rail — only an explicit
-            // false turns it off, so a listing saved before this existed keeps
-            // accepting card payments.
             ...(sub.axisPaymentsEnabled !== false ? ["axis"] : []),
-            ...(sub.zellePaymentsEnabled ? ["zelle"] : []),
-            ...(sub.venmoPaymentsEnabled ? ["venmo"] : []),
-            ...(sub.achPaymentLinkEnabled ? ["ach"] : []),
+            ...(sub.applicationFeeOtherEnabled ? ["other"] : []),
           ]}
-          emptyLabel="No rent method chosen"
+          emptyLabel="No payment method chosen"
           onChange={(next) =>
             patch({
               axisPaymentsEnabled: next.includes("axis"),
-              zellePaymentsEnabled: next.includes("zelle"),
-              venmoPaymentsEnabled: next.includes("venmo"),
-              achPaymentLinkEnabled: next.includes("ach"),
-            })
-          }
-        />
-      </Field>
-      {sub.zellePaymentsEnabled || sub.venmoPaymentsEnabled ? (
-        <FieldRow cols={2}>
-          {sub.zellePaymentsEnabled ? (
-            <Field label="Zelle contact" hint="The email or phone a resident sends to.">
-              <Input value={sub.zelleContact ?? ""} onChange={(e) => patch({ zelleContact: e.target.value })} />
-            </Field>
-          ) : null}
-          {sub.venmoPaymentsEnabled ? (
-            <Field label="Venmo contact">
-              <Input value={sub.venmoContact ?? ""} placeholder="@handle" onChange={(e) => patch({ venmoContact: e.target.value })} />
-            </Field>
-          ) : null}
-        </FieldRow>
-      ) : null}
-      {sub.achPaymentLinkEnabled ? (
-        <Field label="ACH payment link">
-          <Input value={sub.achPaymentLink ?? ""} placeholder="https://…" onChange={(e) => patch({ achPaymentLink: e.target.value })} />
-        </Field>
-      ) : null}
-
-      <p className="mb-3 mt-5 text-[12.5px] font-bold text-foreground">How the application fee is paid</p>
-      <Field label="Accepted for the application fee" hint="Card is on unless you turn it off. The amount is set on the Rooms step.">
-        <CheckboxMultiSelect
-          hideLabel
-          label="Accepted for the application fee"
-          options={[
-            { value: "card", label: "Card" },
-            { value: "zelle", label: "Zelle" },
-            { value: "venmo", label: "Venmo" },
-            { value: "other", label: "Other" },
-          ]}
-          selected={[
-            ...(sub.applicationFeeStripeEnabled !== false ? ["card"] : []),
-            ...(sub.applicationFeeZelleEnabled ? ["zelle"] : []),
-            ...(sub.applicationFeeVenmoEnabled ? ["venmo"] : []),
-            ...(sub.applicationFeeOtherEnabled ? ["other"] : []),
-          ]}
-          emptyLabel="No method chosen"
-          onChange={(next) =>
-            patch({
-              applicationFeeStripeEnabled: next.includes("card"),
-              applicationFeeZelleEnabled: next.includes("zelle"),
-              applicationFeeVenmoEnabled: next.includes("venmo"),
+              applicationFeeStripeEnabled: next.includes("axis"),
               applicationFeeOtherEnabled: next.includes("other"),
             })
           }
         />
       </Field>
       {sub.applicationFeeOtherEnabled ? (
-        <Field label="How to pay it" hint="Shown to an applicant who picks “other”.">
+        <Field label="How to pay the application fee another way" hint="Shown to an applicant who picks it. Left blank, the option is not offered.">
           <Textarea
             rows={2}
             value={sub.applicationFeeOtherInstructions ?? ""}
@@ -2747,12 +2713,6 @@ export function ListingEditorV2({
   /** Which room and lease type the receipt is quoting. */
   const [quoteRoomId, setQuoteRoomId] = useState<string | null>(null);
   const [quoteTerm, setQuoteTerm] = useState<string | null>(null);
-  // Set while a room, bathroom or shared space detail is open — see useDetailBack.
-  const [closeDetail, setCloseDetail] = useState<{ run: () => void } | null>(null);
-  const registerDetailBack = useMemo(
-    () => (close: (() => void) | null) => setCloseDetail(close ? { run: close } : null),
-    [],
-  );
   const patch: Patch = (next) => onChange({ ...submission, ...next });
   const last = LISTING_V2_STEPS.length - 1;
   const stepId = LISTING_V2_STEPS[step]!.id;
@@ -2952,13 +2912,8 @@ export function ListingEditorV2({
           <div className="flex items-center gap-2.5">
             <button
               type="button"
-              disabled={step === 0 && !closeDetail}
-              onClick={() => {
-                // A manager looking at Room 3 who presses the only Back on screen
-                // means "back to the rooms", not "back to Basics".
-                if (closeDetail) closeDetail.run();
-                else goTo(step - 1);
-              }}
+              disabled={step === 0}
+              onClick={() => goTo(step - 1)}
               className="min-h-[44px] rounded-full border border-border bg-card px-6 text-[14px] font-bold text-foreground disabled:opacity-45"
             >
               Back
@@ -3046,7 +3001,7 @@ export function ListingEditorV2({
         </>
       }
     >
-      <DetailBackContext.Provider value={registerDetailBack}>{body}</DetailBackContext.Provider>
+      {body}
       <SideBelow>{sidePanel}</SideBelow>
     </ListingWorkspace>
   );

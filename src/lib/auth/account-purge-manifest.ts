@@ -55,6 +55,24 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
   },
   // ---------------------------------------------------------------- phase 1: child rows
   {
+    // Source receipts are private conversation content and cascade from the
+    // durable burst. Keep this explicit so the account-purge coverage test
+    // cannot silently leave a re-registered manager's prospect history.
+    table: "prospect_sms_ingress",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    table: "prospect_sms_inline_actions",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
+    table: "prospect_sms_shadow_jobs",
+    phase: 1,
+    manager: { ids: ["manager_user_id"] },
+  },
+  {
     table: "gl_journal_lines",
     phase: 1,
     // The manager's general ledger lines go with their journal entries (cascade); a resident
@@ -549,6 +567,11 @@ export const ACCOUNT_PURGE_TABLES: readonly PurgeTableRule[] = [
     manager: { ids: ["manager_user_id", "actor_user_id"] },
     resident: { ids: ["recipient_user_id"], emails: ["recipient_email"] },
     vendor: { ids: ["recipient_user_id"], emails: ["recipient_email"] },
+  },
+  {
+    table: "prospect_sms_bursts",
+    phase: 2,
+    manager: { ids: ["manager_user_id"] },
   },
   {
     table: "mcp_oauth_authorization_codes",

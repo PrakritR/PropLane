@@ -8,6 +8,7 @@ import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { ScopedInboxComposeModal, type ScopedInboxSendPayload } from "@/components/portal/inbox-scoped-compose-modal";
 import type { InboxScopedContact } from "@/data/inbox-scoped-directory";
 import { INBOX_TAB_DEFS, INBOX_LIST_SCROLL, AiDraftReplyCard, InboxBubbleMessage, InboxComposer, InboxConversationRow, InboxReplyChannelPicker, InboxScheduledCard, InboxScheduledThreadList, InboxThreadEmpty, InboxThreadView, InboxTwoPane, PortalInboxEmptyState, PortalInboxMessageTable, type PortalInboxTableRow } from "@/components/portal/portal-inbox-ui";
+import { InboxComposerAiMenu, InboxComposerChannelMenu } from "@/components/portal/inbox-composer-tools";
 import {
   buildInboxThreadAssistantContext,
   InboxThreadAssistantStrip,
@@ -1388,6 +1389,21 @@ export const ResidentInboxPanel = forwardRef<
       proplaneAvailable={activeProplaneAvailable}
     />
   );
+  // The reply row is the manager's: ✦ AI (draft · ask), then the channel menu.
+  const [askAssistantSignal, setAskAssistantSignal] = useState(0);
+  const replyChannelMenu = (
+    <InboxComposerChannelMenu
+      viaEmail={replyViaEmail}
+      viaSms={replyViaSms}
+      viaProplane={replyViaProplane}
+      onViaProplaneChange={setReplyViaProplane}
+      onViaEmailChange={setReplyViaEmail}
+      onViaSmsChange={setReplyViaSms}
+      emailAvailable
+      smsAvailable={activeSmsAvailable}
+      proplaneAvailable={activeProplaneAvailable}
+    />
+  );
 
   const sendActiveReply = useCallback(async (textOverride?: string) => {
     if (!activeThread) return;
@@ -1542,11 +1558,9 @@ export const ResidentInboxPanel = forwardRef<
     if (!activeThread || activeThread.folder === "trash" || tabId === "trash") return undefined;
     return (
       <>
-        {/* Draft with AI and Ask PropLane sit on ONE row, the same as the
-            manager's thread. Each renders its own top border and padding for
-            the standalone panel, so the wrapper neutralises those and owns the
-            row's chrome instead. */}
-        <div className="portal-inbox-compose-actions flex shrink-0 flex-wrap items-center gap-2 border-t border-border bg-card px-3.5 pb-1.5 pt-2.5 [&>*]:!m-0 [&>*]:!flex [&>*]:!items-center [&>*]:!border-0 [&>*]:!bg-transparent [&>*]:!p-0">
+        {/* Draft with AI and Ask PropLane live in the reply row (its ✦ tool),
+            the same as the manager's thread. Only a draft in flight, a failed
+            draft, or a draft waiting for approval still shows above it. */}
         {showResidentAiDraftUi ? (
           <AiDraftReplyCard
             drafting={aiDrafting}
@@ -1580,6 +1594,7 @@ export const ResidentInboxPanel = forwardRef<
             maxLength={
               !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
             }
+            hideGenerateButton
           />
         ) : null}
         <InboxThreadAssistantStrip
@@ -1589,8 +1604,9 @@ export const ResidentInboxPanel = forwardRef<
             from: activeThread.from,
             sentSemantics: activeIsSent,
           })}
+          hideTrigger
+          openSignal={askAssistantSignal}
         />
-        </div>
         <InboxComposer
           value={replyDraft}
           onChange={setReplyDraft}
@@ -1614,7 +1630,15 @@ export const ResidentInboxPanel = forwardRef<
             !embeddedInCommunication && replyViaSms && !replyViaEmail ? 1600 : undefined
           }
           dataAttr="resident-inbox-reply"
-          channelControl={showReplyChannelPicker ? replyChannelPicker : undefined}
+          trailingControls={
+            <>
+              <InboxComposerAiMenu
+                onDraft={showResidentAiDraftUi && !aiDraftText.trim() ? () => void requestResidentAiDraft() : undefined}
+                onAsk={() => setAskAssistantSignal((n) => n + 1)}
+              />
+              {showReplyChannelPicker ? replyChannelMenu : null}
+            </>
+          }
           attachments={replyAttachments}
           onAttachmentsPick={pickReplyAttachments}
           onAttachmentRemove={(id) => {
@@ -1640,6 +1664,7 @@ export const ResidentInboxPanel = forwardRef<
     aiDraftText,
     aiDrafting,
     approvingAiDraft,
+    askAssistantSignal,
     autoSend,
     discardResidentAiDraft,
     embeddedInCommunication,
@@ -1647,6 +1672,7 @@ export const ResidentInboxPanel = forwardRef<
     pickReplyAttachments,
     replyAttachments,
     replyChannelPicker,
+    replyChannelMenu,
     replyDraft,
     replySending,
     replyViaEmail,

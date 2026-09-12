@@ -59,7 +59,7 @@ type OfferedSlot = { slotKey: string; start: string; end: string; label: string;
 async function loadOfferedSlots(
   db: AgentContext["db"],
   input: SlotsInput,
-): Promise<{ slots: OfferedSlot[]; timeZone: string }> {
+): Promise<{ slots: OfferedSlot[]; timeZone: string; resolution: "resolved" | "unavailable" }> {
   const result = await listOpenTourSlots(db, {
     propertyId: input.propertyId,
     buildingName: input.buildingName ?? null,
@@ -85,14 +85,18 @@ async function loadOfferedSlots(
     });
   }
   slots.sort((a, b) => a.start.localeCompare(b.start));
-  return { slots: slots.slice(0, SLOT_LIMIT), timeZone: TOUR_CALENDAR_TIME_ZONE };
+  return {
+    slots: slots.slice(0, SLOT_LIMIT),
+    timeZone: TOUR_CALENDAR_TIME_ZONE,
+    resolution: result.resolution ?? "resolved",
+  };
 }
 
 const SLOTS_DESCRIPTION =
   "List the tour times currently open for a property, with the host for each. This is the ONLY source of bookable times — published availability minus calendar-busy minus already-booked, the same grid the public booking page shows. Always call this before offering, requesting, or booking a time, and quote the returned start/end verbatim; never work a time out yourself.";
 
 /** Manager-scoped read. Availability is public by nature, so no extra filter. */
-export const listOpenTourSlotsTool = defineTool<SlotsInput, { slots: OfferedSlot[]; timeZone: string }>({
+export const listOpenTourSlotsTool = defineTool<SlotsInput, { slots: OfferedSlot[]; timeZone: string; resolution: "resolved" | "unavailable" }>({
   name: "list_open_tour_slots",
   description: SLOTS_DESCRIPTION,
   inputSchema: slotsInputSchema,
@@ -102,7 +106,7 @@ export const listOpenTourSlotsTool = defineTool<SlotsInput, { slots: OfferedSlot
 /** The identical read, bound to the resident context type. */
 export const residentListOpenTourSlotsTool = defineTool<
   SlotsInput,
-  { slots: OfferedSlot[]; timeZone: string },
+  { slots: OfferedSlot[]; timeZone: string; resolution: "resolved" | "unavailable" },
   ResidentAgentContext
 >({
   name: "list_open_tour_slots",
