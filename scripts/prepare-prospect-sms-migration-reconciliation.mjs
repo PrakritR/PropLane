@@ -280,9 +280,10 @@ function assertMirrorAttestation(attestation, operations) {
   }
   const evidence = new Map(pinned.evidence.map((row) => [row.file, row.sha256]));
   if (evidence.get("production-ledger-before.json") !== CAPTURED_LEDGER_SHA256.production ||
+      evidence.get("production-schema-before.sql") !== PRODUCTION_EVIDENCE_SHA256.schema ||
       evidence.get("production-inbox-bucket.json") !== PRODUCTION_EVIDENCE_SHA256.inboxBucket ||
       evidence.get("production-storage-policies.json") !== PRODUCTION_EVIDENCE_SHA256.storagePolicies ||
-      !/^[a-f0-9]{64}$/.test(evidence.get("production-schema-before.sql") ?? "")) throw new Error("production catalog evidence refused");
+      evidence.size !== 4) throw new Error("production catalog evidence refused");
   const prerequisite = pinned.prerequisites?.[0];
   if (!prerequisite || pinned.prerequisites.length !== 1 || prerequisite.migrationVersion !== "20260912150000" ||
       prerequisite.migrationName !== "shared_room_capacity_normalization_occupancy_start" ||
