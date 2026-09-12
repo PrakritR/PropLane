@@ -55,7 +55,7 @@ test.describe("Public home", () => {
     await expect(pricing.getByText("$0", { exact: true })).toBeVisible();
     await expect(pricing.getByText("$20", { exact: true })).toBeVisible();
     await expect(pricing.getByText("$200", { exact: true })).toBeVisible();
-    await expect(pricing.getByRole("link", { name: /compare every feature/i })).toHaveAttribute("href", "/pricing");
+    await expect(pricing.getByRole("link", { name: /compare every feature/i })).toHaveAttribute("href", "/pricing#compare");
   });
 
   test("the audience switch changes the screen beside it", async ({ page }) => {

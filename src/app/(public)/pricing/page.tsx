@@ -236,7 +236,7 @@ function CellValue({ value }: { value: Cell }) {
 
 function CompareTable() {
   return (
-    <details className="group mt-10 rounded-2xl border border-border bg-card" data-attr="pricing-compare">
+    <details id="compare" className="group mt-10 scroll-mt-24 rounded-2xl border border-border bg-card" data-attr="pricing-compare" open>
       <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 text-[15.5px] font-bold text-foreground sm:px-6 [&::-webkit-details-marker]:hidden">
         Compare every feature
         <span aria-hidden className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-border text-muted transition-transform group-open:rotate-180">

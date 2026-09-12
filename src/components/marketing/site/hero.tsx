@@ -1,91 +1,117 @@
-import { MockApproveRow, MockAvatar, MockButton, MockChip, MockDraft, MockFrame, SITE_MEASURE, SiteCtaPair, SiteEyebrow, SiteHeading } from "@/components/marketing/site/primitives";
+import Image from "next/image";
+import Link from "next/link";
+import { AppStoreBadge } from "@/components/marketing/app-store-badge";
+import { SITE_MEASURE } from "@/components/marketing/site/primitives";
+import { BOOK_DEMO_HREF, GET_STARTED_HREF } from "@/lib/marketing/public-contact";
+import { cn } from "@/lib/utils";
+import "@/components/marketing/site/site.css";
 
 /**
- * The home hero. One argument in one screen: the AI does the busywork, you
- * approve — the headline says it, and the card beside it shows the queue where
- * that approval happens (the dashboard's Needs attention list with a drafted
- * reply waiting on Approve & send).
+ * The home hero — "Night blue". One argument, centered, on navy: the AI does
+ * the busywork, you approve. The product is the picture: the real manager
+ * dashboard in a browser frame bleeding off the fold, the iPhone dashboard
+ * over it, and one drafted reply floating out — the object the whole site is
+ * about. Colours are explicit (not theme tokens) because the public pages are
+ * locked to the light theme and this section is deliberately dark either way.
+ *
+ * Screenshots come from `public/marketing/product/` — captured from the
+ * dev/test seed with nudges dismissed (see scripts/capture-marketing-shots.mjs);
+ * never from production.
  */
 export function SiteHero() {
   return (
-    <section className="relative overflow-hidden border-b border-border/70" aria-labelledby="site-hero-title">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_75%_10%,rgba(40,99,240,0.12),transparent_70%)]"
-      />
-      <div className={`${SITE_MEASURE} relative grid items-center gap-12 pb-16 pt-14 sm:pt-16 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:gap-14 lg:pb-20 lg:pt-20`}>
-        <div className="min-w-0 max-w-[36rem]">
-          <SiteEyebrow className="mb-4 flex items-center gap-1.5">
+    <section
+      className="site-hero relative overflow-hidden bg-[#0b1120] text-white"
+      aria-labelledby="site-hero-title"
+      data-site-hero
+    >
+      {/* Background: two blue glows and a dot grain. Pure CSS, no assets. */}
+      <div aria-hidden className="site-hero-glow site-hero-glow-a" />
+      <div aria-hidden className="site-hero-glow site-hero-glow-b" />
+      <div aria-hidden className="site-hero-grain" />
+
+      <div className={cn(SITE_MEASURE, "relative z-[1] pt-16 sm:pt-20 lg:pt-24")}>
+        <div className="mx-auto flex max-w-[60rem] flex-col items-center text-center">
+          <p className="mb-4 flex items-center gap-1.5 text-[12.5px] font-bold uppercase tracking-[0.08em] text-[#8fb3ff]">
             <span aria-hidden>✦</span> Approval-first property management
-          </SiteEyebrow>
-          <SiteHeading as="h1" id="site-hero-title">
+          </p>
+          <h1
+            id="site-hero-title"
+            className="text-[clamp(2.4rem,5.6vw,4rem)] font-bold leading-[1.02] tracking-[-0.035em] text-white"
+          >
             The AI does the busywork.
             <br />
-            <span className="text-primary">You approve.</span>
-          </SiteHeading>
-          <p className="mt-5 max-w-[46ch] text-[16.5px] leading-relaxed text-muted sm:text-[17.5px]">
-            One place to list a home, take applications, draft the lease, collect rent and handle repairs — with every
-            message and charge waiting for your OK before it goes out.
+            <span className="text-[#5a8cff]">You approve.</span>
+          </h1>
+          <p className="mt-5 max-w-[46ch] text-[16.5px] leading-relaxed text-[#b8c4dc] sm:text-[17.5px]">
+            One place to list a home, take applications, draft the lease, collect rent and handle repairs — every message
+            and charge waits for your OK.
           </p>
-          <SiteCtaPair
-            className="mt-8"
-            primaryAttr="home-hero-get-started"
-            secondaryAttr="home-hero-book-demo"
-            primaryLabel="Start free — no card"
-            note="Free for one home. Pro is $20 a month · 14-day trial · Web and iPhone"
-          />
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+            <Link
+              href={GET_STARTED_HREF}
+              data-attr="home-hero-get-started"
+              className="inline-flex min-h-[48px] items-center justify-center rounded-full bg-white px-7 text-[15px] font-bold text-[#0b1120] shadow-[0_10px_30px_-10px_rgba(255,255,255,0.35)] transition hover:-translate-y-0.5 hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+            >
+              Start free — no card
+            </Link>
+            <Link
+              href={BOOK_DEMO_HREF}
+              data-attr="home-hero-book-demo"
+              className="inline-flex min-h-[48px] items-center justify-center rounded-full border border-white/30 px-7 text-[15px] font-bold text-white transition hover:border-white/60 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+            >
+              Book a demo
+            </Link>
+            <AppStoreBadge tone="light" size="lg" dataAttr="home-hero-app-store" className="h-12" />
+          </div>
+          <p className="mt-4 text-[13px] text-[#8391ad]">Free for one home · No card · Web and iPhone</p>
         </div>
 
-        <div className="mx-auto w-full max-w-[560px] min-w-0 lg:ml-auto lg:mr-0">
-          <HeroQueueCard />
+        {/* Media: the real product, bleeding off the fold. */}
+        <div className="relative mx-auto mt-12 max-w-[920px] sm:mt-14">
+          <div className="site-hero-browser">
+            <div className="flex items-center gap-1.5 border-b border-black/5 bg-[#f1f3f7] px-3 py-2 text-[11px] text-[#4a4e56]">
+              <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" aria-hidden />
+              <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" aria-hidden />
+              <i className="h-2.5 w-2.5 rounded-full bg-[#d9dde5]" aria-hidden />
+              <span className="ml-2 rounded-md bg-white px-2.5 py-0.5">prop-lane.space/portal/dashboard</span>
+            </div>
+            <Image
+              src="/marketing/product/dashboard.webp"
+              alt="The PropLane manager dashboard: occupancy, rent collected, open requests and a Needs attention list"
+              width={1440}
+              height={900}
+              priority
+              sizes="(max-width: 920px) 100vw, 920px"
+              className="block h-auto w-full"
+            />
+          </div>
+
+          <div className="site-hero-phone" aria-hidden>
+            <Image
+              src="/marketing/product/phone-dashboard.webp"
+              alt=""
+              width={390}
+              height={844}
+              sizes="180px"
+              className="block h-auto w-full"
+            />
+          </div>
+
+          {/* The dashboard's AI-drafts row, as it ships: title, "ready to approve", Approve / Discard. */}
+          <div className="site-hero-draft" aria-hidden>
+            <p className="mb-1.5 flex items-center gap-2 text-[11px] font-bold text-primary">
+              <span>✦</span> AI drafts <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-[#1e4fd6]">Pending approval</span>
+            </p>
+            <p className="text-[12.5px] font-semibold leading-snug text-[#17181a]">PropLane · Dispatch Pacific Plumbing to Maple 2A</p>
+            <p className="text-[11px] text-[#4a4e56]">Service request #1042 · Thu 10–12 · ready to approve</p>
+            <p className="mt-2 flex items-center gap-2">
+              <span className="rounded-full bg-primary px-3 py-1 text-[11.5px] font-bold text-white">Approve</span>
+              <span className="rounded-full border border-black/15 px-3 py-1 text-[11.5px] font-bold text-[#17181a]">Discard</span>
+            </p>
+          </div>
         </div>
       </div>
     </section>
-  );
-}
-
-/** The dashboard's Needs attention queue, plus the inbox draft under it. */
-function HeroQueueCard() {
-  return (
-    <div className="space-y-3">
-      <MockFrame
-        title="proplane.app/portal/dashboard"
-        aside={<span className="text-[11.5px] font-semibold text-muted">This month ▾</span>}
-      >
-        <div className="mb-2 flex items-center justify-between px-2">
-          <span className="text-[13px] font-bold text-foreground">Needs attention</span>
-          <MockChip tone="bad">3</MockChip>
-        </div>
-        <ul className="divide-y divide-border/60">
-          {[
-            { name: "Maya Chen", title: "Maya Chen · application", sub: "Cascade Lofts · Room 4B · screening clear", action: "Review" },
-            { name: "Priya Nair", title: "Priya Nair · lease waits for your signature", sub: "Resident signed 2h ago", action: "Sign" },
-            { name: "Jordan Lee", title: "Jordan Lee · rent 3 days late", sub: "$1,240 · reminder drafted", action: "Remind" },
-          ].map((row) => (
-            <li key={row.name} className="flex items-center gap-3 px-2 py-2.5">
-              <MockAvatar name={row.name} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13.5px] font-semibold text-foreground">{row.title}</span>
-                <span className="block truncate text-[12px] text-muted">{row.sub}</span>
-              </span>
-              <MockButton>{row.action}</MockButton>
-            </li>
-          ))}
-        </ul>
-      </MockFrame>
-
-      <MockFrame title="Inbox · Dana Reyes" aside={<MockChip tone="warn">Draft · pending approval</MockChip>}>
-        <p className="mb-3 rounded-xl bg-accent/50 px-3 py-2 text-[13px] leading-relaxed text-foreground/90">
-          &ldquo;Hi, the kitchen faucet in Maple 2A has been dripping for two days. Can someone take a look?&rdquo;
-        </p>
-        <MockDraft>
-          &ldquo;Thanks Dana — I&rsquo;ve booked Pacific Plumbing for Thursday 10–12. They&rsquo;ll text before arriving.&rdquo;{" "}
-          <span className="text-muted">Vendor: Pacific Plumbing</span>
-        </MockDraft>
-        <div className="mt-3">
-          <MockApproveRow />
-        </div>
-      </MockFrame>
-    </div>
   );
 }

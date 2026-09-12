@@ -12,11 +12,11 @@ const REPLACES: { from: string; to: string }[] = [
 export function SiteReplacesStrip() {
   return (
     <div className="border-b border-border/70 bg-[var(--pl-surface-muted)] [html[data-theme=dark]_&]:bg-white/[0.03]">
-      <div className={`${SITE_MEASURE} flex flex-wrap items-center gap-x-6 gap-y-2 py-4 text-[13px]`}>
-        <span className="font-bold uppercase tracking-[0.08em] text-muted">Replaces</span>
-        <ul className="flex flex-wrap items-center gap-x-6 gap-y-2">
+      <div className={`${SITE_MEASURE} flex flex-wrap items-center gap-x-4 gap-y-2.5 py-4 text-[13.5px] max-[379px]:hidden`}>
+        <span className="text-[11.5px] font-extrabold uppercase tracking-[0.12em] text-muted">Replaces</span>
+        <ul className="flex flex-wrap items-center gap-2">
           {REPLACES.map((r) => (
-            <li key={r.from} className="flex items-center gap-1.5 whitespace-nowrap">
+            <li key={r.from} className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-card px-3 py-1">
               <span className="text-muted line-through decoration-muted/60">{r.from}</span>
               <span aria-hidden className="text-muted">→</span>
               <span className="font-semibold text-foreground">{r.to}</span>
