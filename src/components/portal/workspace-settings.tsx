@@ -11,8 +11,9 @@
  * per-workspace roll-up and links across.
  */
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Building2, ChevronDown, ChevronUp, Pencil, Trash2, UserPlus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input, Select } from "@/components/ui/input";
@@ -278,11 +279,26 @@ function WorkspaceCard({
 export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {}) {
   const ctx = useWorkspaces();
   const confirm = useConfirm();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   // `openNew` is the sidebar's "New workspace" landing here with the form already open.
   const [editing, setEditing] = useState<PortalWorkspace | "new" | null>(openNew ? "new" : null);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [moving, setMoving] = useState<{ id: string; destination: string } | null>(null);
+  useEffect(() => {
+    if (!openNew) return;
+    setName("");
+    setEditing("new");
+  }, [openNew]);
+  const closeEditor = useCallback(() => {
+    setEditing(null);
+    if (!openNew || typeof window === "undefined") return;
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    params.delete("new");
+    const query = params.toString();
+    window.history.replaceState(null, "", query ? `${pathname}?${query}` : pathname);
+  }, [openNew, pathname, searchParams]);
   if (!ctx) return null;
   const owned = ctx.workspaces.filter((w) => w.owned);
   const plan = ctx.plan;
@@ -355,11 +371,11 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
           />
         ))
       )}
-      <Modal open={editing !== null} onClose={() => setEditing(null)} title={editing === "new" ? "Add workspace" : "Rename workspace"}>
+      <Modal open={editing !== null} onClose={closeEditor} title={editing === "new" ? "Add workspace" : "Rename workspace"}>
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            void run({ action: editing === "new" ? "create" : "rename", id: editing && editing !== "new" ? editing.id : undefined, name }, () => setEditing(null));
+            void run({ action: editing === "new" ? "create" : "rename", id: editing && editing !== "new" ? editing.id : undefined, name }, closeEditor);
           }}
         >
           <label className="block text-sm font-medium">
@@ -372,12 +388,12 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
             </p>
           ) : null}
           <ModalFooter>
-            <Button variant="ghost" type="button" onClick={() => setEditing(null)}>
+            <Button variant="ghost" type="button" onClick={closeEditor}>
               Cancel
             </Button>
             <Button
               type="button"
-              onClick={() => run({ action: editing === "new" ? "create" : "rename", id: editing && editing !== "new" ? editing.id : undefined, name }, () => setEditing(null))}
+              onClick={() => run({ action: editing === "new" ? "create" : "rename", id: editing && editing !== "new" ? editing.id : undefined, name }, closeEditor)}
             >
               Save
             </Button>

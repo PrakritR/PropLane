@@ -1098,7 +1098,9 @@ export const ManagerInbox = forwardRef<
   );
 
   // ---- Open conversation (right pane) ----------------------------------
-  const [replyDraft, setReplyDraft] = useState("");
+  const [reply, setReply] = useState<{ threadId: string | null; text: string }>({ threadId: null, text: "" });
+  const replyDraft = reply.text;
+  const setReplyDraft = useCallback((text: string) => setReply((prev) => ({ ...prev, text })), []);
   const [replyAttachments, setReplyAttachments] = useState<InboxComposerAttachment[]>([]);
   const [replySending, setReplySending] = useState(false);
   const [replyViaEmail, setReplyViaEmail] = useState(true);
@@ -1135,12 +1137,11 @@ export const ManagerInbox = forwardRef<
   }, [activeThread?.id]);
 
   // A draft per conversation — restored when the manager comes back to it.
-  // The ref names the conversation the text in the box belongs to, so the
+  // The text and the conversation it belongs to travel as one value, so the
   // write below never files the previous thread's words under the new id.
-  const replyDraftThreadRef = useRef<string | null>(null);
   useEffect(() => {
-    replyDraftThreadRef.current = activeThread?.id ?? null;
-    setReplyDraft(activeThread?.id ? readInboxReplyDraft(activeThread.id) : "");
+    const threadId = activeThread?.id ?? null;
+    setReply({ threadId, text: threadId ? readInboxReplyDraft(threadId) : "" });
     setReplyAttachments((prev) => {
       prev.forEach(revokeInboxAttachmentPreview);
       return [];
@@ -1149,9 +1150,9 @@ export const ManagerInbox = forwardRef<
 
   // Keep the unsent text for THIS conversation as it is typed.
   useEffect(() => {
-    if (!activeThread?.id || replyDraftThreadRef.current !== activeThread.id) return;
-    writeInboxReplyDraft(activeThread.id, replyDraft);
-  }, [activeThread?.id, replyDraft]);
+    if (!reply.threadId || reply.threadId !== activeThread?.id) return;
+    writeInboxReplyDraft(reply.threadId, reply.text);
+  }, [activeThread?.id, reply]);
 
   useEffect(() => {
     if (activeThread?.aiDraft?.status === "pending_approval") {

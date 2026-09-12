@@ -960,8 +960,10 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
       periods,
       (l) => toMs(l.fullySignedAt ?? l.signedAtIso ?? l.updatedAtIso),
       (l) => toMs(l.application?.leaseEnd) ?? toMs(l.voidedAt),
+      nowMs,
     );
-    const spaces = Math.max(data.portfolio.rentableSpaces, data.activeResidents.length, 1);
+    const occupiedNow = occupiedSeries[occupiedSeries.length - 1] ?? 0;
+    const spaces = Math.max(data.portfolio.rentableSpaces, occupiedNow, 1);
     const occupancyPct = occupiedSeries.map((n) => Math.round((n / spaces) * 100));
 
     // Rent collected: paid charges by the day they were paid; due: every charge
@@ -989,8 +991,9 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
       labels,
       occupancy: {
         value: `${occupancyPct[occupancyPct.length - 1] ?? 0}%`,
+        // One population for the card: the same series the figure comes from.
         // A portfolio with nothing rentable yet says so, rather than "0 / 1".
-        unit: data.portfolio.rentableSpaces > 0 ? `${data.activeResidents.length} / ${spaces}` : "No spaces yet",
+        unit: data.portfolio.rentableSpaces > 0 ? `${occupiedNow} / ${spaces}` : "No spaces yet",
         series: occupancyPct,
         delta: kpiDelta(occupancyPct, (n) => `${n} pts`, previous),
       },
@@ -1089,6 +1092,7 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
    * order — money owed, decisions, signatures, tours, setup — capped at six
    * rows so it stays a list of next actions rather than a second inbox.
    */
+  const applicationProperties = new Set(pendingApps.map((a) => a.propertyId || a.property));
   const attentionRows: AttentionRow[] = [];
   if (overdueChargeCount > 0) {
     attentionRows.push({
@@ -1298,7 +1302,7 @@ export function ManagerDashboard({ displayName = "there" }: { displayName?: stri
             value={String(pendingApps.length)}
             unit={
               pendingApps.length > 0
-                ? `${new Set(pendingApps.map((a) => a.propertyId || a.property)).size} ${new Set(pendingApps.map((a) => a.propertyId || a.property)).size === 1 ? "property" : "properties"}`
+                ? `${applicationProperties.size} ${applicationProperties.size === 1 ? "property" : "properties"}`
                 : undefined
             }
             detail={pendingApps.length > 0 ? "Waiting for your decision" : "No applications waiting"}

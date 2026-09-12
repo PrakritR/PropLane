@@ -17,6 +17,7 @@
 
 import { Copy, Link2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
 import { InboxAvatar } from "@/components/portal/portal-inbox-ui";
 import type { AccountLinkInviteDto } from "@/lib/account-links";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,9 @@ export type TeamMemberRow = {
   joinedAt: string | null;
   /** Opens the member's access editor. Absent for the owner. */
   onAccess?: () => void;
+  /** Row selection for the bulk Remove bar. Absent for the owner. */
+  checked?: boolean;
+  onSelectedChange?: (checked: boolean) => void;
 };
 
 function shortDate(iso: string | null | undefined): string {
@@ -74,7 +78,7 @@ function BlockShell({
   );
 }
 
-const MEMBER_GRID = "md:grid md:grid-cols-[minmax(0,1.4fr)_110px_minmax(0,1fr)_120px_92px] md:items-center md:gap-x-3";
+const MEMBER_GRID = "md:grid md:grid-cols-[16px_minmax(0,1.4fr)_110px_minmax(0,1fr)_120px_92px] md:items-center md:gap-x-3";
 
 export function TeamMembersBlock({ members, onInvite, inviteDisabled }: { members: TeamMemberRow[]; onInvite: () => void; inviteDisabled?: boolean }) {
   return (
@@ -90,6 +94,7 @@ export function TeamMembersBlock({ members, onInvite, inviteDisabled }: { member
       }
     >
       <div className={cn("hidden px-4 pb-1.5 pt-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted/70", MEMBER_GRID)} aria-hidden>
+        <span />
         <span>Member</span>
         <span>Role</span>
         <span>Properties</span>
@@ -101,6 +106,15 @@ export function TeamMembersBlock({ members, onInvite, inviteDisabled }: { member
           const pill = ROLE_PILL[m.role];
           return (
             <li key={m.id} className={cn("flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 px-4 py-2.5", MEMBER_GRID)} data-attr="team-member-row">
+              <span className="flex w-4 shrink-0 items-center justify-center">
+                {m.onSelectedChange ? (
+                  <RowSelectCheckbox
+                    checked={m.checked ?? false}
+                    onChange={(e) => m.onSelectedChange?.(e.target.checked)}
+                    aria-label={`Select ${m.name}`}
+                  />
+                ) : null}
+              </span>
               <span className="flex min-w-0 items-center gap-2.5">
                 <InboxAvatar name={m.name} className="h-8 w-8 shrink-0 text-[11px]" />
                 <span className="min-w-0">
