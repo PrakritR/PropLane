@@ -81,10 +81,7 @@ export function ManagerMessagingSetupBanner() {
       role="status"
     >
       <span className="h-5 w-[3px] shrink-0 rounded-full bg-primary" aria-hidden />
-      <p className="min-w-0 flex-1 truncate">
-        <span className="font-medium">Renters can&apos;t text you yet.</span>{" "}
-        <span className="text-muted">Set up messaging to open the SMS channel on your listings.</span>
-      </p>
+      <p className="min-w-0 flex-1 truncate font-medium">Phone number not set up.</p>
       <Link
         href={MANAGER_MESSAGING_SETTINGS_HREF}
         data-attr="manager-messaging-setup-banner-link"
