@@ -11,7 +11,7 @@ test.describe("Public home", () => {
   test("header carries Pricing and Why PropLane as tabs", async ({ page }) => {
     await page.goto("/");
     const nav = page.locator("#axis-public-navbar");
-    await expect(nav.getByRole("link", { name: /^pricing$/i }).first()).toHaveAttribute("href", "/pricing#compare");
+    await expect(nav.getByRole("link", { name: /^pricing$/i }).first()).toHaveAttribute("href", "/pricing");
     await expect(nav.getByRole("link", { name: /^why proplane$/i }).first()).toHaveAttribute("href", "/why-proplane");
   });
 
