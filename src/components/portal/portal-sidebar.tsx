@@ -612,12 +612,7 @@ export function PortalSidebar({
           aria-label={lockAriaLabel(s.label, locked, s.section)}
           aria-current={active ? "page" : undefined}
         >
-          {active ? (
-            <span
-              className="absolute inset-x-[18%] top-0 h-0.5 rounded-full bg-primary"
-              aria-hidden
-            />
-          ) : null}
+          {/* The active tab is the FILLED glyph (PortalNavIcon `active`); no underline. */}
           {showNavIcons ? (
             <span
               className={`${PORTAL_NATIVE_BOTTOM_NAV_ICON_SLOT_CLASS} transition-opacity duration-200 ${
@@ -630,9 +625,10 @@ export function PortalSidebar({
                 className={PORTAL_NATIVE_BOTTOM_NAV_ICON_CLASS}
                 active={active}
               />
-              {!locked && count > 0 ? (
+              {/* Only unread mail badges a bottom tab; inventory counts belong to the sidebar. */}
+              {!locked && count > 0 && navCountTone(s.section) === "alert" ? (
                 <span className="absolute -top-1 -right-1.5">
-                  <PortalNavCountBadge count={count} tone={navCountTone(s.section)} />
+                  <PortalNavCountBadge count={count} tone="alert" />
                 </span>
               ) : null}
             </span>
@@ -640,7 +636,8 @@ export function PortalSidebar({
             <span className={PORTAL_NATIVE_BOTTOM_NAV_ICON_SLOT_CLASS} aria-hidden />
           )}
           <span className={`${PORTAL_NATIVE_BOTTOM_NAV_LABEL_CLASS} ${active ? "text-primary" : "text-muted"}`}>
-            {s.label}
+            {/* The bar's first tab is Home, as on every phone; the sidebar keeps "Dashboard". */}
+            {s.section === "dashboard" ? "Home" : s.label}
           </span>
         </Link>
       );

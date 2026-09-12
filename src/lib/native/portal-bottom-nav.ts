@@ -111,11 +111,13 @@ export function orderNativeBottomNavItems<T extends { section: string }>(
  * Feedback inside Profile/Settings — see portal-settings-extras.tsx and
  * manager-properties.tsx). Keep in sync with `src/lib/platform/parity.ts`.
  */
+// Home · Properties · Inbox · Tasks (+ More) — Mobbin polish §14, the way
+// Airbnb Host and Turo Host put Today first and keep five tabs.
 export const NATIVE_BOTTOM_NAV_PRO_MANAGER_PRIMARY = [
-  "properties",
-  "residents",
   "dashboard",
+  "properties",
   "communication",
+  "tasks",
 ] as const;
 
 /**

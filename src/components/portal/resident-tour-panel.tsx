@@ -10,6 +10,7 @@ import {
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
+import { PortalRecordActionSheet } from "@/components/portal/portal-record-action-sheet";
 import { PortalEmptyState } from "@/components/portal/portal-empty-state";
 import { ResidentScheduleTourModal } from "@/components/portal/resident-schedule-tour-modal";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
@@ -157,8 +158,20 @@ function TourDetailBody({
             </div>
           ) : null}
 
-          {/* Exactly three actions, per the approved design: Reschedule, Message host, Cancel tour. */}
-          <PortalSectionActionRow variant="header">
+          {/* Exactly three actions, per the approved design: Reschedule, Message host, Cancel tour.
+              On a phone they are a bottom sheet with a grab handle, cancel last in red (§14). */}
+          <PortalRecordActionSheet
+            title="Tour options"
+            triggerDataAttr="resident-tour-options"
+            actions={[
+              ...(!over ? [{ id: "reschedule", label: "Reschedule", onSelect: onReschedule, dataAttr: "resident-tour-reschedule-sheet" }] : []),
+              { id: "message", label: "Message host", onSelect: onMessageManager, dataAttr: "resident-tour-message-manager-sheet" },
+              ...(!over
+                ? [{ id: "cancel", label: cancelling ? "Cancelling…" : "Cancel tour", onSelect: onCancel, destructive: true, disabled: cancelling, dataAttr: "resident-tour-cancel-sheet" }]
+                : []),
+            ]}
+          />
+          <PortalSectionActionRow variant="header" className="max-md:hidden">
             {!over ? (
               <Button
                 type="button"
