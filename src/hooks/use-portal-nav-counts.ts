@@ -35,7 +35,7 @@ import {
 import { readBugFeedbackRows } from "@/lib/portal-bug-feedback";
 import { prefetchPortalData } from "@/lib/portal-data-store";
 import type { PortalKind } from "@/lib/portal-types";
-import { countManagerManagedPropertiesForUser } from "@/lib/demo-property-pipeline";
+import { countManagerManagedPropertiesInWorkspace } from "@/lib/demo-property-pipeline";
 import { buildManagerPropertyFilterOptions } from "@/lib/manager-portfolio-access";
 import { managerPaymentBucketCounts, readManagerPaymentsLedgerCharges } from "@/lib/manager-payments-scope";
 import { MANAGER_TASKS_EVENT, readManagerTasksLocal } from "@/lib/manager-tasks";
@@ -133,7 +133,9 @@ export function usePortalNavCounts(kind: PortalKind): Partial<Record<string, num
       // The same numbers the list tabs render — Properties' plan meter, Tours'
       // Pending tab, Payments' Pending + Overdue, Tasks' Open — read from the
       // same local mirrors, so the nav can never disagree with the page.
-      const properties = safeCount(() => countManagerManagedPropertiesForUser(userId));
+      // Narrowed to the active workspace, like the Properties page itself; the
+      // plan meter on that page stays account-wide because the plan is.
+      const properties = safeCount(() => countManagerManagedPropertiesInWorkspace(userId));
       const tours = safeCount(
         () =>
           countManagerTourRowsByBucket(
