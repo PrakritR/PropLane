@@ -388,9 +388,6 @@ export function WorkspaceSettings({ openNew = false }: { openNew?: boolean } = {
             </p>
           ) : null}
           <ModalFooter>
-            <Button variant="ghost" type="button" onClick={closeEditor}>
-              Cancel
-            </Button>
             <Button
               type="button"
               onClick={() => run({ action: editing === "new" ? "create" : "rename", id: editing && editing !== "new" ? editing.id : undefined, name }, closeEditor)}

@@ -54,6 +54,7 @@ import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import { vendorDetailHref, vendorListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
+import { PortalListEmptyCard } from "@/components/portal/portal-list-empty-card";
 import { PortalDataTableEmpty, PORTAL_DETAIL_BTN, PortalTableDetailActions } from "@/components/portal/portal-data-table";
 import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
@@ -628,7 +629,13 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
 
   const listBody =
     vendors.length === 0 ? (
-      vendorListAddRow
+      // An empty list says so in words; "+ Add vendor" is already in the header.
+      <PortalListEmptyCard
+        title="No vendors yet."
+        description="Add the tradespeople you dispatch to. Each one gets their own sign-in, and you assign houses per vendor."
+        actions={[{ label: "Add vendor", onClick: () => openAddVendorForm(), dataAttr: "vendors-empty-add" }]}
+        dataAttr="vendors-empty"
+      />
     ) : (
       <div className={PORTAL_LIST_PAGE_BODY}>
         {vendors.map((row) => (

@@ -153,23 +153,24 @@ describe("BulkActionBar", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("shows selection count when active", () => {
+  it("shows the actions, and carries the count only as the accessible name (round 3: no count label)", () => {
     render(
       <BulkActionBar count={3}>
         <button type="button">Delete</button>
       </BulkActionBar>,
     );
-    expect(screen.getByText("3 selected")).toBeTruthy();
+    expect(screen.queryByText("3 selected")).toBeNull();
+    expect(screen.getByRole("region", { name: "Bulk actions, 3 items selected" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete" })).toBeTruthy();
   });
 
-  it("leads with the count even when hideCount is set — the pill hangs its actions off it", () => {
+  it("hideCount changes nothing — the pill never shows a count", () => {
     render(
       <BulkActionBar count={2} hideCount>
         <button type="button">Message</button>
       </BulkActionBar>,
     );
-    expect(screen.getByText("2 selected")).toBeTruthy();
+    expect(screen.queryByText("2 selected")).toBeNull();
     expect(screen.getByRole("button", { name: "Message" })).toBeTruthy();
   });
 
@@ -191,13 +192,14 @@ describe("BulkActionBar", () => {
     expect(screen.queryByRole("button", { name: "Clear selection" })).toBeNull();
   });
 
-  it("uses a custom count label when provided", () => {
+  it("a custom count label feeds the pill's title, not a visible line", () => {
     render(
       <BulkActionBar count={3} countLabel={(n) => `${n} tours selected`}>
         <button type="button">Confirm</button>
       </BulkActionBar>,
     );
-    expect(screen.getByText("3 tours selected")).toBeTruthy();
+    expect(screen.queryByText("3 tours selected")).toBeNull();
+    expect(screen.getByTitle("3 tours selected")).toBeTruthy();
   });
 });
 

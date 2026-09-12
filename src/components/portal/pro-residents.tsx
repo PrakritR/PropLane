@@ -31,7 +31,6 @@ import {
 import {
   PortalDataTableEmpty,
   PORTAL_DETAIL_BTN,
-  ResidentDocumentsDetailFooter,
 } from "@/components/portal/portal-data-table";
 import { ManagerPaymentsLedgerPanel } from "@/components/portal/pro-payments-ledger-panel";
 import { useScheduledPaymentMessages } from "@/components/portal/payment-schedule-ui";
@@ -43,7 +42,7 @@ import { PortalActiveFilterChips } from "@/components/portal/portal-filter-chips
 import { PortalFilterSortSheet, portalFilterActiveCount } from "@/components/portal/portal-filter-sort-sheet";
 import type { ManagerPaymentBucket } from "@/data/demo-portal";
 import { PortalListControlStack } from "@/components/portal/portal-list-control-stack";
-import { PortalPageFooterActions, PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
+import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
 import {
   RESIDENT_DETAIL_TAB_LABELS,
   RESIDENT_DETAIL_TAB_SHORT_LABELS,
@@ -78,7 +77,7 @@ import { PORTAL_BULK_BAR_BTN } from "@/lib/portal-bulk-bar";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { ResidentInviteClaimsPanel } from "@/components/portal/resident-invite-claims-panel";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
-import { PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
+import { PortalRecordActions, PortalRecordDetailPage } from "@/components/portal/portal-record-detail-page";
 import { ManagerResidentsGroupedTable } from "@/components/portal/pro-residents-grouped-table";
 import { ManagerResidentToursPanel } from "@/components/portal/pro-resident-tours-panel";
 import { buildResidentListClustersByMode } from "@/lib/manager-resident-list-grouping";
@@ -3767,15 +3766,9 @@ export function ManagerResidents({
                             )}
 
                             {residentDetailBottomBarActions ? (
-                              <PortalPageFooterActions
-                                pinned
-                                rowVariant="header"
-                                omitSpacer={residentDetailPaymentsScroll}
-                              >
-                                <ResidentDocumentsDetailFooter>
-                                  {residentDetailBottomBarActions}
-                                </ResidentDocumentsDetailFooter>
-                              </PortalPageFooterActions>
+                              <PortalRecordActions omitSpacer={residentDetailPaymentsScroll}>
+                                {residentDetailBottomBarActions}
+                              </PortalRecordActions>
                             ) : null}
                           </div>
     ) : null;

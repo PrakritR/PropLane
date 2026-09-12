@@ -193,9 +193,6 @@ export function ManagerAddScheduledTourModal({
   return (
     <Modal open={open} onClose={onClose} title="Schedule tour" dense assistantContext="Schedule tour" footer={
       <ModalFooter>
-        <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
-          Cancel
-        </Button>
         <Button
           type="button"
           onClick={() => void handleSave()}

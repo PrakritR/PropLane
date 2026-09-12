@@ -120,15 +120,17 @@ export function KpiCard({
       className="flex min-w-0 flex-col gap-2 rounded-2xl border border-border bg-card px-4 py-3.5 shadow-sm transition hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
     >
       <span className="text-[12.5px] font-medium text-muted">{label}</span>
-      <span className="flex items-end justify-between gap-3">
-        <span className="min-w-0 truncate text-[1.65rem] font-semibold leading-none tracking-[-0.02em] text-foreground">
-          {value}
-        </span>
+      {/* The number gets the full width; the history sits under it, never beside
+          it — "$7,…" beside a sparkline was the tile clipping its own figure. */}
+      <span className="block whitespace-nowrap text-[1.65rem] font-semibold leading-none tracking-[-0.02em] text-foreground">
+        {value}
+      </span>
+      <span className="flex min-h-[15px] items-end justify-between gap-3">
+        <span className="truncate text-[12px] font-medium text-muted">{unit ?? ""}</span>
         {series && series.length > 0 ? (
           <Sparkline values={series} labels={seriesLabels ?? []} format={format ?? String} />
         ) : null}
       </span>
-      <span className="min-h-[15px] truncate text-[12px] font-medium text-muted">{unit ?? ""}</span>
       <span className="-mt-1 flex min-w-0 items-center gap-1.5 text-[11.5px] leading-snug">
         {delta ? (
           <span
