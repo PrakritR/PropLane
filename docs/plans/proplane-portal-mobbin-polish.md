@@ -147,7 +147,15 @@ pass at 1440 and 390 as the manager (`manager@test.proplane.local`) on
 Also landed ahead of this list: the listing editor's Mobbin polish
 (`7fcfb491` — summary rail, cover tile, status block, edit-mode footer).
 
-Not yet driven: Resident and Vendor portals after §8/§10 (the shared
-sidebar and surface changed under them — a resident-side pass is owed);
-the 0 / 1 / 20 property edges beyond the seeded 20; a workspace at the
-3-cap; no-mistakes on the combined tip.
+Later the same night: resident (dashboard, Payments) and vendor
+(dashboard, Services) portals driven after the shared-shell changes — both
+fine; a throwaway zero-property Free manager (`edge-zero@test.proplane.local`,
+dev/test only) driven through the dashboard, Properties and the workspace
+menu, which surfaced the "0 / 1" occupancy unit and the empty switcher menu,
+both fixed. no-mistakes review round `01M29X2ZDVH4BEMFMQ1EQ8NMTC` on
+`059b540f`: 11 findings, 9 fixed by the pipeline (`ddc255c5`, folded in
+`027cc743`), two accepted; its test step's agent then idled 25 minutes and
+the run was aborted — tsc, lint and the full unit suite were run by hand
+on every commit instead. Still owed: a workspace at the 3-cap (needs a
+Business account with three workspaces), and the ladder above prakrit,
+which is the captain's call.
