@@ -55,6 +55,9 @@ import {
 } from "@/lib/agent/manager-sms-agent.server";
 import { normalizeE164 } from "@/lib/twilio";
 import { PRODUCTION_APP_ORIGIN } from "@/lib/app-url";
+import { durableProspectSmsEnabled, enqueueProspectSmsBurst } from "@/lib/sms/prospect-sms-burst.server";
+import type { ProspectShadowBurst } from "@/lib/agent/prospect-gpt-shadow";
+import { normalizeListingIdentity } from "@/lib/listing-identity";
 
 export {
   buildSmsDeepLink,
@@ -236,6 +239,11 @@ async function replySms(args: {
   counterpartyRole?: SmsCounterpartyRole;
   conversationKey?: string | null;
   dedupeKey?: string | null;
+  prospectBurst?: {
+    burstId: string; revision: number; workerId: string;
+    transport?: "twilio" | "claw"; transportFromNumber?: string | null;
+    candidateContext?: unknown; candidateShadowSnapshot?: unknown;
+  };
 }): Promise<PropLaneSmsResult> {
   if (args.managerUserId) {
     return sendFromManagerWorkNumber({
@@ -248,6 +256,7 @@ async function replySms(args: {
       counterpartyRole: args.counterpartyRole,
       conversationKey: args.conversationKey,
       dedupeKey: args.dedupeKey,
+      prospectBurst: args.prospectBurst,
     });
   }
   return sendPropLaneSms({ to: args.to, text: args.text, fromNumber: args.workNumber });
@@ -291,11 +300,11 @@ async function resolvePropertyByLabelHint(
   labelHint: string | null,
   managers: ManagerTarget[],
 ): Promise<PropertyHint | null> {
-  const needle = (labelHint ?? "").trim().toLowerCase();
+  const needle = normalizeListingIdentity(labelHint ?? "");
   if (!needle) return null;
 
   const score = (label: string): "exact" | "partial" | null => {
-    const lower = label.toLowerCase();
+    const lower = normalizeListingIdentity(label);
     if (lower === needle) return "exact";
     if (needle.includes(lower) || lower.includes(needle)) return "partial";
     return null;
@@ -485,6 +494,9 @@ export type HandleClawInboundResult = {
   error?: string;
   outboxId?: string;
   durablyAccepted?: boolean;
+  suppressed?: boolean;
+  completedWithoutReply?: "quiet_handoff";
+  shadowInput?: ProspectShadowBurst;
 };
 
 /* In-memory idempotency for redelivered relay frames (gateway restarts, webhook
@@ -691,6 +703,14 @@ export async function handleClawLeasingInbound(args: {
   workNumber?: string | null;
   /** The caller owns a distributed, leased MessageSid receipt. */
   durablyClaimed?: boolean;
+  /** Set only by the durable burst worker after it acquired the matching revision lease. */
+  durableBurstWorker?: boolean;
+  /** Opaque revision lease loaded by the signed queue callback. */
+  prospectBurst?: {
+    burstId: string; revision: number; workerId: string;
+    claimedSourceIds?: string[]; snapshotCutoff?: string;
+    transport?: "twilio" | "claw"; sharedCatalog?: boolean;
+  };
   /** Server-selected routing guidance; never sourced from the texter. */
   routingReply?: string;
   /** Persist the exact reply before any provider/outbox handoff. */
@@ -1069,7 +1089,7 @@ export async function handleClawLeasingInbound(args: {
   // A reschedule reply is a narrow, durable tour transition. The ordinary
   // leasing agent must never interpret YES or an alternate time after we have
   // matched it to one exact accepted proposal.
-  if (landlordId && workNumber && messageId) {
+  if (landlordId && workNumber && messageId && (!durableProspectSmsEnabled() || args.durableBurstWorker)) {
     const { handleTourRescheduleSmsReply } = await import("@/lib/tour-reschedule-sms-reply.server");
     const tourReply = await handleTourRescheduleSmsReply(createSupabaseServiceRoleClient(), {
       managerUserId: landlordId,
@@ -1102,6 +1122,7 @@ export async function handleClawLeasingInbound(args: {
           counterpartyPhone: from,
         }),
         dedupeKey: `inbound_reply_${messageId}`,
+        prospectBurst: args.prospectBurst,
       });
       return {
         ok: send.ok || Boolean(send.durablyAccepted),
@@ -1112,6 +1133,32 @@ export async function handleClawLeasingInbound(args: {
         durablyAccepted: send.durablyAccepted,
       };
     }
+  }
+
+  // A prospect burst is acknowledged only after its source receipt and quiet
+  // window are durable. Do not fall back to an inline reply if queue publishing
+  // is unavailable: that would recreate the duplicate-reply incident.
+  if (landlordId && durableProspectSmsEnabled() && !args.durableBurstWorker) {
+    if (!scopedManagerId) {
+      releaseInboundMessageClaims(claimedMessageIds);
+      return { ok: false, intent, replied: false, error: "retired_transport_unsupported" };
+    }
+    if (!messageId) return { ok: false, intent, replied: false, error: "Durable prospect source id required." };
+    const queued = await enqueueProspectSmsBurst(createSupabaseServiceRoleClient(), {
+      sourceMessageId: messageId,
+      managerUserId: landlordId,
+      counterpartyPhoneE164: from,
+      channel: "twilio",
+      body: text,
+      replyFromNumber: workNumber,
+    });
+    if (!queued.ok) {
+      // The process-local receipt shortcut is never durable authority. Let the
+      // gateway retry persist this source after health or publication recovers.
+      releaseInboundMessageClaims(claimedMessageIds);
+      return { ok: false, intent, replied: false, error: queued.error };
+    }
+    return { ok: true, intent, replied: false, durablyAccepted: true };
   }
 
   // Claude leasing agent on the manager's work number — grounds replies on live
@@ -1133,12 +1180,16 @@ export async function handleClawLeasingInbound(args: {
         // Shared Claw line (no single scoped manager) fronts every manager, so
         // the agent must be able to look up ANY live listing on PropLane, not
         // just landlordId's. A per-manager Twilio number stays scoped.
-        crossCatalog: !scopedManagerId,
+        crossCatalog: args.prospectBurst?.sharedCatalog ?? !scopedManagerId,
+        prospectBurst: args.prospectBurst,
       });
       if (agent?.disposition === "quiet_handoff") {
         // The tool independently confirmed manager delivery. This inbound is
         // handled, but deliberately has no prospect outbox or template reply.
-        return { ok: true, intent, replied: false };
+        return { ok: true, intent, replied: false, completedWithoutReply: "quiet_handoff" };
+      }
+      if (agent?.suppressed) {
+        return { ok: true, intent, replied: false, suppressed: true };
       }
       if (agent?.reply) {
         const prepared = args.onPreparedReply
@@ -1162,6 +1213,20 @@ export async function handleClawLeasingInbound(args: {
           workNumber,
           inboundMessageSid: messageId,
           traceId: agent.traceId,
+          prospectBurst: args.prospectBurst
+            ? {
+                ...args.prospectBurst,
+                candidateContext: agent.candidateContext,
+                candidateShadowSnapshot: agent.shadowInput
+                  ? {
+                      ...agent.shadowInput,
+                      onResult: undefined,
+                      managerUserId: landlordId,
+                      primaryTraceId: agent.traceId,
+                    }
+                  : null,
+              }
+            : undefined,
         });
         if (send.ok || send.durablyAccepted) {
           runAfterReply(async () => {
@@ -1181,18 +1246,25 @@ export async function handleClawLeasingInbound(args: {
             replied: true,
             outboxId: send.outboxId,
             durablyAccepted: send.durablyAccepted,
+            shadowInput: agent.shadowInput,
           };
         }
       }
     } catch (e) {
-      // `runLeasingSmsAgentTurn` converts ordinary model unavailability to
-      // null. A thrown error means its paid-turn result or another durable
-      // boundary could not be read or saved, so the inbound receipt must retry
-      // instead of being completed after an untracked template fallback.
-      console.error("leasing SMS agent durable path failed; retrying inbound", e);
+      console.error("leasing SMS agent path failed", e);
+      if (args.durableBurstWorker) {
+        return { ok: false, intent, replied: false, error: "Leasing agent execution failed." };
+      }
+      // Ordinary model unavailability returns null from the runtime. A thrown
+      // error means the paid-turn result or another durable boundary could not
+      // be read or saved, so the inbound provider must retry this receipt.
       releaseInboundMessageClaims(claimedMessageIds);
       throw e;
     }
+  }
+
+  if (args.durableBurstWorker) {
+    return { ok: false, intent, replied: false, error: "Leasing agent did not produce a durable outcome." };
   }
 
   const reply = args.routingReply ?? replyForIntent({

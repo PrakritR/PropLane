@@ -125,6 +125,12 @@ export async function sendPropLaneSms(args: {
   dedupeKey?: string | null;
   actorUserId?: string | null;
   traceId?: string | null;
+  /** Durable prospect revision fence, derived only by the queue worker. */
+  prospectBurst?: {
+    burstId: string; revision: number; workerId: string;
+    transport?: "twilio" | "claw"; transportFromNumber?: string | null;
+    candidateContext?: unknown; candidateShadowSnapshot?: unknown;
+  };
   /**
    * When set, logs outbound SMS for the Communication → SMS → Sent tab.
    * Pass `null` to skip (e.g. manager carbon-copy mirrors).
@@ -150,6 +156,9 @@ export async function sendPropLaneSms(args: {
   if (await isShieldedRecipient({ phone: to })) {
     return { ok: false, error: "protected_account_shielded" };
   }
+  if (args.prospectBurst?.transport === "claw") {
+    return { ok: false, channel: "claw", error: "retired_transport_unsupported" };
+  }
 
   // Consent + quiet-hours gate — every channel, never bypassed.
   const blocked = await transportGateBlocks({
@@ -159,7 +168,8 @@ export async function sendPropLaneSms(args: {
   });
   if (blocked) return blocked;
 
-  // Claw-primary: one agent line runs the entire messaging system.
+  // Historical unreachable branch retained while the retired modules are
+  // removed incrementally. The durable prospect path is rejected above.
   if (isClawTransportEnabled()) {
     const from = clawLeasingAgentPhoneE164();
     await registerClawMessengerRoute(to);
@@ -214,6 +224,7 @@ export async function sendPropLaneSms(args: {
     counterpartyRole: role,
     dedupeKey: args.dedupeKey,
     traceId: args.traceId,
+    prospectBurst: args.prospectBurst,
   }, db);
   if (!enqueued.ok) return { ok: false, channel: "twilio", error: enqueued.error };
   await dispatchOwnerSmsOutbox({
@@ -268,6 +279,11 @@ export async function sendFromManagerWorkNumber(args: {
   purpose?: string;
   actorUserId?: string | null;
   traceId?: string | null;
+  prospectBurst?: {
+    burstId: string; revision: number; workerId: string;
+    transport?: "twilio" | "claw"; transportFromNumber?: string | null;
+    candidateContext?: unknown; candidateShadowSnapshot?: unknown;
+  };
   /** Skip Communication → SMS Sent logging (manager mirror copies). */
   skipLog?: boolean;
 }): Promise<PropLaneSmsResult> {
@@ -278,7 +294,6 @@ export async function sendFromManagerWorkNumber(args: {
   if (isClawTransportEnabled() || isClawSharedLineBridgeEnabled()) {
     from = clawLeasingAgentPhoneE164();
   }
-
   return sendPropLaneSms({
     to: args.to,
     text: args.text,
@@ -289,6 +304,7 @@ export async function sendFromManagerWorkNumber(args: {
     dedupeKey: args.dedupeKey,
     actorUserId: args.actorUserId,
     traceId: args.traceId,
+    prospectBurst: args.prospectBurst,
     log: args.skipLog
       ? null
       : {

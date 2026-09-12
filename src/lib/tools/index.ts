@@ -143,6 +143,7 @@ import {
   getNearbyTransitTool,
   getSiteLinksTool,
   listLiveListingsTool,
+  suppressRedundantLeasingReplyTool,
 } from "./domains/leasing-sms";
 
 export const agentRegistry = buildRegistry([
@@ -335,6 +336,7 @@ export const leasingSmsAgentRegistry = buildRegistry([
   getNearbyTransitTool,
   buildProspectLinksTool,
   getSiteLinksTool,
+  suppressRedundantLeasingReplyTool,
   escalateLeasingToManagerTool,
   // A texting prospect can see real open times and file a tour REQUEST. It
   // books nothing — the manager still confirms. See LEASING_SMS_INLINE_WRITE_TOOLS.
