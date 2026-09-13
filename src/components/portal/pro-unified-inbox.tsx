@@ -786,6 +786,8 @@ export function ManagerUnifiedInbox({
           const current = parseUnifiedInboxKey(cur);
           if (current?.threadId === routeThreadId) return cur;
         }
+        const current = cur ? parseUnifiedInboxKey(cur) : null;
+        if (listSegment === "unread" && cur && explicitlyOpenedKey.current === cur && current?.threadId === routeThreadId) return cur;
         return null;
       }
       if (cur && listRows.some((r) => r.key === cur)) return cur;

@@ -398,17 +398,20 @@ describe("desktop unread selection regression", () => {
 });
 
 describe("unread results do not cascade", () => {
-  it("does not open the remaining row after the clicked row becomes read", async () => {
+  it.each([false, true])("keeps the clicked pane after read without cascading (routed: %s)", async (routed) => {
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
     const second = { ...EMAIL_INBOX, id: "thr-2000000004", from: "Second Unread", email: "second@example.com" };
     ALL_THREADS.push(second);
     try {
-      render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" />);
+      const { rerender } = render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" />);
       await screen.findByText("Second Unread");
       expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
       fireEvent.click(screen.getByText("Dana Ramirez"));
       await screen.findByTestId("embedded-email-thread");
+      if (routed) {
+        rerender(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" routeThreadId={EMAIL_INBOX.id} />);
+      }
       // Simulate the persisted-read notification emitted when the opened thread is read.
       EMAIL_INBOX.unread = false;
       ALL_THREADS.splice(ALL_THREADS.indexOf(EMAIL_INBOX), 1);
