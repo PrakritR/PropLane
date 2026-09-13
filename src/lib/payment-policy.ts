@@ -88,8 +88,18 @@ export type ServiceFeePayerInputs = {
   tier: ManagerSkuTier;
   /** Set by PropLane staff in the admin portal. Absent means staff have not intervened. */
   adminOverride?: ServiceFeePayer | null;
-  /** This property's Pricing setting. Absent means it follows the account default. */
+  /** This property's Pricing setting. Absent means it follows its workspace. */
   propertyChoice?: ServiceFeePayer | null;
+  /**
+   * The workspace's Payment setup choice. Absent means it follows the account.
+   *
+   * Payment setup is answered once per workspace (captain, 2026-09-13) — the
+   * modal used to ask which PROPERTIES a choice applied to, which let a manager
+   * pick three of nine houses and leave the other six on whatever they had. A
+   * single home may still be given its own answer above this, the way a room
+   * may differ from the house it is in.
+   */
+  workspaceChoice?: ServiceFeePayer | null;
   /** The manager's account-wide default. */
   managerChoice?: ServiceFeePayer | null;
   /**
@@ -289,7 +299,8 @@ export const LISTING_PROCESSING_FEE_PROPLANE_NOT_ALLOWED =
  */
 export function resolveServiceFeePayerFor(input: ServiceFeePayerInputs): ServiceFeePayer {
   if (input.adminOverride) return normalizeServiceFeeChoice(input.adminOverride);
-  const stored = input.propertyChoice ?? input.managerChoice ?? "resident";
+  /* Narrowest answer wins: staff → this home → its workspace → the account. */
+  const stored = input.propertyChoice ?? input.workspaceChoice ?? input.managerChoice ?? "resident";
   const choice = normalizeServiceFeeChoice(stored);
   if (choice === "proplane") return input.waiverGranted === true ? "proplane" : "resident";
   return resolveServiceFeePayer(input.tier, choice);

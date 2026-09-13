@@ -22,6 +22,7 @@ import {
   createAxisAchCheckoutSession,
 } from "@/lib/stripe-axis-ach-checkout";
 import { resolveAndValidateManagerConnectForPayments } from "@/lib/stripe-connect";
+import { loadWorkspaceServiceFeePayerForProperty } from "@/lib/workspace-payment-settings.server";
 
 /**
  * The Stripe Checkout core for the rental application fee, extracted from
@@ -172,15 +173,19 @@ export async function resolveApplicationFeeItemization(
   applicationFeeCents: number,
   channel: "card" | "manual" = "card",
   listing?: ManagerListingSubmissionV1 | null,
+  /** The listing this fee is for, so its workspace can answer when the home has no choice of its own. */
+  propertyId?: string | null,
 ): Promise<ApplicationFeeItemization> {
   const { tier: managerTierRaw, promoCode, readFailed } = await getManagerPurchaseSku(managerUserId);
     if (readFailed) throw new Error("Payment plan could not be verified. Try again.");
   const managerTier = normalizeManagerSkuTier(managerTierRaw) ?? "free";
   const managerSettings = await loadManagerManualPaymentSettings(db, managerUserId);
+  const workspaceChoice = await loadWorkspaceServiceFeePayerForProperty(db, managerUserId, propertyId);
   const feePayer = resolveServiceFeePayerFor({
     tier: managerTier,
     adminOverride: managerSettings.adminServiceFeeOverride,
     propertyChoice: listing?.serviceFeePayer ?? null,
+    workspaceChoice,
     managerChoice: managerSettings.serviceFeePayer,
     waiverGranted: resolveAccountOrListingWaiverGranted(promoCode, listing?.serviceFeeWaiverCode),
   });
@@ -246,7 +251,14 @@ export async function createApplicationFeeCheckout(
     };
   }
 
-  const itemization = await resolveApplicationFeeItemization(db, managerUserId, applicationFeeCents, "card", listing);
+  const itemization = await resolveApplicationFeeItemization(
+    db,
+    managerUserId,
+    applicationFeeCents,
+    "card",
+    listing,
+    input.propertyId,
+  );
 
   const metadata: Record<string, string> = {
     purpose: APPLICATION_FEE_CHECKOUT_PURPOSE,
