@@ -10,10 +10,9 @@ import { syncPortalMobileTopChrome } from "@/lib/portal-mobile-top-chrome";
 import { cn } from "@/lib/utils";
 
 /**
- * Appendix F — Communication-style list chrome (exactly three bands above data):
- * 1. Title + axis switch + actions — {@link ManagerPortalPageShell} / {@link PageHeader}
- * 2. Routed destination tabs with counts — `destinations` below
- * 3. Filter & sort + search — `filterRow` + `search`; active filters as `activeFilterChips`
+ * List command chrome — `variant="command"` is one horizontal toolbar (tabs · search ·
+ * filters · utilities · + Add). {@link ManagerPortalPageShell} may inject `chromeTitle` /
+ * `chromePrimaryAction` so the headline row is not duplicated.
  */
 export function PortalListControlStack({
   filterRow,
