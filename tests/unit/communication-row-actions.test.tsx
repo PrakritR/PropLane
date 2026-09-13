@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
+import { RECORD_ACTION_DESTRUCTIVE_SETTLE_MS } from "@/components/ui/record-action-menu";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import type { PersistedInboxThread } from "@/lib/portal-inbox-storage";
 import type { UnifiedInboxListItem } from "@/lib/unified-inbox-merge";
@@ -21,6 +22,19 @@ function Harness({ archived = false, manager = true }: { archived?: boolean; man
   return <>{rows.map((row) => <CommunicationRowActions key={row.key} row={row} bulk={bulk} archived={archived} manager={manager} emailThreads={threads} />)}</>;
 }
 function open(name: string) { fireEvent.keyDown(screen.getByRole("button", { name: `Actions for ${name}` }), { key: "ArrowDown" }); }
+/**
+ * Opening a menu and immediately activating a destructive item (`variant="danger"`,
+ * here `Delete`) races `RECORD_ACTION_DESTRUCTIVE_SETTLE_MS` (record-action-menu.tsx):
+ * a click within that window of open is deliberately swallowed. Pin `Date.now` past
+ * the window between open and click so this test exercises the deliberate click
+ * path rather than racing real wall-clock time.
+ */
+function openPastDestructiveSettle(name: string) {
+  const dateSpy = vi.spyOn(Date, "now").mockReturnValue(0);
+  open(name);
+  dateSpy.mockReturnValue(RECORD_ACTION_DESTRUCTIVE_SETTLE_MS + 1);
+  return () => dateSpy.mockRestore();
+}
 beforeEach(() => {
   vi.clearAllMocks();
   for (const fn of [mocks.archive, mocks.restore, mocks.remove]) fn.mockResolvedValue({ ok: true, next: threads });
@@ -40,7 +54,9 @@ it("targets all exact merged members, then only the next conversation", async ()
 it("closes before confirmation and preserves cancellation of permanent deletion", async () => {
   mocks.confirm.mockImplementation(async () => { expect(screen.queryByRole("menu")).toBeNull(); return false; });
   render(<Harness archived />);
-  open("Second"); fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+  const restoreClock = openPastDestructiveSettle("Second");
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+  restoreClock();
   await waitFor(() => expect(mocks.confirm).toHaveBeenCalledOnce());
   expect(mocks.remove).not.toHaveBeenCalled();
 });
@@ -57,8 +73,9 @@ it("does not offer manager SMS mutations in a role portal", async () => {
 
 it("deletes all ordinary email members after confirmation", async () => {
   render(<Harness archived />);
-  open("Ordinary");
+  const restoreClock = openPastDestructiveSettle("Ordinary");
   fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+  restoreClock();
   await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith("test-inbox", ["c", "a"]));
   expect(mocks.confirm).toHaveBeenCalledOnce();
 });

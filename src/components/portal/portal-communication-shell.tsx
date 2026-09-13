@@ -45,7 +45,7 @@ export function PortalCommunicationShell({
 }) {
   const resolvedStack =
     controlStack ??
-    (threadFilters ? <PortalListControlStack variant="command" filterRow={threadFilters} /> : null);
+    (threadFilters ? <PortalListControlStack filterRow={threadFilters} /> : null);
 
   useCommunicationSurfaceChrome({
     active: true,

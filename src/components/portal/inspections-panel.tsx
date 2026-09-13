@@ -38,10 +38,7 @@ const photoBadge = (photos: InspectionPhotoCounts) => photos.total
 /** Hide the dev-only missing-table banner for managers; still show real partial-load notices. */
 function showInspectionLoadNotice(role: InspectionRole, notice: string): boolean {
   if (role !== "manager") return true;
-  if (/not set up in this environment yet/i.test(notice)) return false;
-  // A stale `property::roomId` on one residency must not alarm the whole roster.
-  if (/assigned room could not be found/i.test(notice)) return false;
-  return true;
+  return !/not set up in this environment yet/i.test(notice);
 }
 
 /**

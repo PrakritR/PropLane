@@ -70,6 +70,10 @@ export function ManagerLeasesGroupedTable({
               />
             }
           >
+            {/* Screen readers get the cluster's size; sighted users read it off the rows. */}
+            <span className="sr-only">
+              {cluster.rows.length === 1 ? "1 lease" : `${cluster.rows.length} leases`}
+            </span>
             {cluster.rows.map((row) => {
               const statusPill = leaseStatusPill(row);
               return (

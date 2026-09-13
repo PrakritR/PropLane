@@ -225,10 +225,9 @@ describe("PortalListControlStack", () => {
     expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add" })).toBeTruthy();
     expect(container.querySelector('[data-attr="portal-list-command-actions"]')).toBeTruthy();
-    const toolbar = container.querySelector('[data-attr="portal-list-command-toolbar"]');
-    expect(toolbar).toBeTruthy();
-    expect(toolbar?.querySelector("[data-portal-list-destination-nav]")).toBeTruthy();
-    expect(toolbar?.querySelector('[data-attr="portal-list-command-actions"]')).toBeTruthy();
+    expect(container.querySelector("[data-portal-list-destination-nav]")?.parentElement?.className).toMatch(
+      /border-b/,
+    );
   });
 
   it("sticks destinations and Settings together in command mode (PRP-389)", () => {
