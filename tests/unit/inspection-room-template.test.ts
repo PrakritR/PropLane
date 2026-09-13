@@ -18,7 +18,15 @@ describe("room inspection scope", () => {
     expect(() => resolveInspectionRoom("property", "", "", listing())).toThrow("Assign a room");
     expect(() => resolveInspectionRoom("property", "property", "", listing())).toThrow("Assign a room");
     expect(() => resolveInspectionRoom("property", "other::a", "", listing())).toThrow("does not belong");
-    expect(() => resolveInspectionRoom("property", "property::missing", "", listing())).toThrow("could not be found");
+    expect(resolveInspectionRoom("property", "property::missing", "", listing())).toMatchObject({
+      assignment: "property::missing",
+      label: "Assigned room",
+      furnished: false,
+    });
+    expect(resolveInspectionRoom("property", "property::missing", "Room 8", listing())).toMatchObject({
+      assignment: "property::missing",
+      label: "Room 8",
+    });
   });
   it("uses only the selected room's furnishing and private bathroom", () => {
     const sub = listing();

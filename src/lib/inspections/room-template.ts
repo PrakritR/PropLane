@@ -34,7 +34,18 @@ export function resolveInspectionRoom(propertyId: string, assignment: string, ma
   const rooms = submission?.rooms ?? [];
   const room = roomId ? rooms.find(r => r.id === roomId) : rooms.find(r =>
     r.id === choice || r.name.trim().toLowerCase() === (manual || choice).toLowerCase());
-  if (roomId && !room) throw new InspectionError("The assigned room could not be found. Update the resident's room placement before starting an inspection.");
+  // Listing room ids can change after wizard edits while approved residencies still
+  // store `property::roomId`. The list already reads that as "Assigned room"; do not
+  // block the whole page — keep the canonical assignment and a stable label.
+  if (roomId && !room) {
+    const manualLabel = manual.trim();
+    return {
+      assignment: `${propertyId}::${roomId}`,
+      label: manualLabel || "Assigned room",
+      furnished: false,
+      privateBathroom: false,
+    };
+  }
   const label = room?.name.trim() || manual || (choice !== propertyId && separator < 0 ? choice : "");
   if (!label) throw new InspectionError("Assign a room to this resident before starting an inspection.");
   return {
