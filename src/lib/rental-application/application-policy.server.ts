@@ -17,23 +17,51 @@ function rowIsSubmittedApplication(row: DemoApplicantRow): boolean {
   return true;
 }
 
+function submittedApplicationFromRow(row: { row_data?: unknown }): boolean {
+  return rowIsSubmittedApplication((row.row_data ?? {}) as DemoApplicantRow);
+}
+
 export async function residentHasPriorApplicationServer(
   db: SupabaseClient,
   email: string,
   managerUserId: string,
+  residentUserId?: string | null,
 ): Promise<boolean> {
   const e = normalizeEmail(email);
   const managerId = managerUserId.trim();
-  if (!e || !managerId) return false;
-  const { data, error } = await db
-    .from("manager_application_records")
-    .select("row_data, manager_user_id")
-    .eq("resident_email", e)
-    .eq("manager_user_id", managerId)
-    .order("updated_at", { ascending: false })
-    .limit(25);
-  if (error) throw error;
-  return (data ?? []).some((row) => rowIsSubmittedApplication((row.row_data ?? {}) as DemoApplicantRow));
+  const userId = residentUserId?.trim() ?? "";
+  if (!managerId || (!e && !userId)) return false;
+
+  const queries = [];
+  if (e) {
+    queries.push(
+      db
+        .from("manager_application_records")
+        .select("row_data, manager_user_id")
+        .eq("resident_email", e)
+        .eq("manager_user_id", managerId)
+        .order("updated_at", { ascending: false })
+        .limit(25),
+    );
+  }
+  if (userId) {
+    queries.push(
+      db
+        .from("manager_application_records")
+        .select("row_data, manager_user_id")
+        .eq("manager_user_id", managerId)
+        .eq("row_data->>residentUserId", userId)
+        .order("updated_at", { ascending: false })
+        .limit(25),
+    );
+  }
+
+  const results = await Promise.all(queries);
+  for (const { data, error } of results) {
+    if (error) throw error;
+    if ((data ?? []).some(submittedApplicationFromRow)) return true;
+  }
+  return false;
 }
 
 export async function residentHasPaidApplicationFeeServer(
@@ -79,7 +107,7 @@ export async function shouldWaiveApplicationFeeForResidentServer(
   if (policy === "every_time") return false;
 
   const [priorApp, paidFee] = await Promise.all([
-    residentHasPriorApplicationServer(db, email, managerUserId),
+    residentHasPriorApplicationServer(db, email, managerUserId, input.residentUserId),
     residentHasPaidApplicationFeeServer(db, email, managerUserId, input.residentUserId),
   ]);
   return priorApp || paidFee;

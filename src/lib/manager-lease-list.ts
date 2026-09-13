@@ -1,5 +1,10 @@
 import type { ManagerLeaseTab } from "@/data/demo-portal";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
+import {
+  dedupePlacementSegments,
+  formatCompactPlacementLine,
+  stripPropertyRoomCountSuffix,
+} from "@/lib/portal-mobile-preview";
 import { getPropertyById } from "@/lib/rental-application/data";
 import {
   clusterRowsByResident,
@@ -23,6 +28,53 @@ export function leasePropertyLabel(row: LeasePipelineRow): string {
 
 export function leaseUnitMeta(row: LeasePipelineRow): string {
   return row.unit?.trim() || "—";
+}
+
+/** Primary line for a lease inside a resident cluster — room/unit when known, else status. */
+export function leaseGroupedRowPrimary(
+  row: LeasePipelineRow,
+  clusterPropertyLabel?: string | null,
+): string {
+  const unit = row.unit?.trim() || "";
+  if (!unit) return row.stageLabel?.trim() || row.status?.trim() || "Lease";
+
+  let compact = formatCompactPlacementLine(unit);
+  const clusterProperty = clusterPropertyLabel?.trim()
+    ? stripPropertyRoomCountSuffix(clusterPropertyLabel.trim())
+    : "";
+  if (clusterProperty) {
+    const prefix = `${clusterProperty} · `;
+    if (compact.toLowerCase().startsWith(prefix.toLowerCase())) {
+      compact = compact.slice(prefix.length).trim();
+    } else if (compact.toLowerCase() === clusterProperty.toLowerCase()) {
+      compact = "";
+    }
+  }
+
+  compact = dedupePlacementSegments(compact);
+  if (compact && compact !== "—") return compact;
+  return row.stageLabel?.trim() || row.status?.trim() || "Lease";
+}
+
+/** Secondary line — last update (status renders as the row pill). */
+export function leaseGroupedRowMeta(row: LeasePipelineRow): string {
+  return leaseUpdatedLabel(row);
+}
+
+export function leaseStatusPill(
+  row: LeasePipelineRow,
+): { label: string; tone: "info" | "warning" | "muted" | "success" } | undefined {
+  const label = row.stageLabel?.trim() || row.status?.trim();
+  if (!label) return undefined;
+  const normalized = label.toLowerCase();
+  if (normalized.includes("signed") || normalized.includes("completed")) {
+    return { label, tone: "success" };
+  }
+  if (normalized.includes("review") || normalized.includes("draft")) {
+    return { label, tone: "warning" };
+  }
+  if (normalized.includes("void")) return { label, tone: "muted" };
+  return { label, tone: "info" };
 }
 
 export function leaseUpdatedLabel(row: LeasePipelineRow): string {

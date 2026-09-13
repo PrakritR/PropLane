@@ -31,6 +31,7 @@ import { Field } from "@/components/portal/listing-wizard-v2/wizard-primitives";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import {
   expandFeeScope,
+  feeAppliesToLeaseType,
   feeAppliesToRoom,
   listingFeeRowIdForPresetId,
   listingLeaseTypeScopeOptions,
@@ -45,28 +46,22 @@ import {
   ensureSubmissionListingFees,
   applyPaymentAtSigningCell,
   isListingFeeAmountFilled,
+  LISTING_FEE_WIZARD_CADENCE_OPTIONS,
   listingFeeCadence,
+  listingFeeCadenceHint,
   listingFeesForWizard,
   parseRemovedStandardListingFeeRows,
+  patchListingFeeCadence,
+  type ListingFeeCadence,
   type ListingFeeRow,
   type RemovedStandardListingFeeRowId,
 } from "@/lib/listing-fees";
 import { SEATTLE_RENT_RULE_NOTE, listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import { isStayLeaseTerm } from "@/lib/listing-quote";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
-import {
-  LISTING_PROCESSING_FEE_WAIVER_CODE_HELP,
-  LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
-  listingPaymentWaiverCodeMatches,
-  listingProplaneAbsorbNeedsWaiverCode,
-  normalizeListingPaymentWaiverCode,
-} from "@/lib/payment-policy";
 import {
   applyHouseDefaultsToRooms,
   roomInheritsDefault,
-  roomsFollowingDefaults,
   type ListingHouseDefaultField,
   type ListingHouseDefaults,
 } from "@/lib/listing-house-defaults";
@@ -151,10 +146,21 @@ function termValue(
     if (field === "deposit" && (own?.securityDeposit ?? "").trim()) return { text: own!.securityDeposit!, src: "own" };
     if (field === "util" && (own?.utilitiesEstimate ?? "").trim()) return { text: own!.utilitiesEstimate!, src: "own" };
   }
-  if (field === "rent") return { text: room.monthlyRent > 0 ? String(room.monthlyRent) : "", src: isBase(term) ? "own" : "lt" };
+  if (field === "rent") {
+    if (isBase(term) && roomInheritsDefault(room, defaults, "monthlyRent")) {
+      return { text: defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : "", src: "def" };
+    }
+    return { text: room.monthlyRent > 0 ? String(room.monthlyRent) : "", src: isBase(term) ? "own" : "lt" };
+  }
   if (field === "deposit") {
+    if (isBase(term) && roomInheritsDefault(room, defaults, "securityDeposit")) {
+      return { text: moneyValue(defaults.securityDeposit), src: "def" };
+    }
     if ((room.securityDeposit ?? "").trim()) return { text: room.securityDeposit!, src: isBase(term) ? "own" : "lt" };
     return { text: defaults.securityDeposit, src: "def" };
+  }
+  if (isBase(term) && roomInheritsDefault(room, defaults, "utilitiesEstimate")) {
+    return { text: defaults.utilitiesEstimate, src: "def" };
   }
   if ((room.utilitiesEstimate ?? "").trim()) return { text: room.utilitiesEstimate, src: isBase(term) ? "own" : "lt" };
   return { text: defaults.utilitiesEstimate, src: "def" };
@@ -182,6 +188,7 @@ function writeTerm(
 function MonthlyTable({
   sub,
   term,
+  feeScopeTerm,
   defaults,
   onDefault,
   onRoom,
@@ -190,6 +197,8 @@ function MonthlyTable({
 }: {
   sub: ManagerListingSubmissionV1;
   term: string;
+  /** Lease tab this table is on — fee chips respect Applies-to even when rent follows long-term. */
+  feeScopeTerm: string;
   defaults: ListingHouseDefaults;
   onDefault: (field: ListingHouseDefaultField, value: string | number) => void;
   onRoom: (id: string, next: ManagerRoomSubmission) => void;
@@ -199,13 +208,24 @@ function MonthlyTable({
   const rooms = sub.rooms ?? [];
   const base = isBase(term);
   const feeChips = (roomId: string | null) => {
-    const list = fees.filter((f) => isListingFeeAmountFilled(f.amount ?? "") && (roomId ? feeAppliesToRoom(f, roomId) : true));
+    const list = fees.filter(
+      (f) =>
+        isListingFeeAmountFilled(f.amount ?? "") &&
+        feeAppliesToLeaseType(f, feeScopeTerm) &&
+        (roomId ? feeAppliesToRoom(f, roomId) : true),
+    );
     return (
       <span className="flex flex-wrap items-center gap-1">
         {list.map((f) => (
           <span key={f.id} className="rounded-full border border-border bg-[var(--pl-surface-muted)] px-2 py-0.5 text-[11.5px] text-muted">
             {f.label} {usd(num(f.amount ?? ""))}
-            {listingFeeCadence(f) === "monthly" ? "/mo" : ""}
+            {listingFeeCadence(f) === "monthly"
+              ? "/mo"
+              : listingFeeCadence(f) === "weekly"
+                ? "/wk"
+                : listingFeeCadence(f) === "daily"
+                  ? "/day"
+                  : ""}
           </span>
         ))}
         <button type="button" onClick={onJumpToFees} className="text-[12px] font-bold text-primary hover:underline">
@@ -373,6 +393,88 @@ function StayTable({
 
 /* ─────────────────────── fees ─────────────────────── */
 
+function FeeCadenceSelect({
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  value: ListingFeeCadence;
+  onChange: (next: ListingFeeCadence) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <Select aria-label={ariaLabel} value={value} onChange={(e) => onChange(e.target.value as ListingFeeCadence)}>
+      {LISTING_FEE_WIZARD_CADENCE_OPTIONS.map((opt) => (
+        <option key={opt.value} value={opt.value}>{opt.label}</option>
+      ))}
+    </Select>
+  );
+}
+
+function FeeRefundOptions({
+  fee,
+  onChange,
+}: {
+  fee: ListingFeeRow;
+  onChange: (patch: Partial<ListingFeeRow>) => void;
+}) {
+  if (fee.presetId === "security_deposit") return null;
+  const oneTime = listingFeeCadence(fee) === "one-time";
+  if (!oneTime) return null;
+  const refundable =
+    fee.presetId === "holding_deposit" ? true : Boolean(fee.refundable || fee.creditsTowardSecurity);
+  const showCreditToggle = refundable && fee.presetId !== "holding_deposit";
+  const creditChecked =
+    fee.presetId === "holding_deposit" ? fee.creditsTowardSecurity !== false : Boolean(fee.creditsTowardSecurity);
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-foreground">
+      {fee.presetId === "holding_deposit" ? (
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            className="h-3.5 w-3.5 accent-[var(--pl-blue)]"
+            checked={creditChecked}
+            onChange={(e) => onChange({ creditsTowardSecurity: e.target.checked })}
+          />
+          Credits toward security deposit
+        </label>
+      ) : (
+        <>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-[var(--pl-blue)]"
+              checked={refundable}
+              onChange={(e) => {
+                const next = e.target.checked;
+                onChange({
+                  refundable: next,
+                  creditsTowardSecurity: next ? fee.creditsTowardSecurity : false,
+                });
+              }}
+              data-attr="listing-fee-refundable"
+            />
+            Refundable
+          </label>
+          {showCreditToggle ? (
+            <label className="flex cursor-pointer items-center gap-2">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-[var(--pl-blue)]"
+                checked={creditChecked}
+                onChange={(e) => onChange({ creditsTowardSecurity: e.target.checked, refundable: true })}
+                data-attr="listing-fee-credit-security"
+              />
+              Reduce security deposit by this amount
+            </label>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
 function FeesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const terms = useMemo(() => listingLeaseTypeScopeOptions(sub), [sub]);
   const rooms = sub.rooms ?? [];
@@ -427,9 +529,7 @@ function FeesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: P
             <div className="grid grid-cols-[minmax(0,1fr)_110px_140px_36px] items-center gap-2.5">
               <span className="min-w-0">
                 <b className="block truncate text-[13.5px] font-bold text-foreground">{fee.label}</b>
-                <span className="block text-[11.5px] text-muted">
-                  {listingFeeCadence(fee) === "monthly" ? "Charged every month" : "Charged once"}
-                </span>
+                <span className="block text-[11.5px] text-muted">{listingFeeCadenceHint(listingFeeCadence(fee))}</span>
               </span>
               <Input
                 aria-label={`${fee.label} amount`}
@@ -437,9 +537,11 @@ function FeesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: P
                 placeholder="0"
                 onChange={(e) => write(fee.id, { amount: sanitizeMoneyInput(e.target.value) })}
               />
-              <span className="text-[12px] text-muted">
-                {listingFeeCadence(fee) === "monthly" ? "Every month" : "One-time"}
-              </span>
+              <FeeCadenceSelect
+                ariaLabel={`How often ${fee.label} is charged`}
+                value={listingFeeCadence(fee)}
+                onChange={(cadence) => write(fee.id, patchListingFeeCadence(cadence))}
+              />
               <button
                 type="button"
                 aria-label={`Remove ${fee.label}`}
@@ -450,6 +552,7 @@ function FeesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: P
               </button>
             </div>
             {scope(fee)}
+            <FeeRefundOptions fee={fee} onChange={(next) => write(fee.id, next)} />
           </div>
         ))}
         {custom.map((fee) => (
@@ -457,13 +560,15 @@ function FeesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: P
             <div className="grid grid-cols-[minmax(0,1fr)_110px_140px_36px] items-center gap-2.5">
               <Input aria-label="Fee name" value={fee.label} placeholder="Parking space" onChange={(e) => write(fee.id, { label: e.target.value })} />
               <Input aria-label={`${fee.label || "Fee"} amount`} value={moneyValue(fee.amount)} placeholder="0" onChange={(e) => write(fee.id, { amount: sanitizeMoneyInput(e.target.value) })} />
-              <Select aria-label={`How often ${fee.label || "this fee"} is charged`} value={fee.frequency ?? "monthly"} onChange={(e) => write(fee.id, { frequency: e.target.value as ManagerCustomFeeRow["frequency"] })}>
-                <option value="monthly">Every month</option>
-                <option value="one-time">One-time</option>
-              </Select>
+              <FeeCadenceSelect
+                ariaLabel={`How often ${fee.label || "this fee"} is charged`}
+                value={listingFeeCadence(fee)}
+                onChange={(cadence) => write(fee.id, patchListingFeeCadence(cadence))}
+              />
               <button type="button" aria-label={`Remove ${fee.label || "fee"}`} onClick={() => writeRows(rows.filter((f) => f.id !== fee.id))} className="justify-self-center text-[13px] text-muted hover:text-foreground">✕</button>
             </div>
             {scope(fee)}
+            <FeeRefundOptions fee={fee} onChange={(next) => write(fee.id, next)} />
           </div>
         ))}
       </div>
@@ -483,9 +588,17 @@ function FeesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: P
 
 function DueAtSigning({ sub, patch, term }: { sub: ManagerListingSubmissionV1; patch: Patch; term: string }) {
   const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
-  const rows = useMemo(() => paymentAtSigningRows(sub, { includeRoomRent: rentByRoom }), [sub, rentByRoom]);
+  const allRows = useMemo(() => paymentAtSigningRows(sub, { includeRoomRent: rentByRoom }), [sub, rentByRoom]);
   const matrix = useMemo(() => paymentAtSigningMatrix(sub), [sub]);
   const leaseTerm = listingPricingTabToLeaseTerm(term);
+  const rows = useMemo(
+    () =>
+      allRows.filter((row) => {
+        if (row.kind === "fee" && row.scope) return feeAppliesToLeaseType(row.scope, leaseTerm);
+        return true;
+      }),
+    [allRows, leaseTerm],
+  );
   const selected = (matrix[leaseTerm] ?? []).filter((key) => rows.some((r) => r.key === key));
   const setCell = (key: string, on: boolean) => {
     const next = applyPaymentAtSigningCell(sub, leaseTerm, key, on);
@@ -520,6 +633,7 @@ export function ListingPricingSections({
   payments,
   applications,
   leaseDocument,
+  onActiveLeaseTermChange,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: Patch;
@@ -532,44 +646,33 @@ export function ListingPricingSections({
   applications: React.ReactNode;
   /** Break-lease, holdover, quiet hours — what the lease document says. */
   leaseDocument: React.ReactNode;
+  /** Keeps the receipt panel on the same lease type as the active pricing tab. */
+  onActiveLeaseTermChange?: (leaseTerm: string) => void;
 }) {
   const terms = useMemo(() => listingLeaseTypeScopeOptions(sub), [sub]);
   const tabs = useMemo(() => listingPricingLeaseTabs(sub), [sub]);
   const [tab, setTab] = useState<string | null>(null);
   const active = tab && tabs.includes(tab) ? tab : tabs[0] ?? LONG_TERM_LEASE_TERM;
   const activeLeaseTerm = listingPricingTabToLeaseTerm(active);
+  useEffect(() => {
+    onActiveLeaseTermChange?.(activeLeaseTerm);
+  }, [activeLeaseTerm, onActiveLeaseTermChange]);
   const rooms = sub.rooms ?? [];
   // The deposit is a column of the table, never a chip beside it.
   const fees = useMemo(() => listingFeesForWizard(sub).filter((f) => f.presetId !== "security_deposit"), [sub]);
-  const payer = sub.serviceFeePayer ?? "resident";
-  /*
-   * Whether the account already carries PropLane coverage (staff approval or a
-   * signup promo grant). `null` while unknown, which is treated as "ask for the
-   * code": asking once too often costs a keystroke, assuming a grant that is
-   * not there would store a PropLane choice checkout then bills to the resident.
-   */
-  const [accountGranted, setAccountGranted] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (isDemoModeActive()) return;
-    let live = true;
-    void loadManagerPaymentWaiverGrantedClient().then((granted) => {
-      if (live) setAccountGranted(granted);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
-  const needsPromoCode = listingProplaneAbsorbNeedsWaiverCode("free", payer, accountGranted === true);
-  const promoCodeTyped = (sub.serviceFeeWaiverCode ?? "").length > 0;
-  const promoCodeValid = listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode);
-
   const onRoom = (id: string, next: ManagerRoomSubmission) => patch({ rooms: rooms.map((r) => (r.id === id ? next : r)) });
-  /** Every room row: write the default and move every room still following it. */
+  /** Every room row: write the default and move every room still following that field. */
   const onDefault = (field: ListingHouseDefaultField, value: string | number) => {
     const previous = defaults;
     const next = { ...defaults, [field]: value } as ListingHouseDefaults;
     setDefaults(next);
-    patch({ rooms: applyHouseDefaultsToRooms(rooms, next, { onlyFields: [field], previousDefaults: previous, roomIds: roomsFollowingDefaults(rooms, previous) }) });
+    patch({
+      rooms: applyHouseDefaultsToRooms(rooms, next, {
+        onlyFields: [field],
+        previousDefaults: previous,
+      }),
+      houseDefaults: next,
+    } as Partial<ManagerListingSubmissionV1>);
   };
 
   /** "Same as long-term" is true when no room has its own price on this term. */
@@ -584,49 +687,21 @@ export function ListingPricingSections({
         <h3 className="mb-1 text-[14px] font-bold text-foreground">1 · Before move-in</h3>
         <p className="mb-3 text-[12.5px] text-muted">What an applicant pays to apply, and who covers card processing.</p>
         <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Application fee">
+          <Field label="Long-term application fee">
             <div className="relative">
               <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-muted">$</span>
               <Input className="pl-6" inputMode="decimal" value={moneyValue(sub.applicationFee)} placeholder="50" onChange={(e) => patch({ applicationFee: sanitizeMoneyInput(e.target.value) })} />
             </div>
           </Field>
+          <Field label="Short-term application fee" optional hint="Uses long-term when blank.">
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-muted">$</span>
+              <Input className="pl-6" inputMode="decimal" value={moneyValue(sub.shortTermApplicationFee ?? "")} placeholder={moneyValue(sub.applicationFee) || "50"} onChange={(e) => patch({ shortTermApplicationFee: sanitizeMoneyInput(e.target.value) })} />
+            </div>
+          </Field>
           <Field label="Waiver code" optional hint="Applicants who enter it apply for free.">
             <Input style={{ textTransform: "uppercase" }} value={sub.applicationFeeWaiverCode ?? ""} placeholder="WELCOME50" onChange={(e) => patch({ applicationFeeWaiverCode: e.target.value.toUpperCase().replace(/\s+/g, "") })} />
           </Field>
-          <Field
-            label="Card processing fee"
-            hint={
-              payer === "proplane"
-                ? accountGranted
-                  ? "Your account already has PropLane coverage — no code needed."
-                  : "Needs the promo code PropLane gave you."
-                : payer === "manager"
-                  ? "Taken out of your payout."
-                  : "Added to the resident's payment."
-            }
-          >
-            <Select value={payer} data-attr="listing-v2-service-fee-payer" onChange={(e) => patch({ serviceFeePayer: e.target.value as ManagerListingSubmissionV1["serviceFeePayer"], serviceFeeWaiverCode: undefined })}>
-              <option value="resident">Resident pays</option>
-              <option value="manager">I pay</option>
-              <option value="proplane">PropLane pays</option>
-            </Select>
-          </Field>
-          {needsPromoCode ? (
-            <Field
-              label="Promo code"
-              hint={LISTING_PROCESSING_FEE_WAIVER_CODE_HELP}
-              error={promoCodeTyped && !promoCodeValid ? LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID : undefined}
-            >
-              <Input
-                style={{ textTransform: "uppercase" }}
-                autoComplete="off"
-                value={sub.serviceFeeWaiverCode ?? ""}
-                placeholder="Promo code"
-                data-attr="listing-v2-service-fee-code"
-                onChange={(e) => patch({ serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value) || undefined })}
-              />
-            </Field>
-          ) : null}
         </div>
       </section>
 
@@ -636,9 +711,11 @@ export function ListingPricingSections({
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
           <div>{leaseTypesField}</div>
           {terms.includes(LONG_TERM_LEASE_TERM) ? (
-            <Field label="Long-term minimum" hint="Long-term is more than a month; an applicant can't pick a shorter term.">
+            <Field label="Long-term minimum" hint="Applicants can't pick a lease shorter than this.">
               <Select value={String(sub.longTermMinimumMonths ?? 2)} onChange={(e) => patch({ longTermMinimumMonths: Number(e.target.value) || 2 })} data-attr="listing-v2-long-term-minimum">
-                {[2, 3, 6, 12].map((m) => (<option key={m} value={m}>{m} months</option>))}
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                  <option key={m} value={m}>{m} {m === 1 ? "month" : "months"}</option>
+                ))}
               </Select>
             </Field>
           ) : null}
@@ -688,7 +765,16 @@ export function ListingPricingSections({
               <StayTable sub={sub} defaults={defaults} onDefault={onDefault} onRoom={onRoom} />
             ) : (
               <div className={cn(!isBase(activeLeaseTerm) && !ownTable(activeLeaseTerm) && "pointer-events-none opacity-50")}>
-                <MonthlyTable sub={sub} term={!isBase(activeLeaseTerm) && !ownTable(activeLeaseTerm) ? LONG_TERM_LEASE_TERM : activeLeaseTerm} defaults={defaults} onDefault={onDefault} onRoom={onRoom} fees={fees} onJumpToFees={() => document.getElementById("listing-v2-fees")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+                <MonthlyTable
+                  sub={sub}
+                  term={!isBase(activeLeaseTerm) && !ownTable(activeLeaseTerm) ? LONG_TERM_LEASE_TERM : activeLeaseTerm}
+                  feeScopeTerm={activeLeaseTerm}
+                  defaults={defaults}
+                  onDefault={onDefault}
+                  onRoom={onRoom}
+                  fees={fees}
+                  onJumpToFees={() => document.getElementById("listing-v2-fees")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                />
               </div>
             )}
             {stay ? <p className="mt-2 text-[12px] text-muted">That is all a short stay needs — the rate is all-in, so there is no utilities line and no monthly fees.</p> : null}

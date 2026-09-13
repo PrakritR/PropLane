@@ -191,13 +191,21 @@ export function resolveAccountOrListingWaiverGranted(
  */
 export const LISTING_PAYMENT_WAIVER_CODE = "FREE100";
 
+/** Listing-wizard promo that unlocks PropLane-absorbed Stripe processing fees. */
+export const LISTING_PROCESSING_FEE_PROMO_CODE = "WAIVEPROCESS1";
+
+const LISTING_PROCESSING_FEE_PROMO_CODES = new Set([
+  LISTING_PAYMENT_WAIVER_CODE,
+  LISTING_PROCESSING_FEE_PROMO_CODE,
+]);
+
 export function normalizeListingPaymentWaiverCode(code: string): string {
   return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
 export function listingPaymentWaiverCodeMatches(code: string | null | undefined): boolean {
   const normalized = normalizeListingPaymentWaiverCode(code ?? "");
-  return normalized.length > 0 && normalized === LISTING_PAYMENT_WAIVER_CODE;
+  return normalized.length > 0 && LISTING_PROCESSING_FEE_PROMO_CODES.has(normalized);
 }
 
 /**

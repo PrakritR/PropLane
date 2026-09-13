@@ -58,6 +58,9 @@ describe("fee scope — absent means all", () => {
   it("a narrowed fee applies only where it is named", () => {
     expect(feeAppliesToLeaseType({ leaseTypes: ["Long-term"] }, "Long-term")).toBe(true);
     expect(feeAppliesToLeaseType({ leaseTypes: ["Long-term"] }, "Month-to-Month")).toBe(false);
+    expect(feeAppliesToLeaseType({ leaseTypes: ["Custom"] }, "Long-term")).toBe(false);
+    expect(feeAppliesToLeaseType({ leaseTypes: ["Custom"] }, "Custom")).toBe(true);
+    expect(feeAppliesToLeaseType({ leaseTypes: ["12-Month"] }, "Long-term")).toBe(true);
     expect(feeAppliesToRoom({ roomIds: ["room-a"] }, "room-a")).toBe(true);
     expect(feeAppliesToRoom({ roomIds: ["room-a"] }, "room-b")).toBe(false);
   });
@@ -151,6 +154,31 @@ describe("custom fee scope survives a save", () => {
     const fee = n.customFees?.find((f) => f.id === "fee-parking");
     expect(fee?.leaseTypes).toEqual(["Long-term"]);
     expect(fee?.roomIds).toEqual(["room-a", "room-c"]);
+  });
+
+  it("keeps a custom-lease surcharge off long-term when scoped to Custom only", () => {
+    const sub = subWithRooms();
+    sub.customFees = [
+      {
+        id: "fee-cl",
+        label: "Custom lease",
+        amount: "100",
+        frequency: "monthly",
+        presetId: "custom_lease_surcharge",
+        leaseTypes: ["Custom"],
+      },
+    ];
+    const n = normalizeManagerListingSubmissionV1(sub);
+    const billing = {
+      leaseStart: "2026-06-15",
+      leaseEnd: "2027-06-14",
+      rentalType: "standard",
+    };
+    const longTerm = leaseDocumentFeeLines(n, "long-term", { ...billing, leaseTerm: "Long-term" });
+    const custom = leaseDocumentFeeLines(n, "long-term", { ...billing, leaseTerm: "Custom" });
+    const named = (lines: { label: string }[]) => lines.some((l) => l.label === "Custom lease");
+    expect(named([...longTerm.monthly, ...longTerm.foldedIntoRent])).toBe(false);
+    expect(named([...custom.monthly, ...custom.foldedIntoRent])).toBe(true);
   });
 
   it("gates the fee out of a lease of another type", () => {

@@ -11,6 +11,8 @@ import {
 } from "@/lib/portal-message-delivery";
 import {
   findHoldingDepositCharge,
+  listingHoldingDepositAmount,
+  listingHoldingDepositAvailable,
   removeApplicantHoldingFee,
   setApplicantHoldingFee,
 } from "@/lib/household-charges";
@@ -294,6 +296,145 @@ function HoldingFeeAmountModal({
   );
 }
 
+export type ApplicationHoldingFeeRow = {
+  id: string;
+  email?: string | null;
+  name?: string | null;
+  residentUserId?: string | null;
+  managerUserId?: string | null;
+  propertyId?: string | null;
+  application?: { propertyId?: string | null } | null;
+};
+
+/**
+ * Inline toggle: only rendered when the listing has a holding deposit configured.
+ * Checking it creates the charge on the resident's Payments tab at the listing amount.
+ */
+export function ApplicationHoldingFeeToggle({
+  row,
+  onChanged,
+}: {
+  row: ApplicationHoldingFeeRow;
+  onChanged?: () => void;
+}) {
+  const { showToast } = useAppUi();
+  const [busy, setBusy] = useState(false);
+  const propertyId = row.application?.propertyId?.trim() || row.propertyId?.trim() || "";
+  const residentEmail = row.email ?? "";
+  const residentName = row.name ?? "";
+  const residentUserId = row.residentUserId ?? null;
+  const managerUserId = row.managerUserId ?? null;
+
+  if (!listingHoldingDepositAvailable(propertyId)) return null;
+
+  const blockedReason = applicationHoldingFeeBlockedReason(residentEmail, propertyId);
+  const { amount, displayLabel } = listingHoldingDepositAmount(propertyId);
+  const existing =
+    residentEmail && propertyId
+      ? findHoldingDepositCharge(residentEmail, propertyId, residentUserId, row.id)
+      : undefined;
+  const paid = existing?.status === "paid";
+  const active = Boolean(existing);
+
+  const setActive = async (next: boolean) => {
+    if (isDemoModeActive()) {
+      showToast("Holding fees are read-only in the demo.");
+      return;
+    }
+    if (blockedReason) {
+      showToast(blockedReason);
+      return;
+    }
+    setBusy(true);
+    try {
+      if (next) {
+        const result = setApplicantHoldingFee({
+          residentEmail,
+          residentName,
+          residentUserId,
+          propertyId,
+          applicationId: row.id,
+          managerUserId,
+          amount,
+        });
+        if (!result.ok) {
+          showToast(result.error);
+          return;
+        }
+        if (result.alreadyPaid) {
+          showToast("This holding fee is already paid.");
+          return;
+        }
+        const notice = await deliverPortalInboxMessage({
+          eventCategory: "payments",
+          toEmails: [residentEmail],
+          subject: `Holding fee due: ${result.charge.amountLabel}`,
+          text: buildHoldingFeeNoticeBody({
+            residentName: residentName.trim() || "there",
+            residentEmail,
+            amountLabel: result.charge.amountLabel,
+            propertyLabel: result.charge.propertyLabel || displayLabel,
+          }),
+          deliverViaEmail: true,
+          deliverViaSms: true,
+        });
+        showToast(
+          notice.ok
+            ? `Holding fee of ${result.charge.amountLabel} is on ${residentName.trim() || "the applicant"}'s Payments tab.`
+            : `Holding fee saved; notice could not be sent${notice.error ? `: ${notice.error}` : ""}.`,
+        );
+      } else {
+        const result = removeApplicantHoldingFee({
+          residentEmail,
+          propertyId,
+          residentUserId,
+          applicationId: row.id,
+        });
+        if (!result.ok) {
+          showToast(result.error);
+          return;
+        }
+        showToast("Holding fee removed from the resident portal.");
+      }
+      onChanged?.();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="rounded-xl border border-border bg-card px-4 py-3"
+      data-attr="application-holding-fee-toggle"
+    >
+      <label className="flex cursor-pointer items-start gap-3 text-sm">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-4 w-4 shrink-0 rounded border-border accent-primary"
+          checked={active}
+          disabled={busy || paid || Boolean(blockedReason)}
+          onChange={(e) => void setActive(e.target.checked)}
+          data-attr="application-holding-fee-checkbox"
+        />
+        <span>
+          <span className="font-semibold text-foreground">
+            Request holding fee ({displayLabel})
+          </span>
+          <span className="mt-0.5 block text-xs text-muted">
+            {paid
+              ? `Paid · ${existing?.amountLabel ?? displayLabel}. Handle any refund per your lease terms.`
+              : blockedReason
+                ? blockedReason
+                : active
+                  ? "Shown on the resident's Payments tab until paid or you turn this off."
+                  : "Turn on to add this charge to the resident's Payments tab. Credited toward security deposit at approval."}
+          </span>
+        </span>
+      </label>
+    </div>
+  );
+}
+
 /**
  * The holding fee as a top-right header action rather than a body card.
  *
@@ -310,15 +451,7 @@ export function ApplicationHoldingFeeModal({
   onClose,
   onChanged,
 }: {
-  row: {
-    id: string;
-    email?: string | null;
-    name?: string | null;
-    residentUserId?: string | null;
-    managerUserId?: string | null;
-    propertyId?: string | null;
-    application?: { propertyId?: string | null } | null;
-  } | null;
+  row: ApplicationHoldingFeeRow | null;
   open: boolean;
   onClose: () => void;
   onChanged?: () => void;

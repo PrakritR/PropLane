@@ -267,6 +267,7 @@ export function PricingReceiptPanel({
   onRoomChange,
   onLeaseTermChange,
   leaseTerms,
+  lockLeaseTerm = false,
 }: {
   sub: ManagerListingSubmissionV1;
   patch: (next: Partial<ManagerListingSubmissionV1>) => void;
@@ -275,6 +276,8 @@ export function PricingReceiptPanel({
   onRoomChange: (id: string | null) => void;
   onLeaseTermChange: (term: string) => void;
   leaseTerms: string[];
+  /** When true, the lease type follows the active pricing tab instead of a separate picker. */
+  lockLeaseTerm?: boolean;
 }) {
   const quote = useMemo(() => buildListingQuote(sub, { roomId, leaseTerm }), [sub, roomId, leaseTerm]);
   const rooms = sub.rooms ?? [];
@@ -291,7 +294,11 @@ export function PricingReceiptPanel({
   const monthlyBreakdown = [
     `Rent ${usd(quote.monthlyRent)}`,
     quote.monthlyUtilities > 0 ? `utilities ${usd(quote.monthlyUtilities)}` : "",
-    ...quote.monthlyFees.map((f) => `${f.label.toLowerCase()} ${usd(f.amount)}`),
+    ...quote.monthlyFees.map((f) => {
+      if (f.cadence === "weekly") return `${f.label.toLowerCase()} ${usd(f.amount)}/wk`;
+      if (f.cadence === "daily") return `${f.label.toLowerCase()} ${usd(f.amount)}/day`;
+      return `${f.label.toLowerCase()} ${usd(f.amount)}`;
+    }),
   ]
     .filter(Boolean)
     .join(", ");
@@ -316,18 +323,24 @@ export function PricingReceiptPanel({
           ) : (
             <span className="text-[12.5px] text-muted">Whole place</span>
           )}
-          <select
-            aria-label="Lease type to quote"
-            value={leaseTerm}
-            onChange={(e) => onLeaseTermChange(e.target.value)}
-            className="h-9 w-full rounded-lg border border-border bg-card px-2 text-[13px] text-foreground"
-          >
-            {leaseTerms.map((term) => (
-              <option key={term} value={term}>
-                {term}
-              </option>
-            ))}
-          </select>
+          {lockLeaseTerm ? (
+            <span className="flex h-9 items-center rounded-lg border border-border bg-accent/40 px-2 text-[13px] font-semibold text-foreground">
+              {leaseTerm}
+            </span>
+          ) : (
+            <select
+              aria-label="Lease type to quote"
+              value={leaseTerm}
+              onChange={(e) => onLeaseTermChange(e.target.value)}
+              className="h-9 w-full rounded-lg border border-border bg-card px-2 text-[13px] text-foreground"
+            >
+              {leaseTerms.map((term) => (
+                <option key={term} value={term}>
+                  {term}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
         <p className="mb-1 text-[11.5px] text-muted">Due at signing. Untick anything you collect later.</p>
         {quote.signingLines.map((line) => (

@@ -27,13 +27,25 @@ export function ListingWizardOverlay({ children }: { children: ReactNode }) {
   }, []);
   if (!mounted) return null;
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex items-stretch justify-center overscroll-contain bg-foreground/30 p-0 backdrop-blur-sm sm:p-4">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Listing editor"
+      className="pointer-events-none fixed inset-0 z-[80] flex min-h-0 min-w-0 outline-none overscroll-contain bg-foreground/30 p-0 backdrop-blur-sm sm:p-4"
+    >
       {/*
-       * The editor is a workspace, not a dialog: a step rail, the form, and the
-       * panel showing what the manager just changed need the screen. Capping it
-       * at max-w-4xl is what left no room for the third column.
+       * ModalAssistantStrip portals the assistant rail into the nearest
+       * [role="dialog"]. Without this shell the rail fell through to body at
+       * z-[72] — underneath this overlay at z-[80] — so Ask PropLane looked
+       * broken. Same contract as Modal's data-modal-assistant-workspace.
        */}
-      <div className="h-full w-full max-w-[1560px]">{children}</div>
+      <div
+        data-modal-assistant-workspace=""
+        data-full-screen="true"
+        className="pointer-events-none flex min-h-0 min-w-0 flex-1 items-stretch justify-center p-0"
+      >
+        <div className="pointer-events-auto h-full w-full max-w-[1560px]">{children}</div>
+      </div>
     </div>,
     document.body,
   );

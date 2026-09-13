@@ -17,13 +17,36 @@ export function stripPropertyRoomCountSuffix(label: string): string {
  * Compact subtitle for lease / resident rows on small screens.
  * "5259 Brooklyn Ave NE · 9 rooms · Room 8" + "$825/mo" → "Room 8 · $825/mo"
  */
+/** Drop repeated " · " segments — common when property title is echoed at the end. */
+export function dedupePlacementSegments(unitLabel: string): string {
+  const segments = unitLabel
+    .split(" · ")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (segments.length <= 1) return unitLabel.trim() || "—";
+
+  while (
+    segments.length > 1 &&
+    segments[segments.length - 1]!.toLowerCase() === segments[0]!.toLowerCase()
+  ) {
+    segments.pop();
+  }
+
+  const deduped = segments.filter(
+    (segment, index) =>
+      index === 0 || segment.toLowerCase() !== segments[index - 1]!.toLowerCase(),
+  );
+  return deduped.join(" · ") || unitLabel.trim() || "—";
+}
+
 export function formatCompactPlacementLine(
   unitLabel: string,
   rentLabel?: string | null,
   options?: { forceCompact?: boolean },
 ): string {
   const rent = rentLabel?.trim() || "";
-  const segments = unitLabel
+  const normalized = dedupePlacementSegments(unitLabel);
+  const segments = normalized
     .split(" · ")
     .map((part) => part.trim())
     .filter(Boolean);
@@ -37,7 +60,7 @@ export function formatCompactPlacementLine(
     return [segments[roomIdx], rent].filter(Boolean).join(" · ");
   }
 
-  const base = segments.join(" · ") || unitLabel.trim() || "—";
+  const base = segments.join(" · ") || normalized || "—";
   return rent ? `${base} · ${rent}` : base;
 }
 

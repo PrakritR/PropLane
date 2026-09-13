@@ -1,14 +1,43 @@
 "use client";
 
+import { FileText } from "lucide-react";
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
-import { Badge } from "@/components/ui/badge";
-import { PortalPropertyRecordRow } from "@/components/portal/portal-record-row";
+import { ClusterNavRow } from "@/components/portal/application-review-nav-cluster";
 import type { LeasePipelineRow } from "@/lib/lease-pipeline-storage";
 import {
-  leaseUnitMeta,
-  leaseUpdatedLabel,
+  leaseGroupedRowMeta,
+  leaseGroupedRowPrimary,
+  leaseStatusPill,
   type ManagerLeaseListCluster,
 } from "@/lib/manager-lease-list";
+import { stripPropertyRoomCountSuffix } from "@/lib/portal-mobile-preview";
+
+function ResidentLeaseClusterHeader({
+  residentLabel,
+  residentEmail,
+  propertyLabel,
+}: {
+  residentLabel: string;
+  residentEmail?: string | null;
+  propertyLabel?: string | null;
+}) {
+  const email =
+    residentEmail?.trim() &&
+    residentEmail.trim().toLowerCase() !== residentLabel.trim().toLowerCase()
+      ? residentEmail.trim()
+      : "";
+  const property = propertyLabel?.trim()
+    ? stripPropertyRoomCountSuffix(propertyLabel.trim())
+    : "";
+
+  return (
+    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span className="truncate text-sm font-semibold text-foreground">{residentLabel}</span>
+      {email ? <span className="truncate text-xs text-muted">{email}</span> : null}
+      {property ? <span className="truncate text-xs text-muted">{property}</span> : null}
+    </div>
+  );
+}
 
 export function ManagerLeasesGroupedTable({
   clusters,
@@ -25,54 +54,43 @@ export function ManagerLeasesGroupedTable({
 }) {
   return (
     <div className="space-y-3" data-attr="leases-resident-groups">
-      {clusters.map((cluster) => (
-        <ApplicationHouseholdCluster
-          key={cluster.key}
-          header={
-            <>
-              <span className="truncate text-xs font-semibold text-foreground">
-                {cluster.residentLabel}
-              </span>
-              {cluster.residentEmail &&
-              cluster.residentEmail.toLowerCase() !== cluster.residentLabel.trim().toLowerCase() ? (
-                <span className="truncate text-xs text-muted">{cluster.residentEmail}</span>
-              ) : null}
-              {cluster.propertyLabel ? (
-                <span className="truncate text-xs text-muted">{cluster.propertyLabel}</span>
-              ) : null}
-              <span className="sr-only">{cluster.rows.length === 1 ? "1 lease" : `${cluster.rows.length} leases`}</span>
-            </>
-          }
-        >
-          {cluster.rows.map((row) => {
-            const unit = leaseUnitMeta(row);
-            return (
-              <PortalPropertyRecordRow
-                key={row.id}
-                // Unit leads: the resident's name is already the cluster header,
-                // so repeating it here would make every row in a group read the
-                // same. Fall back to the updated stamp when a row has no unit.
-                title={unit || leaseUpdatedLabel(row)}
-                address={unit ? leaseUpdatedLabel(row) : ""}
-                badge={
-                  row.pendingRenewal || row.leaseKind === "joint_bundle" ? (
-                    <span className="inline-flex flex-wrap items-center gap-1.5">
-                      {row.pendingRenewal ? <Badge tone="warning">Renewal</Badge> : null}
-                      {row.leaseKind === "joint_bundle" ? <Badge tone="neutral">Joint bundle</Badge> : null}
-                    </span>
-                  ) : undefined
-                }
-                checked={selectedIds?.has(row.id) ?? false}
-                onSelectedChange={
-                  selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined
-                }
-                onOpen={() => onOpenLease(row)}
-                dataAttr="lease-list-row"
+      {clusters.map((cluster) => {
+        const propertyLabel = cluster.propertyLabel?.trim()
+          ? stripPropertyRoomCountSuffix(cluster.propertyLabel.trim())
+          : null;
+
+        return (
+          <ApplicationHouseholdCluster
+            key={cluster.key}
+            header={
+              <ResidentLeaseClusterHeader
+                residentLabel={cluster.residentLabel}
+                residentEmail={cluster.residentEmail}
+                propertyLabel={propertyLabel}
               />
-            );
-          })}
-        </ApplicationHouseholdCluster>
-      ))}
+            }
+          >
+            {cluster.rows.map((row) => {
+              const statusPill = leaseStatusPill(row);
+              return (
+                <ClusterNavRow
+                  key={row.id}
+                  primary={leaseGroupedRowPrimary(row, propertyLabel)}
+                  meta={leaseGroupedRowMeta(row)}
+                  icon={<FileText className="h-4 w-4" aria-hidden />}
+                  statusPill={statusPill}
+                  checked={selectable && selectedIds?.has(row.id)}
+                  onCheck={
+                    selectable && onToggleSelected ? () => onToggleSelected(row.id) : undefined
+                  }
+                  onOpen={() => onOpenLease(row)}
+                  checkDataAttr={`lease-select-${row.id}`}
+                />
+              );
+            })}
+          </ApplicationHouseholdCluster>
+        );
+      })}
     </div>
   );
 }
