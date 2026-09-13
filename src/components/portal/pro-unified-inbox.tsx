@@ -782,10 +782,11 @@ export function ManagerUnifiedInbox({
         return null;
       }
       if (cur && listRows.some((r) => r.key === cur)) return cur;
-      if (inboxUsesDesktopSplit()) return listRows[0]!.key;
+      // Filtering must not open and mark each unread result read in succession.
+      if (listSegment !== "unread" && inboxUsesDesktopSplit()) return listRows[0]!.key;
       return null;
     });
-  }, [isClient, listRows, routeThreadId]);
+  }, [isClient, listRows, listSegment, routeThreadId]);
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
