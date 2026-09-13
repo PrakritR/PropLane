@@ -3,6 +3,7 @@
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { useSafeAreaInsets } from "@/hooks/use-safe-area-insets";
 
 export const DropdownMenu = DropdownMenuPrimitive.Root;
 export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
@@ -13,13 +14,20 @@ export function DropdownMenuContent({
   align = "end",
   backdrop = false,
   glass = false,
-  mobileSheet = false,
+  collisionPadding,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & {
   backdrop?: boolean;
   glass?: boolean;
-  mobileSheet?: boolean;
 }) {
+  const insets = useSafeAreaInsets();
+  const resolvedCollisionPadding =
+    collisionPadding ?? {
+      top: 12 + insets.top,
+      right: 12 + insets.right,
+      bottom: 12 + insets.bottom + insets.bottomNav,
+      left: 12 + insets.left,
+    };
   return (
     <>
       {(backdrop || glass) && (
@@ -32,12 +40,23 @@ export function DropdownMenuContent({
       )}
       <DropdownMenuPrimitive.Portal>
         <DropdownMenuPrimitive.Content
-          data-mobile-sheet={mobileSheet || undefined}
           sideOffset={sideOffset}
           align={align}
+          avoidCollisions
+          sticky="always"
+          updatePositionStrategy="always"
+          // No `hideWhenDetached`: floating-ui's `hide` middleware reports a
+          // zero-size reference as detached (true of every element without a
+          // real layout engine), and this menu is modal, so a detached
+          // trigger is not a real case worth hiding for.
+          collisionPadding={resolvedCollisionPadding}
           className={cn(
-            "z-50 min-w-[14rem] overflow-hidden rounded-xl border border-border bg-card p-1.5 text-foreground shadow-[var(--shadow-lg,0_12px_32px_-8px_rgba(20,28,48,0.22))]",
+            "z-50 min-w-[14rem] overflow-hidden rounded-xl border border-border bg-card p-1.5 text-foreground shadow-[0_12px_32px_-8px_rgba(20,28,48,0.22)]",
+            "origin-[var(--radix-dropdown-menu-content-transform-origin)]",
             "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+            "data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1",
+            "duration-[220ms] ease-[cubic-bezier(.22,1,.36,1)] data-[state=closed]:duration-[120ms]",
+            "motion-reduce:animate-none motion-reduce:transition-none",
             glass && "portal-liquid-glass z-[10060]",
             className,
           )}
