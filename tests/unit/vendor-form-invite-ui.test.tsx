@@ -48,6 +48,18 @@ function fill(email = "vendor@example.test") {
 
 describe("single-form vendor invitation", () => {
   afterEach(() => { cleanup(); vi.clearAllMocks(); persistManagerVendorToServer.mockResolvedValue(true); });
+  it("preserves current and unknown vendor settings when editing identity fields", async () => {
+    const vendor = {
+      id: "existing", managerUserId: "owner", name: "Original", trade: "Plumbing", phone: "", email: "", notes: "Private", active: true,
+      preferredName: "Sam", preferredChannel: "sms" as const, trades: ["Plumbing", "Electrical"],
+      messaging: { instructions: "Keep this", templates: {} }, checkIns: [], propertyIds: ["house"], futureSetting: { enabled: true },
+    };
+    render(<ManagerVendorFormModal open mode="edit" vendor={vendor} onClose={vi.fn()} showToast={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Vendor name"), { target: { value: "Updated" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+    await waitFor(() => expect(persistManagerVendorToServer).toHaveBeenCalledOnce());
+    expect(persistManagerVendorToServer.mock.calls[0][0]).toMatchObject({ ...vendor, name: "Updated" });
+  });
   it("shows identity, phone and invitation message together without Continue", () => {
     show();
     expect(screen.getByLabelText("Vendor name")).toBeInTheDocument();

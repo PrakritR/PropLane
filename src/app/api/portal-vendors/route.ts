@@ -1,3 +1,4 @@
+import { vendorCatalogProjection } from "@/lib/vendor-catalog-projection";
 import { NextResponse } from "next/server";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
 import { isVendorCategorySettingsRow, managerVendorCategorySettingsRowId } from "@/lib/manager-vendors-storage";
@@ -71,7 +72,7 @@ export async function GET(req: Request) {
         .map((record) => {
           const row = record.row_data as ManagerVendorRow | null;
           if (!row?.id || row.name === "__vendor_category_settings__") return null;
-          return { ...row, managerUserId: record.manager_user_id };
+          return vendorCatalogProjection(row, record.manager_user_id);
         })
         .filter(Boolean) as ManagerVendorRow[];
       return NextResponse.json({ rows });
@@ -141,7 +142,7 @@ export async function GET(req: Request) {
           if (!row?.id || row.name === "__vendor_category_settings__") return null;
           const ownerId = record.manager_user_id;
           if (!ownerId) return null;
-          return normalizeRow(row, ownerId);
+          return vendorCatalogProjection(row, ownerId);
         })
         .filter((row): row is ManagerVendorRow => row !== null);
     }

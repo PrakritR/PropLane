@@ -444,8 +444,9 @@ export function ManagerVendorFormModal({
     const now = new Date().toISOString();
     const existing = mode === "edit" ? vendor : null;
     return {
+      ...existing,
       id,
-      managerUserId: userId,
+      managerUserId: existing?.managerUserId ?? userId,
       name,
       trade: draft.trade.trim() || VENDOR_TRADE_OPTIONS[0]!,
       phone: draft.phone.trim(),

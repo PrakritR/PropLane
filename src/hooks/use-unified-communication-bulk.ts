@@ -52,10 +52,9 @@ export function useUnifiedCommunicationBulk({
   const selectedRows = useMemo((): SelectedRow[] => {
     return mergedRows
       .filter((row) => selection.selectedIds.has(row.key))
-      .map((row) => ({
-        key: row.key,
-        channel: row.channel,
-        threadId: row.threadId,
+      .flatMap((row) => [...new Set([row.key, ...(row.memberKeys ?? [])])].flatMap((key) => {
+        const parsed = parseUnifiedInboxKey(key);
+        return parsed ? [{ key, ...parsed }] : [];
       }));
   }, [mergedRows, selection.selectedIds]);
 

@@ -1,9 +1,11 @@
 "use client";
 
+import { CommunicationStatusFilterDraft, type CommunicationStatus } from "@/components/portal/communication-status-filter";
+
+import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
+
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  CommunicationListBulkBar,
-} from "@/components/portal/communication-list-bulk-bar";
+
 import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import { Button } from "@/components/ui/button";
@@ -13,7 +15,6 @@ import { ResidentManagerNumberCard } from "@/components/portal/resident-manager-
 import {
   INBOX_LIST_SCROLL,
   InboxConversationRow,
-  InboxListSegmentRail,
   InboxTwoPane,
   PORTAL_INBOX_LIST_TOOLBAR_CLASS,
   PortalInboxEmptyState,
@@ -99,6 +100,7 @@ function ResidentUnifiedInbox({
   inboxRef,
   smsUiEnabled,
   listSegment,
+  readOnly = false,
   routeThreadId,
   onRouteThreadChange,
   onThreadOpenChange,
@@ -110,6 +112,7 @@ function ResidentUnifiedInbox({
   inboxRef: React.RefObject<ResidentInboxPanelHandle | null>;
   smsUiEnabled: boolean;
   listSegment: InboxListSegment;
+  readOnly?: boolean;
   routeThreadId?: string;
   onRouteThreadChange?: (threadId: string | undefined) => void;
   onThreadOpenChange?: (open: boolean) => void;
@@ -275,8 +278,8 @@ function ResidentUnifiedInbox({
 
   const merged = useMemo(() => {
     const rows = mergeUnifiedInboxItems([...emailItems, ...smsItems], "recent");
-    return pinPropLaneAssistantUnifiedItems(rows, assistantThreadId);
-  }, [assistantThreadId, emailItems, smsItems]);
+    return pinPropLaneAssistantUnifiedItems(rows, assistantThreadId).filter((row) => !readOnly || !row.unread);
+  }, [assistantThreadId, emailItems, smsItems, readOnly]);
 
   const bulk = useUnifiedCommunicationBulk({
     mergedRows: merged,
@@ -328,7 +331,6 @@ function ResidentUnifiedInbox({
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <ResidentManagerNumberCard />
-      <InboxListSegmentRail commBase={commBase} listSegment={listSegment} />
       <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
         <div className="relative min-w-0">
           <input
@@ -367,6 +369,7 @@ function ResidentUnifiedInbox({
           merged.map((row) => (
             <InboxConversationRow
               key={row.key}
+              trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} />}
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}
@@ -389,13 +392,6 @@ function ResidentUnifiedInbox({
           ))
         )}
       </div>
-      <CommunicationListBulkBar
-        count={bulk.selectedCount}
-        listSegment={listSegment}
-        onArchive={listSegment !== "archived" ? () => void bulk.handleArchive() : undefined}
-        onRestore={listSegment === "archived" ? () => void bulk.handleRestore() : undefined}
-        onDelete={listSegment === "archived" ? () => void bulk.handleDelete() : undefined}
-      />
     </div>
   );
 
@@ -475,10 +471,12 @@ export function ResidentCommunication({
   const { activeThreadId, setActiveThreadId } = useCommunicationThreadId(commBase, threadId);
   const [threadOpen, setThreadOpen] = useState(Boolean(threadId));
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
+  const [status, setStatus] = useState<CommunicationStatus>(listSegment);
+  useEffect(() => setStatus(listSegment), [listSegment]);
 
   const communicationFilterSheet = (
     <PortalFilterSortSheet
-      activeCount={0}
+      activeCount={status === "active" ? 0 : 1}
       compactPanel
       filterFieldCount={1}
       // Content width — see the note on the manager's sheet.
@@ -486,9 +484,7 @@ export function ResidentCommunication({
       mobileFlushBody
       dataAttr="resident-communication-filter-open"
     >
-      <p className="text-sm text-muted">
-        Resident Communication shows all of your conversations. Use Archived to review older threads.
-      </p>
+      <CommunicationStatusFilterDraft value={status} onChange={setStatus} />
     </PortalFilterSortSheet>
   );
 
@@ -535,7 +531,8 @@ export function ResidentCommunication({
       <ResidentUnifiedInbox
         inboxRef={inboxRef}
         smsUiEnabled={smsUiEnabled}
-        listSegment={listSegment}
+        listSegment={status === "read" ? "active" : status}
+        readOnly={status === "read"}
         routeThreadId={activeThreadId}
         onRouteThreadChange={setActiveThreadId}
         onThreadOpenChange={setThreadOpen}

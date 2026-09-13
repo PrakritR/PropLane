@@ -3724,11 +3724,11 @@ html[data-native] [data-listing-subnav] {
 }
 .record-action-menu [role="menuitem"] {
   display: flex; width: 100%; min-height: 44px; justify-content: flex-start;
-  border: 0; border-radius: 10px; background: transparent; box-shadow: none;
+  border: 0; border-radius: 10px; background: transparent !important; box-shadow: none !important;
   padding: 10px 12px; color: var(--foreground); text-align: left;
 }
-.record-action-menu [role="menuitem"]:hover,
-.record-action-menu [role="menuitem"][data-highlighted] { background: rgb(92 130 244 / .12); }
+.record-action-menu [role="menuitem"]:not(:disabled):not([data-disabled]):hover,
+.record-action-menu [role="menuitem"][data-highlighted]:not(:disabled):not([data-disabled]) { background: rgb(92 130 244 / .12) !important; }
 .record-action-menu .text-danger { color: #b93838; }
 @supports not (backdrop-filter: blur(1px)) { .portal-liquid-glass { background: var(--card); } }
 @media (max-width: 767px) {

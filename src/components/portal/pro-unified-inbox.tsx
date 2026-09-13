@@ -1,4 +1,6 @@
 "use client";
+
+import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
 import { loadManagerSmsConversationsClient } from "@/lib/manager-sms-conversations-client";
 
 import { persistedInboxReadSucceeded } from "@/lib/portal-inbox-storage";
@@ -10,9 +12,7 @@ import {
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
 import { ManagerWorkNumberCard } from "@/components/portal/pro-work-number-card";
 import { ManagerSmsPanel, smsOutboundPreviewPrefix, type ManagerSmsPanelHandle } from "@/components/portal/pro-sms-panel";
-import {
-  CommunicationListBulkBar,
-} from "@/components/portal/communication-list-bulk-bar";
+
 import {
   PortalContactDetailsModal,
 } from "@/components/portal/portal-contact-details-modal";
@@ -816,15 +816,6 @@ export function ManagerUnifiedInbox({
           {listRows.length} conversation{listRows.length === 1 ? "" : "s"} matching “{query.trim()}”
         </p>
       ) : null}
-      <CommunicationListBulkBar
-        count={bulk.selectedCount}
-        listSegment={listSegment}
-        onArchive={listSegment !== "archived" ? () => void bulk.handleArchive() : undefined}
-        onRestore={listSegment === "archived" ? () => void bulk.handleRestore() : undefined}
-        onDelete={listSegment === "archived" ? () => void bulk.handleDelete() : undefined}
-        onEdit={bulk.canEditContact ? bulk.openEdit : undefined}
-        showEdit={bulk.canEditContact}
-      />
       <div className={`${INBOX_LIST_SCROLL} min-h-0 flex-1`} data-communication-inbox-list>
         {!isClient || !sourcesReady ? (
           <div role="status" className="space-y-3 p-4"><span className="sr-only">Loading conversations…</span>{[0, 1, 2, 3].map((i) => <div key={i} className="h-20 animate-pulse rounded-xl bg-accent/50 motion-reduce:animate-none" />)}</div>
@@ -848,6 +839,7 @@ export function ManagerUnifiedInbox({
           listRows.map((row) => (
             <InboxConversationRow
               key={row.key}
+              trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} manager />}
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}
