@@ -1,11 +1,9 @@
 // @vitest-environment jsdom
 /**
- * Render regression + evidence harness: opens the "Holding fee" header
- * action on a real application detail route and dumps the modal markup to
- * EVIDENCE_DIR (when set) for screenshotting.
+ * Render regression + evidence harness: holding fee toggle on application detail.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { mkdirSync, writeFileSync } from "node:fs";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
@@ -46,20 +44,18 @@ vi.mock("@/lib/manager-portfolio-access", () => ({
 vi.mock("@/lib/manager-property-links", () => ({
   buildManagerShareablePropertyOptions: () => [],
 }));
-vi.mock("@/lib/demo-property-pipeline", () => ({
-  PROPERTY_PIPELINE_EVENT: "property-pipeline-changed",
+vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/demo-property-pipeline")>()),
   syncPropertyPipelineFromServer: () => Promise.resolve(),
   hasCachedPropertyPipeline: () => true,
-  readAllExtraListings: () => [],
-  readExtraListings: () => [],
-  readAllPendingManagerProperties: () => [],
-  cachePublicExtraListings: () => {},
 }));
 vi.mock("@/lib/cosigner-submissions-storage", () => ({
   fetchCosignerSubmissionsForSignerAppId: () => Promise.resolve([]),
   readCosignerSubmissionsForSignerAppId: () => [],
 }));
 vi.mock("@/lib/household-charges", () => ({
+  listingHoldingDepositAvailable: (propertyId: string) => Boolean(propertyId.trim()),
+  listingHoldingDepositAmount: () => ({ amount: 500, displayLabel: "$500.00" }),
   findHoldingDepositCharge: () => undefined,
   setApplicantHoldingFee: () => ({ ok: true, charge: { id: "chg-1" }, alreadyPaid: false }),
   removeApplicantHoldingFee: () => ({ ok: true }),
@@ -68,9 +64,6 @@ vi.mock("@/lib/household-charges", () => ({
   syncHouseholdChargesFromServer: () => Promise.resolve({ charges: [], rentProfiles: [] }),
 }));
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
-  // Spread the real module: this file only needs to override demo mode,
-  // and a hand-listed mock silently breaks every time the module gains an
-  // export a component calls at import time.
   ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
   isDemoModeActive: () => false,
   DEMO_GUIDED_USER_ID: "demo-everything",
@@ -79,14 +72,8 @@ vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
 
 import { ManagerApplications } from "@/components/portal/pro-applications";
 
-// Unmount between tests. Clearing `document.body.innerHTML` detaches React's
-// committed tree WITHOUT unmounting it, so its scheduler later runs against a
-// torn-down `window` and kills the whole vitest worker, taking an unrelated
-// test file's results with it while the run still exits 0.
 afterEach(cleanup);
 
-// Same convention as `evidence-manager-money-agreement.test.tsx`: the render is
-// always exercised, the HTML is only written when EVIDENCE_DIR asks for it.
 const OUT = process.env.EVIDENCE_DIR ?? "";
 
 function writeShot(name: string, caption: string, body: string) {
@@ -101,8 +88,8 @@ ${body}</body></html>`,
   );
 }
 
-describe("evidence · holding fee is a header action on the application detail", () => {
-  it("opens the modal for an application that has a house on it", () => {
+describe("evidence · holding fee toggle on the application detail", () => {
+  it("shows the checkbox when the listing has a holding deposit", () => {
     ROWS = [
       {
         id: "AXIS-1002",
@@ -121,16 +108,15 @@ describe("evidence · holding fee is a header action on the application detail",
     ];
 
     render(<ManagerApplications bucket="pending" applicationId="AXIS-1002" />);
-    fireEvent.click(document.querySelector('button[data-attr="application-holding-fee-open"]')!);
-    expect(document.querySelector('[data-attr="application-holding-fee-modal"]')).not.toBeNull();
+    expect(document.querySelector('[data-attr="application-holding-fee-toggle"]')).not.toBeNull();
     writeShot(
-      "holding-fee-modal",
-      "G · Application detail → 'Holding fee' header action opens the modal (it used to be an inline card, and on the detail route the button opened nothing).",
+      "holding-fee-toggle",
+      "Application detail — holding fee checkbox when the listing offers a holding deposit.",
       document.body.innerHTML,
     );
   });
 
-  it("explains itself when the application has no house yet", () => {
+  it("hides the toggle when the listing has no holding deposit", () => {
     ROWS = [
       {
         id: "AXIS-1009",
@@ -146,13 +132,10 @@ describe("evidence · holding fee is a header action on the application detail",
     ];
 
     render(<ManagerApplications bucket="pending" applicationId="AXIS-1009" />);
-    fireEvent.click(document.querySelector('button[data-attr="application-holding-fee-open"]')!);
-    expect(
-      document.querySelector('[data-attr="application-holding-fee-unavailable"]')?.textContent,
-    ).toContain("no house on it yet");
+    expect(document.querySelector('[data-attr="application-holding-fee-toggle"]')).toBeNull();
     writeShot(
-      "holding-fee-blocked",
-      "H · Same action on an application with no house selected — the modal says why instead of showing an empty body.",
+      "holding-fee-hidden",
+      "Application with no property — holding fee toggle is not shown.",
       document.body.innerHTML,
     );
   });

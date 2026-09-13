@@ -1,3 +1,5 @@
+import { isDemoModeActive } from "@/lib/demo/demo-session";
+
 const MAX_IMG_BYTES = 10 * 1024 * 1024;
 const MAX_VID_BYTES = 14 * 1024 * 1024;
 const IMG_MAX_WIDTH = 1280;
@@ -182,4 +184,11 @@ export async function uploadListingVideoFile(file: File): Promise<string> {
     throw new Error(`Video too large (max ${Math.round((MAX_VID_BYTES * 4) / 1024 / 1024)} MB): ${file.name}`);
   }
   return uploadToBucket(file);
+}
+
+/** Upload a persisted `data:` URL to listing-photos; pass through http(s) URLs unchanged. */
+export async function uploadListingDataUrl(dataUrl: string): Promise<string> {
+  if (!dataUrl.startsWith("data:")) return dataUrl;
+  if (isDemoModeActive()) return dataUrl;
+  return uploadToBucket(dataUrl);
 }

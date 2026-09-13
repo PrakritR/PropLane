@@ -82,6 +82,7 @@ describe("listing service fee payer UI helpers", () => {
   it("accepts only the shared promo code, in any casing or spacing", () => {
     expect(listingPaymentWaiverCodeMatches("free100")).toBe(true);
     expect(listingPaymentWaiverCodeMatches("FREE 100")).toBe(true);
+    expect(listingPaymentWaiverCodeMatches("waiveprocess1")).toBe(true);
     expect(listingPaymentWaiverCodeMatches("wrong")).toBe(false);
     expect(listingPaymentWaiverCodeMatches("")).toBe(false);
     expect(listingPaymentWaiverCodeMatches(null)).toBe(false);

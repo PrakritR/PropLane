@@ -1,12 +1,9 @@
 // @vitest-environment jsdom
 //
-// Regression: the holding fee moved from an inline card in the application
-// detail body to a "Holding fee" header action, but ApplicationHoldingFeeModal
-// is mounted only in the LIST branch — the detail route returns before it — so
-// the button set state and nothing opened. Same shape as the earlier
-// CheckrScreeningModal detail-route regression.
+// Holding fee is an inline checkbox on the application detail when the listing
+// has a holding deposit configured — not a header modal.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
 let ROWS: DemoApplicantRow[] = [];
@@ -46,9 +43,6 @@ vi.mock("@/lib/manager-portfolio-access", () => ({
 vi.mock("@/lib/manager-property-links", () => ({
   buildManagerShareablePropertyOptions: () => [],
 }));
-// PARTIAL mock: the panel keeps picking up new readers from this module, and a fully-replaced
-// mock throws on the first export it does not name — three appeared in a row here. Spreading the
-// real module stubs only the network-touching calls and lets new readers keep working.
 vi.mock("@/lib/demo-property-pipeline", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/demo-property-pipeline")>()),
   syncPropertyPipelineFromServer: () => Promise.resolve(),
@@ -59,17 +53,16 @@ vi.mock("@/lib/cosigner-submissions-storage", () => ({
   readCosignerSubmissionsForSignerAppId: () => [],
 }));
 vi.mock("@/lib/household-charges", () => ({
+  listingHoldingDepositAvailable: (propertyId: string) => propertyId === "mgr-seed-5259-brooklyn-ave-ne",
+  listingHoldingDepositAmount: () => ({ amount: 500, displayLabel: "$500.00" }),
   findHoldingDepositCharge: () => undefined,
-  setApplicantHoldingFee: () => ({ ok: true, charge: { id: "chg-1" }, alreadyPaid: false }),
+  setApplicantHoldingFee: () => ({ ok: true, charge: { id: "chg-1", amountLabel: "$500.00" }, alreadyPaid: false }),
   removeApplicantHoldingFee: () => ({ ok: true }),
   removeAllApplicationCharges: () => false,
   removeResidentHouseholdPaymentData: () => false,
   syncHouseholdChargesFromServer: () => Promise.resolve({ charges: [], rentProfiles: [] }),
 }));
 vi.mock("@/lib/demo/demo-session", async (importOriginal) => ({
-  // Spread the real module: this file only needs to override demo mode,
-  // and a hand-listed mock silently breaks every time the module gains an
-  // export a component calls at import time.
   ...(await importOriginal<typeof import("@/lib/demo/demo-session")>()),
   isDemoModeActive: () => true,
   DEMO_GUIDED_USER_ID: "demo-everything",
@@ -80,8 +73,8 @@ import { ManagerApplications } from "@/components/portal/pro-applications";
 
 afterEach(cleanup);
 
-describe("manager Applications — holding fee modal on detail route", () => {
-  it("opens the Holding fee modal when the header action is clicked on the detail page", () => {
+describe("manager Applications — holding fee toggle on detail route", () => {
+  it("shows the holding fee checkbox when the listing has a holding deposit", () => {
     ROWS = [
       {
         id: "AXIS-DEMOPRIYA",
@@ -101,11 +94,8 @@ describe("manager Applications — holding fee modal on detail route", () => {
 
     render(<ManagerApplications bucket="pending" applicationId="AXIS-DEMOPRIYA" />);
 
-    const openBtn = document.querySelector('button[data-attr="application-holding-fee-open"]');
-    expect(openBtn).not.toBeNull();
-    fireEvent.click(openBtn!);
-
-    expect(document.querySelector('[data-attr="application-holding-fee-modal"]')).not.toBeNull();
-    expect(screen.getByText(/hold the home while you review/i)).toBeTruthy();
+    expect(document.querySelector('[data-attr="application-holding-fee-toggle"]')).not.toBeNull();
+    expect(document.querySelector('input[data-attr="application-holding-fee-checkbox"]')).not.toBeNull();
+    expect(document.querySelector('button[data-attr="application-holding-fee-open"]')).toBeNull();
   });
 });

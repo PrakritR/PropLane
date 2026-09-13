@@ -9,7 +9,10 @@ import {
   leaseDocumentFeeLines,
   listingFeeRowsForLeaseBasicsSection,
   listingFeesFromLegacyScalars,
+  listingFeeCadence,
+  listingFeeMonthlyEquivalent,
   normalizeListingFeeRow,
+  patchListingFeeCadence,
   resolveListingFees,
   validateListingFeeRows,
 } from "@/lib/listing-fees";
@@ -260,5 +263,27 @@ describe("lease payment at signing", () => {
     const sub = normalizeManagerListingSubmissionV1(createNewListingWizardSubmission());
     const lines = leaseDocumentFeeLines(sub, "long-term");
     expect(lines.oneTime.map((line) => line.label)).not.toContain("Holding deposit");
+  });
+
+  it("stores weekly and daily cadence on custom fee rows", () => {
+    const weekly = normalizeListingFeeRow({
+      id: "fee-weekly",
+      label: "Dog walk",
+      amount: "25",
+      presetId: "custom",
+      ...patchListingFeeCadence("weekly"),
+    });
+    const daily = normalizeListingFeeRow({
+      id: "fee-daily",
+      label: "Bike storage",
+      amount: "3",
+      presetId: "custom",
+      ...patchListingFeeCadence("daily"),
+    });
+    expect(listingFeeCadence(weekly)).toBe("weekly");
+    expect(weekly.frequency).toBe("weekly");
+    expect(listingFeeCadence(daily)).toBe("daily");
+    expect(listingFeeMonthlyEquivalent(25, "weekly")).toBeGreaterThan(100);
+    expect(listingFeeMonthlyEquivalent(3, "daily")).toBeGreaterThan(80);
   });
 });
