@@ -1,8 +1,9 @@
 "use client";
+import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import {
   PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS,
   PortalPropertyDetailSection,
@@ -168,13 +169,30 @@ export function ServiceRequestCatalogEditor({
 
   return (
     <>
-      <PortalPropertyDetailSection contentClassName="space-y-0">
+      <PortalRecordListSurface className="mt-0" onBulkClear={onBulkActionsChange ? undefined : clearSelection} bulkCount={selectedIds.size} bulkActions={!onBulkActionsChange && selectedOfferId ? (
+        <>
+          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className={PORTAL_BULK_BAR_BTN}
+              data-attr="catalog-request-bulk-edit"
+              onClick={() => {
+                const offer = offers.find((row) => row.id === selectedOfferId);
+                if (offer) openEdit(offer, false);
+              }}
+            >
+              Edit service
+            </Button>
+          </div>
+        </>
+      ) : null}><PortalPropertyDetailSection contentClassName="space-y-0">
         {offers.length > 0 ? (
           offers.map((offer) => (
             <div key={offer.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-              <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-                <input
-                  type="checkbox"
+              <div className="flex min-w-0 flex-1 items-start gap-3">
+                <RowSelectCheckbox
+                aria-label={`Select ${offer.name || "request type"}`}
                   className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
                   checked={selectedIds.has(offer.id)}
                   data-attr={`catalog-request-select-${offer.id}`}
@@ -189,7 +207,7 @@ export function ServiceRequestCatalogEditor({
                       : requestOfferSubtitle(offer)}
                   </p>
                 </div>
-              </label>
+              </div>
             </div>
           ))
         ) : (
@@ -197,7 +215,7 @@ export function ServiceRequestCatalogEditor({
             No service types yet. Add a preset below or create a custom type.
           </p>
         )}
-      </PortalPropertyDetailSection>
+      </PortalPropertyDetailSection></PortalRecordListSurface>
 
       <div className="px-3 py-4 max-md:px-2.5 sm:py-5">
         <ServiceRequestCatalogSuggestions offers={offers} onAddPreset={openAddPreset} />
@@ -232,24 +250,7 @@ export function ServiceRequestCatalogEditor({
         bar, one click from a row you may have ticked by accident, is the wrong
         distance from a destructive action.
       */}
-      {!onBulkActionsChange && selectedOfferId ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
-          <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className={PORTAL_BULK_BAR_BTN}
-              data-attr="catalog-request-bulk-edit"
-              onClick={() => {
-                const offer = offers.find((row) => row.id === selectedOfferId);
-                if (offer) openEdit(offer, false);
-              }}
-            >
-              Edit service
-            </Button>
-          </div>
-        </BulkActionBar>
-      ) : null}
+
     </>
   );
 }

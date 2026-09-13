@@ -71,6 +71,7 @@ export async function linkedPropertyIdsForModule(
 export type LinkedOwnerScope = {
   /** Owner (inviter) manager user ids where this user has `module` access on ≥1 assigned property. */
   ownerIds: Set<string>;
+  propertyIdsByOwner: Map<string, Set<string>>;
   /** Property ids (across all owners) where `module` is allowed. */
   propertyIds: Set<string>;
 };
@@ -86,11 +87,14 @@ export async function linkedOwnerScopeForModule(
   userId: string,
   module: CoManagerPermissionId,
   level: CoManagerPermissionLevel = "read",
+  options: { throwOnError?: boolean } = {},
 ): Promise<LinkedOwnerScope> {
   const ownerIds = new Set<string>();
   const propertyIds = new Set<string>();
+  const propertyIdsByOwner = new Map<string, Set<string>>();
   try {
-    const { data: viewerProfile } = await db.from("profiles").select("email").eq("id", userId).maybeSingle();
+    const { data: viewerProfile, error: viewerError } = await db.from("profiles").select("email").eq("id", userId).maybeSingle();
+    if (viewerError && options.throwOnError) throw viewerError;
     const viewerEmail = String(viewerProfile?.email ?? "").trim();
 
     const { data: linkRows, error } = await db
@@ -98,7 +102,10 @@ export async function linkedOwnerScopeForModule(
       .select("inviter_user_id, assigned_property_ids, property_co_manager_permissions, co_manager_permissions")
       .eq("status", "accepted")
       .eq("invitee_user_id", userId);
-    if (error) return { ownerIds, propertyIds };
+    if (error) {
+      if (options.throwOnError) throw error;
+      return { ownerIds, propertyIds, propertyIdsByOwner };
+    }
 
     const inviterIds = [
       ...new Set(
@@ -109,7 +116,8 @@ export async function linkedOwnerScopeForModule(
     ];
     const inviterEmailById = new Map<string, string>();
     if (inviterIds.length > 0) {
-      const { data: profiles } = await db.from("profiles").select("id, email").in("id", inviterIds);
+      const { data: profiles, error: profilesError } = await db.from("profiles").select("id, email").in("id", inviterIds);
+      if (profilesError && options.throwOnError) throw profilesError;
       for (const profile of profiles ?? []) {
         const id = String(profile.id ?? "").trim();
         const email = String(profile.email ?? "").trim();
@@ -138,15 +146,19 @@ export async function linkedOwnerScopeForModule(
       for (const propertyId of assigned) {
         if (moduleAllowed(perms, propertyId, module, level)) {
           propertyIds.add(propertyId);
+          const ownerProperties = propertyIdsByOwner.get(inviterId) ?? new Set<string>();
+          ownerProperties.add(propertyId);
+          propertyIdsByOwner.set(inviterId, ownerProperties);
           ownerQualifies = true;
         }
       }
       if (ownerQualifies) ownerIds.add(inviterId);
     }
-  } catch {
+  } catch (error) {
+    if (options.throwOnError) throw error;
     /* table may not exist */
   }
-  return { ownerIds, propertyIds };
+  return { ownerIds, propertyIds, propertyIdsByOwner };
 }
 
 /**

@@ -143,6 +143,7 @@ export const DELETE_ORDER = [
   "manager_sms_contacts",
   "manager_sms_messages",
   "manager_sms_conversation_houses",
+  "manager_tour_followup_controls",
   "manager_purchases",
   "chart_of_accounts",
   "stripe_disputes",

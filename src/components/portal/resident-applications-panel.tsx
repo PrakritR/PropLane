@@ -1,4 +1,6 @@
 "use client";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -21,7 +23,6 @@ import {
 } from "@/components/portal/portal-list-add-row";
 import { PORTAL_LIST_PAGE_BODY } from "@/components/portal/portal-inbox-ui";
 import { PortalSectionActionRow } from "@/components/portal/portal-section-action-row";
-import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
 import {
   ResidentPortalGroupedDataList,
   RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
@@ -1253,13 +1254,9 @@ export function ResidentApplicationsPanel({
     return (
       <>
         <ManagerPortalPageShell title="Applications" hideTitleOnMobileNav compactFilterRow>
-          {renderResidentApplicationList()}
+          <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={applicationSelectionActions} />}>{renderResidentApplicationList()}</PortalRecordListSurface>
         </ManagerPortalPageShell>
-        <ResidentPortalListBottomBar
-          selectionCount={selectedIds.size}
-          selectionActions={applicationSelectionActions}
-          selectionBarVariant="payments"
-        />
+
       </>
     );
   }
@@ -1292,18 +1289,14 @@ export function ResidentApplicationsPanel({
           ) : (
             <>
               {renderStandaloneApplySurface()}
-              {rowsForBucket.length > 0 ? renderRoutedList(rowsForBucket) : null}
+              <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={applicationSelectionActions} />}>{rowsForBucket.length > 0 ? renderRoutedList(rowsForBucket) : null}</PortalRecordListSurface>
               <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderApplicationAddRow()}</div>
             </>
           )}
           {withdrawModal}
           {propertyPickerModal}
         </ManagerPortalPageShell>
-        <ResidentPortalListBottomBar
-          selectionCount={selectedIds.size}
-          selectionActions={applicationSelectionActions}
-          selectionBarVariant="payments"
-        />
+
       </>
     );
   }

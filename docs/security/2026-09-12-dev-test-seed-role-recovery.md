@@ -1,0 +1,11 @@
+# Dev/test seed role cleanup incident — September 12, 2026
+
+The required test seed exposed an existing cleanup defect: profiles outside its canonical email list were called “orphans” even without requested pruning and even when they had an auth user. The script deleted their `profile_roles` first, then profile deletion failed on a foreign key, leaving role deletion committed. The affected target was dev/test `emstjswhotsnyksqhqyf`; no production or staging data was accessed for recovery.
+
+A read-only assessment found 12 existing auth/profile accounts without role rows. Existing profile records evidenced nine primary manager roles, two resident roles, and one admin role. Auth app metadata contained no role fields; the role-related audit query returned no entries, and account-recovery storage contained no role snapshots. Those sources cannot reconstruct any previous additional roles.
+
+The repair backed up the surviving roles and exact proposed changes locally, revalidated each profile's current primary role and auth user, inserted only an evidenced valid primary role where the account still had no role rows, and verified all 12 primary roles afterward. Twelve rows were restored; no additional grants were inferred. Evidence files are private local artifacts under `/tmp/proplane-primary-role-repair-*` and `/tmp/proplane-role-recovery-assessment.json`; they contain account identifiers and are deliberately not committed. The exact prior count of secondary role grants remains unknown and requires a pre-incident backup or explicit account-specific authorization to restore.
+
+The seed now gates orphan cleanup on requested pruning, a test-namespace email, absence of an auth user, and exclusion from canonical accounts. It fails closed if its first auth page reaches the page limit instead of treating a partial directory as complete. It no longer deletes roles ahead of a profile deletion that can fail. An orphan with no auth user cannot have `profile_roles` because their foreign key references `auth.users`.
+
+Regression coverage: `tests/unit/seed-orphan-profile-scope.test.ts` exercises default preservation, explicit bounded pruning, partial-directory failure, and the prohibition on role-first orphan deletion.

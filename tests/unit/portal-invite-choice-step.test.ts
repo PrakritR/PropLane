@@ -29,22 +29,15 @@ describe("portal invite choice step", () => {
     expect(PANEL).not.toContain('useState<"link" | "axis">("link")');
   });
 
-  // Vendor shareable links mint `kind: "vendor"` and redeem into the manager's
-  // vendor directory (PRP-330) — same two-path shape as co-manager invites.
-  it("offers the vendor form a shareable-link card plus the email path", () => {
-    expect(VENDOR).toContain("PortalInviteChoiceStep");
-    expect(VENDOR).toContain("onCreateInviteLink");
+  it("keeps vendor email and shareable links available without a continuation step", () => {
     expect(VENDOR).toContain("ManagerInviteLinkModal");
     expect(VENDOR).toContain('kind="vendor"');
-    expect(VENDOR).toContain('inviteLinkDataAttr="vendor-create-invite-link"');
-    expect(VENDOR).toContain('secondaryTitle="Invite by email"');
-    expect(VENDOR).toContain("ManagerVendorEssentialFields");
-    expect(VENDOR).toContain("ManagerVendorOptionalFields");
-    expect(VENDOR).toContain('data-attr="vendor-form-continue"');
-    expect(VENDOR).toContain('data-attr="vendor-form-back"');
+    expect(VENDOR).toContain('data-attr="vendor-create-invite-link"');
+    expect(VENDOR).toContain("Invitation message");
+    expect(VENDOR).not.toContain('data-attr="vendor-form-continue"');
+    expect(VENDOR).not.toContain('data-attr="vendor-form-back"');
     expect(VENDOR).toContain('"vendor-form-send-invite"');
     expect(VENDOR).toContain('"vendor-form-add-only"');
-    expect(VENDOR).not.toContain('data-attr="vendor-form-preview-invite"');
   });
 
   it("draws no invite-link card when the surface passes no link handler", () => {

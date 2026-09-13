@@ -67,7 +67,7 @@ vi.mock("@/lib/demo-admin-scheduling", async (importOriginal) => {
     readAvailabilityDateSetForStorageKey: () => PAINTED_SLOTS,
     readPlannedEvents: () => [],
     deletePlannedEventFromServer: (...args: unknown[]) => deletePlannedEvent(...(args as [])),
-    deletePartnerInquiryFromServer: vi.fn(async () => true),
+    deletePartnerInquiryFromServer: vi.fn(async () => ({ ok: true })),
     acceptPartnerInquiryFromServer: vi.fn(async () => ({ ok: true })),
     writeAvailabilityDateSetForStorageKeyToServer: vi.fn(async () => true),
   };

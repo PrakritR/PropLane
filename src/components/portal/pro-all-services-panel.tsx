@@ -19,7 +19,6 @@ const SERVICE_STATE_TABS: { id: ServiceRowState; label: string }[] = [
   { id: "declined", label: "Declined" },
 ];
 import { ApplicationHouseholdCluster } from "@/components/portal/application-household-list";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 import { PortalListGroupFilterFields } from "@/components/portal/portal-list-group-filter-fields";
 import {
@@ -594,7 +593,6 @@ export function ManagerAllServicesPanel({
   return (
     <ManagerPortalPageShell
       title="Services"
-      subtitle="Requests and maintenance, with clear ownership and next steps."
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
@@ -626,7 +624,11 @@ export function ManagerAllServicesPanel({
         }
         activeFilterChips={<PortalActiveFilterChips chips={activeFilterChips} />}
       />
-      <PortalRecordListSurface isEmpty={visibleUnifiedRows.length === 0} add={servicesListAdd}>
+      <PortalRecordListSurface isEmpty={visibleUnifiedRows.length === 0} add={servicesListAdd} onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={selectedIds.size > 0 ? (
+        <>
+          <PortalAdaptiveActionRow actions={bulkSelectionActions} />
+        </>
+      ) : null}>
           {/*
             One list over both stores, grouped by resident the way Payments and Tours are. Each row
             opens its OWN record — an add-on goes to the request detail, maintenance to the work
@@ -733,11 +735,7 @@ export function ManagerAllServicesPanel({
         }}
       />
 
-      {selectedIds.size > 0 ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
-          <PortalAdaptiveActionRow actions={bulkSelectionActions} />
-        </BulkActionBar>
-      ) : null}
+
 
       <ConfirmDeleteModal
         open={bulkDeleteWorkOrder !== null}

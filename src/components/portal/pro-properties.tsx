@@ -421,8 +421,7 @@ export function ManagerProperties({
       ) : (
         <ManagerPortalPageShell
           title="Properties"
-          subtitle="Every home, rentable space, and listing in one place."
-          hideTitleOnMobileNav
+              hideTitleOnMobileNav
           titleInlineFilter={null}
           compactFilterRow
           primaryAction={

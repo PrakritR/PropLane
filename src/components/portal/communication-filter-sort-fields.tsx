@@ -1,5 +1,7 @@
 "use client";
 
+import { CommunicationStatusFilter } from "@/components/portal/communication-status-filter";
+
 import {
   FilterCheckboxList,
   FilterCollapsibleSection,
@@ -47,6 +49,7 @@ export function CommunicationFilterSortFields({
 
   return (
     <FilterFieldsAccordion>
+      <CommunicationStatusFilter value={draftFilters.status ?? "active"} onChange={(status) => setDraftFilters({ ...draftFilters, status })} />
       <FilterCollapsibleSection
         sectionId="house"
         label="House"

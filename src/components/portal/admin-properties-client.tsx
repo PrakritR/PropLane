@@ -210,6 +210,7 @@ export function AdminPropertiesClient() {
       <PortalRecordListSurface
         isEmpty={rows.length === 0}
         empty={<PortalDataTableEmpty icon="data" message={EMPTY_COPY[activeKpi] ?? "No properties."} />}
+        onBulkClear={clearSelection}
         bulkCount={selectedRows.length}
         bulkActions={bulkActions}
         dataAttr="admin-properties-list"

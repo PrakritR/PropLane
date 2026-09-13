@@ -2,7 +2,7 @@
 //
 // Regression coverage for the "clicking row 2 or 3 opens row 1" bug.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { DemoApplicantRow } from "@/data/demo-portal";
 
 let ROWS: DemoApplicantRow[] = [];
@@ -101,10 +101,13 @@ function applicationRow(id: string): HTMLElement {
   return matches[0];
 }
 
-function clickDesktopRow(id: string) {
+function clickApplicationRow(id: string) {
   const row = applicationRow(id);
-  const openButton = row.querySelector("button");
-  fireEvent.click(openButton ?? row);
+  // The action trigger is visually trailing but precedes the primary button
+  // in the responsive row DOM. Activate the resident's record control.
+  const openButton = row.querySelector('button:not([data-attr="record-actions-trigger"])');
+  if (!openButton) throw new Error(`record activation missing for ${id}`);
+  fireEvent.click(openButton);
 }
 
 afterEach(() => {
@@ -155,7 +158,7 @@ describe("ResidentApplicationsPanel — each row opens its OWN application", () 
     });
     portalNavigate.mockClear();
     await act(async () => {
-      clickDesktopRow("PROPLANE-CCCC0003");
+      clickApplicationRow("PROPLANE-CCCC0003");
     });
     expect(portalNavigate).toHaveBeenCalledWith("/resident/applications/pending/PROPLANE-CCCC0003");
   });
@@ -176,7 +179,7 @@ describe("ResidentApplicationsPanel — each row opens its OWN application", () 
 
     portalNavigate.mockClear();
     await act(async () => {
-      clickDesktopRow("PROPLANE-BBBB0002");
+      clickApplicationRow("PROPLANE-BBBB0002");
     });
     // A row the resident actually CLICKED stays a push — that is a trip they
     // chose, and Back out of it belongs in their history.
@@ -212,4 +215,22 @@ describe("ResidentApplicationsPanel — the embedded table distinguishes its row
     // Same property and room — the rows still have to read differently.
     expect(first).not.toBe(second);
   });
+});
+
+
+it("opens the exact application from View details without navigating on menu open", async () => {
+  ROWS = [
+    submittedRow("PROPLANE-CCCC0003", "mgr-test-cedar", "Cedar Flat"),
+    submittedRow("PROPLANE-DDDD0004", "mgr-test-cedar", "Cedar Flat"),
+  ];
+  await act(async () => { render(<ResidentApplicationsPanel applyMode />); });
+  portalNavigate.mockClear();
+  const row = applicationRow("PROPLANE-DDDD0004");
+  const trigger = row.querySelector<HTMLButtonElement>('[data-attr="record-actions-trigger"]');
+  expect(trigger).toBeTruthy();
+  fireEvent.keyDown(trigger!, { key: "ArrowDown" });
+  const details = await screen.findByRole("menuitem", { name: "View details" });
+  expect(portalNavigate).not.toHaveBeenCalled();
+  fireEvent.click(details);
+  expect(portalNavigate).toHaveBeenCalledExactlyOnceWith("/resident/applications/pending/PROPLANE-DDDD0004");
 });

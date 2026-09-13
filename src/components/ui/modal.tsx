@@ -283,6 +283,7 @@ function ModalPanelInner({
   assistantEditHint,
   scrollableContent = true,
   headerAction,
+  status,
   TitlePrimitive,
   DescriptionPrimitive,
   ClosePrimitive,
@@ -291,6 +292,7 @@ function ModalPanelInner({
   description?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
+  status?: ReactNode;
   dense: boolean;
   onClose: () => void;
   showAssistantStrip: boolean;
@@ -344,6 +346,7 @@ function ModalPanelInner({
               {title}
             </h3>
           </TitlePrimitive>
+          {status ? <span className="shrink-0">{status}</span> : null}
           {headerAction}
           <ClosePrimitive asChild>
             <button type="button" onClick={onClose} aria-label="Close" className={MODAL_HEADER_CLOSE_CLASS}>
@@ -458,6 +461,7 @@ export function Modal({
   presentation: presentationProp = "auto",
   dataAttr,
   dismissBlocked = false,
+  status,
 }: {
   open: boolean;
   title: ReactNode;
@@ -465,6 +469,12 @@ export function Modal({
   children: ReactNode;
   description?: ReactNode;
   footer?: ReactNode;
+  /**
+   * Small live indicator beside the title — the autosave mark (Saving… / Saved /
+   * Couldn't save). A popup that saves itself has no footer button, so this is
+   * the one place the user learns their edit landed.
+   */
+  status?: ReactNode;
   panelClassName?: string;
   stackClassName?: string;
   dense?: boolean;
@@ -518,6 +528,7 @@ export function Modal({
 
   const panelInnerProps = {
     title,
+    status,
     description,
     children,
     footer,

@@ -106,17 +106,19 @@ describe("ManagerTaskList", () => {
     });
     expect(screen.queryByTestId("manager-task-list-header-add")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Filter\b/i })).toBeInTheDocument();
+    expect(document.querySelector('[data-attr="manager-task-group-by"]')).toBeNull();
     expect(screen.queryByRole("button", { name: /^All\b/i })).not.toBeInTheDocument();
   });
 
-  it("renders task rows grouped into clusters with completion checkboxes", async () => {
+  it("renders grouped task rows with record menus", async () => {
     tasks.push(makeTask());
     render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
     expect(screen.getByText("1 task")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: /Select Fix the porch light/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Actions for Fix the porch light/i })).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).toBeNull();
     expect(screen.queryByRole("checkbox", { name: /Select all/i })).not.toBeInTheDocument();
   });
 
@@ -129,17 +131,18 @@ describe("ManagerTaskList", () => {
     });
   });
 
-  it("shows bulk actions when a task row is selected", async () => {
+  it("marks only the task whose action menu was opened as done", async () => {
     tasks.push(makeTask());
     render(<ManagerTaskList tabId="in-progress" basePath="/portal" />);
     await waitFor(() => {
       expect(screen.getByText("Fix the porch light")).toBeInTheDocument();
     });
-    fireEvent.click(screen.getByRole("checkbox", { name: /Select Fix the porch light/i }));
-    expect(screen.getByRole("button", { name: "Mark done" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Mark done" }));
+    fireEvent.keyDown(screen.getByRole("button", { name: /Actions for Fix the porch light/i }), { key: "ArrowDown" });
+    await screen.findByRole("menuitem", { name: "Mark done" });
+    expect(screen.getByRole("menuitem", { name: "Mark done" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Mark done" }));
     await waitFor(() => {
       expect(updateManagerTask).toHaveBeenCalledWith("mgr-1", "task-1", { completed: true });
     });

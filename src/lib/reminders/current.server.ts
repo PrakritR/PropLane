@@ -15,6 +15,10 @@ export function reminderAnchorMatches(expected: unknown, current: unknown): bool
 
 /** Re-read only at send time so cancelled/completed/rescheduled subjects never emit stale facts. */
 export async function reminderIsCurrent(db: SupabaseClient, row: ReminderQueueRow): Promise<boolean> {
+  if (row.kind === "tour_interest") {
+    const { tourInterestIsCurrent } = await import("./subjects/tour-interest.server");
+    return tourInterestIsCurrent(db, row);
+  }
   if (row.kind === "inspection" || row.kind === "inspection_manager") {
     const { inspectionReminderIsCurrent } = await import("./subjects/inspections.server");
     return inspectionReminderIsCurrent(db, row);

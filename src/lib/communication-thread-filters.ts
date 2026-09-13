@@ -6,6 +6,7 @@ import { trimmedText } from "@/lib/trimmed-text";
 export type CommunicationFilterRole = "resident" | "management" | "admin" | "vendor";
 
 export type CommunicationThreadFilters = {
+  status?: "active" | "read" | "unread" | "archived";
   propertyIds: string[];
   roles: CommunicationFilterRole[];
   contactIds: string[];

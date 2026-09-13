@@ -183,7 +183,6 @@ export function AdminBillingClient() {
   return (
     <ManagerPortalPageShell
       title="Billing"
-      subtitle="The plan, limits, processing fees and communication usage each manager account is actually held to."
       hideTitleOnMobileNav
       navigationProvidesTitle
       titleInlineFilter={null}

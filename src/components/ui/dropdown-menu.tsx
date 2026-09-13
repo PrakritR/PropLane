@@ -12,27 +12,33 @@ export function DropdownMenuContent({
   sideOffset = 8,
   align = "end",
   backdrop = false,
+  glass = false,
+  mobileSheet = false,
   ...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content> & {
   backdrop?: boolean;
+  glass?: boolean;
+  mobileSheet?: boolean;
 }) {
   return (
     <>
-      {backdrop && (
+      {(backdrop || glass) && (
         <DropdownMenuPrimitive.Portal>
           <div
-            className="fixed inset-0 z-40 animate-in bg-background/30 fade-in-0 backdrop-blur-[2px] pointer-events-none"
+            className="fixed inset-0 z-40 animate-in bg-background/15 fade-in-0 backdrop-blur-[3px] pointer-events-none"
             aria-hidden
           />
         </DropdownMenuPrimitive.Portal>
       )}
       <DropdownMenuPrimitive.Portal>
         <DropdownMenuPrimitive.Content
+          data-mobile-sheet={mobileSheet || undefined}
           sideOffset={sideOffset}
           align={align}
           className={cn(
             "z-50 min-w-[14rem] overflow-hidden rounded-xl border border-border bg-card p-1.5 text-foreground shadow-[var(--shadow-lg,0_12px_32px_-8px_rgba(20,28,48,0.22))]",
             "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
+            glass && "portal-liquid-glass z-[10060]",
             className,
           )}
           {...props}

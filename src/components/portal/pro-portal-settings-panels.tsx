@@ -1,5 +1,6 @@
 "use client";
 
+import { TourInterestSettings } from "./tour-interest-settings";
 import { useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FieldSingleSelect, CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
@@ -854,6 +855,8 @@ export function TourSettingsPanel({
           )}
         </div>
       </div>
+
+      <TourInterestSettings />
 
       <ReminderMessageUpdateModal
         open={messageModalOpen}

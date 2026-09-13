@@ -53,6 +53,7 @@ export function PortalPersonRecordRow({
           selectable ? (
             // Was `ml-3 mr-1 mt-1` on the bare box; each side minus the 12 px pad.
             <RowSelectCheckbox
+              onOpenRecord={onOpen}
               wrapperClassName="ml-0 -mr-2 -mt-2 self-start"
               checked={checked}
               onChange={(e) => onSelectedChange?.(e.target.checked)}
@@ -149,6 +150,7 @@ export function PortalPropertyRecordRow({
     >
       {selectable ? (
         <RowSelectCheckbox
+              onOpenRecord={onOpen}
           wrapperClassName="mr-0 self-center"
           checked={checked}
           onChange={(e) => onSelectedChange?.(e.target.checked)}
@@ -233,6 +235,7 @@ export function PortalServiceRecordRow({
     >
       {selectable ? (
         <RowSelectCheckbox
+              onOpenRecord={onOpen}
           checked={checked}
           onChange={(e) => onSelectedChange?.(e.target.checked)}
           aria-label={`Select ${title}`}

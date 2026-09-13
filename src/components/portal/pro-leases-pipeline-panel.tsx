@@ -974,6 +974,7 @@ export function ManagerLeasesPipelinePanel({
               }
             : undefined
         }
+        onBulkClear={() => setSelectedIds(new Set())}
         bulkCount={selectedIds.size}
         bulkActions={
           selectedLeaseRows.length > 0 ? (

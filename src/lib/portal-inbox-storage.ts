@@ -133,7 +133,7 @@ function viewerCacheKey(key: string): string {
 function purgeInboxCaches(): void {
   inboxViewerGeneration += 1;
   memoryByKey.clear();
-  inboxSuccessfulServerSyncAtByKey.clear();
+    inboxSuccessfulServerSyncAtByKey.clear();
   inboxSyncPromiseByKey.clear();
   if (!canUse()) return;
   try {
@@ -312,10 +312,16 @@ export async function syncPersistedInboxFromServerWithStatus(
       // latch the new session or let any of its data touch the new cache slot.
       if (!isCurrentRequest()) return { rows: [], ok: false, stale: true };
       notePortalResponse(res.status);
-      if (!res.ok) return { rows: memoryByKey.get(cacheKey) ?? [], ok: false };
+      if (!res.ok) {
+        inboxSuccessfulServerSyncAtByKey.delete(cacheKey);
+        return { rows: memoryByKey.get(cacheKey) ?? [], ok: false };
+      }
       const body = (await res.json()) as { rows?: PersistedInboxThread[] };
       if (!isCurrentRequest()) return { rows: [], ok: false, stale: true };
-      if (!body || !Array.isArray(body.rows)) return { rows: memoryByKey.get(cacheKey) ?? [], ok: false };
+      if (!body || !Array.isArray(body.rows)) {
+        inboxSuccessfulServerSyncAtByKey.delete(cacheKey);
+        return { rows: memoryByKey.get(cacheKey) ?? [], ok: false };
+      }
       const rows = inboxThreadsFromUnknown(body.rows);
       const existing = memoryByKey.get(cacheKey) ?? [];
       const merged = mergeInboxRowsWithLocalTrash(rows, existing, { excludeIds: opts?.excludeIds });
@@ -330,7 +336,7 @@ export async function syncPersistedInboxFromServerWithStatus(
       return { rows: collapsed, ok: true };
     } catch {
       return isCurrentRequest()
-        ? { rows: memoryByKey.get(cacheKey) ?? [], ok: false }
+        ? (inboxSuccessfulServerSyncAtByKey.delete(cacheKey), { rows: memoryByKey.get(cacheKey) ?? [], ok: false })
         : { rows: [], ok: false, stale: true };
     }
   })();
@@ -344,6 +350,12 @@ export async function syncPersistedInboxFromServerWithStatus(
 }
 
 /** Legacy array-only API for existing refresh consumers. */
+export function persistedInboxReadSucceeded(key: string) {
+  if (isDemoModeActive()) return true;
+  const cacheKey = viewerCacheKey(key);
+  const syncedAt = inboxSuccessfulServerSyncAtByKey.get(cacheKey) ?? 0;
+  return syncedAt > 0 && Date.now() - syncedAt < PORTAL_INBOX_SYNC_TTL_MS;
+}
 export async function syncPersistedInboxFromServer(
   key: string,
   opts?: { force?: boolean; excludeIds?: Set<string> },
@@ -437,6 +449,28 @@ export async function upsertPersistedInboxRows(
     if (!ok) return false;
   }
   return true;
+}
+
+export async function changePersistedInboxThreadFolders(
+  key: string,
+  ids: string[],
+  action: "archive" | "restore",
+): Promise<boolean> {
+  if (!canUse() || ids.length === 0) return false;
+  if (isDemoModeActive()) return true;
+  try {
+    const res = await fetch("/api/portal-inbox-threads", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "changeFolder", scope: key, ids, folderAction: action }),
+    });
+    if (!res.ok) return false;
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean };
+    return data.ok !== false;
+  } catch {
+    return false;
+  }
 }
 
 export async function persistInboxAwait(key: string, threads: PersistedInboxThread[]): Promise<boolean> {

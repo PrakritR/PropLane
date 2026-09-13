@@ -152,7 +152,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    let guestNotification: { ok: boolean; skipped?: boolean; error?: string } | null = null;
+    let guestNotification: Awaited<ReturnType<typeof notifyTenantTourRequestRemoved>> | null = null;
     if (targetInquiry && textField(targetInquiry, "kind") === "tour" && notifyTenant) {
       const window = windowsFromInquiry(targetInquiry)[0];
       guestNotification = await notifyTenantTourRequestRemoved(db, req, targetInquiry, window, {
@@ -160,8 +160,14 @@ export async function POST(req: Request) {
         body: customBody || undefined,
       });
       if (!guestNotification.ok && !guestNotification.skipped) {
+        // The tour stays pending: a decline the guest never hears about is
+        // worse than a retry. Name the reason so the manager can act on it.
         return NextResponse.json(
-          { error: guestNotification.error ?? "Could not notify the guest before deleting this tour request." },
+          {
+            error: guestNotification.error
+              ? `Could not notify the guest: ${guestNotification.error}`
+              : "Could not notify the guest before declining this tour request.",
+          },
           { status: 500 },
         );
       }

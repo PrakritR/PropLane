@@ -541,16 +541,19 @@ async function loadSentByForOutbound(
 export async function loadWorkspaceHouseLabels(
   db: SupabaseClient,
   ownerIds: string[],
+  options: { throwOnError?: boolean } = {},
 ): Promise<Map<string, { label: string; ownerUserId: string; aliases: string[] }>> {
   const out = new Map<string, { label: string; ownerUserId: string; aliases: string[] }>();
   const owners = [...new Set(ownerIds.map((id) => id.trim()).filter(Boolean))];
   if (owners.length === 0) return out;
+  for (let offset = 0; ; offset += 500) {
   const { data, error } = await db
     .from("manager_property_records")
     .select("id, manager_user_id, property_data, row_data")
     .in("manager_user_id", owners)
-    .limit(2000);
+    .order("id").range(offset, offset + 499);
   if (error) {
+    if (options.throwOnError) throw error;
     console.error("loadWorkspaceHouseLabels failed", error.message);
     return out;
   }
@@ -568,6 +571,8 @@ export async function loadWorkspaceHouseLabels(
       ownerUserId: String(row.manager_user_id ?? "").trim(),
       aliases,
     });
+  }
+    if ((data ?? []).length < 500) break;
   }
   return out;
 }

@@ -253,8 +253,8 @@ Empty `PropertyBrowseCard.imageUrl` means no real photo. Render
 
 **Start at [`docs/agents/ui-change-checklist.md`](docs/agents/ui-change-checklist.md).**
 Every list tab copies Properties via `PortalRecordListSurface`: header card,
-flat rows (`RowSelectCheckbox`, never a bare `<input>`), dashed ADD footer with
-unique `ariaLabel`, floating bulk bar. Mobile is the same surface.
+flat shared record rows, dashed ADD footer with
+unique `ariaLabel`, per-record ⋯ menus with contextual actions. Mobile is the same surface.
 Chevrons inline after the label. Header actions reach a phone **exactly once**
 (band-only or split - never both). Details: `docs/portal-ui-system.md`,
 `docs/portal-list-section-layout.md`.

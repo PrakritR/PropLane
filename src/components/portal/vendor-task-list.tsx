@@ -154,7 +154,7 @@ export function VendorTaskList({
   return (
     <ManagerPortalPageShell
       title="Services"
-      subtitle="Tasks your managers assigned, alongside your jobs."
+
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
@@ -200,6 +200,7 @@ export function VendorTaskList({
             }
           />
         }
+        onBulkClear={() => setSelectedIds([])}
         bulkCount={selectedTasks.length}
         bulkActions={
           selectedTasks.length > 0 ? (

@@ -1846,6 +1846,7 @@ export function ManagerPaymentsLedgerPanel({
               }
             : undefined
         }
+        onBulkClear={() => setSelectedIds(new Set())}
         bulkCount={embeddedInResident ? 0 : selectedIds.size}
         bulkActions={embeddedInResident ? undefined : bulkSelectionActions}
         dataAttr="payments-ledger-list"

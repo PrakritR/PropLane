@@ -1,4 +1,5 @@
 "use client";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { PortalIconAction, PORTAL_PAGE_PRIMARY_ACTION_BTN } from "@/components/portal/portal-icon-action";
 
@@ -12,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import { useAppUi } from "@/components/providers/app-ui-provider";
 import { useManagerUserId } from "@/hooks/use-manager-user-id";
 import { usePortalRowSelection } from "@/hooks/use-portal-row-selection";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
 import {
@@ -28,8 +28,6 @@ import {
   readOwnManagerVendorRows,
   syncManagerVendorsFromServer,
   deleteManagerVendorRow,
-  setManagerVendorActive,
-  setManagerVendorPriority,
   type ManagerVendorRow,
 } from "@/lib/manager-vendors-storage";
 import {
@@ -49,7 +47,7 @@ import {
   type NotificationDeliveryChannels,
 } from "@/components/portal/portal-notification-preview-modal";
 import { PortalBulkMessageCarouselModal, type BulkMessageCarouselItem } from "@/components/portal/portal-bulk-message-carousel-modal";
-import { ManagerVendorDetail, type VendorDetailEditDraft } from "@/components/portal/pro-vendor-detail";
+import { ManagerVendorDetail } from "@/components/portal/pro-vendor-detail";
 import { usePaidPortalBasePath } from "@/lib/portal-base-path-client";
 import { vendorDetailHref, vendorListHref } from "@/lib/portal-detail-routes";
 import { usePortalNavigate } from "@/lib/portal-nav-client";
@@ -138,8 +136,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const [vendorFormMode, setVendorFormMode] = useState<"add" | "edit">("add");
   const [editingVendor, setEditingVendor] = useState<ManagerVendorRow | null>(null);
   const [addTrade, setAddTrade] = useState<string | undefined>(undefined);
-  const [vendorDetailEditing, setVendorDetailEditing] = useState(false);
-  const [vendorEditDraft, setVendorEditDraft] = useState<VendorDetailEditDraft | null>(null);
 
   useEffect(() => {
     if (!authReady) return;
@@ -165,10 +161,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     return vendors.find((row) => row.id === routeVendorId) ?? null;
   }, [routeVendorId, vendors]);
 
-  useEffect(() => {
-    setVendorDetailEditing(false);
-    setVendorEditDraft(null);
-  }, [routeVendorId]);
 
   const openCatalogForm = useCallback(() => {
     setShowCatalog(true);
@@ -364,88 +356,10 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
     [invitePreview, invitePreviewBusy, showToast],
   );
 
-  function updateVendorStatus(row: ManagerVendorRow, active: boolean) {
-    setManagerVendorActive(row.id, active, userId);
-    showToast(active ? "Vendor marked active." : "Vendor marked inactive.");
-  }
-
-  function updateVendorPriority(row: ManagerVendorRow, priority: ManagerVendorRow["vendorPriority"]) {
-    setManagerVendorPriority(row.id, priority, userId);
-    if (priority === "primary") {
-      showToast(`${row.name} is now the primary ${row.trade || "vendor"}.`);
-    } else if (priority === "secondary") {
-      showToast(`${row.name} marked as secondary.`);
-    } else {
-      showToast("Priority cleared.");
-    }
-  }
-
-  function startVendorDetailEdit(row: ManagerVendorRow) {
-    setVendorEditDraft({
-      active: row.active !== false,
-      priority: row.vendorPriority,
-    });
-    setVendorDetailEditing(true);
-  }
-
-  function cancelVendorDetailEdit() {
-    setVendorDetailEditing(false);
-    setVendorEditDraft(null);
-  }
-
-  function saveVendorDetailEdit(row: ManagerVendorRow) {
-    if (!vendorEditDraft) {
-      cancelVendorDetailEdit();
-      return;
-    }
-    const wasActive = row.active !== false;
-    if (vendorEditDraft.active !== wasActive) {
-      updateVendorStatus(row, vendorEditDraft.active);
-    }
-    const prevPriority = row.vendorPriority ?? undefined;
-    const nextPriority = vendorEditDraft.priority ?? undefined;
-    if (prevPriority !== nextPriority) {
-      updateVendorPriority(row, vendorEditDraft.priority);
-    }
-    cancelVendorDetailEdit();
-  }
-
   const vendorDangerBtnClass = `${PORTAL_DETAIL_BTN} border-rose-200 text-rose-800 hover:bg-[var(--status-overdue-bg)] portal-danger-outline`;
 
   const renderVendorHeaderActions = (row: ManagerVendorRow) => (
     <PortalTableDetailActions>
-      {vendorDetailEditing ? (
-        <>
-          <Button
-            type="button"
-            variant="primary"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="vendor-edit-save"
-            onClick={() => saveVendorDetailEdit(row)}
-          >
-            Save
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className={PORTAL_DETAIL_BTN}
-            data-attr="vendor-edit-cancel"
-            onClick={cancelVendorDetailEdit}
-          >
-            Cancel
-          </Button>
-        </>
-      ) : (
-        <Button
-          type="button"
-          variant="outline"
-          className={PORTAL_DETAIL_BTN}
-          data-attr="vendor-edit"
-          onClick={() => startVendorDetailEdit(row)}
-        >
-          Edit
-        </Button>
-      )}
       <Button
         type="button"
         variant="outline"
@@ -591,7 +505,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
       <>
         {modals}
         <PortalRecordDetailPage
-          pageTitle="Teams"
+          pageTitle="Vendors"
           title={routeVendor.name}
           subtitle={routeVendor.trade || undefined}
           avatarName={routeVendor.name}
@@ -605,10 +519,7 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
         >
           <ManagerVendorDetail
             row={routeVendor}
-            editing={vendorDetailEditing}
-            draft={vendorEditDraft}
-            onDraftChange={setVendorEditDraft}
-            onEditDetails={() => openEditVendorForm(routeVendor)}
+            managerUserId={userId}
           />
         </PortalRecordDetailPage>
       </>
@@ -717,12 +628,12 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   const body = (
     <>
       {modals}
-      {listBody}
-      {selectedVendors.length > 0 ? (
-        <BulkActionBar count={selectedVendors.length} hideCount variant="payments">
+      <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedVendors.length} bulkActions={selectedVendors.length > 0 ? (
+        <>
           <PortalAdaptiveActionRow actions={bulkSelectionActions} />
-        </BulkActionBar>
-      ) : null}
+        </>
+      ) : null}>{listBody}</PortalRecordListSurface>
+
     </>
   );
 
@@ -766,7 +677,6 @@ export const ManagerVendorsPanel = forwardRef(function ManagerVendorsPanel(
   return (
     <ManagerPortalPageShell
       title="Teams"
-      subtitle={embedded ? undefined : "Vendors you dispatch to, and the defaults that route them."}
       hideTitleOnMobileNav
       compactFilterRow
       primaryAction={addVendorAction}

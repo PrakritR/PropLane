@@ -1,4 +1,6 @@
 "use client";
+import { RecordActionItems } from "@/components/ui/record-action-menu";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FileUp } from "lucide-react";
@@ -16,7 +18,6 @@ import {
 } from "@/components/portal/portal-list-add-row";
 import { DataList } from "@/components/ui/data-list";
 import { Button } from "@/components/ui/button";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { ListSkeleton } from "@/components/ui/list-skeleton";
 import { PortalDataTableEmpty } from "@/components/portal/portal-data-table";
 import type { DemoApplicantRow, ManagerApplicationBucket } from "@/data/demo-portal";
@@ -150,7 +151,7 @@ function LeasingDocumentsBulkBar({
 }) {
   if (count <= 0) return null;
   return (
-    <BulkActionBar count={count} hideCount variant="payments">
+    <RecordActionItems>
       <Button
         type="button"
         variant="primary"
@@ -161,7 +162,7 @@ function LeasingDocumentsBulkBar({
       >
         {exporting ? "Exporting…" : count === 1 ? "Export" : `Export (${count})`}
       </Button>
-    </BulkActionBar>
+    </RecordActionItems>
   );
 }
 
@@ -247,7 +248,12 @@ export function ManagerApplicationDocumentsTab({
 
   return (
     <>
-      {rows.length === 0 ? (
+      <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={<LeasingDocumentsBulkBar
+        count={selectedIds.size}
+        exporting={exporting}
+        onExport={() => void exportSelected()}
+        dataAttr="documents-applications-bulk-export"
+      />}>{rows.length === 0 ? (
         <PortalDataTableEmpty
           icon="application"
           message={propertyFilter ? "No application documents match this property." : "No application documents yet."}
@@ -308,16 +314,11 @@ export function ManagerApplicationDocumentsTab({
             },
           ]}
         />
-      )}
+      )}</PortalRecordListSurface>
       {onAddDocument ? (
         <LeasingDocumentsAddRow onAdd={onAddDocument} dataAttr="documents-applications-list-add" />
       ) : null}
-      <LeasingDocumentsBulkBar
-        count={selectedIds.size}
-        exporting={exporting}
-        onExport={() => void exportSelected()}
-        dataAttr="documents-applications-bulk-export"
-      />
+
     </>
   );
 }
@@ -507,7 +508,12 @@ export function ManagerLeaseDocumentsTab({
 
   return (
     <>
-      {rows.length === 0 ? (
+      <PortalRecordListSurface className="mt-0" onBulkClear={clearSelection} bulkCount={selectedIds.size} bulkActions={<LeasingDocumentsBulkBar
+        count={selectedIds.size}
+        exporting={exporting}
+        onExport={exportSelected}
+        dataAttr="documents-leases-bulk-export"
+      />}>{rows.length === 0 ? (
         <PortalDataTableEmpty
           icon="lease"
           message={propertyFilter ? "No lease documents match this property." : "No lease documents yet."}
@@ -586,16 +592,11 @@ export function ManagerLeaseDocumentsTab({
             },
           ]}
         />
-      )}
+      )}</PortalRecordListSurface>
       {onAddDocument ? (
         <LeasingDocumentsAddRow onAdd={onAddDocument} dataAttr="documents-leases-list-add" />
       ) : null}
-      <LeasingDocumentsBulkBar
-        count={selectedIds.size}
-        exporting={exporting}
-        onExport={exportSelected}
-        dataAttr="documents-leases-bulk-export"
-      />
+
     </>
   );
 }

@@ -1,4 +1,6 @@
 "use client";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -21,7 +23,6 @@ import {
   residentDocumentsOpenAction,
 } from "@/components/portal/resident-documents-bulk";
 import type { PortalAdaptiveAction } from "@/components/portal/portal-adaptive-action-row";
-import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
 import {
   RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
 } from "@/components/portal/resident-portal-grouped-data-list";
@@ -556,7 +557,7 @@ export function ResidentLeasePanel({
               </div>
             </div>
           ) : null}
-          {!email ? (
+          <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={leaseSelectionActions} />}>{!email ? (
             <p className="text-sm text-muted">Sign in to view your lease.</p>
           ) : !axisResolved ? (
             <PortalEmptyState variant="plain" icon="lease" title="Loading your leases…" />
@@ -570,13 +571,9 @@ export function ResidentLeasePanel({
               selectedIds={selectedIds}
               onToggleSelected={toggleSelected}
             />
-          )}
+          )}</PortalRecordListSurface>
         </ManagerPortalPageShell>
-        <ResidentPortalListBottomBar
-          selectionCount={selectedIds.size}
-          selectionActions={leaseSelectionActions}
-          selectionBarVariant="payments"
-        />
+
       </>
     );
   }

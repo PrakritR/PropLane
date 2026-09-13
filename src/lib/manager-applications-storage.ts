@@ -15,7 +15,7 @@ import {
   type DraftShapedRowFields,
 } from "@/lib/rental-application/draft-shape";
 import { resolveApplicationPersonalFields } from "@/lib/application-personal-fields";
-import { notePortalResponse, onPortalSessionViewerChange, portalSessionEnded } from "@/lib/auth/portal-session-gate";
+import { notePortalResponse, onPortalSessionViewerChange, portalSessionEnded, portalSessionViewerId } from "@/lib/auth/portal-session-gate";
 import {
   defaultBackgroundCheckStatusForRow,
   normalizeBackgroundCheckStatus,
@@ -41,10 +41,12 @@ let managerApplicationsSyncPromise: Promise<ManagerApplicationsSyncResult> | nul
 let publicApprovedApplicationsLastSyncedAt = 0;
 
 let applicationsScopeGeneration = 0;
+let applicationsReadSucceeded = false;
 let applicationWriteGeneration = 0;
 
 function clearSensitiveApplicationCache() {
   const changed = memoryRows.length > 0;
+  applicationsReadSucceeded = false;
   memoryRows = [];
   applicationsScopeGeneration++;
   managerApplicationsLastSyncedAt = 0;
@@ -61,8 +63,11 @@ if (typeof window !== "undefined") {
   onPortalSessionViewerChange((viewerId) => {
     if (isDemoModeActive()) return;
     clearQueuedApplicationIdentity();
-    activeApplicationsScopeUserId = viewerId ?? undefined;
-    clearSensitiveApplicationCache();
+    const nextScope = viewerId ?? undefined;
+    if (activeApplicationsScopeUserId !== nextScope) {
+      activeApplicationsScopeUserId = nextScope;
+      clearSensitiveApplicationCache();
+    }
   });
 }
 
@@ -347,7 +352,7 @@ function managerApplicationsSessionKey(scopeUserId?: string | null): string {
 }
 
 function ensureApplicationsScope(scopeUserId?: string | null) {
-  const nextScope = isDemoModeActive() ? undefined : scopeUserId ?? undefined;
+  const nextScope = isDemoModeActive() ? undefined : scopeUserId ?? portalSessionViewerId() ?? undefined;
   if (activeApplicationsScopeUserId !== nextScope) {
     activeApplicationsScopeUserId = nextScope;
     clearSensitiveApplicationCache();
@@ -755,6 +760,11 @@ export async function deleteManagerApplicationFromServer(id: string): Promise<{ 
   }
 }
 
+export function managerApplicationsReadSucceeded(managerUserId?: string | null) {
+  const scope = managerUserId ?? portalSessionViewerId() ?? activeApplicationsScopeUserId;
+  return isDemoModeActive() || (applicationsReadSucceeded && activeApplicationsScopeUserId === scope);
+}
+
 export async function syncManagerApplicationsFromServerWithStatus(opts?: {
   force?: boolean;
   managerUserId?: string | null;
@@ -762,7 +772,7 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
   selfScope?: boolean;
 }): Promise<ManagerApplicationsSyncResult> {
   if (!canUseStorage()) return { rows: [], ok: false };
-  const managerUserId = opts?.managerUserId ?? undefined;
+  const managerUserId = opts?.managerUserId ?? portalSessionViewerId() ?? undefined;
   ensureApplicationsScope(managerUserId);
   hydrateManagerApplicationsFromSession(managerUserId);
   if (isDemoModeActive()) return { rows: readManagerApplicationRows(), ok: true };
@@ -771,11 +781,13 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
   if (activeApplicationsScopeUserId && portalSessionEnded()) {
     clearQueuedApplicationIdentity();
     clearSensitiveApplicationCache();
+    applicationsReadSucceeded = false;
+    managerApplicationsSuccessfulServerSyncAt = 0;
     return { rows: [], ok: false };
   }
   const force = opts?.force === true;
   if (!force && managerApplicationsSyncPromise) return managerApplicationsSyncPromise;
-  if (!force && managerApplicationsSuccessfulServerSyncAt > 0 && Date.now() - managerApplicationsSuccessfulServerSyncAt < MANAGER_APPLICATIONS_SYNC_TTL_MS) {
+  if (!force && applicationsReadSucceeded && managerApplicationsSuccessfulServerSyncAt > 0 && Date.now() - managerApplicationsSuccessfulServerSyncAt < MANAGER_APPLICATIONS_SYNC_TTL_MS) {
     return { rows: readManagerApplicationRows(), ok: true };
   }
   const generation = applicationsScopeGeneration;
@@ -789,12 +801,22 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       if (res.status === 401 || res.status === 403) {
         clearQueuedApplicationIdentity();
         clearSensitiveApplicationCache();
+        applicationsReadSucceeded = false;
+        managerApplicationsSuccessfulServerSyncAt = 0;
         return { rows: [], ok: false };
       }
-      if (!res.ok) return { rows: readManagerApplicationRows(), ok: false };
+      if (!res.ok) {
+        applicationsReadSucceeded = false;
+        managerApplicationsSuccessfulServerSyncAt = 0;
+        return { rows: readManagerApplicationRows(), ok: false };
+      }
       const body = (await res.json()) as { rows?: DemoApplicantRow[] };
       if (generation !== applicationsScopeGeneration) return { rows: [], ok: false, stale: true };
-      if (!body || !Array.isArray(body.rows)) return { rows: readManagerApplicationRows(), ok: false };
+      if (!body || !Array.isArray(body.rows)) {
+        applicationsReadSucceeded = false;
+        managerApplicationsSuccessfulServerSyncAt = 0;
+        return { rows: readManagerApplicationRows(), ok: false };
+      }
       // Union with the CURRENT cache, not `[]` — a locally-created row whose
       // upsert POST hasn't landed yet must survive this force refetch (see
       // `mergeApplicationRows`'s doc comment).
@@ -802,13 +824,14 @@ export async function syncManagerApplicationsFromServerWithStatus(opts?: {
       const changed = applicationRowsChanged(memoryRows, rows);
       memoryRows = rows;
       persistManagerApplicationsToSession(rows, managerUserId);
+      applicationsReadSucceeded = true;
       managerApplicationsLastSyncedAt = Date.now();
       managerApplicationsSuccessfulServerSyncAt = managerApplicationsLastSyncedAt;
       if (changed) emit();
       return { rows, ok: true };
     })().catch(() =>
       generation === applicationsScopeGeneration
-        ? { rows: readManagerApplicationRows(), ok: false }
+        ? (applicationsReadSucceeded = false, managerApplicationsSuccessfulServerSyncAt = 0, { rows: readManagerApplicationRows(), ok: false })
         : { rows: [], ok: false, stale: true },
     );
     managerApplicationsSyncPromise = currentRequest;
@@ -852,6 +875,7 @@ export async function syncPublicApprovedApplicationsFromServer(opts?: { force?: 
 export function readManagerApplicationRows(fallback: DemoApplicantRow[] = EMPTY_FALLBACK): DemoApplicantRow[] {
   if (!isDemoModeActive() && activeApplicationsScopeUserId && portalSessionEnded()) {
     clearSensitiveApplicationCache();
+    applicationsReadSucceeded = false;
     return [];
   }
   hydrateManagerApplicationsFromSession(activeApplicationsScopeUserId);

@@ -1,7 +1,10 @@
 "use client";
 
 import { MoreHorizontal } from "lucide-react";
-import { Fragment, type ReactNode } from "react";
+import { RecordActionContext } from "./record-action-context";
+import { RECORD_ACTION_TRIGGER_BUTTON_CLASS, RECORD_ACTION_TRIGGER_ICON_CLASS } from "./record-action-menu";
+import { RowSelectCheckbox } from "./row-select-checkbox";
+import { Fragment, useContext, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import {
   PORTAL_DATA_TABLE,
@@ -40,6 +43,7 @@ export type DataListRow<T> = {
   id: string;
   data: T;
   primary: string;
+  actionLabel?: string;
   /** Trailing value on line one (amount, status badge, etc.). */
   trailing?: ReactNode;
   /** Single muted metadata line — max one line on mobile. */
@@ -98,10 +102,13 @@ function DataListOverflowMenu({ actions }: { actions: DataListRowAction[] }) {
       <DropdownMenuTrigger
         type="button"
         aria-label="Row actions"
-        className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-muted transition hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className={cn(
+          "inline-flex items-center justify-center rounded-lg text-muted transition hover:bg-accent/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          RECORD_ACTION_TRIGGER_BUTTON_CLASS,
+        )}
         data-portal-row-ignore
       >
-        <MoreHorizontal className="h-5 w-5" aria-hidden />
+        <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {actions.map((action) => (
@@ -143,25 +150,8 @@ function DataListMobileRow<T>({
   );
   const selection =
     selectable && row.onSelectedChange ? (
-      <label
-        className={PORTAL_LIST_CHECKBOX_HIT_CLASS}
-        data-portal-row-ignore
-        onClick={(e) => e.stopPropagation()}
-      >
-        <input
-          type="checkbox"
-          className={
-            variant === "resident"
-              ? PORTAL_RESIDENT_LIST_CHECKBOX_CLASS
-              : "h-4 w-4 shrink-0 rounded border-border"
-          }
-          checked={row.selected ?? false}
-          onChange={(e) => row.onSelectedChange?.(e.target.checked)}
-          onClick={(e) => e.stopPropagation()}
-          data-portal-row-ignore
-          aria-label={`Select ${row.primary}`}
-        />
-      </label>
+      <RowSelectCheckbox onOpenRecord={row.onClick} checked={row.selected ?? false}
+        onChange={(e) => row.onSelectedChange?.(e.target.checked)} aria-label={`Select ${row.actionLabel ?? row.primary}`} />
     ) : null;
   const recordContent = (
     <div className="min-w-0 flex-1">
@@ -230,30 +220,15 @@ function DataListDesktopRow<T>({
   columns: DataListColumn<T>[];
   selectable?: boolean;
 }) {
+  const recordActions = useContext(RecordActionContext);
   return (
     <tr
       className={cn(PORTAL_TABLE_TR, row.leading ? "min-h-11" : DATA_LIST_DESKTOP_ROW_CLASS)}
       data-slot="data-list-desktop-row"
     >
-      {selectable && row.onSelectedChange ? (
-        <td className={cn(PORTAL_TABLE_TD, "w-10 px-3")} data-portal-row-ignore>
-          <label
-            className={PORTAL_LIST_CHECKBOX_HIT_CLASS}
-            data-portal-row-ignore
-            onClick={(e) => e.stopPropagation()}
-          >
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-border"
-              checked={row.selected ?? false}
-              onChange={(e) => row.onSelectedChange?.(e.target.checked)}
-              onClick={(e) => e.stopPropagation()}
-              data-portal-row-ignore
-              aria-label={`Select ${row.primary}`}
-            />
-          </label>
-        </td>
-      ) : null}
+      {!recordActions && selectable && row.onSelectedChange ? <td className={cn(PORTAL_TABLE_TD, "w-10 px-3")} data-portal-row-ignore>
+        <RowSelectCheckbox onOpenRecord={row.onClick} checked={row.selected ?? false} onChange={(e) => row.onSelectedChange?.(e.target.checked)} aria-label={`Select ${row.actionLabel ?? row.primary}`} />
+      </td> : null}
       {row.leading ? (
         <td className={cn(PORTAL_TABLE_TD, "w-0 py-2.5")} data-portal-row-ignore>
           {row.leading}
@@ -283,6 +258,9 @@ function DataListDesktopRow<T>({
           )}
         </td>
       ))}
+      {recordActions && selectable && row.onSelectedChange ? <td className={cn(PORTAL_TABLE_TD, "w-10 px-3")} data-portal-row-ignore>
+        <RowSelectCheckbox onOpenRecord={row.onClick} checked={row.selected ?? false} onChange={(e) => row.onSelectedChange?.(e.target.checked)} aria-label={`Select ${row.actionLabel ?? row.primary}`} />
+      </td> : null}
       {(row.inlineAction || row.overflowActions) ? (
         <td className={cn(PORTAL_TABLE_TD, "w-0 py-2.5 text-right")}>
           <div className="flex items-center justify-end gap-1">

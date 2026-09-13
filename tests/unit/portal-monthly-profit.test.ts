@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cashflowChartShowMonthLabel,
+  cashflowWindowDirection,
   mergeMonthlyCashflow,
   mergeMonthlyProfit,
   parseMoneyLabel,
@@ -28,6 +29,13 @@ describe("portal-monthly-profit", () => {
 
   it("parses currency labels", () => {
     expect(parseMoneyLabel("$1,234.56")).toBe(1234.56);
+  });
+
+  it("colors the window from first point to last, not the scrubbed month", () => {
+    expect(cashflowWindowDirection([])).toBe("flat");
+    expect(cashflowWindowDirection([600])).toBe("flat");
+    expect(cashflowWindowDirection([600, 600, 1150])).toBe("up");
+    expect(cashflowWindowDirection([1850, 600])).toBe("down");
   });
 
   it("throttles 2Y cash flow month labels to every third month", () => {

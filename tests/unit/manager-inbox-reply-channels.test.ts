@@ -9,6 +9,7 @@ import {
   resolvePropLaneUnifiedReplyChannels,
   resolveAssistantInboxReplyChannels,
   hasInboxReplyChannelSelected,
+  inboxSmsUnavailableReason,
 } from "@/lib/manager-inbox-reply-channels";
 
 describe("manager inbox reply channels", () => {
@@ -16,6 +17,18 @@ describe("manager inbox reply channels", () => {
     expect(inboxThreadHasEmail("dana@example.com")).toBe(true);
     expect(inboxThreadHasEmail("")).toBe(false);
     expect(inboxThreadHasEmail("+16504484183")).toBe(false);
+  });
+
+  it("labels sms unavailable by deployment vs missing phone", () => {
+    expect(
+      inboxSmsUnavailableReason({ smsAvailable: true, smsOutboundEnabled: true, smsUiEnabled: true }),
+    ).toBeUndefined();
+    expect(
+      inboxSmsUnavailableReason({ smsAvailable: false, smsOutboundEnabled: false, smsUiEnabled: true }),
+    ).toBe("Texting is off for this conversation");
+    expect(
+      inboxSmsUnavailableReason({ smsAvailable: false, smsOutboundEnabled: true, smsUiEnabled: true }),
+    ).toBe("No phone number on this conversation");
   });
 
   it("reads a phone hint from from/email for leasing notices", () => {

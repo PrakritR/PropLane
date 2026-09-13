@@ -1,19 +1,21 @@
 "use client";
 
+import { CommunicationStatusFilterDraft, type CommunicationStatus } from "@/components/portal/communication-status-filter";
+
+import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
+
 import { useEffect, useMemo, useRef, useState } from "react";
+import { PortalFilterSortSheet } from "@/components/portal/portal-filter-sort-sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { VendorWorkNumberCard } from "@/components/portal/vendor-work-number-card";
-import {
-  CommunicationListBulkBar,
-} from "@/components/portal/communication-list-bulk-bar";
+
 import { useUnifiedCommunicationBulk } from "@/hooks/use-unified-communication-bulk";
 import { VendorInboxPanel, type VendorInboxPanelHandle } from "@/components/portal/vendor-inbox-panel";
 import { RoleSmsPanel } from "@/components/portal/role-sms-panel";
 import {
   INBOX_LIST_SCROLL,
   InboxConversationRow,
-  InboxListSegmentRail,
   InboxTwoPane,
   PortalInboxEmptyState,
   type InboxListSegment,
@@ -71,6 +73,7 @@ function VendorUnifiedInbox({
   inboxRef,
   smsUiEnabled,
   listSegment,
+  readOnly = false,
   routeThreadId,
   onRouteThreadChange,
   searchQuery,
@@ -83,6 +86,7 @@ function VendorUnifiedInbox({
   inboxRef: React.RefObject<VendorInboxPanelHandle | null>;
   smsUiEnabled: boolean;
   listSegment: InboxListSegment;
+  readOnly?: boolean;
   routeThreadId?: string;
   onRouteThreadChange?: (threadId: string | undefined) => void;
   searchQuery: string;
@@ -137,18 +141,9 @@ function VendorUnifiedInbox({
   const emailItems = useMemo((): UnifiedInboxListItem[] => {
     const q = searchQuery.trim().toLowerCase();
     let rows = filteredEmail;
+    rows = rows.filter((t) => listSegment === "archived" ? t.folder === "trash" : t.folder !== "trash");
     if (q) {
-      rows = rows.filter((t) => {
-        if (t.folder === "trash") return false;
-        const hay = [t.from, t.email, t.subject, t.body, t.preview].filter(Boolean).join(" ").toLowerCase();
-        return hay.includes(q);
-      });
-    } else if (listSegment === "archived") {
-      rows = rows.filter((t) => t.folder === "trash");
-    } else if (listSegment === "unread") {
-      rows = rows.filter((t) => t.folder !== "trash" && t.folder === "inbox" && t.unread);
-    } else {
-      rows = rows.filter((t) => t.folder !== "trash");
+      rows = rows.filter((t) => [t.from, t.email, t.subject, t.body, t.preview].filter(Boolean).join(" ").toLowerCase().includes(q));
     }
 
     const items = rows.map((t) => {
@@ -202,7 +197,7 @@ function VendorUnifiedInbox({
     return [item];
   }, [listSegment, searchQuery, smsMessages, smsOpened, smsUiEnabled]);
 
-  const merged = useMemo(() => mergeUnifiedInboxItems([...emailItems, ...smsItems]), [emailItems, smsItems]);
+  const merged = useMemo(() => mergeUnifiedInboxItems([...emailItems, ...smsItems]).filter((row) => !readOnly || !row.unread), [emailItems, smsItems, readOnly]);
 
   const bulk = useUnifiedCommunicationBulk({
     mergedRows: merged,
@@ -236,7 +231,6 @@ function VendorUnifiedInbox({
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <VendorWorkNumberCard onTellManagers={onAddConversation} />
-      <InboxListSegmentRail commBase={commBase} listSegment={listSegment} />
       <div className="shrink-0 px-3 pb-1 pt-3">
         <Input
           type="search"
@@ -272,6 +266,7 @@ function VendorUnifiedInbox({
           merged.map((row) => (
             <InboxConversationRow
               key={row.key}
+              trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} />}
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}
@@ -294,13 +289,6 @@ function VendorUnifiedInbox({
           ))
         )}
       </div>
-      <CommunicationListBulkBar
-        count={bulk.selectedCount}
-        listSegment={listSegment}
-        onArchive={listSegment !== "archived" ? () => void bulk.handleArchive() : undefined}
-        onRestore={listSegment === "archived" ? () => void bulk.handleRestore() : undefined}
-        onDelete={listSegment === "archived" ? () => void bulk.handleDelete() : undefined}
-      />
     </div>
   );
 
@@ -378,6 +366,8 @@ export function VendorCommunication({
   const { activeThreadId, setActiveThreadId } = useCommunicationThreadId(commBase, threadId);
   const [threadOpen, setThreadOpen] = useState(Boolean(threadId));
   const [threadSelected, setThreadSelected] = useState(Boolean(threadId));
+  const [status, setStatus] = useState<CommunicationStatus>(listSegment);
+  useEffect(() => setStatus(listSegment), [listSegment]);
   const [searchQuery, setSearchQuery] = useState("");
 
   const newMessageButton = (
@@ -395,8 +385,12 @@ export function VendorCommunication({
   return (
     <PortalCommunicationShell
       title="Inbox"
-      subtitle="Messages about the jobs you are assigned, and the managers who dispatch them."
-      titleAside={newMessageButton}
+      titleAside={<>
+        <PortalFilterSortSheet activeCount={status === "active" ? 0 : 1} compactPanel filterFieldCount={1} dataAttr="vendor-communication-filter-open">
+          <CommunicationStatusFilterDraft value={status} onChange={setStatus} />
+        </PortalFilterSortSheet>
+        {newMessageButton}
+      </>}
       hideTitleOnMobileNav
       hideMobileFilterRow={threadOpen}
       mobileThreadReading={threadOpen}
@@ -405,7 +399,8 @@ export function VendorCommunication({
       <VendorUnifiedInbox
         inboxRef={inboxRef}
         smsUiEnabled={smsUiEnabled}
-        listSegment={listSegment}
+        listSegment={status === "read" ? "active" : status}
+        readOnly={status === "read"}
         routeThreadId={activeThreadId}
         onRouteThreadChange={setActiveThreadId}
         searchQuery={searchQuery}

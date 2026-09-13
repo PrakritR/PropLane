@@ -948,45 +948,56 @@ function deletePartnerInquiryLocally(row: PartnerInquiry): boolean {
   return true;
 }
 
+export type DeletePartnerInquiryResult = { ok: boolean; error?: string };
+
 async function deleteTourInquiryFromServer(
   row: PartnerInquiry,
   opts?: { notifyTenant?: boolean; subject?: string; body?: string },
-): Promise<boolean> {
+): Promise<DeletePartnerInquiryResult> {
   const selectedWindow = getPartnerInquiryWindows(row)[0];
-  const res = await fetch("/api/portal-tour-inquiries/delete", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({
-      id: row.id,
-      managerUserId: row.managerUserId ?? selectedWindow?.adminUserId,
-      start: selectedWindow?.start ?? row.proposedStart,
-      end: selectedWindow?.end ?? row.proposedEnd,
-      notifyTenant: opts?.notifyTenant !== false,
-      subject: opts?.subject,
-      body: opts?.body,
-    }),
-  });
-  return res.ok;
+  try {
+    const res = await fetch("/api/portal-tour-inquiries/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        id: row.id,
+        managerUserId: row.managerUserId ?? selectedWindow?.adminUserId,
+        start: selectedWindow?.start ?? row.proposedStart,
+        end: selectedWindow?.end ?? row.proposedEnd,
+        notifyTenant: opts?.notifyTenant !== false,
+        subject: opts?.subject,
+        body: opts?.body,
+      }),
+    });
+    if (res.ok) return { ok: true };
+    // The route names the real reason (guest email refused, forbidden, …);
+    // a bare boolean turned every one of them into the same generic toast.
+    const payload = (await res.json().catch(() => ({}))) as { error?: unknown };
+    return { ok: false, error: typeof payload.error === "string" && payload.error.trim() ? payload.error : undefined };
+  } catch {
+    return { ok: false };
+  }
 }
 
 export async function deletePartnerInquiryFromServer(
   id: string,
   opts?: { notifyTenant?: boolean; subject?: string; body?: string },
-): Promise<boolean> {
+): Promise<DeletePartnerInquiryResult> {
   const row = readPartnerInquiries().find((r) => r.id === id);
-  if (!row) return false;
+  if (!row) return { ok: false };
   if (row.kind === "tour") {
-    if (!(await deleteTourInquiryFromServer(row, opts))) return false;
+    const result = await deleteTourInquiryFromServer(row, opts);
+    if (!result.ok) return result;
     await syncScheduleRecordsFromServer({ force: true });
-    return true;
+    return { ok: true };
   }
-  if (!deletePartnerInquiryLocally(row)) return false;
+  if (!deletePartnerInquiryLocally(row)) return { ok: false };
   const [inquiriesOk, eventRecordsOk] = await Promise.all([
     writeJsonToServer(INQ_KEY, readPartnerInquiries()),
     deletePartnerInquiryEventRecords(row),
   ]);
-  return inquiriesOk && eventRecordsOk;
+  return { ok: inquiriesOk && eventRecordsOk };
 }
 
 export function getPartnerInquiryWindows(row: PartnerInquiry): PartnerInquiryWindow[] {

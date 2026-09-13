@@ -18,6 +18,7 @@ export type CoManagerNotificationChannel = CoManagerPermissionId;
 /** Maps reminder subjects to the Teams module that gates co-manager alerts. */
 export const REMINDER_SUBJECT_CO_MANAGER_MODULE: Record<ReminderSubjectKind, CoManagerPermissionId> = {
   tour: "calendar",
+  tour_interest: "inbox",
   task: "calendar",
   service_order: "services",
   work_order: "services",

@@ -1,0 +1,1 @@
+drop policy if exists manager_vendor_records_vendor_read on public.manager_vendor_records;

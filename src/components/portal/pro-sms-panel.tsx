@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/input";
 import { useAppUi, useConfirm } from "@/components/providers/app-ui-provider";
 import { ManagerSmsComposeModal } from "@/components/portal/pro-sms-compose-modal";
+import { TourInterestFollowUpCard } from "./tour-interest-follow-up-card";
 import { SmsConversationHouseChip } from "@/components/portal/sms-conversation-house-chip";
 import {
   PortalContactDetailsModal,
@@ -24,11 +25,11 @@ import {
   buildInboxThreadAssistantContext,
   InboxThreadAssistantStrip,
 } from "@/components/portal/inbox-thread-assistant-strip";
+import { InboxComposerAiMenu, InboxComposerChannelMenu } from "@/components/portal/inbox-composer-tools";
 import {
   INBOX_LIST_SCROLL,
   InboxAvatar,
   InboxComposer,
-  InboxReplyChannelPicker,
   InboxThreadEmpty,
   InboxTwoPane,
   PortalInboxEmptyState,
@@ -248,6 +249,8 @@ export const ManagerSmsPanel = forwardRef<
   const [draft, setDraft] = useState("");
   const [replyViaEmail, setReplyViaEmail] = useState(false);
   const [replyViaSms, setReplyViaSms] = useState(true);
+  // The ✦ menu in the reply row opens the thread assistant rail; the strip's own pill is off.
+  const [askAssistantSignal, setAskAssistantSignal] = useState(0);
   const [replyIssue, setReplyIssue] = useState<string | null>(null);
   const replyAttemptRef = useRef<ManualSmsAttempt | null>(null);
   const [sending, setSending] = useState(false);
@@ -478,9 +481,9 @@ export const ManagerSmsPanel = forwardRef<
   }, [load, onSentNavigate]);
 
   const archiveConversation = useCallback(
-    (resident: ManagerSmsResidentConversation) => {
+    async (resident: ManagerSmsResidentConversation) => {
       const rowId = conversationId(resident);
-      archiveManagerSmsConversation(rowId);
+      try { await archiveManagerSmsConversation(rowId); } catch (error) { showToast(error instanceof Error ? error.message : "Could not archive conversation."); return; }
       setArchivedConversationIds(loadManagerSmsArchivedIds());
       setActiveId(null);
       onArchived?.();
@@ -490,9 +493,9 @@ export const ManagerSmsPanel = forwardRef<
   );
 
   const restoreConversation = useCallback(
-    (resident: ManagerSmsResidentConversation) => {
+    async (resident: ManagerSmsResidentConversation) => {
       const rowId = conversationId(resident);
-      restoreManagerSmsConversation(rowId);
+      try { await restoreManagerSmsConversation(rowId); } catch (error) { showToast(error instanceof Error ? error.message : "Could not restore conversation."); return; }
       setArchivedConversationIds(loadManagerSmsArchivedIds());
       setActiveId(null);
       onArchived?.();
@@ -1040,6 +1043,7 @@ export const ManagerSmsPanel = forwardRef<
           </div>
         );
         })()}
+        {active.resident.conversationKey ? <TourInterestFollowUpCard conversationKey={active.resident.conversationKey} conversationKeys={active.resident.memberKeys} messageCount={active.messages.length} /> : null}
         <div ref={threadEndRef} className="h-px shrink-0" aria-hidden />
       </div>
 
@@ -1050,6 +1054,8 @@ export const ManagerSmsPanel = forwardRef<
           email: smsConversationSubtitle(active.resident) || active.resident.phone || undefined,
         })}
         storageScopeKey="Communication SMS thread"
+        hideTrigger
+        openSignal={askAssistantSignal}
       />
 
       {replyIssue ? (
@@ -1071,16 +1077,19 @@ export const ManagerSmsPanel = forwardRef<
         placeholder={replyViaSms && !replyViaEmail ? "Text message" : "Write a reply…"}
         maxLength={replyViaSms && !replyViaEmail ? 1600 : undefined}
         dataAttr="sms-messages-reply"
-        channelControl={
-          <InboxReplyChannelPicker
-            viaEmail={replyViaEmail}
-            viaSms={replyViaSms}
-            onViaEmailChange={setReplyViaEmail}
-            onViaSmsChange={setReplyViaSms}
-            emailAvailable={activeEmailAvailable}
-            smsAvailable
-            onAddEmail={canEditContact ? openContactName : undefined}
-          />
+        trailingControls={
+          <>
+            <InboxComposerAiMenu onAsk={() => setAskAssistantSignal((n) => n + 1)} />
+            <InboxComposerChannelMenu
+              viaEmail={replyViaEmail}
+              viaSms={replyViaSms}
+              onViaEmailChange={setReplyViaEmail}
+              onViaSmsChange={setReplyViaSms}
+              emailAvailable={activeEmailAvailable}
+              smsAvailable
+              onAddEmail={canEditContact ? openContactName : undefined}
+            />
+          </>
         }
       />
       ) : null}

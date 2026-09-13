@@ -548,7 +548,7 @@ export function ManagerDocumentsPanel({
   return (
     <ManagerPortalPageShell
       title="Documents"
-      subtitle="Applications, leases, reports, and everything else you keep on file."
+
       titleInlineFilter={null}
       hideTitleOnMobileNav
       compactFilterRow

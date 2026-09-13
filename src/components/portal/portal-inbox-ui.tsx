@@ -1,4 +1,6 @@
 "use client";
+import { RecordActionContext } from "@/components/ui/record-action-context";
+import { RecordActionMenu } from "@/components/ui/record-action-menu";
 
 import {
   Children,
@@ -292,6 +294,7 @@ export function PortalInboxMessageTable({
   expandedId,
   onToggleExpand,
   renderExtraActions,
+  rowActionMenus = false,
   primaryPartyHeader = "From",
   layout = "default",
   selection,
@@ -306,6 +309,7 @@ export function PortalInboxMessageTable({
   onToggleExpand?: (id: string) => void;
   /** Trash / restore / delete — shown in the expanded row only (with Mark read, Reply, Hide). */
   renderExtraActions?: (row: PortalInboxTableRow) => ReactNode;
+  rowActionMenus?: boolean;
   primaryPartyHeader?: "From" | "To" | "Recipient" | "From / To";
   /** Schedule tab uses Recipient + Send date & time + Subject (no trailing When). */
   layout?: PortalInboxTableLayout;
@@ -418,6 +422,15 @@ export function PortalInboxMessageTable({
     );
   };
 
+  const renderActionMenu = (row: PortalInboxTableRow) => rowActionMenus ? (
+    <RecordActionContext.Provider value={{ scope: row.id, clear: () => {}, actions: <>
+      {!row.read && onMarkRead ? <Button variant="outline" onClick={() => onMarkRead(row.id)}>Mark read</Button> : null}
+      {renderExtraActions?.(row)}
+    </> }}>
+      <RecordActionMenu label={row.subject} activate={() => {}} onOpen={onToggleExpand ? () => onToggleExpand(row.id) : undefined} />
+    </RecordActionContext.Provider>
+  ) : null;
+
   const mobileCards = (
     <>
       {rows.map((row) => {
@@ -466,6 +479,7 @@ export function PortalInboxMessageTable({
                   ) : null}
                 </div>
               </button>
+              {renderActionMenu(row)}
             </div>
             {!rowExpandable && (hasMarkRead || extra) ? (
               <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3">
@@ -551,7 +565,10 @@ export function PortalInboxMessageTable({
                       {isScheduleLayout ? row.whenLabel : row.subject}
                     </td>
                     <td className={`${PORTAL_TABLE_TD} align-middle ${isScheduleLayout ? "font-medium text-foreground" : "text-muted"}`}>
-                      {isScheduleLayout ? row.subject : row.whenLabel}
+                      <div className="flex items-center gap-2">
+                        <span>{isScheduleLayout ? row.subject : row.whenLabel}</span>
+                        {renderActionMenu(row)}
+                      </div>
                     </td>
                   </tr>
                   {isExpanded ? (
@@ -1309,6 +1326,7 @@ export function InboxReplyChannelPicker({
   onAddEmail,
   onAddPhone,
   sendingAs,
+  smsDisabledReason,
 }: {
   viaEmail: boolean;
   viaSms: boolean;
@@ -1325,8 +1343,11 @@ export function InboxReplyChannelPicker({
   onAddPhone?: () => void;
   /** The identity each channel sends from, shown beside the segments. */
   sendingAs?: { proplane?: string; email?: string; sms?: string };
+  smsDisabledReason?: string;
 }) {
   type ChannelId = "proplane" | "email" | "sms";
+  const smsReason =
+    smsDisabledReason ?? (smsAvailable ? undefined : "Texting is off for this conversation");
   const options: { id: ChannelId; label: string; disabled: boolean; reason?: string }[] = [
     ...(proplaneAvailable ? [{ id: "proplane" as const, label: "In-app", disabled: false }] : []),
     {
@@ -1343,7 +1364,7 @@ export function InboxReplyChannelPicker({
       id: "sms",
       label: "Text",
       disabled: !smsAvailable,
-      reason: smsAvailable ? undefined : "Texting is off for this conversation",
+      reason: smsReason,
     },
   ];
 
@@ -1378,10 +1399,13 @@ export function InboxReplyChannelPicker({
     return parts.length ? `Sending as ${parts.join(" · ")}` : null;
   })();
 
-  const addAction = !emailAvailable && onAddEmail
-    ? { label: "Add an email address", onClick: onAddEmail, dataAttr: "inbox-reply-add-email" }
-    : !smsAvailable && onAddPhone
-      ? { label: "Add a phone number", onClick: onAddPhone, dataAttr: "inbox-reply-add-phone" }
+  const addEmailAction =
+    !emailAvailable && onAddEmail
+      ? { label: "Add an email address", onClick: onAddEmail, dataAttr: "inbox-reply-add-email" as const }
+      : null;
+  const addPhoneAction =
+    !smsAvailable && onAddPhone
+      ? { label: "Add a phone number", onClick: onAddPhone, dataAttr: "inbox-reply-add-phone" as const }
       : null;
 
   return (
@@ -1420,15 +1444,26 @@ export function InboxReplyChannelPicker({
           {identity}
         </span>
       ) : null}
-      {addAction ? (
+      {addEmailAction ? (
         <button
           type="button"
           className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
-          data-attr={addAction.dataAttr}
-          onClick={addAction.onClick}
+          data-attr={addEmailAction.dataAttr}
+          onClick={addEmailAction.onClick}
         >
           <Plus className="h-3 w-3" aria-hidden />
-          {addAction.label}
+          {addEmailAction.label}
+        </button>
+      ) : null}
+      {addPhoneAction ? (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+          data-attr={addPhoneAction.dataAttr}
+          onClick={addPhoneAction.onClick}
+        >
+          <Plus className="h-3 w-3" aria-hidden />
+          {addPhoneAction.label}
         </button>
       ) : null}
     </div>

@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Modal, ModalFooter } from "@/components/ui/modal";
-import { Button } from "@/components/ui/button";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Modal } from "@/components/ui/modal";
 import { Input, Select, Textarea } from "@/components/ui/input";
-import { useAppUi } from "@/components/providers/app-ui-provider";
+import { SaveStatus } from "@/components/ui/save-status";
+import { useAutosaveDraft } from "@/hooks/use-autosave-draft";
 import type { DemoManagerWorkOrderRow } from "@/data/demo-portal";
 import { updateManagerWorkOrder } from "@/lib/manager-work-orders-storage";
 
 const PRIORITIES = ["Low", "Medium", "High", "Emergency"] as const;
 
+/** Edit a maintenance service. Saves itself — × is the only way out. */
 export function EditServiceWorkOrderModal({
   open,
   row,
@@ -21,45 +22,57 @@ export function EditServiceWorkOrderModal({
   onClose: () => void;
   onSaved?: () => void;
 }) {
-  const { showToast } = useAppUi();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<string>("Medium");
   const [cost, setCost] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+  const changedRef = useRef(false);
 
   useEffect(() => {
-    if (!open || !row) return;
+    if (!open || !row) {
+      setHydrated(false);
+      changedRef.current = false;
+      return;
+    }
     setTitle(row.title ?? "");
     setDescription(row.description ?? "");
     setPriority(row.priority?.trim() || "Medium");
     setCost(row.cost && row.cost !== "—" ? row.cost : "");
-    setBusy(false);
+    const t = setTimeout(() => setHydrated(true), 0);
+    return () => clearTimeout(t);
   }, [open, row]);
 
-  const onSave = () => {
-    if (!row) return;
-    const nextTitle = title.trim();
-    if (!nextTitle) {
-      showToast("Title is required.");
-      return;
-    }
-    setBusy(true);
-    try {
+  const draft = useMemo(() => ({ title, description, priority, cost }), [title, description, priority, cost]);
+
+  const persist = useCallback(
+    async (d: typeof draft) => {
+      if (!row) return;
       updateManagerWorkOrder(row.id, (current) => ({
         ...current,
-        title: nextTitle,
-        description: description.trim(),
-        priority: priority.trim() || current.priority,
-        ...(cost.trim() ? { cost: cost.trim() } : {}),
+        title: d.title.trim(),
+        description: d.description.trim(),
+        priority: d.priority.trim() || current.priority,
+        ...(d.cost.trim() ? { cost: d.cost.trim() } : {}),
       }));
-      showToast("Service updated.");
-      onSaved?.();
+      changedRef.current = true;
+    },
+    [row],
+  );
+
+  const autosave = useAutosaveDraft({
+    draft,
+    enabled: open && Boolean(row) && hydrated,
+    validate: (d) => (d.title.trim() ? null : "Needs a title"),
+    save: persist,
+  });
+
+  const handleClose = useCallback(() => {
+    void autosave.flush().finally(() => {
       onClose();
-    } finally {
-      setBusy(false);
-    }
-  };
+      if (changedRef.current) onSaved?.();
+    });
+  }, [autosave, onClose, onSaved]);
 
   return (
     <Modal
@@ -67,22 +80,8 @@ export function EditServiceWorkOrderModal({
       title="Edit service"
       dense
       fullPage={false}
-      onClose={() => {
-        if (!busy) onClose();
-      }}
-      footer={
-        <ModalFooter>
-          <Button
-            type="button"
-            variant="primary"
-            disabled={busy || !row}
-            onClick={onSave}
-            data-attr="edit-service-work-order-save"
-          >
-            {busy ? "Saving…" : "Save"}
-          </Button>
-        </ModalFooter>
-      }
+      onClose={handleClose}
+      status={<SaveStatus status={autosave} />}
     >
       {row ? (
         <div className="space-y-4">
@@ -91,7 +90,6 @@ export function EditServiceWorkOrderModal({
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              disabled={busy}
               data-attr="edit-service-work-order-title"
             />
           </label>
@@ -100,7 +98,6 @@ export function EditServiceWorkOrderModal({
             <Select
               value={priority}
               onChange={(e) => setPriority(e.target.value)}
-              disabled={busy}
               data-attr="edit-service-work-order-priority"
             >
               {PRIORITIES.map((p) => (
@@ -116,7 +113,6 @@ export function EditServiceWorkOrderModal({
               value={cost}
               onChange={(e) => setCost(e.target.value)}
               placeholder="$0"
-              disabled={busy}
               data-attr="edit-service-work-order-cost"
             />
           </label>
@@ -126,12 +122,11 @@ export function EditServiceWorkOrderModal({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={4}
-              disabled={busy}
               data-attr="edit-service-work-order-description"
             />
           </label>
           <p className="text-xs text-muted">
-            Visit arrival and vendor assignment are edited from Schedule visit.
+            Visit arrival and assignment are edited from Schedule visit.
           </p>
         </div>
       ) : null}

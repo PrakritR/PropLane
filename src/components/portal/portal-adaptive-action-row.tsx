@@ -1,6 +1,8 @@
 "use client";
 
-import { useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { RecordActionItemsContext } from "@/components/ui/record-action-context";
+import { RecordActionItems } from "@/components/ui/record-action-menu";
 import { BulkBarActionLimitContext } from "@/components/ui/bulk-action-bar";
 import { Button } from "@/components/ui/button";
 import {
@@ -113,8 +115,9 @@ export function PortalAdaptiveActionRow({
   const measureRef = useRef<HTMLDivElement>(null);
   const { optional } = useMemo(() => splitAdaptiveActions(actions), [actions]);
   const [measuredFitCount, setOptionalFitCount] = useState(optional.length);
+  const inRecordMenu = useContext(RecordActionItemsContext);
   const bulkBarLimit = useContext(BulkBarActionLimitContext);
-  const fixedLimit = maxVisible ?? bulkBarLimit;
+  const fixedLimit = inRecordMenu ? actions.length : maxVisible ?? bulkBarLimit;
   const fixed = fixedLimit != null;
   const optionalFitCount = fixed
     ? Math.max(0, fixedLimit - (actions.length - optional.length))
@@ -191,6 +194,7 @@ export function PortalAdaptiveActionRow({
     }
   }, [fixed, optionalFitCount, optional.length, actions]);
 
+  if (inRecordMenu) return <><RecordActionItems>{actions.map((action) => <Fragment key={action.id}>{action.node}</Fragment>)}{pinnedMenuItems}</RecordActionItems></>;
   if (actions.length === 0 && pinnedCount === 0) return null;
 
   const { visible, overflow } = pickAdaptiveActions(actions, optionalFitCount);

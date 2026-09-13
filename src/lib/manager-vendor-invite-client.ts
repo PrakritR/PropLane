@@ -6,6 +6,7 @@ import type { NotificationCategory } from "@/lib/notification-preferences";
 import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 
 export type ManagerVendorInvitePreview = {
+  linkUrl?: string;
   vendorId: string;
   name: string;
   email: string;
@@ -25,7 +26,7 @@ export type ManagerVendorRemovalPreview = {
 
 export type ManagerDirectoryMessageResult =
   | { ok: true; message: string; delivery?: "sent" | "scheduled" | "saved" }
-  | { ok: false; message: string };
+  | { ok: false; message: string; uncertain?: boolean };
 
 export async function fetchManagerVendorInviteDraft(input: {
   vendorId: string;
@@ -51,6 +52,7 @@ export async function fetchManagerVendorInviteDraft(input: {
       ok?: boolean;
       subject?: string;
       body?: string;
+      linkUrl?: string;
       error?: string;
     };
     if (!res.ok || !data.subject?.trim() || !data.body?.trim()) {
@@ -63,6 +65,7 @@ export async function fetchManagerVendorInviteDraft(input: {
         name: input.vendorName,
         email,
         phone: "",
+        linkUrl: data.linkUrl,
         subject: data.subject,
         body: data.body,
       },
@@ -181,6 +184,7 @@ export async function deliverManagerDirectoryMessage(
   }
   return {
     ok: false,
+    uncertain: notice.uncertain,
     message: notice.error ? `Message failed: ${notice.error}` : "The message could not be sent.",
   };
 }

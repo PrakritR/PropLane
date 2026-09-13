@@ -865,7 +865,6 @@ export function VendorWorkOrdersPanel() {
   return (
     <ManagerPortalPageShell
       title="Services"
-      subtitle="Offers, site visits, scheduled jobs, and the tasks managers hand you."
       hideTitleOnMobileNav
       titleInlineFilter={null}
       compactFilterRow
@@ -897,6 +896,7 @@ export function VendorWorkOrdersPanel() {
       <PortalRecordListSurface
         isEmpty={visible.length === 0}
         empty={<PortalDataTableEmpty message={emptyMessage} icon="work-order" />}
+        onBulkClear={() => setSelectedIds(new Set())}
         bulkCount={selectedDoneable.length}
         bulkActions={
           selectedDoneable.length > 0 ? (

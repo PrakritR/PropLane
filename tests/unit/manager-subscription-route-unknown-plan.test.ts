@@ -87,7 +87,7 @@ describe("a plan the server could not read", () => {
 
     const body = await get();
 
-    // `null` is what stops manager-properties.tsx drawing the limit banner and
+    // `null` is what stops pro-properties.tsx drawing the limit banner and
     // pre-refusing "+ Add property"; the server gate still decides the write.
     expect(body.propertyLimit).toBeNull();
     expect(body.accountLinkLimit).toBeNull();

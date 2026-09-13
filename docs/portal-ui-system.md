@@ -188,11 +188,11 @@ and `rounded-lg` radius.
 
 | Section | Label | File |
 |---------|-------|------|
-| Properties (Listed tab) | Add property | `manager-properties.tsx` |
-| Residents | Add resident | `manager-residents.tsx` |
-| Applications | Create application | `manager-applications.tsx` |
-| Leases | Create lease | `manager-leases.tsx` |
-| Tours | Schedule tour | `manager-tours.tsx` |
+| Properties (Listed tab) | Add property | `pro-properties.tsx` |
+| Residents | Add resident | `pro-residents.tsx` |
+| Applications | Create application | `pro-applications.tsx` |
+| Leases | Create lease | `pro-leases.tsx` |
+| Tours | Schedule tour | `pro-tours.tsx` |
 
 Constants live in `portal-metrics.tsx`; hover rule in `globals.css`
 (`.portal-command-primary:hover`).
@@ -521,13 +521,14 @@ the bytes are already there, so it costs no round trip. Coverage:
 | Command-strip primary CTA | `portal-metrics.tsx` (`PORTAL_COMMAND_*`), `portal-list-control-stack.tsx` |
 | Table primitives | `portal-data-table.tsx` |
 | Mobile summary card | `PortalMobileSummaryCard` in `portal-data-table.tsx` |
-| In-modal assistant side panel | `modal-assistant-strip.tsx` + `modal.tsx` / `manager-add-listing-form.tsx` |
+| In-modal assistant side panel | `modal-assistant-strip.tsx` + `modal.tsx` / `pro-add-listing-form.tsx` |
 
 ## In-modal PropLane Assistant: side panel, not a bottom band
 
-`ModalAssistantStrip` (embedded via the shared `Modal` component, and directly
-in the listing wizard `manager-add-listing-form.tsx` — the only two embed
-points) opens beside the modal's content once the modal is wide enough,
+`ModalAssistantStrip` (embedded via the shared `Modal` and `VaulBottomSheet`
+components, and directly in the listing wizards `pro-add-listing-form.tsx` /
+`listing-wizard-v2/listing-editor.tsx` and `inbox-thread-assistant-strip.tsx`)
+opens beside the modal's content once the modal is wide enough,
 instead of always stacking below it. The switch is a CSS container query, not
 a viewport breakpoint: modal widths vary hugely across embed points (`max-w-md`
 at 448px up to the listing wizard's `max-w-6xl` at 1152px), so a single
@@ -561,3 +562,9 @@ and `@2xl:flex-row` on the same element silently no-ops (it stays column no
 matter how wide the container gets). Cost real debugging time once; verify any
 new container-query layout with a computed-style check
 (`getComputedStyle(el).flexDirection`), not just a class-list read.
+
+### Per-record actions (September 2026)
+
+`PortalRecordListSurface` provides one ⋯ menu per record. There is no Select strip, list checkbox mode, or floating bulk bar. The existing `bulkActions` and `onBulkClear` adapters remain internal: opening a row menu clears prior IDs and targets only that record before rendering its current permitted actions. `RowSelectCheckbox` and `DataList` adapt existing handlers; form and permission checkboxes outside record lists remain checkboxes. Do not clear the internal target when a menu closes: an editor opened by its action may still need it. Route/workspace changes clear it; every next menu chooses a fresh single target.
+
+Use the shared liquid-glass dropdown surface, 44px triggers, keyboard-navigable menu items, and a bottom sheet on mobile. Custom action wrappers must render `RecordActionItems` when `RecordActionItemsContext` is active. Keep original permission checks, validation, and destructive confirmations. Loading/error states must precede the empty state.

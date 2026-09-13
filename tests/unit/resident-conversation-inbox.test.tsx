@@ -71,13 +71,12 @@ afterEach(() => {
 });
 
 describe("resident conversation inbox", () => {
-    it("shows All, Unread and Archived segments like the property portal", async () => {
+    it("offers Filter instead of folder rails", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
     render(<ResidentCommunication />);
 
-    expect(screen.getByRole("link", { name: /^All/i })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /^Unread/i })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Archived/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Filter", exact: true })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /^Unread/i })).toBeNull();
     await waitFor(() => expect(screen.getByText("Property manager")).toBeTruthy());
     expect(screen.queryByText("Old notice")).toBeNull();
   });

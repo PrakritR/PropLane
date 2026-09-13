@@ -54,7 +54,7 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
     expect(screen.getByText(/The whole house/i)).toBeTruthy();
     expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Room B/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Room B/i }));
 
     expect(screen.getByDisplayValue("Lockbox on porch")).toBeTruthy();
     expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
@@ -74,7 +74,7 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /Room B/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Room B/i }));
     expect(screen.getByDisplayValue("Lockbox on porch")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Back/i }));
@@ -82,7 +82,7 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
     expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
   });
 
-  it("shows edit and share bulk actions when rooms are selected", () => {
+  it("shows edit and share for the room whose menu is open", async () => {
     render(
       <ManagerPropertyRoomMoveInPanel
         sub={roomListing()}
@@ -94,9 +94,10 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByLabelText("Select Room B"));
-    expect(screen.getByRole("button", { name: /^Edit$/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Share$/i })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for Room B" }), { key: "ArrowDown" });
+    await screen.findByRole("menuitem", { name: /^Edit$/i });
+    expect(screen.getByRole("menuitem", { name: /^Edit$/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /^Share$/i })).toBeTruthy();
     expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
   });
 
@@ -113,7 +114,7 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
     );
 
     expect(screen.queryByPlaceholderText(/Keys, parking/i)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /The whole house/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^The whole house/i }));
     expect(screen.getByPlaceholderText(/Keys, parking/i)).toBeTruthy();
     expect(screen.queryByTestId("move-in-editor-save")).toBeNull();
   });
@@ -123,7 +124,7 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
    * selectable row — Edit and Share live in the bulk bar, so without the tick box
    * those actions were unreachable on an entire-home property.
    */
-  it("gives the whole-house row a checkbox on an entire-home listing", () => {
+  it("offers whole-house actions on an entire-home listing", async () => {
     const sub = createDefaultListingSubmission();
     sub.listingPlaceCategoryId = "entire_home";
 
@@ -138,19 +139,14 @@ describe("ManagerPropertyRoomMoveInPanel", () => {
       />,
     );
 
-    const checkbox = screen.getByLabelText("Select the whole house");
-    expect((checkbox as HTMLInputElement).checked).toBe(false);
-    // No bulk bar until something is selected.
-    expect(screen.queryByRole("button", { name: /^Share$/ })).toBeNull();
-
-    fireEvent.click(checkbox);
-
-    expect((checkbox as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByRole("button", { name: /^Edit$/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /^Share$/ })).toBeTruthy();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /^Share$/ })).toBeNull();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Actions for the whole house" }), { key: "ArrowDown" });
+    expect(await screen.findByRole("menuitem", { name: /^Edit$/ })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /^Share$/ })).toBeTruthy();
   });
 
-  it("omits the whole-house checkbox when the manager cannot edit", () => {
+  it("omits whole-house edit actions when the manager cannot edit", () => {
     const sub = createDefaultListingSubmission();
     sub.listingPlaceCategoryId = "entire_home";
 

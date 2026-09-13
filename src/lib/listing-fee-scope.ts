@@ -16,7 +16,11 @@
 
 import type { ManagerCustomFeeRow, ManagerListingSubmissionV1, PaymentAtSigningOptionId } from "@/lib/manager-listing-submission";
 import { PAYMENT_AT_SIGNING_OPTIONS, resolveAllowedLeaseTerms } from "@/lib/manager-listing-submission";
-import { LISTING_LEASE_TERM_OPTION_SET } from "@/lib/rental-application/lease-terms";
+import {
+  isLegacyFixedLeaseTerm,
+  LONG_TERM_LEASE_TERM,
+  LISTING_LEASE_TERM_OPTION_SET,
+} from "@/lib/rental-application/lease-terms";
 
 /** A fee scope list that is absent, empty, or covers every option means "all". */
 export function feeScopeIsAll(scope: readonly string[] | null | undefined): boolean {
@@ -88,6 +92,35 @@ export function listingLeaseTypeScopeOptions(
   >,
 ): string[] {
   return resolveAllowedLeaseTerms(sub).filter((term) => LISTING_LEASE_TERM_OPTION_SET.has(term));
+}
+
+/**
+ * Lease-type tabs on Pricing → Rent and deposits.
+ *
+ * Legacy listings still store 3/6/9/12-Month separately, but every fixed monthly
+ * length bills off the same rent — one "12-Month" tab is enough on this screen.
+ */
+export function listingPricingLeaseTabs(
+  sub: Pick<
+    ManagerListingSubmissionV1,
+    "allowedLeaseTerms" | "leaseTermsBody" | "shortTermRentalsAllowed" | "airbnbRentalsAllowed"
+  >,
+): string[] {
+  const raw = listingLeaseTypeScopeOptions(sub);
+  const tabs: string[] = [];
+  const hasFixedMonthly = raw.some((t) => isLegacyFixedLeaseTerm(t) || t === LONG_TERM_LEASE_TERM);
+  if (hasFixedMonthly) tabs.push("12-Month");
+  for (const term of raw) {
+    if (isLegacyFixedLeaseTerm(term) || term === LONG_TERM_LEASE_TERM) continue;
+    if (!tabs.includes(term)) tabs.push(term);
+  }
+  return tabs;
+}
+
+/** Map a pricing tab to the lease term the room record uses for monthly rent. */
+export function listingPricingTabToLeaseTerm(tab: string): string {
+  if (tab === "12-Month") return LONG_TERM_LEASE_TERM;
+  return tab;
 }
 
 /* ------------------------------------------------------------------ *

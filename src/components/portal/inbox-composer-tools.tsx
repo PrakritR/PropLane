@@ -55,7 +55,7 @@ export function InboxComposerAiMenu({
           <AxisAssistantSparkleIcon className="h-4 w-4" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="top" className="min-w-[12rem]">
+      <DropdownMenuContent glass mobileSheet align="end" side="top" className="min-w-[12rem]">
         {onDraft ? (
           <DropdownMenuItem onSelect={onDraft} data-attr="inbox-ai-draft-generate">
             <Sparkles strokeWidth={2.25} />
@@ -112,7 +112,7 @@ export function InboxComposerScheduleMenu({
           <Clock className="h-4 w-4" strokeWidth={2} aria-hidden />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="top" className="w-[18rem] p-2">
+      <DropdownMenuContent glass mobileSheet align="end" side="top" className="w-[18rem] p-2">
         <DropdownMenuLabel className="px-1 pb-1 pt-0 text-[12px] font-semibold text-foreground">
           Schedule for later
         </DropdownMenuLabel>
@@ -182,6 +182,7 @@ export function InboxComposerChannelMenu({
   onAddPhone,
   sendingAs,
   disabled,
+  smsDisabledReason,
 }: {
   viaEmail: boolean;
   viaSms: boolean;
@@ -196,20 +197,32 @@ export function InboxComposerChannelMenu({
   onAddPhone?: () => void;
   sendingAs?: { proplane?: string; email?: string; sms?: string };
   disabled?: boolean;
+  /** When Text is off — overrides generic copy when SMS is unavailable. */
+  smsDisabledReason?: string;
 }) {
-  const options: { id: ChannelId; label: string; disabled: boolean; reason?: string }[] = [
+  const smsReason =
+    smsDisabledReason ?? (smsAvailable ? undefined : "Texting is off for this conversation");
+  const options: {
+    id: ChannelId;
+    label: string;
+    disabled: boolean;
+    reason?: string;
+    onAdd?: () => void;
+  }[] = [
     ...(proplaneAvailable ? [{ id: "proplane" as const, label: "In-app", disabled: false }] : []),
     {
       id: "email",
       label: "Email",
       disabled: !emailAvailable,
       reason: emailAvailable ? undefined : "No email address on this conversation",
+      onAdd: !emailAvailable && onAddEmail ? onAddEmail : undefined,
     },
     {
       id: "sms",
       label: "Text",
       disabled: !smsAvailable,
-      reason: smsAvailable ? undefined : "Texting is off for this conversation",
+      reason: smsReason,
+      onAdd: !smsAvailable && onAddPhone ? onAddPhone : undefined,
     },
   ];
 
@@ -248,12 +261,6 @@ export function InboxComposerChannelMenu({
     return parts.length ? `Sending as ${parts.join(" · ")}` : null;
   })();
 
-  const addAction = !emailAvailable && onAddEmail
-    ? { label: "Add an email address", onClick: onAddEmail, dataAttr: "inbox-reply-add-email" }
-    : !smsAvailable && onAddPhone
-      ? { label: "Add a phone number", onClick: onAddPhone, dataAttr: "inbox-reply-add-phone" }
-      : null;
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -275,22 +282,25 @@ export function InboxComposerChannelMenu({
           <ChevronDown className="hidden h-3.5 w-3.5 md:inline" aria-hidden />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" side="top" className="min-w-[14rem]" data-attr="inbox-reply-channel-picker">
+      <DropdownMenuContent glass mobileSheet align="end" side="top" className="min-w-[14rem]" data-attr="inbox-reply-channel-picker">
         <DropdownMenuLabel className="text-[11px] font-semibold uppercase tracking-wide text-muted">Send via</DropdownMenuLabel>
         {options.map((option) => {
           const on = selected.has(option.id);
           const Icon = CHANNEL_ICON[option.id];
+          const canToggle = !option.disabled;
+          const rowAdd = option.onAdd;
           return (
             <DropdownMenuItem
               key={option.id}
-              disabled={option.disabled}
+              disabled={option.disabled && !rowAdd}
               title={option.reason}
               aria-checked={on}
               role="menuitemcheckbox"
               data-attr={`inbox-reply-channel-${option.id}`}
+              className="gap-1"
               onSelect={(e) => {
                 e.preventDefault();
-                toggle(option.id);
+                if (canToggle) toggle(option.id);
               }}
             >
               <Icon strokeWidth={2} />
@@ -298,21 +308,31 @@ export function InboxComposerChannelMenu({
                 <span className="block">{option.label}</span>
                 {option.reason ? <span className="block text-[11px] font-normal text-muted">{option.reason}</span> : null}
               </span>
-              <Check className={cn("!h-4 !w-4 !text-primary", on ? "opacity-100" : "opacity-0")} aria-hidden />
+              {rowAdd ? (
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-primary hover:bg-primary/10"
+                  aria-label={option.id === "email" ? "Add email" : "Add phone number"}
+                  data-attr={option.id === "email" ? "inbox-reply-add-email" : "inbox-reply-add-phone"}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    rowAdd();
+                  }}
+                >
+                  <Plus className="!h-4 !w-4" strokeWidth={2.5} aria-hidden />
+                </button>
+              ) : (
+                <Check className={cn("!h-4 !w-4 !text-primary", on ? "opacity-100" : "opacity-0")} aria-hidden />
+              )}
             </DropdownMenuItem>
           );
         })}
-        {identity || addAction ? <DropdownMenuSeparator /> : null}
+        {identity ? <DropdownMenuSeparator /> : null}
         {identity ? (
           <p className="px-3 py-1.5 text-[11px] text-muted" data-attr="inbox-reply-sending-as">
             {identity}
           </p>
-        ) : null}
-        {addAction ? (
-          <DropdownMenuItem onSelect={addAction.onClick} data-attr={addAction.dataAttr} className="text-primary">
-            <Plus className="!text-primary" />
-            {addAction.label}
-          </DropdownMenuItem>
         ) : null}
       </DropdownMenuContent>
     </DropdownMenu>

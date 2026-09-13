@@ -31,12 +31,13 @@ const VENDORS = [
 
 describe("what a vendor may take", () => {
   it("lets a team member take anything", () => {
-    expect(assignableKindsFor("team")).toEqual(["service", "tour", "task"]);
+    expect(assignableKindsFor("team")).toEqual(["service", "maintenance", "tour", "task"]);
   });
 
-  it("limits a vendor to task work", () => {
-    expect(assignableKindsFor("vendor")).toEqual(["task"]);
+  it("limits a vendor to task work and maintenance work orders", () => {
+    expect(assignableKindsFor("vendor")).toEqual(["task", "maintenance"]);
     expect(canAssign("vendor", "task")).toBe(true);
+    expect(canAssign("vendor", "maintenance")).toBe(true);
     expect(canAssign("vendor", "service")).toBe(false);
     expect(canAssign("vendor", "tour")).toBe(false);
   });

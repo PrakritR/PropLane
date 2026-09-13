@@ -1,0 +1,223 @@
+/**
+ * What a vendor gets told, in their words, on their channel.
+ *
+ * Pure: the event catalogue, per-vendor template shape, variable rendering with
+ * built-in fallback copy, and the channel fallback order. The server half
+ * (`vendor-messaging.server.ts`) does the sending. Both the Vendors page and
+ * Schedule visit import this file, so it must stay browser-safe.
+ *
+ * Variables are an ALLOW-LIST. An access code is never one of them: a template
+ * that says `{access_code}` renders the braces literally. Codes are released
+ * only by the vendor agent once the vendor is assigned and the visit is booked
+ * (`docs/agents/vendor-dispatch-agent.md`).
+ */
+
+export const VENDOR_MESSAGE_EVENTS = [
+  "assigned",
+  "visit_scheduled",
+  "day_before",
+  "rescheduled",
+  "done",
+] as const;
+
+export type VendorMessageEvent = (typeof VENDOR_MESSAGE_EVENTS)[number];
+
+export type VendorChannel = "sms" | "email" | "inapp";
+
+export const VENDOR_CHANNELS: readonly { id: VendorChannel; label: string; short: string }[] = [
+  { id: "sms", label: "Text message", short: "Text" },
+  { id: "email", label: "Email", short: "Email" },
+  { id: "inapp", label: "PropLane inbox", short: "In-app" },
+];
+
+export type VendorMessageTemplate = { enabled: boolean; body: string };
+
+export type VendorMessaging = {
+  /** Free text the manager writes about how to talk to this vendor; prepended nowhere, read by the assistant. */
+  instructions: string;
+  templates: Partial<Record<VendorMessageEvent, VendorMessageTemplate>>;
+};
+
+export const VENDOR_MESSAGE_EVENT_META: Record<
+  VendorMessageEvent,
+  { label: string; when: string; variables: readonly VendorMessageVariable[] }
+> = {
+  assigned: {
+    label: "Assigned to a job",
+    when: "when a service is assigned to them without a visit time",
+    variables: ["vendor", "service", "property", "unit", "resident_first", "priority", "notes"],
+  },
+  visit_scheduled: {
+    label: "Visit scheduled",
+    when: "when Schedule visit is confirmed",
+    variables: ["vendor", "service", "property", "unit", "resident_first", "visit_time", "notes"],
+  },
+  day_before: {
+    label: "Day before",
+    when: "the afternoon before the visit",
+    variables: ["vendor", "service", "property", "unit", "visit_time"],
+  },
+  rescheduled: {
+    label: "Visit rescheduled",
+    when: "when the visit time changes",
+    variables: ["vendor", "service", "property", "unit", "visit_time"],
+  },
+  done: {
+    label: "Marked done",
+    when: "when the service moves to Done",
+    variables: ["vendor", "service", "property", "unit", "cost"],
+  },
+};
+
+export const VENDOR_MESSAGE_VARIABLES = [
+  "vendor",
+  "service",
+  "property",
+  "unit",
+  "resident_first",
+  "visit_time",
+  "priority",
+  "notes",
+  "cost",
+] as const;
+
+export type VendorMessageVariable = (typeof VENDOR_MESSAGE_VARIABLES)[number];
+
+export type VendorMessageContext = Partial<Record<VendorMessageVariable, string | null | undefined>>;
+
+/** The copy a vendor gets when the manager has not written their own. */
+export const VENDOR_MESSAGE_DEFAULTS: Record<VendorMessageEvent, string> = {
+  assigned:
+    "Hi {vendor} — new job: {service} at {property}{unit_suffix}. When can you make it? Reply with a day and time.",
+  visit_scheduled:
+    "Hi {vendor} — {service} at {property}{unit_suffix}. Visit {visit_time}. Reply OK to confirm.",
+  day_before: "Reminder: tomorrow {visit_time}, {service} at {property}{unit_suffix}.",
+  rescheduled: "Change of plan: {service} at {property}{unit_suffix} is now {visit_time}.",
+  done: "Thanks {vendor}. Send the invoice for {service} when you can.",
+};
+
+export const DEFAULT_VENDOR_MESSAGING: VendorMessaging = { instructions: "", templates: {} };
+
+export function normalizeVendorMessaging(raw: unknown): VendorMessaging {
+  const r = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>;
+  const t = (r.templates && typeof r.templates === "object" ? r.templates : {}) as Record<string, unknown>;
+  const templates: VendorMessaging["templates"] = {};
+  for (const event of VENDOR_MESSAGE_EVENTS) {
+    const v = t[event];
+    if (!v || typeof v !== "object") continue;
+    const row = v as Record<string, unknown>;
+    templates[event] = {
+      enabled: row.enabled !== false,
+      body: typeof row.body === "string" ? row.body : "",
+    };
+  }
+  return { instructions: typeof r.instructions === "string" ? r.instructions : "", templates };
+}
+
+/** The template in force for an event: the vendor's own when set, else the built-in copy. */
+export function vendorTemplateFor(messaging: VendorMessaging | undefined, event: VendorMessageEvent): {
+  enabled: boolean;
+  body: string;
+  custom: boolean;
+} {
+  const own = messaging?.templates?.[event];
+  const body = own?.body?.trim() ? own.body : VENDOR_MESSAGE_DEFAULTS[event];
+  return { enabled: own ? own.enabled : true, body, custom: Boolean(own?.body?.trim()) };
+}
+
+const VARIABLE_RE = /\{([a-z_]+)\}/g;
+
+/**
+ * Fill a template. Unknown tokens stay as typed — never expanded from the row —
+ * so nothing outside the allow-list can be smuggled into a text. `{unit_suffix}`
+ * is a convenience: ", Room 8B" when a unit exists, nothing otherwise.
+ */
+export function renderVendorMessage(body: string, ctx: VendorMessageContext): string {
+  const allowed = new Set<string>(VENDOR_MESSAGE_VARIABLES);
+  return body
+    .replace(VARIABLE_RE, (match, key: string) => {
+      if (key === "unit_suffix") {
+        const unit = ctx.unit?.trim();
+        return unit ? `, ${unit}` : "";
+      }
+      if (!allowed.has(key)) return match;
+      const value = ctx[key as VendorMessageVariable];
+      return value?.toString().trim() ?? "";
+    })
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ ,/g, ",")
+    .trim();
+}
+
+/** True when the body names a token outside the allow-list (shown as a warning in the editor). */
+export function unknownVendorMessageTokens(body: string): string[] {
+  const out = new Set<string>();
+  for (const m of body.matchAll(VARIABLE_RE)) {
+    const key = m[1]!;
+    if (key === "unit_suffix") continue;
+    if (!(VENDOR_MESSAGE_VARIABLES as readonly string[]).includes(key)) out.add(key);
+  }
+  return [...out];
+}
+
+/** GSM-7-ish segment estimate for the "1 segment" hint beside the preview. */
+export function estimateSmsSegments(text: string): number {
+  const len = text.length;
+  if (len === 0) return 0;
+  // Anything outside the basic Latin range pushes Twilio to UCS-2 (70 / 67 per segment).
+  const ucs2 = /[^\x00-\x7F]/.test(text);
+  const single = ucs2 ? 70 : 160;
+  const multi = ucs2 ? 67 : 153;
+  return len <= single ? 1 : Math.ceil(len / multi);
+}
+
+export type VendorReachability = {
+  /** Channel a message will actually use, after fallback. */
+  channel: VendorChannel | null;
+  /** Why it is not the preferred one, when it is not. */
+  note: string | null;
+};
+
+/**
+ * Which channel a message to this vendor will really use.
+ *
+ * Preferred first, then the next one that exists: sms → email → inapp. A
+ * vendor with no phone and no email and no account cannot be reached; the
+ * caller shows that and creates the task anyway.
+ */
+export function resolveVendorChannel(input: {
+  preferred?: VendorChannel | null;
+  phone?: string | null;
+  email?: string | null;
+  vendorUserId?: string | null;
+  /** False when the workspace has no work number yet — texts cannot go out. */
+  smsAvailable?: boolean;
+}): VendorReachability {
+  const canSms = Boolean(input.phone?.trim()) && input.smsAvailable !== false;
+  const canEmail = Boolean(input.email?.trim() && input.email.includes("@"));
+  const canInapp = Boolean(input.vendorUserId?.trim());
+  const preferred = input.preferred ?? "sms";
+  const order: VendorChannel[] = [preferred, ...(["sms", "email", "inapp"] as VendorChannel[]).filter((c) => c !== preferred)];
+  for (const c of order) {
+    const ok = c === "sms" ? canSms : c === "email" ? canEmail : canInapp;
+    if (!ok) continue;
+    if (c === preferred) return { channel: c, note: null };
+    const why =
+      preferred === "sms"
+        ? input.phone?.trim()
+          ? "Texts go out once messaging is set up — until then"
+          : "No phone on file —"
+        : preferred === "email"
+          ? "No email on file —"
+          : "No PropLane account yet —";
+    return { channel: c, note: `${why} ${c === "sms" ? "text" : c === "email" ? "email" : "PropLane inbox"} instead.` };
+  }
+  return { channel: null, note: "No phone, email or PropLane account on file — task only." };
+}
+
+export function vendorChannelLabel(channel: VendorChannel | null): string {
+  if (channel === "sms") return "Text";
+  if (channel === "email") return "Email";
+  if (channel === "inapp") return "In-app";
+  return "Unreachable";
+}

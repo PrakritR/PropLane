@@ -1,8 +1,9 @@
 "use client";
+import { RowSelectCheckbox } from "@/components/ui/row-select-checkbox";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { BulkActionBar } from "@/components/ui/bulk-action-bar";
 import { ProPortalSettingsModal } from "@/components/portal/pro-portal-settings-modal";
 import { PropertyLeaseFormModal } from "@/components/portal/property-lease-form-modal";
 import {
@@ -394,9 +395,9 @@ export function ManagerPropertyLeasePanel({
       >
         {templates.map((template) => (
           <div key={template.id} className={PORTAL_PROPERTY_DETAIL_LIST_ROW_CLASS}>
-            <label className="flex min-w-0 flex-1 cursor-pointer items-start gap-3">
-              <input
-                type="checkbox"
+            <div className="flex min-w-0 flex-1 items-start gap-3">
+              <RowSelectCheckbox
+                aria-label={`Select ${template.label}`}
                 className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
                 checked={selectedIds.has(template.id)}
                 data-attr={`property-lease-select-${template.id}`}
@@ -412,7 +413,7 @@ export function ManagerPropertyLeasePanel({
                   </p>
                 ) : null}
               </div>
-            </label>
+            </div>
           </div>
         ))}
       </PortalPropertyDetailSection>
@@ -485,9 +486,8 @@ export function ManagerPropertyLeasePanel({
 
   return (
     <>
-      {catalogBody}
-      {!embedInModal && selectedTemplateId ? (
-        <BulkActionBar count={selectedIds.size} hideCount variant="payments">
+      <PortalRecordListSurface className="mt-0" onBulkClear={embedInModal ? undefined : clearSelection} bulkCount={selectedIds.size} bulkActions={!embedInModal && selectedTemplateId ? (
+        <>
           <div className="flex min-w-0 flex-wrap items-center justify-start gap-2">
             <Button
               type="button"
@@ -499,8 +499,9 @@ export function ManagerPropertyLeasePanel({
               Edit lease
             </Button>
           </div>
-        </BulkActionBar>
-      ) : null}
+        </>
+      ) : null}>{catalogBody}</PortalRecordListSurface>
+
       {formModals}
     </>
   );

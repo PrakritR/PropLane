@@ -32,18 +32,24 @@ import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import {
   expandFeeScope,
   feeAppliesToRoom,
+  listingFeeRowIdForPresetId,
   listingLeaseTypeScopeOptions,
+  listingPricingLeaseTabs,
+  listingPricingTabToLeaseTerm,
   narrowFeeScope,
   paymentAtSigningRows,
   paymentAtSigningMatrix,
 } from "@/lib/listing-fee-scope";
 import {
   applyListingFeesToSubmission,
+  ensureSubmissionListingFees,
   applyPaymentAtSigningCell,
   isListingFeeAmountFilled,
   listingFeeCadence,
   listingFeesForWizard,
+  parseRemovedStandardListingFeeRows,
   type ListingFeeRow,
+  type RemovedStandardListingFeeRowId,
 } from "@/lib/listing-fees";
 import { SEATTLE_RENT_RULE_NOTE, listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
 import { LONG_TERM_LEASE_TERM } from "@/lib/rental-application/lease-terms";
@@ -220,7 +226,18 @@ function MonthlyTable({
             <b className="block text-[13.5px] font-bold text-foreground">Every room</b>
             <span className="block text-[11.5px] text-muted">{base ? "Rooms follow these" : "Follows long-term"}</span>
           </span>
-          <span className="text-[12px] text-muted">Per room</span>
+          {base ? (
+            <MoneyCell
+              label="Rent for every room"
+              value={defaults.monthlyRent > 0 ? String(defaults.monthlyRent) : ""}
+              inherited={false}
+              own={false}
+              placeholder="1,100"
+              onChange={(v) => onDefault("monthlyRent", num(v))}
+            />
+          ) : (
+            <span className="text-[13px] text-muted">{defaults.monthlyRent > 0 ? usd(defaults.monthlyRent) : "—"}</span>
+          )}
           {base ? (
             <MoneyCell label="Utilities for every room" value={moneyValue(defaults.utilitiesEstimate)} inherited={false} own={false} placeholder="150" onChange={(v) => onDefault("utilitiesEstimate", v)} />
           ) : (
@@ -374,6 +391,23 @@ function FeesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: P
   };
   const write = (id: string, next: Partial<ListingFeeRow>) => writeRows(rows.map((f) => (f.id === id ? { ...f, ...next } : f)));
 
+  const removeStandardFee = (fee: ListingFeeRow) => {
+    const rowId = listingFeeRowIdForPresetId(fee.presetId);
+    if (!rowId) return;
+    const removed = new Set(parseRemovedStandardListingFeeRows(sub));
+    removed.add(rowId as RemovedStandardListingFeeRowId);
+    const held = listingFeesForWizard(sub).filter((f) => f.presetId === "security_deposit");
+    const nextRows = rows.filter((f) => f.id !== fee.id);
+    const nextSub = applyListingFeesToSubmission(sub, [...nextRows, ...held]);
+    patch(
+      ensureSubmissionListingFees({
+        ...nextSub,
+        removedStandardListingFeeRows: [...removed],
+      }),
+    );
+    setRevealed((prev) => prev.filter((id) => id !== fee.id));
+  };
+
   const scope = (fee: ListingFeeRow) => (
     <div className="mt-2 grid items-center gap-2 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)]">
       <span className="text-[11.5px] font-bold text-muted">Applies to</span>
@@ -390,10 +424,30 @@ function FeesSection({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: P
         {standard.length === 0 && custom.length === 0 ? <p className="px-4 py-3 text-[12.5px] text-muted">No fees beyond rent, the deposit and utilities.</p> : null}
         {standard.map((fee) => (
           <div key={fee.id} className="border-b border-border px-3.5 py-3 last:border-b-0">
-            <div className="grid grid-cols-[minmax(0,1fr)_110px_140px] items-center gap-2.5">
-              <span className="min-w-0"><b className="block truncate text-[13.5px] font-bold text-foreground">{fee.label}</b><span className="block text-[11.5px] text-muted">{listingFeeCadence(fee) === "monthly" ? "Charged every month" : "Charged once"}</span></span>
-              <Input aria-label={`${fee.label} amount`} value={moneyValue(fee.amount)} placeholder="0" onChange={(e) => write(fee.id, { amount: sanitizeMoneyInput(e.target.value) })} />
-              <span className="text-[12px] text-muted">{listingFeeCadence(fee) === "monthly" ? "Every month" : "One-time"}</span>
+            <div className="grid grid-cols-[minmax(0,1fr)_110px_140px_36px] items-center gap-2.5">
+              <span className="min-w-0">
+                <b className="block truncate text-[13.5px] font-bold text-foreground">{fee.label}</b>
+                <span className="block text-[11.5px] text-muted">
+                  {listingFeeCadence(fee) === "monthly" ? "Charged every month" : "Charged once"}
+                </span>
+              </span>
+              <Input
+                aria-label={`${fee.label} amount`}
+                value={moneyValue(fee.amount)}
+                placeholder="0"
+                onChange={(e) => write(fee.id, { amount: sanitizeMoneyInput(e.target.value) })}
+              />
+              <span className="text-[12px] text-muted">
+                {listingFeeCadence(fee) === "monthly" ? "Every month" : "One-time"}
+              </span>
+              <button
+                type="button"
+                aria-label={`Remove ${fee.label}`}
+                onClick={() => removeStandardFee(fee)}
+                className="justify-self-center text-[13px] text-muted hover:text-foreground"
+              >
+                ✕
+              </button>
             </div>
             {scope(fee)}
           </div>
@@ -431,9 +485,10 @@ function DueAtSigning({ sub, patch, term }: { sub: ManagerListingSubmissionV1; p
   const rentByRoom = sub.listingPlaceCategoryId !== "entire_home";
   const rows = useMemo(() => paymentAtSigningRows(sub, { includeRoomRent: rentByRoom }), [sub, rentByRoom]);
   const matrix = useMemo(() => paymentAtSigningMatrix(sub), [sub]);
-  const selected = (matrix[term] ?? []).filter((key) => rows.some((r) => r.key === key));
+  const leaseTerm = listingPricingTabToLeaseTerm(term);
+  const selected = (matrix[leaseTerm] ?? []).filter((key) => rows.some((r) => r.key === key));
   const setCell = (key: string, on: boolean) => {
-    const next = applyPaymentAtSigningCell(sub, term, key, on);
+    const next = applyPaymentAtSigningCell(sub, leaseTerm, key, on);
     patch({ paymentAtSigningByLeaseType: next.paymentAtSigningByLeaseType, paymentAtSigningIncludes: next.paymentAtSigningIncludes, customFees: next.customFees });
   };
   return (
@@ -479,8 +534,10 @@ export function ListingPricingSections({
   leaseDocument: React.ReactNode;
 }) {
   const terms = useMemo(() => listingLeaseTypeScopeOptions(sub), [sub]);
+  const tabs = useMemo(() => listingPricingLeaseTabs(sub), [sub]);
   const [tab, setTab] = useState<string | null>(null);
-  const active = tab && terms.includes(tab) ? tab : terms[0] ?? LONG_TERM_LEASE_TERM;
+  const active = tab && tabs.includes(tab) ? tab : tabs[0] ?? LONG_TERM_LEASE_TERM;
+  const activeLeaseTerm = listingPricingTabToLeaseTerm(active);
   const rooms = sub.rooms ?? [];
   // The deposit is a column of the table, never a chip beside it.
   const fees = useMemo(() => listingFeesForWizard(sub).filter((f) => f.presetId !== "security_deposit"), [sub]);
@@ -519,7 +576,7 @@ export function ListingPricingSections({
   const sameAsLongTerm = (term: string) => !rooms.some((r) => r.termPricing?.[term] && Object.keys(r.termPricing[term]!).length > 0);
   const [showOwn, setShowOwn] = useState<Record<string, boolean>>({});
   const ownTable = (term: string) => showOwn[term] || !sameAsLongTerm(term);
-  const stay = isStayLeaseTerm(active);
+  const stay = isStayLeaseTerm(activeLeaseTerm);
 
   return (
     <>
@@ -587,15 +644,16 @@ export function ListingPricingSections({
           ) : null}
         </div>
 
-        {terms.length === 0 ? (
+        {tabs.length === 0 ? (
           <p className="rounded-xl border border-border bg-card px-4 py-3 text-[12.5px] text-muted">Choose at least one lease type, and its prices appear here.</p>
         ) : (
           <>
             <div className="mb-3 flex gap-1 overflow-x-auto border-b border-border" role="tablist">
-              {terms.map((t) => {
-                const missing = isStayLeaseTerm(t)
+              {tabs.map((t) => {
+                const pricingTerm = listingPricingTabToLeaseTerm(t);
+                const missing = isStayLeaseTerm(pricingTerm)
                   ? rooms.some((r) => !moneyValue(r.shortTermRent) && !moneyValue(defaults.shortTermRent))
-                  : isBase(t) && rooms.some((r) => !(r.monthlyRent > 0));
+                  : isBase(pricingTerm) && rooms.some((r) => !(r.monthlyRent > 0));
                 return (
                   <button key={t} type="button" role="tab" aria-selected={t === active} data-attr={`listing-v2-price-tab-${t}`} onClick={() => setTab(t)} className={cn("-mb-px flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3.5 py-2 text-[13.5px] font-bold transition", t === active ? "border-primary text-primary" : "border-transparent text-muted hover:text-foreground")}>
                     {t}
@@ -605,19 +663,19 @@ export function ListingPricingSections({
               })}
             </div>
 
-            {!stay && !isBase(active) ? (
+            {!stay && !isBase(activeLeaseTerm) ? (
               <label className="mb-3 flex cursor-pointer items-start gap-2.5 text-[13.5px]">
                 <input
                   type="checkbox"
-                  checked={!ownTable(active)}
-                  data-attr={`listing-v2-same-as-long-term-${active}`}
+                  checked={!ownTable(activeLeaseTerm)}
+                  data-attr={`listing-v2-same-as-long-term-${activeLeaseTerm}`}
                   onChange={(e) => {
                     if (e.target.checked) {
                       // Back to "same as long-term": clear every room's own price on this term.
-                      patch({ rooms: rooms.map((r) => { const all = { ...(r.termPricing ?? {}) }; delete all[active]; return { ...r, termPricing: Object.keys(all).length > 0 ? all : undefined }; }) });
-                      setShowOwn((prev) => ({ ...prev, [active]: false }));
+                      patch({ rooms: rooms.map((r) => { const all = { ...(r.termPricing ?? {}) }; delete all[activeLeaseTerm]; return { ...r, termPricing: Object.keys(all).length > 0 ? all : undefined }; }) });
+                      setShowOwn((prev) => ({ ...prev, [activeLeaseTerm]: false }));
                     } else {
-                      setShowOwn((prev) => ({ ...prev, [active]: true }));
+                      setShowOwn((prev) => ({ ...prev, [activeLeaseTerm]: true }));
                     }
                   }}
                   className="mt-0.5 h-4 w-4 accent-[var(--pl-blue)]"
@@ -629,8 +687,8 @@ export function ListingPricingSections({
             {stay ? (
               <StayTable sub={sub} defaults={defaults} onDefault={onDefault} onRoom={onRoom} />
             ) : (
-              <div className={cn(!isBase(active) && !ownTable(active) && "pointer-events-none opacity-50")}>
-                <MonthlyTable sub={sub} term={!isBase(active) && !ownTable(active) ? LONG_TERM_LEASE_TERM : active} defaults={defaults} onDefault={onDefault} onRoom={onRoom} fees={fees} onJumpToFees={() => document.getElementById("listing-v2-fees")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
+              <div className={cn(!isBase(activeLeaseTerm) && !ownTable(activeLeaseTerm) && "pointer-events-none opacity-50")}>
+                <MonthlyTable sub={sub} term={!isBase(activeLeaseTerm) && !ownTable(activeLeaseTerm) ? LONG_TERM_LEASE_TERM : activeLeaseTerm} defaults={defaults} onDefault={onDefault} onRoom={onRoom} fees={fees} onJumpToFees={() => document.getElementById("listing-v2-fees")?.scrollIntoView({ behavior: "smooth", block: "start" })} />
               </div>
             )}
             {stay ? <p className="mt-2 text-[12px] text-muted">That is all a short stay needs — the rate is all-in, so there is no utilities line and no monthly fees.</p> : null}

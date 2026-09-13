@@ -1,5 +1,11 @@
 "use client";
 
+import { CommunicationRowActions } from "@/components/portal/communication-row-actions";
+import {
+  invalidateManagerSmsConversationsClient,
+  loadManagerSmsConversationsClient,
+} from "@/lib/manager-sms-conversations-client";
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   clearCommunicationThreadUrl,
@@ -8,9 +14,7 @@ import {
 import { ManagerInbox, type ManagerInboxHandle } from "@/components/portal/pro-inbox";
 import { ManagerWorkNumberCard } from "@/components/portal/pro-work-number-card";
 import { ManagerSmsPanel, smsOutboundPreviewPrefix, type ManagerSmsPanelHandle } from "@/components/portal/pro-sms-panel";
-import {
-  CommunicationListBulkBar,
-} from "@/components/portal/communication-list-bulk-bar";
+
 import {
   PortalContactDetailsModal,
 } from "@/components/portal/portal-contact-details-modal";
@@ -26,7 +30,6 @@ import {
   INBOX_LIST_SCROLL,
   InboxConversationListAddRow,
   InboxConversationRow,
-  InboxListSegmentRail,
   InboxThreadEmpty,
   InboxTwoPane,
   PORTAL_INBOX_LIST_TOOLBAR_CLASS,
@@ -233,7 +236,8 @@ export function ManagerUnifiedInbox({
   const setQuery = onSearchQueryChange ?? setInternalQuery;
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [mobileThreadOpen, setMobileThreadOpen] = useState(Boolean(routeThreadId));
-  const listSegment = listSegmentProp;
+  const statusFilter = threadFilters?.status ?? listSegmentProp;
+  const listSegment = statusFilter === "read" ? "active" : statusFilter;
   const appUi = useOptionalAppUi();
   const { userId, ready: sessionReady } = usePortalSession();
   const viewerId = resolveCommunicationViewerId(null, userId);
@@ -241,6 +245,7 @@ export function ManagerUnifiedInbox({
   const viewerAuthority = useMemo(() => ({ viewerId }), [viewerId]);
   const currentViewerAuthorityRef = useRef(viewerAuthority);
   const currentViewerIdRef = useRef(viewerId);
+  const previousViewerIdRef = useRef(viewerId);
   const smsResidentsViewerEpochRef = useRef(0);
   const directSendRefreshGeneration = useRef(0);
   const directSendInboxRefreshersRef = useRef(
@@ -253,6 +258,12 @@ export function ManagerUnifiedInbox({
   const smsPollHaltedRef = useRef(false);
   const [smsPollHalted, setSmsPollHalted] = useState(false);
   useLayoutEffect(() => {
+    const previousViewerId = previousViewerIdRef.current;
+    if (previousViewerId !== viewerId) {
+      invalidateManagerSmsConversationsClient(previousViewerId);
+      invalidateManagerSmsConversationsClient(viewerId);
+      previousViewerIdRef.current = viewerId;
+    }
     const nextViewerEpoch = viewerEpochRef.current + 1;
     currentViewerAuthorityRef.current = viewerAuthority;
     currentViewerIdRef.current = viewerId;
@@ -308,7 +319,7 @@ export function ManagerUnifiedInbox({
   }, []);
 
   useEffect(() => {
-    if (!isClient || !viewerId?.trim() || listSegment !== "active") return;
+    if (!isClient || !initialListReady || !viewerId?.trim() || listSegment !== "active") return;
     let staged: PersistedInboxThread[] | null = null;
     setEmailThreads((current) => {
       const hasAssistant = current.some(
@@ -324,9 +335,9 @@ export function ManagerUnifiedInbox({
     if (staged) {
       queueMicrotask(() => stagePersistedInboxRows(MANAGER_INBOX_STORAGE_KEY, staged!));
     }
-  }, [isClient, listSegment, viewerId]);
+  }, [initialListReady, isClient, listSegment, viewerId]);
 
-  const loadSms = useCallback(async (requestGeneration?: number): Promise<boolean> => {
+  const loadSms = useCallback(async ({ force = false, initialGeneration }: { force?: boolean; initialGeneration?: number } = {}): Promise<boolean> => {
     const requestViewerEpoch = viewerEpochRef.current;
     const requestViewerId = viewerId;
     // SMS UI hidden until A2P clears — never fetch SMS conversations. Inbound
@@ -335,11 +346,11 @@ export function ManagerUnifiedInbox({
     if (!smsUiEnabled) return true;
     if (smsPollHaltedRef.current) return false;
     try {
-      const res = await fetch("/api/manager/sms-conversations", { credentials: "include", cache: "no-store" });
+      const res = await loadManagerSmsConversationsClient(requestViewerId ?? "", force);
       if (
         currentViewerIdRef.current !== requestViewerId ||
         viewerEpochRef.current !== requestViewerEpoch ||
-        (requestGeneration !== undefined && requestGeneration !== initialLoadGeneration.current)
+        (initialGeneration !== undefined && initialGeneration !== initialLoadGeneration.current)
       ) {
         return false;
       }
@@ -353,7 +364,7 @@ export function ManagerUnifiedInbox({
       if (!body || !Array.isArray(body.residents)) return false;
       if (
         viewerEpochRef.current !== requestViewerEpoch ||
-        (requestGeneration !== undefined && requestGeneration !== initialLoadGeneration.current)
+        (initialGeneration !== undefined && initialGeneration !== initialLoadGeneration.current)
       ) {
         return false;
       }
@@ -400,7 +411,7 @@ export function ManagerUnifiedInbox({
     const [inbox, applications, smsOk] = await Promise.all([
       syncPersistedInboxFromServerWithStatus(MANAGER_INBOX_STORAGE_KEY),
       syncManagerApplicationsFromServerWithStatus({ managerUserId: viewerId }),
-      smsUiEnabled ? loadSms(requestGeneration) : Promise.resolve(true),
+      smsUiEnabled ? loadSms({ initialGeneration: requestGeneration }) : Promise.resolve(true),
     ]);
     if (requestGeneration !== initialLoadGeneration.current) return;
     if (inbox.stale || applications.stale) return;
@@ -505,16 +516,6 @@ export function ManagerUnifiedInbox({
     );
   }, [emailThreads, threadFilters, filterContacts, listSegment, smsUiEnabled, viewerId]);
 
-  // Badges on the rail — the same rows the three segments would list.
-  const segmentCounts = useMemo(
-    () => ({
-      active: filteredEmail.filter((t) => t.folder !== "trash").length,
-      unread: filteredEmail.filter((t) => t.folder === "inbox" && t.unread).length,
-      archived: filteredEmail.filter((t) => t.folder === "trash").length,
-    }),
-    [filteredEmail],
-  );
-
   const emailListItems = useMemo((): UnifiedInboxListItem[] => {
     const q = query.trim().toLowerCase();
     let rows = filteredEmail;
@@ -548,6 +549,7 @@ export function ManagerUnifiedInbox({
         key: unifiedInboxKey("email", t.id),
         channel: "email" as const,
         threadId: t.id,
+        memberKeys: (t.sourceThreadIds ?? [t.id]).map((id) => unifiedInboxKey("email", id)),
         // Who this is with, so a text thread with the same person folds in.
         personKey: unifiedInboxSmsBindingKey(t.smsConversationKey) ?? unifiedInboxPersonKey(t.email),
         personEmail: t.email?.trim() || undefined,
@@ -711,7 +713,7 @@ export function ManagerUnifiedInbox({
   }, [assistantThreadId, emailListItems, listSort, placeholderListItems, smsListItems]);
 
   // SSR and the first client paint must agree — local inbox + contact rows load only after mount.
-  const listRows = initialListReady ? mergedRows : [];
+  const listRows = initialListReady ? mergedRows.filter((row) => statusFilter !== "read" || !row.unread) : [];
 
   const bulk = useUnifiedCommunicationBulk({
     mergedRows: listRows,
@@ -813,7 +815,7 @@ export function ManagerUnifiedInbox({
     }).catch(() => {
       // A failed refresh keeps the currently usable list and selected thread.
     });
-    if (smsUiEnabled) void loadSms();
+    if (smsUiEnabled) void loadSms({ force: true });
   }, [loadSms, onRouteThreadChange, placeholderContact, smsUiEnabled, threadDetailHref, viewerAuthority, viewerId]);
 
   const threadOpen = Boolean(selection);
@@ -882,7 +884,6 @@ export function ManagerUnifiedInbox({
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
       <ManagerWorkNumberCard onTellResidents={onAddConversation} />
-      <InboxListSegmentRail commBase={commBase} listSegment={listSegment} counts={initialListReady ? segmentCounts : undefined} />
       {listChrome === "internal" ? (
         <div className={PORTAL_INBOX_LIST_TOOLBAR_CLASS}>
           <div className="relative min-w-0">
@@ -933,6 +934,7 @@ export function ManagerUnifiedInbox({
           listRows.map((row) => (
             <InboxConversationRow
               key={row.key}
+              trailing={<CommunicationRowActions row={row} bulk={bulk} archived={listSegment === "archived"} emailThreads={emailThreads} manager />}
               name={row.name}
               subtitle={row.subtitle}
               preview={row.preview}
@@ -956,15 +958,7 @@ export function ManagerUnifiedInbox({
           ))
         )}
       </div>
-      <CommunicationListBulkBar
-        count={bulk.selectedCount}
-        listSegment={listSegment}
-        onArchive={listSegment !== "archived" ? () => void bulk.handleArchive() : undefined}
-        onRestore={listSegment === "archived" ? () => void bulk.handleRestore() : undefined}
-        onDelete={listSegment === "archived" ? () => void bulk.handleDelete() : undefined}
-        onEdit={bulk.canEditContact ? bulk.openEdit : undefined}
-        showEdit={bulk.canEditContact}
-      />
+
     </div>
   );
 

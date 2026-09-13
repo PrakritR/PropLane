@@ -1,4 +1,6 @@
 "use client";
+import { PortalAdaptiveActionRow } from "@/components/portal/portal-adaptive-action-row";
+import { PortalRecordListSurface } from "@/components/portal/portal-record-list-surface";
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
@@ -20,7 +22,6 @@ import {
   PORTAL_INLINE_UNLOCK_NOTICE_CLASS,
   PORTAL_INLINE_UNLOCK_NOTICE_STACKED_CLASS,
 } from "@/components/portal/portal-metrics";
-import { ResidentPortalListBottomBar } from "@/components/portal/resident-portal-list-bottom-bar";
 import {
   ResidentPortalGroupedDataList,
   RESIDENT_PORTAL_DEFAULT_GROUP_MODE,
@@ -702,7 +703,7 @@ export function ResidentServicesPanel({
         }
         setPropertyTick((t) => t + 1);
       });
-    
+
     window.addEventListener(MANAGER_WORK_ORDERS_EVENT, sync);
     window.addEventListener(PROPERTY_PIPELINE_EVENT, onProperty);
     return () => {
@@ -1240,7 +1241,7 @@ export function ResidentServicesPanel({
         }
       />
 
-      {servicesUnlocked ? (
+      <PortalRecordListSurface className="mt-0" onBulkClear={() => { for (const id of selectedIds) toggleSelected(id); }} bulkCount={selectedIds.size} bulkActions={<PortalAdaptiveActionRow actions={serviceSelectionActions} />}>{servicesUnlocked ? (
         unifiedServiceRows.length === 0 ? (
           <div className={PORTAL_LIST_PAGE_BODY}>
             <div className={PORTAL_LIST_ADD_ROW_WRAP_CLASS}>{renderServiceAddRow()}</div>
@@ -1253,7 +1254,7 @@ export function ResidentServicesPanel({
         )
       ) : serviceGroupedList ? (
         <div className={PORTAL_LIST_PAGE_BODY}>{serviceGroupedList}</div>
-      ) : null}
+      ) : null}</PortalRecordListSurface>
 
 
       <ResidentAddServiceModal
@@ -1379,11 +1380,7 @@ export function ResidentServicesPanel({
       </Modal>
       </div>
     </ManagerPortalPageShell>
-    <ResidentPortalListBottomBar
-      selectionCount={selectedIds.size}
-      selectionActions={serviceSelectionActions}
-      selectionBarVariant="payments"
-    />
+
     <ConfirmDeleteModal
       open={bulkDeleteOpen}
       title={selectedIds.size === 1 ? "Delete service" : "Delete services"}

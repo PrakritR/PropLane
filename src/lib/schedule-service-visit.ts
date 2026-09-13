@@ -19,8 +19,15 @@ import { deliverPortalInboxMessage } from "@/lib/portal-message-delivery";
 import type { WorkAssignee } from "@/lib/work-assignment";
 import { notifyResidentOfWorkOrderUpdate } from "@/lib/work-order-resident-notifications";
 
+/**
+ * Who takes the visit. `self` is the signed-in manager; `team` is a co-manager
+ * (their user id); `vendor` is a directory vendor. Kept as a discriminated
+ * choice rather than a raw `WorkAssignee` so the commit path, not the popup,
+ * resolves names and the legacy vendor fields.
+ */
 export type ScheduleVisitAssigneeChoice =
   | { kind: "self" }
+  | { kind: "team"; userId: string; name?: string | null }
   | { kind: "vendor"; vendorId: string };
 
 export function formatServiceVisitLabel(iso: string): string {
@@ -105,6 +112,8 @@ export type ScheduleServiceVisitResult = {
   error?: string;
   scheduledLabel?: string;
   vendorEmailed?: boolean;
+  /** One short sentence for the toast when a vendor was told, e.g. "Jorge was texted." */
+  vendorNotified?: string;
 };
 
 /**
@@ -116,9 +125,13 @@ export async function scheduleServiceVisit(input: {
   managerName?: string | null;
   row: DemoManagerWorkOrderRow;
   visitAtIso: string;
+  /** Visit length for the task and calendar slot. Defaults to an hour. */
+  durationMinutes?: number;
   assignee: ScheduleVisitAssigneeChoice;
 }): Promise<ScheduleServiceVisitResult> {
   const { managerUserId, row, visitAtIso, assignee } = input;
+  const durationMinutes =
+    Number.isFinite(input.durationMinutes) && (input.durationMinutes ?? 0) > 0 ? input.durationMinutes! : 60;
   if (!visitAtIso.trim() || Number.isNaN(Date.parse(visitAtIso))) {
     return { ok: false, error: "Choose a visit date and time to schedule." };
   }
@@ -139,6 +152,20 @@ export async function scheduleServiceVisit(input: {
       vendorName: undefined,
       vendorAssignedAt: undefined,
       selfAssigned: true,
+      assignee: taskAssignee,
+    };
+  } else if (assignee.kind === "team") {
+    // A co-manager: no vendor on the row, and `selfAssigned` stays true so every
+    // reader that means "the manager team has this" keeps reading it that way.
+    assigneeName = assignee.name?.trim() || "Team member";
+    taskAssignee = { type: "team", id: assignee.userId, name: assigneeName };
+    nextRow = {
+      ...nextRow,
+      vendorId: undefined,
+      vendorName: undefined,
+      vendorAssignedAt: undefined,
+      selfAssigned: true,
+      assignee: taskAssignee,
     };
   } else {
     const vendor = readActiveManagerVendorRows().find((v) => v.id === assignee.vendorId);
@@ -152,6 +179,7 @@ export async function scheduleServiceVisit(input: {
       vendorName: vendor.name,
       vendorAssignedAt: assignedAt,
       selfAssigned: false,
+      assignee: taskAssignee,
     };
   }
 
@@ -171,7 +199,7 @@ export async function scheduleServiceVisit(input: {
     propertyTitle: nextRow.propertyName,
     roomLabel: nextRow.unit,
     start: visitAtIso,
-    end: visitEndIso(visitAtIso),
+    end: visitEndIso(visitAtIso, durationMinutes),
     assignee: taskAssignee,
     taskType: "work_order",
     urgency: "scheduled",
@@ -212,5 +240,10 @@ export async function scheduleServiceVisit(input: {
     });
   }
 
-  return { ok: true, scheduledLabel, vendorEmailed };
+  return {
+    ok: true,
+    scheduledLabel,
+    vendorEmailed,
+    vendorNotified: vendorEmailed ? `${assigneeName} was emailed the visit details.` : undefined,
+  };
 }
