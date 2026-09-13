@@ -14,6 +14,7 @@
 import { useState, type ReactNode } from "react";
 import { MoreHorizontal } from "lucide-react";
 import { VaulBottomSheet } from "@/components/ui/vaul-bottom-sheet";
+import { RECORD_ACTION_TRIGGER_ICON_CLASS } from "@/components/ui/record-action-menu";
 import { cn } from "@/lib/utils";
 
 export type RecordSheetAction = {
@@ -48,7 +49,7 @@ export function PortalRecordActionSheet({
         data-attr={triggerDataAttr}
         className="flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-border bg-card text-[14px] font-semibold text-foreground"
       >
-        <MoreHorizontal className="size-4" aria-hidden />
+        <MoreHorizontal className={RECORD_ACTION_TRIGGER_ICON_CLASS} aria-hidden />
         {triggerLabel}
       </button>
       <VaulBottomSheet open={open} onOpenChange={setOpen} title={title} flushBody>
