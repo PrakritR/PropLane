@@ -45,6 +45,7 @@ import {
   registerFilterSheetOpenSuppress,
 } from "@/components/ui/field-select-portal-interaction";
 import { lockPortalScroll } from "@/lib/native/lock-portal-scroll";
+import { useSafeAreaInsets } from "@/hooks/use-safe-area-insets";
 import { cn } from "@/lib/utils";
 
 const SMALL_PORTAL_VIEWPORT_QUERY = "(max-width: 1023px)";
@@ -63,6 +64,40 @@ function getSmallPortalViewport(): boolean {
 
 function useSmallPortalViewport(): boolean {
   return useSyncExternalStore(subscribeSmallPortalViewport, getSmallPortalViewport, () => false);
+}
+
+/**
+ * The mobile Filter surface (anchored popover vs. Vaul bottom sheet) is chosen ONCE, at the
+ * moment the panel opens, and held for that panel's whole life — never re-evaluated on
+ * scroll/resize/nested-field-menu-open. The popover only exists for `desktopPresentation
+ * === "dropdown"` (the only presentation with an anchored path at all) and only when the
+ * trigger is genuinely measurable with real room below it; otherwise fall back to the
+ * existing bottom sheet exactly as before.
+ */
+export const PORTAL_FILTER_POPOVER_MIN_SPACE_BELOW_PX = 260;
+export const PORTAL_FILTER_POPOVER_MAX_FIELDS = 4;
+
+export function resolveMobileFilterPopover(args: {
+  trigger: HTMLElement | null;
+  desktopPresentation: "inline" | "panel" | "dropdown";
+  compactPanel: boolean;
+  filterFieldCount: number;
+  hasExtraModalContent: boolean;
+  insets: { bottom: number; bottomNav: number };
+}): boolean {
+  const { trigger, desktopPresentation, compactPanel, filterFieldCount, hasExtraModalContent, insets } = args;
+  // `panel` and `inline` keep the sheet — only `dropdown` has an anchored path at all.
+  if (desktopPresentation !== "dropdown") return false;
+  if (!compactPanel) return false;
+  if (filterFieldCount > PORTAL_FILTER_POPOVER_MAX_FIELDS) return false;
+  if (hasExtraModalContent) return false;
+  // An unmeasurable trigger cannot honestly claim there is room below it — fail safe to the sheet.
+  if (!trigger) return false;
+  const rect = trigger.getBoundingClientRect();
+  if (!(rect.width > 0 && rect.height > 0)) return false;
+  const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+  const spaceBelow = viewportHeight - rect.bottom - 12 - insets.bottom - insets.bottomNav;
+  return spaceBelow >= PORTAL_FILTER_POPOVER_MIN_SPACE_BELOW_PX;
 }
 
 function FilterResetLink({ onReset }: { onReset: () => void }) {
@@ -264,6 +299,11 @@ export function PortalFilterSortSheet({
   const openRef = useRef(false);
   const dropdownPanelRef = useRef<HTMLDivElement | null>(null);
   const isMobile = useSmallPortalViewport();
+  const insets = useSafeAreaInsets();
+  // Decided ONCE per open (in `setFilterOpen`, or the controlled-case safety net below) and
+  // held for the panel's whole life — nothing else may write this.
+  const [mobilePopover, setMobilePopover] = useState(false);
+  const decidedForOpenRef = useRef(false);
 
   // Synced in a layout effect, not during render: the dismiss-guard callbacks
   // that read it run from pointer handlers and layout effects, both after this.
@@ -302,7 +342,7 @@ export function PortalFilterSortSheet({
   const setFilterOpen = useCallback(
     (
       next: boolean | ((prev: boolean) => boolean),
-      options?: { bypassDismissGuard?: boolean },
+      options?: { bypassDismissGuard?: boolean; trigger?: HTMLElement | null },
     ) => {
       const prev = openRef.current;
       const resolved = typeof next === "function" ? next(prev) : next;
@@ -310,10 +350,39 @@ export function PortalFilterSortSheet({
       /* Every portal filter surface dismisses only through the header ✕ (`close()`). */
       if (!resolved && !options?.bypassDismissGuard) return;
       applyOpenTransition(prev, resolved);
+      if (resolved && !prev) {
+        // Decide the mobile surface HERE, in the same batch as the open state, so the
+        // first render of the open panel already has the right surface. `buttonRef`
+        // (from `useFieldSelectMenu`) isn't in scope yet at this point in the component,
+        // so every real open call site below passes its element explicitly as `trigger`.
+        decidedForOpenRef.current = true;
+        setMobilePopover(
+          resolveMobileFilterPopover({
+            trigger: options?.trigger ?? null,
+            desktopPresentation,
+            compactPanel,
+            filterFieldCount,
+            hasExtraModalContent: extraModalContent != null,
+            insets,
+          }),
+        );
+      } else if (!resolved && prev) {
+        decidedForOpenRef.current = false;
+        setMobilePopover(false);
+      }
       if (!isControlled) setUncontrolledOpen(resolved);
       onOpenChange?.(resolved);
     },
-    [applyOpenTransition, isControlled, onOpenChange],
+    [
+      applyOpenTransition,
+      isControlled,
+      onOpenChange,
+      desktopPresentation,
+      compactPanel,
+      filterFieldCount,
+      extraModalContent,
+      insets,
+    ],
   );
 
   const close = useCallback(() => {
@@ -374,7 +443,7 @@ export function PortalFilterSortSheet({
     onReset();
   }, [onReset]);
 
-  const useMobileBottomSheet = isMobile;
+  const useMobileBottomSheet = isMobile && !mobilePopover;
   const panelSizeClass =
     panelSizeClassName ??
     (compactPanel
@@ -382,14 +451,14 @@ export function PortalFilterSortSheet({
       : PORTAL_FILTER_PANEL_SIZE_CLASS);
   const panelHeightPx = portalFilterDropdownHeightPx(panelSizeClass);
   const panelWidthPx = portalFilterDropdownWidthPx(panelSizeClass);
-  const dropdownOpen = desktopPresentation === "dropdown" && open && !isMobile;
+  const dropdownOpen = desktopPresentation === "dropdown" && open && (!isMobile || mobilePopover);
   const { wrapRef, buttonRef, menuRect, portalHost } = useFieldSelectMenu({
     open: dropdownOpen,
     onOpenChange: handleFilterShellOpenChange,
     contentPx: panelHeightPx,
-    minMenuWidth: panelWidthPx,
+    minMenuWidth: mobilePopover ? Math.min(panelWidthPx, 22 * 16) : panelWidthPx,
     align: "end",
-    fullBleed: isMobile,
+    fullBleed: false,
     constrainToTitleBand: constrainDropdownToTitleBand,
     filterDropdownAlign: dropdownAlign,
     closeOnOutsidePointerDown: false,
@@ -397,6 +466,33 @@ export function PortalFilterSortSheet({
     // hook returns focus to the Filter button as it closes.
     closeOnEscape: true,
   });
+
+  /**
+   * Safety net for the CONTROLLED case: `open` can be driven by a parent without going
+   * through `setFilterOpen` (which is where the decision normally lands, in the same batch
+   * as the open state). `decidedForOpenRef` guarantees this never recomputes — and
+   * therefore never swaps surfaces mid-interaction — for an open panel that already got
+   * its decision from `setFilterOpen`.
+   */
+  useLayoutEffect(() => {
+    if (!open) {
+      decidedForOpenRef.current = false;
+      setMobilePopover(false);
+      return;
+    }
+    if (decidedForOpenRef.current) return;
+    decidedForOpenRef.current = true;
+    setMobilePopover(
+      resolveMobileFilterPopover({
+        trigger: buttonRef.current,
+        desktopPresentation,
+        compactPanel,
+        filterFieldCount,
+        hasExtraModalContent: extraModalContent != null,
+        insets,
+      }),
+    );
+  }, [open, desktopPresentation, compactPanel, filterFieldCount, extraModalContent, insets, buttonRef]);
 
   // A dialog takes focus when it opens: a keyboard or screen-reader user
   // otherwise lands nowhere and cannot reach the controls (PRP-386). The
@@ -448,7 +544,7 @@ export function PortalFilterSortSheet({
       data-slot="portal-filter-dropdown-panel"
         className={cn(
         panelSizeClass,
-        isMobile && "max-lg:!w-screen max-lg:!max-w-[100vw] max-lg:border-x-0",
+        isMobile && !mobilePopover && "max-lg:!w-screen max-lg:!max-w-[100vw] max-lg:border-x-0",
         "portal-filter-dropdown-panel relative z-50 flex flex-col overflow-visible overscroll-contain rounded-2xl border border-border bg-card shadow-[0_12px_40px_rgba(15,23,42,0.12)] outline-none",
         isMobile && "max-lg:rounded-xl",
       )}
@@ -520,7 +616,7 @@ export function PortalFilterSortSheet({
             aria-expanded={open}
             onClick={() => {
               if (open) closeFromPointer();
-              else setFilterOpen(true);
+              else setFilterOpen(true, { trigger: buttonRef.current });
             }}
           />
         ) : (
@@ -541,7 +637,7 @@ export function PortalFilterSortSheet({
           onClick={() => {
             // The trigger toggles: a second press closes (same commit as ✕).
             if (open) closeFromPointer();
-            else setFilterOpen(true);
+            else setFilterOpen(true, { trigger: buttonRef.current });
           }}
         >
           <SlidersHorizontal className={PORTAL_FILTER_ICON_CLASS} strokeWidth={2} aria-hidden />
