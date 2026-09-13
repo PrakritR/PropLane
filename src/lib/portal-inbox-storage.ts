@@ -429,6 +429,7 @@ export async function changePersistedInboxThreadFolders(
   action: "archive" | "restore",
 ): Promise<boolean> {
   if (!canUse() || ids.length === 0) return false;
+  if (isDemoModeActive()) return true;
   try {
     const res = await fetch("/api/portal-inbox-threads", {
       method: "POST",

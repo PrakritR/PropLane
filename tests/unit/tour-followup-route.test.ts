@@ -102,3 +102,27 @@ it("returns failure from the single combined SMS transaction", async () => {
   expect(mocks.rpc).toHaveBeenCalledTimes(2);
   expect(mocks.rpc).not.toHaveBeenCalledWith("change_tour_interest_followup", expect.anything());
 });
+it.each(["archive", "restore"])("persists authorized notice folders without conversation keys for %s", async (action) => {
+  storedNotice();
+  mocks.fetch.mockResolvedValue({ residents: [] });
+  expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action }))).status).toBe(200);
+  expect(mocks.rpc).toHaveBeenCalledExactlyOnceWith("change_portal_inbox_thread_folders", {
+    p_ids: ["sms_notice_one", "sms_notice_two"], p_scope: "axis_portal_inbox_manager_v1", p_action: action,
+  });
+});
+it.each([
+  { data: null, error: { message: "database unavailable" }, status: 503 },
+  { data: null, error: { code: "42501" }, status: 403 },
+  { data: "stale", error: null, status: 409 },
+])("reports a keyless folder failure as $status", async ({ data, error, status }) => {
+  storedNotice();
+  mocks.fetch.mockResolvedValue({ residents: [] });
+  mocks.rpc.mockResolvedValue({ data, error });
+  expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action: "archive" }))).status).toBe(status);
+});
+it("rejects unauthorized keyless notices before persisting folders", async () => {
+  storedNotice("stranger");
+  mocks.fetch.mockResolvedValue({ residents: [] });
+  expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action: "restore" }))).status).toBe(404);
+  expect(mocks.rpc).not.toHaveBeenCalled();
+});

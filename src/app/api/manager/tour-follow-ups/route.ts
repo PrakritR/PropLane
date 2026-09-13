@@ -79,7 +79,18 @@ export async function PATCH(req: Request) {
     }
     const ctx = await context(body.conversationKey, body.inboxThreadId);
     if (!ctx) return NextResponse.json({ error: "Conversation not found." }, { status: 404, headers });
-    if (ctx.keys.length === 0) return NextResponse.json({ ok: true }, { headers });
+    if (ctx.keys.length === 0) {
+      if (!ctx.inboxIds?.length || !["archive", "restore"].includes(body.action)) {
+        return NextResponse.json({ error: "Conversation not found." }, { status: 404, headers });
+      }
+      const result = await ctx.db.rpc("change_portal_inbox_thread_folders", {
+        p_ids: ctx.inboxIds, p_scope: "axis_portal_inbox_manager_v1", p_action: body.action,
+      });
+      if (result.error?.code === "42501") return NextResponse.json({ error: "You do not have permission to change this conversation." }, { status: 403, headers });
+      if (result.error) throw result.error;
+      if (result.data !== "ok") return NextResponse.json({ error: "The conversation changed. Refresh and try again." }, { status: 409, headers });
+      return NextResponse.json({ ok: true }, { headers });
+    }
     const revision = await ctx.db.rpc("conversation_house_access_revision", { p_actor: ctx.actor });
     if (revision.error || typeof revision.data !== "string") throw new Error("Access unavailable");
     const access = await loadAssignableConversationHouses(ctx.db, ctx.actor);
