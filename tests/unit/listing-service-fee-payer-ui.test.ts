@@ -44,7 +44,7 @@ describe("listing service fee payer UI helpers", () => {
     expect(listingProplaneAbsorbNeedsWaiverCode("pro", "resident", false)).toBe(false);
   });
 
-  it("persists PropLane absorb with the promo code, an account grant, or preserved codeless proplane", () => {
+  it("persists PropLane absorb only with a real coverage code or a known grant", () => {
     expect(persistListingServiceFeePayer("proplane", "FREE100")).toEqual({
       serviceFeePayer: "proplane",
       serviceFeeWaiverCode: "FREE100",
@@ -55,9 +55,11 @@ describe("listing service fee payer UI helpers", () => {
       serviceFeePayer: "proplane",
       serviceFeeWaiverCode: "FREE100",
     });
-    // Unknown grant status (read/normalize paths) preserves the choice; checkout decides.
+    // Unknown grant status no longer preserves the choice: without a code, and
+    // without a grant we can actually see, the listing bills the resident and
+    // says so, rather than displaying coverage nobody is providing.
     expect(persistListingServiceFeePayer("proplane", "")).toEqual({
-      serviceFeePayer: "proplane",
+      serviceFeePayer: "resident",
       serviceFeeWaiverCode: undefined,
     });
     // A typo is not a grant.

@@ -24,10 +24,10 @@ describe("lease term ordering — ascending length, Short-Term Stay, Custom last
     ]);
   });
 
-  it("keeps Custom last and Short-Term Stay just before it", () => {
+  it("groups the lease shapes first, then the stay types", () => {
     expect(
       sortLeaseTermsCanonical(["Custom", "Short-Term Stay", "12-Month", "3-Month", "9-Month", "Month-to-Month"]),
-    ).toEqual(["3-Month", "9-Month", "12-Month", "Month-to-Month", "Short-Term Stay", "Custom"]);
+    ).toEqual(["3-Month", "9-Month", "12-Month", "Month-to-Month", "Custom", "Short-Term Stay"]);
   });
 
   it("resolveAllowedLeaseTerms canonicalizes a listing's stored (mis)ordered terms", () => {
@@ -39,9 +39,9 @@ describe("lease term ordering — ascending length, Short-Term Stay, Custom last
     expect(terms).toEqual(["3-Month", "9-Month", "12-Month", "Custom"]);
   });
 
-  it("adds Short-Term Stay before Custom only when the listing permits it", () => {
+  it("adds Short-Term Stay after Custom only when the listing permits it", () => {
     const withShort = syncShortTermLeaseTermInAllowed(["12-Month", "9-Month", "3-Month", "Custom"], true);
-    expect(withShort).toEqual(["3-Month", "9-Month", "12-Month", "Short-Term Stay", "Custom"]);
+    expect(withShort).toEqual(["3-Month", "9-Month", "12-Month", "Custom", "Short-Term Stay"]);
     const withoutShort = syncShortTermLeaseTermInAllowed(["12-Month", "9-Month", "Short-Term Stay", "3-Month"], false);
     expect(withoutShort).toEqual(["3-Month", "9-Month", "12-Month"]);
   });

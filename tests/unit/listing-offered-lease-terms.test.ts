@@ -23,13 +23,13 @@ describe("offeredLeaseTermsFromStored", () => {
     expect(offeredLeaseTermsFromStored(LEGACY_LISTING)).toEqual([LONG_TERM_LEASE_TERM]);
   });
 
-  it("keeps the terms a listing genuinely offers, in canonical order with Custom last", () => {
+  it("keeps the terms a listing genuinely offers, in canonical order", () => {
     const stored = [CUSTOM_LEASE_TERM, "Month-to-Month", SHORT_TERM_LEASE_TERM, "12-Month"];
     expect(offeredLeaseTermsFromStored(stored)).toEqual([
       LONG_TERM_LEASE_TERM,
       "Month-to-Month",
-      SHORT_TERM_LEASE_TERM,
       CUSTOM_LEASE_TERM,
+      SHORT_TERM_LEASE_TERM,
     ]);
   });
 

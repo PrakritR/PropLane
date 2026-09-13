@@ -21,16 +21,13 @@
  * downstream reader keep working exactly as before.
  */
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Input, Select, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { isDemoModeActive } from "@/lib/demo/demo-session";
-import { loadManagerPaymentWaiverGrantedClient } from "@/lib/manager-subscription-client";
 import {
   LISTING_PROCESSING_FEE_WAIVER_CODE_HELP,
   LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID,
   listingPaymentWaiverCodeMatches,
-  listingProplaneAbsorbNeedsWaiverCode,
   normalizeListingPaymentWaiverCode,
 } from "@/lib/payment-policy";
 import { InlineCheckboxGroup } from "@/components/ui/inline-checkbox-group";
@@ -79,6 +76,7 @@ import {
   LONG_TERM_LEASE_TERM,
   LEASE_TERM_CHOICES,
   SHORT_TERM_LEASE_TERM,
+  sortLeaseTermsCanonical,
 } from "@/lib/rental-application/lease-terms";
 import { LONG_TERM_UTILITIES_PAYMENT_OPTIONS } from "@/lib/listing-utilities-payment";
 import {
@@ -1989,34 +1987,40 @@ function LongTermLengthsField({ sub, patch }: { sub: ManagerListingSubmissionV1;
 function LeaseTypesField({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const allowed = resolveAllowedLeaseTerms(sub);
   const named = LEASE_TERM_CHOICES.filter((t) => t !== CUSTOM_LEASE_TERM);
-  const selected = [
+  /* One order for the checkboxes and the summary chips — they used to build two
+     different ones, so the chips read back in a sequence the list never showed.
+     `sortLeaseTermsCanonical` is the single authority (lease-terms.ts). */
+  const selected = sortLeaseTermsCanonical([
     ...named.filter((t) => allowed.includes(t)),
     ...(sub.shortTermRentalsAllowed ? [SHORT_TERM_LEASE_TERM] : []),
     ...(sub.airbnbRentalsAllowed ? [AIRBNB_LEASE_TERM] : []),
     ...(allowed.includes(CUSTOM_LEASE_TERM) ? [CUSTOM_LEASE_TERM] : []),
-  ];
+  ]);
   return (
     <CheckboxMultiSelect
       label="Lease types you offer"
       dataAttr="lease-type"
       emptyLabel="Choose lease types…"
+      /* Long-term → Month to month → Custom → Short-term → Airbnb, matching
+         LEASE_TERM_DISPLAY_ORDER. Do not reorder here alone; the chips, the
+         pricing tabs and the applicant's dropdown all read that one list. */
       options={[
-        {
-          value: SHORT_TERM_LEASE_TERM,
-          label: "Short-term",
-          hint: "Anything under a month.",
-        },
         {
           value: LONG_TERM_LEASE_TERM,
           label: "Long-term",
           hint: "A month or more, starting on the 1st. The move-in and move-out dates are the term.",
         },
+        { value: "Month-to-Month", label: "Month to month", hint: "Rolls on until either side ends it." },
         {
           value: CUSTOM_LEASE_TERM,
           label: "Custom",
           hint: "A month or more, but starting on some other day of the month.",
         },
-        { value: "Month-to-Month", label: "Month to month", hint: "Rolls on until either side ends it." },
+        {
+          value: SHORT_TERM_LEASE_TERM,
+          label: "Short-term",
+          hint: "Anything under a month.",
+        },
         {
           value: AIRBNB_LEASE_TERM,
           label: "Airbnb",
@@ -2239,20 +2243,17 @@ function HousePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; p
 function HouseStripePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   const stripeOn = sub.axisPaymentsEnabled !== false;
   const payer = sub.serviceFeePayer ?? "resident";
-  const [accountGranted, setAccountGranted] = useState<boolean | null>(null);
-  useEffect(() => {
-    if (isDemoModeActive()) return;
-    let live = true;
-    void loadManagerPaymentWaiverGrantedClient().then((granted) => {
-      if (live) setAccountGranted(granted);
-    });
-    return () => {
-      live = false;
-    };
-  }, []);
-  const needsPromoCode = stripeOn && listingProplaneAbsorbNeedsWaiverCode("free", payer, accountGranted === true);
-  const promoCodeTyped = (sub.serviceFeeWaiverCode ?? "").length > 0;
-  const promoCodeValid = listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode);
+  /*
+   * The code is asked for EVERY time PropLane pays is selected, on every listing
+   * — never skipped because the account "already has coverage". That bypass is
+   * what made the setting stick without anyone re-entering anything, and it fired
+   * off any promo code at all, including plain subscription discounts.
+   * Switching the payer still clears the stored code below, so changing it and
+   * changing it back asks again, exactly as the captain asked.
+   */
+  const needsCoverageCode = stripeOn && payer === "proplane";
+  const coverageCodeTyped = (sub.serviceFeeWaiverCode ?? "").length > 0;
+  const coverageCodeValid = listingPaymentWaiverCodeMatches(sub.serviceFeeWaiverCode);
 
   return (
     <>
@@ -2278,9 +2279,9 @@ function HouseStripePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissio
             label="Stripe processing fee"
             hint={
               payer === "proplane"
-                ? accountGranted
-                  ? "Your account already has PropLane coverage — no code needed."
-                  : "PropLane pays only with a valid promo code."
+                ? coverageCodeValid
+                  ? "PropLane covers Stripe's fee on this listing."
+                  : "PropLane pays only with a valid processing coverage code."
                 : payer === "manager"
                   ? "Taken out of your payout."
                   : "Added to the resident's payment."
@@ -2301,17 +2302,17 @@ function HouseStripePaymentsGroup({ sub, patch }: { sub: ManagerListingSubmissio
               <option value="proplane">PropLane pays</option>
             </Select>
           </Field>
-          {needsPromoCode ? (
+          {needsCoverageCode ? (
             <Field
-              label="Promo code"
+              label="Processing coverage code"
               hint={LISTING_PROCESSING_FEE_WAIVER_CODE_HELP}
-              error={promoCodeTyped && !promoCodeValid ? LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID : undefined}
+              error={coverageCodeTyped && !coverageCodeValid ? LISTING_PROCESSING_FEE_WAIVER_CODE_INVALID : undefined}
             >
               <Input
                 style={{ textTransform: "uppercase" }}
                 autoComplete="off"
                 value={sub.serviceFeeWaiverCode ?? ""}
-                placeholder="Promo code"
+                placeholder="Processing coverage code"
                 data-attr="listing-v2-service-fee-code"
                 onChange={(e) =>
                   patch({ serviceFeeWaiverCode: normalizeListingPaymentWaiverCode(e.target.value) || undefined })
@@ -2373,34 +2374,14 @@ function HouseMoveInGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; pat
 function HouseApplicationsGroup({ sub, patch }: { sub: ManagerListingSubmissionV1; patch: Patch }) {
   return (
     <>
-      <FieldRow cols={2}>
-        <Field
-          label="Application fee waive code"
-          optional
-          hint="Give this to an applicant and their application fee is waived."
-        >
-          <Input
-            value={sub.applicationFeeWaiverCode ?? ""}
-            placeholder="E.G. WELCOME50"
-            onChange={(e) =>
-              patch({
-                applicationFeeWaiverCode: e.target.value.toUpperCase().replace(/\s+/g, ""),
-              })
-            }
-          />
-        </Field>
-        <Field label="Long-term application fee" hint="Also on the Payments section.">
-          <Input value={money(sub.applicationFee)} onChange={(e) => patch({ applicationFee: e.target.value })} />
-        </Field>
-      </FieldRow>
-      <FieldRow cols={2}>
-        <Field label="Short-term application fee" optional hint="Uses the long-term fee when blank.">
-          <Input
-            value={money(sub.shortTermApplicationFee ?? "")}
-            onChange={(e) => patch({ shortTermApplicationFee: e.target.value })}
-          />
-        </Field>
-      </FieldRow>
+      {/*
+       * The application fee, the short-term fee and the waiver code are asked on
+       * Pricing → Applications and deliberately NOT repeated here. They used to
+       * appear in both places, and the copies on this tab wrote the raw input
+       * without `sanitizeMoneyInput`, so letters typed here were stored as the
+       * fee (the captain's "remove the duplicates for application fee and waiver
+       * code"). One question, one place, one sanitiser.
+       */}
       <Field group label="Returning residents">
         <CheckboxOption
           label="Waive the application fee for returning residents"

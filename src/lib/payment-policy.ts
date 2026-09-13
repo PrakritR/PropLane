@@ -1,7 +1,8 @@
 import { parseMoneyAmount } from "@/lib/parse-money";
 import type { ManagerListingSubmissionV1 } from "@/lib/manager-listing-submission";
 import { platformFeeCents } from "@/lib/platform-fees";
-import { isWaiverGrantedManagerPurchase, type ManagerSkuTier } from "@/lib/manager-access";
+import { type ManagerSkuTier } from "@/lib/manager-access";
+import { isProcessingCoverageCode, normalizeProcessingCoverageCode } from "@/lib/processing-coverage-codes";
 
 export type RentDueDayMode = "first_of_month" | "last_of_month";
 
@@ -160,17 +161,34 @@ export function persistListingServiceFeePayer(
     if (accountWaiverGranted === true) {
       return { serviceFeePayer: "proplane", serviceFeeWaiverCode: undefined };
     }
-    if (accountWaiverGranted === false) {
-      return { serviceFeePayer: "resident", serviceFeeWaiverCode: undefined };
-    }
-    return { serviceFeePayer: "proplane", serviceFeeWaiverCode: undefined };
+    /*
+     * Unknown grant now resolves to `resident`, not `proplane`.
+     *
+     * The old comment argued a codeless `proplane` was safe to preserve because
+     * checkout re-resolves it anyway. That is true of the money, but it is not
+     * true of what the manager is TOLD: the listing kept showing "PropLane pays"
+     * while the resident was in fact being billed. Coverage is something we pay
+     * for, so an unanswered question resolves to the option that does not spend
+     * our money and does not promise the manager something we are not doing.
+     */
+    return { serviceFeePayer: "resident", serviceFeeWaiverCode: undefined };
   }
   return { serviceFeePayer: null, serviceFeeWaiverCode: undefined };
 }
 
-/** The account's own promo grant (`manager_purchases.promo_code`, written only by server flows). */
+/**
+ * The account's own coverage grant (`manager_purchases.promo_code`).
+ *
+ * This asks ONE question — "is PropLane paying this account's processing fee?" —
+ * and it is not the same question as "does this account have paid access", which
+ * `isWaiverGrantedManagerPurchase` answers and which any non-empty promo code
+ * legitimately satisfies. Conflating the two is what gave 19 production accounts
+ * free processing, two of them off a plain subscription discount. Only a real
+ * processing coverage code counts here; the access predicate is left alone, so
+ * nobody loses the plan they were granted.
+ */
 export function waiverGrantedFromPromoCode(promoCode: string | null | undefined): boolean {
-  return isWaiverGrantedManagerPurchase(promoCode);
+  return isProcessingCoverageCode(promoCode);
 }
 
 /**
@@ -194,18 +212,18 @@ export const LISTING_PAYMENT_WAIVER_CODE = "FREE100";
 /** Listing-wizard promo that unlocks PropLane-absorbed Stripe processing fees. */
 export const LISTING_PROCESSING_FEE_PROMO_CODE = "WAIVEPROCESS1";
 
-const LISTING_PROCESSING_FEE_PROMO_CODES = new Set([
-  LISTING_PAYMENT_WAIVER_CODE,
-  LISTING_PROCESSING_FEE_PROMO_CODE,
-]);
-
 export function normalizeListingPaymentWaiverCode(code: string): string {
-  return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return normalizeProcessingCoverageCode(code);
 }
 
+/**
+ * Does this listing's code turn on PropLane coverage?
+ *
+ * One namespace, owned by `processing-coverage-codes.ts`. A subscription promo
+ * and a manager's own application-fee waiver code both fail here, on purpose.
+ */
 export function listingPaymentWaiverCodeMatches(code: string | null | undefined): boolean {
-  const normalized = normalizeListingPaymentWaiverCode(code ?? "");
-  return normalized.length > 0 && LISTING_PROCESSING_FEE_PROMO_CODES.has(normalized);
+  return isProcessingCoverageCode(code);
 }
 
 /**

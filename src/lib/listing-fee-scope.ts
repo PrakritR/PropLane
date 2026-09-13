@@ -139,7 +139,11 @@ export function listingLeaseTypeScopeOptions(
  * Lease-type tabs on Pricing → Rent and deposits.
  *
  * Legacy listings still store 3/6/9/12-Month separately, but every fixed monthly
- * length bills off the same rent — one "12-Month" tab is enough on this screen.
+ * length bills off the same rent, so they collapse onto ONE tab. That tab is
+ * labelled "Long-term", not "12-Month": the product stopped offering named
+ * lengths, the move-in and move-out dates are the term, and naming a length a
+ * manager can no longer pick just confuses them (the captain's "should not
+ * specify what lengths are offered"). Tabs follow the canonical display order.
  */
 export function listingPricingLeaseTabs(
   sub: Pick<
@@ -150,7 +154,7 @@ export function listingPricingLeaseTabs(
   const raw = listingLeaseTypeScopeOptions(sub);
   const tabs: string[] = [];
   const hasFixedMonthly = raw.some((t) => isLegacyFixedLeaseTerm(t) || t === LONG_TERM_LEASE_TERM);
-  if (hasFixedMonthly) tabs.push("12-Month");
+  if (hasFixedMonthly) tabs.push(LONG_TERM_LEASE_TERM);
   for (const term of raw) {
     if (isLegacyFixedLeaseTerm(term) || term === LONG_TERM_LEASE_TERM) continue;
     if (!tabs.includes(term)) tabs.push(term);
@@ -160,7 +164,9 @@ export function listingPricingLeaseTabs(
 
 /** Map a pricing tab to the lease term the room record uses for monthly rent. */
 export function listingPricingTabToLeaseTerm(tab: string): string {
-  if (tab === "12-Month") return LONG_TERM_LEASE_TERM;
+  /* "12-Month" was this tab's id before it was renamed; still accepted so any
+     persisted or in-flight tab selection keeps resolving. */
+  if (tab === "12-Month" || isLegacyFixedLeaseTerm(tab)) return LONG_TERM_LEASE_TERM;
   return tab;
 }
 

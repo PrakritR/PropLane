@@ -26,6 +26,7 @@ describe("renewalLeaseTermOptionsForProperty", () => {
     expect(options).toContain("Month-to-Month");
     expect(options).toContain(SHORT_TERM_LEASE_TERM);
     expect(options).not.toContain("6-Month");
-    expect(options.indexOf("Custom")).toBeGreaterThan(options.indexOf(SHORT_TERM_LEASE_TERM));
+    // Custom sits with the lease shapes, ahead of the stay types.
+    expect(options.indexOf("Custom")).toBeLessThan(options.indexOf(SHORT_TERM_LEASE_TERM));
   });
 });

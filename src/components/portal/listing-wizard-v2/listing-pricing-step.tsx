@@ -1,20 +1,22 @@
 "use client";
 
 /**
- * Pricing, in the order money happens.
+ * Pricing, in the order a manager sets it up.
  *
- * 1. **Before move-in** — the application fee, its waiver code, and who pays
- *    card processing. Three things a resident meets before a lease exists.
- *    "PropLane pays" asks for the promo code PropLane shared (unless the
- *    account already carries a grant); the code is stored on the listing so
- *    checkout re-validates it (`resolveAccountOrListingWaiverGranted`).
- * 2. **Each room** — one editable table, a tab per lease type. The top row is
+ * 1. **How you get paid** — the rails money arrives on, and who pays card
+ *    processing. First, because nothing below matters until money can move.
+ *    "PropLane pays" always asks for a processing coverage code; no plan and no
+ *    subscription promo can stand in for one.
+ * 2. **Applications** — the application fee, the short-term fee, and the
+ *    manager's own waiver code. Asked HERE and nowhere else: the Advanced tab
+ *    used to ask for the same three again, with a second, unsanitised input.
+ * 3. **Each room** — one editable table, a tab per lease type. The top row is
  *    **Every room**: same columns, same inputs; rooms follow it until changed
  *    (grey and dashed = following, ink with a dot = the room's own). Long-term
  *    carries a minimum term. Month-to-month and custom dates are "same as
  *    long-term" until the box is unticked. Short-term is rent per day, rent
  *    per week and a deposit — nothing else, the rate is all-in.
- * 3. **At signing** — what each lease type collects up front, beside the
+ * 4. **At signing** — what each lease type collects up front, beside the
  *    receipt, which is the same panel it always was.
  *
  * Nothing new is stored. Rent is `room.monthlyRent`; another lease type's own
@@ -28,6 +30,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Input, Select } from "@/components/ui/input";
 import { CheckboxMultiSelect } from "@/components/ui/checkbox-multi-select";
 import { Field } from "@/components/portal/listing-wizard-v2/wizard-primitives";
+import { ManagerApplicationFeeWaiverCodesModal } from "@/components/portal/pro-application-fee-waiver-codes-modal";
 import { sanitizeMoneyInput } from "@/lib/listing-form-inputs";
 import {
   expandFeeScope,
@@ -725,6 +728,7 @@ export function ListingPricingSections({
 
   /** "Same as long-term" is true when no room has its own price on this term. */
   const sameAsLongTerm = (term: string) => !rooms.some((r) => r.termPricing?.[term] && Object.keys(r.termPricing[term]!).length > 0);
+  const [waiverCodesOpen, setWaiverCodesOpen] = useState(false);
   const [showOwn, setShowOwn] = useState<Record<string, boolean>>({});
   const ownTable = (term: string) => showOwn[term] || !sameAsLongTerm(term);
   const stay = isStayLeaseTerm(activeLeaseTerm);
@@ -732,8 +736,14 @@ export function ListingPricingSections({
   return (
     <>
       <section className="mb-8">
-        <h3 className="mb-1 text-[14px] font-bold text-foreground">1 · Before move-in</h3>
-        <p className="mb-3 text-[12.5px] text-muted">What an applicant pays to apply, and who covers card processing.</p>
+        <h3 className="mb-1 text-[14px] font-bold text-foreground">1 · How you get paid</h3>
+        <p className="mb-3 text-[12.5px] text-muted">The rails money arrives on, and who covers card processing.</p>
+        {payments}
+      </section>
+
+      <section className="mb-8 border-t border-border pt-6">
+        <h3 className="mb-1 text-[14px] font-bold text-foreground">2 · Applications</h3>
+        <p className="mb-3 text-[12.5px] text-muted">What an applicant pays to apply. Asked here and nowhere else.</p>
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Long-term application fee">
             <div className="relative">
@@ -749,12 +759,25 @@ export function ListingPricingSections({
           </Field>
           <Field label="Waiver code" optional hint="Applicants who enter it apply for free.">
             <Input style={{ textTransform: "uppercase" }} value={sub.applicationFeeWaiverCode ?? ""} placeholder="WELCOME50" onChange={(e) => patch({ applicationFeeWaiverCode: e.target.value.toUpperCase().replace(/\s+/g, "") })} />
+            {/* The multi-code system (usage caps, expiry, revoke, redemption log)
+                already existed and was never mounted anywhere — this is its only
+                way in. The single field above stays: it is the quick one-code
+                case, and every listing saved before this still reads from it. */}
+            <button
+              type="button"
+              data-attr="listing-v2-manage-waiver-codes"
+              onClick={() => setWaiverCodesOpen(true)}
+              className="mt-1 text-[12px] font-bold text-primary hover:underline"
+            >
+              Manage codes
+            </button>
           </Field>
         </div>
+        <div className="mt-4">{applications}</div>
       </section>
 
       <section className="mb-8 border-t border-border pt-6">
-        <h3 className="mb-1 text-[14px] font-bold text-foreground">2 · Each room</h3>
+        <h3 className="mb-1 text-[14px] font-bold text-foreground">3 · Each room</h3>
         <p className="mb-3 text-[12.5px] text-muted">Pick the leases you offer, then price each one. Grey follows the row above it; type in a cell and it becomes that room&apos;s own.</p>
         <div className="grid gap-4 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
           <div>{leaseTypesField}</div>
@@ -837,20 +860,14 @@ export function ListingPricingSections({
       </section>
 
       <section className="mb-8 border-t border-border pt-6">
-        <h3 className="mb-1 text-[14px] font-bold text-foreground">3 · At signing</h3>
+        <h3 className="mb-1 text-[14px] font-bold text-foreground">4 · At signing</h3>
         <p className="mb-3 text-[12.5px] text-muted">What {active.toLowerCase()} collects before move-in. Anything left out is billed later. The panel on the right shows the total.</p>
         <DueAtSigning sub={sub} patch={patch} term={active} />
       </section>
 
-      <section className="mb-8 border-t border-border pt-6">
-        <h3 className="mb-1 text-[14px] font-bold text-foreground">How you get paid</h3>
-        {payments}
-      </section>
-      <section className="mb-8 border-t border-border pt-6">
-        <h3 className="mb-1 text-[14px] font-bold text-foreground">Applications</h3>
-        {applications}
-      </section>
       <section className="border-t border-border pt-6">{leaseDocument}</section>
+
+      <ManagerApplicationFeeWaiverCodesModal open={waiverCodesOpen} onClose={() => setWaiverCodesOpen(false)} />
     </>
   );
 }
