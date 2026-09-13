@@ -411,6 +411,7 @@ describe("unread results do not cascade", () => {
       await screen.findByTestId("embedded-email-thread");
       // Simulate the persisted-read notification emitted when the opened thread is read.
       EMAIL_INBOX.unread = false;
+      ALL_THREADS.splice(ALL_THREADS.indexOf(EMAIL_INBOX), 1);
       fireEvent(window, new Event("portal-inbox-changed"));
       await waitFor(() => expect(screen.queryByText("Dana Ramirez")).toBeNull());
       expect(screen.getByText("Second Unread")).toBeTruthy();
@@ -418,6 +419,7 @@ describe("unread results do not cascade", () => {
       expect(second.unread).toBe(true);
     } finally {
       EMAIL_INBOX.unread = true;
+      if (!ALL_THREADS.includes(EMAIL_INBOX)) ALL_THREADS.unshift(EMAIL_INBOX);
       ALL_THREADS.splice(ALL_THREADS.indexOf(second), 1);
     }
   });

@@ -237,6 +237,7 @@ export function ManagerUnifiedInbox({
   const query = onSearchQueryChange ? (searchQueryProp ?? "") : internalQuery;
   const setQuery = onSearchQueryChange ?? setInternalQuery;
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const explicitlyOpenedKey = useRef<string | null>(null);
   const [mobileThreadOpen, setMobileThreadOpen] = useState(Boolean(routeThreadId));
   const statusFilter = threadFilters?.status ?? listSegmentProp;
   const listSegment = statusFilter === "read" ? "active" : statusFilter;
@@ -256,6 +257,7 @@ export function ManagerUnifiedInbox({
   );
 
   const closeActiveThread = useCallback(() => {
+    explicitlyOpenedKey.current = null;
     setSelectedKey(null);
     setMobileThreadOpen(false);
     onRouteThreadChange?.(undefined);
@@ -275,7 +277,7 @@ export function ManagerUnifiedInbox({
     const identityChanged = loadedViewer.current !== viewerId;
     if (identityChanged) {
       setEmailReady(false); setSmsReady(!smsUiEnabled);
-      setEmailThreads([]); setSmsResidents([]); setSelectedKey(null);
+      setEmailThreads([]); setSmsResidents([]); explicitlyOpenedKey.current = null; setSelectedKey(null);
       smsPollHaltedRef.current = false; setSmsPollHalted(false);
       loadedViewer.current = viewerId;
       setSourceViewer(viewerId);
@@ -669,14 +671,6 @@ export function ManagerUnifiedInbox({
   });
 
   const selection = useMemo(() => (selectedKey ? parseUnifiedInboxKey(selectedKey) : null), [selectedKey]);
-  const selectionSourceExists = useCallback((key: string) => {
-    const current = parseUnifiedInboxKey(key);
-    if (!current) return false;
-    return current.channel === "email"
-      ? emailThreads.some((thread) => thread.id === current.threadId)
-      : smsResidents.some((resident) => smsConversationId(resident) === current.threadId);
-  }, [emailThreads, smsResidents]);
-
   /**
    * The selected row, matched on ANY key it folded in — a merged conversation
    * is reachable by the key of either channel (a deep link minted before the
@@ -749,6 +743,7 @@ export function ManagerUnifiedInbox({
     if (!isClient || !routeThreadId) return;
     const match = listRows.find((r) => r.threadId === routeThreadId);
     if (match) {
+      explicitlyOpenedKey.current = match.key;
       setSelectedKey(match.key);
       setMobileThreadOpen(true);
     }
@@ -758,6 +753,7 @@ export function ManagerUnifiedInbox({
   useEffect(() => {
     setQuery("");
     if (!routeThreadId) {
+      explicitlyOpenedKey.current = null;
       setMobileThreadOpen(false);
       if (listSegment === "unread" || !inboxUsesDesktopSplit()) {
         setSelectedKey(null);
@@ -772,7 +768,7 @@ export function ManagerUnifiedInbox({
       // the merged list. Keep the pending route alive until the row arrives.
       if (!routeThreadId) {
         setSelectedKey((cur) =>
-          listSegment === "unread" && cur && selectionSourceExists(cur)
+          listSegment === "unread" && cur && explicitlyOpenedKey.current === cur
             ? cur
             : null,
         );
@@ -793,12 +789,12 @@ export function ManagerUnifiedInbox({
         return null;
       }
       if (cur && listRows.some((r) => r.key === cur)) return cur;
-      if (listSegment === "unread" && cur && selectionSourceExists(cur)) return cur;
+      if (listSegment === "unread" && cur && explicitlyOpenedKey.current === cur) return cur;
       // Filtering must not open and mark each unread result read in succession.
       if (listSegment !== "unread" && inboxUsesDesktopSplit()) return listRows[0]!.key;
       return null;
     });
-  }, [isClient, listRows, listSegment, routeThreadId, selectionSourceExists]);
+  }, [isClient, listRows, listSegment, routeThreadId]);
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -865,6 +861,7 @@ export function ManagerUnifiedInbox({
               category={row.category}
               selected={selectedKey === row.key}
               onOpen={() => {
+                explicitlyOpenedKey.current = row.key;
                 setSelectedKey(row.key);
                 setMobileThreadOpen(true);
                 onRouteThreadChange?.(row.threadId);
@@ -938,7 +935,7 @@ export function ManagerUnifiedInbox({
         controlledExpandedId={selection.threadId}
         onControlledExpandedIdChange={(id) => {
           if (!id) {
-            if (listSegment === "unread" && selectedKey && selectionSourceExists(selectedKey)) return;
+            if (listSegment === "unread" && selectedKey && explicitlyOpenedKey.current === selectedKey) return;
             setSelectedKey(null);
             setMobileThreadOpen(false);
             onRouteThreadChange?.(undefined);
