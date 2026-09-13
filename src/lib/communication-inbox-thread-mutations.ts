@@ -1,3 +1,5 @@
+import { smsNoticeIdentity } from "@/lib/sms-inbox-identity";
+import { MANAGER_INBOX_STORAGE_KEY } from "@/lib/portal-inbox-storage";
 import {
   deleteInboxThreadIds,
   loadPersistedInbox,
@@ -37,6 +39,20 @@ export async function archivePersistedInboxThreads(
   });
 
   if (changed.length === 0) return { ok: true, next: prev };
+  if (storageKey === MANAGER_INBOX_STORAGE_KEY) {
+    for (const thread of changed) {
+      if (!smsNoticeIdentity(thread)) continue;
+      try {
+        const response = await fetch("/api/manager/tour-follow-ups", {
+          method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inboxThreadId: thread.id, action: "archive" }),
+        });
+        if (!response.ok) return { ok: false, next: prev };
+      } catch {
+        return { ok: false, next: prev };
+      }
+    }
+  }
   stagePersistedInboxRows(storageKey, next);
   const ok = await upsertPersistedInboxRows(storageKey, changed, next);
   return { ok, next: ok ? next : prev };
@@ -65,6 +81,20 @@ export async function restorePersistedInboxThreads(
   });
 
   if (changed.length === 0) return { ok: true, next: prev };
+  if (storageKey === MANAGER_INBOX_STORAGE_KEY) {
+    for (const thread of changed) {
+      if (!smsNoticeIdentity(thread)) continue;
+      try {
+        const response = await fetch("/api/manager/tour-follow-ups", {
+          method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ inboxThreadId: thread.id, action: "restore" }),
+        });
+        if (!response.ok) return { ok: false, next: prev };
+      } catch {
+        return { ok: false, next: prev };
+      }
+    }
+  }
   stagePersistedInboxRows(storageKey, next);
   const ok = await upsertPersistedInboxRows(storageKey, changed, next);
   return { ok, next: ok ? next : prev };

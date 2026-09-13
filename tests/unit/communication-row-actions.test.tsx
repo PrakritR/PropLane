@@ -13,6 +13,7 @@ vi.mock("@/lib/manager-sms-archive.client", () => ({ archiveManagerSmsConversati
 const threads = ["a", "b", "c"].map((id) => ({ id, folder: "inbox", from: id, email: `${id}@example.test`, subject: id, body: id, preview: id, time: "", unread: false } as PersistedInboxThread));
 const rows: UnifiedInboxListItem[] = [
   { key: "email:a", threadId: "a", channel: "email", name: "First", preview: "", time: "", unread: false, sortMs: 1, memberKeys: ["email:a", "email:c", "sms:exact:owner:phone"] },
+  { key: "email:c", threadId: "c", channel: "email", name: "Ordinary", preview: "", time: "", unread: false, sortMs: 3, memberKeys: ["email:a", "email:c"] },
   { key: "email:b", threadId: "b", channel: "email", name: "Second", preview: "", time: "", unread: false, sortMs: 2 },
 ];
 function Harness({ archived = false, manager = true }: { archived?: boolean; manager?: boolean }) {
@@ -52,4 +53,12 @@ it("does not offer manager SMS mutations in a role portal", async () => {
   render(<Harness manager={false} />); open("First");
   await screen.findByText("No actions available.");
   expect(screen.queryByRole("menuitem", { name: "Archive" })).toBeNull();
+});
+
+it("deletes all ordinary email members after confirmation", async () => {
+  render(<Harness archived />);
+  open("Ordinary");
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
+  await waitFor(() => expect(mocks.remove).toHaveBeenCalledWith("test-inbox", ["c", "a"]));
+  expect(mocks.confirm).toHaveBeenCalledOnce();
 });

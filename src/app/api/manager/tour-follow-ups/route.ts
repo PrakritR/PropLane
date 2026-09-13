@@ -1,3 +1,5 @@
+import { storedSmsNoticeIdentity } from "@/lib/sms-inbox-state.server";
+import { smsNoticePhone } from "@/lib/sms-inbox-identity";
 import { NextResponse } from "next/server";
 import { getPortalAccessContext, hasRole, hasAdminRole } from "@/lib/auth/portal-access";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/service";
@@ -10,11 +12,23 @@ import { TOUR_INTEREST_DELAY_MS, followupDelivery } from "@/lib/reminders/tour-i
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "private, no-store" };
-async function context(key: string) {
+async function context(key: string, inboxThreadId?: string) {
   const access = await getPortalAccessContext();
   if (!access.user || (!hasRole(access, "manager") && !hasAdminRole(access))) return null;
   const db = createSupabaseServiceRoleClient();
   const inbox = await fetchManagerSmsConversations(db, access.user.id);
+  if (inboxThreadId) {
+    const { data: notice, error } = await db.from("portal_inbox_thread_records")
+      .select("id, owner_user_id, scope, thread_type, row_data").eq("id", inboxThreadId).maybeSingle();
+    if (error) throw error;
+    if (!notice || !storedSmsNoticeIdentity(notice)) return null;
+    const scope = await linkedOwnerScopeForModule(db, access.user.id, "inbox", "edit", { throwOnError: true });
+    if (notice.owner_user_id !== access.user.id && !scope.ownerIds.has(notice.owner_user_id)) return null;
+    const phone = smsNoticePhone(notice.row_data?.smsNoticePhone || notice.row_data?.from);
+    const matches = inbox.residents.filter(item => item.ownerManagerUserId === notice.owner_user_id && smsNoticePhone(item.phone) === phone);
+    const keys = [...new Set(matches.flatMap(item => [item.conversationKey!, ...(item.memberKeys ?? [])]).filter(Boolean))];
+    return { db, actor: access.user.id, owner: notice.owner_user_id as string, keys };
+  }
   const thread = inbox.residents.find((item) => item.conversationKey === key || item.memberKeys?.includes(key));
   if (!thread?.ownerManagerUserId) return null;
   const keys = [...new Set([thread.conversationKey!, ...(thread.memberKeys ?? [])])];
@@ -58,12 +72,13 @@ export async function GET(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const body = await req.json().catch(() => null);
-    if (!body || typeof body.conversationKey !== "string" || !["cancel", "edit", "archive", "restore"].includes(body.action) ||
+    if (!body || (typeof body.conversationKey !== "string" && !(typeof body.inboxThreadId === "string" && ["archive", "restore"].includes(body.action))) || !["cancel", "edit", "archive", "restore"].includes(body.action) ||
       (["cancel", "edit"].includes(body.action) && (typeof body.id !== "string" || !/^[0-9a-f-]{36}$/i.test(body.id)))) {
       return NextResponse.json({ error: "Choose a conversation and action." }, { status: 400, headers });
     }
-    const ctx = await context(body.conversationKey);
+    const ctx = await context(body.conversationKey, body.inboxThreadId);
     if (!ctx) return NextResponse.json({ error: "Conversation not found." }, { status: 404, headers });
+    if (ctx.keys.length === 0) return NextResponse.json({ ok: true }, { headers });
     const revision = await ctx.db.rpc("conversation_house_access_revision", { p_actor: ctx.actor });
     if (revision.error || typeof revision.data !== "string") throw new Error("Access unavailable");
     const access = await loadAssignableConversationHouses(ctx.db, ctx.actor);

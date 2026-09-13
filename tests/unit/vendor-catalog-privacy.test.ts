@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { vendorCatalogProjection } from "@/lib/vendor-catalog-projection";
 import type { ManagerVendorRow } from "@/lib/manager-vendors-storage";
@@ -39,4 +40,9 @@ describe("shared vendor privacy", () => {
     expect(JSON.stringify(body)).not.toContain("secret");
     for (const field of ["propertyIds", "messaging", "checkIns", "preferredName", "futureSecret"]) expect(body.rows[0]).not.toHaveProperty(field);
   });
+});
+
+it("removes the linked-vendor policy exposing private directory JSON", () => {
+  const sql = readFileSync("supabase/migrations/20260912230000_vendor_directory_private_fields.sql", "utf8");
+  expect(sql).toMatch(/drop policy if exists manager_vendor_records_vendor_read on public.manager_vendor_records/i);
 });

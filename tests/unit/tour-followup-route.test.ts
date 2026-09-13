@@ -60,3 +60,32 @@ it("turns a permission race rejected inside the transaction into 403",async()=>{
  mocks.rpc.mockImplementation(async(name)=>name==="conversation_house_access_revision"?{data:"revision",error:null}:{data:null,error:{code:"42501"}});
  expect((await PATCH(request({conversationKey:key,id,action:"cancel"}))).status).toBe(403);
 });
+
+function storedNotice(owner = "owner") {
+  const notice = { id: "sms_notice_one", owner_user_id: owner, scope: "axis_portal_inbox_manager_v1", thread_type: "sms_relay", row_data: { smsNoticePhone: "+12065550100" } };
+  mocks.from.mockImplementation(() => {
+    const q = { select: () => q, eq: () => q, maybeSingle: async () => ({ data: notice, error: null }) };
+    return q;
+  });
+  mocks.fetch.mockResolvedValue({ residents: [
+    { conversationKey: key, ownerManagerUserId: "owner", phone: "+12065550100" },
+    { conversationKey: "other-owner", ownerManagerUserId: "other", phone: "+12065550100" },
+    { conversationKey: "other-phone", ownerManagerUserId: "owner", phone: "+12065550101" },
+  ] });
+}
+it("archives SMS notices using only stored owner and phone matches", async () => {
+  storedNotice();
+  expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action: "archive" }))).status).toBe(200);
+  expect(mocks.rpc).toHaveBeenCalledWith("change_tour_interest_followup", expect.objectContaining({ p_owner: "owner", p_keys: [key], p_action: "archive" }));
+});
+it("rejects a notice belonging to an unauthorized owner", async () => {
+  storedNotice("stranger");
+  expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action: "archive" }))).status).toBe(404);
+  expect(mocks.rpc).not.toHaveBeenCalled();
+});
+it("retains property authorization for notice archives", async () => {
+  storedNotice();
+  mocks.tags.mockResolvedValue([{ conversation_key: key, property_id: "unauthorized" }]);
+  expect((await PATCH(request({ inboxThreadId: "sms_notice_one", action: "archive" }))).status).toBe(403);
+  expect(mocks.rpc).not.toHaveBeenCalledWith("change_tour_interest_followup", expect.anything());
+});
