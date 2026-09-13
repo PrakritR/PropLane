@@ -460,7 +460,9 @@ export function ManagerUnifiedInbox({
     if (listSegment === "archived") {
       rows = rows.filter((t) => t.folder === "trash");
     } else if (listSegment === "unread") {
-      rows = rows.filter((t) => t.folder !== "trash" && t.folder === "inbox" && t.unread);
+      // Keep read state out of the canonical eligibility set. The visible list
+      // applies it below so an explicitly opened row can survive being read.
+      rows = rows.filter((t) => t.folder !== "trash" && t.folder === "inbox");
     } else {
       rows = rows.filter((t) => t.folder !== "trash");
     }
@@ -606,7 +608,7 @@ export function ManagerUnifiedInbox({
     const items = allSmsItems.filter(({ archived, unread, haystack }) => {
       if (q && !haystack.includes(q)) return false;
       if (listSegment === "archived") return archived;
-      if (listSegment === "unread") return !archived && unread;
+      if (listSegment === "unread") return !archived;
       return !archived;
     });
     return items.map(({ item }) => item);
@@ -652,10 +654,16 @@ export function ManagerUnifiedInbox({
 
   // SSR and the first client paint must agree — local inbox + contact rows load only after mount.
   const sourcesReady = sourceViewer === viewerId && emailReady && smsReady;
-  const listRows = isClient && sourcesReady ? mergedRows.filter((row) => statusFilter !== "read" || !row.unread) : [];
+  const listRows = isClient && sourcesReady
+    ? mergedRows.filter((row) => {
+        if (listSegment === "unread") return row.unread;
+        if (statusFilter === "read") return !row.unread;
+        return true;
+      })
+    : [];
 
   const bulk = useUnifiedCommunicationBulk({
-    mergedRows: listRows,
+    mergedRows,
     listSegment,
     storageKey: MANAGER_INBOX_STORAGE_KEY,
     emailThreads,
@@ -663,6 +671,7 @@ export function ManagerUnifiedInbox({
     onSmsArchiveChange: () => setSmsArchivedIds(loadManagerSmsArchivedIds()),
     showToast: appUi?.showToast,
     onSelectionCleared: () => {
+      explicitlyOpenedKey.current = null;
       setSelectedKey(null);
       setMobileThreadOpen(false);
       onRouteThreadChange?.(undefined);
@@ -767,11 +776,11 @@ export function ManagerUnifiedInbox({
       // A deep-linked / just-created thread may land before its SMS row is in
       // the merged list. Keep the pending route alive until the row arrives.
       if (!routeThreadId) {
-        setSelectedKey((cur) =>
-          listSegment === "unread" && cur && explicitlyOpenedKey.current === cur
-            ? cur
-            : null,
-        );
+        setSelectedKey((cur) => {
+          if (listSegment === "unread" && cur && explicitlyOpenedKey.current === cur && selectedRow && !selectedRow.unread) return cur;
+          explicitlyOpenedKey.current = null;
+          return null;
+        });
         setMobileThreadOpen(false);
       }
       return;
@@ -787,16 +796,18 @@ export function ManagerUnifiedInbox({
           if (current?.threadId === routeThreadId) return cur;
         }
         const current = cur ? parseUnifiedInboxKey(cur) : null;
-        if (listSegment === "unread" && cur && explicitlyOpenedKey.current === cur && current?.threadId === routeThreadId) return cur;
+        if (listSegment === "unread" && cur && explicitlyOpenedKey.current === cur && selectedRow && !selectedRow.unread && current?.threadId === routeThreadId) return cur;
+        explicitlyOpenedKey.current = null;
         return null;
       }
       if (cur && listRows.some((r) => r.key === cur)) return cur;
-      if (listSegment === "unread" && cur && explicitlyOpenedKey.current === cur) return cur;
+      if (listSegment === "unread" && cur && explicitlyOpenedKey.current === cur && selectedRow && !selectedRow.unread) return cur;
       // Filtering must not open and mark each unread result read in succession.
       if (listSegment !== "unread" && inboxUsesDesktopSplit()) return listRows[0]!.key;
+      explicitlyOpenedKey.current = null;
       return null;
     });
-  }, [isClient, listRows, listSegment, routeThreadId]);
+  }, [isClient, listRows, listSegment, routeThreadId, selectedRow]);
 
   const listPane = (
     <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
@@ -934,13 +945,10 @@ export function ManagerUnifiedInbox({
         filterContacts={filterContacts}
         smsUiEnabled={smsUiEnabled}
         smsRecipients={smsResidents}
-        controlledExpandedId={selection.threadId}
-        onControlledExpandedIdChange={(id) => {
-          if (!id) {
-            if (listSegment === "unread" && selectedKey && explicitlyOpenedKey.current === selectedKey) return;
-            setSelectedKey(null);
-            setMobileThreadOpen(false);
-            onRouteThreadChange?.(undefined);
+          controlledExpandedId={selection.threadId}
+          onControlledExpandedIdChange={(id) => {
+            if (!id) {
+            closeActiveThread();
             clearCommunicationThreadUrl(threadListHref());
             return;
           }

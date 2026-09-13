@@ -114,8 +114,10 @@ vi.mock("@/lib/portal-inbox-storage", async (importOriginal) => ({
   ],
 }));
 vi.mock("@/components/portal/pro-inbox", () => ({
-  ManagerInbox: ({ controlledExpandedId }: { controlledExpandedId?: string }) => (
-    <div data-testid="embedded-email-thread" data-thread-id={controlledExpandedId} />
+  ManagerInbox: ({ controlledExpandedId, onControlledExpandedIdChange }: { controlledExpandedId?: string; onControlledExpandedIdChange: (id: null) => void }) => (
+    <div data-testid="embedded-email-thread" data-thread-id={controlledExpandedId}>
+      <button type="button" onClick={() => onControlledExpandedIdChange(null)}>Back</button>
+    </div>
   ),
 }));
 vi.mock("@/components/portal/pro-resident-detail-inbox", () => ({
@@ -404,26 +406,45 @@ describe("unread results do not cascade", () => {
     const second = { ...EMAIL_INBOX, id: "thr-2000000004", from: "Second Unread", email: "second@example.com" };
     ALL_THREADS.push(second);
     try {
-      const { rerender } = render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" />);
+      const routeChanged = vi.fn();
+      const { rerender } = render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" onRouteThreadChange={routeChanged} />);
       await screen.findByText("Second Unread");
       expect(screen.queryByTestId("embedded-email-thread")).toBeNull();
       fireEvent.click(screen.getByText("Dana Ramirez"));
       await screen.findByTestId("embedded-email-thread");
       if (routed) {
-        rerender(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" routeThreadId={EMAIL_INBOX.id} />);
+        rerender(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" routeThreadId={EMAIL_INBOX.id} onRouteThreadChange={routeChanged} />);
       }
       // Simulate the persisted-read notification emitted when the opened thread is read.
       EMAIL_INBOX.unread = false;
-      ALL_THREADS.splice(ALL_THREADS.indexOf(EMAIL_INBOX), 1);
       fireEvent(window, new Event("portal-inbox-changed"));
       await waitFor(() => expect(screen.queryByText("Dana Ramirez")).toBeNull());
       expect(screen.getByText("Second Unread")).toBeTruthy();
       expect(screen.getByTestId("embedded-email-thread").getAttribute("data-thread-id")).toBe(EMAIL_INBOX.id);
       expect(second.unread).toBe(true);
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      await waitFor(() => expect(screen.queryByTestId("embedded-email-thread")).toBeNull());
+      expect(routeChanged).toHaveBeenLastCalledWith(undefined);
     } finally {
       EMAIL_INBOX.unread = true;
-      if (!ALL_THREADS.includes(EMAIL_INBOX)) ALL_THREADS.unshift(EMAIL_INBOX);
       ALL_THREADS.splice(ALL_THREADS.indexOf(second), 1);
+    }
+  });
+
+  it("clears retention when the canonical source disappears", async () => {
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener() {}, removeEventListener() {} })));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    render(<ManagerUnifiedInbox tabId="unopened" commBase="/portal/communication" listSegment="unread" />);
+    fireEvent.click(await screen.findByText("Dana Ramirez"));
+    await screen.findByTestId("embedded-email-thread");
+    EMAIL_INBOX.unread = false;
+    ALL_THREADS.splice(ALL_THREADS.indexOf(EMAIL_INBOX), 1);
+    try {
+      fireEvent(window, new Event("portal-inbox-changed"));
+      await waitFor(() => expect(screen.queryByTestId("embedded-email-thread")).toBeNull());
+    } finally {
+      EMAIL_INBOX.unread = true;
+      ALL_THREADS.unshift(EMAIL_INBOX);
     }
   });
 });
