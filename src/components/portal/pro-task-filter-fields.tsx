@@ -1,33 +1,60 @@
 "use client";
 
 import {
-  PortalListGroupModeField,
-  PortalListPropertyField,
-} from "@/components/portal/portal-list-group-filter-fields";
-import {
   FilterCollapsibleSection,
   FilterFieldsAccordion,
   FilterSingleSelectList,
   filterSingleSelectSummary,
   useFilterAccordionClose,
 } from "@/components/portal/filter-field-lists";
+import { PortalListPropertyField } from "@/components/portal/portal-list-group-filter-fields";
 import {
+  MANAGER_TASK_GROUP_LABELS,
+  MANAGER_TASK_GROUP_MODES,
   MANAGER_TASK_LIST_FILTER_LABELS,
   MANAGER_TASK_LIST_FILTERS,
   MANAGER_TASK_LIST_SORT_LABELS,
   MANAGER_TASK_LIST_SORTS,
+  type ManagerTaskGroupMode,
   type ManagerTaskListFilterId,
   type ManagerTaskListSortId,
 } from "@/lib/manager-task-display";
 import type { ManagerTaskPriority } from "@/lib/manager-tasks";
-import type { PortalListGroupMode } from "@/lib/portal-list-grouping";
 import type { ManagerTaskListTabId } from "@/lib/portal-detail-routes";
 import { usePortalFilterDraft } from "@/lib/portal-filter-draft";
 
-const MANAGER_TASK_GROUP_MODE_LABELS: Record<PortalListGroupMode, string> = {
-  resident: "Sort by assignee",
-  house: "Sort by house",
-};
+function TaskGroupByFilterField({
+  value,
+  onChange,
+}: {
+  value: ManagerTaskGroupMode;
+  onChange: (next: ManagerTaskGroupMode) => void;
+}) {
+  const closeFieldMenu = useFilterAccordionClose();
+  const [draft, setDraft] = usePortalFilterDraft(value, onChange, "property");
+  const options = MANAGER_TASK_GROUP_MODES.map((mode) => ({
+    value: mode,
+    label: MANAGER_TASK_GROUP_LABELS[mode],
+  }));
+  return (
+    <FilterCollapsibleSection
+      sectionId="group-mode"
+      label="Group by"
+      summary={filterSingleSelectSummary(draft, options, MANAGER_TASK_GROUP_LABELS.property)}
+      empty={draft === "property"}
+      menuOptionCount={options.length}
+      dataAttr="tasks-filter-group-mode-trigger"
+    >
+      <FilterSingleSelectList
+        options={options}
+        value={draft}
+        onChange={(next) => setDraft(next as ManagerTaskGroupMode)}
+        onPick={closeFieldMenu}
+        dataAttr="tasks-filter-group-mode"
+      />
+    </FilterCollapsibleSection>
+  );
+}
 
 function taskListFilterOptions(tabId: ManagerTaskListTabId) {
   return MANAGER_TASK_LIST_FILTERS.filter(
@@ -155,8 +182,8 @@ export function ManagerTaskFilterFields({
   onAssigneeFilterIdChange,
   priorityFilter = "",
   onPriorityFilterChange,
-  groupMode,
-  onGroupModeChange,
+  taskGroupMode,
+  onTaskGroupModeChange,
   sortId,
   onSortIdChange,
 }: {
@@ -171,8 +198,8 @@ export function ManagerTaskFilterFields({
   onAssigneeFilterIdChange?: (next: string) => void;
   priorityFilter?: ManagerTaskPriority | "";
   onPriorityFilterChange?: (next: ManagerTaskPriority | "") => void;
-  groupMode: PortalListGroupMode;
-  onGroupModeChange: (next: PortalListGroupMode) => void;
+  taskGroupMode: ManagerTaskGroupMode;
+  onTaskGroupModeChange: (next: ManagerTaskGroupMode) => void;
   sortId: ManagerTaskListSortId;
   onSortIdChange: (next: ManagerTaskListSortId) => void;
 }) {
@@ -188,13 +215,7 @@ export function ManagerTaskFilterFields({
       {/* Group by leads, then Sort by, then the rest — the same order on every
           portal list, so the two controls that reshape the list are always the
           first things read. */}
-      <PortalListGroupModeField
-        groupMode={groupMode}
-        onGroupModeChange={onGroupModeChange}
-        dataAttr="tasks-filter-group-mode"
-        modeLabels={MANAGER_TASK_GROUP_MODE_LABELS}
-        defaultMode="resident"
-      />
+      <TaskGroupByFilterField value={taskGroupMode} onChange={onTaskGroupModeChange} />
       <FilterCollapsibleSection
         sectionId="sort"
         label="Sort by"

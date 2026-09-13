@@ -44,6 +44,7 @@ import {
   serviceRequestLocationLabel,
   serviceRequestsAssignedToViewer,
   taskListRowMatchesFilter,
+  type ManagerTaskGroupMode,
   type ManagerTaskListFilterId,
   type ManagerTaskListSortId,
 } from "@/lib/manager-task-display";
@@ -137,43 +138,6 @@ function taskRowMetaLine(task: ManagerTask): string {
   return parts.join(" · ");
 }
 
-type TaskGroupMode = "property" | "assignee" | "due";
-
-const TASK_GROUP_LABELS: Record<TaskGroupMode, string> = {
-  property: "Property",
-  assignee: "Assignee",
-  due: "Due",
-};
-
-/** "Group by ▾" in the toolbar — the one control that reshapes the list. */
-function TaskGroupBySelect({ value, onChange }: { value: TaskGroupMode; onChange: (next: TaskGroupMode) => void }) {
-  return (
-    <label className="relative inline-flex h-9 shrink-0 items-center rounded-full border border-border bg-card pl-3 pr-7 text-[12.5px] font-semibold text-foreground">
-      <span className="sr-only">Group by</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as TaskGroupMode)}
-        aria-label="Group by"
-        data-attr="manager-task-group-by"
-        className="absolute inset-0 cursor-pointer opacity-0"
-      >
-        {(Object.keys(TASK_GROUP_LABELS) as TaskGroupMode[]).map((k) => (
-          <option key={k} value={k}>
-            Group by {TASK_GROUP_LABELS[k]}
-          </option>
-        ))}
-      </select>
-      <span aria-hidden>
-        <span className="text-muted">Group by </span>
-        {TASK_GROUP_LABELS[value]}
-      </span>
-      <span aria-hidden className="pointer-events-none absolute right-2.5 text-muted">
-        ▾
-      </span>
-    </label>
-  );
-}
-
 export function ManagerTaskList({
   tabId: serverTabId,
   basePath = "/portal",
@@ -202,10 +166,10 @@ export function ManagerTaskList({
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const groupParam = searchParams?.get("group");
-  const taskGroupMode: TaskGroupMode =
+  const taskGroupMode: ManagerTaskGroupMode =
     groupParam === "assignee" ? "assignee" : groupParam === "due" ? "due" : "property";
   const setTaskGroupMode = useCallback(
-    (next: TaskGroupMode) => {
+    (next: ManagerTaskGroupMode) => {
       const params = new URLSearchParams(searchParams?.toString() ?? "");
       if (next === "property") params.delete("group");
       else params.set("group", next);
@@ -215,10 +179,6 @@ export function ManagerTaskList({
     [pathname, searchParams],
   );
   const groupMode: PortalListGroupMode = taskGroupMode === "assignee" ? "resident" : "house";
-  const setGroupMode = useCallback(
-    (next: PortalListGroupMode) => setTaskGroupMode(next === "resident" ? "assignee" : "property"),
-    [setTaskGroupMode],
-  );
   const [assigneeFilterId, setAssigneeFilterId] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<ManagerTaskPriority | "">("");
   // Frozen per mount: the due chips only need "today" to be right, and a
@@ -384,6 +344,7 @@ export function ManagerTaskList({
 
   const taskFilterActiveCount =
     portalFilterActiveCount([
+      taskGroupMode !== "property" ? taskGroupMode : "",
       listFilter !== "all" ? listFilter : "",
       propertyFilterId,
       assigneeFilterId,
@@ -423,8 +384,8 @@ export function ManagerTaskList({
         onAssigneeFilterIdChange={setAssigneeFilterId}
         priorityFilter={priorityFilter}
         onPriorityFilterChange={setPriorityFilter}
-        groupMode={groupMode}
-        onGroupModeChange={setGroupMode}
+        taskGroupMode={taskGroupMode}
+        onTaskGroupModeChange={setTaskGroupMode}
         sortId={sortId}
         onSortIdChange={setSortId}
       />
@@ -652,7 +613,6 @@ export function ManagerTaskList({
             className="flex w-full items-center gap-3 border-b border-border/60 px-3 py-2.5 last:border-b-0"
             data-attr="manager-task-service-row"
           >
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-primary/60" aria-hidden />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[14px] font-semibold text-foreground">{request.offerName}</span>
               <span className="block truncate text-[12px] text-muted">
@@ -783,7 +743,6 @@ export function ManagerTaskList({
         activeFilterChips={activeFilterChips.length > 0 ? <PortalActiveFilterChips chips={activeFilterChips} /> : undefined}
         actions={
           <>
-            <TaskGroupBySelect value={taskGroupMode} onChange={setTaskGroupMode} />
             {tasksFilterSheet}
             <PortalIconAction
               icon={Settings2}

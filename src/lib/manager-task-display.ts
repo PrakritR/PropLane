@@ -77,6 +77,17 @@ export function serviceRequestLocationLabel(req: ServiceRequest): string | null 
   return parts.length ? parts.join(" · ") : null;
 }
 
+/** How the manager Tasks list clusters rows — URL `?group=` on the tasks route. */
+export type ManagerTaskGroupMode = "property" | "assignee" | "due";
+
+export const MANAGER_TASK_GROUP_MODES: readonly ManagerTaskGroupMode[] = ["property", "assignee", "due"];
+
+export const MANAGER_TASK_GROUP_LABELS: Record<ManagerTaskGroupMode, string> = {
+  property: "Property",
+  assignee: "Assignee",
+  due: "Due",
+};
+
 /** In-list filter pills on the manager Tasks page. */
 export const MANAGER_TASK_LIST_FILTERS = [
   "all",
