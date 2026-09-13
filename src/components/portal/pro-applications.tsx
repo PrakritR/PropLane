@@ -1606,7 +1606,7 @@ export function ManagerApplications({
         <ApplicationHoldingFeeToggle
           row={{ ...row, managerUserId: userId ?? null }}
           onChanged={() => {
-            void syncHouseholdChargesFromServer({ force: true, managerUserId: userId });
+            void syncHouseholdChargesFromServer(true);
           }}
         />
       ) : null}
