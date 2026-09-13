@@ -39,7 +39,7 @@ import {
   isPaymentDueAtSigning,
 } from "@/lib/listing-fee-scope";
 import { listingFoldsAllMonthlyFeesIntoRent } from "@/lib/seattle-rent-rule";
-import { listingApplicationFeeRaw } from "@/lib/application-fee-checkout.server";
+import { listingApplicationFeeRaw } from "@/lib/listing-application-fee";
 import { houseDefaultsForSubmission, roomInheritsDefault } from "@/lib/listing-house-defaults";
 import { LONG_TERM_LEASE_TERM, SHORT_TERM_LEASE_TERM, AIRBNB_LEASE_TERM } from "@/lib/rental-application/lease-terms";
 import type { ManagerListingSubmissionV1, ManagerRoomSubmission } from "@/lib/manager-listing-submission";
