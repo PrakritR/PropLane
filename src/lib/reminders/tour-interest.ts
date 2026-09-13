@@ -30,4 +30,3 @@ export function followupDelivery(row: { status: string }, outbox?: { status: str
   return { status, canEdit: row.status === "scheduled" && !outbox,
     canCancel: ["scheduled", "sending", "sent"].includes(row.status) && cancellable && (row.status !== "sent" || Boolean(outbox)) };
 }
-

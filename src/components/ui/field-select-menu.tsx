@@ -437,7 +437,7 @@ export function computeFieldSelectMenuRectInHost(
     const hostMetricsReady = bounds.height > 0 && rect.height > 0;
     if (hostMetricsReady) {
       const hostBottom = boundsBottomInHost - gap;
-      let top = Math.max(safeTop, triggerBottomInHost + gap);
+      const top = Math.max(safeTop, triggerBottomInHost + gap);
       let maxHeight = Math.min(contentPx, hostBottom - top);
 
       if (maxHeight < contentPx) {
