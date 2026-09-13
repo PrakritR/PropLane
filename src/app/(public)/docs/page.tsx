@@ -1,25 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { DocsScrollspyNav, type DocsNavGroup } from "@/components/docs/docs-scrollspy-nav";
 import { BOOK_DEMO_HREF } from "@/lib/marketing/public-contact";
 
 export const metadata: Metadata = {
   title: "Docs",
-  description:
-    "Product documentation for PropLane: getting started, the three portals, applications, leases and e-signature, rent, maintenance, double-entry accounting, the AI assistant, and documents.",
+  description: "Learn how to manage applications, leases, rent, services, books, documents, and your team with PropLane.",
 };
 
 /**
- * Public docs page — Linear-light, self-contained. A sticky left doc-nav
- * (grouped anchor links) beside a right content column. Server component, no
- * client logic: nav is plain in-page anchors, sections carry `scroll-mt` so the
- * shared navbar never covers a heading. Honest beta copy only — no invented
- * stats. Styling stays in local arbitrary-value classes so it never touches the
- * signed-in portal theme.
+ * Public docs page with a sticky anchor navigation and a server-rendered content column.
+ * Styling stays local so it does not affect the signed-in portal theme.
  */
 
-type NavGroup = { group: string; links: { id: string; label: string }[] };
-
-const NAV_GROUPS: NavGroup[] = [
+const NAV_GROUPS: DocsNavGroup[] = [
   {
     group: "Overview",
     links: [
@@ -55,7 +49,7 @@ const NAV_GROUPS: NavGroup[] = [
 
 export default function DocsPage() {
   return (
-    <div className="relative min-h-screen bg-background text-foreground">
+    <div className="relative min-h-screen overflow-x-clip bg-background text-foreground">
       {/* Subtle indigo glow behind the header. */}
       <div
         aria-hidden
@@ -73,96 +67,44 @@ export default function DocsPage() {
           Documentation
         </h1>
         <p className="mt-4 max-w-2xl text-[15.5px] leading-relaxed text-muted">
-          Everything PropLane does, in plain terms, from creating your account to running the
-          books. PropLane is in beta; this covers what ships today, and grows as the product does.
+          A practical guide to running rentals with PropLane. This page covers the workflows
+          available today.
         </p>
       </header>
 
       {/* Docs shell: sticky nav + content */}
       <div className="relative mx-auto grid max-w-6xl gap-10 px-5 pb-24 sm:px-6 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-14">
-        {/* Left doc-nav — a card on mobile (above content), a sticky rail on lg. */}
-        <nav
-          aria-label="Docs sections"
-          className="rounded-xl border border-border bg-card p-4 lg:sticky lg:top-24 lg:h-fit lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
-        >
-          <div className="mb-3 px-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted/60 lg:hidden">
-            On this page
-          </div>
-          {NAV_GROUPS.map((g) => (
-            <div key={g.group} className="mb-5 last:mb-0">
-              <div className="px-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted/60">
-                {g.group}
-              </div>
-              <ul className="mt-1.5 space-y-0.5 border-l border-border lg:pl-0">
-                {g.links.map((l) => (
-                  <li key={l.id}>
-                    <a
-                      href={`#${l.id}`}
-                      className="-ml-px block border-l border-transparent px-3 py-1.5 text-[13px] text-muted transition-colors hover:border-primary hover:text-foreground"
-                    >
-                      {l.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </nav>
+        {/* Left doc nav: a mobile card and a sticky desktop rail. */}
+        <DocsScrollspyNav groups={NAV_GROUPS} dataAttrPrefix="docs-toc" />
 
         {/* Right content column */}
         <div className="min-w-0 max-w-3xl">
           <DocSection id="getting-started" kicker="Overview" title="Getting started">
             <p>
-              PropLane is a property-management platform for independent landlords and small
-              managers &mdash; one account, on the web and as an iOS app.
+              Set up a property, invite people, and manage the rental lifecycle in one place.
             </p>
             <DocList>
               <DocCheckLi>
-                <b className="font-medium text-foreground">Applications</b>{" "}&mdash; a public link,
-                screening, and approvals
+                <b className="font-medium text-foreground">Create an account</b>: verify your email and
+                start a 14-day Pro trial. No card is required.
               </DocCheckLi>
               <DocCheckLi>
-                <b className="font-medium text-foreground">Leases</b>{" "}&mdash; generated, e&#8209;signed
-                and filed
+                <b className="font-medium text-foreground">Add a property and units</b>: set rent and due
+                dates.
               </DocCheckLi>
               <DocCheckLi>
-                <b className="font-medium text-foreground">Rent</b>{" "}&mdash; online payments,
-                reminders, late fees, balances
-              </DocCheckLi>
-              <DocCheckLi>
-                <b className="font-medium text-foreground">Maintenance</b>{" "}&mdash; requests, work
-                orders and the vendors who do them
-              </DocCheckLi>
-              <DocCheckLi>
-                <b className="font-medium text-foreground">The books</b>{" "}&mdash; every payment posts
-                itself, with statements and exports
+                <b className="font-medium text-foreground">Invite residents and vendors</b>: share a public
+                application link and assign services as needed.
               </DocCheckLi>
             </DocList>
             <p>
-              Create a manager account from <b className="font-medium text-foreground">Get started</b>.
-              It&rsquo;s free, and no card is required. New accounts get a 14-day Pro trial, so you
-              can try the paid features before you decide.
-            </p>
-            <DocList>
-              <DocLi>
-                <b className="font-medium text-foreground">Create your account</b>: pick a password
-                and verify your email.
-              </DocLi>
-              <DocLi>
-                <b className="font-medium text-foreground">Add a property</b> and its units, then set
-                the monthly rent and due date.
-              </DocLi>
-              <DocLi>
-                <b className="font-medium text-foreground">Invite people</b>: send residents your
-                public application link, and add the vendors you work with.
-              </DocLi>
-            </DocList>
-            <p>
-              Plans: <Chip>Free $0</Chip> <Chip>Pro $20/mo</Chip> <Chip>Business $200/mo</Chip>.
-              14-day trial with no card, and 20% off when billed annually.
+              Choose Free, Pro, or Business when you are ready. Annual billing is 20% less. {" "}
+              <Link href="/pricing" className="text-primary underline-offset-2 hover:underline">
+                Compare plans
+              </Link>
+              .
             </p>
             <p className="text-[14px]">
-              Prefer to look before you sign up?{" "}
               <Link
                 href="/auth/create-account"
                 data-attr="docs-getting-started-signup"
@@ -170,7 +112,7 @@ export default function DocsPage() {
               >
                 Start a free trial
               </Link>
-              {" "}— 14 days, no card required — or{" "}
+              {" "}or{" "}
               <Link
                 href={BOOK_DEMO_HREF}
                 data-attr="docs-getting-started-book-demo"
@@ -184,29 +126,22 @@ export default function DocsPage() {
 
           <DocSection id="portals" kicker="Overview" title="The three portals">
             <p>
-              PropLane has three portals, each with its own login. They share one platform, so a
-              change made on one side shows up on the others automatically, with no re-entering the same
-              thing twice.
+              Each person gets the tools for their part of the rental relationship.
             </p>
             <DocList>
               <DocLi>
-                <b className="font-medium text-foreground">Manager</b>, the control center:
-                portfolio, applications, leases, rent, services, double-entry books, documents,
-                and your team.
+                <b className="font-medium text-foreground">Managers</b> run properties, applications,
+                leases, rent, services, books, documents, and team access.
               </DocLi>
               <DocLi>
-                <b className="font-medium text-foreground">Resident</b>: apply for a unit, sign the
-                lease, pay rent, see a running balance and receipts, submit maintenance requests, and
-                read documents shared with them.
+                <b className="font-medium text-foreground">Residents</b> apply, sign, pay, request
+                services, and view shared documents.
               </DocLi>
               <DocLi>
-                <b className="font-medium text-foreground">Vendor</b>: see assigned work orders,
-                submit bids, schedule visits, send invoices, and get paid.
+                <b className="font-medium text-foreground">Vendors</b> review assigned services, bid,
+                schedule, invoice, and receive payment.
               </DocLi>
             </DocList>
-            <p>
-              It&rsquo;s one codebase across web and iOS, so a feature ships to every portal at once.
-            </p>
           </DocSection>
 
           <DocSection
@@ -215,56 +150,46 @@ export default function DocsPage() {
             title="Applications & screening"
           >
             <p>
-              Every unit has a public application link you can share anywhere: a listing, an email,
-              a text. Applicants fill it out with no account at <Chip>/rent/apply</Chip>, and their
-              submission lands in your portal.
+              Share each unit&rsquo;s public link. Applicants submit at <Chip>/rent/apply</Chip>, and their
+              application appears in your portal.
             </p>
             <p>
-              Review applications side by side and pre-screen the ones worth pursuing. If someone
-              starts but doesn&rsquo;t finish, PropLane can send them a completion reminder
-              automatically, so promising applicants don&rsquo;t slip away.
-            </p>
-            <p>
-              When you approve an applicant, everything you collected flows straight into a lease,
-              with no re-typing (see below).
+              Review and pre-screen applicants, then approve the person you want to lease to. Their
+              application details can start the lease draft.
             </p>
           </DocSection>
 
           <DocSection id="leases" kicker="Core workflows" title="Leases & e-signature">
             <p>
-              When you approve an applicant, the AI drafts a lease from their application. Names, the
-              unit, rent, dates, and terms are pulled in for you, so you start from a filled-out draft
-              instead of a blank page.
+              Start a lease draft from an approved application. PropLane fills in the available names,
+              unit, rent, dates, and terms.
             </p>
             <p>
-              Review and edit anything you like, then send it for signature. Both sides e-sign inside
-              the portal, with no printing, scanning, or third-party tool. Once it&rsquo;s fully signed,
-              the lease can be filed to your document library automatically.
+              Review and edit the draft before sending it. Parties e-sign in the portal, and a fully
+              signed lease can be filed in the document library.
             </p>
           </DocSection>
 
           <DocSection id="rent" kicker="Core workflows" title="Rent & payments">
             <p>
-              Residents pay rent online from their portal. You see what&rsquo;s pending, what&rsquo;s
-              paid, and each resident&rsquo;s running balance at a glance.
+              Residents pay online and can see their balance, receipts, and statements.
             </p>
             <DocList>
               <DocLi>
-                <b className="font-medium text-foreground">Reminders</b> go out before and after the
-                due date by email, and by text if you&rsquo;ve set up a work number.
+                <b className="font-medium text-foreground">Reminders</b> can send before and after the due
+                date by email and, with a work number, text.
               </DocLi>
               <DocLi>
-                <b className="font-medium text-foreground">Late fees</b> apply automatically according
-                to the rules you set.
+                <b className="font-medium text-foreground">Late fees</b> follow the rules you set.
               </DocLi>
               <DocLi>
-                <b className="font-medium text-foreground">Receipts and statements</b> are available to
-                residents, and partial payments are tracked against the balance.
+                <b className="font-medium text-foreground">Partial payments</b> remain tracked against the
+                balance.
               </DocLi>
             </DocList>
             <p>
-              Every payment posts to the books the moment it clears, so you never re-enter a number in
-              a spreadsheet (see <a href="#accounting" className="text-primary underline-offset-2 hover:underline">Accounting</a>).
+              Cleared payments post to the books. See{" "}
+              <a href="#accounting" className="text-primary underline-offset-2 hover:underline">Accounting</a>.
             </p>
           </DocSection>
 
@@ -274,86 +199,76 @@ export default function DocsPage() {
             title="Maintenance & services"
           >
             <p>
-              Residents submit maintenance requests from their portal. Each one becomes a service
-              you can assign to a vendor.
+              Residents submit maintenance requests. Add-on requests cover optional services such as
+              parking, storage, cleaning, or equipment rentals.
             </p>
             <p>
-              Need a price first? Invite the vendor to bid. They visit if needed, then submit a cost,
-              a proposed time, and notes. You accept the bid you want, and the others are declined
-              automatically.
+              Assign maintenance to a vendor. Invite vendors to bid when you need a price; they can
+              propose a cost, time, and notes.
             </p>
             <DocList>
-              <DocLi>Request → assign a vendor → (optionally) schedule a visit</DocLi>
-              <DocLi>Invite for bids → vendor submits a bid → accept one</DocLi>
-              <DocLi>Work done → approve &amp; pay</DocLi>
+              <DocLi>Request, assign, and optionally schedule a visit.</DocLi>
+              <DocLi>Invite bids, then accept one.</DocLi>
+              <DocLi>Approve and pay for completed service.</DocLi>
             </DocList>
             <p>
-              When you approve and pay, the vendor&rsquo;s labor is paid out through Stripe Connect
-              and the expense is booked for you. A service moves through{" "}
-              <Chip>submitted → approved → scheduled → paid</Chip>.
+              Vendor invoices move from submitted to approved or rejected. Approved invoices may be
+              scheduled before payment or paid directly. Approved vendor payments use Stripe Connect
+              and book the expense.
             </p>
           </DocSection>
 
           <DocSection id="accounting" kicker="Books & data" title="Accounting & reports">
             <p>
-              Under everything sits a real double-entry general ledger. Every charge, payment,
-              expense, and payout writes a balanced journal entry. You never touch it, but the books
-              always tie out.
+              PropLane records charges, payments, expenses, and payouts in a double-entry ledger.
             </p>
-            <p>Run standard reports from the Finances section:</p>
+            <p>Run these reports from Finances:</p>
             <DocList>
               <DocLi>Trial balance, balance sheet, and income statement</DocLi>
               <DocLi>General ledger and a cash-flow view</DocLi>
               <DocLi>Owner statements, AP aging, and budget vs. actual</DocLi>
-              <DocLi>
-                A security-deposit trust ledger with a three-way tie-out, plus a diagnostics report
-                that flags anything out of balance
-              </DocLi>
+              <DocLi>Security-deposit trust ledger and diagnostics</DocLi>
             </DocList>
             <p>
-              Security deposits are held as a liability in trust (not counted as income) so your
-              rental income stays honest.
+              Security deposits are held in trust as a liability, not rental income.
             </p>
           </DocSection>
 
           <DocSection id="documents" kicker="Books & data" title="Documents">
             <p>
-              The document library is your file store: leases, insurance certificates, invoices,
-              inspections, notices, and photos. Files are private; access always goes through a
-              short-lived signed link rather than a public URL.
+              Store leases, insurance certificates, invoices, inspections, notices, and photos in the
+              document library. Files stay private and open through short-lived signed links.
             </p>
             <DocList>
               <DocLi>
-                Organize by category and by the property, unit, lease, or vendor a file belongs to.
+                Organize files by category, property, unit, lease, or vendor.
               </DocLi>
               <DocLi>
-                Set expiration dates on things like insurance, and PropLane reminds you before they
-                lapse.
+                Set expiration dates and receive reminders before they lapse.
               </DocLi>
               <DocLi>
-                Share a file with a resident or vendor and it shows up in their portal under a{" "}
-                <b className="font-medium text-foreground">Shared</b> tab.
+                Share a file with a resident or vendor through their portal.
               </DocLi>
             </DocList>
           </DocSection>
 
           <DocSection id="ai-assistant" kicker="Platform" title="The AI assistant">
             <p>
-              Ask PropLane to do things in plain language: &ldquo;send a rent reminder to unit
-              4,&rdquo; &ldquo;draft a lease for the approved applicant,&rdquo; &ldquo;what&rsquo;s my
-              delinquency this month?&rdquo;
+              Ask questions or propose app actions in plain language, such as a rent reminder, lease
+              draft, or delinquency question.
             </p>
             <p>
-              The assistant works only through the same actions the app already exposes, so it
-              can&rsquo;t reach around the product or touch another manager&rsquo;s data. Every number
-              it reports comes from your real records. It never makes figures up.
+              The assistant uses the same role-scoped actions and records as the app. It cannot bypass
+              product permissions or reach another manager&rsquo;s data.
             </p>
             <p className="rounded-lg border border-border bg-card px-4 py-3.5 text-[14px] text-foreground">
               <span className="mr-2 text-primary" aria-hidden>
                 ✦
               </span>
-              Every write action is previewed first. You see exactly what will happen and confirm it
-              before anything sends, and each action is written to an audit log.
+              Most built-in assistant writes are previewed first. Low-risk inbox housekeeping, such as
+              marking a thread read or unread, archiving it, or restoring it, may run immediately. Every
+              external MCP or REST write returns a preview and requires a signed-in manager&rsquo;s approval
+              in PropLane. Each action is recorded in the audit log.
             </p>
             <p className="text-[14px]">
               Building your own agent harness? Connect it through the same tool layer with the{" "}
@@ -370,25 +285,19 @@ export default function DocsPage() {
 
           <DocSection id="team" kicker="Platform" title="Team & co-managers">
             <p>
-              Invite co-managers to help run your portfolio. Access is granted per property and per
-              module, with <b className="font-medium text-foreground">read</b>,{" "}
-              <b className="font-medium text-foreground">edit</b>, and{" "}
-              <b className="font-medium text-foreground">delete</b> levels, so a bookkeeper can see
-              the books without touching leases, and a leasing helper can work applications without
-              seeing payouts.
+              Invite co-managers with explicit access per property and module. Give <b className="font-medium text-foreground">read</b>,{" "}
+              <b className="font-medium text-foreground">edit</b>, or <b className="font-medium text-foreground">delete</b> access only where it is needed.
             </p>
             <p>
-              You can also add a work phone number for your business. Outbound texts (like rent
-              reminders) send from that number, and replies come back into your PropLane inbox, so
-              your personal number stays private.
+              An empty permission set gives no access. A property assignment alone does not grant a
+              module permission. You can also add a work number for business texts and receive replies
+              in your PropLane inbox.
             </p>
           </DocSection>
 
           <DocSection id="trial" kicker="Platform" title="Free trial">
             <p>
-              Create a manager account to explore the full product on your own portfolio. The
-              14-day trial needs no card; when you are ready, pick Free, Pro, or Business and
-              invite residents, vendors, and co-managers.
+              Try Pro for 14 days without a card, then choose Free, Pro, or Business.
             </p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row">
               <Link
@@ -418,7 +327,7 @@ export default function DocsPage() {
             >
               Contact support
             </Link>
-            . PropLane is in beta and we answer fast.
+            .
           </div>
         </div>
       </div>
@@ -472,12 +381,9 @@ function DocLi({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * A "what PropLane does" line — a tick, not a bullet.
+ * A compact overview item.
  *
- * The overview used to state the whole product as one sentence with five
- * capabilities inside a parenthesis, which is the hardest possible shape to skim
- * (PRP-117). A reader deciding whether this tool is for them wants to run their
- * eye down a list and stop at the thing they came for.
+ * Keep the icon separate from the authored text so the item remains easy to scan.
  */
 function DocCheckLi({ children }: { children: React.ReactNode }) {
   return (
