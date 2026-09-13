@@ -56,6 +56,24 @@ function Editor({ onChange }: { onChange?: (sub: ManagerListingSubmissionV1) => 
   );
 }
 
+/**
+ * Pick an option in a field-select menu.
+ *
+ * These menus are portaled outside the React root, so picks are handled by a
+ * NATIVE pointerdown + pointerup pair on the listbox rather than a React
+ * onClick (`useFieldSelectListboxPointerPick`). A plain `fireEvent.click` does
+ * nothing at all — which is exactly how a broken picker and a mis-driven test
+ * look the same, so drive it the way a finger or mouse does.
+ */
+function pickOption(option: HTMLElement) {
+  const base = { bubbles: true, cancelable: true, clientX: 10, clientY: 10 };
+  for (const type of ["pointerdown", "pointerup"]) {
+    const event = new MouseEvent(type, base);
+    Object.defineProperty(event, "pointerId", { value: 1 });
+    option.dispatchEvent(event);
+  }
+}
+
 /** Open the Pricing section of the editor. */
 function openPricing() {
   render(<Editor />);
@@ -117,6 +135,60 @@ describe("a room can be priced at $0", () => {
     // the house placeholder — which is exactly what used to happen.
     const after = screen.getByLabelText(/Room A utilities on/i) as HTMLInputElement;
     expect(after.value).toBe("0");
+  });
+});
+
+describe("collected at signing", () => {
+  /**
+   * The captain's 2026-09-13 report: "this selection for box does not work".
+   * On a listing still holding a retired length, the control read and wrote
+   * `Long-term` while the matrix only had a `12-Month` row, so every tick was
+   * written and dropped again and the box stayed on "Nothing due at signing".
+   */
+  function LegacyTermEditor({ onChange }: { onChange?: (sub: ManagerListingSubmissionV1) => void }) {
+    const [sub, setSub] = useState<ManagerListingSubmissionV1>(() => ({
+      ...seeded(),
+      allowedLeaseTerms: ["12-Month"],
+    }) as ManagerListingSubmissionV1);
+    return (
+      <ListingEditorV2
+        title="Edit listing"
+        submission={sub}
+        onChange={(next) => {
+          setSub(next);
+          onChange?.(next);
+        }}
+        onClose={() => {}}
+        onSaveExit={() => {}}
+        onPublish={() => {}}
+      />
+    );
+  }
+
+  it("keeps a payment ticked on a listing that stored a retired length", () => {
+    let latest: ManagerListingSubmissionV1 | null = null;
+    render(<LegacyTermEditor onChange={(s) => (latest = s)} />);
+    const nav = screen.getByRole("navigation", { name: "Listing sections" });
+    fireEvent.click(
+      Array.from(nav.querySelectorAll("button")).find((b) => /rent|pricing|deposit/i.test(b.textContent || ""))!,
+    );
+
+    const control = screen.getByRole("button", { name: /Collected at signing on/i });
+    fireEvent.click(control);
+
+    const option = screen
+      .getAllByRole("option")
+      .find((o) => /First month rent/i.test(o.textContent || ""));
+    expect(option, "First month rent option").toBeTruthy();
+    pickOption(option!);
+
+    // The tick must survive the write and the component's re-read of it.
+    const matrix = latest?.paymentAtSigningByLeaseType ?? {};
+    const everyKey = Object.values(matrix).flat();
+    expect(everyKey).toContain("first_month_rent");
+    expect(
+      screen.getByRole("button", { name: /Collected at signing on/i }).textContent,
+    ).not.toMatch(/Nothing due at signing/);
   });
 });
 
